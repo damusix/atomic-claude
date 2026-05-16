@@ -30,8 +30,37 @@ Smallest-unit responses: filler, pleasantries, hedging stripped; technical subst
 - **Commands** (`commands/`) — slash commands for planning, implementation, shipping, and repo hygiene.
 - **Skills** (`skills/`) — discipline skills that auto-fire on matching phrases (TDD, commit format, verification gate, debugging, code review).
 - **Agents** (`agents/`) — named subagents the orchestrator dispatches: a feature builder, a surgical editor, a read-only investigator, and a diff reviewer.
+- **Rules** (`.claude/rules/<lang>/*.md`) — path-scoped instructions that auto-load only when Claude reads matching files. `paths:` frontmatter globs against filetypes (`**/*.{ts,tsx}` for TypeScript, `**/*.py` for Python). Starter rules ship for TypeScript and Python; add more languages or topic subdirs as you grow.
 - **Scratchpad convention** — `.claude/.scratchpad/<date>-<desc>/` for LLM working memory, gitignored, ephemeral.
 - **Doc layout** — `docs/spec/` for implementation contracts, `docs/design/` for rationale and alternatives, `tmp/` for throwaway experiments.
+
+
+## Prerequisites
+
+
+Atomic Claude assumes a POSIX-shaped environment. Everything below should be on `PATH` before you install.
+
+
+- **Claude Code CLI** — the host this config plugs into. Install via `npm install -g @anthropic-ai/claude-code`. Requires Node.js 18+.
+- **Claude subscription or API key** — Pro/Max/Team plan for OAuth login, or an `ANTHROPIC_API_KEY` for direct billing. Some features (Routines, push notifications, Remote Control) require a paid claude.ai plan and are unavailable on Bedrock / Vertex / Foundry.
+- **git** — every ship verb, worktree command, and `atomic-git-scout` shell out to `git`. 2.30+ recommended (for modern `git worktree` and `git switch`).
+- **GitHub CLI (`gh`)** — required by `/commit-and-pr`, `/pr-only`, `/report-issue`. Authenticated via `gh auth login`.
+- **POSIX shell + core utilities** — `bash` (or `zsh`), `diff`, `grep`, `sed`, `awk`, `find`, `xargs`, `cp`, `mv`, `rm`, `cat`, `jq`. These are assumed by commands, hooks, and the user's global CLAUDE.md (e.g. `sed -i ''` for macOS, `gtimeout` instead of `timeout`).
+- **macOS only** — `coreutils` from Homebrew if you want GNU-flavored `sed`/`timeout`. BSD defaults work; just match the syntax.
+- **Docker** — only for the evaluation flow below. Not required for normal use.
+
+
+### Windows
+
+
+Use **WSL2** (Ubuntu, Debian, or similar). PowerShell is *not* supported:
+
+- Claude Code's PowerShell tool is a preview feature with known gaps (no profile loading, no sandboxing on Windows, opt-in only).
+- This repo's commands, hooks, and global CLAUDE.md assume POSIX semantics — `sed -i ''`, `mv`, `&&` chaining rules, `gtimeout`, etc. They will misbehave or fail outright under `cmd.exe` / PowerShell.
+- Install WSL2 → install your distro → install Node + Claude Code + git inside the distro → run `claude` from the WSL shell. Treat the Windows filesystem as foreign; keep repos inside the Linux home (`~/projects/...`) for sane file watching and performance.
+
+
+Native Windows (cmd / PowerShell) is unsupported. Patches welcome if you want to make it work, but the default assumption is POSIX.
 
 
 ## Install
@@ -63,6 +92,105 @@ The canonical lifecycle:
 All merge and squash commands invoke `atomic-verify` before touching the base, re-run tests on the merged tip, and prompt to delete the worktree if the branch came from `.worktrees/`.
 
 
+## Evaluations
+
+
+Try Atomic Claude in an isolated environment before installing it globally. The recipe below builds a throwaway Docker container with Node + Claude Code + this repo's artifacts pre-loaded under `~/.claude/`. Nothing touches your host config.
+
+
+### 1. Build the image
+
+
+Save this as `Dockerfile.atomic-eval` at the repo root (or in any working directory):
+
+
+    FROM node:22-slim
+
+    RUN apt-get update \
+     && apt-get install -y --no-install-recommends git ca-certificates curl jq \
+     && rm -rf /var/lib/apt/lists/*
+
+    RUN npm install -g @anthropic-ai/claude-code
+
+    WORKDIR /workspace
+
+    # Repo gets mounted at /atomic-claude (see docker run below).
+    # On container start, sync artifacts into ~/.claude/ so Claude Code picks them up.
+    RUN printf '%s\n' \
+        '#!/bin/sh' \
+        'set -e' \
+        'mkdir -p /root/.claude' \
+        'for d in commands agents skills output-styles rules; do' \
+        '  if [ -d "/atomic-claude/$d" ]; then' \
+        '    mkdir -p "/root/.claude/$d"' \
+        '    cp -R "/atomic-claude/$d/." "/root/.claude/$d/"' \
+        '  fi' \
+        'done' \
+        'if [ -f /atomic-claude/claude.md ]; then cp /atomic-claude/claude.md /root/.claude/CLAUDE.md; fi' \
+        'exec "$@"' \
+        > /usr/local/bin/atomic-sync \
+     && chmod +x /usr/local/bin/atomic-sync
+
+    ENTRYPOINT ["atomic-sync"]
+    CMD ["bash"]
+
+
+Build:
+
+
+    docker build -f Dockerfile.atomic-eval -t atomic-claude-eval .
+
+
+### 2. Run the container
+
+
+Mount the repo read-only into `/atomic-claude` so the entrypoint can sync artifacts. Mount a scratch project dir into `/workspace` for Claude to act on:
+
+
+    mkdir -p /tmp/atomic-eval-project
+    docker run --rm -it \
+      -v "$(pwd):/atomic-claude:ro" \
+      -v "/tmp/atomic-eval-project:/workspace" \
+      atomic-claude-eval
+
+
+Inside the container: `ls ~/.claude/` should show `commands/`, `agents/`, `skills/`, `output-styles/`, `CLAUDE.md`.
+
+
+### 3. Authenticate and launch
+
+
+First run requires Claude Code auth (browser OAuth or API key):
+
+
+    claude
+
+
+Follow the prompt. Auth state lives in `~/.claude/` inside the container only — disappears on `--rm`. To persist across runs, add `-v atomic-claude-auth:/root/.claude` to the `docker run` command (named volume).
+
+
+### 4. Evaluate
+
+
+Drive a real task against the scratch project. Suggested checks:
+
+- **Output style** — ask anything; replies should be fragments, no filler, no "Sure!"/"Certainly!".
+- **Skills auto-fire** — say "let's implement X" → `atomic-tdd` should trigger. Say "done" → `atomic-verify` should run. Paste an error → `atomic-debug`.
+- **Commands** — `/atomic-plan`, `/commit-only`, `/git-cleanup` should appear in slash menu and behave per the tables above.
+- **Agents** — ask Claude to "delegate a code locator" → `atomic-investigator` dispatched. Ask for a surgical typo fix → `atomic-surgeon`.
+- **Token delta** — same prompt against vanilla Claude Code (no atomic install) vs this container; compare response length and turn count.
+
+
+### 5. Tear down
+
+
+    docker rmi atomic-claude-eval
+    rm -rf /tmp/atomic-eval-project
+
+
+No host config touched. If you mounted the auth volume, drop it with `docker volume rm atomic-claude-auth`.
+
+
 ## Design axioms
 
 
@@ -78,6 +206,7 @@ Five enduring principles shape the system: cohesion-bounded scope, memory over c
 | `docs/spec/<topic>.md` | Implementation contract (checkpoints, success criteria) | Humans + future implementers |
 | `.worktrees/<branch>/` | Isolated worktree per feature branch | LLM + user (gitignored) |
 | `tmp/` | Throwaway experiments, ad-hoc test scripts | Anyone (gitignored) |
+| `.claude/rules/<lang>/*.md` | Path-scoped instructions, glob-gated via `paths:` frontmatter. Loads only when matching files enter context. | Humans (committed) |
 
 
 ## Output style

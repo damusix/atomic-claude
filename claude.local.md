@@ -22,6 +22,7 @@ Replaces (for the author) heavier toolkits like superpowers and caveman. Persona
 | `agents/*.md` | Subagent definitions. Copied to `~/.claude/agents/`. | `~/.claude/agents/` |
 | `skills/*/SKILL.md` | Discipline skills. Copied to `~/.claude/skills/`. | `~/.claude/skills/` |
 | `output-styles/*.md` | Output style definitions. Copied to `~/.claude/output-styles/`. | `~/.claude/output-styles/` |
+| `.claude/rules/<lang>/*.md` | Path-scoped topic rules. `paths:` frontmatter globs against filetypes (e.g. `**/*.{ts,tsx}`, `**/*.py`) so the rule only loads when Claude touches a matching file. Currently: `typescript/`, `python/`. Expand with more languages or topic subdirs as needed. | Project (`.claude/rules/`) or copy to `~/.claude/rules/` for global. |
 
 
 ## Coherence rules (when editing here)
@@ -49,6 +50,15 @@ Read these before adding new commands, skills, or agents. They capture decisions
 
 
 Reference for how Claude Code agents, skills, commands, and output styles are defined — frontmatter shapes, tool restrictions, model selection, dispatch semantics. Consult before editing any artifact in `agents/`, `skills/`, `commands/`, or `output-styles/`.
+
+
+## Claude Code upstream docs (load every session)
+
+
+@.claude/docs/claude-code-references.md
+
+
+URL index for official Claude Code documentation: agents, sub-agents, skills, commands, hooks, hooks-guide, tools-reference, worktrees, scheduled-tasks, headless. Fetch via WebFetch when verifying semantics — these URLs are the source of truth, not the local snapshots in `agent-config.md`.
 
 
 ## Naming
