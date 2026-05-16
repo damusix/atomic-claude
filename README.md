@@ -1,4 +1,4 @@
-# claude-code-setup
+# Atomic Claude
 
 ```
             _.-^^---....,,--
@@ -13,7 +13,15 @@
        _____.,-#%&$@%#&#~,._____
 ```
 
-A personal Claude Code configuration: atomic output style, a tight command set, a small agent roster, and a handful of discipline skills. "Atomic" means smallest-unit responses — filler, pleasantries, and hedging stripped, technical substance kept intact. This replaces (for the author) heavier toolkits like superpowers and caveman. It is a work in progress and carries no stability guarantee.
+A personal Claude Code configuration. Atomic output means better token consumption and faster decision-making — less narrative for the user to read and act upon.
+
+The whole point: spend fewer tokens, decide faster, repeat less. Output is precise and condensed instead of the long explanations Claude defaults to. That accelerates the human-in-the-loop cycle. The commands exist for that. The output style exists for that. The skill/command split exists for that.
+
+**Skills vs commands.** Skills auto-fire — used when we want subagents to pick things up implicitly on matching phrases (TDD, commit format, verification, debug, review). Commands are explicit — used when we want Claude to act only when called. This is the distinction Claude Code already intends; Atomic Claude leans on it hard.
+
+**Why explicit over implicit.** Decisions here come from working with `caveman` and `superpowers`. Superpowers is overbearing — too much cognitive overhead when you want a small, precise change. Atomic Claude opts in explicitly via commands instead of having Claude pick up discipline implicitly across the board. Skills still auto-fire where the trigger is well-bounded; everything else is a slash command.
+
+Smallest-unit responses: filler, pleasantries, hedging stripped; technical substance, code, errors kept intact. Work in progress, no stability guarantee.
 
 
 ## What's in here
