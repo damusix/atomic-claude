@@ -100,7 +100,7 @@ On revise → edit the file, re-summarize. On proceed → done. Implementation h
 ## Relationship to scratchpad
 
 `docs/spec/` and `docs/design/` are durable, curated, human-facing.
-`.claude/.scratchpad/<date>-<desc>/` is ephemeral working memory for `/subagent-implementation` — it copies/distills relevant bits of the spec into `GOAL.md` + `CONTEXT.md` for its subagents. The spec stays canonical; scratchpad is throwaway.
+`.claude/.scratchpad/<date>-<desc>/` is ephemeral working memory for `/subagent-implementation` — it points at the spec via `BRIEF.md` (current iteration scope + reviewer feedback) and logs progress in `STATE.md`. The spec stays canonical; scratchpad is throwaway.
 
 ## Rules
 

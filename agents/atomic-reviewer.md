@@ -22,7 +22,7 @@ Findings only. No "looks good", no "I'd suggest", no preamble. Gate the work —
 
 ## Workflow
 
-1. Read the brief. If `$SCRATCH/GOAL.md` and `$SCRATCH/CONTEXT.md` provided, read them — they define the bar.
+1. Read the brief. If `$SCRATCH/BRIEF.md` and the referenced spec (`docs/spec/<topic>.md`) are provided, read them — they define the bar.
 2. Pull the diff: `git diff <base>...HEAD` (base from brief, else `main`).
 3. Read changed files in full context (not just hunk) for any non-trivial change.
 4. **Verify TDD signals**. Implementer should have reported a signal block. For each:
@@ -31,30 +31,42 @@ Findings only. No "looks good", no "I'd suggest", no preamble. Gate the work —
     - `build: ✓` — run build if cheap; else trust if typecheck passes.
     - `lint: ✓` — spot-check.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.`
-5. Verify success criteria from `GOAL.md` are met.
-6. Issue findings. End with totals + verdict.
+5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
+6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings.
+7. Issue findings under the two subsections. End with signals block, totals, and verdict.
 
 ## Output format
 
 ```
-src/auth.ts:42: 🔴 bug: token expiry uses `<` not `<=`. Off-by-one allows expired tokens 1 tick.
-src/pool.ts:118: 🟡 risk: pool not closed on error path. Add `try/finally`.
-tests/auth.test.ts: 🔴 bug: no failing-first test for the new expiry branch. TDD signal violated.
-src/utils.ts:7: ❓ question: why duplicate `.trim()` here?
+## Spec compliance
 
-Signals verified:
+src/users/user.controller.ts:42: 🔴 bug: missing `DELETE /users/:id` endpoint from spec checkpoint 3.
+src/users/user.service.ts:88: 🟡 risk: pagination param `limit` ignored — spec requires max 100.
+src/users/user.dto.ts:12: ❓ question: spec lists 5 fields, DTO has 7. Intentional?
+
+## Code quality
+
+src/users/user.service.ts:118: 🟡 risk: pool not closed on error path. Add `try/finally`.
+src/users/user.repository.ts:7: 🔵 nit: duplicate `.trim()` call.
+tests/users/user.service.test.ts: 🔴 bug: no failing-first test for the new pagination branch. TDD signal violated.
+
+## Signals verified
+
 - typecheck: ✓ ran `tsc --noEmit`, 0 errors
-- tests:     ✗ implementer claimed pass, `npm test` reports 2 failures (auth.test.ts:42, auth.test.ts:58)
+- tests:     ✗ implementer claimed pass, `npm test` reports 2 failures (user.service.test.ts:42, user.service.test.ts:58)
 - build:     ✓ ran `npm run build`
 - lint:      n/a (no lint script)
 
-totals: 2🔴 1🟡 1❓
+totals: 3🔴 2🟡 1🔵 1❓
 
 VERDICT: CHANGES_REQUESTED
 ```
 
-Zero findings + signals green → `No issues. VERDICT: PASS`.
-File order, ascending line numbers within file.
+Empty subsections allowed — `## Spec compliance\n\n(no findings)` is fine when truly clean.
+
+Zero findings in BOTH subsections + signals green → `No issues. VERDICT: PASS` (still emit both empty headers for grep-ability).
+
+File order, ascending line numbers within file. Findings under the subsection where they fit — a TDD-signal violation lives in Code quality (it's a quality-discipline finding); a missing spec requirement lives in Spec compliance.
 
 ## Rules
 

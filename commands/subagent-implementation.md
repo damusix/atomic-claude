@@ -1,94 +1,177 @@
 ---
-description: Orchestrate implement→review subagent loop until task complete. Parent writes goal docs to .claude/.scratchpad/, dispatches fresh-context subagents, loops until reviewer signs off, then updates repo docs.
+description: Orchestrate implement→review subagent loop until task complete. Reads the approved spec, writes a thin brief to .claude/.scratchpad/, dispatches fresh-context subagents, loops until reviewer signs off, commits per green iteration, then updates repo docs.
 ---
 
-You are the **orchestrator**. The user has given you a task. You will NOT implement it yourself. You will drive a loop of fresh-context subagents until the task is done, then update documentation.
+You are the **orchestrator**. The user has given you a task. You will NOT implement it yourself. You drive a loop of fresh-context subagents until the task is done, then update documentation.
 
-## Phase 0 — Understand & plan
+## Phase 0 — Understand
 
 1. Read the user's task. If anything is genuinely ambiguous and would block work, ask consolidated questions. Otherwise proceed.
 2. Inspect the repo enough to scope the work: relevant files, conventions, existing tests, build/test commands. Do NOT start implementing.
-3. Define explicit success criteria. These are the bar the reviewer will hold the implementer to.
 
-## Phase 1 — Write goal docs to `.claude/.scratchpad/<date>-<description>/`
+## Phase 0.5 — Spec gate
 
-Pick a working dir for this task: `.claude/.scratchpad/<YYYY-MM-DD>-<short-kebab-description>/` (e.g. `.claude/.scratchpad/2026-05-15-add-oauth-refresh/`). Use today's date. Description = 2-5 kebab-case words summarizing the task.
+Derive the topic slug from the task: short kebab-case (e.g. `oauth-refresh`, `user-search-perf`).
 
-Create it: `mkdir -p .claude/.scratchpad/<date>-<description>`. Ensure `.claude/.scratchpad/` is gitignored (add to `.gitignore` if not already covered).
+Check for `docs/spec/<topic>.md`:
 
-Refer to this dir as `$SCRATCH` below. Every path passed to subagents must be the full path including `$SCRATCH`, not a bare filename.
+- **Spec exists** → use it as the canonical brief source. Skip to Phase 0.6.
+- **No spec, task is <30 min of obvious work** → proceed inline. State the assumption: `no spec; proceeding inline because task is small/obvious.` Skip to Phase 0.6.
+- **No spec, task is non-trivial** → refuse. Tell user: `Run /atomic-plan first. I need an approved spec at docs/spec/<topic>.md before launching the implementation loop.` Stop.
 
-Write these files inside `$SCRATCH`:
+Bar for "non-trivial": touches ≥3 files, introduces new architectural patterns, or has any ambiguity about success criteria. When in doubt, require the spec.
 
-- `$SCRATCH/GOAL.md` — the north star. What the user actually wants, why, and the success criteria. Stable across iterations.
-- `$SCRATCH/CONTEXT.md` — repo facts the subagents need: file paths, conventions, build/test commands, anything load-bearing they'd otherwise have to rediscover. Stable across iterations.
-- `$SCRATCH/PLAN.md` — the current implementation plan, broken into checkpoints. May evolve between iterations.
-- `$SCRATCH/STATE.md` — iteration counter, what last implementer did, what last reviewer said, what's still open. Updated by orchestrator each loop.
+## Phase 0.6 — Worktree gate
 
-Keep these tight. Subagents will read them — bloat costs tokens.
+Detect existing isolation:
 
-## Phase 2 — Implement → Review loop
+```bash
+GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
+```
+
+- If `$GIT_DIR != $GIT_COMMON` (and not a submodule) → already in a worktree. Skip the question.
+- Else, prompt via `AskUserQuestion`:
+
+    ```
+    Significant work ahead. Use an isolated worktree?
+    - Yes, new branch → /worktree-start <derived-name>
+    - No, work in place
+    ```
+
+- On `Yes`: instruct user to run `/worktree-start <branch>` and resume `/subagent-implementation` after. Stop.
+- On `No`: proceed in place.
+
+For tasks classified as obviously small in Phase 0.5, skip the worktree question.
+
+## Phase 1 — Write brief to `$SCRATCH`
+
+Pick the working dir: `.claude/.scratchpad/<YYYY-MM-DD>-<topic>/`. Use today's date.
+
+```bash
+SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-<topic>"
+mkdir -p "$SCRATCH"
+```
+
+`.claude/.scratchpad/` must be gitignored — verify, add if missing.
+
+Write two files inside `$SCRATCH`:
+
+### `$SCRATCH/BRIEF.md`
+
+Thin orchestrator-curated brief. Contents:
+
+```markdown
+# Brief: <topic>
+
+**Spec:** `docs/spec/<topic>.md` (canonical source — read this first)
+
+**Iteration scope (this turn):** <which checkpoint from the spec>
+
+**Reviewer feedback to address:** <findings from prior iteration, or "N/A — first iteration">
+
+**Success criteria for this iteration:**
+- <criterion>
+- <criterion>
+
+**Base SHA for diff:** <git rev-parse HEAD>
+```
+
+Refreshed each iteration — overwrite, don't append.
+
+### `$SCRATCH/STATE.md`
+
+Append-only iteration log:
+
+```markdown
+# State: <topic>
+
+## Iteration 1 — <date>
+- Implementer: <one-line summary>
+- Reviewer: <verdict + key findings>
+- Decisions: <anything load-bearing>
+- Commit: <sha or "deferred">
+
+## Iteration 2 — <date>
+...
+```
+
+That's it. No GOAL.md, no CONTEXT.md, no PLAN.md — the spec at `docs/spec/<topic>.md` IS those. The scratchpad is a thin handoff, not a duplicate.
+
+## Phase 2 — Implement → Review → Commit loop
 
 Repeat until reviewer signs off or hard stop (default: 6 iterations — ask user before exceeding).
 
 ### Step A — Dispatch implementer (fresh context)
 
-Use the Agent tool with `subagent_type: "atomic-builder"` for 1-2 file surgical edits, else `general-purpose`.
+Pick the agent based on iteration scope:
 
-Implementer prompt MUST include:
+- **`atomic-surgeon`** when scope touches ≤2 files and is mechanically obvious (typo, single-fn rewrite, rename, single-callsite fix).
+- **`atomic-builder`** for feature checkpoints — one cohesive slice, however many files.
+- **`general-purpose`** as fallback if neither fits.
 
-- "Read `$SCRATCH/GOAL.md`, `$SCRATCH/CONTEXT.md`, `$SCRATCH/PLAN.md`, `$SCRATCH/STATE.md` first (use the actual full path). They are your brief."
-- The specific subset of the plan to execute this iteration.
-- Any reviewer feedback from `STATE.md` to address.
-- "TDD: for any new behavior, write a failing test first, confirm it fails for the right reason, then implement, then confirm green. Skip TDD only for pure docs/config changes — state when you skip and why."
-- "Run typecheck, tests, build, lint per CONTEXT.md. Report a quality signal block at the end:
-   ```
-   typecheck: ✓ / ✗ (errors)
-   tests:     ✓ / ✗ (N passed, M failed, K added)
-   build:     ✓ / ✗ / n/a
-   lint:      ✓ / ✗ / n/a
-   ```
-   Never silently omit a signal. If `n/a`, say why."
-- "Do NOT mark anything complete you did not verify. If you couldn't run a signal, mark it `✗ (could not run: <reason>)`."
-- "Do not edit files in `.claude/.scratchpad/`."
-- "Respond atomic: findings/results only, no preamble."
+Build the implementer prompt by reading `commands/_templates/implementer-prompt.md` and substituting:
+
+| Placeholder | Value |
+|-------------|-------|
+| `{SCRATCH_PATH}` | absolute path to `$SCRATCH` |
+| `{SPEC_PATH}` | absolute path to `docs/spec/<topic>.md` (or `"no spec — inline brief in BRIEF.md"`) |
+| `{ITERATION_SCOPE}` | this iteration's scope from BRIEF |
+| `{REVIEWER_FEEDBACK}` | findings from STATE.md (or `"N/A — first iteration"`) |
+| `{BASE_SHA}` | current HEAD SHA before this iteration |
+
+Dispatch via `Agent` tool with the chosen `subagent_type`.
 
 ### Step B — Dispatch reviewer (fresh context)
 
-Use Agent with `subagent_type: "atomic-reviewer"`, else `general-purpose`.
+Use `subagent_type: "atomic-reviewer"`.
 
-Reviewer prompt MUST include:
+Build the reviewer prompt from `commands/_templates/reviewer-prompt.md`, substituting:
 
-- "Read `$SCRATCH/GOAL.md` and `$SCRATCH/CONTEXT.md` (use the actual full path). These define the bar."
-- "Review the diff against `main` (or the appropriate base). Report findings as `path:line: <emoji> severity: problem. fix.`"
-- "Verify success criteria from GOAL.md are met."
-- "Verify TDD signals: did implementer write a failing test before implementing? Run typecheck/tests yourself to confirm the implementer's report. If signals were not actually run, that's a `🔴 bug` finding."
-- "End your response with exactly one of: `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`."
-- "Do NOT fix the code. Report only. Respond atomic."
+| Placeholder | Value |
+|-------------|-------|
+| `{SCRATCH_PATH}` | absolute path to `$SCRATCH` |
+| `{SPEC_PATH}` | absolute path to `docs/spec/<topic>.md` |
+| `{BASE_SHA}` | HEAD before this iteration |
+| `{HEAD_SHA}` | current HEAD after implementer's work |
 
 ### Step C — Orchestrator triages
 
-- Parse reviewer's verdict.
+- Parse reviewer's verdict line: `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
 - Update `STATE.md` with iteration number, implementer summary, reviewer findings, next-iteration focus.
-- If `PASS` → exit loop.
 - If `CHANGES_REQUESTED` → loop back to Step A with the findings as the implementer's focus.
-- If implementer reported an unrecoverable blocker (env broken, ambiguous requirement) → stop loop and surface to user.
+- If implementer reported `BLOCKED` or `NEEDS_CONTEXT` → stop loop and surface to user.
+- If `PASS` → continue to Step D.
+
+### Step D — Commit the green iteration
+
+After each PASS, commit before the next iteration:
+
+1. Invoke `atomic-commit` skill for message format.
+2. Stage only the files the implementer touched (explicit paths from the implementer's `## Did` section). No `-A`.
+3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
+4. Record the commit SHA in STATE.md under the iteration's `Commit:` line.
+
+Skip Step D only if the iteration produced zero behavior change (pure investigation, no diff). State that explicitly in STATE.md.
+
+This makes each iteration bisectable. The next iteration's reviewer diffs against the prior commit, not the merge base — cleaner reviews, easier rollback if something goes wrong later.
 
 ## Phase 3 — Finalize
 
-Once reviewer says `PASS`:
+Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 
-1. Run the full test/typecheck/lint/build suite yourself (orchestrator) to confirm green. Do NOT trust subagent claims at the finish line.
+1. Run the full test/typecheck/lint/build suite yourself (orchestrator) to confirm green. Do NOT trust subagent claims at the finish line — invoke the `atomic-verify` skill here, which is exactly this gate.
 2. Update repo documentation by invoking `/documentation` — it handles `README.md`, `claude.md`, `docs/spec/`, `docs/design/`.
 3. Delete `$SCRATCH` (the task's dated dir). Other dated dirs from prior runs are not your concern.
-4. Report to the user: what shipped, what was verified, what's left (if anything).
+4. Report to the user: what shipped, which iterations + commit SHAs, what was verified, what's left (if anything).
 
-Do NOT commit unless the user asked you to.
+Do NOT push, merge, or open a PR. The user picks the ship verb (`/pr-only`, `/merge-to-main`, `/squash-and-merge`, etc.) when ready.
 
 ## Rules
 
-- Parent orchestrator does NOT write implementation code. Only goal docs, state updates, final docs, and final verification.
-- Every subagent invocation is fresh context. The scratchpad docs are the only handoff. If the docs are bad, the loop is bad — invest in them.
+- Parent orchestrator does NOT write implementation code. Only goal docs, state updates, commits per PASS, final docs, final verification.
+- Every subagent invocation is fresh context. The scratchpad brief is the only handoff. If the brief is bad, the loop is bad — invest in it.
 - Reviewer and implementer are separate agents. Never the same one. Never combine roles.
-- If the same finding repeats across two iterations, stop and re-examine the plan — the implementer is stuck or the spec is wrong.
+- If the same finding repeats across two iterations, stop and re-examine the brief/spec — the implementer is stuck or the spec is wrong.
 - Subagent output is the tool result. Summarize it to the user in 1-3 lines per iteration; don't dump full transcripts.
+- Templates live in `commands/_templates/`. If they're missing, the loop can't start — surface that error rather than inlining prompts.
