@@ -1,3 +1,9 @@
 tmp/
 .claude/.scratchpad/
 .worktrees/
+.claude/agents/
+.claude/commands/
+.claude/output-styles/
+.claude/skills/
+.claude/rules/
+!.claude/settings.local.json
