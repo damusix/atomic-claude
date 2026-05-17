@@ -181,3 +181,5 @@ Built across 4 iterations (+ 2 surgical follow-ups) of `/subagent-implementation
 
 
 **Deferred items:** none. All 6 follow-ups reviewed with user at finalization and dropped — F-1 (creds path) and F-2 (API key env) are intentional design choices reflecting the spec's interactive-auth stance; F-3, F-4, F-5 are cosmetic; F-6 is a CI-level concern, not a code defect.
+
+**Squashed onto `main` as `2a0dd89` — 2026-05-17.** Per-iteration SHAs above are historical (unreachable post-squash).
