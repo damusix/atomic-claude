@@ -65,7 +65,35 @@ Native Windows (cmd / PowerShell) is unsupported. Patches welcome if you want to
 
 ## Install
 
-No install script yet. The artifacts are designed to live under `~/.claude/` (skills, commands, agents, output-styles) or be loaded via the Claude Code plugin mechanism. For now: clone the repo, copy the relevant directories into `~/.claude/`, and restart Claude Code. Which files belong in `~/.claude/` versus a project-local `.claude/` depends on whether you want things globally available or scoped to one repo.
+The `atomic` binary backs cron and signals workflows. End users:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
+```
+
+This installs `atomic` to `~/.local/bin/atomic` (override via `ATOMIC_INSTALL_DIR`). To pin a specific version: `ATOMIC_VERSION=v0.1.0 curl ... | bash`.
+
+After installing the binary, install the artifact bundle (CLAUDE.md, agents, commands, skills, output-styles, rules) into `~/.claude/`:
+
+```bash
+atomic claude install
+```
+
+For a project-scoped install instead of global: `atomic claude install --target ./.claude`.
+
+Refresh later: `atomic claude update`.
+
+### Manual install
+
+Download an archive from [GitHub Releases](https://github.com/damusix/atomic-claude/releases), verify with `shasum -c checksums.txt`, and move the `atomic` binary into any directory on your `$PATH`.
+
+### Build from source
+
+```bash
+git clone https://github.com/damusix/atomic-claude.git
+cd atomic-claude/atomic
+make build       # or: go build -o ../bin/atomic ./cmd/atomic
+```
 
 
 ## Workflow
