@@ -10,9 +10,11 @@
 | `/worktree-start <name>` | Create isolated worktree at `.worktrees/<name>/`, new branch, auto-detected project setup. |
 | `/git-cleanup [<name>]` | Scan stale git state (worktrees, branches, optional remote) via `atomic-git-scout`, present indexed report, ask before deleting. Local-only by default; asks about remote. |
 | `/commit-only` | Stage and commit. Delegates message format to `atomic-commit` skill. |
+| `/commit-and-push` | Commit then push. No PR, no merge. Trunk-based counterpart to `/commit-and-pr`. |
 | `/commit-and-pr` | Commit, push, open PR via `gh`. |
 | `/commit-and-merge` | Commit then merge to base branch. |
 | `/commit-and-squash` | Commit then squash all branch commits. |
+| `/push-only` | Push existing commits to the remote. No commit, no PR. Trunk-based counterpart to `/pr-only`. |
 | `/pr-only` | Open PR for the current branch (commits already exist). |
 | `/merge-to-main` | Merge current branch into base, no squash. |
 | `/squash-only` | Squash all branch commits into one (no merge). |

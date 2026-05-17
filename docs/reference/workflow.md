@@ -12,7 +12,9 @@ The canonical lifecycle:
 | Command | What it does |
 |---------|-------------|
 | `/commit-only` | Stage and commit. Does not push. |
+| `/commit-and-push` | Commit, then push. No PR, no merge. Trunk-based counterpart to `/commit-and-pr`. |
 | `/commit-and-pr` | Commit, push, open PR via `gh`. |
+| `/push-only` | Push existing commits to the remote. No commit, no PR. |
 | `/pr-only` | Open PR for existing commits. |
 | `/merge-to-main` | Merge current branch into base, no squash. |
 | `/commit-and-merge` | `/commit-only` then `/merge-to-main`. |

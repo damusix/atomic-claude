@@ -140,18 +140,22 @@ Non-blocking findings (🟡 risks, 🔵 nits, ❓ questions) accumulate in `FOLL
 
 Commits any leftover pending changes (message format via the `atomic-commit` skill), pushes the branch, and opens a PR via `gh`. The PR body is drafted via `atomic-review` so the tone matches.
 
-Eight ship verbs cover the combinations of "commit pending work" × "tidy history" × "open PR" × "merge to base". Pick the one that matches where you're heading:
+Ten ship verbs cover the combinations of "commit pending work" × "push" × "tidy history" × "open PR" × "merge to base". Pick the one that matches where you're heading:
 
-| Verb | Commit pending? | Squash? | PR? | Merge to base? |
-|------|-----------------|---------|-----|----------------|
-| `/commit-only` | yes | | | |
-| `/commit-and-pr` | yes | | yes | |
-| `/commit-and-squash` | yes | yes | | |
-| `/commit-and-merge` | yes | | | yes |
-| `/pr-only` | | | yes | |
-| `/squash-only` | | yes | | |
-| `/squash-and-merge` | | yes | | yes |
-| `/merge-to-main` | | | | yes |
+| Verb | Commit pending? | Push? | Squash? | PR? | Merge to base? |
+|------|-----------------|-------|---------|-----|----------------|
+| `/commit-only` | yes | | | | |
+| `/commit-and-push` | yes | yes | | | |
+| `/commit-and-pr` | yes | yes | | yes | |
+| `/commit-and-squash` | yes | | yes | | |
+| `/commit-and-merge` | yes | | | | yes |
+| `/push-only` | | yes | | | |
+| `/pr-only` | | yes | | yes | |
+| `/squash-only` | | | yes | | |
+| `/squash-and-merge` | | | yes | | yes |
+| `/merge-to-main` | | | | | yes |
+
+The push-without-PR verbs (`/commit-and-push`, `/push-only`) are the trunk-based counterparts to `/commit-and-pr` and `/pr-only`. They allow pushing directly to base (e.g. `main`) for solo work or repos that do not gate every change on a PR.
 
 Shared behavior across the family:
 
@@ -241,7 +245,7 @@ The table groups capabilities by what they do, not where they sit in each projec
 | Execute a plan | `/subagent-implementation` | `executing-plans`, `subagent-driven-development` | — |
 | Parallel subagents | `atomic-builder` / `atomic-surgeon` / `atomic-investigator` / `atomic-reviewer` | `dispatching-parallel-agents` skill | `cavecrew-*` (investigator / builder / reviewer) |
 | Worktree isolation | `/worktree-start` | `using-git-worktrees` skill | — |
-| Ship a branch | `/commit-only`, `/commit-and-pr`, `/merge-to-main`, `/squash-and-merge`, … (7 verbs) | `finishing-a-development-branch` skill | — |
+| Ship a branch | `/commit-only`, `/commit-and-push`, `/commit-and-pr`, `/merge-to-main`, `/squash-and-merge`, … (10 verbs) | `finishing-a-development-branch` skill | — |
 | Compress a markdown file | `/atomic-compress <file>` | — | `/caveman-compress <file>` |
 | Project signal scanning | `/initialize-signals` + `atomic` binary + `atomic-signals` skill | — | — |
 | Cron-backed reminders | `/remind-me`, `/follow-up` | — | — |

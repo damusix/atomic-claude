@@ -130,7 +130,9 @@ Full spec: `docs/spec/signals-workflow.md`.
 2. **Implement** — `/subagent-implementation` reads the spec, runs the implement→review loop, commits per green iteration.
 3. **Ship** — pick the right verb:
     - `/commit-only` — stage + commit, nothing else.
+    - `/commit-and-push` — commit + push (no PR, no merge). Trunk-based counterpart to `/commit-and-pr`.
     - `/commit-and-pr` — commit + push + open PR.
+    - `/push-only` — push existing commits (no commit, no PR). Trunk-based counterpart to `/pr-only`.
     - `/pr-only` — open PR for existing commits.
     - `/merge-to-main` — merge branch into base, no squash.
     - `/commit-and-merge` — commit pending + merge.
