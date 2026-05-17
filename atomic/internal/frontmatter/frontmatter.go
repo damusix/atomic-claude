@@ -181,7 +181,12 @@ func Emit(meta map[string]any, body string) (string, error) {
 func anyToNode(v any) (*yaml.Node, error) {
 	switch val := v.(type) {
 	case string:
-		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: val}, nil
+		// No explicit tag: yaml.v3 emits plain scalars without quoting for
+		// normal strings. When the value is ambiguous (looks like a date,
+		// boolean, or number), yaml.v3 will quote it automatically. Using
+		// "!!str" here causes yaml.v3 to always quote date-like values such
+		// as "2026-05-16", which breaks human-readable frontmatter.
+		return &yaml.Node{Kind: yaml.ScalarNode, Value: val}, nil
 	case map[string]any:
 		mapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		keys := make([]string, 0, len(val))
