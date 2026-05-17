@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Pre-commit hook: regenerate the embedded bundle when a staged change
+# touches a source artifact (agents/, commands/, skills/, output-styles/,
+# rules/, claude.md). Without this, CI fails the "Verify bundle is committed"
+# step. Installed by `make hooks` (sets core.hooksPath=.githooks).
+set -euo pipefail
+
+# Only react to staged changes (ignore unstaged edits — they aren't part of
+# this commit).
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
+
+needs_regen=0
+for f in "${staged[@]}"; do
+    case "$f" in
+        agents/*|commands/*|skills/*|output-styles/*|rules/*|claude.md)
+            needs_regen=1
+            break
+            ;;
+    esac
+done
+
+if [ "$needs_regen" -eq 0 ]; then
+    exit 0
+fi
+
+repo_root=$(git rev-parse --show-toplevel)
+echo "pre-commit: source artifact changed — regenerating embedded bundle"
+make -C "$repo_root/atomic" bundle >/dev/null
+
+# Re-stage the bundle outputs so they ride along with this commit.
+git add "$repo_root/atomic/internal/embedded/bundle" "$repo_root/atomic/internal/embedded/manifest.go"
+
+# Surface drift the developer should know about.
+if ! git diff --cached --quiet -- atomic/internal/embedded; then
+    echo "pre-commit: bundle outputs re-staged"
+fi

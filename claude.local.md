@@ -65,6 +65,24 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 **Verification before commit.** Grep for the new artifact name across the repo. Every place it is *referenced from* should also reference it *back* where appropriate. A skill mentioned only in its own SKILL.md is an invisible skill.
 
 
+## Embedded bundle: regenerate before every commit
+
+
+The `atomic` binary embeds the artifact bundle at build time via `go:embed`. Source of truth is the repo root (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `claude.md`). The mirrored copies under `atomic/internal/embedded/bundle/` and the snapshot at `atomic/internal/embedded/manifest.go` are both **tracked**, not gitignored. CI guards parity with `git diff --exit-code` after `go generate`. Forget to regenerate → CI fails the "Verify bundle is committed" step.
+
+
+**Hard rule: any commit that touches a source artifact must include the regenerated bundle in the same commit.** Source artifacts = anything under `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or `claude.md` at the repo root. Pure changes to `atomic/`, `docs/`, `.claude/`, `README.md`, or other non-bundle paths do NOT need regen.
+
+
+**How to regenerate.** From repo root: `make -C atomic bundle`. Outputs `atomic/internal/embedded/bundle/**` + `atomic/internal/embedded/manifest.go`. Stage everything under `atomic/internal/embedded/`, include in the same commit. Do not split the regen into a follow-up commit unless CI already caught the gap.
+
+
+**Pre-commit check (when wearing the maintainer hat).** Before `git commit`: if `git diff --cached --name-only` includes any of `agents/|commands/|skills/|output-styles/|rules/|^claude.md$`, run the regen, stage the bundle, then commit. The ship verbs (`/commit-only`, `/commit-and-pr`, etc.) should eventually probe for this the same way they probe for signals refresh — track as a follow-up.
+
+
+**Do not confuse `atomic hooks` with git hooks.** `atomic hooks install` registers a Claude Code session-start hook (injects pending reminders into context). That has nothing to do with bundle regen. Bundle parity is enforced by CI; a future git pre-commit hook (in `.githooks/`, opted into via `git config core.hooksPath .githooks`) is the right place to automate the regen locally. Until that hook ships, the rule above is the contract.
+
+
 ## Spec amendment rule (`docs/spec/<topic>.md`)
 
 
