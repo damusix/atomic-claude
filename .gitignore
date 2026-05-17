@@ -7,3 +7,4 @@ tmp/
 .claude/skills/
 .claude/rules/
 !.claude/settings.local.json
+.claude/project/.deterministic-signals.prev.md
