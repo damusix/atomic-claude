@@ -197,7 +197,7 @@ func runUpdate(args []string) {
 
 func runReminder(args []string, repoOverride string) {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic reminder <add|list|show|rm> [args]\n")
+		fmt.Fprintf(os.Stderr, "Usage: atomic reminder <add|list|show|rm|set-due> [args]\n")
 		os.Exit(1)
 	}
 
@@ -210,12 +210,29 @@ func runReminder(args []string, repoOverride string) {
 	verb := args[0]
 	switch verb {
 	case "add":
-		if len(args) < 2 {
-			fmt.Fprintf(os.Stderr, "Usage: atomic reminder add <text>\n")
+		fs := flag.NewFlagSet("reminder add", flag.ContinueOnError)
+		var due string
+		var transport string
+		fs.StringVar(&due, "due", "", "RFC3339 due timestamp (e.g. 2026-05-24T09:00:00Z)")
+		fs.StringVar(&transport, "transport", "", "transport kind: cron, routine, or none")
+		if err := fs.Parse(args[1:]); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
-		text := strings.Join(args[1:], " ")
-		id, err := reminder.Add(root, text)
+		remaining := fs.Args()
+		if len(remaining) == 0 {
+			fmt.Fprintf(os.Stderr, "Usage: atomic reminder add [--due <iso>] [--transport <kind>] <text>\n")
+			os.Exit(1)
+		}
+		text := strings.Join(remaining, " ")
+		var opts []reminder.Option
+		if due != "" {
+			opts = append(opts, reminder.WithDue(due))
+		}
+		if transport != "" {
+			opts = append(opts, reminder.WithTransport(transport))
+		}
+		id, err := reminder.Add(root, text, opts...)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
@@ -228,7 +245,7 @@ func runReminder(args []string, repoOverride string) {
 			os.Exit(1)
 		}
 		for _, r := range rows {
-			fmt.Printf("%s\t%s\t%s\n", r.ID, r.Created, r.Preview)
+			fmt.Printf("%s\t%s\t%s\t%s\t%s\n", r.ID, r.Created, r.Due, r.Transport, r.Preview)
 		}
 	case "show":
 		if len(args) < 2 {
@@ -247,6 +264,15 @@ func runReminder(args []string, repoOverride string) {
 			os.Exit(1)
 		}
 		if err := reminder.Rm(root, args[1]); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+	case "set-due":
+		if len(args) < 3 {
+			fmt.Fprintf(os.Stderr, "Usage: atomic reminder set-due <id> <iso>\n")
+			os.Exit(1)
+		}
+		if err := reminder.SetDue(root, args[1], args[2]); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
