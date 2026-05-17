@@ -307,16 +307,21 @@ Proposed actions:
 ### v0.1 — 2026-05-17
 
 
-Built across 6 iterations of `/subagent-implementation` (plus one follow-up polish). Commits (chronological):
+Built across 6 iterations of `/subagent-implementation` plus two follow-up polish iterations, then squash-merged into `main` as **`3feaa63`** — that one commit on `main` is the canonical record. The branch and its per-iteration commits below were rebased onto current `main` (dropping two stale predecessors that had been replaced upstream) and then collapsed; the original SHAs are kept for orientation only and are no longer reachable from any branch.
 
 
-- `88f9bf4` — CP S-1 `atomic-signals-inferrer` agent
-- `d6b21e5` — CP S-2 `atomic-signals` skill
-- `3d59677` — CP S-3 `/initialize-signals` command
-- `5bc18e3` — CP S-4 `/commit-only` invokes atomic-signals pre-commit
-- `a4e6fe9` — CP S-5 `/atomic-setup` audits signals workflow
-- `4d34aba` — CP S-6 docs (claude.md, CLAUDE.md mirror, README)
-- `8d3e1cd` — polish: address F-1 (install URL), F-2 (skip-order), F-3 (silent mode definition)
+Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
+
+
+- `88f9bf4` → rebased to `9695f8f` — CP S-1 `atomic-signals-inferrer` agent
+- `d6b21e5` → `e9b301c` — CP S-2 `atomic-signals` skill
+- `3d59677` → `f0921c9` — CP S-3 `/initialize-signals` command
+- `5bc18e3` → `bf9e1d3` — CP S-4 `/commit-only` invokes atomic-signals pre-commit
+- `a4e6fe9` → `3a40a88` — CP S-5 `/atomic-setup` audits signals workflow
+- `4d34aba` → `8793c1e` — CP S-6 docs (claude.md, CLAUDE.md mirror, README)
+- `8d3e1cd` → `300b8ae` — polish: F-1 (install URL), F-2 (skip-order), F-3 (silent mode definition)
+- `54c75c5` → `68c21db` — initial implementation log
+- `05650ed` → `1ebb8ab` — F-4: manifest-filename trigger surface
 
 
 **Out-of-scope work performed during this build:** none.
@@ -327,13 +332,14 @@ Built across 6 iterations of `/subagent-implementation` (plus one follow-up poli
 
 - `claude.md` and `CLAUDE.md` collide on macOS APFS (case-insensitive). The bundler design assumes them distinct, but git only tracks `claude.md`. Surfaced during S-6 review; tracked as F-5.
 - Spec wording `Yes (uses /atomic-setup template)` for the `/initialize-signals` missing-claude.md branch implied invoking the full `/atomic-setup` flow. Implementation deviated to write a minimal starter directly — scope-creep avoidance. Spec note at line 205 should be updated to match if the deviation is endorsed.
+- Rebase onto current `main` (immediately before squash) hit two conflicts because `main` had independently added rows to `commands/atomic-setup.md` (hook-install audit/propose rows) and `README.md` (slash-command table rows for `/remind-me` and `/follow-up`). Both branches' rows belong; the conflict resolution kept both sets. The redundant duplicate "atomic binary on PATH" audit row was dropped in favour of `main`'s `found/missing` wording, and `main`'s `go install` install command was replaced with the canonical curl URL (consistent with `/initialize-signals`).
 
 
 **Deferred items still open:**
 
 
 - ~~**F-4** — `.json` excluded from `/commit-only` source-extension list.~~ **Closed during build.** Resolved by introducing a manifest-filename trigger surface separate from the generic extension list (`package.json`, `tsconfig.json`, `Cargo.toml`, `pyproject.toml`, etc.). Spec "Integration with /commit-only" and success criteria updated.
-- **F-5** — `claude.md` vs `CLAUDE.md` case-insensitive collision. Repo-design question, not signals-workflow scope. Recorded here.
+- **F-5** — `claude.md` vs `CLAUDE.md` case-insensitive collision. Repo-design question, not signals-workflow scope. Recorded here for follow-up.
 
 
-**Closed during build:** F-1, F-2, F-3 (see commit `8d3e1cd`); F-4 (manifest trigger surface — see commit pending).
+**Closed during build:** F-1, F-2, F-3 (originally `8d3e1cd`, rebased to `300b8ae`); F-4 (originally `05650ed`, rebased to `1ebb8ab`). All folded into the final squash `3feaa63`.
