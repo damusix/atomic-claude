@@ -71,38 +71,6 @@ func bashHelper(t *testing.T, snippet string) (string, string, int) {
 	t.Helper()
 	script := installScriptPath(t)
 
-	// Build a wrapper script: source only the function definitions from install.sh,
-	// then run the snippet.
-	wrapper := fmt.Sprintf(`#!/usr/bin/env bash
-set -uo pipefail
-
-# Source function definitions from install.sh (stop before the "Main" section).
-# We achieve this by sourcing the whole file but preventing network calls by
-# stubbing out curl and the OS/ARCH variables used in the main body.
-# The functions _os, _arch, _semver_gte are defined before the main body.
-# We set fake env vars to prevent the script body from running.
-ATOMIC_VERSION="v0.0.0-test"
-ATOMIC_INSTALL_DIR="/tmp/atomic-test-$$"
-
-# Source only the function definitions by overriding curl to exit immediately.
-curl() { exit 0; }
-export -f curl 2>/dev/null || true
-
-# Extract and eval just the function definitions.
-# We use awk to grab lines from the start up to "# Main" section.
-source_funcs() {
-    local f="$1"
-    awk '/^# ----.*Main/{ exit } { print }' "$f" | bash -s -- 2>/dev/null || true
-}
-
-# Simpler: just define the functions we need from the file directly.
-eval "$(awk '/^_semver_gte\(\)|^_os\(\)|^_arch\(\)/,/^}/' %q)"
-
-%s
-`, script, snippet)
-
-	// Even simpler approach: write the functions inline + run the snippet.
-	// Since we only need _semver_gte and _os, extract them directly.
 	funcsSnippet := extractFunctions(t, script)
 
 	fullScript := "#!/usr/bin/env bash\nset -uo pipefail\n" + funcsSnippet + "\n" + snippet
@@ -115,7 +83,6 @@ eval "$(awk '/^_semver_gte\(\)|^_os\(\)|^_arch\(\)/,/^}/' %q)"
 	tmp.WriteString(fullScript)
 	tmp.Close()
 
-	_ = wrapper // unused — use simpler approach above
 	cmd := exec.Command("bash", tmp.Name())
 	var stdoutBuf, stderrBuf strings.Builder
 	cmd.Stdout = &stdoutBuf
@@ -165,18 +132,14 @@ func extractFunctions(t *testing.T, script string) string {
 }
 
 // TestSemverGte_BasicOrdering tests basic version ordering.
+// Note: the implementation uses explicit numeric field comparison and a
+// pre-release suffix check — NOT sort -V. The test runs on any system with bash.
 func TestSemverGte_BasicOrdering(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("bash not available on Windows CI")
 	}
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not on PATH")
-	}
-	// Check if sort -V is available.
-	if out, err := exec.Command("bash", "-c", "printf '1.0.0\\n1.0.1\\n' | sort -V -C 2>/dev/null; echo $?").Output(); err == nil {
-		if strings.TrimSpace(string(out)) != "0" {
-			t.Skip("sort -V not available on this system")
-		}
 	}
 
 	cases := []struct {
@@ -215,8 +178,9 @@ fi
 }
 
 // TestOsDetection_WindowsVariants verifies that MSYS2/Cygwin/MinGW uname outputs
-// all route to the Windows refusal branch (empty return + return 1).
-// The msys* pattern matches msys_nt-... because msys* is a prefix glob.
+// all cause _os() from install.sh to return an empty string (exit 1).
+// We invoke the real _os() function (extracted from install.sh via bashHelper)
+// with a stubbed uname so the test stays hermetic.
 func TestOsDetection_WindowsVariants(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("bash not available on Windows CI")
@@ -233,24 +197,32 @@ func TestOsDetection_WindowsVariants(t *testing.T) {
 
 	for _, uname := range windowsUnameOutputs {
 		t.Run(uname, func(t *testing.T) {
-			// Simulate what _os() does: lowercase the uname output and match.
-			lc := strings.ToLower(uname)
+			// Stub uname to return the desired string, then call the real _os().
 			snippet := fmt.Sprintf(`
-raw=%q
-case "${raw}" in
-    linux*)   echo "linux" ;;
-    darwin*)  echo "darwin" ;;
-    mingw*|msys*|cygwin*)
-        echo "windows-branch"
-        ;;
-    *)
-        echo "unknown"
-        ;;
-esac
-`, lc)
+uname() { echo %q; }
+export -f uname 2>/dev/null || true
+result="$(_os 2>/dev/null)" && exit_code=0 || exit_code=$?
+echo "result:${result}"
+echo "exit:${exit_code}"
+`, uname)
 			stdout, _, _ := bashHelper(t, snippet)
-			if strings.TrimSpace(stdout) != "windows-branch" {
-				t.Errorf("uname %q (lowercased: %q) should match Windows branch, got: %q", uname, lc, stdout)
+			lines := strings.Split(strings.TrimSpace(stdout), "\n")
+			resultLine := ""
+			exitLine := ""
+			for _, l := range lines {
+				if strings.HasPrefix(l, "result:") {
+					resultLine = strings.TrimPrefix(l, "result:")
+				}
+				if strings.HasPrefix(l, "exit:") {
+					exitLine = strings.TrimPrefix(l, "exit:")
+				}
+			}
+			// _os() must return empty string and non-zero exit for Windows variants.
+			if resultLine != "" {
+				t.Errorf("_os() with uname %q: expected empty result, got %q", uname, resultLine)
+			}
+			if exitLine == "0" {
+				t.Errorf("_os() with uname %q: expected non-zero exit, got 0", uname)
 			}
 		})
 	}

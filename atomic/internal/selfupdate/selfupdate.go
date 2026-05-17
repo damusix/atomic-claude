@@ -172,10 +172,12 @@ func (c *Client) Apply(ctx context.Context, rel Release, currentBinary string) e
 
 	// Stage in the install directory so os.Rename is same-filesystem.
 	stagedBinary := filepath.Join(filepath.Dir(currentBinary), ".atomic.new")
+	// Register cleanup BEFORE the copy attempt: if renameCrossFS partially writes
+	// and then errors, the staged file must not be left on disk.
+	defer os.Remove(stagedBinary) //nolint:errcheck — best-effort cleanup
 	if err := renameCrossFS(extractedBinary, stagedBinary); err != nil {
 		return fmt.Errorf("selfupdate: stage binary: %w", err)
 	}
-	defer os.Remove(stagedBinary) // clean up staging file on any error after this
 
 	// Atomic replace.
 	if err := os.Rename(stagedBinary, currentBinary); err != nil {
@@ -189,7 +191,7 @@ func (c *Client) Apply(ctx context.Context, rel Release, currentBinary string) e
 
 // renameCrossFS moves src to dst, falling back to copy+remove if they are on
 // different filesystems (EXDEV). Used to move from tmpDir to the install dir.
-func renameCrossFS(src, dst string) error {
+func renameCrossFS(src, dst string) (err error) {
 	if err := os.Rename(src, dst); err == nil {
 		return nil
 	}
@@ -207,8 +209,14 @@ func renameCrossFS(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
+	// Commit close error if nothing else failed.
+	defer func() {
+		cerr := out.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+	if _, err = io.Copy(out, in); err != nil {
 		return err
 	}
 	return nil

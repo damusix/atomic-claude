@@ -468,20 +468,13 @@ func TestInstall_JWCCSettingsPreservesCommentsAndTrailingCommas(t *testing.T) {
 		t.Errorf("install stripped JWCC comment from settings.json:\n%s", raw)
 	}
 	// The trailing comma after the last original key must survive (JWCC feature).
-	if !strings.Contains(string(raw), `"claude-opus-4-6"`) {
-		t.Errorf("install lost model value:\n%s", raw)
+	// The input has `"claude-opus-4-6",` with a trailing comma — that comma must
+	// still be present after the install merge.
+	if !strings.Contains(string(raw), `"claude-opus-4-6",`) {
+		t.Errorf("install stripped trailing comma from JWCC settings.json:\n%s", raw)
 	}
 
 	// The hook must be registered.
-	stdBytes := []byte(string(raw))
-	// Strip JWCC before JSON unmarshal for verification.
-	for i, b := range stdBytes {
-		if b == '/' {
-			// crude strip: not needed for this assertion
-			_ = i
-			break
-		}
-	}
 	if !strings.Contains(string(raw), "SessionStart") {
 		t.Errorf("install did not add SessionStart to JWCC settings:\n%s", raw)
 	}
