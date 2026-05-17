@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-05-17T05:28:16Z
-atomic_version: dev
+generated_at: 2026-05-17T07:20:10Z
+atomic_version: 1.0.0
 ---
 # Deterministic signals
 
@@ -13,16 +13,18 @@ atomic_version: dev
 │   │   └── claude-code-references.md
 │   └── settings.local.json
 ├── .github/ (1)
-│   └── workflows/ (2)
+│   └── workflows/ (3)
 │       ├── ci.yml
+│       ├── release-please.yml
 │       └── release.yml
-├── agents/ (5)
+├── agents/ (6)
 │   ├── atomic-builder.md
 │   ├── atomic-git-scout.md
 │   ├── atomic-investigator.md
 │   ├── atomic-reviewer.md
+│   ├── atomic-signals-inferrer.md
 │   └── atomic-surgeon.md
-├── atomic/ (6)
+├── atomic/ (7)
 │   ├── cmd/ (2)
 │   │   ├── atomic/ (2)
 │   │   │   ├── main.go
@@ -72,10 +74,11 @@ atomic_version: dev
 │   │       └── version.go
 │   ├── test/ (1)
 │   │   └── install_sh_test.go
+│   ├── CHANGELOG.md
 │   ├── Makefile
 │   ├── go.mod
 │   └── go.sum
-├── commands/ (17)
+├── commands/ (20)
 │   ├── _templates/ (2)
 │   │   ├── implementer-prompt.md
 │   │   └── reviewer-prompt.md
@@ -87,9 +90,12 @@ atomic_version: dev
 │   ├── commit-and-squash.md
 │   ├── commit-only.md
 │   ├── documentation.md
+│   ├── follow-up.md
 │   ├── git-cleanup.md
+│   ├── initialize-signals.md
 │   ├── merge-to-main.md
 │   ├── pr-only.md
+│   ├── remind-me.md
 │   ├── report-issue.md
 │   ├── squash-and-merge.md
 │   ├── squash-only.md
@@ -111,12 +117,14 @@ atomic_version: dev
 │       └── style.md
 ├── scripts/ (1)
 │   └── link-local.sh
-├── skills/ (5)
+├── skills/ (6)
 │   ├── atomic-commit/ (1)
 │   │   └── SKILL.md
 │   ├── atomic-debug/ (1)
 │   │   └── SKILL.md
 │   ├── atomic-review/ (1)
+│   │   └── SKILL.md
+│   ├── atomic-signals/ (1)
 │   │   └── SKILL.md
 │   ├── atomic-tdd/ (1)
 │   │   └── SKILL.md
@@ -127,7 +135,9 @@ atomic_version: dev
 ├── README.md
 ├── claude.local.md
 ├── claude.md
-└── install.sh
+├── install.sh
+├── release-please-config.json
+└── release-please-manifest.json
 
 ## Manifests
 
@@ -136,8 +146,8 @@ atomic_version: dev
 
 ## Languages
 
-- Go: 8664 LOC (51%), 32 files (29%)
-- Markdown: 7946 LOC (46%), 74 files (67%)
+- Markdown: 8976 LOC (49%), 80 files (68%)
+- Go: 8664 LOC (48%), 32 files (27%)
 - Shell: 246 LOC (1%), 2 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
