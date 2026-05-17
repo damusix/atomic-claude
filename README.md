@@ -83,6 +83,8 @@ For a project-scoped install instead of global: `atomic claude install --target 
 
 Refresh later: `atomic claude update`.
 
+If you have customized `~/.claude/CLAUDE.md` locally, `install` and `update` will not overwrite it. Instead, they write the new version to `~/.claude/CLAUDE.md.atomic-proposed` and print a hint to run `/atomic-claude-merge` from any Claude Code session. That command dispatches the `atomic-claude-merger` agent to produce `~/.claude/CLAUDE.md.atomic-merged`, shows a diff, and prompts Accept / Show diff / Open editor / Abort. On Accept the prior `CLAUDE.md` is backed up under `~/.claude/.atomic-backups/<timestamp>/`. Full spec: [`docs/spec/install-workflow.md`](docs/spec/install-workflow.md).
+
 The install also registers a `SessionStart` hook (`atomic hooks install`) that injects any pending reminders at session open — supplementing cron-fired surfacing for missed cron fires, post-7-day cron expiry, tool unavailability, and post-restart catchup.
 
 ### Manual install

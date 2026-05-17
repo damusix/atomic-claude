@@ -178,3 +178,34 @@ Conflicts flagged:
 | I-2 | `/atomic-claude-merge` command |
 | I-3 | Both artifacts wired into the embedded bundle manifest in the Go binary (so `atomic claude install` ships them) |
 | I-4 | `claude.md` + `CLAUDE.md` + `README.md` updated to mention the install workflow |
+
+
+## Implementation log
+
+
+### v0.1.0 — 2026-05-17
+
+
+Built across 3 implementer iterations plus a docs/bundle catch-up on branch `install-workflow`. Commits (chronological):
+
+- `3977030` — CP-1 + CP-2: `atomic-claude-merger` agent + `/atomic-claude-merge` command
+- `7e084ac` — CP-3: regenerate embedded bundle manifest for the two new artifacts
+- `030d7c4` — polish: add `.atomic-merged` existence guard, print-before-run reminders at each destructive callsite, tighten taxonomy `conflict` row precondition
+- `c387e49` — CP-4: docs sync (README install paragraph, claude.md commands list, this log)
+- `21d1074` — bundle payload catch-up: commit the actual file copies under `atomic/internal/embedded/bundle/` for the two new artifacts and the refreshed CLAUDE.md
+
+**Out-of-scope work performed during this build:**
+
+- None. CP-4 docs sync happened inside this loop rather than via a separate `/documentation` run because the changes are narrow (two paragraphs + one list entry).
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- The bundle-mirror code already had no allowlist for `commands/*.md` and matched `agents/atomic-*.md` by prefix, so CP-3 reduced to running `go generate ./...` — no Go source edits needed.
+- The bundle manifest tracks SHA256 of each bundled file, so the polish-pass markdown edits required a manifest regenerate to keep CI's `git diff --exit-code` gate green.
+- The `.claude/project/inferred-signals.md` snapshot claimed the `embedded/bundle/` directory is gitignored. It is not — both the manifest snapshot AND the actual file payloads under `bundle/` are tracked. Final commit (`21d1074`) catches up the payloads. Worth refreshing inferred-signals after this branch lands.
+
+**Deferred items still open:**
+
+- CP-4 — sync `claude.md` / `CLAUDE.md` / `README.md` to mention the install merge workflow. Handled out-of-band via `/documentation` (next step after this log lands).
+- F-4 (extra `## Workflow` section in agent body) and F-5 (sha256 short-circuit folded into Pre-flight instead of `### Refusals`) — user dropped at FOLLOWUPS triage. Cosmetic only.
+- Spec's `## Open follow-ups` carry-over: `atomic claude rollback` verb, `--strategy ours/theirs/manual` flag on the merge command, revisit the 10% conflict heuristic. All explicitly v0.2.0+ scope.
