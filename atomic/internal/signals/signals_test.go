@@ -1076,3 +1076,97 @@ func TestScanManifests_ComposerArrayScripts(t *testing.T) {
 		t.Errorf("missing test script: %s", out)
 	}
 }
+
+// ---- Tree directory annotations ----
+
+func TestScanTree_NormalDirChildCount(t *testing.T) {
+	// pkg/ has 2 children (lib.go, util.go) — should show (2).
+	root := makeRepo(t, map[string]string{
+		"pkg/lib.go":  "package pkg\n",
+		"pkg/util.go": "package pkg\n",
+		"main.go":     "package main\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// Directory line must end with " (2)".
+	if !strings.Contains(out, "pkg/ (2)") {
+		t.Errorf("expected 'pkg/ (2)' in tree:\n%s", out)
+	}
+	// Files must NOT be annotated.
+	if strings.Contains(out, "main.go (") {
+		t.Errorf("file main.go should not be annotated:\n%s", out)
+	}
+}
+
+func TestScanTree_NormalDirChildCountSingular(t *testing.T) {
+	// sub/ has exactly 1 child — should show (1).
+	root := makeRepo(t, map[string]string{
+		"sub/only.go": "package sub\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	if !strings.Contains(out, "sub/ (1)") {
+		t.Errorf("expected 'sub/ (1)' in tree:\n%s", out)
+	}
+}
+
+func TestScanTree_DepthCapAnnotation(t *testing.T) {
+	// a/b/c/ is at depth 3; d/ inside it is depth 4 — c/ should be depth-capped.
+	// c/ has 2 direct children: deep.go (file) and d/ (dir) = 2 direct.
+	// Total beneath c/: deep.go + d/too.go = 2 total.
+	root := makeRepo(t, map[string]string{
+		"a/b/c/deep.go":  "package main\n",
+		"a/b/c/d/too.go": "package main\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// c/ should have depth-cap annotation with correct counts.
+	if !strings.Contains(out, "c/ (2 subitems) (2 total items)") {
+		t.Errorf("expected depth-cap annotation on c/:\n%s", out)
+	}
+	// too.go must not appear (depth 4).
+	if strings.Contains(out, "too.go") {
+		t.Errorf("too.go should be pruned:\n%s", out)
+	}
+}
+
+func TestScanTree_DepthCapAnnotationSingularSubitem(t *testing.T) {
+	// c/ has only 1 direct child (dir d/) — should say "1 subitem".
+	root := makeRepo(t, map[string]string{
+		"a/b/c/d/only.go": "package main\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	if !strings.Contains(out, "c/ (1 subitem)") {
+		t.Errorf("expected '1 subitem' (singular) annotation on c/:\n%s", out)
+	}
+}
+
+func TestScanTree_AnnotationIdempotent(t *testing.T) {
+	// Two consecutive ScanTree calls on the same directory produce identical output.
+	root := makeRepo(t, map[string]string{
+		"pkg/a.go":     "package pkg\n",
+		"pkg/b.go":     "package pkg\n",
+		"main.go":      "package main\n",
+		"a/b/c/d/x.go": "package main\n",
+	})
+	out1, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree first: %v", err)
+	}
+	out2, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree second: %v", err)
+	}
+	if out1 != out2 {
+		t.Errorf("ScanTree not idempotent:\nfirst:\n%s\nsecond:\n%s", out1, out2)
+	}
+}

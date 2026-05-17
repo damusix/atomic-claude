@@ -6,8 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
+
+func itoa(n int) string { return strconv.Itoa(n) }
 
 // skipDirs is the set of directory names excluded from WalkDir-based scans
 // (used when not inside a git repo). In git repos, git ls-files is the source
@@ -150,9 +153,12 @@ func ScanTree(root string) (string, error) {
 
 	// Build a tree from the flat file list.
 	type node struct {
-		name     string
-		isDir    bool
-		children []*node
+		name        string
+		isDir       bool
+		children    []*node
+		directCount int  // set before pruning: direct child count
+		totalCount  int  // set before pruning: total recursive descendant count
+		depthCapped bool // true when children were pruned due to depth limit
 	}
 
 	rootNode := &node{name: ".", isDir: true}
@@ -205,6 +211,25 @@ func ScanTree(root string) (string, error) {
 	}
 	sortNode(rootNode)
 
+	// Compute directCount and totalCount on each node before pruning.
+	// directCount = number of immediate children.
+	// totalCount = total number of descendants (recursive).
+	var computeCounts func(n *node) int
+	computeCounts = func(n *node) int {
+		n.directCount = len(n.children)
+		total := 0
+		for _, c := range n.children {
+			if c.isDir {
+				total += computeCounts(c)
+			} else {
+				total++
+			}
+		}
+		n.totalCount = total
+		return total
+	}
+	computeCounts(rootNode)
+
 	// Prune directory nodes deeper than maxDepth. Directories at depth maxDepth
 	// still show their immediate file children, but not subdirectories.
 	// depth counts from 1 at root's children.
@@ -213,10 +238,16 @@ func ScanTree(root string) (string, error) {
 		if depth >= maxDepth {
 			// At max depth: keep file children, drop directory children.
 			kept := make([]*node, 0, len(n.children))
+			hasDirChildren := false
 			for _, c := range n.children {
-				if !c.isDir {
+				if c.isDir {
+					hasDirChildren = true
+				} else {
 					kept = append(kept, c)
 				}
+			}
+			if hasDirChildren {
+				n.depthCapped = true
 			}
 			n.children = kept
 			return
@@ -242,6 +273,17 @@ func ScanTree(root string) (string, error) {
 			name := child.name
 			if child.isDir {
 				name += "/"
+				if child.depthCapped {
+					// Depth-cap annotation: (N subitem(s)) (M total items)
+					sub := "subitems"
+					if child.directCount == 1 {
+						sub = "subitem"
+					}
+					name += " (" + itoa(child.directCount) + " " + sub + ") (" + itoa(child.totalCount) + " total items)"
+				} else {
+					// Normal directory annotation: (N)
+					name += " (" + itoa(len(child.children)) + ")"
+				}
 			}
 			sb.WriteString(prefix + connector + name + "\n")
 			if child.isDir && len(child.children) > 0 {
