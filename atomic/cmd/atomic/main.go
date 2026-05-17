@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
+	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 	"github.com/damusix/atomic-claude/atomic/internal/signals"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
@@ -35,15 +38,24 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  claude update  [--dry-run] [--target ~/.claude]  Update artifact bundle\n")
 		fmt.Fprintf(os.Stderr, "  claude list                                       List bundled artifacts\n")
 		fmt.Fprintf(os.Stderr, "  claude diff    [--target ~/.claude]               Diff bundle vs on-disk\n")
+		fmt.Fprintf(os.Stderr, "  update [--check] [--channel stable|prerelease]   Self-update the atomic binary\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
 	}
 
 	var showVersion bool
 	var repoOverride string
+	var noUpdateCheck bool
 	fs.BoolVar(&showVersion, "version", false, "print version and exit")
 	fs.BoolVar(&showVersion, "v", false, "print version and exit (short)")
 	fs.StringVar(&repoOverride, "repo", "", "repo root override (default: detect via git)")
+	fs.BoolVar(&noUpdateCheck, "no-update-check", false, "suppress background update check")
+
+	// Pre-scan all argv for --no-update-check before flag.Parse, because
+	// flag.FlagSet stops at the first non-flag argument (the subcommand), so
+	// "atomic signals scan --no-update-check" would not set noUpdateCheck via
+	// fs.Parse alone. We strip the flag from args so subcommands don't see it.
+	noUpdateCheck, os.Args = scanNoUpdateCheck(os.Args)
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		os.Exit(2)
@@ -60,6 +72,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Background update check: spawned for every command except "update" and
+	// when --no-update-check is set. The goroutine writes to the cache; only
+	// the main thread prints the banner after the subcommand finishes.
+	var bgUpdateCh <-chan selfupdate.Result
+	var cacheEntry selfupdate.CacheEntry
+	var cachePath string
+	if !noUpdateCheck && args[0] != "update" {
+		cp, err := selfupdate.DefaultCachePath()
+		if err == nil {
+			cachePath = cp
+			cacheEntry, _ = selfupdate.ReadCache(cachePath)
+			c := &selfupdate.Client{}
+			bgUpdateCh = c.BackgroundCheck(context.Background(), cachePath, version.Version, "stable")
+		}
+	}
+
 	switch args[0] {
 	case "signals":
 		runSignals(args[1:], repoOverride)
@@ -69,8 +97,93 @@ func main() {
 		runHooks(args[1:], repoOverride)
 	case "claude":
 		runClaude(args[1:])
+	case "update":
+		runUpdate(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
+		os.Exit(1)
+	}
+
+	// Check if the background goroutine has completed and print banner if due.
+	if bgUpdateCh != nil {
+		select {
+		case res := <-bgUpdateCh:
+			if res.Err == nil && res.Latest != "" {
+				// Re-read cache after the goroutine finalization budget so we use
+				// the entry the goroutine wrote (updated checked_at / latest_version),
+				// not the snapshot taken before the goroutine ran.
+				if updated, err := selfupdate.ReadCache(cachePath); err == nil {
+					cacheEntry = updated
+				}
+				selfupdate.MaybeBanner(os.Stderr, version.Version, res.Latest, cacheEntry, cachePath, time.Now())
+			}
+		case <-time.After(100 * time.Millisecond):
+			// goroutine not done yet — skip banner this run
+		}
+	}
+}
+
+// scanNoUpdateCheck pre-scans argv for --no-update-check (and
+// --no-update-check=true/false) in any position. It returns the resolved flag
+// value and a cleaned argv with the flag tokens removed so subcommand parsers
+// don't trip over an unknown flag.
+func scanNoUpdateCheck(argv []string) (found bool, cleaned []string) {
+	cleaned = make([]string, 0, len(argv))
+	for _, a := range argv {
+		switch {
+		case a == "--no-update-check" || a == "--no-update-check=true":
+			found = true
+		case a == "--no-update-check=false":
+			// explicit false — leave found as-is, strip the token
+		default:
+			cleaned = append(cleaned, a)
+		}
+	}
+	return found, cleaned
+}
+
+func runUpdate(args []string) {
+	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	var check bool
+	var channel string
+	fs.BoolVar(&check, "check", false, "only check if an update is available; do not apply")
+	fs.StringVar(&channel, "channel", "stable", "release channel: stable or prerelease")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+
+	c := &selfupdate.Client{}
+
+	ctx := context.Background()
+
+	if check {
+		newer, tag, err := c.Check(ctx, channel, version.Version)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
+			os.Exit(1)
+		}
+		if newer {
+			fmt.Printf("update available: %s (current: %s)\n", tag, version.Version)
+			os.Exit(1)
+		}
+		fmt.Printf("atomic is up to date (%s)\n", tag)
+		return
+	}
+
+	// apply update
+	exe, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic update: resolve executable: %v\n", err)
+		os.Exit(1)
+	}
+	exe, err = filepath.EvalSymlinks(exe)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic update: resolve symlinks: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := c.Update(ctx, channel, version.Version, exe); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
 		os.Exit(1)
 	}
 }
