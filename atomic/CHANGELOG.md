@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.1.0](https://github.com/damusix/atomic-claude/compare/v1.0.0...v1.1.0) (2026-05-17)
+
+
+### Features
+
+* **commands:** add /commit-and-push and /push-only ([f971266](https://github.com/damusix/atomic-claude/commit/f971266893706aeaa71ed56f1927d6c371b01622))
+* **commands:** add /refresh-signals + sync stale bundle ([8e4d40e](https://github.com/damusix/atomic-claude/commit/8e4d40e48f26d1c9a459e52e2123029986621750))
+* **commands:** add /watch-ci for non-blocking CI observation ([42dbb48](https://github.com/damusix/atomic-claude/commit/42dbb485fe7ec22edea4b7d93a0713bc9ccee92e))
+* **docker:** add dual-mode eval environment ([2a0dd89](https://github.com/damusix/atomic-claude/commit/2a0dd890d2a19e79e74690989ad2801b133271b1))
+* **install-workflow:** /atomic-claude-merge command and atomic-claude-merger agent ([e6cf258](https://github.com/damusix/atomic-claude/commit/e6cf25856a4d62df01f2865d8959c96e0eda5013))
+* **session-report:** add /session-report verb ([fc3e7fb](https://github.com/damusix/atomic-claude/commit/fc3e7fb7ba3697f5db6e0895f05711951cd02d4e))
+* **signals,bundle:** thorough full-mode inference + permissive bundling ([49ca01f](https://github.com/damusix/atomic-claude/commit/49ca01f11b0e90327567bcecc0ac6b9add682719))
+
+
+### Bug Fixes
+
+* **commit-only:** drop source-extension allowlist from signals gate ([17c699c](https://github.com/damusix/atomic-claude/commit/17c699c41b13dd658635bc9716701b68b93b12a5))
+
 ## 1.0.0 (2026-05-17)
 
 
