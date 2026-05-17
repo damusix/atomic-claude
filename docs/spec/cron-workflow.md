@@ -344,6 +344,47 @@ Per-iteration SHAs were rewritten during the pre-merge rebase onto `main` and do
 - None. All 7 follow-ups harvested during the loop were addressed or closed before squash: F-1, F-2, F-3, F-4, F-6, F-7 by the polish pass; F-5 by CP-5.
 
 
+### shipped — 2026-05-17 (v2)
+
+
+Built across 8 iterations of `/subagent-implementation` on branch `cron-workflow-v2` (worktree at `.worktrees/cron-workflow-v2/`). Implements the v2 amendment (Change log entry dated 2026-05-17 — Hybrid transport).
+
+**Commits on branch (chronological — not squashed at log-write time):**
+
+- `b292173` — feat(reminder): add due/transport frontmatter + set-due verb (CP-1 across iter 1+2)
+- `bdbd298` — feat(hooks): filter session-start output by past-due reminders (CP-2 across iter 3+4)
+- `6add4c1` — feat(commands): rewrite remind-me and follow-up for hybrid transport (CP-3 across iter 5+6+7; CP-4 bundle regen absorbed by pre-commit hook)
+- `00917ba` — docs(cron-workflow): align spec body and reconcile degradation prose (Phase 3 polish — closed F-8 + F-9)
+
+Ship verb to choose at handoff (`/squash-and-merge`, `/merge-to-main`, `/pr-only`). Not chosen by the orchestrator.
+
+**Out-of-scope work performed during this build:**
+
+- Orchestrator amended the spec body in `docs/spec/cron-workflow.md` to flip `AskUserQuestion` option order so `3d (Recommended)` is first (matches global `CLAUDE.md` convention). Logged as a **Correction** Change log entry dated 2026-05-17 alongside the Hybrid transport entry.
+- F-8 (spec `/follow-up` bare-flow body still described v1 single-transport contract) was a pre-existing gap in the v2 amendment itself — caught by iter 7 reviewer and closed in Phase 3 polish, not by the original spec author.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- Pre-commit hook (`.githooks/pre-commit`) auto-regenerated the embedded bundle when CP-3 staged `commands/*.md` — collapsed CP-4 (bundle regen) into the CP-3 commit transparently. No manual `make bundle` was needed.
+- The original v2 amendment's `## Slash → binary mapping` table was updated but the body of the `/follow-up` bare-flow section wasn't — a real spec drift inside a single amendment. Triggered F-8 fix.
+- `AskUserQuestion` option-order convention (`Recommended` first) was not encoded in the v2 amendment; the brief overrode the spec body without flagging it as a spec amendment. Reviewer caught the divergence. Orchestrator corrected the spec body in-flight with a logged Correction entry.
+
+**Dispositions at finalize (FOLLOWUPS triage):**
+
+- **fix-now**: F-8 (spec body), F-9 (degradation prose conflict) — closed in commit `00917ba`.
+- **defer** → promoted to `.claude/project/followups.md` with topic-prefixed ids:
+    - `cron-workflow-v2-F-1` — `SetDue` double-read (🟡)
+    - `cron-workflow-v2-F-2` — `orderedKVs` divergence risk (🔵)
+    - `cron-workflow-v2-F-4` — `addReminderWithDue` helper conflates due+backdate (🔵)
+    - `cron-workflow-v2-F-6` — `buildAdditionalContextFromRows` ≈ `buildBodyFromPastDue` (🔵)
+    - `cron-workflow-v2-F-7` — `"1 reminders pending"` grammar (🔵)
+- **drop**:
+    - F-3 (`set-due` CLI test calls library, not `runReminder`) — accepted as repo convention; other `main_test.go` tests do the same.
+    - F-5 (stderr log may print empty id) — defensive against a code path that does not produce empty `ID` today.
+
+**Deferred items still open:** see the five `cron-workflow-v2-F-N` entries in `.claude/project/followups.md`. F-3 and F-5 dropped.
+
+
 ## Change log
 
 

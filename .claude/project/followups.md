@@ -13,7 +13,16 @@ Auto-loaded into every session via `@-ref` in `claude.local.md` (or `claude.md` 
 ## 🟡 risks
 
 
-(none)
+### cron-workflow-v2-F-1 — `SetDue` double-reads + double-parses the reminder file
+
+
+`atomic/internal/reminder/reminder.go:153–165`
+
+
+`SetDue` calls `findByID` (which reads + parses the file to return body), then immediately calls `os.ReadFile` + `frontmatter.Parse` on the same path again to get `meta`. Two reads, two parses per `set-due` call. No correctness issue (no concurrent writer), but unnecessary I/O. Fix: extend `findByID` to return meta alongside body, or restructure so the parse from the lookup is reused.
+
+
+Origin: `docs/spec/cron-workflow.md`, cron-workflow-v2 iter 1 reviewer (CP-1). Deferred at finalize 2026-05-17.
 
 
 ## 🔵 nits
@@ -140,6 +149,54 @@ Scope when revisiting:
 
 
 Origin: chat session 2026-05-17 follow-on to fixing `/squash-only` signals-refresh gap. Pre-existing spec gap, not introduced by the fix.
+
+
+### cron-workflow-v2-F-2 — `orderedKVs` helper used only by `SetDue`; `Add` builds key list inline
+
+
+`atomic/internal/reminder/reminder.go:187–209`
+
+
+`Add` and `SetDue` both need to write the same canonical frontmatter key order (`id`, `created`, `due`, `transport`). `SetDue` uses the `orderedKVs` helper; `Add` inlines its own key construction. If a future field is added to the spec, the two paths can diverge silently. Fix: consolidate to one canonical ordering function used by both paths.
+
+
+Origin: `docs/spec/cron-workflow.md`, cron-workflow-v2 iter 1 reviewer (CP-1). Deferred at finalize 2026-05-17.
+
+
+### cron-workflow-v2-F-4 — `addReminderWithDue` test helper conflates two concerns
+
+
+`atomic/internal/hooks/hooks_test.go:289–320`
+
+
+`addReminderWithDue(t, root, body, dueDaysOffset, createdDaysAgo)` sets the `due:` field and optionally backdates `created:`. The two parameters interact in untested ways (no test calls both non-zero simultaneously) and the helper's purpose is opaque at the call site. Fix: split into `addReminderWithDue(due)` + `backdateCreated(id)` for clarity.
+
+
+Origin: `docs/spec/cron-workflow.md`, cron-workflow-v2 iter 3 reviewer (CP-2). Deferred at finalize 2026-05-17.
+
+
+### cron-workflow-v2-F-6 — `buildAdditionalContextFromRows` and `buildBodyFromPastDue` are near-duplicates
+
+
+`atomic/internal/hooks/hooks.go:151–182`
+
+
+After CP-2 iter 4 refactor, `buildAdditionalContextFromRows` (used by `SessionStartText`) and `buildBodyFromPastDue` (used by `SessionStart`) are structurally identical except the former runs `filterPastDue` on its input first. Trivial collapse: `buildAdditionalContextFromRows` should call `filterPastDue` then delegate to `buildBodyFromPastDue`. Zero behavior change; just removes duplication.
+
+
+Origin: `docs/spec/cron-workflow.md`, cron-workflow-v2 iter 4 reviewer (CP-2). Deferred at finalize 2026-05-17.
+
+
+### cron-workflow-v2-F-7 — `systemMessage` count has grammar bug ("1 reminders pending")
+
+
+`atomic/internal/hooks/hooks.go:71`
+
+
+The format string `"%d reminders pending"` always pluralizes "reminders" — produces "1 reminders pending" when the count is 1. Cosmetic; the prior code had the same bug since `len(rows)` rarely hit 1, but now `len(pastDue) == 1` is a common case. Fix: pluralize correctly (`fmt.Sprintf` with conditional, or a tiny `pluralize` helper).
+
+
+Origin: `docs/spec/cron-workflow.md`, cron-workflow-v2 iter 4 reviewer (CP-2). Deferred at finalize 2026-05-17.
 
 
 ## ❓ questions
