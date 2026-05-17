@@ -31,7 +31,22 @@ Count commits: `git rev-list --count <base>..HEAD`. If 1 (only the just-landed c
 1. Gather subjects (oldest-first): `git log <base>..HEAD --format='%s' --reverse`.
 2. `git reset --soft $(git merge-base HEAD <base>)`.
 3. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from gathered subjects. Present for user review/edit. Commit via HEREDOC once confirmed.
-4. `git status` to confirm.
+4. **Update implementation logs.** Find spec files in the just-squashed commit's diff that carry an `## Implementation log` section:
+
+    ```bash
+    git show --name-only --pretty=format: HEAD | grep '^docs/spec/.*\.md$' | while read f; do
+      grep -q '^## Implementation log' "$f" && echo "$f"
+    done
+    ```
+
+    For each match, append at end-of-file:
+
+    ```
+    **Squashed to `<new-sha>` — <YYYY-MM-DD>.** Per-iteration SHAs above are historical (unreachable from any branch).
+    ```
+
+    Stage by explicit path. Commit as a follow-up: `docs(spec): record squash SHA <new-sha>`. Never amend the squash commit. If no specs match: skip silently.
+5. `git status` to confirm.
 
 ## Report
 

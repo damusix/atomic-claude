@@ -20,8 +20,23 @@ description: Merge current branch into base. No squash, no push. Re-runs tests o
 2. `git pull`.
 3. `git merge <feature>` (default strategy; no `--no-ff` forced, no `--squash`).
 4. Re-run tests. If fail: report failures. Ask user: roll back with `git reset --hard ORIG_HEAD`?
-5. `git branch -d <feature>`.
-6. Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via AskUserQuestion:
+5. **Update implementation logs.** After tests pass, find spec files whose content changed across the merge (not just the merge commit itself — fast-forward merges have no merge commit, and non-FF merge commits don't carry file diffs):
+
+    ```bash
+    git diff --name-only ORIG_HEAD..HEAD | grep '^docs/spec/.*\.md$' | while read f; do
+      grep -q '^## Implementation log' "$f" && echo "$f"
+    done
+    ```
+
+    For each match, append at end-of-file:
+
+    ```
+    **Merged into `<base>` as `<merge-or-tip-sha>` — <YYYY-MM-DD>.** Iteration commits above remain reachable in history.
+    ```
+
+    `<merge-or-tip-sha>` = the merge commit if non-FF, otherwise the new HEAD (which equals the feature tip). Stage by explicit path. Commit as a follow-up: `docs(spec): record merge SHA <sha>`. Never amend. If no specs match: skip silently.
+6. `git branch -d <feature>`.
+7. Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via AskUserQuestion:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
    > - No, keep it

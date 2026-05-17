@@ -73,6 +73,20 @@ Dispatch via the `Agent` tool with the corresponding `subagent_type`. Fall back 
 - **`atomic-git-scout`** (sonnet, tools: Read/Grep/Glob/Bash) — read-only scanner for stale git state (worktrees, branches, optional remote tracking refs). Classifies cleanup candidates (`remove` / `delete` / `prune` / `ask` / `flag` / `skip`) and returns an indexed report for `/git-cleanup`. Never mutates state.
 
 
+## Project signals (skill + agent + command)
+
+
+The signals workflow keeps Claude aware of the current shape of a project without hallucination. Three artifacts compose it:
+
+
+- **`atomic-signals`** (skill) — auto-fires on "regenerate signals", "scan the project", "refresh project context", "what's in this repo", "rescan". Runs `atomic signals scan` to write `.claude/project/deterministic-signals.md`, dispatches `atomic-signals-inferrer` to write `inferred-signals.md`, then ensures both files are `@`-referenced in the project's `claude.md`. Falls back to a tree-only markdown scan if the binary is absent.
+- **`atomic-signals-inferrer`** (agent) — reads `deterministic-signals.md` and writes `inferred-signals.md`. Incremental: in subsequent runs it reads only the diff between scans and updates only the dependent sections. Never modifies files outside `.claude/project/`.
+- **`/initialize-signals`** (command) — one-shot bootstrap for a project that has never had signals generated. Interactive, idempotent. Stops if `atomic` binary is missing.
+- **`/refresh-signals`** (command) — deliberate on-demand refresh of existing signals. Refuses to run if signals were never initialized (use `/initialize-signals` instead). Delegates to the `atomic-signals` skill.
+
+Full spec: `docs/spec/signals-workflow.md`.
+
+
 ## Workflow (canonical lifecycle)
 
 
@@ -90,4 +104,10 @@ Dispatch via the `Agent` tool with the corresponding `subagent_type`. Fall back 
 4. **Sync docs** — `/documentation` updates `README.md`, `claude.md`, `docs/spec/`, `docs/design/` after significant change.
 
 
-Other commands: `/atomic-setup` (bootstrap a repo for atomic conventions — gitignore, docs/ layout, starter claude.md), `/report-issue` (open a GitHub issue), `/worktree-start <branch>` (create isolated `.worktrees/<branch>/`), `/git-cleanup [<name>]` (scan stale git state — worktrees, branches, optional remote — via `atomic-git-scout`; confirm before deleting anything), `/atomic-compress <file>` (compress prose file into atomic style).
+Other commands: `/atomic-setup` (bootstrap a repo for atomic conventions — gitignore, docs/ layout, starter claude.md), `/report-issue` (open a GitHub issue), `/worktree-start <branch>` (create isolated `.worktrees/<branch>/`), `/git-cleanup [<name>]` (scan stale git state — worktrees, branches, optional remote — via `atomic-git-scout`; confirm before deleting anything), `/atomic-compress <file>` (compress prose file into atomic style), `/initialize-signals` (one-shot bootstrap of project signals), `/refresh-signals` (deliberate re-scan of existing signals), `/remind-me <duration> <text>` (schedule a reminder via cron; degrades to file-only without `CronCreate`), `/follow-up [due <id>]` (review pending reminders — reminders surface three ways: cron fires `/follow-up due <id>`, session-start hook injects pending items at session open, and `/follow-up` on demand).
+
+
+## Project signals (auto-loaded)
+
+@.claude/project/deterministic-signals.md
+@.claude/project/inferred-signals.md

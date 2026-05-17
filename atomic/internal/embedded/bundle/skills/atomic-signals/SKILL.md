@@ -1,0 +1,69 @@
+---
+name: atomic-signals
+description: >
+  Project state scanner. Regenerates deterministic and inferred signals files so Claude
+  always knows the current shape of the repo without hallucination. Auto-triggers when
+  user says "regenerate signals", "scan the project", "refresh project context",
+  "what's in this repo", or "rescan". Also fires implicitly when /commit-only detects
+  source-tree changes in the staged diff (silent mode — no confirmation prompt).
+---
+
+Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure auto-load refs.
+
+## Primary flow (atomic binary present)
+
+1. **Detect binary.** Run `command -v atomic`. If missing: print `atomic binary not installed. install: curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash. falling back to markdown-only mode.` and jump to the fallback flow.
+
+2. **Staleness check.** Run `atomic signals stale`. Exit 0 means signals are fresh — stop, no work. Exit 1 means stale — continue.
+
+3. **Regenerate deterministic.** Run `atomic signals scan`. This writes `.claude/project/deterministic-signals.md` and copies the prior content to `.claude/project/.deterministic-signals.prev.md` (gitignored) so `atomic signals diff` works regardless of git state.
+
+4. **Dispatch inferrer.** Spawn the `atomic-signals-inferrer` subagent via the `Agent` tool. The inferrer runs `atomic signals diff` internally to identify changed sections and updates only the dependent sections of `inferred-signals.md`. See the agent definition for the section dependency mapping.
+
+5. **Ensure `@-refs` in project `claude.md`.** If a `claude.md` exists at the repo root and does not already contain both `@.claude/project/deterministic-signals.md` and `@.claude/project/inferred-signals.md`, append:
+
+    ```markdown
+
+
+    ## Project signals (auto-loaded)
+
+
+    @.claude/project/deterministic-signals.md
+    @.claude/project/inferred-signals.md
+    ```
+
+    Print the diff before writing. Confirmation rules:
+
+    - Running non-interactively (e.g. inside `/commit-only`): append without confirmation.
+    - Running from `/initialize-signals`: ask via `AskUserQuestion` before writing.
+
+6. **Report.** Print one-line summary: `signals refreshed. <N> sections changed. inferrer updated <M> sections.` Suppress this line when invoked from a host command that requested silent mode (e.g. `/commit-only` step 4) — those flows already produce their own report.
+
+## Fallback flow (no binary)
+
+When `atomic` is absent:
+
+1. Skip the staleness check — always regenerate.
+2. Run `find . -type f -not -path './node_modules/*' -not -path './.git/*' | head -200 > .claude/project/deterministic-signals.md`.
+3. Skip the inferrer — it requires structured input from the binary.
+4. Print: `fallback mode produced a tree-only signals doc. install atomic for full functionality.`
+
+The fallback is deliberately limited. Users hit it once and install the binary.
+
+## Integration with `/commit-only`
+
+When `/commit-only` runs and the staged diff includes source-file changes, it invokes this skill silently before the commit. In that context:
+
+- Skip the `AskUserQuestion` on `claude.md` append — write directly.
+- If signals are already fresh (`atomic signals stale` exits 0), skip entirely.
+- If `atomic` is not installed, skip entirely — do not fall back during commit.
+- If signals were regenerated, stage `.claude/project/deterministic-signals.md` and `.claude/project/inferred-signals.md` alongside the commit.
+- "Silent" = suppress step 6's report line. Interactive prompts are already gated by the bullet above; this clarifies that the skill produces no stdout in silent mode so the host commit flow's output stays clean.
+
+This integration is implemented in `/commit-only` (CP S-4), not here.
+
+## Boundaries
+
+- Never modifies files outside `.claude/project/` and the project's `claude.md`.
+- Never blocks a commit — if the scan fails, log and continue.
+- Silent in `/commit-only` context; interactive only when invoked from `/initialize-signals` or directly by the user.

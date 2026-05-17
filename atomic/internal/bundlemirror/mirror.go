@@ -35,6 +35,7 @@ var CommandAllowlist = map[string]bool{
 	"git-cleanup.md":             true,
 	"merge-to-main.md":           true,
 	"pr-only.md":                 true,
+	"refresh-signals.md":         true,
 	"report-issue.md":            true,
 	"squash-and-merge.md":        true,
 	"squash-only.md":             true,
