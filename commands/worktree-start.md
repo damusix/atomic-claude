@@ -2,14 +2,35 @@
 description: Create isolated worktree at .worktrees/<branch>/ with new branch. Auto-detects setup (npm/cargo/pip/go), verifies baseline tests, reports ready. Skips if already in a worktree.
 ---
 
-## 1. Argument check
+## 1. Parse arguments
 
-If `$ARGUMENTS` is empty, or contains spaces, or contains characters other than `a-z`, `0-9`, `-`, and `/`, refuse:
+`$ARGUMENTS` can be any combination of:
 
-```
-usage: /worktree-start <branch-name>
-branch names: kebab-case, no spaces, only a-z 0-9 - /
-```
+- An explicit kebab-case branch name (`a-z`, `0-9`, `-`, `/`).
+- A spec reference: a `@`-prefixed path, or a bare path ending in `.md` that exists on disk. Common locations: `docs/spec/*.md`, `docs/design/*.md`.
+- Free-form prose describing the work (a brief).
+
+Tokenize on whitespace and classify each token:
+
+- Starts with `@` or ends in `.md` → **spec candidate**. Strip the leading `@`. Verify the file exists relative to repo root; if not, downgrade to prose.
+- Matches `^[a-z0-9][a-z0-9/-]*$` and is not a spec → **branch candidate**.
+- Anything else (including tokens with spaces, capitals, punctuation when joined) → **prose**.
+
+Resolve the branch name:
+
+- If exactly one branch candidate exists, use it.
+- Else if a spec was found, derive the branch from the spec basename minus `.md` (e.g. `docs/spec/cron-workflow.md` → `cron-workflow`).
+- Else if only prose exists, ask the user for a branch name (single `AskUserQuestion`, offering a kebab-case slug derived from the first ~6 prose words as the recommended option). Do not invent a branch silently.
+- Else (no args at all) refuse:
+
+    ```
+    usage: /worktree-start <branch-name> [@spec.md] [brief...]
+    branch names: kebab-case, no spaces, only a-z 0-9 - /
+    ```
+
+Validate the final branch name against `^[a-z0-9][a-z0-9/-]*$`. If it fails, refuse with the usage line above.
+
+Remember the resolved spec path (if any) and the joined prose (if any) — both are surfaced in step 9 so follow-up work picks them up. This command does not act on them itself.
 
 ## 2. Detect existing isolation
 
@@ -110,10 +131,14 @@ If tests fail: list each failure, then ask whether to proceed or investigate bef
 ```
 Worktree: .worktrees/<branch>/
 Branch:   <branch>
+Spec:     <path> | (none)
+Brief:    <joined prose> | (none)
 Setup:    <command run> | skipped (no manifest) | skipped (sandboxed)
 Baseline: <N> tests pass | <N> failures | skipped
 Ready.
 ```
+
+If a spec or brief was passed, note that the user likely wants to continue with `/subagent-implementation` (for spec) or `/atomic-plan` (for an unrefined brief) next — surface that one-line hint after the report.
 
 ---
 
