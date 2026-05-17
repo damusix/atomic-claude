@@ -397,7 +397,7 @@ func runSignals(args []string, repoOverride string) {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	case "diff":
-		err := signals.Diff(root)
+		err := signals.Diff(root, os.Stdout)
 		if err == nil {
 			return // no diff → exit 0
 		}

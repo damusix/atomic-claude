@@ -1,6 +1,7 @@
 package frontmatter_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
@@ -170,6 +171,54 @@ func TestEmit_Deterministic(t *testing.T) {
 	}
 	if out1 != out2 {
 		t.Errorf("Emit is not deterministic:\n  first:  %q\n  second: %q", out1, out2)
+	}
+}
+
+// EmitOrdered preserves caller-specified key order (F-1).
+func TestEmitOrdered_PreservesCallerOrder(t *testing.T) {
+	kvs := []frontmatter.KV{
+		{Key: "generated_at", Value: "2026-05-17T00:00:00Z"},
+		{Key: "atomic_version", Value: "v0.1.0"},
+	}
+	out, err := frontmatter.EmitOrdered(kvs, "body\n")
+	if err != nil {
+		t.Fatalf("EmitOrdered: %v", err)
+	}
+	gaIdx := strings.Index(out, "generated_at:")
+	avIdx := strings.Index(out, "atomic_version:")
+	if gaIdx == -1 || avIdx == -1 {
+		t.Fatalf("missing keys:\n%s", out)
+	}
+	if gaIdx > avIdx {
+		t.Errorf("generated_at should precede atomic_version (caller order):\n%s", out)
+	}
+}
+
+// EmitOrdered with reverse-alphabetical order must not be sorted alphabetically.
+func TestEmitOrdered_NotAlphabetical(t *testing.T) {
+	kvs := []frontmatter.KV{
+		{Key: "z_first", Value: "1"},
+		{Key: "a_second", Value: "2"},
+	}
+	out, err := frontmatter.EmitOrdered(kvs, "")
+	if err != nil {
+		t.Fatalf("EmitOrdered: %v", err)
+	}
+	zIdx := strings.Index(out, "z_first")
+	aIdx := strings.Index(out, "a_second")
+	if zIdx > aIdx {
+		t.Errorf("caller order not preserved (z_first should precede a_second):\n%s", out)
+	}
+}
+
+// EmitOrdered with no kvs returns body-only.
+func TestEmitOrdered_EmptyKVs(t *testing.T) {
+	out, err := frontmatter.EmitOrdered(nil, "just body\n")
+	if err != nil {
+		t.Fatalf("EmitOrdered: %v", err)
+	}
+	if out != "just body\n" {
+		t.Errorf("expected body-only, got: %q", out)
 	}
 }
 

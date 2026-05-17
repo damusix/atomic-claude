@@ -2,6 +2,7 @@ package signals
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,11 +72,11 @@ func Scan(root string) error {
 
 		genAt = time.Now().UTC().Format(time.RFC3339)
 
-		meta := map[string]any{
-			"atomic_version": version.Version,
-			"generated_at":   genAt,
-		}
-		doc, err := frontmatter.Emit(meta, body)
+		// Order: generated_at first, then atomic_version (matches spec examples).
+		doc, err := frontmatter.EmitOrdered([]frontmatter.KV{
+			{Key: "generated_at", Value: genAt},
+			{Key: "atomic_version", Value: version.Version},
+		}, body)
 		if err != nil {
 			return fmt.Errorf("signals scan: emit: %w", err)
 		}
@@ -190,11 +191,12 @@ func newestSourceMtime(root string) (time.Time, error) {
 }
 
 // Diff prints a unified diff between the previous and current signals files.
+// Diff output is written to out (caller may pass os.Stdout).
 // Exit codes (returned as special errors):
 //   - nil → exit 0 (no diff)
-//   - ErrDiffPresent → exit 1 (diff present, stdout has content)
+//   - ErrDiffPresent → exit 1 (diff present, out has content)
 //   - ErrNoPrior → exit 2 (no prior version)
-func Diff(root string) error {
+func Diff(root string, out io.Writer) error {
 	currentPath := SignalsPath(root)
 	prevPath := PrevPath(root)
 
@@ -204,9 +206,9 @@ func Diff(root string) error {
 
 	// Try git diff first.
 	if isGitRepo(root) {
-		return diffGit(root, currentPath)
+		return diffGit(root, currentPath, out)
 	}
-	return diffFallback(prevPath, currentPath)
+	return diffFallback(prevPath, currentPath, out)
 }
 
 // ErrDiffPresent signals that diff found changes (caller should exit 1).
@@ -220,7 +222,7 @@ func isGitRepo(root string) bool {
 	return err == nil
 }
 
-func diffGit(root, currentPath string) error {
+func diffGit(root, currentPath string, out io.Writer) error {
 	// Make the path relative to root for git.
 	rel, err := filepath.Rel(root, currentPath)
 	if err != nil {
@@ -229,7 +231,7 @@ func diffGit(root, currentPath string) error {
 
 	// --exit-code makes git diff exit 1 when differences are found.
 	cmd := exec.Command("git", "-C", root, "diff", "--exit-code", "--", rel)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = out
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {
@@ -242,14 +244,14 @@ func diffGit(root, currentPath string) error {
 	return nil
 }
 
-func diffFallback(prevPath, currentPath string) error {
+func diffFallback(prevPath, currentPath string, out io.Writer) error {
 	if _, err := os.Stat(prevPath); os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "signals diff: no prior version available at %s\n", prevPath)
 		return ErrNoPrior
 	}
 
 	cmd := exec.Command("diff", "-u", prevPath, currentPath)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = out
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		if exit, ok := err.(*exec.ExitError); ok {

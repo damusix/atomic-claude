@@ -33,55 +33,65 @@ var extToLang = map[string]string{
 	".php":   "PHP",
 }
 
-// ScanLanguages counts LOC per language by extension across the repo,
-// excluding the standard skip set. Returns top 10 by LOC, sorted descending.
+// ScanLanguages counts LOC and file count per language by extension across the
+// repo. Uses enumerateFiles as the source of truth. Returns top 10 by LOC
+// (tie-break: file count descending), sorted descending.
+// Format: "- Go: 1820 LOC (27%), 14 files (33%)"
+// Percentages are computed over the union of files that match any language.
 func ScanLanguages(root string) (string, error) {
-	locByLang := make(map[string]int)
-
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries
-		}
-		if d.IsDir() {
-			if skipDirs[d.Name()] {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		ext := strings.ToLower(filepath.Ext(d.Name()))
-		lang, ok := extToLang[ext]
-		if !ok {
-			return nil
-		}
-		loc, err := countLines(path)
-		if err != nil {
-			return nil // skip unreadable files
-		}
-		locByLang[lang] += loc
-		return nil
-	})
+	files, err := enumerateFiles(root)
 	if err != nil {
 		return "", err
 	}
 
-	// Compute total.
-	total := 0
-	for _, n := range locByLang {
-		total += n
+	type langStats struct {
+		loc   int
+		files int
+	}
+	byLang := make(map[string]*langStats)
+
+	for _, rel := range files {
+		ext := strings.ToLower(filepath.Ext(rel))
+		lang, ok := extToLang[ext]
+		if !ok {
+			continue
+		}
+		absPath := filepath.Join(root, filepath.FromSlash(rel))
+		loc, err := countLines(absPath)
+		if err != nil {
+			continue
+		}
+		if byLang[lang] == nil {
+			byLang[lang] = &langStats{}
+		}
+		byLang[lang].loc += loc
+		byLang[lang].files++
+	}
+
+	// Totals across all matched files (for percentage computation).
+	totalLOC := 0
+	totalFiles := 0
+	for _, s := range byLang {
+		totalLOC += s.loc
+		totalFiles += s.files
 	}
 
 	type langEntry struct {
-		name string
-		loc  int
+		name  string
+		loc   int
+		files int
 	}
-	entries := make([]langEntry, 0, len(locByLang))
-	for lang, loc := range locByLang {
-		entries = append(entries, langEntry{lang, loc})
+	entries := make([]langEntry, 0, len(byLang))
+	for lang, s := range byLang {
+		entries = append(entries, langEntry{lang, s.loc, s.files})
 	}
-	// Sort descending by LOC; break ties alphabetically.
+	// Sort descending by LOC; tie-break by file count descending; then by name.
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].loc != entries[j].loc {
 			return entries[i].loc > entries[j].loc
+		}
+		if entries[i].files != entries[j].files {
+			return entries[i].files > entries[j].files
 		}
 		return entries[i].name < entries[j].name
 	})
@@ -93,11 +103,15 @@ func ScanLanguages(root string) (string, error) {
 
 	lines := make([]string, 0, len(entries))
 	for _, e := range entries {
-		pct := 0
-		if total > 0 {
-			pct = (e.loc * 100) / total
+		locPct := 0
+		if totalLOC > 0 {
+			locPct = (e.loc * 100) / totalLOC
 		}
-		lines = append(lines, fmt.Sprintf("- %s: %d LOC (%d%%)", e.name, e.loc, pct))
+		filesPct := 0
+		if totalFiles > 0 {
+			filesPct = (e.files * 100) / totalFiles
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %d LOC (%d%%), %d files (%d%%)", e.name, e.loc, locPct, e.files, filesPct))
 	}
 	return strings.Join(lines, "\n"), nil
 }

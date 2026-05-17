@@ -132,6 +132,12 @@ func nodeToValue(n *yaml.Node) (any, error) {
 	}
 }
 
+// KV is a key-value pair for ordered frontmatter emission.
+type KV struct {
+	Key   string
+	Value any
+}
+
 // Emit serializes meta and body back into a frontmatter markdown document.
 // If meta is nil or empty, only the body is returned (no frontmatter block).
 // The output round-trips with Parse when the input was produced by Parse.
@@ -149,12 +155,30 @@ func Emit(meta map[string]any, body string) (string, error) {
 	}
 	sort.Strings(keys)
 
-	// Build a yaml.MappingNode with keys in sorted order so that Marshal
-	// produces deterministic output regardless of map iteration order.
-	mapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	kvs := make([]KV, 0, len(keys))
 	for _, k := range keys {
-		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k}
-		valNode, err := anyToNode(meta[k])
+		kvs = append(kvs, KV{Key: k, Value: meta[k]})
+	}
+	return EmitOrdered(kvs, body)
+}
+
+// EmitOrdered serializes a caller-specified ordered list of key-value pairs and
+// body into a frontmatter markdown document. The key order in the output
+// exactly matches the order of kvs, enabling spec-compliant ordering
+// (e.g. generated_at before atomic_version).
+//
+// If kvs is empty, only the body is returned (no frontmatter block).
+func EmitOrdered(kvs []KV, body string) (string, error) {
+	if len(kvs) == 0 {
+		return body, nil
+	}
+
+	// Build a yaml.MappingNode with keys in caller-specified order so that
+	// Marshal produces deterministic output that matches the spec examples.
+	mapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, kv := range kvs {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: kv.Key}
+		valNode, err := anyToNode(kv.Value)
 		if err != nil {
 			return "", fmt.Errorf("frontmatter: marshal error: %w", err)
 		}

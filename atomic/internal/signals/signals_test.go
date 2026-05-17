@@ -1,6 +1,9 @@
 package signals_test
 
 import (
+	"bytes"
+	"flag"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -124,10 +127,10 @@ func TestScanTree_DirsBeforeFiles(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("expected at least 2 lines, got: %v", lines)
 	}
-	// a_dir/ should appear before z_file.go.
+	// a_dir/ should appear before z_file.go (tree glyphs prefix each line).
 	dirIdx, fileIdx := -1, -1
 	for i, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "a_dir/") {
+		if strings.Contains(l, "a_dir/") {
 			dirIdx = i
 		}
 		if strings.Contains(l, "z_file.go") {
@@ -156,7 +159,8 @@ func TestScanTree_Sorted(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("expected 3 lines, got %d:\n%s", len(lines), out)
 	}
-	if lines[0] != "a.go" || lines[1] != "m.go" || lines[2] != "z.go" {
+	// Lines have tree glyphs: "├── a.go", "├── m.go", "└── z.go".
+	if !strings.Contains(lines[0], "a.go") || !strings.Contains(lines[1], "m.go") || !strings.Contains(lines[2], "z.go") {
 		t.Errorf("not sorted: %v", lines)
 	}
 }
@@ -489,6 +493,11 @@ func TestScan_BacksUpPrevFile(t *testing.T) {
 	if err := signals.Scan(root); err != nil {
 		t.Fatalf("Scan first: %v", err)
 	}
+	// Capture the first scan's output — the prev file should contain these bytes.
+	firstOutput, err := os.ReadFile(signals.SignalsPath(root))
+	if err != nil {
+		t.Fatalf("read first output: %v", err)
+	}
 
 	// Modify a source file to force a rewrite.
 	if err := os.WriteFile(filepath.Join(root, "new.go"), []byte("package main\n"), 0o644); err != nil {
@@ -501,6 +510,14 @@ func TestScan_BacksUpPrevFile(t *testing.T) {
 	prevPath := signals.PrevPath(root)
 	if _, err := os.Stat(prevPath); err != nil {
 		t.Fatalf("prev file not created: %v", err)
+	}
+	// Content of the prev file must equal the first scan's output.
+	prevContent, err := os.ReadFile(prevPath)
+	if err != nil {
+		t.Fatalf("read prev file: %v", err)
+	}
+	if string(prevContent) != string(firstOutput) {
+		t.Errorf("prev file content mismatch:\nwant: %s\ngot:  %s", firstOutput, prevContent)
 	}
 }
 
@@ -608,7 +625,7 @@ func TestDiff_NoPriorFallback(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 	// No prev file exists, and this is not a git repo → should get ErrNoPrior.
-	err := signals.Diff(root)
+	err := signals.Diff(root, io.Discard)
 	if err != signals.ErrNoPrior {
 		t.Errorf("expected ErrNoPrior, got: %v", err)
 	}
@@ -628,7 +645,7 @@ func TestDiff_GitNoDiff(t *testing.T) {
 	exec.Command("git", "-C", root, "add", ".").Run()
 	exec.Command("git", "-C", root, "commit", "-m", "initial", "--allow-empty-message").Run()
 
-	err := signals.Diff(root)
+	err := signals.Diff(root, io.Discard)
 	if err != nil {
 		t.Errorf("expected nil (no diff), got: %v", err)
 	}
@@ -655,76 +672,110 @@ func TestDiff_GitDiffPresent(t *testing.T) {
 	}
 
 	// Stage the new source but not the signals file — git diff should show the change.
-	err := signals.Diff(root)
+	var out bytes.Buffer
+	err := signals.Diff(root, &out)
 	if err != signals.ErrDiffPresent {
 		t.Errorf("expected ErrDiffPresent, got: %v", err)
+	}
+	if out.Len() == 0 {
+		t.Error("expected non-empty diff output on stdout")
+	}
+	if !strings.Contains(out.String(), "new.go") && !strings.Contains(out.String(), "deterministic-signals") {
+		t.Errorf("diff output missing expected content: %s", out.String())
 	}
 }
 
 func TestDiff_MissingSignalsFile(t *testing.T) {
 	root := makeRepo(t, nil)
-	err := signals.Diff(root)
+	err := signals.Diff(root, io.Discard)
 	if err == nil {
 		t.Fatal("expected error for missing signals file")
 	}
 }
 
-// ---- Golden tests ----
+// ---- Golden tests (testdata/signals/<scenario>/ fixture layout) ----
+//
+// Run with -update to regenerate expected.md fixtures.
 
-func TestGolden_EmptyRepo(t *testing.T) {
-	root := makeRepo(t, nil)
+var update = flag.Bool("update", false, "regenerate golden testdata fixtures")
+
+// goldenTest scans a temp repo seeded from testdata/signals/<scenario>/repo/,
+// normalizes generated_at, and compares against testdata/signals/<scenario>/expected.md.
+// With -update, it writes the expected file instead of comparing.
+func goldenTest(t *testing.T, scenario string) {
+	t.Helper()
+
+	// Seed the temp repo from testdata fixture.
+	srcRepo := filepath.Join("testdata", "signals", scenario, "repo")
+	root := t.TempDir()
+
+	// Copy all files from the scenario repo into the temp dir.
+	if entries, err := os.ReadDir(srcRepo); err == nil && len(entries) > 0 {
+		if err := copyDir(t, srcRepo, root); err != nil {
+			t.Fatalf("copy fixture: %v", err)
+		}
+	}
+
 	if err := signals.Scan(root); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 	data, err := os.ReadFile(signals.SignalsPath(root))
 	if err != nil {
-		t.Fatalf("read: %v", err)
+		t.Fatalf("read signals file: %v", err)
 	}
 
-	// Normalize: strip generated_at line for comparison.
-	normalized := normalizeGeneratedAt(string(data))
+	got := normalizeGeneratedAt(string(data))
 
-	// For empty repo: tree/manifests/languages sections should all be empty/present.
-	if !strings.Contains(normalized, "## Tree") {
-		t.Error("missing ## Tree section")
+	expectedPath := filepath.Join("testdata", "signals", scenario, "expected.md")
+	if *update {
+		if err := os.MkdirAll(filepath.Dir(expectedPath), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := os.WriteFile(expectedPath, []byte(got), 0o644); err != nil {
+			t.Fatalf("write expected: %v", err)
+		}
+		t.Logf("updated %s", expectedPath)
+		return
 	}
-	if !strings.Contains(normalized, "## Manifests") {
-		t.Error("missing ## Manifests section")
+
+	expected, err := os.ReadFile(expectedPath)
+	if err != nil {
+		t.Fatalf("read expected file %s: %v (run with -update to generate)", expectedPath, err)
 	}
-	if !strings.Contains(normalized, "## Languages") {
-		t.Error("missing ## Languages section")
+	if got != string(expected) {
+		t.Errorf("output mismatch for scenario %q.\nwant:\n%s\ngot:\n%s", scenario, expected, got)
 	}
 }
 
-func TestGolden_Multilang(t *testing.T) {
-	root := makeRepo(t, map[string]string{
-		"main.go":   strings.Repeat("go\n", 50),
-		"index.ts":  strings.Repeat("ts\n", 100),
-		"script.py": strings.Repeat("py\n", 30),
-		"go.mod":    "module github.com/example/test\n\ngo 1.22\n",
+// copyDir recursively copies src into dst.
+func copyDir(t *testing.T, src, dst string) error {
+	t.Helper()
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
 	})
-	if err := signals.Scan(root); err != nil {
-		t.Fatalf("Scan: %v", err)
-	}
-	data, _ := os.ReadFile(signals.SignalsPath(root))
-	normalized := normalizeGeneratedAt(string(data))
+}
 
-	// TypeScript should be listed first (most LOC).
-	tsIdx := strings.Index(normalized, "TypeScript")
-	goIdx := strings.Index(normalized, "Go:")
-	pyIdx := strings.Index(normalized, "Python")
+func TestGolden_EmptyRepo(t *testing.T) {
+	goldenTest(t, "empty-repo")
+}
 
-	if tsIdx == -1 || goIdx == -1 || pyIdx == -1 {
-		t.Fatalf("missing language entries:\n%s", normalized)
-	}
-	if !(tsIdx < goIdx && goIdx < pyIdx) {
-		t.Errorf("language order wrong (expected TS > Go > Py by LOC):\n%s", normalized)
-	}
-
-	// go.mod should appear in manifests.
-	if !strings.Contains(normalized, "go.mod") {
-		t.Error("go.mod missing from manifests")
-	}
+func TestGolden_Multilang(t *testing.T) {
+	goldenTest(t, "multilang")
 }
 
 // normalizeGeneratedAt replaces the generated_at value with a placeholder.
@@ -736,4 +787,224 @@ func normalizeGeneratedAt(s string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// ---- U1: Tree glyph rendering ----
+
+func TestScanTree_Glyphs(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"a.go":       "package main\n",
+		"b.go":       "package main\n",
+		"pkg/lib.go": "package pkg\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// Output must contain tree branch glyphs.
+	if !strings.Contains(out, "├──") {
+		t.Errorf("expected ├── glyph in output:\n%s", out)
+	}
+	if !strings.Contains(out, "└──") {
+		t.Errorf("expected └── glyph in output:\n%s", out)
+	}
+	// pkg/ is a dir and should appear before files; its child uses │   prefix.
+	if !strings.Contains(out, "pkg/") {
+		t.Errorf("expected pkg/ in output:\n%s", out)
+	}
+	// Continuation prefix for non-last dir.
+	lines := strings.Split(out, "\n")
+	foundContinuation := false
+	for _, l := range lines {
+		if strings.Contains(l, "│") {
+			foundContinuation = true
+			break
+		}
+	}
+	if !foundContinuation {
+		t.Errorf("expected │ continuation prefix in output:\n%s", out)
+	}
+}
+
+func TestScanTree_LastEntryGlyph(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"only.go": "package main\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// Single entry is always the last: must use └──.
+	if !strings.Contains(out, "└──") {
+		t.Errorf("single entry should use └──:\n%s", out)
+	}
+	if strings.Contains(out, "├──") {
+		t.Errorf("single entry should not use ├──:\n%s", out)
+	}
+}
+
+// ---- U2: Git-backed enumeration shows dotfile dirs ----
+
+func TestEnumerateFiles_GitShowsDotfiles(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"main.go":                  "package main\n",
+		".github/workflows/ci.yml": "on: push\n",
+		".claude/rules/ts.md":      "# ts rules\n",
+	})
+	initGit(t, root)
+	exec.Command("git", "-C", root, "add", ".").Run()
+	exec.Command("git", "-C", root, "commit", "-m", "init").Run()
+
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	if !strings.Contains(out, ".github") {
+		t.Errorf("expected .github in tree (git-tracked):\n%s", out)
+	}
+	if !strings.Contains(out, ".claude") {
+		t.Errorf("expected .claude in tree (git-tracked):\n%s", out)
+	}
+}
+
+func TestEnumerateFiles_GitExcludesScratchpad(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"main.go": "package main\n",
+		".claude/.scratchpad/2026-01-01-task/BRIEF.md": "# brief\n",
+		".claude/rules/ts.md":                          "# ts\n",
+	})
+	initGit(t, root)
+	exec.Command("git", "-C", root, "add", ".").Run()
+	exec.Command("git", "-C", root, "commit", "-m", "init").Run()
+
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	if strings.Contains(out, ".scratchpad") {
+		t.Errorf("expected .scratchpad to be excluded:\n%s", out)
+	}
+	if !strings.Contains(out, ".claude") {
+		t.Errorf("expected .claude to appear (has rules/):\n%s", out)
+	}
+}
+
+// ---- U3: Languages file count format ----
+
+func TestScanLanguages_FileCountFormat(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"a.go": "package main\n\nfunc A() {}\n",
+		"b.go": "package main\n\nfunc B() {}\n",
+		"c.go": "package main\n\nfunc C() {}\n",
+	})
+	out, err := signals.ScanLanguages(root)
+	if err != nil {
+		t.Fatalf("ScanLanguages: %v", err)
+	}
+	// Must contain "files" column.
+	if !strings.Contains(out, "files") {
+		t.Errorf("expected 'files' in languages output: %s", out)
+	}
+	// Format: "- Go: N LOC (P%), M files (Q%)".
+	if !strings.Contains(out, "3 files") {
+		t.Errorf("expected '3 files' in output: %s", out)
+	}
+}
+
+// ---- F-1: EmitOrdered preserves caller-specified key order ----
+
+func TestEmitOrdered_PreservesOrder(t *testing.T) {
+	// Order: generated_at before atomic_version (spec example order).
+	out, err := frontmatter.EmitOrdered([]frontmatter.KV{
+		{Key: "generated_at", Value: "2026-05-17T00:00:00Z"},
+		{Key: "atomic_version", Value: "v0.1.0"},
+	}, "body\n")
+	if err != nil {
+		t.Fatalf("EmitOrdered: %v", err)
+	}
+	gaIdx := strings.Index(out, "generated_at:")
+	avIdx := strings.Index(out, "atomic_version:")
+	if gaIdx == -1 || avIdx == -1 {
+		t.Fatalf("missing keys in output:\n%s", out)
+	}
+	if gaIdx > avIdx {
+		t.Errorf("generated_at should appear before atomic_version:\n%s", out)
+	}
+}
+
+func TestEmitOrdered_Stable(t *testing.T) {
+	kvs := []frontmatter.KV{
+		{Key: "z_key", Value: "first"},
+		{Key: "a_key", Value: "second"},
+	}
+	out1, err := frontmatter.EmitOrdered(kvs, "body\n")
+	if err != nil {
+		t.Fatalf("EmitOrdered: %v", err)
+	}
+	out2, err := frontmatter.EmitOrdered(kvs, "body\n")
+	if err != nil {
+		t.Fatalf("EmitOrdered: %v", err)
+	}
+	if out1 != out2 {
+		t.Errorf("EmitOrdered not stable: %q vs %q", out1, out2)
+	}
+	// z_key should appear before a_key (caller-specified order, not alphabetical).
+	zIdx := strings.Index(out1, "z_key:")
+	aIdx := strings.Index(out1, "a_key:")
+	if zIdx > aIdx {
+		t.Errorf("caller order not preserved: z_key=%d a_key=%d in:\n%s", zIdx, aIdx, out1)
+	}
+}
+
+func TestScan_FrontmatterOrder(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"main.go": "package main\n",
+	})
+	if err := signals.Scan(root); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	data, _ := os.ReadFile(signals.SignalsPath(root))
+	content := string(data)
+	// generated_at must appear before atomic_version in the file.
+	gaIdx := strings.Index(content, "generated_at:")
+	avIdx := strings.Index(content, "atomic_version:")
+	if gaIdx == -1 || avIdx == -1 {
+		t.Fatalf("missing frontmatter keys:\n%s", content)
+	}
+	if gaIdx > avIdx {
+		t.Errorf("expected generated_at before atomic_version:\n%s", content)
+	}
+}
+
+// ---- F-4: parseComposerJSON handles array-valued scripts ----
+
+func TestScanManifests_ComposerArrayScripts(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		// scripts.post-install is an array — this caused json.Unmarshal to fail
+		// when the field was typed as map[string]string.
+		"composer.json": `{
+			"name": "vendor/myapp",
+			"scripts": {
+				"test": "phpunit",
+				"post-install-cmd": ["@auto-scripts"]
+			}
+		}`,
+	})
+	out, err := signals.ScanManifests(root)
+	if err != nil {
+		t.Fatalf("ScanManifests: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output (composer.json should not be skipped)")
+	}
+	if !strings.Contains(out, "name=vendor/myapp") {
+		t.Errorf("missing name: %s", out)
+	}
+	// Both script keys should appear sorted.
+	if !strings.Contains(out, "post-install-cmd") {
+		t.Errorf("missing post-install-cmd: %s", out)
+	}
+	if !strings.Contains(out, "test") {
+		t.Errorf("missing test script: %s", out)
+	}
 }
