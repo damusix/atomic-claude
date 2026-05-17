@@ -97,25 +97,27 @@ Two invocation modes:
 
 
 1. Detect binary.
-    - **Binary present**: `atomic reminder list`. Output is indexed.
-    - **Fallback**: `ls .claude/.scratchpad/reminders/*.md`, parse frontmatter via grep, build indexed list manually.
-2. Print:
+    - **Binary present**: `atomic reminder list`. Output is indexed and includes a `transport` column.
+    - **Fallback**: `ls .claude/.scratchpad/reminders/*.md`, parse frontmatter fields (`id`, `created`, `transport`) via grep, build indexed list manually.
+2. Optionally enrich each entry with live schedule info — best-effort, skip silently if tools are unavailable:
+    - **`cron` transport**: `CronList` → find entry whose prompt contains `/follow-up due <id>` → note next-fire time.
+    - **`routine` transport**: query routine listing for matching prompt → note fire time if found.
+    - **`none` transport**: no lookup needed.
+3. Print, including a `[transport]` tag per entry:
 
     ```
     Reminders (3)
-      [1] r-7b21 — benchmark the new query plan (created 2 days ago)
-      [2] r-3f9a — fix auth race in middleware (created 5 days ago)
-      [3] r-1c7e — revisit error handling in ingest (created 1 week ago)
+      [1] r-7b21 — benchmark the new query plan (created 2 days ago) [routine]
+      [2] r-3f9a — fix auth race in middleware (created 5 days ago, fires in 2 days) [cron]
+      [3] r-1c7e — revisit error handling in ingest (created 1 week ago) [none]
     ```
 
-    Optionally, for each id, query `CronList` to enrich with "fires in X days" — best-effort, skip if `CronList` not available.
-
-3. Prompt:
+4. Prompt:
 
     ```
     Type one of:
-      done <indices>             — mark done (delete file + cancel cron)
-      snooze <index> <duration>  — reschedule cron; file unchanged
+      done <indices>             — mark done (delete file + cancel schedule)
+      snooze <index> <duration>  — reschedule; may change transport
       reschedule <index> <when>  — same as snooze, explicit semantic
       show <index>               — print body
       none                       — exit
@@ -123,35 +125,34 @@ Two invocation modes:
     Examples: done 1 3 | snooze 2 3d | reschedule 4 2026-06-01 | none
     ```
 
-4. Parse selection. Validate indices. Re-prompt on invalid input.
-5. Apply selected actions:
-    - `done <indices>`:
-        - Find the reminder's cron via `CronList` (match by prompt content containing the id).
-        - `CronDelete` it.
-        - `atomic reminder rm <id>` (or `Bash rm` in fallback).
+5. Parse selection. Validate indices. Re-prompt on invalid input.
+6. Apply selected actions:
+    - `done <indices>`: for each index, cancel the schedule on the matching transport — `CronDelete` for `cron`, `schedule` skill delete intent for `routine`, no-op for `none` — then `atomic reminder rm <id>` (or `Bash rm` in fallback).
     - `snooze <index> <duration>` and `reschedule <index> <when>`:
-        - `CronList` to find the cron id.
-        - `CronDelete` the old one.
-        - `CronCreate` a new one for the new time, same prompt (`/follow-up due <id>`).
-6. Final report.
+        1. Cancel old schedule on current transport (same logic as `done`).
+        2. Compute new `due`. Pick new transport: `< 1h` → `cron`, `>= 1h` → `routine` (may differ from original).
+        3. Rewrite `due:` via `atomic reminder set-due <id> <iso>` (binary) or Bash `sed` (fallback).
+        4. Rewrite `transport:` in the file via Bash `sed` to match the new transport.
+        5. Schedule on the new transport (`CronCreate` or `schedule` skill). If unavailable, rewrite `transport: none` via Bash `sed`, then print the degradation message (see `## Degraded mode` in `commands/follow-up.md`). Session-start hook surfaces the reminder when past-due.
+7. Final report.
 
 
 #### Cron-fired flow (`/follow-up due <id>`)
 
 
-Claude wakes with this prompt when a reminder's cron fires.
+Claude wakes with this prompt when a reminder's cron or Routine fires.
 
 
-1. `atomic reminder show <id>` (or `Read` the file in fallback). If file missing → log "reminder <id> not found; cron may be stale" and exit.
+1. `atomic reminder show <id>` (or `Read` the file in fallback). Read the `transport:` field from frontmatter — needed for cancel routing. If file missing → log "reminder <id> not found; schedule entry may be stale" and exit.
 2. Surface the body to the user with a brief preamble: "reminder fires: <id>".
 3. Wait for user response. User options:
-    - Acknowledge / mark done → `CronDelete` + `atomic reminder rm <id>`.
-    - Snooze N → `CronCreate` again for `now + N`. File untouched.
-    - Reschedule to specific time → `CronCreate` again with the new time.
-    - Ignore (just talks about something else, or session ends without addressing) → no action; reminder persists; next session-start hook surfaces it again; it will not re-fire on its own (the one-shot cron already fired).
+    - **Acknowledge / mark done**: cancel the schedule on the matching transport (`CronDelete` for `cron`, `schedule` skill delete intent for `routine`, no-op for `none`) + `atomic reminder rm <id>`.
+    - **Snooze N**: pick new transport from N (`< 1h` → cron, `>= 1h` → routine). Rewrite `due:` via `atomic reminder set-due <id> <iso>` (or Bash `sed`). Rewrite `transport:` via Bash `sed`. Schedule on the new transport; if unavailable, rewrite `transport: none` and print the degradation message (see `commands/follow-up.md § Degraded mode`).
+    - **Reschedule to specific time**: same steps as Snooze N but with the absolute time.
+    - **Ignore** (user addresses something else, or the session ends without explicit action): no action. The reminder persists; next session-start hook surfaces it again. It will not re-fire on its own — the one-shot cron/routine already fired. The user must snooze it back into the registry or mark it done.
 
 
-When ignored, the reminder is durable but no longer scheduled. It still shows up in `/follow-up` and the session-start hook. The user has to either snooze it back into the cron registry or `rm` it. That is intentional — no silent auto-reschedule. The user is responsible for the state.
+When ignored, the reminder is durable but no longer scheduled. It still shows up in `/follow-up` and the session-start hook. That is intentional — no silent auto-reschedule. The user is responsible for the state.
 
 
 ## Hooks
@@ -372,6 +373,14 @@ Live testing of `atomic update` v1.0.0 → v1.1.0 surfaced that `CronCreate` adv
 - *Scheduling-tools-unavailable warning is an error path.* Prior spec printed an explicit "scheduling tools unavailable" warning. New: silent file-only degradation with `transport: none`; the hook handles past-due surfacing.
 - *Hook injects all reminders unconditionally.* Prior spec: hook script iterated every file in `reminders/` and dumped each one. New: hook filters by `due >= now`, prefixed with `should-remind-user: true`.
 
+
+### 2026-05-17 — Update /follow-up bare-flow and cron-fired-flow body for v2
+
+**What changed:** Rewrote the `## Commands → /follow-up → Bare flow` and `## Commands → /follow-up → Cron-fired flow` sections to match the v2 multi-transport contract that `commands/follow-up.md` already implements. Bare flow: adds transport column in the indexed list; transport-aware `done` (cron via `CronDelete`, routine via `schedule` skill, none is no-op); snooze/reschedule recomputes transport on the 1h boundary, calls `atomic reminder set-due` for `due:`, uses Bash `sed` for `transport:`, references the canonical degradation message on unavailability. Cron-fired flow: reads `transport:` from file for cancel routing; done/snooze/reschedule all route by transport; snooze step references degradation message instead of "skip silently".
+
+**Why:** Spec body diverged from implementation. F-8 and F-9 of cron-workflow-v2 follow-ups. Caught by iter 7 reviewer.
+
+**Superseded:** The bare-flow body previously described the v1 single-transport contract (`CronList` → `CronDelete` → `CronCreate` only, no transport column in list). The cron-fired flow used `CronDelete`/`CronCreate` unconditionally and said "skip scheduling silently" on transport unavailability — contradicting the `## Degraded mode` section in the command file. All v2 transport-aware behavior was present in `commands/follow-up.md` but missing from the spec body.
 
 ### 2026-05-17 — Correction: `AskUserQuestion` option order
 

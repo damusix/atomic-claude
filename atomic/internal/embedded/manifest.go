@@ -33,7 +33,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/commit-and-squash.md", Target: "commands/commit-and-squash.md", SHA256: "b72613c83da50dde750807b146213b8418b001ab11e90eede72c12b4e0101659"},
 		{Kind: "command", Source: "bundle/commands/commit-only.md", Target: "commands/commit-only.md", SHA256: "a17df90e0defff2a470ca53f5724891528b702104eff9951c54533826a383e61"},
 		{Kind: "command", Source: "bundle/commands/documentation.md", Target: "commands/documentation.md", SHA256: "61c2bf21423e68830fb977e1b685aed06bcb4b1dac719859fdcc0f883f30e258"},
-		{Kind: "command", Source: "bundle/commands/follow-up.md", Target: "commands/follow-up.md", SHA256: "dfac86b9efdae9cdad2d6dcd1bb4895539dc7e740a3e7c6ef0115b125054fbbb"},
+		{Kind: "command", Source: "bundle/commands/follow-up.md", Target: "commands/follow-up.md", SHA256: "a28b07c64a773a1a227ab914bcadf7fc96983b07c232874d066ece3f7f9135ce"},
 		{Kind: "command", Source: "bundle/commands/git-cleanup.md", Target: "commands/git-cleanup.md", SHA256: "039f8937885b8ad4bb7f1012c4714f0552f94c6f87b7dcb38a243ab94e7d1d9f"},
 		{Kind: "command", Source: "bundle/commands/initialize-signals.md", Target: "commands/initialize-signals.md", SHA256: "8bf2d149a3a964e7ffd674d1ca3c669f0f12b36ac475e1d5bde64aa8bf100721"},
 		{Kind: "command", Source: "bundle/commands/merge-to-main.md", Target: "commands/merge-to-main.md", SHA256: "aaa017ac6537752d71da5b95da7acc7137644eb74adbc7290f24885b35a7a14c"},

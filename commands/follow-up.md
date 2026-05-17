@@ -138,7 +138,7 @@ Both verbs follow the same steps (snooze implies a relative duration; reschedule
 
     Apply this regardless of whether the transport changed — it ensures the file stays consistent with the actual scheduling outcome.
 
-8. **Transport unavailable → silent degradation**: if the new transport tool is missing, rewrite `transport: none` in the file via the same Bash `sed` pattern, do not raise an error. The session-start hook will surface the reminder once past-due.
+8. **Transport unavailable → degradation**: if the new transport tool is missing, rewrite `transport: none` in the file via the same Bash `sed` pattern, then print the degradation message from `## Degraded mode`. The session-start hook will surface the reminder once past-due.
 
 9. Report: `[<index>] r-<id> — rescheduled. fires: <human-readable when>. transport: <new-transport>.`
 
@@ -209,7 +209,7 @@ After surfacing the body, wait. Detect intent from what the user types or does n
         sed -i '' 's/^transport: .*/transport: none/' .claude/.scratchpad/reminders/<file>
         ```
 
-        Then skip scheduling silently.
+        Then print the degradation message from `## Degraded mode` before continuing.
     5. Print: `r-<id> — rescheduled. fires: <human-readable when>. transport: <new-transport>.`
 
 - **Reschedule to specific time**: same steps as snooze but with the specified absolute time.
@@ -228,7 +228,7 @@ After surfacing the body, wait. Detect intent from what the user types or does n
 If scheduling tools (`CronList`, `CronDelete`, `CronCreate`, or the `schedule` skill) are unavailable for a given step:
 
 - File operations still proceed (delete or `set-due` rewrite).
-- Skip the schedule cancel/create silently.
+- Skip the schedule cancel/create call (do not raise an error on the missing tool).
 - After completing the action, print:
 
     ```
