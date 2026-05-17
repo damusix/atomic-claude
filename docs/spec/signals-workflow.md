@@ -226,34 +226,26 @@ One-shot bootstrap for a project that has never had signals generated. Verbose, 
 ## Integration with `/commit-only`
 
 
-Edit `/commit-only` to invoke the `atomic-signals` skill *before* the commit, gated by source-file or manifest detection:
+Edit `/commit-only` to invoke the `atomic-signals` skill *before* the commit, gated on `atomic` being installed and signals being stale:
 
 
 ```
 1. Stage check (existing).
-2. If staged diff touches a source file OR a known manifest AND atomic is installed:
+2. If atomic is installed AND atomic signals stale exits 1:
    - Invoke atomic-signals skill silently.
    - If signals regenerated, stage the resulting deterministic-signals.md + inferred-signals.md.
 3. Continue with existing commit flow.
 ```
 
 
-Trigger surfaces:
-
-
-- **Source extensions** — `.ts .tsx .js .jsx .py .go .rs .rb .java .c .cc .cpp .h .hpp .swift .kt .php`. Extend per language as the binary's scanner grows.
-- **Manifest filenames** — `package.json`, `tsconfig.json`, `Cargo.toml`, `pyproject.toml`, `requirements.txt`, `Gemfile`, `composer.json`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `go.mod`, `go.sum`. Matched by exact filename, not extension — a generic `foo.json` or `bar.toml` does NOT trigger.
-
-
 Skip if:
 
 
 - `atomic` binary not installed.
-- Staged diff is prose-only (`.md`) or non-manifest config (generic `.yml .yaml .json .toml` not on the manifest list above).
 - Signals are already fresh per `atomic signals stale`.
 
 
-This keeps the commit verb fast in the common case (docs commits, single-file fixes) while ensuring source changes always carry an updated snapshot.
+No file-extension allowlist. `atomic signals stale` is the source of truth: it fast-fails (~10ms) on prose-only commits because the deterministic snapshot is unchanged, and it catches structural shifts that an extension list would miss (a new `commands/*.md` file, a renamed `agents/` directory).
 
 
 ## Integration with `/atomic-setup`
@@ -364,3 +356,12 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Why:** macOS APFS is case-insensitive by default, so `claude.md` and `CLAUDE.md` were the same on-disk file but git tracked one explicit name. Editing one path silently mutated the other, and the bundle source path looked like a separate file but wasn't. The collapse removes the foot-gun.
 
 **Superseded:** prior contract said the source lived at `claude.md` and the bundle renamed it to `CLAUDE.md` on install. Both ends are now `CLAUDE.md`.
+
+
+### 2026-05-17 — Drop the source-extension allowlist from `/commit-only` signals gate
+
+**What changed:** The `/commit-only` signals pre-commit gate no longer pre-filters the staged diff against a source-extension / manifest-filename allowlist. The gate is now `command -v atomic` + `atomic signals stale` exits 1. If both pass, invoke the `atomic-signals` skill; otherwise skip. The "Integration with `/commit-only`" section was rewritten accordingly; the trigger surfaces lists (source extensions, manifest filenames) were deleted.
+
+**Why:** The allowlist produced false negatives on the atomic-claude repo itself. Adding `commands/commit-and-push.md` and `commands/push-only.md` (pure `.md`) did not trip the gate, so `/commit-only` skipped the signals refresh even though the project's command surface had changed. `atomic signals stale` is a single binary call (~10ms) and is the source of truth — running it unconditionally is cheaper than maintaining the extension list and eliminates the false-negative class.
+
+**Superseded:** prior contract gated step 1 on `git diff --cached --name-only` matching one of `{.ts .tsx .js .jsx .py .go .rs .rb .java .c .cc .cpp .h .hpp .swift .kt .php}` or one of `{package.json, tsconfig.json, Cargo.toml, pyproject.toml, requirements.txt, Gemfile, composer.json, pom.xml, build.gradle, build.gradle.kts, go.mod, go.sum}`, with `.md`-only and generic `.json/.yml/.toml`-only diffs skipped before `atomic signals stale` ran. The prior F-4 manifest-filename trigger surface is no longer needed; that closed item remains in the implementation log as historical record.

@@ -64,7 +64,7 @@ The fallback is deliberately limited. Users hit it once and install the binary.
 
 ## Integration with `/commit-only`
 
-When `/commit-only` runs and the staged diff includes source-file changes, it invokes this skill silently before the commit. In that context:
+When `/commit-only` runs and `atomic signals stale` reports stale, it invokes this skill silently before the commit. The gate is `atomic` installed + signals stale — no file-extension allowlist. In that context:
 
 - Skip the `AskUserQuestion` on `CLAUDE.md` append — write directly.
 - If signals are already fresh (`atomic signals stale` exits 0), skip entirely.

@@ -30,7 +30,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/commit-and-pr.md", Target: "commands/commit-and-pr.md", SHA256: "b547a8a0896999825b628917e3a05f4032ba22f905260cba9ab8480e7c1b3419"},
 		{Kind: "command", Source: "bundle/commands/commit-and-push.md", Target: "commands/commit-and-push.md", SHA256: "f105826013e68788cc2fce1c11531d82415c161dc2bf1ccda89f7688fdbab078"},
 		{Kind: "command", Source: "bundle/commands/commit-and-squash.md", Target: "commands/commit-and-squash.md", SHA256: "b72613c83da50dde750807b146213b8418b001ab11e90eede72c12b4e0101659"},
-		{Kind: "command", Source: "bundle/commands/commit-only.md", Target: "commands/commit-only.md", SHA256: "ec9edd8eaeb618289ebcd8f7cd08cba4e57ea060ef3c575d4bd5dd102ad779f5"},
+		{Kind: "command", Source: "bundle/commands/commit-only.md", Target: "commands/commit-only.md", SHA256: "6d037efbd74613a5e69a61cb15ae3402e569fa10d4c00d28ab736141caadff51"},
 		{Kind: "command", Source: "bundle/commands/documentation.md", Target: "commands/documentation.md", SHA256: "61c2bf21423e68830fb977e1b685aed06bcb4b1dac719859fdcc0f883f30e258"},
 		{Kind: "command", Source: "bundle/commands/follow-up.md", Target: "commands/follow-up.md", SHA256: "0905b1249175b07388ac0a613b15f942c7863482f480321ed1c1c1964a5de506"},
 		{Kind: "command", Source: "bundle/commands/git-cleanup.md", Target: "commands/git-cleanup.md", SHA256: "039f8937885b8ad4bb7f1012c4714f0552f94c6f87b7dcb38a243ab94e7d1d9f"},
@@ -56,7 +56,7 @@ func Manifest() []Artifact {
 		{Kind: "skill", Source: "bundle/skills/atomic-debug/SKILL.md", Target: "skills/atomic-debug/SKILL.md", SHA256: "6b474fd0ed3c442868466c8d02abd26990e6eb1c5fe797b55d422eaec47d5e3a"},
 		{Kind: "skill", Source: "bundle/skills/atomic-prose/SKILL.md", Target: "skills/atomic-prose/SKILL.md", SHA256: "1152e32ba1658562f72a03aa4ef88f5e938171a31d7dbb3bdf23bf231d8159d8"},
 		{Kind: "skill", Source: "bundle/skills/atomic-review/SKILL.md", Target: "skills/atomic-review/SKILL.md", SHA256: "af782e3de92e97b4936d72f5a40ca17bd3fc4634e3ab49e97dce0732b8d2fc86"},
-		{Kind: "skill", Source: "bundle/skills/atomic-signals/SKILL.md", Target: "skills/atomic-signals/SKILL.md", SHA256: "b4318b2a9ab1288ca1da2df33dcaa6155089e9d4d3493727894b5a2dfc1ef955"},
+		{Kind: "skill", Source: "bundle/skills/atomic-signals/SKILL.md", Target: "skills/atomic-signals/SKILL.md", SHA256: "72097f1278d1df2032406df9972bf5a693bbc59c42e0480065a98af89d978412"},
 		{Kind: "skill", Source: "bundle/skills/atomic-tdd/SKILL.md", Target: "skills/atomic-tdd/SKILL.md", SHA256: "c112fd537782b1388f0840a85ee80e3e78b9f38e2d28a469e3844fa1f884c75a"},
 		{Kind: "skill", Source: "bundle/skills/atomic-verify/SKILL.md", Target: "skills/atomic-verify/SKILL.md", SHA256: "bacd131efb3cda4ecd618858df7a4b6f09107bab0c479959cadc9ca84cdfbaf3"},
 	}
