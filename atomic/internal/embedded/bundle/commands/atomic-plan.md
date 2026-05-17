@@ -27,6 +27,8 @@ Ask one consolidated block covering: goal, success criteria, non-goals, constrai
 
 Create `docs/design/` or `docs/spec/` if missing. Then write the file.
 
+**Spec / design voice — table-first, terse, brevity-dominant.** These files are re-read often by humans and agents and live or die by token cost. Use tables, Mermaid diagrams, and short bullet lists as the primary form. Prose only where a contract genuinely needs sentences (Goal, Problem statement, Rationale, Recommendation). When prose is required, keep it tight: active voice, no marketing jargon, no em dashes, no throat-clearing, no AI-tell phrases. **Do NOT invoke the `atomic-prose` skill here** — that skill is for enduring narrative docs (README, guides) where some narrative carries value; specs and design pay token cost on every read and stay terse.
+
 **Design** structure:
 
 ```markdown
@@ -87,13 +89,24 @@ Create `docs/design/` or `docs/spec/` if missing. Then write the file.
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
 | <r>  | high/med/low | <plan> |
+
+## Change log
+
+<!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
 ```
+
+
+The `## Change log` section ships **empty** on creation. While the user is still drafting and refining the spec (revise loops in step 4 before they say "proceed"), do not add log entries — those are not amendments, they are the spec being born. The first real entry happens later, when an *approved* spec is changed. See "Spec files are append-mostly" in `claude.md` for amend / change / remove / correct / rename rules.
 
 For shape/architecture work include a Mermaid diagram (flowchart / ERD / sequence / state) under the goal. Caption it with one sentence above so non-rendering readers (grep, raw view) still get it.
 
 ### 4. Confirm + handoff
 
 Print the file path. Summarize in 3-5 lines. Ask: "Proceed, or revise?"
+
+**Amending an existing spec.** If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite. Apply the append-mostly rule from `claude.md`: edit the body as needed AND add a dated entry to `## Change log` capturing what changed and why. If the file lacks a `## Change log` section (legacy), add one before amending.
+
+**Refinement vs. amendment.** Revisions during the initial planning conversation (before the user has said "proceed" the first time) are *drafting*, not amendments — keep iterating on the body, leave `## Change log` empty. Once the spec is approved and implementation has started (or the file is committed), every later edit is an amendment and must log.
 
 On revise → edit the file, re-summarize. On proceed → done. Implementation happens via `/subagent-implementation` which can read the spec as its source of truth (it will still maintain its own working copy in `.claude/.scratchpad/`).
 

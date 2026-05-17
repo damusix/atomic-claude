@@ -22,11 +22,12 @@ This command manages four documentation surfaces:
     - `git diff <last-doc-update>..HEAD` if the user pointed at a commit range, else `git diff main..HEAD`
     - List existing docs: `ls README.md claude.md docs/ 2>/dev/null`
 2. For each surface above, decide: **create**, **update**, or **skip (still accurate)**. State the decision per surface in one line before editing.
-3. Apply edits:
-    - **README.md** — human prose. Keep marketing-free. Sections: what it is, why, install, usage, links. No AI bylines. If creating, use existing similar projects in the org for tone (`gh repo list <owner> --limit 5`).
-    - **claude.md** — MEANINGFUL CONTEXT ONLY. Conventions the AI can't infer from code, commands to run, file layout that isn't obvious, gotchas. NOT: restating code, NOT: full architecture essay, NOT: a tutorial. If a line could be derived by reading the code, delete it.
-    - **docs/spec/** — implementation contract. What inputs, outputs, error modes, invariants. Mermaid diagrams render here — use `sequenceDiagram` for flows, `erDiagram` for data, `flowchart` for state. One file per feature/subsystem.
-    - **docs/design/** — design rationale. What was considered, what was picked, why. Mermaid diagrams welcome. Snapshot in time — okay to date the file.
+3. Apply edits. Use the right voice for each surface — see `claude.md` → "Three doc voices, three surfaces":
+    - **README.md** — narrative prose. Run the `atomic-prose` skill. Keep marketing-free. Sections: what it is, why, install, usage, links. No AI bylines. If creating, use existing similar projects in the org for tone (`gh repo list <owner> --limit 5`).
+    - **docs/guides/** — narrative prose. Run the `atomic-prose` skill. Long-form walkthroughs, install notes, contributor docs.
+    - **claude.md** — MEANINGFUL CONTEXT ONLY. Conventions the AI can't infer from code, commands to run, file layout that isn't obvious, gotchas. NOT: restating code, NOT: full architecture essay, NOT: a tutorial. If a line could be derived by reading the code, delete it. Voice is technical-imperative, neither narrative nor atomic-terse.
+    - **docs/spec/** — implementation contract. Spec/design voice: tables, diagrams, terse bullets first, prose only where a contract needs sentences. **Do NOT invoke `atomic-prose`.** What inputs, outputs, error modes, invariants. Mermaid diagrams render here — use `sequenceDiagram` for flows, `erDiagram` for data, `flowchart` for state. One file per feature/subsystem. **Append-mostly: do not silently overwrite. Apply the rules in `claude.md` → "Spec files are append-mostly". Every amendment adds a dated entry to `## Change log`. If a legacy spec lacks the section, add it before editing.**
+    - **docs/design/** — design rationale. Spec/design voice: tables, diagrams, terse bullets. **Do NOT invoke `atomic-prose`.** What was considered, what was picked, why. Mermaid diagrams welcome. Snapshot in time, okay to date the file.
 4. After edits, run a sanity pass:
     - Every code path mentioned in README install/usage actually works (run it if cheap).
     - Every command mentioned in claude.md actually exists in `package.json` / `Makefile` / etc.
