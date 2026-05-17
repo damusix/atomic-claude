@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 	"github.com/damusix/atomic-claude/atomic/internal/signals"
@@ -25,6 +27,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  reminder list       List all reminders\n")
 		fmt.Fprintf(os.Stderr, "  reminder show <id>  Print body of a reminder\n")
 		fmt.Fprintf(os.Stderr, "  reminder rm <id>    Delete a reminder\n")
+		fmt.Fprintf(os.Stderr, "  hooks session-start [--format=text]  Print session-start hook payload\n")
+		fmt.Fprintf(os.Stderr, "  hooks install [--scope user|project]  Install session-start hook\n")
+		fmt.Fprintf(os.Stderr, "  hooks uninstall [--scope user|project]  Remove session-start hook\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -55,6 +60,8 @@ func main() {
 		runSignals(args[1:], repoOverride)
 	case "reminder":
 		runReminder(args[1:], repoOverride)
+	case "hooks":
+		runHooks(args[1:], repoOverride)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
 		os.Exit(1)
@@ -119,6 +126,119 @@ func runReminder(args []string, repoOverride string) {
 	default:
 		fmt.Fprintf(os.Stderr, "atomic reminder: unknown verb %q\n", verb)
 		os.Exit(1)
+	}
+}
+
+func runHooks(args []string, repoOverride string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic hooks <session-start|install|uninstall> [flags]\n")
+		os.Exit(2)
+	}
+
+	verb := args[0]
+	switch verb {
+	case "session-start":
+		fs := flag.NewFlagSet("hooks session-start", flag.ContinueOnError)
+		var format string
+		fs.StringVar(&format, "format", "json", "output format: json or text")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+
+		root, err := repoctx.Resolve(repoOverride)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic hooks session-start: %v\n", err)
+			os.Exit(1)
+		}
+
+		now := time.Now().UTC()
+		var out string
+		if format == "text" {
+			out, err = hooks.SessionStartText(root, now)
+		} else {
+			out, err = hooks.SessionStart(root, now)
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic hooks session-start: %v\n", err)
+			os.Exit(1)
+		}
+		if out != "" {
+			fmt.Println(out)
+		}
+
+	case "install":
+		fs := flag.NewFlagSet("hooks install", flag.ContinueOnError)
+		var scope string
+		fs.StringVar(&scope, "scope", "user", "scope: user or project")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+
+		root, err := repoctx.Resolve(repoOverride)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic hooks install: %v\n", err)
+			os.Exit(1)
+		}
+
+		scopeRoot, err := resolveScopeRoot(scope, root)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic hooks install: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := hooks.Install(root, scopeRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "hooks installed (scope=%s)\n", scope)
+
+	case "uninstall":
+		fs := flag.NewFlagSet("hooks uninstall", flag.ContinueOnError)
+		var scope string
+		fs.StringVar(&scope, "scope", "user", "scope: user or project")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+
+		root, err := repoctx.Resolve(repoOverride)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic hooks uninstall: %v\n", err)
+			os.Exit(1)
+		}
+
+		scopeRoot, err := resolveScopeRoot(scope, root)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic hooks uninstall: %v\n", err)
+			os.Exit(1)
+		}
+
+		if err := hooks.Uninstall(root, scopeRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
+		fmt.Fprintf(os.Stderr, "hooks uninstalled (scope=%s)\n", scope)
+
+	default:
+		fmt.Fprintf(os.Stderr, "atomic hooks: unknown verb %q\n", verb)
+		fmt.Fprintf(os.Stderr, "Usage: atomic hooks <session-start|install|uninstall> [flags]\n")
+		os.Exit(2)
+	}
+}
+
+// resolveScopeRoot returns the directory against which hook files are written.
+// "user" → $HOME/.claude (user scope), "project" → repoRoot (project scope).
+func resolveScopeRoot(scope, repoRoot string) (string, error) {
+	switch scope {
+	case "user":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve scope: get home dir: %w", err)
+		}
+		return home, nil
+	case "project":
+		return repoRoot, nil
+	default:
+		return "", fmt.Errorf("unknown scope %q: must be \"user\" or \"project\"", scope)
 	}
 }
 
