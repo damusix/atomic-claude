@@ -590,3 +590,52 @@ Or via `make build` at repo root.
 - Codesigning macOS binaries — out of scope for v0.1.0; revisit when adoption justifies the Apple Developer cost.
 - Homebrew tap — defer until v0.2.0; the install script is sufficient for early users.
 - Windows hook integration — the binary builds, but `atomic hooks install` writes POSIX shell scripts. Windows users get manual instructions only.
+
+
+## Implementation log
+
+
+### v0.1.0 candidate — built 2026-05-16/17
+
+Built across 11 iterations of `/subagent-implementation`. Commits chronologically (base `d836faa`):
+
+- `e029254` — CP-1 module skeleton (after iter-2 fixups)
+- `0cb1362` — CP-2 signals subcommand
+- `7964274` — CP-3 reminder subcommand
+- `6117f9a` — CP-4 hooks subcommand
+- `93c7531` — CP-5 claude bundle subcommand (embedded artifacts + Install/Update/List/Diff + CLAUDE.md proposed-file flow)
+- `57f9d26` — CP-6 self-update + background banner (after iter-7 fixups)
+- `fb4b20d` — CP-7 release pipeline (goreleaser + GitHub Actions + install.sh)
+- `eb2f979` — iter-10 signals polish (real tree shape, recursive manifests, ordered frontmatter)
+- `72cbcde` — iter-11 big polish pass (drained 22+ FOLLOWUPS across all packages; landed hujson + EXDEV mitigation)
+- `f5080d2` — iter-11 reviewer fixups (named-return checked-defer in `renameCrossFS`; real `_os()` invocation in install-sh test)
+- `6c6941f` — feat(signals): annotate tree dirs with child counts
+- `ee54fc0` — fix(signals): plural agreement + render dir entries at depth cap
+- `eb45ac0` — feat: wire release-please for automated semver (iter 12)
+
+**Out-of-scope work performed during this build:**
+
+- `FOLLOWUPS.md` as a scratchpad primitive — emerged during iter 11 when the user noted non-blocking reviewer findings needed durable tracking. Promoted to `/subagent-implementation` Phase 3 (`ba44c96`).
+- `Implementation log` gate — emerged at finalize; promoted to `/subagent-implementation` Phase 3 (`0e68cdb`). The section you're reading is its first use.
+- Signals scanner rewrite — original CP-2 was a simple `WalkDir` walk; production usage exposed that depth-3 caps hid useful directories, manifests at any depth were missed, and tree output didn't read like `tree(1)`. Reworked to use `git ls-files` enumeration, recursive manifest detection, proper tree glyphs with child counts (iter-10 + the small UX iterations after iter-11).
+- `github.com/tailscale/hujson` for hooks settings.json merge — beyond original spec; folded in after research surfaced it as the right way to preserve user comments + trailing commas.
+- EXDEV mitigation for self-update — stage candidate binary in install dir rather than `$TMPDIR`, with a copy-fallback `renameCrossFS` helper. Came from research mirroring `inconshreveable/go-update`'s convention.
+- `release-please-action` — beyond original spec; came from research as the right pairing with goreleaser (release-please does semver bump + tag; goreleaser does artifact publish).
+- `docs/spec/signals-project-detection.md` — separate spec drafted during one of the polish iterations.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- `yaml.v3` key-order non-determinism: solved via `EmitOrdered([]KV, body)` building `yaml.Node` mappings with caller-specified order. Backward-compatible `Emit(map)` keeps alphabetical sort for the deterministic path.
+- macOS case-insensitive filesystem aliases `CLAUDE.md` ↔ `claude.md` — only one is git-tracked but both are reachable. Edits propagated correctly; documented as a non-issue.
+- `go get github.com/tailscale/hujson` bumped `go.mod` to `go 1.23` because hujson declares `go 1.23`. Manual `go mod edit -go=1.22` is reverted by the next `go mod tidy`. Kept at 1.23.
+- The spec referenced `commands/atomic-claude-merge.md` for the CLAUDE.md merge workflow, but the file doesn't exist yet — the proposed-file flow still works because the slash command is the user's later action.
+
+**FOLLOWUPS disposition:**
+
+39 findings raised across CP-1..CP-7 + iter-10/iter-11 polish. All 39 closed before finalize. Final ledger summary at `.claude/.scratchpad/2026-05-16-atomic-binary/FOLLOWUPS.md` before scratchpad teardown.
+
+**Deferred items still open:**
+
+- CP-8 manual smoke (tag `v0.1.0`, watch goreleaser pipeline end-to-end on real GitHub, run `atomic claude install` + `atomic update` on macOS and linux from a published release) — manual gate; happens once at first real release.
+- `/atomic-claude-merge` slash-command + `atomic-claude-merger` agent — referenced by `### CLAUDE.md handling` but not yet created. Future spec.
+- macOS code signing, Homebrew tap, Windows hook integration — listed in `## Open follow-ups` above; deferred to v0.2.0+.
