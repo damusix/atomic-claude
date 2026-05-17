@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-17T20:19:09Z
+generated_at: 2026-05-17T22:05:00Z
 source: .claude/project/deterministic-signals.md
 ---
 
@@ -32,17 +32,17 @@ CI gate: `go generate ./...` followed by `git diff --exit-code` enforces that th
 
 ## Architectural style
 
-**Dual-product repo**: a Go CLI binary (`atomic/`) co-located with the Claude Code configuration artifacts it manages (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `claude.md`).
+**Dual-product repo**: a Go CLI binary (`atomic/`) co-located with the Claude Code configuration artifacts it manages (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`).
 
 The repo has two logical layers:
 
-1. **Source-of-truth artifacts** (root: `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `claude.md`) — human-authored markdown files that are both the live dogfood config for this repo and the bundle input.
+1. **Source-of-truth artifacts** (root: `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`) — human-authored markdown files that are both the live dogfood config for this repo and the bundle input.
 2. **Go CLI** (`atomic/`) — reads those artifacts, embeds them at build time, and provides subcommands to install/update them into `~/.claude`, scan project signals, manage reminders, manage hooks, and self-update.
 
 Internal package layout inside `atomic/internal/`:
 
 - `bundlemirror/` — build-time mirror: walks repo root, copies matching artifacts into `embedded/bundle/`, writes `manifest.go`
-- `embedded/` — holds the `go:embed`-ed `bundle/` FS and the generated `Manifest()` slice; bundle grew from 30 to 36 total items as skills now ship as full subtrees and all top-level commands ship
+- `embedded/` — holds the `go:embed`-ed `bundle/` FS and the generated `Manifest()` slice; bundle grew to 44 total items as of this scan (new commands: `review-branch.md`, `undo-commit.md`; new skill: `atomic-prose/`)
 - `claudeinstall/` — install/update/diff/list verbs; SHA256-based idempotency; backs up changed files under `.atomic-backups/<timestamp>/`; special-cases `CLAUDE.md` as merge-required
 - `signals/` — tree walker, manifest scanner, language counter; writes `.claude/project/deterministic-signals.md`; keeps `.deterministic-signals.prev.md` for diff; uses `git diff` when in a git repo, falls back to `diff(1)`
 - `hooks/` — session-start hook payload generation and install/uninstall
@@ -52,7 +52,7 @@ Internal package layout inside `atomic/internal/`:
 
 Not a monorepo (single go.mod). Not a library (no exported packages intended for external import). Not a web app. This is a **CLI tool with an embedded configuration bundle**.
 
-Commands grew from 21 to 22 entries with the addition of `commands/report-issue-with-atomic.md`. Skills roster is now 7: `atomic-commit`, `atomic-debug`, `atomic-review`, `atomic-signals`, `atomic-tdd`, `atomic-verify`, `atomic-prose`. `docs/design/` now has content: `atomic-doctor.md` and `atomic-validate.md` (2 design docs).
+Commands: 24 top-level `.md` files (up from 22). New additions: `commands/review-branch.md` (`/review-branch` — one-shot branch review via `atomic-reviewer`) and `commands/undo-commit.md` (`/undo-commit` — soft-undo last commit with guards). Skills roster: 7 (`atomic-commit`, `atomic-debug`, `atomic-review`, `atomic-signals`, `atomic-tdd`, `atomic-verify`, `atomic-prose`). `docs/design/`: 2 design docs (`atomic-doctor.md`, `atomic-validate.md`). New at repo root: `LICENSE`, `.githooks/pre-commit`.
 
 ## Conventions detected
 
@@ -67,7 +67,7 @@ Commands grew from 21 to 22 entries with the addition of `commands/report-issue-
 - Output styles: `output-styles/atomic*.md` (prefix filter, files only)
 - Commands: every top-level `commands/*.md` — no allowlist; subdirectories (e.g. `commands/_templates/`) are skipped
 - Rules: all `rules/**/*.md` (recursive)
-- `claude.md` → `CLAUDE.md`
+- `CLAUDE.md` (bundled directly; no rename step — `bundlemirror` reads `CLAUDE.md` at repo root as-is)
 
 **Naming convention**: all custom Claude Code artifacts use the `atomic-` prefix (`atomic-builder`, `atomic-tdd`, `atomic-prose`, etc.).
 
@@ -77,7 +77,7 @@ Commands grew from 21 to 22 entries with the addition of `commands/report-issue-
 
 **Markdown conventions**: CLAUDE.md and project docs follow atomic output style (double newline after headings, 4-space code blocks) — enforced by `output-styles/atomic.md`.
 
-**`bundle/` directory is gitignored**: it is generated at build time by `go generate ./...` (`cmd/bundle-mirror`). The manifest snapshot (`manifest.go`) is committed; the actual file copies are not. CI verifies the committed manifest matches what `go generate` would produce.
+**`bundle/` directory is tracked in git**: both `atomic/internal/embedded/bundle/` files and `manifest.go` are committed. The pre-commit hook (`.githooks/pre-commit`) regenerates the bundle via `make -C atomic bundle` when staged source artifacts change and then re-stages `atomic/internal/embedded/bundle` and `manifest.go` automatically. CI's "Verify bundle is committed" step (`go generate ./... && git diff --exit-code`) remains the canonical gate. Install via `make hooks` (sets `core.hooksPath=.githooks`); undo via `make hooks-uninstall` (`atomic/Makefile` and root `Makefile` both expose these targets).
 
 ## Domains
 
@@ -89,14 +89,17 @@ Commands grew from 21 to 22 entries with the addition of `commands/report-issue-
 - **Claude Code config authoring**: the root-level `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/` directories are the authoritative source for the artifact bundle.
 - **Prose discipline**: `skills/atomic-prose/` — voice and tone rules for human-readable developer documentation written into files. Distinct from the atomic TUI output style. Invoked by `/documentation`, `/atomic-plan` (design and prose sections), and auto-fires on documentation-editing phrases.
 - **Issue filing (atomic repo)**: `commands/report-issue-with-atomic.md` — `/report-issue-with-atomic` targets `damusix/atomic-claude` specifically. Sibling to `/report-issue` (which targets the user's current repo). Entry point for bugs/feature requests about the installed config itself.
-- **Design docs**: `docs/design/` now holds `atomic-doctor.md` and `atomic-validate.md` — design rationale for two planned/speculative features (`atomic doctor` health-check and `atomic validate` artifact linting).
+- **Branch review**: `commands/review-branch.md` — `/review-branch` dispatches `atomic-reviewer` once on `<base>..HEAD` for a pre-PR / pre-merge review pass; no orchestration loop, no spec required.
+- **Commit undo**: `commands/undo-commit.md` — `/undo-commit` soft-resets the last commit; refuses on merge commits, initial commit, and already-pushed HEAD.
+- **Design docs**: `docs/design/` holds `atomic-doctor.md` and `atomic-validate.md` — design rationale for two planned/speculative features (`atomic doctor` health-check and `atomic validate` artifact linting).
 
 ## Cross-references
 
-- `atomic/internal/bundlemirror/mirror.go` is the sole source of bundle inclusion logic; no `CommandAllowlist` exists. Every top-level `commands/*.md` ships. `commands/_templates/` subdirectory is explicitly skipped (loop skips dirs). Adding a new top-level command file is sufficient to include it in the bundle. `commands/report-issue-with-atomic.md` auto-bundles via this rule — no mirror.go change needed.
+- `atomic/internal/bundlemirror/mirror.go` is the sole source of bundle inclusion logic; no `CommandAllowlist` exists. Every top-level `commands/*.md` ships. `commands/_templates/` subdirectory is explicitly skipped (loop skips dirs). Adding a new top-level command file is sufficient to include it in the bundle. `commands/review-branch.md` and `commands/undo-commit.md` auto-bundle via this rule — no mirror.go change needed.
 - `skills/atomic-prose/SKILL.md` ships in the bundle automatically: the `skills/atomic-*/` inclusion rule picks up all subdirs matching the `atomic-` prefix that contain a `SKILL.md`. No bundle config change needed when adding a new `atomic-`-prefixed skill directory.
 - `atomic/internal/embedded/manifest.go` is generated by `go generate`; editing it by hand is explicitly forbidden (file header: "Code generated by cmd/bundle-mirror. DO NOT EDIT.").
-- `.claude/project/deterministic-signals.md` is written by `atomic signals scan`; `inferred-signals.md` (this file) is written by the `atomic-signals-inferrer` agent. Both are referenced by the repo's `claude.md` via `@` imports.
+- `.claude/project/deterministic-signals.md` is written by `atomic signals scan`; `inferred-signals.md` (this file) is written by the `atomic-signals-inferrer` agent. Both are `@`-referenced in `claude.local.md` (not `CLAUDE.md` — `CLAUDE.md` is the bundle source and must not carry project-specific paths).
+- `.githooks/pre-commit` wires bundle regeneration into the commit flow. Triggers on staged changes to `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or `CLAUDE.md`. Re-stages bundle outputs automatically. Installed via `make hooks`; reverted via `make hooks-uninstall` (root `Makefile`, not `atomic/Makefile`).
 - `scripts/link-local.sh` — the only shell script besides `install.sh`; likely creates symlinks between root artifacts and `.claude/` for dogfooding. Not read in this run; content unverified.
 
 ## Security boundaries

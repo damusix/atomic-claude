@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-17T20:19:09Z
+generated_at: 2026-05-17T21:48:38Z
 atomic_version: 1.0.0
 ---
 # Deterministic signals
@@ -12,6 +12,8 @@ atomic_version: 1.0.0
 │   │   ├── axioms.md
 │   │   └── claude-code-references.md
 │   └── settings.local.json
+├── .githooks/ (1)
+│   └── pre-commit
 ├── .github/ (1)
 │   └── workflows/ (3)
 │       ├── ci.yml
@@ -46,7 +48,7 @@ atomic_version: 1.0.0
 │   │   │   ├── dockerinit.go
 │   │   │   └── dockerinit_test.go
 │   │   ├── embedded/ (3)
-│   │   │   ├── bundle/ (6 subitems) (40 total items)
+│   │   │   ├── bundle/ (6 subitems) (44 total items)
 │   │   │   ├── bundle.go
 │   │   │   └── manifest.go
 │   │   ├── frontmatter/ (2)
@@ -85,7 +87,7 @@ atomic_version: 1.0.0
 │   ├── Makefile
 │   ├── go.mod
 │   └── go.sum
-├── commands/ (24)
+├── commands/ (26)
 │   ├── _templates/ (2)
 │   │   ├── implementer-prompt.md
 │   │   └── reviewer-prompt.md
@@ -107,9 +109,11 @@ atomic_version: 1.0.0
 │   ├── remind-me.md
 │   ├── report-issue-with-atomic.md
 │   ├── report-issue.md
+│   ├── review-branch.md
 │   ├── squash-and-merge.md
 │   ├── squash-only.md
 │   ├── subagent-implementation.md
+│   ├── undo-commit.md
 │   ├── watch-ci.md
 │   └── worktree-start.md
 ├── docs/ (4)
@@ -167,12 +171,12 @@ atomic_version: 1.0.0
 ├── .dockerignore
 ├── .gitignore
 ├── .goreleaser.yaml
+├── CLAUDE.md
 ├── Dockerfile
 ├── LICENSE
 ├── Makefile
 ├── README.md
 ├── claude.local.md
-├── claude.md
 ├── docker-compose.yml
 ├── docker-entrypoint.sh
 ├── install.sh
@@ -186,8 +190,8 @@ atomic_version: 1.0.0
 
 ## Languages
 
-- Markdown: 11991 LOC (55%), 110 files (73%)
-- Go: 9337 LOC (42%), 35 files (23%)
-- Shell: 269 LOC (1%), 3 files (2%)
+- Markdown: 12903 LOC (56%), 116 files (74%)
+- Go: 9341 LOC (41%), 35 files (22%)
+- Shell: 269 LOC (1%), 3 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
