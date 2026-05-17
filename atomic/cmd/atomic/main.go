@@ -11,6 +11,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
+	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
@@ -40,6 +41,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  claude list                                       List bundled artifacts\n")
 		fmt.Fprintf(os.Stderr, "  claude diff    [--target ~/.claude]               Diff bundle vs on-disk\n")
 		fmt.Fprintf(os.Stderr, "  docker init [--target ./atomic-docker] [--force]  Scaffold Docker eval environment\n")
+		fmt.Fprintf(os.Stderr, "  doctor [--fix] [--json] [--only <cat>] [--skip <cat>] [--stale-days N] [--verbose]  Integrity check\n")
 		fmt.Fprintf(os.Stderr, "  update [--check] [--channel stable|prerelease]   Self-update the atomic binary\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
@@ -102,6 +104,8 @@ func main() {
 		runHooks(args[1:], repoOverride)
 	case "claude":
 		runClaude(args[1:])
+	case "doctor":
+		runDoctor(args[1:])
 	case "docker":
 		runDocker(args[1:])
 	case "update":
@@ -147,6 +151,26 @@ func scanNoUpdateCheck(argv []string) (found bool, cleaned []string) {
 		}
 	}
 	return found, cleaned
+}
+
+func runDoctor(args []string) {
+	opts, err := doctor.ParseFlags(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
+
+	results, err := doctor.Run(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic doctor: %v\n", err)
+		os.Exit(2)
+	}
+
+	// CP-6: human formatter and JSON formatter land here.
+	// For now, print a one-liner placeholder per result.
+	for _, r := range results {
+		fmt.Printf("[%d] %-4s  %s  %s\n", r.Index, r.Severity, r.Name, r.Detail)
+	}
 }
 
 func runUpdate(args []string) {
