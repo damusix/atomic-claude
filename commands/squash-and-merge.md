@@ -23,8 +23,23 @@ description: Squash all branch commits via git merge --squash on base. One clean
 5. `git merge --squash <feature>` — stages all changes, no commit yet.
 6. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from gathered subjects. Present for user review/edit. Commit via HEREDOC once confirmed.
 7. Re-run tests. If fail: report failures. Ask user: roll back with `git reset --hard ORIG_HEAD`?
-8. `git branch -D <feature>` (force required — squash leaves merge-base check unresolved).
-9. Worktree check: `git worktree list`. If feature branch lived in `.worktrees/<feature>/`, ask via AskUserQuestion:
+8. **Update implementation logs.** After tests pass (so a follow-up commit won't sit on top of a rolled-back squash), find spec files in the squash diff that carry an `## Implementation log` section:
+
+    ```bash
+    git show --name-only --pretty=format: <sha> | grep '^docs/spec/.*\.md$' | while read f; do
+      grep -q '^## Implementation log' "$f" && echo "$f"
+    done
+    ```
+
+    For each match, append at end-of-file:
+
+    ```
+    **Squashed onto `<base>` as `<sha>` — <YYYY-MM-DD>.** Per-iteration SHAs above are historical (unreachable post-squash).
+    ```
+
+    Stage by explicit path. Commit as a follow-up: `docs(spec): record squash SHA <sha>`. Never amend the squash commit (the SHA in the log would then not match itself). If no specs match: skip silently.
+9. `git branch -D <feature>` (force required — squash leaves merge-base check unresolved).
+10. Worktree check: `git worktree list`. If feature branch lived in `.worktrees/<feature>/`, ask via AskUserQuestion:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
    > - No, keep it

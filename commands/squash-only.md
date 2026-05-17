@@ -19,7 +19,22 @@ description: Squash all commits on current branch into one. No merge. Synthesize
 1. Gather subjects (oldest-first): `SUBJECTS=$(git log <base>..HEAD --format='%s' --reverse)`.
 2. `git reset --soft $(git merge-base HEAD <base>)` — collapses all branch commits into the index.
 3. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS`. Present it for user review/edit. Commit via HEREDOC once confirmed.
-4. `git status` to confirm.
+4. **Update implementation logs.** Find spec files in the just-squashed commit's diff that carry an `## Implementation log` section:
+
+    ```bash
+    git show --name-only --pretty=format: HEAD | grep '^docs/spec/.*\.md$' | while read f; do
+      grep -q '^## Implementation log' "$f" && echo "$f"
+    done
+    ```
+
+    For each match, append at end-of-file:
+
+    ```
+    **Squashed to `<new-sha>` — <YYYY-MM-DD>.** Per-iteration SHAs above are historical (unreachable from any branch).
+    ```
+
+    Stage by explicit path. Commit as a follow-up: `docs(spec): record squash SHA <new-sha>`. Never amend the squash commit. If no specs match: skip silently.
+5. `git status` to confirm.
 
 ## Report
 
