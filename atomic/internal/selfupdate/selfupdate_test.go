@@ -341,7 +341,7 @@ func TestApplyReplacesBinary(t *testing.T) {
 		DownloadURL: srv.URL,
 	}
 
-	if err := c.Apply(rel, currentBin); err != nil {
+	if err := c.Apply(context.Background(), rel, currentBin); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
@@ -391,7 +391,7 @@ func TestApplySHAMismatch(t *testing.T) {
 		DownloadURL: srv.URL,
 	}
 
-	err = c.Apply(rel, currentBin)
+	err = c.Apply(context.Background(), rel, currentBin)
 	if err == nil {
 		t.Fatal("expected SHA mismatch error, got nil")
 	}
@@ -403,6 +403,128 @@ func TestApplySHAMismatch(t *testing.T) {
 	got, _ := os.ReadFile(currentBin)
 	if string(got) != "original" {
 		t.Errorf("binary was replaced despite SHA mismatch")
+	}
+}
+
+// TestApplyContextCancellation: cancelling ctx mid-Apply causes Apply to return
+// an error from the context rather than completing the download.
+func TestApplyContextCancellation(t *testing.T) {
+	buildDir := t.TempDir()
+	const binaryContent = "fake-atomic-binary-v0.1.1"
+
+	archivePath, sha256sum, err := buildTarGz(buildDir, binaryContent)
+	if err != nil {
+		t.Fatalf("build archive: %v", err)
+	}
+	assetName := filepath.Base(archivePath)
+	checksumPath := buildChecksums(buildDir, assetName, sha256sum)
+
+	// Slow handler — waits long enough for cancellation to fire first.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/"+assetName, func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+			http.ServeFile(w, r, archivePath)
+		}
+	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, checksumPath)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	binDir := t.TempDir()
+	currentBin := filepath.Join(binDir, "atomic")
+	os.WriteFile(currentBin, []byte("old-binary"), 0o755)
+
+	rel := Release{
+		TagName: "v0.1.1",
+		Assets: []Asset{
+			{Name: assetName, BrowserDownloadURL: srv.URL + "/" + assetName},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/checksums.txt"},
+		},
+	}
+
+	c := &Client{
+		HTTPClient:  &http.Client{Timeout: 5 * time.Second},
+		DownloadURL: srv.URL,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err = c.Apply(ctx, rel, currentBin)
+	if err == nil {
+		t.Fatal("expected error from cancelled context, got nil")
+	}
+	// Must have returned with the context error, not a success.
+	got, _ := os.ReadFile(currentBin)
+	if string(got) != "old-binary" {
+		t.Errorf("binary was replaced despite cancellation")
+	}
+}
+
+// TestApply_StagingInInstallDir: Apply stages the new binary next to the target
+// binary before renaming, ensuring same-filesystem rename (EXDEV avoidance).
+// This is a behavioral test: we verify that Apply completes successfully even
+// when the binary's dir is not the same as os.TempDir(). The staging file
+// (.atomic.new) must be cleaned up on success.
+func TestApply_StagingInInstallDir(t *testing.T) {
+	buildDir := t.TempDir()
+	const binaryContent = "fake-atomic-binary-v0.1.1-staged"
+
+	archivePath, sha256sum, err := buildTarGz(buildDir, binaryContent)
+	if err != nil {
+		t.Fatalf("build archive: %v", err)
+	}
+	assetName := filepath.Base(archivePath)
+	checksumPath := buildChecksums(buildDir, assetName, sha256sum)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/"+assetName, func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, archivePath)
+	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, checksumPath)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	binDir := t.TempDir()
+	currentBin := filepath.Join(binDir, "atomic")
+	os.WriteFile(currentBin, []byte("old-binary"), 0o755)
+
+	rel := Release{
+		TagName: "v0.1.1",
+		Assets: []Asset{
+			{Name: assetName, BrowserDownloadURL: srv.URL + "/" + assetName},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/checksums.txt"},
+		},
+	}
+
+	c := &Client{
+		HTTPClient:  &http.Client{Timeout: 5 * time.Second},
+		DownloadURL: srv.URL,
+	}
+
+	if err := c.Apply(context.Background(), rel, currentBin); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	// Binary must be replaced.
+	got, err := os.ReadFile(currentBin)
+	if err != nil {
+		t.Fatalf("read replaced binary: %v", err)
+	}
+	if string(got) != binaryContent {
+		t.Errorf("binary content mismatch: got %q, want %q", got, binaryContent)
+	}
+
+	// Staging file must be gone after successful apply.
+	staged := filepath.Join(binDir, ".atomic.new")
+	if _, err := os.Stat(staged); err == nil {
+		t.Errorf(".atomic.new staging file was not cleaned up after Apply")
 	}
 }
 

@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -90,11 +89,15 @@ func planArtifact(targetDir string, a embedded.Artifact) (FileAction, error) {
 // Apply executes a plan. If dryRun is true, no filesystem writes occur.
 // clock is used for the backup timestamp — pass RealClock for production use.
 func Apply(targetDir string, plan []FileAction, dryRun bool, clock Clock) error {
-	// All updates in a run share the same timestamp directory.
+	// Capture the run-start time once so all backups in this run share the same
+	// timestamp directory, regardless of when the first ActionUpdated is encountered.
+	runStart := clock()
+
+	// Compute the backup timestamp only when there are updates to make.
 	var backupTimestamp string
 	for _, fa := range plan {
 		if fa.Kind == ActionUpdated {
-			backupTimestamp = formatTimestamp(clock())
+			backupTimestamp = formatTimestamp(runStart)
 			break
 		}
 	}
@@ -332,9 +335,8 @@ func formatTimestamp(t time.Time) string {
 }
 
 func hexSHA256(data []byte) string {
-	h := sha256.New()
-	_, _ = io.Copy(h, strings.NewReader(string(data)))
-	return hex.EncodeToString(h.Sum(nil))
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 // ResolveTarget expands "~" in the target path.

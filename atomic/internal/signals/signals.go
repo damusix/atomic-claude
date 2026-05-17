@@ -28,10 +28,29 @@ func PrevPath(root string) string {
 	return filepath.Join(root, prevFile)
 }
 
+// Options configures a Scan run. All fields are optional.
+type Options struct {
+	// Clock returns the current time. If nil, time.Now().UTC() is used.
+	// Inject a fixed clock in tests to get deterministic generated_at values.
+	Clock func() time.Time
+}
+
+func (o *Options) clock() time.Time {
+	if o != nil && o.Clock != nil {
+		return o.Clock()
+	}
+	return time.Now().UTC()
+}
+
 // Scan walks the repo at root, assembles the signals document, and writes it.
 // Idempotency: if the body is unchanged, the existing generated_at is kept
 // and the file is NOT rewritten (so mtime stays stable).
 func Scan(root string) error {
+	return ScanWithOptions(root, nil)
+}
+
+// ScanWithOptions is like Scan but accepts Options for dependency injection.
+func ScanWithOptions(root string, opts *Options) error {
 	body, err := assembleBody(root)
 	if err != nil {
 		return fmt.Errorf("signals scan: %w", err)
@@ -70,7 +89,7 @@ func Scan(root string) error {
 			}
 		}
 
-		genAt = time.Now().UTC().Format(time.RFC3339)
+		genAt = opts.clock().Format(time.RFC3339)
 
 		// Order: generated_at first, then atomic_version (matches spec examples).
 		doc, err := frontmatter.EmitOrdered([]frontmatter.KV{

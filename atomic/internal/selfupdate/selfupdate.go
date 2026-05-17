@@ -111,7 +111,12 @@ func (c *Client) Lookup(ctx context.Context, channel, token string) (Release, er
 
 // Apply downloads the release asset matching the current OS/arch, verifies the
 // SHA256 checksum, and atomically replaces currentBinary.
-func (c *Client) Apply(rel Release, currentBinary string) error {
+//
+// EXDEV mitigation: the downloaded binary is staged into the same directory as
+// currentBinary (not $TMPDIR) so that os.Rename is a same-filesystem operation.
+// Downloads still use a system-temp working directory; only the final staged
+// binary is placed next to the target.
+func (c *Client) Apply(ctx context.Context, rel Release, currentBinary string) error {
 	goos := runtime.GOOS
 	goarch := runtime.GOARCH
 	tag := strings.TrimPrefix(rel.TagName, "v")
@@ -135,6 +140,7 @@ func (c *Client) Apply(rel Release, currentBinary string) error {
 		return fmt.Errorf("selfupdate: no asset %q in release %s", checksumName, rel.TagName)
 	}
 
+	// Temp dir for downloads. Still uses os.TempDir() for the archive files.
 	tmpDir, err := os.MkdirTemp(os.TempDir(), "atomic-update-")
 	if err != nil {
 		return fmt.Errorf("selfupdate: make tempdir: %w", err)
@@ -142,12 +148,12 @@ func (c *Client) Apply(rel Release, currentBinary string) error {
 	defer os.RemoveAll(tmpDir)
 
 	archivePath := filepath.Join(tmpDir, assetName)
-	if err := c.download(archiveURL, archivePath); err != nil {
+	if err := c.download(ctx, archiveURL, archivePath); err != nil {
 		return fmt.Errorf("selfupdate: download archive: %w", err)
 	}
 
 	checksumPath := filepath.Join(tmpDir, checksumName)
-	if err := c.download(checksumURL, checksumPath); err != nil {
+	if err := c.download(ctx, checksumURL, checksumPath); err != nil {
 		return fmt.Errorf("selfupdate: download checksums: %w", err)
 	}
 
@@ -156,18 +162,54 @@ func (c *Client) Apply(rel Release, currentBinary string) error {
 		return err
 	}
 
-	// extract binary
-	newBinary, err := extractBinary(archivePath, tmpDir, goos)
+	// Extract binary into tmpDir first, then stage it next to the target binary.
+	// Staging next to the target guarantees a same-filesystem rename (avoids EXDEV
+	// when $TMPDIR is on a different mount than the install path).
+	extractedBinary, err := extractBinary(archivePath, tmpDir, goos)
 	if err != nil {
 		return fmt.Errorf("selfupdate: extract: %w", err)
 	}
 
-	// atomic replace
-	if err := os.Rename(newBinary, currentBinary); err != nil {
+	// Stage in the install directory so os.Rename is same-filesystem.
+	stagedBinary := filepath.Join(filepath.Dir(currentBinary), ".atomic.new")
+	if err := renameCrossFS(extractedBinary, stagedBinary); err != nil {
+		return fmt.Errorf("selfupdate: stage binary: %w", err)
+	}
+	defer os.Remove(stagedBinary) // clean up staging file on any error after this
+
+	// Atomic replace.
+	if err := os.Rename(stagedBinary, currentBinary); err != nil {
 		return fmt.Errorf(
 			"selfupdate: replace binary: %w\nhint: try: sudo install %s %s",
-			err, newBinary, currentBinary,
+			err, stagedBinary, currentBinary,
 		)
+	}
+	return nil
+}
+
+// renameCrossFS moves src to dst, falling back to copy+remove if they are on
+// different filesystems (EXDEV). Used to move from tmpDir to the install dir.
+func renameCrossFS(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	}
+	// Fallback: copy then remove.
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	info, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode()|0o111)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
 	}
 	return nil
 }
@@ -185,8 +227,8 @@ func (c *Client) assetURL(rel Release, name string) string {
 	return ""
 }
 
-func (c *Client) download(url, dst string) error {
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+func (c *Client) download(ctx context.Context, url, dst string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
@@ -369,7 +411,7 @@ func (c *Client) Update(ctx context.Context, channel, currentVersion, currentBin
 		fmt.Printf("atomic is up to date (%s)\n", rel.TagName)
 		return nil
 	}
-	if err := c.Apply(rel, currentBinary); err != nil {
+	if err := c.Apply(ctx, rel, currentBinary); err != nil {
 		return err
 	}
 	fmt.Printf("updated atomic %s → %s.\n", currentVersion, rel.TagName)

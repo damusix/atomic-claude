@@ -2,12 +2,11 @@
 package signals
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"os"
 )
 
 // skipDirs is the set of directory names excluded from WalkDir-based scans
@@ -157,7 +156,6 @@ func ScanTree(root string) (string, error) {
 	}
 
 	rootNode := &node{name: ".", isDir: true}
-	nodeMap := map[string]*node{".": rootNode}
 
 	for _, rel := range files {
 		// Forward-slash normalize (git ls-files uses / on all platforms).
@@ -179,11 +177,8 @@ func ScanTree(root string) (string, error) {
 			if found == nil {
 				found = &node{name: seg, isDir: true}
 				cur.children = append(cur.children, found)
-				dirKey := strings.Join(parts[:d+1], "/")
-				nodeMap[dirKey] = found
 			}
 			cur = found
-			_ = nodeMap
 		}
 
 		// Add the file node.

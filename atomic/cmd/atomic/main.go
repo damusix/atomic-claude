@@ -49,6 +49,9 @@ func main() {
 	fs.BoolVar(&showVersion, "version", false, "print version and exit")
 	fs.BoolVar(&showVersion, "v", false, "print version and exit (short)")
 	fs.StringVar(&repoOverride, "repo", "", "repo root override (default: detect via git)")
+	// Registered for --help documentation only; the actual value is set by
+	// scanNoUpdateCheck (which pre-scans all argv positions before flag.Parse,
+	// since flag.FlagSet stops at the first non-flag argument).
 	fs.BoolVar(&noUpdateCheck, "no-update-check", false, "suppress background update check")
 
 	// Pre-scan all argv for --no-update-check before flag.Parse, because
@@ -440,7 +443,12 @@ func runClaude(args []string) {
 			os.Exit(1)
 		}
 
-		plan, err := claudeinstall.Install(targetDir, dryRun, claudeinstall.RealClock)
+		var plan []claudeinstall.FileAction
+		if verb == "update" {
+			plan, err = claudeinstall.Update(targetDir, dryRun, claudeinstall.RealClock)
+		} else {
+			plan, err = claudeinstall.Install(targetDir, dryRun, claudeinstall.RealClock)
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
 			os.Exit(1)

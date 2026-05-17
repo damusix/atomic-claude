@@ -18,7 +18,6 @@ import (
 const (
 	remindersRelPath = ".claude/.scratchpad/reminders"
 	slugMaxLen       = 50
-	previewMaxLen    = 80
 )
 
 // remindersDir returns the absolute path to the reminders directory.
@@ -69,13 +68,14 @@ func Add(repoRoot, body string) (string, error) {
 			continue
 		}
 
-		meta := map[string]any{
-			"id":      id,
-			"created": today,
+		// Order: id first, then created — matches spec example order.
+		kvs := []frontmatter.KV{
+			{Key: "id", Value: id},
+			{Key: "created", Value: today},
 		}
 		// Ensure body ends with a newline.
 		content := strings.TrimRight(body, "\n") + "\n"
-		doc, err := frontmatter.Emit(meta, "\n"+content)
+		doc, err := frontmatter.EmitOrdered(kvs, "\n"+content)
 		if err != nil {
 			return "", fmt.Errorf("reminder: emit: %w", err)
 		}
@@ -93,7 +93,7 @@ func Add(repoRoot, body string) (string, error) {
 type Row struct {
 	ID      string
 	Created string
-	Preview string // first non-empty body line, truncated to previewMaxLen chars
+	Preview string // first non-empty body line (raw, not truncated)
 }
 
 // List returns all reminders sorted by created ascending then id ascending.
@@ -123,7 +123,7 @@ func List(repoRoot string) ([]Row, error) {
 		}
 		id, _ := meta["id"].(string)
 		created, _ := meta["created"].(string)
-		preview := truncate(firstNonEmpty(body), previewMaxLen)
+		preview := firstNonEmpty(body)
 		rows = append(rows, Row{ID: id, Created: created, Preview: preview})
 	}
 

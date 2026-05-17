@@ -383,6 +383,41 @@ func TestManifestSHAMatchesEmbedded(t *testing.T) {
 	}
 }
 
+// TestUpdate_DelegatesToInstall: Update() installs the same artifact set as Install().
+func TestUpdate_DelegatesToInstall(t *testing.T) {
+	target := t.TempDir()
+
+	plan, err := claudeinstall.Update(target, false, fixedClock)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	manifest := embedded.Manifest()
+	if len(plan) != len(manifest) {
+		t.Fatalf("Update plan len = %d, want %d", len(plan), len(manifest))
+	}
+
+	// All artifacts should be installed on a fresh target.
+	installed := countKind(plan, claudeinstall.ActionInstalled)
+	if installed != len(manifest) {
+		t.Errorf("Update installed = %d, want %d (all)", installed, len(manifest))
+	}
+
+	// All files must exist on disk with the correct content.
+	for _, fa := range plan {
+		onDisk := filepath.Join(target, filepath.FromSlash(fa.Artifact.Target))
+		data, err := os.ReadFile(onDisk)
+		if err != nil {
+			t.Errorf("Update: on-disk %s: %v", fa.Artifact.Target, err)
+			continue
+		}
+		embeddedData := readEmbedded(t, fa.Artifact.Source)
+		if sha256hex(data) != sha256hex(embeddedData) {
+			t.Errorf("Update: sha mismatch for %s", fa.Artifact.Target)
+		}
+	}
+}
+
 // TestBackupPathContainsTimestamp: backup path includes the fixed timestamp.
 func TestBackupPathContainsTimestamp(t *testing.T) {
 	target := t.TempDir()
@@ -410,4 +445,54 @@ func TestBackupPathContainsTimestamp(t *testing.T) {
 		}
 	}
 	t.Error("no updated action found")
+}
+
+// TestBackupTimestampUsesRunStart: Apply uses the clock captured at the start of the
+// run, not the time of the first ActionUpdated. Both items in the plan that are
+// Updated must share the same timestamp directory, which must equal the fixed
+// clock's value regardless of how many unchanged entries precede them.
+func TestBackupTimestampUsesRunStart(t *testing.T) {
+	target := t.TempDir()
+
+	// Fresh install first.
+	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+		t.Fatalf("first Install: %v", err)
+	}
+
+	// Tamper two artifacts so both are ActionUpdated.
+	paths := []string{
+		filepath.Join(target, "agents", "atomic-builder.md"),
+		filepath.Join(target, "agents", "atomic-reviewer.md"),
+	}
+	for _, p := range paths {
+		orig, _ := os.ReadFile(p)
+		_ = os.WriteFile(p, append(orig, []byte("\ntampered\n")...), 0o644)
+	}
+
+	plan, err := claudeinstall.Install(target, false, fixedClock)
+	if err != nil {
+		t.Fatalf("second Install: %v", err)
+	}
+
+	// Collect all backup timestamps.
+	seen := map[string]bool{}
+	for _, fa := range plan {
+		if fa.Kind == claudeinstall.ActionUpdated && fa.BackupPath != "" {
+			// Extract the timestamp portion from the path.
+			// BackupPath: <target>/.atomic-backups/<timestamp>/<relpath>
+			rel := strings.TrimPrefix(fa.BackupPath, target)
+			parts := strings.Split(strings.TrimPrefix(rel, string(os.PathSeparator)), string(os.PathSeparator))
+			if len(parts) >= 2 {
+				seen[parts[1]] = true // parts[1] is the timestamp dir
+			}
+		}
+	}
+	if len(seen) != 1 {
+		t.Errorf("expected all updated actions to share one timestamp dir, got: %v", seen)
+	}
+	for ts := range seen {
+		if ts != "2026-05-16T18-32-11Z" {
+			t.Errorf("expected timestamp 2026-05-16T18-32-11Z, got %q", ts)
+		}
+	}
 }

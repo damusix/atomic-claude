@@ -3,6 +3,7 @@ package signals_test
 import (
 	"bytes"
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -665,23 +666,32 @@ func TestDiff_GitDiffPresent(t *testing.T) {
 	exec.Command("git", "-C", root, "add", ".").Run()
 	exec.Command("git", "-C", root, "commit", "-m", "initial").Run()
 
-	// Add a file and rescan — signals file changes.
-	os.WriteFile(filepath.Join(root, "new.go"), []byte("package main\n"), 0o644)
-	if err := signals.Scan(root); err != nil {
-		t.Fatalf("Scan second: %v", err)
+	// Directly modify the signals file to add a known marker line.
+	// This forces a diff that contains a '+' line with that marker.
+	const marker = "# test-diff-marker-line"
+	sigPath := signals.SignalsPath(root)
+	existing, err := os.ReadFile(sigPath)
+	if err != nil {
+		t.Fatalf("read signals file: %v", err)
+	}
+	modified := string(existing) + marker + "\n"
+	if err := os.WriteFile(sigPath, []byte(modified), 0o644); err != nil {
+		t.Fatalf("modify signals file: %v", err)
 	}
 
-	// Stage the new source but not the signals file — git diff should show the change.
+	// git diff should show the added marker line.
 	var out bytes.Buffer
-	err := signals.Diff(root, &out)
+	err = signals.Diff(root, &out)
 	if err != signals.ErrDiffPresent {
 		t.Errorf("expected ErrDiffPresent, got: %v", err)
 	}
 	if out.Len() == 0 {
 		t.Error("expected non-empty diff output on stdout")
 	}
-	if !strings.Contains(out.String(), "new.go") && !strings.Contains(out.String(), "deterministic-signals") {
-		t.Errorf("diff output missing expected content: %s", out.String())
+	// The diff body must contain a '+' line with the marker we added.
+	diffStr := out.String()
+	if !strings.Contains(diffStr, "+"+marker) {
+		t.Errorf("diff output does not contain expected '+' line with marker %q:\n%s", marker, diffStr)
 	}
 }
 
@@ -699,24 +709,58 @@ func TestDiff_MissingSignalsFile(t *testing.T) {
 
 var update = flag.Bool("update", false, "regenerate golden testdata fixtures")
 
+// fixedClock returns a deterministic time for golden tests.
+// All golden fixtures contain this exact timestamp as generated_at.
+var fixedClockTime = time.Date(2026, 5, 16, 18, 32, 11, 0, time.UTC)
+
+func fixedClockFn() time.Time { return fixedClockTime }
+
 // goldenTest scans a temp repo seeded from testdata/signals/<scenario>/repo/,
-// normalizes generated_at, and compares against testdata/signals/<scenario>/expected.md.
+// uses a fixed clock for generated_at, and compares against
+// testdata/signals/<scenario>/expected.md.
 // With -update, it writes the expected file instead of comparing.
 func goldenTest(t *testing.T, scenario string) {
 	t.Helper()
 
 	// Seed the temp repo from testdata fixture.
 	srcRepo := filepath.Join("testdata", "signals", scenario, "repo")
+
+	// repo/ must exist. An intentionally-empty repo must contain a .keep marker.
+	repoInfo, err := os.Stat(srcRepo)
+	if err != nil {
+		t.Fatalf("goldenTest: scenario %q is missing repo/ directory (expected at %s)", scenario, srcRepo)
+	}
+	if !repoInfo.IsDir() {
+		t.Fatalf("goldenTest: %s is not a directory", srcRepo)
+	}
+
 	root := t.TempDir()
 
 	// Copy all files from the scenario repo into the temp dir.
-	if entries, err := os.ReadDir(srcRepo); err == nil && len(entries) > 0 {
+	entries, readErr := os.ReadDir(srcRepo)
+	if readErr != nil {
+		t.Fatalf("read repo/: %v", readErr)
+	}
+	// Allow an empty repo/ only if it contains a .keep marker.
+	hasKeep := false
+	for _, e := range entries {
+		if e.Name() == ".keep" {
+			hasKeep = true
+		}
+	}
+	if len(entries) == 0 {
+		t.Fatalf("goldenTest: repo/ is empty with no .keep marker for scenario %q", scenario)
+	}
+	if len(entries) == 1 && hasKeep {
+		// Intentionally empty repo — don't copy .keep into the scan dir.
+	} else {
 		if err := copyDir(t, srcRepo, root); err != nil {
 			t.Fatalf("copy fixture: %v", err)
 		}
 	}
 
-	if err := signals.Scan(root); err != nil {
+	opts := &signals.Options{Clock: fixedClockFn}
+	if err := signals.ScanWithOptions(root, opts); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 	data, err := os.ReadFile(signals.SignalsPath(root))
@@ -724,7 +768,7 @@ func goldenTest(t *testing.T, scenario string) {
 		t.Fatalf("read signals file: %v", err)
 	}
 
-	got := normalizeGeneratedAt(string(data))
+	got := string(data)
 
 	expectedPath := filepath.Join("testdata", "signals", scenario, "expected.md")
 	if *update {
@@ -743,8 +787,43 @@ func goldenTest(t *testing.T, scenario string) {
 		t.Fatalf("read expected file %s: %v (run with -update to generate)", expectedPath, err)
 	}
 	if got != string(expected) {
-		t.Errorf("output mismatch for scenario %q.\nwant:\n%s\ngot:\n%s", scenario, expected, got)
+		t.Errorf("output mismatch for scenario %q:\n%s", scenario, diffSnippet(string(expected), got))
 	}
+}
+
+// diffSnippet produces a minimal unified-diff-style snippet for two strings.
+// Only changed lines are shown (no context lines). No external dependency.
+func diffSnippet(want, got string) string {
+	wantLines := strings.Split(want, "\n")
+	gotLines := strings.Split(got, "\n")
+
+	var sb strings.Builder
+	sb.WriteString("--- want\n+++ got\n")
+
+	max := len(wantLines)
+	if len(gotLines) > max {
+		max = len(gotLines)
+	}
+
+	for i := 0; i < max; i++ {
+		var w, g string
+		if i < len(wantLines) {
+			w = wantLines[i]
+		}
+		if i < len(gotLines) {
+			g = gotLines[i]
+		}
+		if w == g {
+			continue
+		}
+		if i < len(wantLines) {
+			fmt.Fprintf(&sb, "-%s\n", w)
+		}
+		if i < len(gotLines) {
+			fmt.Fprintf(&sb, "+%s\n", g)
+		}
+	}
+	return sb.String()
 }
 
 // copyDir recursively copies src into dst.
@@ -776,17 +855,6 @@ func TestGolden_EmptyRepo(t *testing.T) {
 
 func TestGolden_Multilang(t *testing.T) {
 	goldenTest(t, "multilang")
-}
-
-// normalizeGeneratedAt replaces the generated_at value with a placeholder.
-func normalizeGeneratedAt(s string) string {
-	lines := strings.Split(s, "\n")
-	for i, l := range lines {
-		if strings.HasPrefix(strings.TrimSpace(l), "generated_at:") {
-			lines[i] = "generated_at: NORMALIZED"
-		}
-	}
-	return strings.Join(lines, "\n")
 }
 
 // ---- U1: Tree glyph rendering ----

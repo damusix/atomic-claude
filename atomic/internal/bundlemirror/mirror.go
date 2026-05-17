@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -202,7 +201,6 @@ func mirrorFile(src, target, kind, bundleDir string) (Artifact, error) {
 
 // SHA256Hex returns the hex-encoded SHA256 of data. Exported for tests.
 func SHA256Hex(data []byte) string {
-	h := sha256.New()
-	_, _ = io.Copy(h, strings.NewReader(string(data)))
-	return hex.EncodeToString(h.Sum(nil))
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }

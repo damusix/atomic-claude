@@ -68,7 +68,7 @@ func TestAdd_RejectsEmptyBody(t *testing.T) {
 }
 
 // TestAdd_CollisionRetry verifies that if the target path already exists,
-// Add generates a non-colliding filename.
+// Add generates a non-colliding filename with the id suffix.
 func TestAdd_CollisionRetry(t *testing.T) {
 	root := t.TempDir()
 	dir := remindersDir(root)
@@ -94,6 +94,32 @@ func TestAdd_CollisionRetry(t *testing.T) {
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 2 {
 		t.Errorf("expected 2 files after collision, got %d", len(entries))
+	}
+
+	// Assert filename shapes: one plain <date>-<slug>.md and one <date>-<slug>-r????.md.
+	today := time.Now().UTC().Format("2006-01-02")
+	plainCount := 0
+	suffixCount := 0
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		// Plain: <date>-same-text.md (no extra -r segment)
+		// Suffixed: <date>-same-text-r<hex>.md
+		base := strings.TrimSuffix(name, ".md")
+		prefix := today + "-same-text"
+		if base == prefix {
+			plainCount++
+		} else if strings.HasPrefix(base, prefix+"-r") {
+			suffixCount++
+		}
+	}
+	if plainCount != 1 {
+		t.Errorf("expected 1 plain filename, got %d", plainCount)
+	}
+	if suffixCount != 1 {
+		t.Errorf("expected 1 suffixed filename (with -r????), got %d", suffixCount)
 	}
 }
 
@@ -148,8 +174,64 @@ func TestList_SortedByCreatedThenID(t *testing.T) {
 	}
 }
 
-// TestList_TruncatesLongBody verifies first-line truncation at 80 chars.
-func TestList_TruncatesLongBody(t *testing.T) {
+// TestList_TieBreakByID verifies that when two reminders share the same created
+// date, they are sorted by id ascending.
+func TestList_TieBreakByID(t *testing.T) {
+	root := t.TempDir()
+	dir := remindersDir(root)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Both files have the same created date; ids differ — r-aaa < r-zzz.
+	writeFixture(t, dir, "2026-05-16-alpha.md", "---\nid: r-zzz\ncreated: 2026-05-16\n---\n\nZeta reminder\n")
+	writeFixture(t, dir, "2026-05-16-beta.md", "---\nid: r-aaa\ncreated: 2026-05-16\n---\n\nAlpha reminder\n")
+
+	rows, err := reminder.List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+	// r-aaa < r-zzz → r-aaa should come first.
+	if rows[0].ID != "r-aaa" {
+		t.Errorf("first row should be r-aaa (id tie-break), got %q", rows[0].ID)
+	}
+	if rows[1].ID != "r-zzz" {
+		t.Errorf("second row should be r-zzz, got %q", rows[1].ID)
+	}
+}
+
+// TestAdd_FrontmatterKeyOrder verifies that Add writes id before created in the file.
+func TestAdd_FrontmatterKeyOrder(t *testing.T) {
+	root := t.TempDir()
+	_, err := reminder.Add(root, "check database indices")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	dir := remindersDir(root)
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(entries))
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, entries[0].Name()))
+	content := string(raw)
+
+	idIdx := strings.Index(content, "id:")
+	createdIdx := strings.Index(content, "created:")
+	if idIdx == -1 || createdIdx == -1 {
+		t.Fatalf("missing id or created in file:\n%s", content)
+	}
+	if idIdx > createdIdx {
+		t.Errorf("expected id: before created: in file:\n%s", content)
+	}
+}
+
+// TestList_PreviewIsRaw verifies that reminder.List returns the raw first body
+// line without truncation. Truncation is the rendering layer's responsibility
+// (hooks package truncates for display; main.go may truncate for its own output).
+func TestList_PreviewIsRaw(t *testing.T) {
 	root := t.TempDir()
 	dir := remindersDir(root)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -167,11 +249,9 @@ func TestList_TruncatesLongBody(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 	preview := rows[0].Preview
-	if len([]rune(preview)) > 81 { // 80 chars + ellipsis = 81
-		t.Errorf("preview too long (%d chars): %q", len([]rune(preview)), preview)
-	}
-	if !strings.HasSuffix(preview, "…") {
-		t.Errorf("preview should end with ellipsis, got %q", preview)
+	// Raw body is returned untruncated.
+	if preview != long {
+		t.Errorf("List should return raw body; got %q, want %q", preview, long)
 	}
 }
 

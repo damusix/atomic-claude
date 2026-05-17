@@ -205,11 +205,10 @@ func EmitOrdered(kvs []KV, body string) (string, error) {
 func anyToNode(v any) (*yaml.Node, error) {
 	switch val := v.(type) {
 	case string:
-		// No explicit tag: yaml.v3 emits plain scalars without quoting for
-		// normal strings. When the value is ambiguous (looks like a date,
-		// boolean, or number), yaml.v3 will quote it automatically. Using
-		// "!!str" here causes yaml.v3 to always quote date-like values such
-		// as "2026-05-16", which breaks human-readable frontmatter.
+		// No explicit tag: yaml.v3 emits plain scalars for normal strings.
+		// Setting TaggedStyle on the node (or using "!!str") forces yaml.v3 to
+		// add a style indicator (e.g. quoted output), which breaks human-readable
+		// date values like "2026-05-16". We let yaml.v3 pick the style.
 		return &yaml.Node{Kind: yaml.ScalarNode, Value: val}, nil
 	case map[string]any:
 		mapping := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}

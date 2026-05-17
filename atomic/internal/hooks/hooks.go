@@ -26,17 +26,22 @@ const (
 // If no reminders are pending, it returns an empty string (no-op for Claude).
 // now is the reference time used for relative date formatting (allows testing).
 func SessionStart(repoRoot string, now time.Time) (string, error) {
-	body, err := buildAdditionalContext(repoRoot, now)
+	// Call reminder.List once and pass rows to both the body builder and the
+	// age scan — avoids a second filesystem traversal.
+	rows, err := reminder.List(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 {
+		return "", nil
+	}
+
+	body, err := buildAdditionalContextFromRows(rows, now)
 	if err != nil {
 		return "", err
 	}
 	if body == "" {
 		return "", nil
-	}
-
-	rows, err := reminder.List(repoRoot)
-	if err != nil {
-		return "", err
 	}
 
 	payload := map[string]any{
@@ -49,14 +54,10 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 
 	// Check for old reminders (older than oldThresholdDay days).
 	oldestDays := 0
-	oldCount := 0
 	for _, r := range rows {
 		d, err := parseDateDays(r.Created, now)
 		if err != nil {
 			continue
-		}
-		if d > oldThresholdDay {
-			oldCount++
 		}
 		if d > oldestDays {
 			oldestDays = d
@@ -68,7 +69,6 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 			len(rows), oldestDays,
 		)
 	}
-	_ = oldCount
 
 	out, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -80,16 +80,16 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 // SessionStartText returns the plain-markdown version of the session-start
 // context (no JSON envelope). Returns empty string when no reminders exist.
 func SessionStartText(repoRoot string, now time.Time) (string, error) {
-	return buildAdditionalContext(repoRoot, now)
-}
-
-// buildAdditionalContext constructs the markdown body for the reminder list.
-// Returns "" when there are no reminders.
-func buildAdditionalContext(repoRoot string, now time.Time) (string, error) {
 	rows, err := reminder.List(repoRoot)
 	if err != nil {
 		return "", fmt.Errorf("hooks session-start: list reminders: %w", err)
 	}
+	return buildAdditionalContextFromRows(rows, now)
+}
+
+// buildAdditionalContextFromRows constructs the markdown body from pre-fetched rows.
+// Truncation of the preview is done here; reminder.List returns raw body lines.
+func buildAdditionalContextFromRows(rows []reminder.Row, now time.Time) (string, error) {
 	if len(rows) == 0 {
 		return "", nil
 	}
@@ -105,6 +105,7 @@ func buildAdditionalContext(repoRoot string, now time.Time) (string, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "## Pending reminders (%d)\n", total)
 	for _, r := range shown {
+		// Truncate the raw preview from the reminder package at the rendering layer.
 		preview := truncate(r.Preview, previewMaxLen)
 		ago := relativeAge(r.Created, now)
 		fmt.Fprintf(&sb, "- [%s] %s (created %s)\n", r.ID, preview, ago)
@@ -219,40 +220,6 @@ func Uninstall(repoRoot, scopeRoot string) error {
 	return unregisterFromSettings(sfPath, sp)
 }
 
-// registerInSettings adds the hook entry to settings.json if not already present.
-func registerInSettings(sfPath, scriptAbsPath string) error {
-	settings, raw, err := readSettings(sfPath)
-	if err != nil {
-		return err
-	}
-
-	// Check idempotency: look for existing entry with the same command.
-	if hasRegistration(settings, scriptAbsPath) {
-		return nil
-	}
-
-	// Build the new entry.
-	newEntry := map[string]any{
-		"matcher": ".*",
-		"hooks": []any{
-			map[string]any{
-				"type":    "command",
-				"command": scriptAbsPath,
-			},
-		},
-	}
-
-	// Ensure hooks key exists.
-	hooksMap := ensureHooksMap(settings)
-
-	// Append to SessionStart array.
-	ss, _ := hooksMap["SessionStart"].([]any)
-	hooksMap["SessionStart"] = append(ss, newEntry)
-	settings["hooks"] = hooksMap
-
-	return writeSettings(sfPath, settings, raw)
-}
-
 // hasRegistration returns true if settings already has a SessionStart entry
 // whose inner hooks[].command equals scriptPath.
 func hasRegistration(settings map[string]any, scriptAbsPath string) bool {
@@ -286,124 +253,22 @@ func hasRegistration(settings map[string]any, scriptAbsPath string) bool {
 	return false
 }
 
-// unregisterFromSettings removes the entry matching scriptAbsPath from settings.json.
-func unregisterFromSettings(sfPath, scriptAbsPath string) error {
-	settings, raw, err := readSettings(sfPath)
-	if err != nil {
-		return err
-	}
-
-	hooksMap, ok := settings["hooks"].(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	ss, ok := hooksMap["SessionStart"].([]any)
-	if !ok {
-		return nil
-	}
-
-	filtered := ss[:0]
-	for _, entry := range ss {
-		e, ok := entry.(map[string]any)
-		if !ok {
-			filtered = append(filtered, entry)
-			continue
-		}
-		inner, ok := e["hooks"].([]any)
-		if !ok {
-			filtered = append(filtered, entry)
-			continue
-		}
-		matched := false
-		for _, h := range inner {
-			hm, ok := h.(map[string]any)
-			if !ok {
-				continue
-			}
-			if hm["command"] == scriptAbsPath {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			filtered = append(filtered, entry)
-		}
-	}
-
-	if len(filtered) == 0 {
-		delete(hooksMap, "SessionStart")
-	} else {
-		hooksMap["SessionStart"] = filtered
-	}
-
-	if len(hooksMap) == 0 {
-		delete(settings, "hooks")
-	} else {
-		settings["hooks"] = hooksMap
-	}
-
-	return writeSettings(sfPath, settings, raw)
-}
-
-// readSettings reads settings.json if it exists, returning a parsed map and
-// the original raw bytes (used to detect malformed JSON). If the file does not
-// exist, returns an empty map and nil raw.
-func readSettings(sfPath string) (map[string]any, []byte, error) {
-	raw, err := os.ReadFile(sfPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return map[string]any{}, nil, nil
-		}
-		return nil, nil, fmt.Errorf("hooks: read settings.json: %w", err)
-	}
-
-	var settings map[string]any
-	if err := json.Unmarshal(raw, &settings); err != nil {
-		return nil, raw, malformedError(sfPath)
-	}
-	return settings, raw, nil
-}
-
-// writeSettings writes settings back to disk with 2-space indent.
-func writeSettings(sfPath string, settings map[string]any, _ []byte) error {
-	if err := os.MkdirAll(filepath.Dir(sfPath), 0o755); err != nil {
-		return fmt.Errorf("hooks: mkdir for settings.json: %w", err)
-	}
-	out, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return fmt.Errorf("hooks: marshal settings.json: %w", err)
-	}
-	if err := os.WriteFile(sfPath, append(out, '\n'), 0o644); err != nil {
-		return fmt.Errorf("hooks: write settings.json: %w", err)
-	}
-	return nil
-}
-
-// ensureHooksMap returns the hooks sub-map from settings, creating it if absent.
-func ensureHooksMap(settings map[string]any) map[string]any {
-	existing, ok := settings["hooks"].(map[string]any)
-	if !ok {
-		existing = map[string]any{}
-	}
-	return existing
-}
-
-// malformedError returns the error for a malformed settings.json, including the
-// manual-registration snippet the user can paste.
-func malformedError(sfPath string) error {
-	snippet := `{
+// malformedErrorWithScript returns an error for a malformed settings.json,
+// including the manual-registration snippet with the actual resolved script path
+// so the user can copy-paste it without manual substitution.
+func malformedErrorWithScript(sfPath, scriptAbsPath string) error {
+	snippet := fmt.Sprintf(`{
   "hooks": {
     "SessionStart": [
       {
         "matcher": ".*",
         "hooks": [
-          { "type": "command", "command": "<scope>/.claude/hooks/session-start-reminders.sh" }
+          { "type": "command", "command": %q }
         ]
       }
     ]
   }
-}`
+}`, scriptAbsPath)
 	return fmt.Errorf(
 		"hooks: %s contains malformed JSON; refusing to write.\n"+
 			"Add the following manually under the \"hooks\" key:\n%s",
