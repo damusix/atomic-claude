@@ -20,7 +20,19 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
 
 4. **Dispatch inferrer.** Spawn the `atomic-signals-inferrer` subagent via the `Agent` tool. The inferrer runs `atomic signals diff` internally to identify changed sections and updates only the dependent sections of `inferred-signals.md`. See the agent definition for the section dependency mapping.
 
-5. **Ensure `@-refs` in project `claude.md`.** If a `claude.md` exists at the repo root and does not already contain both `@.claude/project/deterministic-signals.md` and `@.claude/project/inferred-signals.md`, append:
+5. **Ensure `@-refs` are wired somewhere Claude auto-loads.** Check, in order, for an existing pair of refs (`@.claude/project/deterministic-signals.md` AND `@.claude/project/inferred-signals.md`) in any of:
+
+    - `claude.local.md` / `CLAUDE.local.md` (project-local, gitignored — preferred when present)
+    - `claude.md` / `CLAUDE.md` (committed project instructions)
+
+    If either pair is found in ANY of those files, the wiring is already done — skip this step entirely. Do not duplicate.
+
+    If no file contains the refs:
+
+    - If `claude.local.md` or `CLAUDE.local.md` exists, append the block to whichever exists (prefer `claude.local.md`). This handles repos that separate project-local refs from bundled/committed instructions (e.g. config-source repos where `claude.md` is the bundle input and must not carry project-specific paths).
+    - Else, append to `claude.md` / `CLAUDE.md` (whichever exists; create `claude.md` only if neither does and the repo has `.claude/project/`).
+
+    Block to append:
 
     ```markdown
 
@@ -32,10 +44,10 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
     @.claude/project/inferred-signals.md
     ```
 
-    Print the diff before writing. Confirmation rules:
+    Print the diff and the chosen target file before writing. Confirmation rules:
 
-    - Running non-interactively (e.g. inside `/commit-only`): append without confirmation.
-    - Running from `/initialize-signals`: ask via `AskUserQuestion` before writing.
+    - Running non-interactively (e.g. inside `/commit-only`, `/merge-to-main`, `/squash-and-merge`): append without confirmation.
+    - Running from `/initialize-signals`: ask via `AskUserQuestion` before writing, naming the target file.
 
 6. **Report.** Print one-line summary: `signals refreshed. <N> sections changed. inferrer updated <M> sections.` Suppress this line when invoked from a host command that requested silent mode (e.g. `/commit-only` step 4) — those flows already produce their own report.
 
@@ -64,6 +76,6 @@ This integration is implemented in `/commit-only` (CP S-4), not here.
 
 ## Boundaries
 
-- Never modifies files outside `.claude/project/` and the project's `claude.md`.
+- Never modifies files outside `.claude/project/` and whichever auto-loaded Claude instructions file the wiring step targets (`claude.local.md` / `CLAUDE.local.md` / `claude.md` / `CLAUDE.md`).
 - Never blocks a commit — if the scan fails, log and continue.
 - Silent in `/commit-only` context; interactive only when invoked from `/initialize-signals` or directly by the user.
