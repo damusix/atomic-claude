@@ -264,14 +264,20 @@ Proposed actions when missing:
 ### shipped — 2026-05-17
 
 
-Built across 5 implement→review iterations + 1 polish pass of `/subagent-implementation` on branch `cron-workflow`. Commits (chronological):
+Built across 5 implement→review iterations + 1 polish pass of `/subagent-implementation` on branch `cron-workflow`, then squash-merged to `main`.
 
-- `05e64df` — CP-1 `/remind-me` slash command
-- `be036ab` — CP-2 `/follow-up` slash command (bare + cron-fired modes)
-- (no commit) — CP-3 session-start hook: backend (`atomic hooks install/uninstall/session-start` + `atomic/internal/hooks/`) already shipped with full test coverage in prior work; no new artifact required
-- `474af97` — CP-4 `/atomic-setup` audit + propose additions for the hook
-- `24e4954` — CP-5 README + claude.md + CLAUDE.md doc additions; install URL canonicalized to `github.com/damusix/atomic-claude/atomic/cmd/atomic@latest`
-- `e088999` — polish pass: closes 6 reviewer follow-ups (wording precision in remind-me, follow-up, atomic-setup, README)
+**Squash commit on main:** `130427e` — `feat(cron-workflow): add /remind-me + /follow-up slash commands`.
+
+**Pre-squash iteration commits (chronological, on `cron-workflow` before rebase):**
+
+- CP-1 `/remind-me` slash command
+- CP-2 `/follow-up` slash command (bare + cron-fired modes)
+- CP-3 session-start hook: no-op — backend (`atomic hooks install/uninstall/session-start` + `atomic/internal/hooks/`) already shipped with full test coverage in prior work; no new artifact required
+- CP-4 `/atomic-setup` audit + propose additions for the hook
+- CP-5 README + claude.md + CLAUDE.md doc additions; install URL canonicalized to `github.com/damusix/atomic-claude/atomic/cmd/atomic@latest`
+- Polish pass: closes 6 reviewer follow-ups (wording precision in remind-me, follow-up, atomic-setup, README)
+
+Per-iteration SHAs were rewritten during the pre-merge rebase onto `main` and do not exist after squash. The squash diff captures all six.
 
 **Out-of-scope work performed during this build:**
 
@@ -280,7 +286,8 @@ Built across 5 implement→review iterations + 1 polish pass of `/subagent-imple
 **Unforeseens — surprises that emerged during implementation:**
 
 - CP-3 dissolved into a no-op: the binary side of the cron workflow (reminder add/list/show/rm, hooks install/uninstall/session-start, JWCC-tolerant settings.json mutation, 14 hooks tests) was already complete before this loop began. The spec's checkpoints assumed binary work was pending; in practice only the frontend (slash commands + docs + `/atomic-setup` audit) needed to ship.
+- During the pre-merge rebase onto `main`, a pre-existing local commit on `cron-workflow` (`b0a37f8` — `fix(bundlemirror): tolerate missing .claude/rules dir`) became obsolete. Main had since landed `e7eebeb` which moves bundle rules sourcing from `.claude/rules/` to repo-root `rules/`, making the tolerance check redundant. The commit was dropped during conflict resolution; main's version was taken verbatim.
 
 **Deferred items still open:**
 
-- None. All 7 follow-ups harvested during the loop were addressed or closed: F-1, F-2, F-3, F-4, F-6, F-7 closed by polish pass `e088999`; F-5 closed by CP-5 `24e4954`.
+- None. All 7 follow-ups harvested during the loop were addressed or closed before squash: F-1, F-2, F-3, F-4, F-6, F-7 by the polish pass; F-5 by CP-5.
