@@ -1,0 +1,7 @@
+.git
+.worktrees
+bin
+atomic/internal/embedded/bundle
+tmp
+node_modules
+.claude/.scratchpad

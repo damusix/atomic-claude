@@ -1,0 +1,12 @@
+services:
+  atomic-eval:
+    build:
+      context: .
+      args:
+        HOST_UID: "${HOST_UID:-1000}"
+    tty: true
+    stdin_open: true
+    working_dir: /workspace
+    volumes:
+      - ./tmp/workspace:/workspace
+      - ./tmp/claude-home:/home/atomic/.claude

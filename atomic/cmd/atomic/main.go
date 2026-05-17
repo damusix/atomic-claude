@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
+	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
@@ -38,6 +39,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  claude update  [--dry-run] [--target ~/.claude]  Update artifact bundle\n")
 		fmt.Fprintf(os.Stderr, "  claude list                                       List bundled artifacts\n")
 		fmt.Fprintf(os.Stderr, "  claude diff    [--target ~/.claude]               Diff bundle vs on-disk\n")
+		fmt.Fprintf(os.Stderr, "  docker init [--target ./atomic-docker] [--force]  Scaffold Docker eval environment\n")
 		fmt.Fprintf(os.Stderr, "  update [--check] [--channel stable|prerelease]   Self-update the atomic binary\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
@@ -100,6 +102,8 @@ func main() {
 		runHooks(args[1:], repoOverride)
 	case "claude":
 		runClaude(args[1:])
+	case "docker":
+		runDocker(args[1:])
 	case "update":
 		runUpdate(args[1:])
 	default:
@@ -415,6 +419,58 @@ func runSignals(args []string, repoOverride string) {
 	default:
 		fmt.Fprintf(os.Stderr, "atomic signals: unknown verb %q\n", verb)
 		os.Exit(1)
+	}
+}
+
+func runDocker(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic docker <init> [flags]\n")
+		os.Exit(2)
+	}
+
+	verb := args[0]
+	switch verb {
+	case "init":
+		fs := flag.NewFlagSet("docker init", flag.ContinueOnError)
+		var target string
+		var force bool
+		fs.StringVar(&target, "target", "./atomic-docker", "target directory for scaffolded files")
+		fs.BoolVar(&force, "force", false, "overwrite existing files")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+
+		absTarget, err := filepath.Abs(target)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic docker init: resolve target: %v\n", err)
+			os.Exit(1)
+		}
+
+		if version.Version == "dev" {
+			fmt.Fprintf(os.Stderr, "warning: atomic version is \"dev\" — generated Dockerfile pins ATOMIC_VERSION=dev which will fail at docker build. Use a released atomic binary or override with --version later.\n")
+		}
+
+		opts := dockerinit.Options{
+			TargetDir:     absTarget,
+			Force:         force,
+			AtomicVersion: version.Version,
+			HostUID:       os.Getuid(),
+		}
+
+		actions, err := dockerinit.Init(opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic docker init: %v\n", err)
+			os.Exit(1)
+		}
+
+		for _, a := range actions {
+			fmt.Printf("%-12s %s\n", string(a.Kind), a.Path)
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "atomic docker: unknown subcommand %q\n", verb)
+		fmt.Fprintf(os.Stderr, "Usage: atomic docker <init> [flags]\n")
+		os.Exit(2)
 	}
 }
 

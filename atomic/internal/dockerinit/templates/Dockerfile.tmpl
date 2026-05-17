@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1
+
+FROM node:22-bookworm-slim
+
+# UID of the host user; default 1000. Pass --build-arg HOST_UID=$(id -u) on
+# Linux to avoid root-owned files in ./tmp/ bind mounts.
+ARG HOST_UID={{.HostUID}}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git \
+        curl \
+        ca-certificates \
+        less \
+        tini && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code globally.
+RUN npm install -g @anthropic-ai/claude-code
+
+# Create a non-root user whose UID matches the host user.
+RUN groupadd --gid "${HOST_UID}" --non-unique atomic 2>/dev/null || true && \
+    useradd --uid "${HOST_UID}" --gid "${HOST_UID}" --non-unique \
+            -m -d /home/atomic -s /bin/bash atomic
+
+# Install the atomic binary via the official install script.
+ENV ATOMIC_INSTALL_DIR=/usr/local/bin
+ENV ATOMIC_VERSION={{.AtomicVersion}}
+RUN curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+# Create the workspace dir and hand it to the atomic user.
+RUN mkdir -p /workspace && chown atomic:atomic /workspace
+
+WORKDIR /workspace
+USER atomic
+
+ENTRYPOINT ["tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
+CMD ["claude"]

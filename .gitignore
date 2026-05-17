@@ -1,4 +1,11 @@
-tmp/
+# Throwaway scratch (kept gitignored), except for Docker eval scaffold dirs.
+tmp/*
+!tmp/workspace/
+tmp/workspace/*
+!tmp/workspace/.gitkeep
+!tmp/claude-home/
+tmp/claude-home/*
+!tmp/claude-home/.gitkeep
 .claude/.scratchpad/
 .worktrees/
 .claude/agents/
