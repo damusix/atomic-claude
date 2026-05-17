@@ -54,7 +54,7 @@ The `/subagent-implementation` flow deletes `.claude/.scratchpad/<YYYY-MM-DD>-<t
 
 1. Parse `$ARGUMENTS`. Detect whether the first token is a valid duration (`<n>(s|m|h|d|w)`, `<n>(months)`, or ISO date `YYYY-MM-DD`).
     - **Text missing entirely**: refuse with usage hint. No reminder created.
-    - **Duration missing, text present**: invoke `AskUserQuestion` with options `1h`, `1d`, `3d` (Recommended), `1w`. If the user picks one, use it. If the user declines, ignores, or "Other" with empty input → **default `3d`**. The default is intentional: a forgotten reminder is worse than a slightly-wrong duration.
+    - **Duration missing, text present**: invoke `AskUserQuestion` with options `3d` (Recommended), `1h`, `1d`, `1w`. The recommended option is listed first per the global `CLAUDE.md` convention for `AskUserQuestion`. If the user picks one, use it. If the user declines, ignores, or "Other" with empty input → **default `3d`**. The default is intentional: a forgotten reminder is worse than a slightly-wrong duration.
     - **Both present**: proceed.
 2. Compute `due = now + <duration>`. For day/week/month durations, the time component defaults to 09:00 local; for hour/second durations, use absolute time.
 3. Detect binary: `command -v atomic`.
@@ -354,7 +354,7 @@ Per-iteration SHAs were rewritten during the pre-merge rebase onto `main` and do
 - Added a second scheduling transport: cloud Routines (via the `schedule` skill / Anthropic-hosted infrastructure) alongside the existing session-scoped `CronCreate` path. Transport is chosen by duration: `< 1h` → cron (short, session-likely-alive), `>= 1h` → routine (durable across sessions).
 - Reminder frontmatter gains two fields: `due:` (ISO-8601 timestamp of when the reminder is past-due) and `transport:` (`cron` | `routine` | `none`). Both set at create-time; `due:` rewritten on snooze/reschedule.
 - The session-start hook now filters output to reminders where `now >= due` and prefixes each with a `should-remind-user: true` marker. Reminders not yet past-due stay silent. Reminders without a `due:` field (legacy) are treated as past-due to avoid losing them on the upgrade.
-- `/remind-me` no longer refuses when `<duration>` is missing. It invokes `AskUserQuestion` with options `1h` / `1d` / `3d` (Recommended) / `1w`. If the user declines or ignores, the duration defaults to `3d`.
+- `/remind-me` no longer refuses when `<duration>` is missing. It invokes `AskUserQuestion` with options `3d` (Recommended) / `1h` / `1d` / `1w`. If the user declines or ignores, the duration defaults to `3d`.
 - Transport unavailability is no longer an error. If `CronCreate` or `schedule`/Routines is missing, the file is written with `transport: none` and the hook is the only surface — silent degradation.
 - Binary additions: `atomic reminder add` gains `--due <iso>` and `--transport <kind>` flags; new subcommand `atomic reminder set-due <id> <iso>` for snooze/reschedule; `atomic hooks session-start` filters by `due`.
 
@@ -371,3 +371,13 @@ Live testing of `atomic update` v1.0.0 → v1.1.0 surfaced that `CronCreate` adv
 - *Refuse on missing duration.* Prior spec: "Parse `$ARGUMENTS` as `<duration> <text>`. Refuse if either is missing." New: missing duration prompts via `AskUserQuestion` and defaults to `3d`.
 - *Scheduling-tools-unavailable warning is an error path.* Prior spec printed an explicit "scheduling tools unavailable" warning. New: silent file-only degradation with `transport: none`; the hook handles past-due surfacing.
 - *Hook injects all reminders unconditionally.* Prior spec: hook script iterated every file in `reminders/` and dumped each one. New: hook filters by `due >= now`, prefixed with `should-remind-user: true`.
+
+
+### 2026-05-17 — Correction: `AskUserQuestion` option order
+
+
+**Correction:** The original v2 amendment listed the missing-duration prompt options as `1h` / `1d` / `3d` (Recommended) / `1w`. This violates the global `CLAUDE.md` convention that the recommended option must be listed first in `AskUserQuestion`. Corrected to `3d` (Recommended) / `1h` / `1d` / `1w`. How I know: reviewer of CP-3 caught the conflict between the spec body and the brief, which derived the order from the `CLAUDE.md` convention. The convention is the authoritative source for UI ordering across all atomic-claude slash commands; the spec body must align.
+
+**What changed:** Reordered `AskUserQuestion` options in `/remind-me` so `3d` (Recommended) is first, then `1h`, `1d`, `1w`. Default behavior on decline (`3d`) is unchanged.
+
+**Why:** Spec was inconsistent with a global convention. Aligning the spec body avoids a permanent contradiction that future implementers would have to re-discover.
