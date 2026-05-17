@@ -157,26 +157,35 @@ source: .claude/project/deterministic-signals.md
 <one line per detected framework with evidence>
 
 ## Build / test / lint commands
-<commands extracted from manifests, with source>
+<commands extracted from manifests / Makefile / CI, with source>
 
 ## Architectural style
-<monorepo? service-oriented? library? CLI? web app?>
+<monorepo? service-oriented? library? CLI? web app? two-layer? note key boundaries>
+
+## Domains
+<top-level functional areas — one line each, naming the directory and what it does>
+
+## Cross-references
+<key relationships: which package consumes which; where shared types live; embedded artifacts and their sources; entry points and their dispatch targets>
+
+## Security boundaries
+<auth surfaces, secret handling, untrusted input ingress, external network calls, file-system writes outside the repo>
 
 ## Conventions detected
-<test layout, source layout, lint config style>
+<test layout, source layout, naming, lint config, commit/release tooling>
 
 ## Risks / unknowns
-<things the deterministic file did not cover>
+<genuine gaps inference could not resolve — not things one targeted Read would answer>
 ```
 
 
 ### Rules
 
 
-- Read only the deterministic signals file plus any *manifests it cites* (package.json, Cargo.toml, etc.) for cross-reference. Do not crawl source code.
-- In incremental mode, read only the `atomic signals diff` output, plus the cited manifests for changed sections. Do not re-read the full deterministic file — token discipline is the whole point of the incremental path.
-- Every claim must cite evidence: a file path, a manifest key, a tree pattern. Unsourced claims are forbidden.
-- "Risks / unknowns" must be non-empty — every project has gaps, and surfacing them keeps the file honest.
+- **Full mode** (first run, or no prior inferred file): explore thoroughly. Read manifests, rule files, READMEs, entry points, and source per domain. Use Grep/Glob to map cross-references. **Collapsed directories in the deterministic tree** — those annotated `(N total items)` — are explicit instructions to expand and characterize, not optional. The inferred file lives across sessions; bias toward more exploration, not less.
+- **Incremental mode**: stay inside the diff. Read the `atomic signals diff` output, plus manifests cited by changed sections and new files introduced by tree changes. Do not re-read the full deterministic file or expand scope beyond what changed.
+- Every claim must cite evidence: a file path, a manifest key, a tree pattern, a grep result. Unsourced claims are forbidden.
+- **Risks / unknowns gate.** Before writing any Risks item, the agent must ask: "would one Read, Grep, or Glob resolve this?" If yes, do that instead. Banned phrasings include "not confirmed by direct read", "unclear whether", "mechanism not read", "likely … but unconfirmed", and "no X observed" when an `ls`/`find` would answer. A valid Risks item describes *what was tried and why it failed* — not "I didn't look." If no item meets this bar, write `None — repo is fully characterized within the inferred sections above.` The earlier "must be non-empty" rule is rescinded.
 - Never modify files outside `.claude/project/`.
 - Output is plain markdown. No prose padding, no hedging.
 - Always preserve untouched sections byte-identical. The only frontmatter field that updates without a corresponding section change is `generated_at`.

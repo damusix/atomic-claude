@@ -29,14 +29,18 @@ func buildMiniRepo(t *testing.T) string {
 	write("agents/non-atomic-agent.md", "should be excluded\n")
 
 	write("skills/atomic-tdd/SKILL.md", "# atomic-tdd\n")
+	write("skills/atomic-tdd/REFERENCE.md", "# reference\n")
+	write("skills/atomic-tdd/scripts/check.sh", "#!/bin/sh\necho ok\n")
 	write("skills/atomic-verify/SKILL.md", "# atomic-verify\n")
 	write("skills/non-atomic-skill/SKILL.md", "should be excluded\n")
+	write("skills/non-atomic-skill/scripts/leak.sh", "should be excluded\n")
 
 	write("output-styles/atomic.md", "# atomic output style\n")
 	write("output-styles/other.md", "should be excluded\n")
 
 	write("commands/commit-only.md", "# commit-only\n")
 	write("commands/atomic-plan.md", "# atomic-plan\n")
+	write("commands/brand-new-command.md", "# brand-new-command\n")
 	write("commands/_templates/something.md", "should be excluded\n")
 
 	write("rules/python/style.md", "# python style\n")
@@ -64,14 +68,17 @@ func TestRunBasic(t *testing.T) {
 	if counts["agent"] != 2 {
 		t.Errorf("agent count = %d, want 2", counts["agent"])
 	}
-	if counts["skill"] != 2 {
-		t.Errorf("skill count = %d, want 2", counts["skill"])
+	// atomic-tdd contributes 3 files (SKILL.md, REFERENCE.md, scripts/check.sh);
+	// atomic-verify contributes 1 (SKILL.md). Skill dirs ship as full subtrees.
+	if counts["skill"] != 4 {
+		t.Errorf("skill count = %d, want 4", counts["skill"])
 	}
 	if counts["output-style"] != 1 {
 		t.Errorf("output-style count = %d, want 1", counts["output-style"])
 	}
-	if counts["command"] != 2 {
-		t.Errorf("command count = %d, want 2", counts["command"])
+	// Every top-level .md in commands/ ships. No allowlist.
+	if counts["command"] != 3 {
+		t.Errorf("command count = %d, want 3", counts["command"])
 	}
 	if counts["rule"] != 2 {
 		t.Errorf("rule count = %d, want 2", counts["rule"])
@@ -93,6 +100,7 @@ func TestRunExclusions(t *testing.T) {
 	excluded := []string{
 		"agents/non-atomic-agent.md",
 		"skills/non-atomic-skill/SKILL.md",
+		"skills/non-atomic-skill/scripts/leak.sh",
 		"output-styles/other.md",
 		"commands/_templates/something.md",
 	}
@@ -141,10 +149,13 @@ func TestRunTargetPaths(t *testing.T) {
 		"agents/atomic-builder.md",
 		"agents/atomic-reviewer.md",
 		"skills/atomic-tdd/SKILL.md",
+		"skills/atomic-tdd/REFERENCE.md",
+		"skills/atomic-tdd/scripts/check.sh",
 		"skills/atomic-verify/SKILL.md",
 		"output-styles/atomic.md",
 		"commands/commit-only.md",
 		"commands/atomic-plan.md",
+		"commands/brand-new-command.md",
 		"rules/python/style.md",
 		"rules/typescript/style.md",
 		"CLAUDE.md",

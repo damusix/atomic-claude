@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-17T07:20:10Z
+generated_at: 2026-05-17T08:35:58Z
 atomic_version: 1.0.0
 ---
 # Deterministic signals
@@ -39,7 +39,7 @@ atomic_version: 1.0.0
 │   │   │   ├── install.go
 │   │   │   └── install_test.go
 │   │   ├── embedded/ (3)
-│   │   │   ├── bundle/ (6 subitems) (30 total items)
+│   │   │   ├── bundle/ (6 subitems) (36 total items)
 │   │   │   ├── bundle.go
 │   │   │   └── manifest.go
 │   │   ├── frontmatter/ (2)
@@ -78,7 +78,7 @@ atomic_version: 1.0.0
 │   ├── Makefile
 │   ├── go.mod
 │   └── go.sum
-├── commands/ (20)
+├── commands/ (21)
 │   ├── _templates/ (2)
 │   │   ├── implementer-prompt.md
 │   │   └── reviewer-prompt.md
@@ -95,6 +95,7 @@ atomic_version: 1.0.0
 │   ├── initialize-signals.md
 │   ├── merge-to-main.md
 │   ├── pr-only.md
+│   ├── refresh-signals.md
 │   ├── remind-me.md
 │   ├── report-issue.md
 │   ├── squash-and-merge.md
@@ -146,8 +147,8 @@ atomic_version: 1.0.0
 
 ## Languages
 
-- Markdown: 8976 LOC (49%), 80 files (68%)
-- Go: 8664 LOC (48%), 32 files (27%)
+- Markdown: 9910 LOC (52%), 87 files (70%)
+- Go: 8680 LOC (45%), 32 files (26%)
 - Shell: 246 LOC (1%), 2 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)

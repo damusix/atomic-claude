@@ -21,28 +21,6 @@ type Artifact struct {
 	SHA256 string
 }
 
-// CommandAllowlist is the explicit set of command filenames to include.
-// Commands are NOT included by prefix — this is the canonical list.
-var CommandAllowlist = map[string]bool{
-	"atomic-compress.md":         true,
-	"atomic-plan.md":             true,
-	"atomic-setup.md":            true,
-	"commit-and-merge.md":        true,
-	"commit-and-pr.md":           true,
-	"commit-and-squash.md":       true,
-	"commit-only.md":             true,
-	"documentation.md":           true,
-	"git-cleanup.md":             true,
-	"merge-to-main.md":           true,
-	"pr-only.md":                 true,
-	"refresh-signals.md":         true,
-	"report-issue.md":            true,
-	"squash-and-merge.md":        true,
-	"squash-only.md":             true,
-	"subagent-implementation.md": true,
-	"worktree-start.md":          true,
-}
-
 // Run walks repoRoot per the inclusion rules, copies matching files into
 // outDir/bundle/<target-path>, and returns the artifact list.
 func Run(repoRoot, outDir string) ([]Artifact, error) {
@@ -72,7 +50,9 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		artifacts = append(artifacts, a)
 	}
 
-	// skills/atomic-*/SKILL.md
+	// skills/atomic-*/** — full directory tree per matching skill. Skills may
+	// ship supporting files (scripts, references, sub-prompts) referenced via
+	// ${CLAUDE_SKILL_DIR}; bundling only SKILL.md would strip those.
 	skillsDir := filepath.Join(repoRoot, "skills")
 	skillEntries, err := os.ReadDir(skillsDir)
 	if err != nil {
@@ -82,16 +62,32 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		if !e.IsDir() || !strings.HasPrefix(e.Name(), "atomic-") {
 			continue
 		}
-		skillFile := filepath.Join(skillsDir, e.Name(), "SKILL.md")
-		if _, err := os.Stat(skillFile); os.IsNotExist(err) {
+		skillRoot := filepath.Join(skillsDir, e.Name())
+		if _, err := os.Stat(filepath.Join(skillRoot, "SKILL.md")); os.IsNotExist(err) {
 			continue
 		}
-		target := "skills/" + e.Name() + "/SKILL.md"
-		a, err := mirrorFile(skillFile, target, "skill", bundleDir)
+		err = filepath.WalkDir(skillRoot, func(path string, d fs.DirEntry, werr error) error {
+			if werr != nil {
+				return werr
+			}
+			if d.IsDir() {
+				return nil
+			}
+			rel, err := filepath.Rel(repoRoot, path)
+			if err != nil {
+				return err
+			}
+			target := filepath.ToSlash(rel)
+			a, err := mirrorFile(path, target, "skill", bundleDir)
+			if err != nil {
+				return err
+			}
+			artifacts = append(artifacts, a)
+			return nil
+		})
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("walk skill %s: %w", e.Name(), err)
 		}
-		artifacts = append(artifacts, a)
 	}
 
 	// output-styles/atomic*.md
@@ -113,14 +109,16 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		artifacts = append(artifacts, a)
 	}
 
-	// commands/ (explicit allowlist)
+	// commands/*.md — every top-level markdown file ships. Subdirectories
+	// (e.g. commands/_templates/) are intentionally skipped since Claude Code
+	// commands are single-file artifacts.
 	commandsDir := filepath.Join(repoRoot, "commands")
 	cmdEntries, err := os.ReadDir(commandsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read commands dir: %w", err)
 	}
 	for _, e := range cmdEntries {
-		if e.IsDir() || !CommandAllowlist[e.Name()] {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
 			continue
 		}
 		src := filepath.Join(commandsDir, e.Name())
