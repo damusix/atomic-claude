@@ -4,20 +4,23 @@
 This repo authors its artifacts at the top level (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`). Those are the shapes you'd copy into `~/.claude/` for install. But Claude Code only auto-loads artifacts from a project's `.claude/` directory, so editing a top-level file doesn't take effect in this repo's own session.
 
 
-`scripts/link-local.sh` closes that loop. It symlinks each top-level artifact dir into `.claude/`, so the repo dogfoods its own config:
+After cloning, run the one-shot setup:
 
 
-    ./scripts/link-local.sh
+    make dev-setup
 
 
-Idempotent (`ln -sfn`). Re-run any time you add a new agent, command, skill, output-style, or rule. The generated `.claude/{agents,commands,output-styles,skills,rules}/` symlinks are gitignored; they're machine-specific and exist only to make Claude Code load the work-in-progress sources.
+That target installs the git hooks (`make hooks`) and symlinks the top-level artifact directories into `.claude/` (`make link`) in a single shot. The link step closes the dogfooding loop — Claude Code only auto-loads artifacts from `.claude/`, so without the symlinks, editing a top-level file would not take effect in this repo's own session.
+
+
+`make link` runs `scripts/link-local.sh`. It is idempotent (`ln -sfn`). Re-run it any time you add a *new* file under `agents/`, `commands/`, `skills/<name>/`, `output-styles/`, or `rules/<lang>/`. Existing files stay linked through the directory symlink and need no extra step. The generated `.claude/{agents,commands,output-styles,skills,rules}/` symlinks are gitignored; they are machine-specific and exist only to make Claude Code load the work-in-progress sources.
 
 
 Workflow when adding or editing an artifact:
 
 
 1. Edit the source under `agents/`, `commands/`, `skills/<name>/`, `output-styles/`, or `rules/<lang>/`.
-2. Run `./scripts/link-local.sh` if you added a *new* file (existing files are already linked).
+2. Run `make link` if you added a *new* file (existing files are already linked).
 3. Restart Claude Code (or start a new session) to pick up the change.
 4. Test in this repo's session. That's the dogfood. If it doesn't feel right here, it won't feel right anywhere.
 

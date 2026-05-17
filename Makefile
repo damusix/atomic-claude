@@ -1,4 +1,4 @@
-.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall bundle
+.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall bundle link dev-setup
 
 .DEFAULT_GOAL := help
 
@@ -17,6 +17,12 @@ hooks-uninstall: ## Restore default git hooks path
 
 bundle: ## Regenerate the embedded artifact bundle (delegates to atomic/)
 	$(MAKE) -C atomic bundle
+
+link: ## Symlink root artifacts into .claude/ for dogfooding
+	./scripts/link-local.sh
+
+dev-setup: hooks link ## One-shot contributor setup: install git hooks + symlink .claude/
+	@echo "dev-setup complete. edit root artifacts; .claude/ mirrors them via symlink."
 
 docker-build: ## Build the eval image
 	docker compose build
