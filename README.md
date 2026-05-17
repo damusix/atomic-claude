@@ -83,6 +83,8 @@ For a project-scoped install instead of global: `atomic claude install --target 
 
 Refresh later: `atomic claude update`.
 
+The install also registers a `SessionStart` hook (`atomic hooks install`) that injects any pending reminders at session open — supplementing cron-fired surfacing for missed cron fires, post-7-day cron expiry, tool unavailability, and post-restart catchup.
+
 ### Manual install
 
 Download an archive from [GitHub Releases](https://github.com/damusix/atomic-claude/releases), verify with `shasum -c checksums.txt`, and move the `atomic` binary into any directory on your `$PATH`.
@@ -268,6 +270,8 @@ Switch by saying "atomic lite", "atomic full", or "atomic ultra". Security warni
 | `/merge-to-main` | Merge current branch into base, no squash. |
 | `/squash-only` | Squash all branch commits into one (no merge). |
 | `/squash-and-merge` | Squash-merge into base, delete branch. |
+| `/remind-me <duration> <text>` | Schedule a reminder. Writes a reminder file and creates a one-shot cron that fires `/follow-up due <id>` at the given time. Degrades to file-only if `CronCreate` is unavailable. |
+| `/follow-up [due <id>]` | Review pending reminders. Bare: indexed list + done/snooze/reschedule actions. Cron-fired: surfaces the specific reminder and waits for user response. |
 | `/documentation` | Update or create project docs (README, claude.md, docs/spec/, docs/design/) after significant changes. |
 | `/report-issue` | Open a GitHub issue via `gh`. Auto-detects bug report vs. feature request. |
 

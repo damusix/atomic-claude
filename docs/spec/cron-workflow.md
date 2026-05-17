@@ -256,3 +256,31 @@ Proposed actions when missing:
 | C-3 | Session-start hook script installable via `atomic hooks install`; manual fallback documented |
 | C-4 | `/atomic-setup` audit + propose flow updated |
 | C-5 | `claude.md` + `CLAUDE.md` + `README.md` updated to document cron workflow |
+
+
+## Implementation log
+
+
+### shipped — 2026-05-17
+
+
+Built across 5 implement→review iterations + 1 polish pass of `/subagent-implementation` on branch `cron-workflow`. Commits (chronological):
+
+- `05e64df` — CP-1 `/remind-me` slash command
+- `be036ab` — CP-2 `/follow-up` slash command (bare + cron-fired modes)
+- (no commit) — CP-3 session-start hook: backend (`atomic hooks install/uninstall/session-start` + `atomic/internal/hooks/`) already shipped with full test coverage in prior work; no new artifact required
+- `474af97` — CP-4 `/atomic-setup` audit + propose additions for the hook
+- `24e4954` — CP-5 README + claude.md + CLAUDE.md doc additions; install URL canonicalized to `github.com/damusix/atomic-claude/atomic/cmd/atomic@latest`
+- `e088999` — polish pass: closes 6 reviewer follow-ups (wording precision in remind-me, follow-up, atomic-setup, README)
+
+**Out-of-scope work performed during this build:**
+
+- Wrong install URL in `commands/atomic-setup.md` (`atomicclaudedev/atomic@latest`) discovered by CP-4 reviewer (F-5); corrected as part of CP-5's canonical-install-instructions roll-out across README, claude.md, atomic-setup.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- CP-3 dissolved into a no-op: the binary side of the cron workflow (reminder add/list/show/rm, hooks install/uninstall/session-start, JWCC-tolerant settings.json mutation, 14 hooks tests) was already complete before this loop began. The spec's checkpoints assumed binary work was pending; in practice only the frontend (slash commands + docs + `/atomic-setup` audit) needed to ship.
+
+**Deferred items still open:**
+
+- None. All 7 follow-ups harvested during the loop were addressed or closed: F-1, F-2, F-3, F-4, F-6, F-7 closed by polish pass `e088999`; F-5 closed by CP-5 `24e4954`.
