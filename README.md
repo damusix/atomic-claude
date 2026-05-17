@@ -160,6 +160,7 @@ The push-without-PR verbs (`/commit-and-push`, `/push-only`) are the trunk-based
 Shared behavior across the family:
 
 - Commit messages delegate to the `atomic-commit` skill; PR bodies to `atomic-review`.
+- **Session-report consumption.** The seven commit-message-generating verbs (`/commit-only`, `/commit-and-pr`, `/commit-and-push`, `/commit-and-merge`, `/commit-and-squash`, `/squash-only`, `/squash-and-merge`) read any `.claude/.scratchpad/session-reports/<branch>/*.md` written by `/session-report` and feed the *why* into the commit message. The reports dir is deleted after a successful commit so future work on the same branch starts clean.
 - **Signals stay fresh automatically.** `/commit-only` invokes the `atomic-signals` skill (silent mode) when the staged diff touches source files. `/merge-to-main`, `/squash-only`, and `/squash-and-merge` run a post-op refresh as defense in depth against history that bypassed `/commit-only`. The compound `commit-and-*` verbs inherit the refresh by delegating to `/commit-only`. Only `/pr-only` skips it (working tree must already be clean). You rarely need to run `/refresh-signals` by hand.
 - Merge and squash verbs invoke `atomic-verify` before touching base, re-run tests on the merged tip, and prompt to delete the worktree if the branch came from `.worktrees/`.
 - On significant changes (new file, removed file, public-API change, dependency change), each verb prints a one-line reminder to run `/documentation` so README, `CLAUDE.md`, and `docs/spec/` stay in sync.
@@ -194,6 +195,7 @@ Five enduring axioms shape the system: cohesion-bounded scope, memory over confi
 | `docs/reference/` | Commands, skills, agents, output-style, workflow, signals, conventions. |
 | `.worktrees/<branch>/` | Isolated worktree per feature branch. Gitignored. |
 | `.claude/.scratchpad/<date>-<desc>/` | Working memory for `/subagent-implementation`. LLM-only, gitignored, ephemeral. |
+| `.claude/.scratchpad/session-reports/<branch>/` | Per-branch session reports from `/session-report`. Consumed by the next commit-message-generating ship verb, then deleted. |
 | `.claude/rules/<lang>/*.md` | Path-scoped instructions, glob-gated. |
 | `tmp/` | Throwaway experiments, ad-hoc test scripts. |
 

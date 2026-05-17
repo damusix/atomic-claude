@@ -67,6 +67,18 @@ Diff: breaking API change
 
 Always include body for: breaking changes, security fixes, data migrations, anything reverting a prior commit. Never compress these into subject-only — future debuggers need the context.
 
+## Supplemental input: session reports
+
+When the invoking ship verb passes session-report content (markdown files from `.claude/.scratchpad/session-reports/<branch>/`), treat it as **why-context** for the message. The diff still drives *what*; the reports drive *why*. Specifically:
+
+- Read the report bodies in chronological order.
+- Pull the "Why" sections into the commit body when the reasoning is non-obvious from the diff.
+- Pull the "Open threads" sections forward only if they describe a known limitation worth recording (rare).
+- Do not paste the reports verbatim. Compress to fit the Body rules above (wrap at 72, bullets, no fluff).
+- Reports describing rejected alternatives belong in the body when the chosen path is non-obvious.
+
+If no reports are passed in, behave as before — diff alone drives synthesis.
+
 ## Boundaries
 
-Generates the commit message only. Does not run `git commit`, does not stage files, does not amend. Output the message as a code block ready to paste.
+Generates the commit message only. Does not run `git commit`, does not stage files, does not amend, does not read or delete session-report files (that is the invoking ship verb's job). Output the message as a code block ready to paste.

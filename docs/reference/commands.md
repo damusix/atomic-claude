@@ -30,3 +30,4 @@
 | `/report-issue-with-atomic` | Open a GitHub issue against the **atomic-claude repo itself** (`damusix/atomic-claude`). For bugs or feature requests with the installed config, not the user's current project. |
 | `/watch-ci [<target>]` | Spawn a background Haiku subagent to watch CI for the current branch/PR/run. Provider auto-detected from signals. |
 | `/atomic-claude-merge` | Merge `~/.claude/CLAUDE.md.atomic-proposed` (produced by `atomic claude install/update`) into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent. |
+| `/session-report [<slug>]` | Capture what changed and why for the current branch's session. Writes a timestamped markdown file to `.claude/.scratchpad/session-reports/<branch>/`. Read by the next commit-message-generating ship verb as supplemental *why*-context, then deleted. Opt-in; does not auto-fire. |
