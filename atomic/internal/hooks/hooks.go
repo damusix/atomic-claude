@@ -26,8 +26,8 @@ const (
 // If no reminders are pending, it returns an empty string (no-op for Claude).
 // now is the reference time used for relative date formatting (allows testing).
 func SessionStart(repoRoot string, now time.Time) (string, error) {
-	// Call reminder.List once and pass rows to both the body builder and the
-	// age scan — avoids a second filesystem traversal.
+	// Call reminder.List once and filter to past-due immediately so both the
+	// body builder and the systemMessage count use the same surfaced set.
 	rows, err := reminder.List(repoRoot)
 	if err != nil {
 		return "", err
@@ -36,7 +36,9 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 		return "", nil
 	}
 
-	body, err := buildAdditionalContextFromRows(rows, now)
+	pastDue := filterPastDue(rows, now)
+
+	body, err := buildBodyFromPastDue(pastDue, now)
 	if err != nil {
 		return "", err
 	}
@@ -52,9 +54,10 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 		"suppressOutput": true,
 	}
 
-	// Check for old reminders (older than oldThresholdDay days).
+	// Check for old reminders (older than oldThresholdDay days) among the
+	// surfaced (past-due) set only — systemMessage warns about what Claude sees.
 	oldestDays := 0
-	for _, r := range rows {
+	for _, r := range pastDue {
 		d, err := parseDateDays(r.Created, now)
 		if err != nil {
 			continue
@@ -66,7 +69,7 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 	if oldestDays > oldThresholdDay {
 		payload["systemMessage"] = fmt.Sprintf(
 			"%d reminders pending, oldest is %d days old",
-			len(rows), oldestDays,
+			len(pastDue), oldestDays,
 		)
 	}
 
@@ -87,18 +90,79 @@ func SessionStartText(repoRoot string, now time.Time) (string, error) {
 	return buildAdditionalContextFromRows(rows, now)
 }
 
-// buildAdditionalContextFromRows constructs the markdown body from pre-fetched rows.
-// Truncation of the preview is done here; reminder.List returns raw body lines.
-func buildAdditionalContextFromRows(rows []reminder.Row, now time.Time) (string, error) {
-	if len(rows) == 0 {
+// buildBodyFromPastDue constructs the markdown body from an already-filtered
+// past-due slice. Applies the 10-item cap.
+func buildBodyFromPastDue(pastDue []reminder.Row, now time.Time) (string, error) {
+	if len(pastDue) == 0 {
 		return "", nil
 	}
 
-	total := len(rows)
-	shown := rows
+	total := len(pastDue)
+	shown := pastDue
 	overflow := 0
 	if total > maxReminders {
-		shown = rows[:maxReminders]
+		shown = pastDue[:maxReminders]
+		overflow = total - maxReminders
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "## Pending reminders (%d)\n", total)
+	for _, r := range shown {
+		preview := truncate(r.Preview, previewMaxLen)
+		ago := relativeAge(r.Created, now)
+		fmt.Fprintf(&sb, "- [%s] should-remind-user: true — %s (created %s)\n", r.ID, preview, ago)
+	}
+	if overflow > 0 {
+		fmt.Fprintf(&sb, "- (and %d more)\n", overflow)
+	}
+
+	return strings.TrimRight(sb.String(), "\n"), nil
+}
+
+// filterPastDue returns only the rows that are past-due relative to now.
+// A row is past-due when:
+//   - Due is empty (legacy reminder — no due field): surface to avoid silent loss.
+//   - Due parses as RFC3339 and now >= due.
+//   - Due is present but cannot be parsed: surface defensively and log to stderr.
+func filterPastDue(rows []reminder.Row, now time.Time) []reminder.Row {
+	out := make([]reminder.Row, 0, len(rows))
+	for _, r := range rows {
+		if r.Due == "" {
+			// Legacy reminder — treat as past-due.
+			out = append(out, r)
+			continue
+		}
+		due, err := time.Parse(time.RFC3339, r.Due)
+		if err != nil {
+			// Malformed due value — surface defensively.
+			fmt.Fprintf(os.Stderr, "hooks: reminder %q has malformed due %q: %v; treating as past-due\n", r.ID, r.Due, err)
+			out = append(out, r)
+			continue
+		}
+		if !now.Before(due) {
+			// now >= due: past-due.
+			out = append(out, r)
+		}
+		// now < due: not yet past-due — silent.
+	}
+	return out
+}
+
+// buildAdditionalContextFromRows constructs the markdown body from pre-fetched rows.
+// Filters to past-due reminders first; applies the 10-item cap to that filtered set.
+// Each reminder bullet is prefixed with "should-remind-user: true" so Claude can
+// distinguish reminder context from other injected context.
+func buildAdditionalContextFromRows(rows []reminder.Row, now time.Time) (string, error) {
+	pastDue := filterPastDue(rows, now)
+	if len(pastDue) == 0 {
+		return "", nil
+	}
+
+	total := len(pastDue)
+	shown := pastDue
+	overflow := 0
+	if total > maxReminders {
+		shown = pastDue[:maxReminders]
 		overflow = total - maxReminders
 	}
 
@@ -108,7 +172,7 @@ func buildAdditionalContextFromRows(rows []reminder.Row, now time.Time) (string,
 		// Truncate the raw preview from the reminder package at the rendering layer.
 		preview := truncate(r.Preview, previewMaxLen)
 		ago := relativeAge(r.Created, now)
-		fmt.Fprintf(&sb, "- [%s] %s (created %s)\n", r.ID, preview, ago)
+		fmt.Fprintf(&sb, "- [%s] should-remind-user: true — %s (created %s)\n", r.ID, preview, ago)
 	}
 	if overflow > 0 {
 		fmt.Fprintf(&sb, "- (and %d more)\n", overflow)

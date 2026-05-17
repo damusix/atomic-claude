@@ -284,6 +284,320 @@ func TestSessionStart_AgoBuckets(t *testing.T) {
 	}
 }
 
+// addReminderWithDue writes a reminder with an explicit due timestamp.
+// If daysAgo > 0 it also backdates the created field by that many days.
+func addReminderWithDue(t *testing.T, root, body string, daysOffset int, daysAgo int) string {
+	t.Helper()
+	due := time.Now().UTC().AddDate(0, 0, daysOffset).Format(time.RFC3339)
+	id, err := reminder.Add(root, body, reminder.WithDue(due))
+	if err != nil {
+		t.Fatalf("addReminderWithDue: Add: %v", err)
+	}
+	if daysAgo > 0 {
+		dir := filepath.Join(root, ".claude", ".scratchpad", "reminders")
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatalf("addReminderWithDue: ReadDir: %v", err)
+		}
+		target := time.Now().UTC().AddDate(0, 0, -daysAgo).Format("2006-01-02")
+		today := time.Now().UTC().Format("2006-01-02")
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+				continue
+			}
+			p := filepath.Join(dir, e.Name())
+			raw, _ := os.ReadFile(p)
+			content := string(raw)
+			if !strings.Contains(content, "id: "+id) {
+				continue
+			}
+			patched := strings.Replace(content, "created: "+today, "created: "+target, 1)
+			os.WriteFile(p, []byte(patched), 0o644)
+			return id
+		}
+		t.Fatalf("addReminderWithDue: could not find file for id %q", id)
+	}
+	return id
+}
+
+// patchDueField rewrites the due: line in the reminder file for the given id
+// to an arbitrary string (including malformed values).
+func patchDueField(t *testing.T, root, id, dueValue string) {
+	t.Helper()
+	dir := filepath.Join(root, ".claude", ".scratchpad", "reminders")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("patchDueField: ReadDir: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		raw, _ := os.ReadFile(p)
+		content := string(raw)
+		if !strings.Contains(content, "id: "+id) {
+			continue
+		}
+		// Replace the due line.
+		lines := strings.Split(content, "\n")
+		for i, l := range lines {
+			if strings.HasPrefix(l, "due: ") {
+				lines[i] = "due: " + dueValue
+			}
+		}
+		os.WriteFile(p, []byte(strings.Join(lines, "\n")), 0o644)
+		return
+	}
+	t.Fatalf("patchDueField: could not find file for id %q", id)
+}
+
+// --- Past-due filter tests ---
+
+func TestSessionStart_FutureDue_Silent(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	// Reminder due 1 day in the future — must not appear.
+	addReminderWithDue(t, root, "future reminder should be silent", +1, 0)
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out != "" {
+		t.Errorf("expected empty output for future-due reminder, got %q", out)
+	}
+}
+
+func TestSessionStart_PastDue_InOutput(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	// Reminder due 1 day in the past — must appear with marker.
+	addReminderWithDue(t, root, "past due reminder", -1, 0)
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output for past-due reminder")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+	if !strings.Contains(ctx, "past due reminder") {
+		t.Errorf("past-due reminder missing from context: %q", ctx)
+	}
+	if !strings.Contains(ctx, "should-remind-user: true") {
+		t.Errorf("should-remind-user marker missing from context: %q", ctx)
+	}
+}
+
+func TestSessionStart_LegacyNoDue_InOutput(t *testing.T) {
+	// Legacy reminder with no due field must be treated as past-due.
+	root := t.TempDir()
+	now := time.Now().UTC()
+	addReminderWithDate(t, root, "legacy reminder no due field", 0)
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output for legacy reminder (no due field)")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+	if !strings.Contains(ctx, "legacy reminder no due field") {
+		t.Errorf("legacy reminder missing from context: %q", ctx)
+	}
+	if !strings.Contains(ctx, "should-remind-user: true") {
+		t.Errorf("should-remind-user marker missing from context for legacy reminder: %q", ctx)
+	}
+}
+
+func TestSessionStart_MalformedDue_InOutput(t *testing.T) {
+	// Malformed due value (non-parseable) must surface the reminder defensively.
+	// Use addReminderWithDue so the file actually has a due: field, then corrupt
+	// it — this exercises the parse-error branch in filterPastDue, not the
+	// legacy Due=="" branch.
+	root := t.TempDir()
+	now := time.Now().UTC()
+	id := addReminderWithDue(t, root, "malformed due reminder", -1, 0)
+	// Overwrite the valid due value with a non-parseable string.
+	patchDueField(t, root, id, "not-a-valid-iso")
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output for malformed-due reminder")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+	if !strings.Contains(ctx, "malformed due reminder") {
+		t.Errorf("malformed-due reminder missing from context: %q", ctx)
+	}
+	if !strings.Contains(ctx, "should-remind-user: true") {
+		t.Errorf("should-remind-user marker missing for malformed-due reminder: %q", ctx)
+	}
+}
+
+// TestSessionStart_OldReminder_SystemMessage_CountsOnlySurfaced verifies that
+// systemMessage reports the count of *surfaced* (past-due) reminders, not the
+// total stored count. A user with 1 old past-due + 5 future reminders should
+// see "1 reminders pending", not "6 reminders pending".
+func TestSessionStart_OldReminder_SystemMessage_CountsOnlySurfaced(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	// One old past-due reminder (legacy, no due field) — old enough to trigger systemMessage.
+	addReminderWithDate(t, root, "old past due reminder", 15)
+	// Five future reminders — must not appear and must not count in systemMessage.
+	for i := range 5 {
+		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future silent", +1, 0)
+	}
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+
+	sm, ok := payload["systemMessage"].(string)
+	if !ok || sm == "" {
+		t.Fatalf("expected systemMessage for old reminder, got %v", payload["systemMessage"])
+	}
+	// Must report 1 (surfaced count), not 6 (total count).
+	if strings.Contains(sm, "6 reminders") {
+		t.Errorf("systemMessage over-counts (includes future reminders): %q", sm)
+	}
+	if !strings.Contains(sm, "1 reminders pending") && !strings.Contains(sm, "1 reminder pending") {
+		t.Errorf("systemMessage should report 1 surfaced reminder, got: %q", sm)
+	}
+}
+
+func TestSessionStart_MixedDue_OnlyPastDue(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	// Past-due: should appear.
+	addReminderWithDue(t, root, "past due visible", -2, 0)
+	// Future: should be silent.
+	addReminderWithDue(t, root, "future silent", +2, 0)
+	// Legacy (no due): should appear.
+	addReminderWithDate(t, root, "legacy visible", 0)
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+
+	if !strings.Contains(ctx, "past due visible") {
+		t.Errorf("past-due reminder missing: %q", ctx)
+	}
+	if !strings.Contains(ctx, "legacy visible") {
+		t.Errorf("legacy reminder missing: %q", ctx)
+	}
+	if strings.Contains(ctx, "future silent") {
+		t.Errorf("future reminder must be silent but appeared: %q", ctx)
+	}
+}
+
+func TestSessionStart_CapAppliedToPastDueSet(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	// 12 past-due reminders.
+	for i := range 12 {
+		addReminderWithDue(t, root, strings.Repeat("p", i+1)+" past due", -1, 0)
+	}
+	// 5 future reminders — must not appear and must not count against cap.
+	for i := range 5 {
+		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future", +1, 0)
+	}
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+
+	// Header shows count of past-due only (12), not total (17).
+	if !strings.Contains(ctx, "Pending reminders (12)") {
+		t.Errorf("header should show past-due count 12, not total 17: %q", ctx)
+	}
+	// Cap applies: 10 bullets shown, 2 overflow line.
+	if !strings.Contains(ctx, "(and 2 more)") {
+		t.Errorf("expected '(and 2 more)' overflow line: %q", ctx)
+	}
+	lines := strings.Split(ctx, "\n")
+	bulletCount := 0
+	for _, l := range lines {
+		if strings.HasPrefix(l, "- [") {
+			bulletCount++
+		}
+	}
+	if bulletCount != 10 {
+		t.Errorf("expected 10 reminder bullets, got %d", bulletCount)
+	}
+	// Future reminders must not appear.
+	if strings.Contains(ctx, "future") {
+		t.Errorf("future reminders must not appear in output: %q", ctx)
+	}
+}
+
+func TestSessionStartText_PastDueFilter(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	addReminderWithDue(t, root, "past due text check", -1, 0)
+	addReminderWithDue(t, root, "future text silent", +1, 0)
+
+	out, err := hooks.SessionStartText(root, now)
+	if err != nil {
+		t.Fatalf("SessionStartText: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty text output")
+	}
+	if !strings.Contains(out, "past due text check") {
+		t.Errorf("past-due reminder missing from text: %q", out)
+	}
+	if strings.Contains(out, "future text silent") {
+		t.Errorf("future reminder must be silent in text: %q", out)
+	}
+	if !strings.Contains(out, "should-remind-user: true") {
+		t.Errorf("should-remind-user marker missing from text output: %q", out)
+	}
+}
+
 // --- Install tests ---
 
 func TestInstall_EmptyDir_CreatesScriptAndSettings(t *testing.T) {
