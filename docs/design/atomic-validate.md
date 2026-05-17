@@ -10,7 +10,7 @@
 - A spec missing the `## Checkpoints` section.
 - A command referencing a `subagent_type:` that doesn't resolve to any agent file.
 - A skill description that lacks trigger phrases.
-- A `claude.md` agent registry that names agents not in `agents/`.
+- A `CLAUDE.md` agent registry that names agents not in `agents/`.
 - A `docs/spec/<topic>.md` missing the `## Change log` section the project mandates.
 
 
@@ -46,8 +46,8 @@ Distinct from `atomic doctor` (see `docs/design/atomic-doctor.md`). `doctor` = w
 |-----------|-------------------|---------|
 | `atomic validate spec [paths...]` | `docs/spec/*.md` has required sections | Markdown structure |
 | `atomic validate design [paths...]` | `docs/design/*.md` has required sections | Markdown structure |
-| `atomic validate config` | Cross-references resolve | `claude.md` + `agents/` + `commands/` + `skills/` |
-| `atomic validate bundle` | Bundle source matches generated manifest | `agents/` + `commands/` + `skills/` + `output-styles/` + `rules/` + `claude.md` |
+| `atomic validate config` | Cross-references resolve | `CLAUDE.md` + `agents/` + `commands/` + `skills/` |
+| `atomic validate bundle` | Bundle source matches generated manifest | `agents/` + `commands/` + `skills/` + `output-styles/` + `rules/` + `CLAUDE.md` |
 | `atomic validate followups` | `.claude/project/followups.md` entries well-formed | followups.md |
 | `atomic validate` (no args) | All of the above on the whole repo | Whole repo |
 
@@ -91,11 +91,11 @@ Design is exploratory — looser rules than spec. The required sections are prob
 
 | # | Rule | Severity |
 |---|------|----------|
-| C1 | Every agent in `claude.md` "Subagents available for dispatch" list exists at `agents/<name>.md` | FAIL |
-| C2 | Every agent in `agents/*.md` (with `atomic-` prefix) appears in `claude.md` registry | WARN |
+| C1 | Every agent in `CLAUDE.md` "Subagents available for dispatch" list exists at `agents/<name>.md` | FAIL |
+| C2 | Every agent in `agents/*.md` (with `atomic-` prefix) appears in `CLAUDE.md` registry | WARN |
 | C3 | Every `subagent_type: "<name>"` in `commands/*.md` resolves to `agents/<name>.md` (or is a built-in like `general-purpose`) | FAIL |
 | C4 | Every skill name in `commands/*.md` (search for `` `<name>` skill ``) resolves to `skills/<name>/SKILL.md` | FAIL |
-| C5 | Every `@-ref` in `claude.md`, `claude.local.md`, `CLAUDE.md`, `CLAUDE.local.md` resolves to an existing file | FAIL |
+| C5 | Every `@-ref` in `CLAUDE.md`, `claude.local.md`, `CLAUDE.md`, `CLAUDE.local.md` resolves to an existing file | FAIL |
 | C6 | No skill description claims `/atomic-<name>` invocation without `user-invocable: true` in frontmatter | WARN |
 | C7 | No duplicate `name:` across `agents/*.md` | FAIL |
 | C8 | No duplicate skill name across `skills/*/SKILL.md` | FAIL |
@@ -136,8 +136,8 @@ For `.claude/project/followups.md` (when present):
 atomic validate config — referential integrity
 
 [1] FAIL  C3  commands/foo.md:42  subagent_type "bar" — no agents/bar.md
-[2] FAIL  C5  claude.md:118       @-ref .claude/missing.md does not resolve
-[3] WARN  C2  agents/atomic-experimental.md not in claude.md registry
+[2] FAIL  C5  CLAUDE.md:118       @-ref .claude/missing.md does not resolve
+[3] WARN  C2  agents/atomic-experimental.md not in CLAUDE.md registry
 
 0 PASS, 1 WARN, 2 FAIL. exit 1.
 ```

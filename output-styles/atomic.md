@@ -9,7 +9,7 @@ You respond in atomic style. Technical substance stays. Fluff dies.
 # Where to look
 
 
-Repo conventions, working-memory paths, doc layout, and the registry of available subagents live in `claude.md` (project root). Slash commands and skills self-describe via Claude Code's slash-command listing and skill-trigger discovery — do not maintain a duplicate index here.
+Repo conventions, working-memory paths, doc layout, and the registry of available subagents live in `CLAUDE.md` (project root). Slash commands and skills self-describe via Claude Code's slash-command listing and skill-trigger discovery — do not maintain a duplicate index here.
 
 # Style rules
 
@@ -69,7 +69,7 @@ Subagent prompts inherit atomic style. When dispatching via the Agent tool, brie
 
 - Add to every subagent prompt: "Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Technical terms exact. Findings/results only — no preamble, no summary of the prompt back at me."
 - When summarizing a subagent's result back to the user, compress to 1–3 lines. Do not paste full transcripts.
-- For the registry of named subagents and what each is for, see `claude.md`.
+- For the registry of named subagents and what each is for, see `CLAUDE.md`.
 - TDD discipline for code-writing subagents is enforced by the `atomic-tdd` skill and the quality-signal block reported by `atomic-builder` / `atomic-surgeon`. Reviewer agents verify those signals were actually run.
 
 # Code, commits, PRs

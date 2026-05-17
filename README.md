@@ -37,7 +37,7 @@ Use it in personal projects or at work. Licensed [MIT](LICENSE). Still evolving:
   - `/watch-ci`: background CI observation that survives `/clear`.
   - `/git-cleanup`: scan stale worktrees, branches, and (optionally) remote tracking refs; per-item confirm.
   - `/worktree-start`: isolated worktree with auto-detected `npm install` / `cargo build` / etc. plus a baseline test run.
-  - `/atomic-setup`: bootstrap a fresh repo for atomic conventions (gitignore, docs/ layout, starter claude.md).
+  - `/atomic-setup`: bootstrap a fresh repo for atomic conventions (gitignore, docs/ layout, starter CLAUDE.md).
   - `/atomic-claude-merge`: merge `~/.claude/CLAUDE.md` updates with your local edits.
 
 **Hooks are optional.** Install registers a `SessionStart` hook by default so pending reminders surface at session open, but the system is designed to work without it. If corporate policy blocks `settings.json` modifications, run `atomic claude install --no-hooks`. The commands, skills, agents, output style, signals workflow, and the full implement → review loop all work unchanged. You lose automatic reminder surfacing (use `/follow-up` manually instead).
@@ -76,7 +76,7 @@ Installing the bundle drops `output-styles/atomic.md` into `~/.claude/output-sty
 Notes:
 
 - **Takes effect on the next session**, not the current one. Claude Code fixes the system prompt at session start to keep prompt caching warm.
-- **Tone-only layer.** Most of what makes the repo feel atomic comes from `claude.md` + skills, not the output style. Skip activation and the commands and skills still work; you lose extra prose compression.
+- **Tone-only layer.** Most of what makes the repo feel atomic comes from `CLAUDE.md` + skills, not the output style. Skip activation and the commands and skills still work; you lose extra prose compression.
 - **Additive, not a replacement.** The file sets `keep-coding-instructions: true`, so selecting Atomic preserves Claude Code's default engineering guidance (scope, comments, verification, security) and stacks atomic's tone rules on top.
 - **Switch intensity mid-session** by saying "atomic lite", "atomic full" (default), or "atomic ultra". Runtime instruction, not a settings change.
 
@@ -95,11 +95,11 @@ Run this **once per repo**, the first time you open Claude Code in it. The `atom
 - `.claude/project/deterministic-signals.md`: facts (directory tree, manifests, lockfiles, language LOC).
 - `.claude/project/inferred-signals.md`: interpretation (framework detection, build/test/lint commands, architectural style, conventions).
 
-Both files are auto-loaded into every Claude Code session via `@`-refs in `claude.md`. Claude knows your repo's shape without you having to explain it each session, and won't hallucinate commands that don't exist.
+Both files are auto-loaded into every Claude Code session via `@`-refs in `CLAUDE.md`. Claude knows your repo's shape without you having to explain it each session, and won't hallucinate commands that don't exist.
 
 After the first run, signals refresh on their own. The `atomic-signals` skill auto-fires on phrases like "rescan the project" and runs silently when `/commit-only` detects source-tree changes. Use `/refresh-signals` to force a re-scan.
 
-**Expect:** a few seconds. Two new committed files under `.claude/project/`. A reference added to your `claude.md`.
+**Expect:** a few seconds. Two new committed files under `.claude/project/`. A reference added to your `CLAUDE.md`.
 
 
 ### 2. `/atomic-plan`: plan the feature together
@@ -109,7 +109,7 @@ This is the **human approval gate**. You describe what you want to build. Claude
 - `docs/design/<topic>.md`: when you're still in brainstorm/rationale mode. Alternatives considered, open questions.
 - `docs/spec/<topic>.md`: when the design is settled and ready to implement. Each checkpoint is a discrete unit of work with success criteria.
 
-The spec is the contract that step 4 will follow autonomously. Get it right here so you can step away later. Specs are **append-mostly**: every amendment adds a dated entry to a `## Change log` section, so the original intent and the reason for every later change stay in the file. See `claude.md` → "Spec files are append-mostly" for the full rule.
+The spec is the contract that step 4 will follow autonomously. Get it right here so you can step away later. Specs are **append-mostly**: every amendment adds a dated entry to a `## Change log` section, so the original intent and the reason for every later change stay in the file. See `CLAUDE.md` → "Spec files are append-mostly" for the full rule.
 
 **Expect:** a conversation, not a one-shot. Mermaid diagrams allowed. Nothing gets implemented until you approve.
 
@@ -158,7 +158,7 @@ Shared behavior across the family:
 - Commit messages delegate to the `atomic-commit` skill; PR bodies to `atomic-review`.
 - **Signals stay fresh automatically.** `/commit-only` invokes the `atomic-signals` skill (silent mode) when the staged diff touches source files. `/merge-to-main`, `/squash-only`, and `/squash-and-merge` run a post-op refresh as defense in depth against history that bypassed `/commit-only`. The compound `commit-and-*` verbs inherit the refresh by delegating to `/commit-only`. Only `/pr-only` skips it (working tree must already be clean). You rarely need to run `/refresh-signals` by hand.
 - Merge and squash verbs invoke `atomic-verify` before touching base, re-run tests on the merged tip, and prompt to delete the worktree if the branch came from `.worktrees/`.
-- On significant changes (new file, removed file, public-API change, dependency change), each verb prints a one-line reminder to run `/documentation` so README, `claude.md`, and `docs/spec/` stay in sync.
+- On significant changes (new file, removed file, public-API change, dependency change), each verb prints a one-line reminder to run `/documentation` so README, `CLAUDE.md`, and `docs/spec/` stay in sync.
 
 **Expect:** a PR link in your terminal. Tests pass before anything touches the base branch.
 
@@ -172,7 +172,7 @@ Shared behavior across the family:
 | `skills/` | Discipline skills that auto-fire on matching phrases. | [docs/reference/skills.md](docs/reference/skills.md) |
 | `agents/` | Subagents the orchestrator dispatches. | [docs/reference/agents.md](docs/reference/agents.md) |
 | `rules/` | Path-scoped instructions, glob-gated via `paths:` frontmatter. Load only when matching files enter context. Starter rules for TypeScript and Python. | |
-| `claude.md` | Global instructions installed at `~/.claude/CLAUDE.md`. | |
+| `CLAUDE.md` | Global instructions installed at `~/.claude/CLAUDE.md`. | |
 
 
 ## Design philosophy

@@ -10,7 +10,7 @@ The output style is the smallest layer in atomic-claude, and the most expendable
 
 | Source | What it provides | Active when |
 |--------|------------------|-------------|
-| `claude.md` (installed at `~/.claude/CLAUDE.md`) | Principles, axioms, bash-over-Read+Write rules, TypeScript discipline, testing philosophy, no AI bylines, etc. | Every session, every project. Default. |
+| `CLAUDE.md` (installed at `~/.claude/CLAUDE.md`) | Principles, axioms, bash-over-Read+Write rules, TypeScript discipline, testing philosophy, no AI bylines, etc. | Every session, every project. Default. |
 | Skills (`atomic-tdd`, `atomic-verify`, `atomic-commit`, `atomic-debug`, `atomic-review`, `atomic-signals`) | Discipline at trigger phrases ("let's implement X", "done", "this is broken") | When matching phrases appear, every session. |
 | Commands (`/atomic-plan`, `/subagent-implementation`, ship verbs) | Workflow shape and orchestration | When explicitly invoked. |
 | Subagents (`atomic-builder`, `atomic-reviewer`, etc.) | Fresh-context specialists with their own system prompts | When dispatched. |
@@ -39,7 +39,7 @@ The shipped `output-styles/atomic.md` sets this field. Per [Claude Code's upstre
 
 With the field on, selecting Atomic **preserves** Claude Code's default engineering guidance (scope discipline, comment defaults, security awareness, UI verification, parallel tool calls, git safety protocol) and adds atomic's tone rules on top. Selecting it is additive.
 
-If the field were off, selecting Atomic would strip those defaults and leave only atomic's tone rules — meaning the engineering discipline would have to come entirely from `claude.md` and the skills. That's a workable design but not what we want today, since `claude.md` is principles-heavy and lighter on operational specifics than Claude Code's defaults.
+If the field were off, selecting Atomic would strip those defaults and leave only atomic's tone rules — meaning the engineering discipline would have to come entirely from `CLAUDE.md` and the skills. That's a workable design but not what we want today, since `CLAUDE.md` is principles-heavy and lighter on operational specifics than Claude Code's defaults.
 
 
 ## Activate it

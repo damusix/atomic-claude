@@ -46,7 +46,7 @@ func buildMiniRepo(t *testing.T) string {
 	write("rules/python/style.md", "# python style\n")
 	write("rules/typescript/style.md", "# typescript style\n")
 
-	write("claude.md", "# CLAUDE\n")
+	write("CLAUDE.md", "# CLAUDE\n")
 
 	return dir
 }

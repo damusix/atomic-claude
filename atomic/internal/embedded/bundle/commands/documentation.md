@@ -1,5 +1,5 @@
 ---
-description: Update or create project documentation. Ensures README.md, claude.md, docs/spec/, and docs/design/ are accurate after significant changes.
+description: Update or create project documentation. Ensures README.md, CLAUDE.md, docs/spec/, and docs/design/ are accurate after significant changes.
 ---
 
 Sync repo documentation to current state. Run after any significant change. Run on demand.
@@ -11,7 +11,7 @@ This command manages four documentation surfaces:
 | Surface | Audience | Lives in | Updated when |
 |---------|----------|----------|--------------|
 | `README.md` | Humans (users + contributors) | repo root | Public behavior, install, usage, or top-level architecture changed |
-| `claude.md` | Future Claude sessions | repo root | Conventions, commands, file layout, or load-bearing context changed |
+| `CLAUDE.md` | Future Claude sessions | repo root | Conventions, commands, file layout, or load-bearing context changed |
 | `docs/spec/<topic>.md` | Future implementers | `docs/spec/` | Implementation contract for a feature changed |
 | `docs/design/<topic>.md` | Humans deciding what to build | `docs/design/` | Design rationale, alternatives considered, trade-offs |
 
@@ -20,17 +20,17 @@ This command manages four documentation surfaces:
 1. Scan repo state:
     - `git log -n 20 --oneline` to see recent change shape
     - `git diff <last-doc-update>..HEAD` if the user pointed at a commit range, else `git diff main..HEAD`
-    - List existing docs: `ls README.md claude.md docs/ 2>/dev/null`
+    - List existing docs: `ls README.md CLAUDE.md docs/ 2>/dev/null`
 2. For each surface above, decide: **create**, **update**, or **skip (still accurate)**. State the decision per surface in one line before editing.
-3. Apply edits. Use the right voice for each surface — see `claude.md` → "Three doc voices, three surfaces":
+3. Apply edits. Use the right voice for each surface — see `CLAUDE.md` → "Three doc voices, three surfaces":
     - **README.md** — narrative prose. Run the `atomic-prose` skill. Keep marketing-free. Sections: what it is, why, install, usage, links. No AI bylines. If creating, use existing similar projects in the org for tone (`gh repo list <owner> --limit 5`).
     - **docs/guides/** — narrative prose. Run the `atomic-prose` skill. Long-form walkthroughs, install notes, contributor docs.
-    - **claude.md** — MEANINGFUL CONTEXT ONLY. Conventions the AI can't infer from code, commands to run, file layout that isn't obvious, gotchas. NOT: restating code, NOT: full architecture essay, NOT: a tutorial. If a line could be derived by reading the code, delete it. Voice is technical-imperative, neither narrative nor atomic-terse.
-    - **docs/spec/** — implementation contract. Spec/design voice: tables, diagrams, terse bullets first, prose only where a contract needs sentences. **Do NOT invoke `atomic-prose`.** What inputs, outputs, error modes, invariants. Mermaid diagrams render here — use `sequenceDiagram` for flows, `erDiagram` for data, `flowchart` for state. One file per feature/subsystem. **Append-mostly: do not silently overwrite. Apply the rules in `claude.md` → "Spec files are append-mostly". Every amendment adds a dated entry to `## Change log`. If a legacy spec lacks the section, add it before editing.**
+    - **CLAUDE.md** — MEANINGFUL CONTEXT ONLY. Conventions the AI can't infer from code, commands to run, file layout that isn't obvious, gotchas. NOT: restating code, NOT: full architecture essay, NOT: a tutorial. If a line could be derived by reading the code, delete it. Voice is technical-imperative, neither narrative nor atomic-terse.
+    - **docs/spec/** — implementation contract. Spec/design voice: tables, diagrams, terse bullets first, prose only where a contract needs sentences. **Do NOT invoke `atomic-prose`.** What inputs, outputs, error modes, invariants. Mermaid diagrams render here — use `sequenceDiagram` for flows, `erDiagram` for data, `flowchart` for state. One file per feature/subsystem. **Append-mostly: do not silently overwrite. Apply the rules in `CLAUDE.md` → "Spec files are append-mostly". Every amendment adds a dated entry to `## Change log`. If a legacy spec lacks the section, add it before editing.**
     - **docs/design/** — design rationale. Spec/design voice: tables, diagrams, terse bullets. **Do NOT invoke `atomic-prose`.** What was considered, what was picked, why. Mermaid diagrams welcome. Snapshot in time, okay to date the file.
 4. After edits, run a sanity pass:
     - Every code path mentioned in README install/usage actually works (run it if cheap).
-    - Every command mentioned in claude.md actually exists in `package.json` / `Makefile` / etc.
+    - Every command mentioned in CLAUDE.md actually exists in `package.json` / `Makefile` / etc.
     - No dead links in docs/.
 5. Print a summary: which files changed, what changed in each, what was skipped and why.
 
@@ -53,8 +53,8 @@ Replies in the TUI use ASCII, not Mermaid (TUI doesn't render).
 
 ## Rules
 
-- `claude.md` stays lean. Aggressively delete lines that don't earn their slot. A 30-line `claude.md` beats a 300-line one because Claude reads the whole thing every session.
+- `CLAUDE.md` stays lean. Aggressively delete lines that don't earn their slot. A 30-line `CLAUDE.md` beats a 300-line one because Claude reads the whole thing every session.
 - Do NOT commit unless user asked. This command edits files only.
 - Do NOT create files in `docs/` unless content warrants it. Empty stubs rot.
-- Match the project's existing tone if README/claude.md already exist. Don't rewrite to match a template.
+- Match the project's existing tone if README/CLAUDE.md already exist. Don't rewrite to match a template.
 - Never include AI bylines or "Generated with Claude Code" anywhere.

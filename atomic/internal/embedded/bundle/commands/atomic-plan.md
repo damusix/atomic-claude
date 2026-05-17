@@ -96,7 +96,7 @@ Create `docs/design/` or `docs/spec/` if missing. Then write the file.
 ```
 
 
-The `## Change log` section ships **empty** on creation. While the user is still drafting and refining the spec (revise loops in step 4 before they say "proceed"), do not add log entries — those are not amendments, they are the spec being born. The first real entry happens later, when an *approved* spec is changed. See "Spec files are append-mostly" in `claude.md` for amend / change / remove / correct / rename rules.
+The `## Change log` section ships **empty** on creation. While the user is still drafting and refining the spec (revise loops in step 4 before they say "proceed"), do not add log entries — those are not amendments, they are the spec being born. The first real entry happens later, when an *approved* spec is changed. See "Spec files are append-mostly" in `CLAUDE.md` for amend / change / remove / correct / rename rules.
 
 For shape/architecture work include a Mermaid diagram (flowchart / ERD / sequence / state) under the goal. Caption it with one sentence above so non-rendering readers (grep, raw view) still get it.
 
@@ -104,7 +104,7 @@ For shape/architecture work include a Mermaid diagram (flowchart / ERD / sequenc
 
 Print the file path. Summarize in 3-5 lines. Ask: "Proceed, or revise?"
 
-**Amending an existing spec.** If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite. Apply the append-mostly rule from `claude.md`: edit the body as needed AND add a dated entry to `## Change log` capturing what changed and why. If the file lacks a `## Change log` section (legacy), add one before amending.
+**Amending an existing spec.** If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite. Apply the append-mostly rule from `CLAUDE.md`: edit the body as needed AND add a dated entry to `## Change log` capturing what changed and why. If the file lacks a `## Change log` section (legacy), add one before amending.
 
 **Refinement vs. amendment.** Revisions during the initial planning conversation (before the user has said "proceed" the first time) are *drafting*, not amendments — keep iterating on the body, leave `## Change log` empty. Once the spec is approved and implementation has started (or the file is committed), every later edit is an amendment and must log.
 

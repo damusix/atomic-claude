@@ -49,7 +49,7 @@ Each axiom: what it is, why it exists, where it applies, what it forbids.
 **Default-and-override pattern.** Command logic: "default is X. Read user memory for an override. If found, use that. If not, use X." Saving a new value happens conversationally: user says "remember N", agent saves a feedback-type memory.
 
 
-**What still belongs in code, not memory.** Things that vary per-project (build commands, lint setup) live in the project's own conventions or `claude.md`. Things that vary per-user (preference, thresholds) live in memory. Things that vary per-invocation (which branch to cleanup) come from arguments.
+**What still belongs in code, not memory.** Things that vary per-project (build commands, lint setup) live in the project's own conventions or `CLAUDE.md`. Things that vary per-user (preference, thresholds) live in memory. Things that vary per-invocation (which branch to cleanup) come from arguments.
 
 
 ---

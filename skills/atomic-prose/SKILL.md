@@ -117,7 +117,7 @@ The atomic output style file (`output-styles/atomic.md`) covers TUI replies. Thi
 - **Tables and code blocks pass through unchanged.** This skill governs prose. Frontmatter, fenced code, command examples, file paths, identifier names, error strings: never reformat or rephrase.
 - **Spec checkpoint tables and design alternative tables pass through unchanged.** Their structure is the contract. Only the surrounding prose (Goal, Problem, Rationale) is in scope.
 - **CHANGELOG entries follow the project's existing tone.** This skill nudges new entries toward plainness but does not rewrite older entries on sight.
-- **Comments in source code follow the global comment rules in `claude.md`, not this skill.** This skill is for documentation files, not inline code comments.
+- **Comments in source code follow the global comment rules in `CLAUDE.md`, not this skill.** This skill is for documentation files, not inline code comments.
 
 ## When to invoke
 

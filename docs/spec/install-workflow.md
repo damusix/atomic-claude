@@ -177,7 +177,7 @@ Conflicts flagged:
 | I-1 | `atomic-claude-merger` agent |
 | I-2 | `/atomic-claude-merge` command |
 | I-3 | Both artifacts wired into the embedded bundle manifest in the Go binary (so `atomic claude install` ships them) |
-| I-4 | `claude.md` + `CLAUDE.md` + `README.md` updated to mention the install workflow |
+| I-4 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to mention the install workflow |
 
 
 ## Implementation log
@@ -191,7 +191,7 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 - `3977030` — CP-1 + CP-2: `atomic-claude-merger` agent + `/atomic-claude-merge` command
 - `7e084ac` — CP-3: regenerate embedded bundle manifest for the two new artifacts
 - `030d7c4` — polish: add `.atomic-merged` existence guard, print-before-run reminders at each destructive callsite, tighten taxonomy `conflict` row precondition
-- `c387e49` — CP-4: docs sync (README install paragraph, claude.md commands list, this log)
+- `c387e49` — CP-4: docs sync (README install paragraph, CLAUDE.md commands list, this log)
 - `21d1074` — bundle payload catch-up: commit the actual file copies under `atomic/internal/embedded/bundle/` for the two new artifacts and the refreshed CLAUDE.md
 
 **Out-of-scope work performed during this build:**
@@ -206,7 +206,7 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 
 **Deferred items still open:**
 
-- CP-4 — sync `claude.md` / `CLAUDE.md` / `README.md` to mention the install merge workflow. Handled out-of-band via `/documentation` (next step after this log lands).
+- CP-4 — sync `CLAUDE.md` / `CLAUDE.md` / `README.md` to mention the install merge workflow. Handled out-of-band via `/documentation` (next step after this log lands).
 - F-4 (extra `## Workflow` section in agent body) and F-5 (sha256 short-circuit folded into Pre-flight instead of `### Refusals`) — user dropped at FOLLOWUPS triage. Cosmetic only.
 - Spec's `## Open follow-ups` carry-over: `atomic claude rollback` verb, `--strategy ours/theirs/manual` flag on the merge command, revisit the 10% conflict heuristic. All explicitly v0.2.0+ scope.
 

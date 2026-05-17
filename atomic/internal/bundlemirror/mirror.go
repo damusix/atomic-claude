@@ -155,8 +155,8 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		return nil, fmt.Errorf("walk rules: %w", err)
 	}
 
-	// claude.md → CLAUDE.md
-	claudeMdSrc := filepath.Join(repoRoot, "claude.md")
+	// CLAUDE.md → CLAUDE.md (single canonical filename; no rename)
+	claudeMdSrc := filepath.Join(repoRoot, "CLAUDE.md")
 	a, err := mirrorFile(claudeMdSrc, "CLAUDE.md", "claude-md", bundleDir)
 	if err != nil {
 		return nil, err

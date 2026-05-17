@@ -210,7 +210,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
     1. Create `.claude/project/followups.md` if absent.
     2. Append the entry under its severity section (🔴 / 🟡 / 🔵 / ❓), keeping the same F-id (rewrite to a project-wide unique id if collision — prefix with topic slug, e.g. `oauth-refresh-F-3`).
     3. Each entry must carry an `Origin:` line citing the source spec + iteration (e.g. `Origin: docs/spec/oauth-refresh.md, iter 3 reviewer`).
-    4. Verify `.claude/project/followups.md` is `@-ref`'d from `claude.md` / `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` (same search order as signals). If not present in any, append the `@-ref` block to whichever signals are wired in.
+    4. Verify `.claude/project/followups.md` is `@-ref`'d from `CLAUDE.md` / `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` (same search order as signals). If not present in any, append the `@-ref` block to whichever signals are wired in.
     5. Stage and commit alongside the implementation log: `docs(followups): promote F-N <title> from <topic>`.
 3. **Write an implementation log to the spec.** Append (or create) an `## Implementation log` section at the END of `docs/spec/<topic>.md`. This is the durable record someone reads in 6 months when they ask "what did we ship?", "where did this come from?", or "what's still open?". Format:
 
@@ -239,7 +239,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 
     If the spec is dead (e.g. user decided not to ship the feature), still write the log with the status as `abandoned — <date>` and one line on why.
 
-4. Update repo documentation by invoking `/documentation` — it handles `README.md`, `claude.md`, `docs/spec/`, `docs/design/`.
+4. Update repo documentation by invoking `/documentation` — it handles `README.md`, `CLAUDE.md`, `docs/spec/`, `docs/design/`.
 5. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.
 6. Report to the user: what shipped, which iterations + commit SHAs, what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
 

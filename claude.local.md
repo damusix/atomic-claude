@@ -5,7 +5,7 @@ Project-local context for working **on** this repo. Not copied anywhere — read
 
 ## What this repo is
 
-A holistic Claude Code configuration. The artifacts here (`claude.md`, `commands/`, `agents/`, `skills/`, `output-styles/`) are designed as one coherent system — atomic output style, an opinionated command set, a small subagent roster, and discipline skills that interlock. Not a grab-bag; everything is meant to compose.
+A holistic Claude Code configuration. The artifacts here (`CLAUDE.md`, `commands/`, `agents/`, `skills/`, `output-styles/`) are designed as one coherent system — atomic output style, an opinionated command set, a small subagent roster, and discipline skills that interlock. Not a grab-bag; everything is meant to compose.
 
 Replaces (for the author) heavier toolkits like superpowers and caveman. Personal config, no stability guarantee.
 
@@ -14,9 +14,9 @@ Replaces (for the author) heavier toolkits like superpowers and caveman. Persona
 
 | File | Role | Destination |
 |------|------|-------------|
-| `claude.md` | Global instructions. Gets copied to `~/.claude/CLAUDE.md`. Affects every workspace, not just this repo. | `~/.claude/CLAUDE.md` |
+| `CLAUDE.md` | Global instructions. Gets copied to `~/.claude/CLAUDE.md`. Affects every workspace, not just this repo. | `~/.claude/CLAUDE.md` |
 | `claude.local.md` | This file. Project-local context for editing this repo. Gitignored. | Stays here, cwd-scoped. |
-| `CLAUDE.md` | The committed project instructions for anyone working in this repo. Mirrors `claude.md` content because this repo *is* the config source. | Repo root, committed. |
+| `CLAUDE.md` | The committed project instructions for anyone working in this repo. Mirrors `CLAUDE.md` content because this repo *is* the config source. | Repo root, committed. |
 | `README.md` | Human-facing overview of what the config does and how to install it. | Repo root, committed. |
 | `commands/*.md` | Slash command definitions. Copied to `~/.claude/commands/`. | `~/.claude/commands/` |
 | `agents/*.md` | Subagent definitions. Copied to `~/.claude/agents/`. | `~/.claude/agents/` |
@@ -28,13 +28,13 @@ Replaces (for the author) heavier toolkits like superpowers and caveman. Persona
 ## Bundle source-of-truth rule
 
 
-The `atomic` binary's embedded bundle (see `atomic/internal/bundlemirror/`) is sourced **only** from the root of this repo — never from `.claude/`. Bundleable directories: `agents/`, `commands/`, `output-styles/`, `rules/`, `skills/`, and `claude.md`. The `.claude/` tree is the *installed* config for dogfooding inside this repo (symlinks to the same root dirs); it must not be a bundle input. If you add a new artifact kind to bundle-mirror, source it from the root path, not its `.claude/` mirror.
+The `atomic` binary's embedded bundle (see `atomic/internal/bundlemirror/`) is sourced **only** from the root of this repo — never from `.claude/`. Bundleable directories: `agents/`, `commands/`, `output-styles/`, `rules/`, `skills/`, and `CLAUDE.md`. The `.claude/` tree is the *installed* config for dogfooding inside this repo (symlinks to the same root dirs); it must not be a bundle input. If you add a new artifact kind to bundle-mirror, source it from the root path, not its `.claude/` mirror.
 
 
 ## Coherence rules (when editing here)
 
 - Treat the four artifact types (commands, agents, skills, output-styles) as one system. A change to one often demands a matching change to the others.
-- `claude.md` is the global contract. Adding a command/agent/skill that other artifacts reference? Update `claude.md` so every workspace knows it exists.
+- `CLAUDE.md` is the global contract. Adding a command/agent/skill that other artifacts reference? Update `CLAUDE.md` so every workspace knows it exists.
 - `README.md` is the public-facing index. New artifact, removed artifact, or renamed verb → update the tables.
 - Atomic output style applies to Claude's TUI replies, not to the files in this repo. Command/agent/skill prose stays in normal English so it reads cleanly when installed.
 - Skill triggers, agent dispatch criteria, and command behaviors must not contradict each other. If `/atomic-plan` says it writes to `docs/spec/` and an agent expects `docs/specs/`, that's a bug.
@@ -52,8 +52,8 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 | # | Surface | When to update | What to write |
 |---|---------|----------------|---------------|
 | 1 | The artifact file itself | Always | `agents/atomic-*.md`, `commands/<verb>.md`, `skills/<name>/SKILL.md`, `output-styles/atomic-*.md`, or `rules/<lang>/*.md`. Use `atomic-` prefix for custom artifacts. |
-| 2 | `claude.md` | Always — this is the global contract bundled into every install | Add to the relevant section: "Subagents available for dispatch" (agents), "Workflow" + "Other commands" (commands), "Project signals" or similar (skills), naming conventions (output styles/rules). |
-| 3 | `CLAUDE.md` | Always — it mirrors `claude.md` for this repo's committed instructions | Same edit as `claude.md`. These two files must stay synchronized. |
+| 2 | `CLAUDE.md` | Always — this is the global contract bundled into every install | Add to the relevant section: "Subagents available for dispatch" (agents), "Workflow" + "Other commands" (commands), "Project signals" or similar (skills), naming conventions (output styles/rules). |
+| 3 | `CLAUDE.md` | Always — it mirrors `CLAUDE.md` for this repo's committed instructions | Same edit as `CLAUDE.md`. These two files must stay synchronized. |
 | 4 | `README.md` | Always — public-facing index | Add to the matching table (commands table, agents table, skills table). Keep one-line descriptions. |
 | 5 | `docs/spec/<topic>.md` | If the artifact has non-trivial behavior or cross-references | Write or extend the spec. Required for anything dispatched by another artifact or that mutates state. **Amending an existing spec: see "Spec amendment rule" below — never silently overwrite the original.** |
 | 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit-only` requires editing the command to call it AND the skill to declare itself as called from there. |
@@ -68,16 +68,16 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 ## Embedded bundle: regenerate before every commit
 
 
-The `atomic` binary embeds the artifact bundle at build time via `go:embed`. Source of truth is the repo root (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `claude.md`). The mirrored copies under `atomic/internal/embedded/bundle/` and the snapshot at `atomic/internal/embedded/manifest.go` are both **tracked**, not gitignored. CI guards parity with `git diff --exit-code` after `go generate`. Forget to regenerate → CI fails the "Verify bundle is committed" step.
+The `atomic` binary embeds the artifact bundle at build time via `go:embed`. Source of truth is the repo root (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`). The mirrored copies under `atomic/internal/embedded/bundle/` and the snapshot at `atomic/internal/embedded/manifest.go` are both **tracked**, not gitignored. CI guards parity with `git diff --exit-code` after `go generate`. Forget to regenerate → CI fails the "Verify bundle is committed" step.
 
 
-**Hard rule: any commit that touches a source artifact must include the regenerated bundle in the same commit.** Source artifacts = anything under `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or `claude.md` at the repo root. Pure changes to `atomic/`, `docs/`, `.claude/`, `README.md`, or other non-bundle paths do NOT need regen.
+**Hard rule: any commit that touches a source artifact must include the regenerated bundle in the same commit.** Source artifacts = anything under `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or `CLAUDE.md` at the repo root. Pure changes to `atomic/`, `docs/`, `.claude/`, `README.md`, or other non-bundle paths do NOT need regen.
 
 
 **How to regenerate.** From repo root: `make -C atomic bundle`. Outputs `atomic/internal/embedded/bundle/**` + `atomic/internal/embedded/manifest.go`. Stage everything under `atomic/internal/embedded/`, include in the same commit. Do not split the regen into a follow-up commit unless CI already caught the gap.
 
 
-**Pre-commit check (when wearing the maintainer hat).** Before `git commit`: if `git diff --cached --name-only` includes any of `agents/|commands/|skills/|output-styles/|rules/|^claude.md$`, run the regen, stage the bundle, then commit. The ship verbs (`/commit-only`, `/commit-and-pr`, etc.) should eventually probe for this the same way they probe for signals refresh — track as a follow-up.
+**Pre-commit check (when wearing the maintainer hat).** Before `git commit`: if `git diff --cached --name-only` includes any of `agents/|commands/|skills/|output-styles/|rules/|^CLAUDE.md$`, run the regen, stage the bundle, then commit. The ship verbs (`/commit-only`, `/commit-and-pr`, etc.) should eventually probe for this the same way they probe for signals refresh — track as a follow-up.
 
 
 **Do not confuse `atomic hooks` with git hooks.** `atomic hooks install` registers a Claude Code session-start hook (injects pending reminders into context). That has nothing to do with bundle regen. Bundle parity is enforced by CI; a future git pre-commit hook (in `.githooks/`, opted into via `git config core.hooksPath .githooks`) is the right place to automate the regen locally. Until that hook ships, the rule above is the contract.
@@ -126,7 +126,7 @@ These rules exist because this repo is meant to be installed into *user reposito
 - **Ship verbs must remind the user to run `/documentation` after significant changes.** "Significant" = new file, removed file, public-API change, dependency change. Surface a one-line prompt at the end of the verb. Don't auto-run — `/documentation` is interactive and user-driven (axiom 3: destructive ops explicit confirm; doc rewrites are close enough).
 - **Symmetry within a command family.** The commit/squash/merge family must agree on shared concerns: message format (all delegate to `atomic-commit` skill), worktree detection (all detect on merge/squash and prompt to delete), signals refresh trigger (above). If you change one verb's behavior on a shared concern, change all of them.
 - **Skills that are invoked by commands must declare it.** A skill's description should mention "invoked by /foo, /bar" so the trigger surface is inspectable. Reverse holds: a command that invokes a skill must name it in the command file. No silent dependencies.
-- **Agents dispatched by commands must be listed in `claude.md` → "Subagents available for dispatch"**. The command file should also name the `subagent_type`. Dispatch is a public contract.
+- **Agents dispatched by commands must be listed in `CLAUDE.md` → "Subagents available for dispatch"**. The command file should also name the `subagent_type`. Dispatch is a public contract.
 - **When in doubt, write the spec first.** `docs/spec/<topic>.md` is the canonical source for any cross-artifact contract. If two artifacts reference the same flow and the spec doesn't exist, write it before adding the second reference.
 
 
@@ -139,11 +139,11 @@ These rules exist because this repo is meant to be installed into *user reposito
 The whole point of the signals workflow is that Claude has a current map of the project before exploring. That only works if some auto-loaded Claude instructions file `@-references` both `.claude/project/deterministic-signals.md` and `.claude/project/inferred-signals.md`.
 
 
-**In this repo specifically**, the refs live in `claude.local.md` (this file) — not in `claude.md`. Reason: `claude.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for project-scoped `@`-refs.
+**In this repo specifically**, the refs live in `claude.local.md` (this file) — not in `CLAUDE.md`. Reason: `CLAUDE.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for project-scoped `@`-refs.
 
 
-- The `atomic-signals` skill checks for the refs in `claude.local.md` / `CLAUDE.local.md` first, then `claude.md` / `CLAUDE.md`. If present in ANY of them, it skips wiring. Don't introduce commands that try to enforce a single canonical location — the skill's search order is the contract.
-- For most repos, the refs end up in `claude.md` / `CLAUDE.md` (one file, no separation). For this repo and any other config-source repos, they live in `claude.local.md`. Both are valid.
+- The `atomic-signals` skill checks for the refs in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md` / `CLAUDE.md`. If present in ANY of them, it skips wiring. Don't introduce commands that try to enforce a single canonical location — the skill's search order is the contract.
+- For most repos, the refs end up in `CLAUDE.md` / `CLAUDE.md` (one file, no separation). For this repo and any other config-source repos, they live in `claude.local.md`. Both are valid.
 - If you fork the layout (e.g. moving refs into a separate `@`-included file), update the skill's search order in lockstep.
 - When a user says "the auth system is broken", a session with signals loaded already knows which modules, services, and use cases live where. Without the `@-refs`, the snapshot files exist but never reach context — wasted scan, wasted inference.
 

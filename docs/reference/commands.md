@@ -3,7 +3,7 @@
 
 | Command | What it does |
 |---------|-------------|
-| `/atomic-setup` | Bootstrap the current repo for atomic conventions. Audits .gitignore, docs/ layout, claude.md; proposes only what's missing. Never overwrites. |
+| `/atomic-setup` | Bootstrap the current repo for atomic conventions. Audits .gitignore, docs/ layout, CLAUDE.md; proposes only what's missing. Never overwrites. |
 | `/atomic-plan` | Collaborative plan → checkpoint table in `docs/design/` or `docs/spec/`. |
 | `/atomic-compress <file>` | Compress a prose Markdown file into atomic style. Backs up original as `<file>.original.md`. |
 | `/subagent-implementation` | Orchestrate implement → review subagent loop until task is complete. |
@@ -23,7 +23,7 @@
 | `/follow-up [due <id>]` | Review pending reminders. Bare: indexed list + done/snooze/reschedule actions. Cron-fired: surfaces the specific reminder and waits for user response. |
 | `/initialize-signals` | Bootstrap signals for a project that has never had them. Interactive, idempotent. Requires `atomic` binary. |
 | `/refresh-signals` | Deliberate on-demand refresh of existing signals. |
-| `/documentation` | Update or create project docs (README, claude.md, docs/spec/, docs/design/) after significant changes. |
+| `/documentation` | Update or create project docs (README, CLAUDE.md, docs/spec/, docs/design/) after significant changes. |
 | `/report-issue` | Open a GitHub issue via `gh` against the user's current repo. Auto-detects bug report vs. feature request. |
 | `/report-issue-with-atomic` | Open a GitHub issue against the **atomic-claude repo itself** (`damusix/atomic-claude`). For bugs or feature requests with the installed config, not the user's current project. |
 | `/watch-ci [<target>]` | Spawn a background Haiku subagent to watch CI for the current branch/PR/run. Provider auto-detected from signals. |

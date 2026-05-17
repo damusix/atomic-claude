@@ -23,14 +23,14 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
 5. **Ensure `@-refs` are wired somewhere Claude auto-loads.** Check, in order, for an existing pair of refs (`@.claude/project/deterministic-signals.md` AND `@.claude/project/inferred-signals.md`) in any of:
 
     - `claude.local.md` / `CLAUDE.local.md` (project-local, gitignored — preferred when present)
-    - `claude.md` / `CLAUDE.md` (committed project instructions)
+    - `CLAUDE.md` (committed project instructions)
 
     If either pair is found in ANY of those files, the wiring is already done — skip this step entirely. Do not duplicate.
 
     If no file contains the refs:
 
-    - If `claude.local.md` or `CLAUDE.local.md` exists, append the block to whichever exists (prefer `claude.local.md`). This handles repos that separate project-local refs from bundled/committed instructions (e.g. config-source repos where `claude.md` is the bundle input and must not carry project-specific paths).
-    - Else, append to `claude.md` / `CLAUDE.md` (whichever exists; create `claude.md` only if neither does and the repo has `.claude/project/`).
+    - If `claude.local.md` or `CLAUDE.local.md` exists, append the block to whichever exists (prefer `claude.local.md`). This handles repos that separate project-local refs from bundled/committed instructions (e.g. config-source repos where `CLAUDE.md` is the bundle input and must not carry project-specific paths).
+    - Else, append to `CLAUDE.md` (create it only if it does not exist and the repo has `.claude/project/`).
 
     Block to append:
 
@@ -66,7 +66,7 @@ The fallback is deliberately limited. Users hit it once and install the binary.
 
 When `/commit-only` runs and the staged diff includes source-file changes, it invokes this skill silently before the commit. In that context:
 
-- Skip the `AskUserQuestion` on `claude.md` append — write directly.
+- Skip the `AskUserQuestion` on `CLAUDE.md` append — write directly.
 - If signals are already fresh (`atomic signals stale` exits 0), skip entirely.
 - If `atomic` is not installed, skip entirely — do not fall back during commit.
 - If signals were regenerated, stage `.claude/project/deterministic-signals.md` and `.claude/project/inferred-signals.md` alongside the commit.
@@ -76,6 +76,6 @@ This integration is implemented in `/commit-only` (CP S-4), not here.
 
 ## Boundaries
 
-- Never modifies files outside `.claude/project/` and whichever auto-loaded Claude instructions file the wiring step targets (`claude.local.md` / `CLAUDE.local.md` / `claude.md` / `CLAUDE.md`).
+- Never modifies files outside `.claude/project/` and whichever auto-loaded Claude instructions file the wiring step targets (`claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md`).
 - Never blocks a commit — if the scan fails, log and continue.
 - Silent in `/commit-only` context; interactive only when invoked from `/initialize-signals` or directly by the user.

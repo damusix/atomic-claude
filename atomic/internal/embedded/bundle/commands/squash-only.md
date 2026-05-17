@@ -37,7 +37,7 @@ description: Squash all commits on current branch into one. No merge. Synthesize
 5. **Post-squash signals refresh.** Defense in depth — even if each branch commit ran `/commit-only`, manual commits or rebased history may have bypassed it. Evaluate in order; stop at first failure:
     1. `command -v atomic` succeeds? If not, skip.
     2. `atomic signals stale` exits 1 (stale)? If 0 (fresh), skip.
-    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `claude.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/inferred-signals.md`, and `claude.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after squash`. Never amend the squash commit.
+    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `CLAUDE.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/inferred-signals.md`, and `CLAUDE.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after squash`. Never amend the squash commit.
 6. `git status` to confirm.
 
 ## Report

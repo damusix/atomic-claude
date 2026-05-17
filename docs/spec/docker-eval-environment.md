@@ -127,7 +127,7 @@ Templates are **kept in sync with the repo-root contributor files** by conventio
 | 8 | Implement `atomic/internal/dockerinit/dockerinit.go` with `Init(target string, force bool, version string) ([]FileAction, error)`; embed templates via `//go:embed` | `atomic/internal/dockerinit/dockerinit.go`, `atomic/internal/dockerinit/dockerinit_test.go` | Unit tests cover: fresh dir, existing-files-without-force (refuses), existing-files-with-force (overwrites), invalid target |
 | 9 | Wire `atomic docker init` verb into `atomic/cmd/atomic/main.go` with flags `--target` (default `./atomic-docker`) and `--force` | `atomic/cmd/atomic/main.go` | `atomic docker init --help` prints usage; integration test runs `atomic docker init --target tmp/eval` in a temp dir and asserts emitted files compile under `docker build --check` if Docker present, else skipped |
 | 10 | Add convergence test: rendered end-user `docker-compose.yml` shape matches contributor's on shared keys (services.atomic-eval.volumes, entrypoint, environment); test in `atomic/internal/dockerinit/convergence_test.go` reads repo-root `docker-compose.yml` and compares | `atomic/internal/dockerinit/convergence_test.go` | Drift between the two compose files fails CI |
-| 11 | Update `claude.md` and `README.md` with `atomic docker init` reference | `claude.md`, `README.md` | Both modes documented in command tables |
+| 11 | Update `CLAUDE.md` and `README.md` with `atomic docker init` reference | `CLAUDE.md`, `README.md` | Both modes documented in command tables |
 
 
 ## Risks
@@ -163,7 +163,7 @@ Built across 4 iterations (+ 2 surgical follow-ups) of `/subagent-implementation
 - `16082b0` — CP1-3,5: contributor Dockerfile + compose + entrypoint + tmp scaffold + .gitignore (iter 1 + 1b combined)
 - `972badd` — CP4,6: root Makefile (docker-build/up/shell + auto-help) + README "Evaluations" rewrite (iter 2 + 2b combined)
 - `a41756a` — CP7-9: `atomic docker init` subcommand — templates, dockerinit package + 6 tests, runDocker verb wiring
-- `1430fb8` — CP10-11: TestComposeConvergence + claude.md + README "End users" subsection
+- `1430fb8` — CP10-11: TestComposeConvergence + CLAUDE.md + README "End users" subsection
 
 
 **Out-of-scope work performed during this build:**

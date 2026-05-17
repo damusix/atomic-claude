@@ -255,7 +255,7 @@ Proposed actions when missing:
 | C-2 | `/follow-up` command (binary + fallback + `CronCreate`/`CronDelete`/`CronList`) |
 | C-3 | Session-start hook script installable via `atomic hooks install`; manual fallback documented |
 | C-4 | `/atomic-setup` audit + propose flow updated |
-| C-5 | `claude.md` + `CLAUDE.md` + `README.md` updated to document cron workflow |
+| C-5 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to document cron workflow |
 
 
 ## Implementation log
@@ -274,14 +274,14 @@ Built across 5 implement→review iterations + 1 polish pass of `/subagent-imple
 - CP-2 `/follow-up` slash command (bare + cron-fired modes)
 - CP-3 session-start hook: no-op — backend (`atomic hooks install/uninstall/session-start` + `atomic/internal/hooks/`) already shipped with full test coverage in prior work; no new artifact required
 - CP-4 `/atomic-setup` audit + propose additions for the hook
-- CP-5 README + claude.md + CLAUDE.md doc additions; install URL canonicalized to `github.com/damusix/atomic-claude/atomic/cmd/atomic@latest`
+- CP-5 README + CLAUDE.md + CLAUDE.md doc additions; install URL canonicalized to `github.com/damusix/atomic-claude/atomic/cmd/atomic@latest`
 - Polish pass: closes 6 reviewer follow-ups (wording precision in remind-me, follow-up, atomic-setup, README)
 
 Per-iteration SHAs were rewritten during the pre-merge rebase onto `main` and do not exist after squash. The squash diff captures all six.
 
 **Out-of-scope work performed during this build:**
 
-- Wrong install URL in `commands/atomic-setup.md` (`atomicclaudedev/atomic@latest`) discovered by CP-4 reviewer (F-5); corrected as part of CP-5's canonical-install-instructions roll-out across README, claude.md, atomic-setup.
+- Wrong install URL in `commands/atomic-setup.md` (`atomicclaudedev/atomic@latest`) discovered by CP-4 reviewer (F-5); corrected as part of CP-5's canonical-install-instructions roll-out across README, CLAUDE.md, atomic-setup.
 
 **Unforeseens — surprises that emerged during implementation:**
 

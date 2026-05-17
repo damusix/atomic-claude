@@ -4,7 +4,7 @@
 ## Problem
 
 
-The atomic-claude system spans four artifact types + a Go CLI bundle that cross-reference each other. Drift is invisible: a renamed agent, a stale signals file, a missing `@-ref` in `claude.md`, a hook that was never installed — none of these throw errors, they silently break the workflow. A recent system audit found 5 such gaps without any code-level signal. We need a deterministic, fast `atomic doctor` that surfaces these gaps before they bite.
+The atomic-claude system spans four artifact types + a Go CLI bundle that cross-reference each other. Drift is invisible: a renamed agent, a stale signals file, a missing `@-ref` in `CLAUDE.md`, a hook that was never installed — none of these throw errors, they silently break the workflow. A recent system audit found 5 such gaps without any code-level signal. We need a deterministic, fast `atomic doctor` that surfaces these gaps before they bite.
 
 
 Distinct from `atomic validate` (see `docs/design/atomic-validate.md`). `validate` lints artifact **content** for correctness. `doctor` checks **environment and install state** — what's wired, what's installed, what's fresh.
@@ -50,7 +50,7 @@ atomic doctor [--fix] [--json] [--only <category>] [--skip <category>]
 | 1 | Install integrity | `~/.claude/agents/`, `commands/`, `skills/`, `output-styles/`, `rules/` exist and match bundle manifest. SHA256 per file. | WARN drift / FAIL missing |
 | 2 | Hooks installed | `~/.claude/settings.json` has the session-start hook from `atomic hooks session-start`. | WARN |
 | 3 | Signals freshness | `.claude/project/deterministic-signals.md` exists and `atomic signals stale` exits 0. | WARN |
-| 4 | Signals `@-refs` wired | Refs present in `claude.local.md` / `CLAUDE.local.md` / `claude.md` / `CLAUDE.md`. | FAIL |
+| 4 | Signals `@-refs` wired | Refs present in `claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md` / `CLAUDE.md`. | FAIL |
 | 5 | Bundle manifest parity | Committed `manifest.go` matches what `go generate` would produce (repo-dev only — skip if not in atomic-claude repo). | FAIL |
 | 6 | Followups ledger schema | If `.claude/project/followups.md` exists, every entry has F-id, origin, severity. | WARN |
 | 7 | Auto-memory orphans | `~/.claude/projects/<project>/memory/MEMORY.md` lines reference files that exist. | WARN |
@@ -69,7 +69,7 @@ atomic doctor — integrity check  (project: claude-code-setup)
 [1] PASS  install integrity                  36/36 files match bundle
 [2] WARN  hooks installed                    session-start hook missing
 [3] PASS  signals freshness                  last scan 2026-05-17
-[4] FAIL  signals @-refs wired               not present in claude.md, claude.local.md, CLAUDE.md, or CLAUDE.local.md
+[4] FAIL  signals @-refs wired               not present in CLAUDE.md, claude.local.md, CLAUDE.md, or CLAUDE.local.md
 [5] PASS  bundle manifest parity             generated == committed
 [6] PASS  followups ledger schema            no .claude/project/followups.md (clean)
 [7] PASS  auto-memory orphans                MEMORY.md refs resolve
@@ -92,7 +92,7 @@ Prompt per item (axiom 3: destructive ops explicit confirm). Each repair is idem
 | Install integrity drift | Re-run `atomic claude install --merge` |
 | Hooks missing | `atomic hooks install` |
 | Signals stale | **Cannot auto-fix** — CLI cannot dispatch the `atomic-signals` skill. Print: `run /refresh-signals from Claude Code to refresh.` |
-| `@-refs` missing | Append block to `claude.md` (or `claude.local.md` if user picks) |
+| `@-refs` missing | Append block to `CLAUDE.md` (or `claude.local.md` if user picks) |
 | Bundle manifest stale | `go generate ./...` — fail loud if not in atomic repo |
 | Followups schema | Print malformed entries with line numbers; refuse to auto-edit (content-level — human authorship) |
 | Auto-memory orphans | Print orphan refs; refuse to auto-delete (user authored those) |

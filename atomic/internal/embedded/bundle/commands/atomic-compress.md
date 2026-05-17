@@ -55,5 +55,5 @@ description: Compress a prose Markdown / text file into atomic style. Preserves 
 ## Rules
 
 - One file per invocation. Multiple paths or globs: ask which to compress.
-- `claude.md` or `README.md`: ask for confirmation before compressing — these are load-bearing.
+- `CLAUDE.md` or `README.md`: ask for confirmation before compressing — these are load-bearing.
 - Never compress a file that is pure code blocks. State and stop.

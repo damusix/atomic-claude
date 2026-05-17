@@ -34,7 +34,7 @@ Run this once after cloning:
     make hooks
 
 
-It sets `git config core.hooksPath .githooks` so the repo's own `.githooks/pre-commit` runs on every commit. The hook checks the staged diff and, when a source artifact under `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or `claude.md` is part of the commit, regenerates the embedded bundle and re-stages the output. Without the hook, those commits will pass locally but fail CI on the "Verify bundle is committed" step.
+It sets `git config core.hooksPath .githooks` so the repo's own `.githooks/pre-commit` runs on every commit. The hook checks the staged diff and, when a source artifact under `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or `CLAUDE.md` is part of the commit, regenerates the embedded bundle and re-stages the output. Without the hook, those commits will pass locally but fail CI on the "Verify bundle is committed" step.
 
 
 `make hooks-uninstall` restores the default `.git/hooks/` path if you ever want to opt out.
@@ -46,7 +46,7 @@ This is a git hook, not a Claude Code hook. The two share the word "hook" and no
 ## Why the bundle has to be regenerated
 
 
-The `atomic` binary embeds the artifact bundle at build time via `go:embed`. The source files live at the repo root (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `claude.md`). The build copies those into `atomic/internal/embedded/bundle/` and writes a snapshot at `atomic/internal/embedded/manifest.go`. Both the copies and the manifest are tracked in git, and CI enforces parity: after running `go generate`, any diff fails the build.
+The `atomic` binary embeds the artifact bundle at build time via `go:embed`. The source files live at the repo root (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`). The build copies those into `atomic/internal/embedded/bundle/` and writes a snapshot at `atomic/internal/embedded/manifest.go`. Both the copies and the manifest are tracked in git, and CI enforces parity: after running `go generate`, any diff fails the build.
 
 
 Translation: if you edit a source artifact and forget to regenerate, the embedded bundle is stale, the manifest is wrong, and CI rejects the commit. The pre-commit hook eliminates that class of failure. When the hook is installed you only need to remember to commit; the bundle rides along automatically.

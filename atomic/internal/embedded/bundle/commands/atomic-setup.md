@@ -1,5 +1,5 @@
 ---
-description: Bootstrap the current repo for atomic-claude use. Audits .gitignore entries, docs/ layout, and presence of claude.md. Proposes only what's missing — never overwrites. No commits.
+description: Bootstrap the current repo for atomic-claude use. Audits .gitignore entries, docs/ layout, and presence of CLAUDE.md. Proposes only what's missing — never overwrites. No commits.
 ---
 
 You set up the repo for atomic-claude conventions. Detect first, propose second, apply only what the user confirms.
@@ -25,7 +25,7 @@ Inspect the repo. Build this status table:
 | `.gitignore` has `tmp/` | grep `^tmp/?$` | yes / no |
 | `.gitignore` has `.claude/.scratchpad/` | grep `^\.claude/\.scratchpad/?$` | yes / no |
 | `.gitignore` has `.worktrees/` | grep `^\.worktrees/?$` | yes / no |
-| `claude.md` at repo root | `test -f claude.md` | exists / missing |
+| `CLAUDE.md` at repo root | `test -f CLAUDE.md` | exists / missing |
 | `docs/` directory | `test -d docs` | exists / missing |
 | `docs/spec/` directory | `test -d docs/spec` | exists / missing |
 | `docs/design/` directory | `test -d docs/design` | exists / missing |
@@ -34,7 +34,7 @@ Inspect the repo. Build this status table:
 | `.claude/hooks/session-start-reminders.sh` exists | `test -f .claude/hooks/session-start-reminders.sh` | exists / missing |
 | `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value contains `session-start-reminders.sh` (the absolute path written by `atomic hooks install`) | registered / missing |
 | `.claude/project/deterministic-signals.md` | `test -f .claude/project/deterministic-signals.md` | exists / missing |
-| `claude.md` references signals files | `test -f claude.md && grep -qF '@.claude/project/deterministic-signals.md' claude.md && grep -qF '@.claude/project/inferred-signals.md' claude.md` (if `test -f claude.md` fails → n/a) | yes / no / n/a |
+| `CLAUDE.md` references signals files | `test -f CLAUDE.md && grep -qF '@.claude/project/deterministic-signals.md' CLAUDE.md && grep -qF '@.claude/project/inferred-signals.md' CLAUDE.md` (if `test -f CLAUDE.md` fails → n/a) | yes / no / n/a |
 
 Classify the repo:
 
@@ -54,7 +54,7 @@ For each missing item, propose an action. Skip items already present.
 | `.gitignore` exists but missing `tmp/` | Append `tmp/`. |
 | `.gitignore` exists but missing `.claude/.scratchpad/` | Append `.claude/.scratchpad/`. |
 | `.gitignore` exists but missing `.worktrees/` | Append `.worktrees/`. |
-| `claude.md` missing | Write the atomic starter template (see below). |
+| `CLAUDE.md` missing | Write the atomic starter template (see below). |
 | `docs/spec/` missing | Create directory + `docs/spec/.gitkeep` (so git tracks it before any content lands). |
 | `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
 | `README.md` missing | Offer to scaffold a minimal starter. If user declines, skip — don't push it. |
@@ -63,14 +63,14 @@ For each missing item, propose an action. Skip items already present.
 | Script + registration missing, binary missing | Write `.claude/hooks/session-start-reminders.sh` as the fallback script manually AND manually add the `SessionStart` hook entry to `.claude/settings.json`. |
 | Script present, registration missing | Run `atomic hooks install` (idempotent — rewrites script with canonical content and adds the settings entry). |
 | `deterministic-signals.md` missing but `atomic` present | Print: "Run `/initialize-signals` to generate project signals." (follow-up only; setup does not invoke it). |
-| `claude.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `claude.md` is missing — the starter template row handles that case. |
+| `CLAUDE.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
 
 Present the proposed actions as a numbered list:
 
 ```
 Proposed actions:
   [1] Append tmp/, .claude/.scratchpad/, .worktrees/ to .gitignore
-  [2] Create claude.md from atomic template
+  [2] Create CLAUDE.md from atomic template
   [3] Create docs/spec/.gitkeep
   [4] Create docs/design/.gitkeep
   [5] Scaffold README.md (optional — say "skip 5" to leave it)
@@ -107,7 +107,7 @@ For each confirmed action, in order:
 grep -qxF 'tmp/' .gitignore || echo 'tmp/' >> .gitignore
 ```
 
-### `claude.md`
+### `CLAUDE.md`
 
 - Refuse to overwrite if file exists. (Audit already gated this — defensive double-check.)
 - Write the template from this command (see below).
@@ -141,11 +141,11 @@ Install the atomic binary:
 Run /initialize-signals to generate project signals.
 ```
 
-**`claude.md` missing `@-refs`** — Append to the existing `claude.md`:
+**`CLAUDE.md` missing `@-refs`** — Append to the existing `CLAUDE.md`:
 
 ```bash
-if test -f claude.md && ! { grep -qF '@.claude/project/deterministic-signals.md' claude.md && grep -qF '@.claude/project/inferred-signals.md' claude.md; }; then
-  cat >> claude.md << 'EOF'
+if test -f CLAUDE.md && ! { grep -qF '@.claude/project/deterministic-signals.md' CLAUDE.md && grep -qF '@.claude/project/inferred-signals.md' CLAUDE.md; }; then
+  cat >> CLAUDE.md << 'EOF'
 
 
 ## Project signals (auto-loaded)
@@ -157,7 +157,7 @@ EOF
 fi
 ```
 
-Idempotent: only appends when `claude.md` exists AND at least one `@-ref` is missing. Refuses silently otherwise.
+Idempotent: only appends when `CLAUDE.md` exists AND at least one `@-ref` is missing. Refuses silently otherwise.
 
 ## Step 5 — Report
 
@@ -166,23 +166,23 @@ Final state:
 ```
 Applied:
   ✓ .gitignore updated: added tmp/, .claude/.scratchpad/, .worktrees/
-  ✓ claude.md created (atomic template — edit it with project-specific context)
+  ✓ CLAUDE.md created (atomic template — edit it with project-specific context)
   ✓ docs/spec/ + docs/design/ created with .gitkeep
 
 Skipped:
   • README.md (you said no)
 
 Next steps:
-  - Edit claude.md to capture this project's meaningful context.
+  - Edit CLAUDE.md to capture this project's meaningful context.
   - Run /atomic-plan to start your first design or spec.
   - Commit when ready: /commit-only.
 ```
 
 Delete no scratch (this command writes no scratchpad).
 
-## claude.md starter template
+## CLAUDE.md starter template
 
-Use this exactly when creating `claude.md`. Tabs and blank-line spacing preserved.
+Use this exactly when creating `CLAUDE.md`. Tabs and blank-line spacing preserved.
 
 ```markdown
 # CLAUDE.md

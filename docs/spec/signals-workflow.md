@@ -1,7 +1,7 @@
 # Spec: signals workflow
 
 
-The signals workflow keeps Claude aware of the *current* shape of a project without hallucination. A Go binary (`atomic signals scan`) produces a deterministic, machine-generated snapshot. A subagent reads that snapshot and writes an inferred companion. Both files are auto-referenced from the project's `claude.md` so the harness loads them on every session.
+The signals workflow keeps Claude aware of the *current* shape of a project without hallucination. A Go binary (`atomic signals scan`) produces a deterministic, machine-generated snapshot. A subagent reads that snapshot and writes an inferred companion. Both files are auto-referenced from the project's `CLAUDE.md` so the harness loads them on every session.
 
 
 This spec depends on [`atomic-binary.md`](./atomic-binary.md) — the `atomic` binary must be installed for the primary path. A markdown-only fallback exists for users without the binary.
@@ -29,10 +29,10 @@ Both files are committed to the project (not gitignored). They travel with the r
 | `/initialize-signals` | command | `commands/initialize-signals.md` |
 | `/commit-only` (edit) | command | `commands/commit-only.md` — invoke skill pre-commit when source changed |
 | `/atomic-setup` (edit) | command | `commands/atomic-setup.md` — propose binary install + `/initialize-signals` |
-| `claude.md` (edit) | bundled global | this repo's root `claude.md` (the one that ships as `~/.claude/CLAUDE.md` via the embed bundle) gets a section mentioning the signals workflow so users know it exists |
+| `CLAUDE.md` (edit) | bundled global | this repo's root `CLAUDE.md` (the one that ships as `~/.claude/CLAUDE.md` via the embed bundle) gets a section mentioning the signals workflow so users know it exists |
 
 
-Distinct from the bundled-global `claude.md` above, the per-project `claude.md` at each user's repo root is mutated at runtime by the skill (step 5 below) to add the `@-refs` to the project's signals files. Two different files, both named `claude.md`.
+Distinct from the bundled-global `CLAUDE.md` above, the per-project `CLAUDE.md` at each user's repo root is mutated at runtime by the skill (step 5 below) to add the `@-refs` to the project's signals files. Two different files, both named `CLAUDE.md`.
 
 
 ## Skill: `atomic-signals`
@@ -62,7 +62,7 @@ Also fires implicitly when `/commit-only` runs and the staged diff includes sour
 2. **Staleness check (binary path)**. Run `atomic signals stale`. Exit 0 → no work. Exit 1 → regenerate.
 3. **Regenerate deterministic**. Run `atomic signals scan`. Writes `.claude/project/deterministic-signals.md` and copies the prior content to `.claude/project/.deterministic-signals.prev.md` (gitignored) so `atomic signals diff` works regardless of git state.
 4. **Dispatch inferrer**. Spawn `atomic-signals-inferrer` subagent via `Agent` tool. The inferrer runs `atomic signals diff` to learn what changed and updates only the dependent sections of `inferred-signals.md`. See agent spec below for details.
-5. **Ensure `@-refs` in project `claude.md`**. If `claude.md` exists at repo root and does not already contain `@.claude/project/deterministic-signals.md` and `@.claude/project/inferred-signals.md`, append a section:
+5. **Ensure `@-refs` in project `CLAUDE.md`**. If `CLAUDE.md` exists at repo root and does not already contain `@.claude/project/deterministic-signals.md` and `@.claude/project/inferred-signals.md`, append a section:
 
     ```markdown
 
@@ -209,9 +209,9 @@ One-shot bootstrap for a project that has never had signals generated. Verbose, 
    - No → continue.
 3. Run `atomic signals scan`. Print the resulting file's section headers (not full content).
 4. Dispatch `atomic-signals-inferrer`. Wait for completion.
-5. Detect project `claude.md`:
-   - Exists → print the proposed `## Project signals (auto-loaded)` section diff. Ask via `AskUserQuestion`: "Append the auto-load section to claude.md? Yes / Show me the diff again / No, skip".
-   - Missing → ask via `AskUserQuestion`: "No claude.md found. Create a starter? Yes (uses /atomic-setup template) / No, skip".
+5. Detect project `CLAUDE.md`:
+   - Exists → print the proposed `## Project signals (auto-loaded)` section diff. Ask via `AskUserQuestion`: "Append the auto-load section to CLAUDE.md? Yes / Show me the diff again / No, skip".
+   - Missing → ask via `AskUserQuestion`: "No CLAUDE.md found. Create a starter? Yes (uses /atomic-setup template) / No, skip".
 6. Report final state. Suggest committing the new files.
 
 
@@ -220,7 +220,7 @@ One-shot bootstrap for a project that has never had signals generated. Verbose, 
 
 - No git repo → stop.
 - No `atomic` binary → stop with install instructions.
-- Existing `claude.md` already has both `@-refs` → confirm, take no action.
+- Existing `CLAUDE.md` already has both `@-refs` → confirm, take no action.
 
 
 ## Integration with `/commit-only`
@@ -266,7 +266,7 @@ Edit `/atomic-setup` audit table to include:
 |-----------|-------|
 | `atomic` binary on PATH | `command -v atomic` |
 | `.claude/project/deterministic-signals.md` | `test -f` |
-| `claude.md` references signals files | grep for `@.claude/project/deterministic-signals.md` |
+| `CLAUDE.md` references signals files | grep for `@.claude/project/deterministic-signals.md` |
 
 
 Proposed actions:
@@ -274,7 +274,7 @@ Proposed actions:
 
 - Binary missing → action: print install command (`curl ... install.sh | bash`). Setup itself does not install — user runs the curl.
 - Signals files missing but binary present → action: run `/initialize-signals` as a follow-up.
-- `claude.md` missing `@-refs` → action: append the auto-load section (after binary + scan done).
+- `CLAUDE.md` missing `@-refs` → action: append the auto-load section (after binary + scan done).
 
 
 ## Open follow-ups
@@ -288,7 +288,7 @@ Proposed actions:
 ## Success criteria
 
 
-- A fresh project can run `/initialize-signals` and end with both signals files written, `claude.md` updated, and both files referenced via `@`.
+- A fresh project can run `/initialize-signals` and end with both signals files written, `CLAUDE.md` updated, and both files referenced via `@`.
 - Re-running `/initialize-signals` is a no-op (the skill detects fresh state).
 - A `/commit-only` that touches `src/foo.ts` regenerates signals and stages the updated docs alongside the commit.
 - A `/commit-only` that only touches `README.md` does NOT regenerate signals.
@@ -307,7 +307,7 @@ Proposed actions:
 | S-3 | `/initialize-signals` command |
 | S-4 | Edit `/commit-only` to invoke skill pre-commit |
 | S-5 | Edit `/atomic-setup` audit + propose flow |
-| S-6 | Update `claude.md` + `CLAUDE.md` + `README.md` tables to document signals |
+| S-6 | Update `claude.md` (later collapsed to `CLAUDE.md`) + `README.md` tables to document signals |
 
 
 ## Implementation log
@@ -327,7 +327,7 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 - `3d59677` → `f0921c9` — CP S-3 `/initialize-signals` command
 - `5bc18e3` → `bf9e1d3` — CP S-4 `/commit-only` invokes atomic-signals pre-commit
 - `a4e6fe9` → `3a40a88` — CP S-5 `/atomic-setup` audits signals workflow
-- `4d34aba` → `8793c1e` — CP S-6 docs (claude.md, CLAUDE.md mirror, README)
+- `4d34aba` → `8793c1e` — CP S-6 docs (claude.md, CLAUDE.md mirror, README — later collapsed to single `CLAUDE.md`)
 - `8d3e1cd` → `300b8ae` — polish: F-1 (install URL), F-2 (skip-order), F-3 (silent mode definition)
 - `54c75c5` → `68c21db` — initial implementation log
 - `05650ed` → `1ebb8ab` — F-4: manifest-filename trigger surface
@@ -339,8 +339,8 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Unforeseens — surprises that emerged during implementation:**
 
 
-- `claude.md` and `CLAUDE.md` collide on macOS APFS (case-insensitive). The bundler design assumes them distinct, but git only tracks `claude.md`. Surfaced during S-6 review; tracked as F-5.
-- Spec wording `Yes (uses /atomic-setup template)` for the `/initialize-signals` missing-claude.md branch implied invoking the full `/atomic-setup` flow. Implementation deviated to write a minimal starter directly — scope-creep avoidance. Spec note at line 205 should be updated to match if the deviation is endorsed.
+- `claude.md` and `CLAUDE.md` collide on macOS APFS (case-insensitive). The bundler design assumed them distinct, but git only tracked one. Surfaced during S-6 review; tracked as F-5. **Resolved 2026-05-17** by collapsing to a single canonical `CLAUDE.md` (see Change log below).
+- Spec wording `Yes (uses /atomic-setup template)` for the `/initialize-signals` missing-CLAUDE.md branch implied invoking the full `/atomic-setup` flow. Implementation deviated to write a minimal starter directly — scope-creep avoidance. Spec note at line 205 should be updated to match if the deviation is endorsed.
 - Rebase onto current `main` (immediately before squash) hit two conflicts because `main` had independently added rows to `commands/atomic-setup.md` (hook-install audit/propose rows) and `README.md` (slash-command table rows for `/remind-me` and `/follow-up`). Both branches' rows belong; the conflict resolution kept both sets. The redundant duplicate "atomic binary on PATH" audit row was dropped in favour of `main`'s `found/missing` wording, and `main`'s `go install` install command was replaced with the canonical curl URL (consistent with `/initialize-signals`).
 
 
@@ -348,7 +348,19 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 
 
 - ~~**F-4** — `.json` excluded from `/commit-only` source-extension list.~~ **Closed during build.** Resolved by introducing a manifest-filename trigger surface separate from the generic extension list (`package.json`, `tsconfig.json`, `Cargo.toml`, `pyproject.toml`, etc.). Spec "Integration with /commit-only" and success criteria updated.
-- **F-5** — `claude.md` vs `CLAUDE.md` case-insensitive collision. Repo-design question, not signals-workflow scope. Recorded here for follow-up.
+- ~~**F-5** — `claude.md` vs `CLAUDE.md` case-insensitive collision.~~ **Closed 2026-05-17** by collapsing to a single canonical `CLAUDE.md`. Bundle source rule updated; mass-renamed all references across docs and skills. See Change log below.
 
 
 **Closed during build:** F-1, F-2, F-3 (originally `8d3e1cd`, rebased to `300b8ae`); F-4 (originally `05650ed`, rebased to `1ebb8ab`). All folded into the final squash `3feaa63`.
+
+
+## Change log
+
+
+### 2026-05-17 — Collapse `claude.md` / `CLAUDE.md` to single canonical `CLAUDE.md`
+
+**What changed:** F-5 resolved. The bundle source for the global instructions file is now `CLAUDE.md` (uppercase) only. `atomic/internal/bundlemirror/mirror.go` reads `CLAUDE.md` and bundles it under the same name (no rename step). All cross-references in skills, docs, and the pre-commit hook were mass-renamed `claude.md → CLAUDE.md`. The skill's auto-load search order is now `claude.local.md → CLAUDE.local.md → CLAUDE.md` (one canonical file at the end, not two case-only variants).
+
+**Why:** macOS APFS is case-insensitive by default, so `claude.md` and `CLAUDE.md` were the same on-disk file but git tracked one explicit name. Editing one path silently mutated the other, and the bundle source path looked like a separate file but wasn't. The collapse removes the foot-gun.
+
+**Superseded:** prior contract said the source lived at `claude.md` and the bundle renamed it to `CLAUDE.md` on install. Both ends are now `CLAUDE.md`.

@@ -220,7 +220,7 @@ The signals file is committed (or staged) per the signals workflow. The `atomic 
 ### Embedding
 
 
-At build time, the contents of `agents/`, `commands/`, `skills/`, `output-styles/`, and the root `claude.md` (renamed to `CLAUDE.md` on install) are pulled into the binary via Go's `embed` package. The bundle is keyed by atomic-claude release tag; `atomic --version` reports both the binary version and the bundle commit sha so users can verify what was installed.
+At build time, the contents of `agents/`, `commands/`, `skills/`, `output-styles/`, and the root `CLAUDE.md` (renamed to `CLAUDE.md` on install) are pulled into the binary via Go's `embed` package. The bundle is keyed by atomic-claude release tag; `atomic --version` reports both the binary version and the bundle commit sha so users can verify what was installed.
 
 
 Inclusion rules (per directory, explicit allowlist via bundle manifest at build time):
@@ -231,7 +231,7 @@ Inclusion rules (per directory, explicit allowlist via bundle manifest at build 
 - `output-styles/` — only `atomic*.md` (e.g. `atomic.md`).
 - `commands/` — explicit allowlist by name, NOT by prefix. Includes both atomic-prefixed (`atomic-setup.md`, `atomic-plan.md`, `atomic-claude-merge.md`) and verb-named (`commit-only.md`, `merge-to-main.md`, `git-cleanup.md`, `worktree-start.md`, etc.). The full list is committed in `atomic/internal/embedded/manifest.go` and updated when commands are added or removed.
 - `.claude/rules/**/*.md` — path-scoped topic rules grouped by language or topic (e.g. `typescript/`, `python/`). Each rule file declares `paths:` globs in its frontmatter so Claude only loads it when touching matching filetypes. Whole directory is included as-is; bundle manifest enumerates each file.
-- `claude.md` at the atomic-claude repo root → installed as `~/.claude/CLAUDE.md`.
+- `CLAUDE.md` at the atomic-claude repo root → installed as `~/.claude/CLAUDE.md`.
 - Excluded: `claude.local.md`, `tmp/**`, `docs/**`, `.claude/.scratchpad/**`, `.claude/docs/**` (project-local design docs), `atomic/**` (the Go module itself), `.worktrees/**`.
 
 
@@ -243,7 +243,7 @@ Targets (relative to `--target`, default `~/.claude`):
 
 | Source (in bundle) | Target |
 |--------------------|--------|
-| `claude.md` | `CLAUDE.md` |
+| `CLAUDE.md` | `CLAUDE.md` |
 | `agents/atomic-*.md` | `agents/atomic-*.md` |
 | `commands/*.md` | `commands/*.md` |
 | `skills/atomic-*/SKILL.md` | `skills/atomic-*/SKILL.md` |
@@ -278,7 +278,7 @@ Per-file flow:
 `CLAUDE.md` is user-owned global configuration. A blind overwrite would clobber user edits. The binary writes only to a sibling proposed file and stops — it never spawns Claude, never edits CLAUDE.md itself:
 
 
-1. Binary writes the embedded `claude.md` content to `~/.claude/CLAUDE.md.atomic-proposed`.
+1. Binary writes the embedded `CLAUDE.md` content to `~/.claude/CLAUDE.md.atomic-proposed`.
 2. Binary prints:
     ```
     CLAUDE.md needs review.
@@ -626,7 +626,7 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 **Unforeseens — surprises that emerged during implementation:**
 
 - `yaml.v3` key-order non-determinism: solved via `EmitOrdered([]KV, body)` building `yaml.Node` mappings with caller-specified order. Backward-compatible `Emit(map)` keeps alphabetical sort for the deterministic path.
-- macOS case-insensitive filesystem aliases `CLAUDE.md` ↔ `claude.md` — only one is git-tracked but both are reachable. Edits propagated correctly; documented as a non-issue.
+- macOS case-insensitive filesystem aliases `CLAUDE.md` ↔ `CLAUDE.md` — only one is git-tracked but both are reachable. Edits propagated correctly; documented as a non-issue.
 - `go get github.com/tailscale/hujson` bumped `go.mod` to `go 1.23` because hujson declares `go 1.23`. Manual `go mod edit -go=1.22` is reverted by the next `go mod tidy`. Kept at 1.23.
 - The spec referenced `commands/atomic-claude-merge.md` for the CLAUDE.md merge workflow, but the file doesn't exist yet — the proposed-file flow still works because the slash command is the user's later action.
 

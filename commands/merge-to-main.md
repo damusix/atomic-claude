@@ -38,7 +38,7 @@ description: Merge current branch into base. No squash, no push. Re-runs tests o
 6. **Post-merge signals refresh.** Defense in depth — even if the branch's commits each ran `/commit-only`, a merged PR from another contributor or manual commits may have bypassed it. Evaluate in order; stop at first failure:
     1. `command -v atomic` succeeds? If not, skip.
     2. `atomic signals stale` exits 1 (stale)? If 0 (fresh), skip.
-    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `claude.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/inferred-signals.md`, and `claude.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Never amend.
+    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `CLAUDE.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/inferred-signals.md`, and `CLAUDE.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Never amend.
 7. `git branch -d <feature>`.
 8. Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via AskUserQuestion:
    > Branch was checked out in worktree at `<path>`. Delete it?
