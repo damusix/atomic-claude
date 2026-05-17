@@ -34,7 +34,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/squash-and-merge.md", Target: "commands/squash-and-merge.md", SHA256: "335d5cc00bcca18badf4149e17eb65cb6fa40f03fbe0c6b020de7b8514bdba9f"},
 		{Kind: "command", Source: "bundle/commands/squash-only.md", Target: "commands/squash-only.md", SHA256: "ae11f61e6a2d92d39599a7e18227c6ac12661cd0b6fa05443b9b22fda179dcb9"},
 		{Kind: "command", Source: "bundle/commands/subagent-implementation.md", Target: "commands/subagent-implementation.md", SHA256: "2eb421ee8cc4888c7f8434460d5682fa2965f9511eb0ee2c0f6404eacf946a90"},
-		{Kind: "command", Source: "bundle/commands/worktree-start.md", Target: "commands/worktree-start.md", SHA256: "0038d01560be687cdea91672d2fbb927241e9d83c7306dfd7bc74cf96bb2b09d"},
+		{Kind: "command", Source: "bundle/commands/worktree-start.md", Target: "commands/worktree-start.md", SHA256: "e3736fb4f8fd4b305e3849705ef79f1ab902f00631640d9f00099cc60b4bb610"},
 		{Kind: "output-style", Source: "bundle/output-styles/atomic.md", Target: "output-styles/atomic.md", SHA256: "1d59ff0bceb8dfeda8be7b42a7d43c013ca9d97acc9353bcbb861725aa9a9e78"},
 		{Kind: "rule", Source: "bundle/rules/python/style.md", Target: "rules/python/style.md", SHA256: "f1a8b083bc6b7ed6567e12758852d96aff48efdd6e6414d8ca6086a723228f36"},
 		{Kind: "rule", Source: "bundle/rules/typescript/style.md", Target: "rules/typescript/style.md", SHA256: "90e60e16dc64d4a24219f3df40f8bd2ef421cce4f573b4817793bd056c2ad8e2"},
