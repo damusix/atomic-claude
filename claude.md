@@ -73,6 +73,19 @@ Dispatch via the `Agent` tool with the corresponding `subagent_type`. Fall back 
 - **`atomic-git-scout`** (sonnet, tools: Read/Grep/Glob/Bash) — read-only scanner for stale git state (worktrees, branches, optional remote tracking refs). Classifies cleanup candidates (`remove` / `delete` / `prune` / `ask` / `flag` / `skip`) and returns an indexed report for `/git-cleanup`. Never mutates state.
 
 
+## Project signals (skill + agent + command)
+
+
+The signals workflow keeps Claude aware of the current shape of a project without hallucination. Three artifacts compose it:
+
+
+- **`atomic-signals`** (skill) — auto-fires on "regenerate signals", "scan the project", "refresh project context", "what's in this repo", "rescan". Runs `atomic signals scan` to write `.claude/project/deterministic-signals.md`, dispatches `atomic-signals-inferrer` to write `inferred-signals.md`, then ensures both files are `@`-referenced in the project's `claude.md`. Falls back to a tree-only markdown scan if the binary is absent.
+- **`atomic-signals-inferrer`** (agent) — reads `deterministic-signals.md` and writes `inferred-signals.md`. Incremental: in subsequent runs it reads only the diff between scans and updates only the dependent sections. Never modifies files outside `.claude/project/`.
+- **`/initialize-signals`** (command) — one-shot bootstrap for a project that has never had signals generated. Interactive, idempotent. Stops if `atomic` binary is missing.
+
+Full spec: `docs/spec/signals-workflow.md`.
+
+
 ## Workflow (canonical lifecycle)
 
 

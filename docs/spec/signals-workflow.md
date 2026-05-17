@@ -217,23 +217,30 @@ One-shot bootstrap for a project that has never had signals generated. Verbose, 
 ## Integration with `/commit-only`
 
 
-Edit `/commit-only` to invoke the `atomic-signals` skill *before* the commit, gated by source-file detection:
+Edit `/commit-only` to invoke the `atomic-signals` skill *before* the commit, gated by source-file or manifest detection:
 
 
 ```
 1. Stage check (existing).
-2. If staged diff touches source files (extensions configured per language) AND atomic is installed:
+2. If staged diff touches a source file OR a known manifest AND atomic is installed:
    - Invoke atomic-signals skill silently.
    - If signals regenerated, stage the resulting deterministic-signals.md + inferred-signals.md.
 3. Continue with existing commit flow.
 ```
 
 
+Trigger surfaces:
+
+
+- **Source extensions** — `.ts .tsx .js .jsx .py .go .rs .rb .java .c .cc .cpp .h .hpp .swift .kt .php`. Extend per language as the binary's scanner grows.
+- **Manifest filenames** — `package.json`, `tsconfig.json`, `Cargo.toml`, `pyproject.toml`, `requirements.txt`, `Gemfile`, `composer.json`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `go.mod`, `go.sum`. Matched by exact filename, not extension — a generic `foo.json` or `bar.toml` does NOT trigger.
+
+
 Skip if:
 
 
 - `atomic` binary not installed.
-- Staged diff is docs/config only (no source extension matches).
+- Staged diff is prose-only (`.md`) or non-manifest config (generic `.yml .yaml .json .toml` not on the manifest list above).
 - Signals are already fresh per `atomic signals stale`.
 
 
@@ -276,6 +283,7 @@ Proposed actions:
 - Re-running `/initialize-signals` is a no-op (the skill detects fresh state).
 - A `/commit-only` that touches `src/foo.ts` regenerates signals and stages the updated docs alongside the commit.
 - A `/commit-only` that only touches `README.md` does NOT regenerate signals.
+- A `/commit-only` that touches `package.json` (or any other manifest on the trigger list) regenerates signals and stages the updated docs alongside the commit.
 - Removing the binary and re-running the skill produces the fallback message and a degraded-but-non-empty signals file.
 - When `package.json` changes its `scripts.test` value, the skill's incremental path: (a) `atomic signals diff` returns the `Manifests` hunk after `atomic signals scan`, (b) the inferrer reads only that diff + the cited manifests, and (c) `inferred-signals.md` updates only `Build / test / lint commands`. Other sections of `inferred-signals.md` are byte-identical to the previous run.
 
@@ -291,3 +299,41 @@ Proposed actions:
 | S-4 | Edit `/commit-only` to invoke skill pre-commit |
 | S-5 | Edit `/atomic-setup` audit + propose flow |
 | S-6 | Update `claude.md` + `CLAUDE.md` + `README.md` tables to document signals |
+
+
+## Implementation log
+
+
+### v0.1 — 2026-05-17
+
+
+Built across 6 iterations of `/subagent-implementation` (plus one follow-up polish). Commits (chronological):
+
+
+- `88f9bf4` — CP S-1 `atomic-signals-inferrer` agent
+- `d6b21e5` — CP S-2 `atomic-signals` skill
+- `3d59677` — CP S-3 `/initialize-signals` command
+- `5bc18e3` — CP S-4 `/commit-only` invokes atomic-signals pre-commit
+- `a4e6fe9` — CP S-5 `/atomic-setup` audits signals workflow
+- `4d34aba` — CP S-6 docs (claude.md, CLAUDE.md mirror, README)
+- `8d3e1cd` — polish: address F-1 (install URL), F-2 (skip-order), F-3 (silent mode definition)
+
+
+**Out-of-scope work performed during this build:** none.
+
+
+**Unforeseens — surprises that emerged during implementation:**
+
+
+- `claude.md` and `CLAUDE.md` collide on macOS APFS (case-insensitive). The bundler design assumes them distinct, but git only tracks `claude.md`. Surfaced during S-6 review; tracked as F-5.
+- Spec wording `Yes (uses /atomic-setup template)` for the `/initialize-signals` missing-claude.md branch implied invoking the full `/atomic-setup` flow. Implementation deviated to write a minimal starter directly — scope-creep avoidance. Spec note at line 205 should be updated to match if the deviation is endorsed.
+
+
+**Deferred items still open:**
+
+
+- ~~**F-4** — `.json` excluded from `/commit-only` source-extension list.~~ **Closed during build.** Resolved by introducing a manifest-filename trigger surface separate from the generic extension list (`package.json`, `tsconfig.json`, `Cargo.toml`, `pyproject.toml`, etc.). Spec "Integration with /commit-only" and success criteria updated.
+- **F-5** — `claude.md` vs `CLAUDE.md` case-insensitive collision. Repo-design question, not signals-workflow scope. Recorded here.
+
+
+**Closed during build:** F-1, F-2, F-3 (see commit `8d3e1cd`); F-4 (manifest trigger surface — see commit pending).

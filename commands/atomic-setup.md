@@ -33,6 +33,8 @@ Inspect the repo. Build this status table:
 | `atomic` binary on PATH | `command -v atomic` | found / missing |
 | `.claude/hooks/session-start-reminders.sh` exists | `test -f .claude/hooks/session-start-reminders.sh` | exists / missing |
 | `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value contains `session-start-reminders.sh` (the absolute path written by `atomic hooks install`) | registered / missing |
+| `.claude/project/deterministic-signals.md` | `test -f .claude/project/deterministic-signals.md` | exists / missing |
+| `claude.md` references signals files | `test -f claude.md && grep -qF '@.claude/project/deterministic-signals.md' claude.md && grep -qF '@.claude/project/inferred-signals.md' claude.md` (if `test -f claude.md` fails → n/a) | yes / no / n/a |
 
 Classify the repo:
 
@@ -56,10 +58,12 @@ For each missing item, propose an action. Skip items already present.
 | `docs/spec/` missing | Create directory + `docs/spec/.gitkeep` (so git tracks it before any content lands). |
 | `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
 | `README.md` missing | Offer to scaffold a minimal starter. If user declines, skip — don't push it. |
-| `atomic` binary missing | Print install instructions: `go install github.com/damusix/atomic-claude/atomic/cmd/atomic@latest` (or equivalent). No automated action. |
+| `atomic` binary missing | Print: `curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh \| bash`. Setup does not run the install — user runs the curl. |
 | Script + registration missing, binary present | Run `atomic hooks install`. |
 | Script + registration missing, binary missing | Write `.claude/hooks/session-start-reminders.sh` as the fallback script manually AND manually add the `SessionStart` hook entry to `.claude/settings.json`. |
 | Script present, registration missing | Run `atomic hooks install` (idempotent — rewrites script with canonical content and adds the settings entry). |
+| `deterministic-signals.md` missing but `atomic` present | Print: "Run `/initialize-signals` to generate project signals." (follow-up only; setup does not invoke it). |
+| `claude.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `claude.md` is missing — the starter template row handles that case. |
 
 Present the proposed actions as a numbered list:
 
@@ -119,6 +123,41 @@ touch docs/spec/.gitkeep docs/design/.gitkeep
 
 - Refuse to overwrite if file exists.
 - Write a minimal scaffold: title (repo dir name), one-line pitch placeholder, "Install / Usage / License" placeholder headings. Tell the user it's a stub and they should expand it.
+
+### Signals
+
+Apply in this order, only for the confirmed actions:
+
+**Binary missing** — Print the install command only; do not execute it:
+
+```
+Install the atomic binary:
+  curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
+```
+
+**Signals files missing (binary present)** — Print the follow-up command; do not invoke it:
+
+```
+Run /initialize-signals to generate project signals.
+```
+
+**`claude.md` missing `@-refs`** — Append to the existing `claude.md`:
+
+```bash
+if test -f claude.md && ! { grep -qF '@.claude/project/deterministic-signals.md' claude.md && grep -qF '@.claude/project/inferred-signals.md' claude.md; }; then
+  cat >> claude.md << 'EOF'
+
+
+## Project signals (auto-loaded)
+
+
+@.claude/project/deterministic-signals.md
+@.claude/project/inferred-signals.md
+EOF
+fi
+```
+
+Idempotent: only appends when `claude.md` exists AND at least one `@-ref` is missing. Refuses silently otherwise.
 
 ## Step 5 — Report
 

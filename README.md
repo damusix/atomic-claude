@@ -65,7 +65,7 @@ Native Windows (cmd / PowerShell) is unsupported. Patches welcome if you want to
 
 ## Install
 
-The `atomic` binary backs cron and signals workflows. End users:
+The `atomic` binary backs cron and signals workflows (see [Signals workflow](#signals-workflow) below). End users:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
@@ -272,6 +272,7 @@ Switch by saying "atomic lite", "atomic full", or "atomic ultra". Security warni
 | `/squash-and-merge` | Squash-merge into base, delete branch. |
 | `/remind-me <duration> <text>` | Schedule a reminder. Writes a reminder file and creates a one-shot cron that fires `/follow-up due <id>` at the given time. Degrades to file-only if `CronCreate` is unavailable. |
 | `/follow-up [due <id>]` | Review pending reminders. Bare: indexed list + done/snooze/reschedule actions. Cron-fired: surfaces the specific reminder and waits for user response. |
+| `/initialize-signals` | Bootstrap signals for a project that has never had them. Interactive, idempotent. Requires `atomic` binary. |
 | `/documentation` | Update or create project docs (README, claude.md, docs/spec/, docs/design/) after significant changes. |
 | `/report-issue` | Open a GitHub issue via `gh`. Auto-detects bug report vs. feature request. |
 
@@ -287,6 +288,7 @@ Skills auto-fire when Claude encounters matching phrases. They can also be invok
 | `atomic-debug` | Error pastes, "broken", "doesn't work", "failing". |
 | `atomic-tdd` | "let's implement X", "add feature Y", "fix bug Z", pre-code-change phrases. |
 | `atomic-verify` | "done", "fixed", "passing", "ready to merge", "looks good" — any completion claim. |
+| `atomic-signals` | "regenerate signals", "scan the project", "refresh project context", "what's in this repo", "rescan". Also fires from `/commit-only` when staged diff touches source files. |
 
 
 ## Agents
@@ -300,6 +302,19 @@ Agents are dispatched by the orchestrator (or directly by the user) via the Agen
 | `atomic-investigator` | Read-only code location. "Where is X defined", "what calls Y", "list uses of Z". Returns `file:line — what` table, no prose, no speculation. | Haiku |
 | `atomic-reviewer` | Diff review after each builder pass. Verifies TDD quality signals were actually run. Emits one line per finding + `VERDICT: PASS` or `CHANGES_REQUESTED`. | Sonnet |
 | `atomic-git-scout` | Read-only scanner for stale git state (worktrees, branches, optional remote tracking refs). Classifies cleanup candidates and returns indexed report. Dispatched by `/git-cleanup`. Never mutates state. | Sonnet |
+| `atomic-signals-inferrer` | Reads `deterministic-signals.md` and writes `inferred-signals.md`. Incremental: reads only the diff between scans and updates only dependent sections. Dispatched by `atomic-signals`. Scoped to `.claude/project/`. | Sonnet |
+
+
+## Signals workflow
+
+The signals workflow keeps Claude aware of the current shape of a project without hallucination. On first use, run `/initialize-signals` to generate two committed files:
+
+- `.claude/project/deterministic-signals.md` — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
+- `.claude/project/inferred-signals.md` — inferred meaning: framework, build/test/lint commands, architectural style, conventions. Produced by `atomic-signals-inferrer`.
+
+Both files are auto-referenced in the project's `claude.md` via `@`-refs so Claude loads them on every session. The `atomic-signals` skill keeps them fresh: it auto-fires on project-state-change phrases and also runs silently from `/commit-only` when the staged diff touches source files. The inferrer uses an incremental diff path — on subsequent runs it reads only what changed and updates only the dependent sections, leaving everything else byte-identical.
+
+Requires the `atomic` binary. Run without it for a degraded tree-only fallback. Full spec: `docs/spec/signals-workflow.md`.
 
 
 ## Conventions
