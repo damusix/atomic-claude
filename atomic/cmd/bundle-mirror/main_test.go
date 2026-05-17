@@ -39,8 +39,8 @@ func buildMiniRepo(t *testing.T) string {
 	write("commands/atomic-plan.md", "# atomic-plan\n")
 	write("commands/_templates/something.md", "should be excluded\n")
 
-	write(".claude/rules/python/style.md", "# python style\n")
-	write(".claude/rules/typescript/style.md", "# typescript style\n")
+	write("rules/python/style.md", "# python style\n")
+	write("rules/typescript/style.md", "# typescript style\n")
 
 	write("claude.md", "# CLAUDE\n")
 
@@ -155,10 +155,10 @@ func TestRunTargetPaths(t *testing.T) {
 		}
 	}
 
-	// .claude/ prefix must be stripped for rules.
+	// rules are sourced from root, not .claude/.
 	for _, a := range artifacts {
 		if len(a.Target) >= 7 && a.Target[:7] == ".claude" {
-			t.Errorf("artifact target %q still has .claude prefix", a.Target)
+			t.Errorf("artifact target %q must not have .claude prefix", a.Target)
 		}
 	}
 }

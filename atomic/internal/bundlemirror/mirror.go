@@ -131,8 +131,8 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		artifacts = append(artifacts, a)
 	}
 
-	// .claude/rules/**/*.md  — strip the .claude/ prefix for target
-	rulesDir := filepath.Join(repoRoot, ".claude", "rules")
+	// rules/**/*.md
+	rulesDir := filepath.Join(repoRoot, "rules")
 	err = filepath.WalkDir(rulesDir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
@@ -140,7 +140,7 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		if d.IsDir() || !strings.HasSuffix(path, ".md") {
 			return nil
 		}
-		rel, err := filepath.Rel(filepath.Join(repoRoot, ".claude"), path)
+		rel, err := filepath.Rel(repoRoot, path)
 		if err != nil {
 			return err
 		}
