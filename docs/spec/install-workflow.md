@@ -209,3 +209,5 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 - CP-4 — sync `claude.md` / `CLAUDE.md` / `README.md` to mention the install merge workflow. Handled out-of-band via `/documentation` (next step after this log lands).
 - F-4 (extra `## Workflow` section in agent body) and F-5 (sha256 short-circuit folded into Pre-flight instead of `### Refusals`) — user dropped at FOLLOWUPS triage. Cosmetic only.
 - Spec's `## Open follow-ups` carry-over: `atomic claude rollback` verb, `--strategy ours/theirs/manual` flag on the merge command, revisit the 10% conflict heuristic. All explicitly v0.2.0+ scope.
+
+**Squashed onto `main` as `e6cf258` — 2026-05-17.** Per-iteration SHAs above are historical (unreachable post-squash).
