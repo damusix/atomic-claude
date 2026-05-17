@@ -96,7 +96,38 @@ Append-only iteration log:
 ...
 ```
 
-That's it. No GOAL.md, no CONTEXT.md, no PLAN.md — the spec at `docs/spec/<topic>.md` IS those. The scratchpad is a thin handoff, not a duplicate.
+### `$SCRATCH/FOLLOWUPS.md`
+
+Ledger of non-blocking reviewer findings (🟡 risk / 🔵 nit / ❓ question) — anything that didn't block the iteration's PASS but is worth a deliberate decision before final ship. Append after every reviewer pass that returns findings; do NOT discard them just because the verdict was PASS.
+
+Initialize on first iteration with this structure:
+
+```markdown
+# Follow-ups: <topic>
+
+Non-blocking findings carried across iterations. At finalization (Phase 3): review with the user, decide what to fix in a polish pass, what to defer to a tracked issue, what to drop.
+
+---
+
+## 🟡 risks
+
+### F-1 — <one-line title>
+
+`<path:line>`
+
+<problem + suggested fix in 1-3 sentences>
+
+Origin: iteration <N> reviewer.
+
+## 🔵 nits
+
+### F-N — <title>
+...
+```
+
+Numbering is sequential across all severities (F-1, F-2, F-3...). When a follow-up gets closed in a later iteration, mark `*(closed iter N — <commit-sha>)*` next to its title and keep the entry for traceability — don't delete it.
+
+That's it. No GOAL.md, no CONTEXT.md, no PLAN.md — the spec at `docs/spec/<topic>.md` IS those. The scratchpad is a thin handoff plus a deliberate-decision ledger, not a duplicate.
 
 ## Phase 2 — Implement → Review → Commit loop
 
@@ -139,7 +170,8 @@ Build the reviewer prompt from `commands/_templates/reviewer-prompt.md`, substit
 
 - Parse reviewer's verdict line: `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
 - Update `STATE.md` with iteration number, implementer summary, reviewer findings, next-iteration focus.
-- If `CHANGES_REQUESTED` → loop back to Step A with the findings as the implementer's focus.
+- **Harvest non-blocking findings** (🟡 / 🔵 / ❓ that the reviewer let through to PASS, or anything in CHANGES_REQUESTED's set that the next iteration is NOT going to address) into `FOLLOWUPS.md` as new `F-N` entries. Cite `path:line`, severity emoji, problem, suggested fix, origin iteration. Don't drop them; they exist for a reason and the user reviews the ledger before ship.
+- If `CHANGES_REQUESTED` → loop back to Step A with the blocking findings (🔴, plus any 🟡 the orchestrator chooses to address now) as the implementer's focus. Anything not addressed in the next iteration stays in `FOLLOWUPS.md`.
 - If implementer reported `BLOCKED` or `NEEDS_CONTEXT` → stop loop and surface to user.
 - If `PASS` → continue to Step D.
 
@@ -161,9 +193,10 @@ This makes each iteration bisectable. The next iteration's reviewer diffs agains
 Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 
 1. Run the full test/typecheck/lint/build suite yourself (orchestrator) to confirm green. Do NOT trust subagent claims at the finish line — invoke the `atomic-verify` skill here, which is exactly this gate.
-2. Update repo documentation by invoking `/documentation` — it handles `README.md`, `claude.md`, `docs/spec/`, `docs/design/`.
-3. Delete `$SCRATCH` (the task's dated dir). Other dated dirs from prior runs are not your concern.
-4. Report to the user: what shipped, which iterations + commit SHAs, what was verified, what's left (if anything).
+2. **Surface `FOLLOWUPS.md` to the user.** Read it, list every open `F-N` entry, and ask the user what to do with each: fix in a polish iteration now, file as a tracked issue, or drop. Don't auto-decide; this is the deliberate-decision gate the ledger exists for.
+3. Update repo documentation by invoking `/documentation` — it handles `README.md`, `claude.md`, `docs/spec/`, `docs/design/`.
+4. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage. Other dated dirs from prior runs are not your concern.
+5. Report to the user: what shipped, which iterations + commit SHAs, what was verified, what FOLLOWUPS were dispositioned, what's left (if anything).
 
 Do NOT push, merge, or open a PR. The user picks the ship verb (`/pr-only`, `/merge-to-main`, `/squash-and-merge`, etc.) when ready.
 

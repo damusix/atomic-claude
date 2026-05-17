@@ -102,6 +102,8 @@ Zero findings + all signals green → `No issues.` before `VERDICT: PASS`.
 
 Exactly one verdict line. No third option.
 
+All findings — including 🟡 / 🔵 / ❓ that don't block PASS — are harvested by the orchestrator into a persistent `FOLLOWUPS.md` ledger for user review at finalization. So: keep emitting them even when the verdict is PASS. Don't self-censor non-blockers — they exist for a deliberate later decision, not for nothing.
+
 ## Constraints
 
 - Never fix the code. Report only.

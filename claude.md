@@ -52,7 +52,7 @@ Enduring principles for the atomic-claude system. Apply when adding new commands
 ## Where things live
 
 
-- **Working memory** (LLM-only, gitignored): `.claude/.scratchpad/<YYYY-MM-DD>-<desc>/` — used by `/subagent-implementation` for its implement→review loop. Holds `BRIEF.md` (pointer to spec + current iteration scope + reviewer feedback) and `STATE.md` (append-only iteration log). Deleted on task completion.
+- **Working memory** (LLM-only, gitignored): `.claude/.scratchpad/<YYYY-MM-DD>-<desc>/` — used by `/subagent-implementation` for its implement→review loop. Holds `BRIEF.md` (pointer to spec + current iteration scope + reviewer feedback), `STATE.md` (append-only iteration log), and `FOLLOWUPS.md` (ledger of non-blocking reviewer findings carried across iterations, dispositioned with the user at finalize). Deleted on task completion.
 - **Durable docs** (committed, human-facing):
   - `docs/design/<topic>.md` — design rationale, alternatives considered, brainstorming. Written collaboratively via `/atomic-plan` when classified as design.
   - `docs/spec/<topic>.md` — implementation contract for an approved feature. Written collaboratively via `/atomic-plan` when classified as spec. The canonical source for `/subagent-implementation` runs.
