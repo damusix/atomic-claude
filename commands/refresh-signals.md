@@ -64,6 +64,6 @@ suggested next step:
 
 - Stop on pre-flight failure. Never continue past a missing git repo or missing binary.
 - Refuse if signals were never initialized. `/refresh-signals` is for updating existing signals, not bootstrapping — that's `/initialize-signals`'s job.
-- Delegate the actual work to the `atomic-signals` skill. This command is a thin, explicit-only entry point; the skill owns scan + inferrer + claude.md verification.
-- Never modify `claude.md`. Refreshing is content-only; wiring belongs to `/initialize-signals` or `/atomic-setup`.
+- Delegate the actual work to the `atomic-signals` skill. This command is a thin, explicit-only entry point; the skill owns scan + inferrer + claude.md wiring.
+- The skill keeps `@-refs` to signals present in `claude.md` so future sessions auto-load them. That wiring is part of refresh, not a separate concern — without it the snapshot exists but Claude never reads it.
 - Never commit. The user stages and commits the regenerated files.

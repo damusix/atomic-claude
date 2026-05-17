@@ -1,7 +1,7 @@
 ---
 name: atomic-signals-inferrer
 description: Reads deterministic-signals.md and produces inferred-signals.md — framework detection, command guesses, architectural style. Read-write but scoped to .claude/project/.
-tools: Read, Write, Grep, Glob
+tools: Read, Write, Edit, Grep, Glob
 model: sonnet
 ---
 

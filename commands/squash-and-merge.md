@@ -38,8 +38,12 @@ description: Squash all branch commits via git merge --squash on base. One clean
     ```
 
     Stage by explicit path. Commit as a follow-up: `docs(spec): record squash SHA <sha>`. Never amend the squash commit (the SHA in the log would then not match itself). If no specs match: skip silently.
-9. `git branch -D <feature>` (force required — squash leaves merge-base check unresolved).
-10. Worktree check: `git worktree list`. If feature branch lived in `.worktrees/<feature>/`, ask via AskUserQuestion:
+9. **Post-squash signals refresh.** Defense in depth — even if the branch's commits each ran `/commit-only`, manual commits or external contributions in the squashed history may have bypassed it. Evaluate in order; stop at first failure:
+    1. `command -v atomic` succeeds? If not, skip.
+    2. `atomic signals stale` exits 1 (stale)? If 0 (fresh), skip.
+    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `claude.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/inferred-signals.md`, and `claude.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after squash of <feature>`. Never amend the squash commit.
+10. `git branch -D <feature>` (force required — squash leaves merge-base check unresolved).
+11. Worktree check: `git worktree list`. If feature branch lived in `.worktrees/<feature>/`, ask via AskUserQuestion:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
    > - No, keep it

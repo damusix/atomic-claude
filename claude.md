@@ -68,9 +68,12 @@ Dispatch via the `Agent` tool with the corresponding `subagent_type`. Fall back 
 
 - **`atomic-builder`** (sonnet, tools: Read/Edit/Write/Grep/Glob/Bash) — feature-checkpoint builder. Cohesion-bounded: may touch many files when they form one logical slice (controller + service + DTO + entity + test for one endpoint). Writes TDD: failing test first, then implementation. Reports the atomic quality signal block. Refuses cross-cutting or architecturally ambiguous work.
 - **`atomic-surgeon`** (sonnet, tools: Read/Edit/Write/Grep/Glob/Bash) — surgical 1-2 file edits. Typo fixes, single-function rewrites, mechanical renames, single-callsite bug fixes. Hard refuses 3+ file scope. Same TDD discipline and signal-block reporting as the builder.
-- **`atomic-investigator`** (haiku, read-only) — code locator. Returns `file:line — what` tables. Refuses to write code, suggest fixes, or design.
+- **`atomic-investigator`** (haiku, read-only) — code locator. Returns `file:line — what` tables. Refuses to write code, suggest fixes, or design. Dispatched as the first pass in `/subagent-implementation` Phase 0 to scope the surface area before Sonnet builder/reviewer turns.
 - **`atomic-reviewer`** (sonnet, tools: Read/Grep/Bash) — diff reviewer. Verifies TDD signals were actually run (re-runs typecheck/tests itself, spot-checks new tests). Emits `## Spec compliance` + `## Code quality` subsections plus the signals block, ending with exactly one of `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
 - **`atomic-git-scout`** (sonnet, tools: Read/Grep/Glob/Bash) — read-only scanner for stale git state (worktrees, branches, optional remote tracking refs). Classifies cleanup candidates (`remove` / `delete` / `prune` / `ask` / `flag` / `skip`) and returns an indexed report for `/git-cleanup`. Never mutates state.
+- **`atomic-signals-inferrer`** (sonnet, tools: Read/Write/Edit/Grep/Glob) — reads `.claude/project/deterministic-signals.md` and writes `inferred-signals.md`. Incremental on subsequent runs (updates only sections the diff touches). Dispatched by the `atomic-signals` skill; never modifies files outside `.claude/project/`.
+- **`atomic-claude-merger`** (sonnet, tools: Read/Edit/Write/Bash) — merges `~/.claude/CLAUDE.md.atomic-proposed` into the live `~/.claude/CLAUDE.md`. Preserves user-authored sections, replaces atomic-owned ones, backs up the prior file. Dispatched by `/atomic-claude-merge`.
+- **`atomic-haiku`** (haiku, tools: Read/Grep/Glob/Bash) — generic background runner for polling, status checks, log scraping, structured reporting. Read-only by default. Used by `/watch-ci`; available for any task too lightweight for Sonnet.
 
 
 ## Project signals (skill + agent + command)
@@ -107,9 +110,3 @@ Full spec: `docs/spec/signals-workflow.md`.
 Other commands: `/atomic-setup` (bootstrap a repo for atomic conventions — gitignore, docs/ layout, starter claude.md), `/report-issue` (open a GitHub issue), `/worktree-start <branch>` (create isolated `.worktrees/<branch>/`), `/git-cleanup [<name>]` (scan stale git state — worktrees, branches, optional remote — via `atomic-git-scout`; confirm before deleting anything), `/atomic-compress <file>` (compress prose file into atomic style), `/initialize-signals` (one-shot bootstrap of project signals), `/refresh-signals` (deliberate re-scan of existing signals), `/watch-ci [<branch>|<pr#>|<run-id>|<workflow.yml>]` (spawn background Haiku subagent to watch CI — provider auto-detected from signals: GitHub Actions, GitLab CI, CircleCI, Jenkins, Buildkite, Bitbucket, Azure), `/remind-me <duration> <text>` (schedule a reminder via cron; degrades to file-only without `CronCreate`), `/follow-up [due <id>]` (review pending reminders — reminders surface three ways: cron fires `/follow-up due <id>`, session-start hook injects pending items at session open, and `/follow-up` on demand), `/atomic-claude-merge` (merge `~/.claude/CLAUDE.md.atomic-proposed` produced by `atomic claude install/update` into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent — preserves user sections, replaces atomic-owned ones, backs up prior CLAUDE.md under `~/.claude/.atomic-backups/<ts>/`).
 
 Atomic binary subcommands beyond `claude install` / `signals scan` / `hooks install` / `reminder` / `update`: `atomic docker init [--target DIR] [--force]` writes a Dockerfile + docker-compose.yml + entrypoint into the target dir (default `./atomic-docker/`) so users can evaluate atomic-claude on their own projects without cloning this repo. Mirror of the contributor Docker setup at the repo root (see `## Evaluations` in README.md).
-
-
-## Project signals (auto-loaded)
-
-@.claude/project/deterministic-signals.md
-@.claude/project/inferred-signals.md

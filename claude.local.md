@@ -40,6 +40,21 @@ The `atomic` binary's embedded bundle (see `atomic/internal/bundlemirror/`) is s
 - Skill triggers, agent dispatch criteria, and command behaviors must not contradict each other. If `/atomic-plan` says it writes to `docs/spec/` and an agent expects `docs/specs/`, that's a bug.
 
 
+## Signals `@-refs` must stay wired (in this repo: `claude.local.md`)
+
+
+The whole point of the signals workflow is that Claude has a current map of the project before exploring. That only works if some auto-loaded Claude instructions file `@-references` both `.claude/project/deterministic-signals.md` and `.claude/project/inferred-signals.md`.
+
+
+**In this repo specifically**, the refs live in `claude.local.md` (this file) — not in `claude.md`. Reason: `claude.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for project-scoped `@`-refs.
+
+
+- The `atomic-signals` skill checks for the refs in `claude.local.md` / `CLAUDE.local.md` first, then `claude.md` / `CLAUDE.md`. If present in ANY of them, it skips wiring. Don't introduce commands that try to enforce a single canonical location — the skill's search order is the contract.
+- For most repos, the refs end up in `claude.md` / `CLAUDE.md` (one file, no separation). For this repo and any other config-source repos, they live in `claude.local.md`. Both are valid.
+- If you fork the layout (e.g. moving refs into a separate `@`-included file), update the skill's search order in lockstep.
+- When a user says "the auth system is broken", a session with signals loaded already knows which modules, services, and use cases live where. Without the `@-refs`, the snapshot files exist but never reach context — wasted scan, wasted inference.
+
+
 ## Design axioms (load every session)
 
 
@@ -76,3 +91,9 @@ URL index for official Claude Code documentation: agents, sub-agents, skills, co
 ## Install (for this repo's artifacts)
 
 No install script yet. Manual: copy each top-level directory into `~/.claude/`, restart Claude Code. A future `/install` or Makefile target is on the table.
+
+
+## Project signals (auto-loaded)
+
+@.claude/project/deterministic-signals.md
+@.claude/project/inferred-signals.md
