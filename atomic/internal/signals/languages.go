@@ -111,7 +111,11 @@ func ScanLanguages(root string) (string, error) {
 		if totalFiles > 0 {
 			filesPct = (e.files * 100) / totalFiles
 		}
-		lines = append(lines, fmt.Sprintf("- %s: %d LOC (%d%%), %d files (%d%%)", e.name, e.loc, locPct, e.files, filesPct))
+		fileWord := "files"
+		if e.files == 1 {
+			fileWord = "file"
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %d LOC (%d%%), %d %s (%d%%)", e.name, e.loc, locPct, e.files, fileWord, filesPct))
 	}
 	return strings.Join(lines, "\n"), nil
 }

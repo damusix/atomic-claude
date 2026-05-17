@@ -1115,9 +1115,10 @@ func TestScanTree_NormalDirChildCountSingular(t *testing.T) {
 }
 
 func TestScanTree_DepthCapAnnotation(t *testing.T) {
-	// a/b/c/ is at depth 3; d/ inside it is depth 4 — c/ should be depth-capped.
-	// c/ has 2 direct children: deep.go (file) and d/ (dir) = 2 direct.
-	// Total beneath c/: deep.go + d/too.go = 2 total.
+	// a/b/c/ is at depth 3; d/ inside it would be depth 4.
+	// Fix 3: c/ now shows d/ as a terminal dir entry (with verbose annotation),
+	// so c/ itself uses the simple (N) annotation since all children are shown.
+	// d/ carries the depth-cap verbose annotation.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/deep.go":  "package main\n",
 		"a/b/c/d/too.go": "package main\n",
@@ -1126,9 +1127,13 @@ func TestScanTree_DepthCapAnnotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// c/ should have depth-cap annotation with correct counts.
-	if !strings.Contains(out, "c/ (2 subitems) (2 total items)") {
-		t.Errorf("expected depth-cap annotation on c/:\n%s", out)
+	// c/ shows all its children — simple annotation.
+	if !strings.Contains(out, "c/ (2)") {
+		t.Errorf("expected simple annotation 'c/ (2)' (all children shown):\n%s", out)
+	}
+	// d/ is the terminal dir entry with verbose annotation.
+	if !strings.Contains(out, "d/ (1 subitem) (1 total item)") {
+		t.Errorf("expected 'd/ (1 subitem) (1 total item)' terminal annotation:\n%s", out)
 	}
 	// too.go must not appear (depth 4).
 	if strings.Contains(out, "too.go") {
@@ -1137,7 +1142,9 @@ func TestScanTree_DepthCapAnnotation(t *testing.T) {
 }
 
 func TestScanTree_DepthCapAnnotationSingularSubitem(t *testing.T) {
-	// c/ has only 1 direct child (dir d/) — should say "1 subitem".
+	// c/ has only 1 direct child (dir d/) which is a terminal dir entry.
+	// Fix 3: c/ shows d/ (so c/ uses simple annotation (1));
+	// d/ carries "1 subitem" (singular) verbose annotation.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/d/only.go": "package main\n",
 	})
@@ -1145,8 +1152,13 @@ func TestScanTree_DepthCapAnnotationSingularSubitem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	if !strings.Contains(out, "c/ (1 subitem)") {
-		t.Errorf("expected '1 subitem' (singular) annotation on c/:\n%s", out)
+	// c/ shows its one child (d/) — simple annotation.
+	if !strings.Contains(out, "c/ (1)") {
+		t.Errorf("expected 'c/ (1)' (simple annotation, child shown):\n%s", out)
+	}
+	// d/ is the terminal dir with singular subitem annotation.
+	if !strings.Contains(out, "d/ (1 subitem)") {
+		t.Errorf("expected 'd/ (1 subitem)' (singular) annotation on terminal dir:\n%s", out)
 	}
 }
 
@@ -1168,5 +1180,94 @@ func TestScanTree_AnnotationIdempotent(t *testing.T) {
 	}
 	if out1 != out2 {
 		t.Errorf("ScanTree not idempotent:\nfirst:\n%s\nsecond:\n%s", out1, out2)
+	}
+}
+
+// ---- Fix 1: Languages singular/plural file count ----
+
+func TestScanLanguages_FileCountSingular(t *testing.T) {
+	// Exactly 1 file — must render "1 file" not "1 files".
+	root := makeRepo(t, map[string]string{
+		"main.go": "package main\n\nfunc main() {}\n",
+	})
+	out, err := signals.ScanLanguages(root)
+	if err != nil {
+		t.Fatalf("ScanLanguages: %v", err)
+	}
+	if strings.Contains(out, "1 files") {
+		t.Errorf("expected '1 file' (singular), got '1 files':\n%s", out)
+	}
+	if !strings.Contains(out, "1 file") {
+		t.Errorf("expected '1 file' in output:\n%s", out)
+	}
+}
+
+// ---- Fix 2: Total items singular ----
+
+func TestScanTree_DepthCapAnnotationSingularTotalItem(t *testing.T) {
+	// c/ has 1 direct child (dir d/) which itself has 1 file — total = 1.
+	// Must render "1 total item" not "1 total items".
+	root := makeRepo(t, map[string]string{
+		"a/b/c/d/only.go": "package main\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	if strings.Contains(out, "1 total items") {
+		t.Errorf("expected '1 total item' (singular), got '1 total items':\n%s", out)
+	}
+	// The annotation should include total-item count (1 total item).
+	if !strings.Contains(out, "1 total item") {
+		t.Errorf("expected '1 total item' in output:\n%s", out)
+	}
+}
+
+// ---- Fix 3: Directory entries visible at depth cap ----
+
+func TestScanTree_DepthCapShowsDirEntry(t *testing.T) {
+	// a/b/c/ is at depth 3 — it has two children:
+	//   - deep.go (file, shown)
+	//   - d/ (dir, previously hidden — must now appear as terminal dir entry)
+	root := makeRepo(t, map[string]string{
+		"a/b/c/deep.go":  "package main\n",
+		"a/b/c/d/too.go": "package main\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// d/ must appear in the output.
+	if !strings.Contains(out, "d/") {
+		t.Errorf("expected 'd/' (terminal dir entry) to be visible:\n%s", out)
+	}
+	// d/ must carry verbose annotation (it's terminal — contents not expanded).
+	if !strings.Contains(out, "d/ (1 subitem)") {
+		t.Errorf("expected 'd/ (1 subitem)' annotation on terminal dir:\n%s", out)
+	}
+	// too.go must NOT appear (it's a file at depth 4).
+	if strings.Contains(out, "too.go") {
+		t.Errorf("too.go should be pruned (depth 4):\n%s", out)
+	}
+	// c/ must NOT have depth-cap (verbose) annotation now (it shows all children).
+	if strings.Contains(out, "c/ (2 subitems)") {
+		t.Errorf("c/ should not have depth-cap annotation (all children shown):\n%s", out)
+	}
+}
+
+func TestScanTree_DepthCapParentAnnotation(t *testing.T) {
+	// When the parent now shows all its children (including the dir),
+	// it should carry the simple (N) annotation, not (N subitems)(M total items).
+	root := makeRepo(t, map[string]string{
+		"a/b/c/deep.go":  "package main\n",
+		"a/b/c/d/too.go": "package main\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// c/ has 2 children (d/ + deep.go); it shows both — use simple annotation.
+	if !strings.Contains(out, "c/ (2)") {
+		t.Errorf("expected 'c/ (2)' (simple annotation after showing all children):\n%s", out)
 	}
 }

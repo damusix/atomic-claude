@@ -230,26 +230,22 @@ func ScanTree(root string) (string, error) {
 	}
 	computeCounts(rootNode)
 
-	// Prune directory nodes deeper than maxDepth. Directories at depth maxDepth
-	// still show their immediate file children, but not subdirectories.
+	// Prune directory nodes deeper than maxDepth.
+	// At depth == maxDepth: keep file children AND keep dir children as "terminal"
+	// entries (depthCapped=true, children cleared). The parent shows all its
+	// children and therefore uses the simple (N) annotation.
 	// depth counts from 1 at root's children.
 	var pruneNode func(n *node, depth int)
 	pruneNode = func(n *node, depth int) {
 		if depth >= maxDepth {
-			// At max depth: keep file children, drop directory children.
-			kept := make([]*node, 0, len(n.children))
-			hasDirChildren := false
+			// At max depth: keep file children; convert dir children to terminal entries.
 			for _, c := range n.children {
 				if c.isDir {
-					hasDirChildren = true
-				} else {
-					kept = append(kept, c)
+					// Mark as terminal: clear children but retain counts for annotation.
+					c.depthCapped = true
+					c.children = nil
 				}
 			}
-			if hasDirChildren {
-				n.depthCapped = true
-			}
-			n.children = kept
 			return
 		}
 		for _, c := range n.children {
@@ -274,12 +270,16 @@ func ScanTree(root string) (string, error) {
 			if child.isDir {
 				name += "/"
 				if child.depthCapped {
-					// Depth-cap annotation: (N subitem(s)) (M total items)
+					// Depth-cap annotation: (N subitem[s]) (M total item[s])
 					sub := "subitems"
 					if child.directCount == 1 {
 						sub = "subitem"
 					}
-					name += " (" + itoa(child.directCount) + " " + sub + ") (" + itoa(child.totalCount) + " total items)"
+					totalWord := "total items"
+					if child.totalCount == 1 {
+						totalWord = "total item"
+					}
+					name += " (" + itoa(child.directCount) + " " + sub + ") (" + itoa(child.totalCount) + " " + totalWord + ")"
 				} else {
 					// Normal directory annotation: (N)
 					name += " (" + itoa(len(child.children)) + ")"

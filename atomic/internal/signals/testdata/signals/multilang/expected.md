@@ -17,6 +17,6 @@ atomic_version: dev
 
 ## Languages
 
-- TypeScript: 100 LOC (55%), 1 files (33%)
-- Go: 50 LOC (27%), 1 files (33%)
-- Python: 30 LOC (16%), 1 files (33%)
+- TypeScript: 100 LOC (55%), 1 file (33%)
+- Go: 50 LOC (27%), 1 file (33%)
+- Python: 30 LOC (16%), 1 file (33%)
