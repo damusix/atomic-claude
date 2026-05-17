@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
@@ -30,6 +31,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  hooks session-start [--format=text]  Print session-start hook payload\n")
 		fmt.Fprintf(os.Stderr, "  hooks install [--scope user|project]  Install session-start hook\n")
 		fmt.Fprintf(os.Stderr, "  hooks uninstall [--scope user|project]  Remove session-start hook\n")
+		fmt.Fprintf(os.Stderr, "  claude install [--dry-run] [--target ~/.claude]  Install artifact bundle\n")
+		fmt.Fprintf(os.Stderr, "  claude update  [--dry-run] [--target ~/.claude]  Update artifact bundle\n")
+		fmt.Fprintf(os.Stderr, "  claude list                                       List bundled artifacts\n")
+		fmt.Fprintf(os.Stderr, "  claude diff    [--target ~/.claude]               Diff bundle vs on-disk\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -62,6 +67,8 @@ func main() {
 		runReminder(args[1:], repoOverride)
 	case "hooks":
 		runHooks(args[1:], repoOverride)
+	case "claude":
+		runClaude(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
 		os.Exit(1)
@@ -292,5 +299,77 @@ func runSignals(args []string, repoOverride string) {
 	default:
 		fmt.Fprintf(os.Stderr, "atomic signals: unknown verb %q\n", verb)
 		os.Exit(1)
+	}
+}
+
+func runClaude(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic claude <install|update|list|diff> [flags]\n")
+		os.Exit(2)
+	}
+
+	verb := args[0]
+
+	switch verb {
+	case "install", "update":
+		fs := flag.NewFlagSet("claude "+verb, flag.ContinueOnError)
+		var dryRun bool
+		var target string
+		fs.BoolVar(&dryRun, "dry-run", false, "print what would happen; make no changes")
+		fs.StringVar(&target, "target", "~/.claude", "target directory (default ~/.claude)")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+
+		targetDir, err := claudeinstall.ResolveTarget(target)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
+			os.Exit(1)
+		}
+
+		plan, err := claudeinstall.Install(targetDir, dryRun, claudeinstall.RealClock)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
+			os.Exit(1)
+		}
+
+		if dryRun {
+			fmt.Println("(dry-run — no changes written)")
+		}
+		fmt.Print(claudeinstall.Report(plan, targetDir))
+
+	case "list":
+		rows := claudeinstall.List()
+		for _, r := range rows {
+			fmt.Printf("%s\t%s\t%s\n", r.Kind, r.Target, r.SHA256)
+		}
+
+	case "diff":
+		fs := flag.NewFlagSet("claude diff", flag.ContinueOnError)
+		var target string
+		fs.StringVar(&target, "target", "~/.claude", "target directory (default ~/.claude)")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+
+		targetDir, err := claudeinstall.ResolveTarget(target)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude diff: %v\n", err)
+			os.Exit(1)
+		}
+
+		rows, err := claudeinstall.Diff(targetDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude diff: %v\n", err)
+			os.Exit(1)
+		}
+		for _, r := range rows {
+			fmt.Printf("%s\t%s\n", r.Status, r.Artifact.Target)
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "atomic claude: unknown verb %q\n", verb)
+		fmt.Fprintf(os.Stderr, "Usage: atomic claude <install|update|list|diff> [flags]\n")
+		os.Exit(2)
 	}
 }

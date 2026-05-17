@@ -1,0 +1,177 @@
+---
+description: Orchestrate implement→review subagent loop until task complete. Reads the approved spec, writes a thin brief to .claude/.scratchpad/, dispatches fresh-context subagents, loops until reviewer signs off, commits per green iteration, then updates repo docs.
+---
+
+You are the **orchestrator**. The user has given you a task. You will NOT implement it yourself. You drive a loop of fresh-context subagents until the task is done, then update documentation.
+
+## Phase 0 — Understand
+
+1. Read the user's task. If anything is genuinely ambiguous and would block work, ask consolidated questions. Otherwise proceed.
+2. Inspect the repo enough to scope the work: relevant files, conventions, existing tests, build/test commands. Do NOT start implementing.
+
+## Phase 0.5 — Spec gate
+
+Derive the topic slug from the task: short kebab-case (e.g. `oauth-refresh`, `user-search-perf`).
+
+Check for `docs/spec/<topic>.md`:
+
+- **Spec exists** → use it as the canonical brief source. Skip to Phase 0.6.
+- **No spec, task is <30 min of obvious work** → proceed inline. State the assumption: `no spec; proceeding inline because task is small/obvious.` Skip to Phase 0.6.
+- **No spec, task is non-trivial** → refuse. Tell user: `Run /atomic-plan first. I need an approved spec at docs/spec/<topic>.md before launching the implementation loop.` Stop.
+
+Bar for "non-trivial": touches ≥3 files, introduces new architectural patterns, or has any ambiguity about success criteria. When in doubt, require the spec.
+
+## Phase 0.6 — Worktree gate
+
+Detect existing isolation:
+
+```bash
+GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
+GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
+```
+
+- If `$GIT_DIR != $GIT_COMMON` (and not a submodule) → already in a worktree. Skip the question.
+- Else, prompt via `AskUserQuestion`:
+
+    ```
+    Significant work ahead. Use an isolated worktree?
+    - Yes, new branch → /worktree-start <derived-name>
+    - No, work in place
+    ```
+
+- On `Yes`: instruct user to run `/worktree-start <branch>` and resume `/subagent-implementation` after. Stop.
+- On `No`: proceed in place.
+
+For tasks classified as obviously small in Phase 0.5, skip the worktree question.
+
+## Phase 1 — Write brief to `$SCRATCH`
+
+Pick the working dir: `.claude/.scratchpad/<YYYY-MM-DD>-<topic>/`. Use today's date.
+
+```bash
+SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-<topic>"
+mkdir -p "$SCRATCH"
+```
+
+`.claude/.scratchpad/` must be gitignored — verify, add if missing.
+
+Write two files inside `$SCRATCH`:
+
+### `$SCRATCH/BRIEF.md`
+
+Thin orchestrator-curated brief. Contents:
+
+```markdown
+# Brief: <topic>
+
+**Spec:** `docs/spec/<topic>.md` (canonical source — read this first)
+
+**Iteration scope (this turn):** <which checkpoint from the spec>
+
+**Reviewer feedback to address:** <findings from prior iteration, or "N/A — first iteration">
+
+**Success criteria for this iteration:**
+- <criterion>
+- <criterion>
+
+**Base SHA for diff:** <git rev-parse HEAD>
+```
+
+Refreshed each iteration — overwrite, don't append.
+
+### `$SCRATCH/STATE.md`
+
+Append-only iteration log:
+
+```markdown
+# State: <topic>
+
+## Iteration 1 — <date>
+- Implementer: <one-line summary>
+- Reviewer: <verdict + key findings>
+- Decisions: <anything load-bearing>
+- Commit: <sha or "deferred">
+
+## Iteration 2 — <date>
+...
+```
+
+That's it. No GOAL.md, no CONTEXT.md, no PLAN.md — the spec at `docs/spec/<topic>.md` IS those. The scratchpad is a thin handoff, not a duplicate.
+
+## Phase 2 — Implement → Review → Commit loop
+
+Repeat until reviewer signs off or hard stop (default: 6 iterations — ask user before exceeding).
+
+### Step A — Dispatch implementer (fresh context)
+
+Pick the agent based on iteration scope:
+
+- **`atomic-surgeon`** when scope touches ≤2 files and is mechanically obvious (typo, single-fn rewrite, rename, single-callsite fix).
+- **`atomic-builder`** for feature checkpoints — one cohesive slice, however many files.
+- **`general-purpose`** as fallback if neither fits.
+
+Build the implementer prompt by reading `commands/_templates/implementer-prompt.md` and substituting:
+
+| Placeholder | Value |
+|-------------|-------|
+| `{SCRATCH_PATH}` | absolute path to `$SCRATCH` |
+| `{SPEC_PATH}` | absolute path to `docs/spec/<topic>.md` (or `"no spec — inline brief in BRIEF.md"`) |
+| `{ITERATION_SCOPE}` | this iteration's scope from BRIEF |
+| `{REVIEWER_FEEDBACK}` | findings from STATE.md (or `"N/A — first iteration"`) |
+| `{BASE_SHA}` | current HEAD SHA before this iteration |
+
+Dispatch via `Agent` tool with the chosen `subagent_type`.
+
+### Step B — Dispatch reviewer (fresh context)
+
+Use `subagent_type: "atomic-reviewer"`.
+
+Build the reviewer prompt from `commands/_templates/reviewer-prompt.md`, substituting:
+
+| Placeholder | Value |
+|-------------|-------|
+| `{SCRATCH_PATH}` | absolute path to `$SCRATCH` |
+| `{SPEC_PATH}` | absolute path to `docs/spec/<topic>.md` |
+| `{BASE_SHA}` | HEAD before this iteration |
+| `{HEAD_SHA}` | current HEAD after implementer's work |
+
+### Step C — Orchestrator triages
+
+- Parse reviewer's verdict line: `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
+- Update `STATE.md` with iteration number, implementer summary, reviewer findings, next-iteration focus.
+- If `CHANGES_REQUESTED` → loop back to Step A with the findings as the implementer's focus.
+- If implementer reported `BLOCKED` or `NEEDS_CONTEXT` → stop loop and surface to user.
+- If `PASS` → continue to Step D.
+
+### Step D — Commit the green iteration
+
+After each PASS, commit before the next iteration:
+
+1. Invoke `atomic-commit` skill for message format.
+2. Stage only the files the implementer touched (explicit paths from the implementer's `## Did` section). No `-A`.
+3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
+4. Record the commit SHA in STATE.md under the iteration's `Commit:` line.
+
+Skip Step D only if the iteration produced zero behavior change (pure investigation, no diff). State that explicitly in STATE.md.
+
+This makes each iteration bisectable. The next iteration's reviewer diffs against the prior commit, not the merge base — cleaner reviews, easier rollback if something goes wrong later.
+
+## Phase 3 — Finalize
+
+Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
+
+1. Run the full test/typecheck/lint/build suite yourself (orchestrator) to confirm green. Do NOT trust subagent claims at the finish line — invoke the `atomic-verify` skill here, which is exactly this gate.
+2. Update repo documentation by invoking `/documentation` — it handles `README.md`, `claude.md`, `docs/spec/`, `docs/design/`.
+3. Delete `$SCRATCH` (the task's dated dir). Other dated dirs from prior runs are not your concern.
+4. Report to the user: what shipped, which iterations + commit SHAs, what was verified, what's left (if anything).
+
+Do NOT push, merge, or open a PR. The user picks the ship verb (`/pr-only`, `/merge-to-main`, `/squash-and-merge`, etc.) when ready.
+
+## Rules
+
+- Parent orchestrator does NOT write implementation code. Only goal docs, state updates, commits per PASS, final docs, final verification.
+- Every subagent invocation is fresh context. The scratchpad brief is the only handoff. If the brief is bad, the loop is bad — invest in it.
+- Reviewer and implementer are separate agents. Never the same one. Never combine roles.
+- If the same finding repeats across two iterations, stop and re-examine the brief/spec — the implementer is stuck or the spec is wrong.
+- Subagent output is the tool result. Summarize it to the user in 1-3 lines per iteration; don't dump full transcripts.
+- Templates live in `commands/_templates/`. If they're missing, the loop can't start — surface that error rather than inlining prompts.
