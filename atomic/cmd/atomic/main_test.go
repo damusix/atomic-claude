@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -65,5 +67,80 @@ func TestScanNoUpdateCheck(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// hookScriptName mirrors hooks.scriptName for assertions.
+// If the constant moves, this test fails loudly — that's intended.
+const hookScriptName = "session-start-reminders.sh"
+
+// TestRunClaudeInstallWiresHooks proves that `atomic claude install` lays the
+// bundle AND registers the session-start hook in one shot. Encodes the WHY:
+// the previous flow required users to chain `atomic hooks install` separately,
+// which was undocumented in the curl|bash output and a real onboarding gap.
+func TestRunClaudeInstallWiresHooks(t *testing.T) {
+	scope := t.TempDir()
+	target := filepath.Join(scope, ".claude")
+
+	result, err := runClaudeInstall(target, "install", false, false)
+	if err != nil {
+		t.Fatalf("runClaudeInstall: %v", err)
+	}
+	if len(result.Plan) == 0 {
+		t.Fatal("expected non-empty install plan")
+	}
+	if !result.HooksInstalled {
+		t.Errorf("expected HooksInstalled=true, got false; hookError=%v", result.HooksError)
+	}
+
+	scriptPath := filepath.Join(scope, ".claude", "hooks", hookScriptName)
+	if _, err := os.Stat(scriptPath); err != nil {
+		t.Errorf("expected hook script at %s: %v", scriptPath, err)
+	}
+
+	settingsPath := filepath.Join(scope, ".claude", "settings.json")
+	if _, err := os.Stat(settingsPath); err != nil {
+		t.Errorf("expected settings.json at %s: %v", settingsPath, err)
+	}
+}
+
+// TestRunClaudeInstallNoHooksFlag verifies the opt-out path. Users with their
+// own hook config need a way to install the bundle without atomic touching
+// settings.json.
+func TestRunClaudeInstallNoHooksFlag(t *testing.T) {
+	scope := t.TempDir()
+	target := filepath.Join(scope, ".claude")
+
+	result, err := runClaudeInstall(target, "install", false, true)
+	if err != nil {
+		t.Fatalf("runClaudeInstall: %v", err)
+	}
+	if result.HooksInstalled {
+		t.Error("expected HooksInstalled=false when noHooks=true")
+	}
+
+	scriptPath := filepath.Join(scope, ".claude", "hooks", hookScriptName)
+	if _, err := os.Stat(scriptPath); !os.IsNotExist(err) {
+		t.Errorf("expected no hook script at %s, got err=%v", scriptPath, err)
+	}
+}
+
+// TestRunClaudeInstallDryRunSkipsHooks dry-run must be observation-only;
+// touching settings.json under dry-run would defeat its purpose.
+func TestRunClaudeInstallDryRunSkipsHooks(t *testing.T) {
+	scope := t.TempDir()
+	target := filepath.Join(scope, ".claude")
+
+	result, err := runClaudeInstall(target, "install", true, false)
+	if err != nil {
+		t.Fatalf("runClaudeInstall: %v", err)
+	}
+	if result.HooksInstalled {
+		t.Error("expected HooksInstalled=false under dry-run")
+	}
+
+	scriptPath := filepath.Join(scope, ".claude", "hooks", hookScriptName)
+	if _, err := os.Stat(scriptPath); !os.IsNotExist(err) {
+		t.Errorf("expected no hook script under dry-run, got err=%v", err)
 	}
 }

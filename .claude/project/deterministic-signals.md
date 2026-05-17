@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-17T08:35:58Z
+generated_at: 2026-05-17T20:19:09Z
 atomic_version: 1.0.0
 ---
 # Deterministic signals
@@ -17,9 +17,11 @@ atomic_version: 1.0.0
 │       ├── ci.yml
 │       ├── release-please.yml
 │       └── release.yml
-├── agents/ (6)
+├── agents/ (8)
 │   ├── atomic-builder.md
+│   ├── atomic-claude-merger.md
 │   ├── atomic-git-scout.md
+│   ├── atomic-haiku.md
 │   ├── atomic-investigator.md
 │   ├── atomic-reviewer.md
 │   ├── atomic-signals-inferrer.md
@@ -32,14 +34,19 @@ atomic_version: 1.0.0
 │   │   └── bundle-mirror/ (2)
 │   │       ├── main.go
 │   │       └── main_test.go
-│   ├── internal/ (11)
+│   ├── internal/ (12)
 │   │   ├── bundlemirror/ (1)
 │   │   │   └── mirror.go
 │   │   ├── claudeinstall/ (2)
 │   │   │   ├── install.go
 │   │   │   └── install_test.go
+│   │   ├── dockerinit/ (4)
+│   │   │   ├── templates/ (4 subitems) (4 total items)
+│   │   │   ├── convergence_test.go
+│   │   │   ├── dockerinit.go
+│   │   │   └── dockerinit_test.go
 │   │   ├── embedded/ (3)
-│   │   │   ├── bundle/ (6 subitems) (36 total items)
+│   │   │   ├── bundle/ (6 subitems) (40 total items)
 │   │   │   ├── bundle.go
 │   │   │   └── manifest.go
 │   │   ├── frontmatter/ (2)
@@ -78,10 +85,11 @@ atomic_version: 1.0.0
 │   ├── Makefile
 │   ├── go.mod
 │   └── go.sum
-├── commands/ (21)
+├── commands/ (24)
 │   ├── _templates/ (2)
 │   │   ├── implementer-prompt.md
 │   │   └── reviewer-prompt.md
+│   ├── atomic-claude-merge.md
 │   ├── atomic-compress.md
 │   ├── atomic-plan.md
 │   ├── atomic-setup.md
@@ -97,15 +105,33 @@ atomic_version: 1.0.0
 │   ├── pr-only.md
 │   ├── refresh-signals.md
 │   ├── remind-me.md
+│   ├── report-issue-with-atomic.md
 │   ├── report-issue.md
 │   ├── squash-and-merge.md
 │   ├── squash-only.md
 │   ├── subagent-implementation.md
+│   ├── watch-ci.md
 │   └── worktree-start.md
-├── docs/ (1)
-│   └── spec/ (5)
+├── docs/ (4)
+│   ├── design/ (2)
+│   │   ├── atomic-doctor.md
+│   │   └── atomic-validate.md
+│   ├── guides/ (3)
+│   │   ├── contributing.md
+│   │   ├── evaluations.md
+│   │   └── install.md
+│   ├── reference/ (7)
+│   │   ├── agents.md
+│   │   ├── commands.md
+│   │   ├── conventions.md
+│   │   ├── output-style.md
+│   │   ├── signals-workflow.md
+│   │   ├── skills.md
+│   │   └── workflow.md
+│   └── spec/ (6)
 │       ├── atomic-binary.md
 │       ├── cron-workflow.md
+│       ├── docker-eval-environment.md
 │       ├── install-workflow.md
 │       ├── signals-project-detection.md
 │       └── signals-workflow.md
@@ -118,10 +144,12 @@ atomic_version: 1.0.0
 │       └── style.md
 ├── scripts/ (1)
 │   └── link-local.sh
-├── skills/ (6)
+├── skills/ (7)
 │   ├── atomic-commit/ (1)
 │   │   └── SKILL.md
 │   ├── atomic-debug/ (1)
+│   │   └── SKILL.md
+│   ├── atomic-prose/ (1)
 │   │   └── SKILL.md
 │   ├── atomic-review/ (1)
 │   │   └── SKILL.md
@@ -131,11 +159,22 @@ atomic_version: 1.0.0
 │   │   └── SKILL.md
 │   └── atomic-verify/ (1)
 │       └── SKILL.md
+├── tmp/ (2)
+│   ├── claude-home/ (1)
+│   │   └── .gitkeep
+│   └── workspace/ (1)
+│       └── .gitkeep
+├── .dockerignore
 ├── .gitignore
 ├── .goreleaser.yaml
+├── Dockerfile
+├── LICENSE
+├── Makefile
 ├── README.md
 ├── claude.local.md
 ├── claude.md
+├── docker-compose.yml
+├── docker-entrypoint.sh
 ├── install.sh
 ├── release-please-config.json
 └── release-please-manifest.json
@@ -147,8 +186,8 @@ atomic_version: 1.0.0
 
 ## Languages
 
-- Markdown: 9910 LOC (52%), 87 files (70%)
-- Go: 8680 LOC (45%), 32 files (26%)
-- Shell: 246 LOC (1%), 2 files (1%)
+- Markdown: 11991 LOC (55%), 110 files (73%)
+- Go: 9337 LOC (42%), 35 files (23%)
+- Shell: 269 LOC (1%), 3 files (2%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)

@@ -15,8 +15,9 @@ description: Open a atomic GitHub issue via gh. Bug report or feature request �
 4. Search for duplicates: `gh issue list --search "<key terms>" --state all --limit 5`. If close match exists, surface URL + ask before opening new.
 5. Draft title — imperative for features (`Add X`), declarative for bugs (`X crashes when Y`). ≤70 chars. No "Bug:" / "Feature:" prefix unless repo convention demands.
 6. Draft body per shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines.
-7. `gh issue create --title "<title>" --body "$(cat <<'EOF' … EOF)"`. Add `--label` if user specified or repo has obvious matching labels (`gh label list`).
-8. Print issue URL.
+7. Map classification → label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify the label exists on the repo first: `gh label list --search <name>`. Skip the label if it doesn't exist (don't auto-create). User-specified labels stack on top.
+8. `gh issue create --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`.
+9. Print issue URL.
 
 ## Body shapes
 

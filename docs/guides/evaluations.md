@@ -24,7 +24,7 @@ To bypass the entrypoint for fast iteration (raw bash shell, no Claude TUI):
 ## End users
 
 
-If you're not a contributor to this repo and just want to evaluate atomic-claude on your own project, install atomic, then:
+If you're not a contributor to this repo and want to evaluate atomic-claude on your own project, install atomic, then:
 
     atomic docker init
 
@@ -51,7 +51,7 @@ Both are gitignored. The `.gitkeep` placeholders keep them in the repo so the bi
 
 ## First-run auth
 
-On first `make docker-up`, Claude Code prompts you to authenticate. It emits a URL and code — open the URL in your host browser and paste the code. Auth tokens land in `tmp/claude-home/` and persist. Subsequent `make docker-up` runs skip the prompt.
+On first `make docker-up`, Claude Code prompts you to authenticate. It emits a URL and code; open the URL in your host browser and paste the code. Auth tokens land in `tmp/claude-home/` and persist. Subsequent `make docker-up` runs skip the prompt.
 
 
 ## Linux UID note

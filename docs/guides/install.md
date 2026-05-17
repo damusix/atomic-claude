@@ -7,13 +7,15 @@
 Atomic Claude assumes a POSIX-shaped environment. Everything below should be on `PATH` before you install.
 
 
-- **Claude Code CLI** — the host this config plugs into. Install via `npm install -g @anthropic-ai/claude-code`. Requires Node.js 18+.
-- **Claude subscription or API key** — Pro/Max/Team plan for OAuth login, or an `ANTHROPIC_API_KEY` for direct billing. Some features (Routines, push notifications, Remote Control) require a paid claude.ai plan and are unavailable on Bedrock / Vertex / Foundry.
-- **git** — every ship verb, worktree command, and `atomic-git-scout` shell out to `git`. 2.30+ recommended (for modern `git worktree` and `git switch`).
-- **GitHub CLI (`gh`)** — required by `/commit-and-pr`, `/pr-only`, `/report-issue`. Authenticated via `gh auth login`.
-- **POSIX shell + core utilities** — `bash` (or `zsh`), `diff`, `grep`, `sed`, `awk`, `find`, `xargs`, `cp`, `mv`, `rm`, `cat`, `jq`. These are assumed by commands, hooks, and the user's global CLAUDE.md (e.g. `sed -i ''` for macOS, `gtimeout` instead of `timeout`).
-- **macOS only** — `coreutils` from Homebrew if you want GNU-flavored `sed`/`timeout`. BSD defaults work; just match the syntax.
-- **Docker** — only for the [evaluation flow](./evaluations.md). Not required for normal use.
+| Tool | Why it's needed | Notes |
+|------|-----------------|-------|
+| Claude Code CLI | Host this config plugs into | `npm install -g @anthropic-ai/claude-code`. Node.js 18+. |
+| Claude subscription or API key | Auth | Pro/Max/Team plan for OAuth, or `ANTHROPIC_API_KEY` for direct billing. Routines, push notifications, and Remote Control need a paid claude.ai plan; unavailable on Bedrock / Vertex / Foundry. |
+| git | Every ship verb, worktree command, and `atomic-git-scout` shell out to `git` | 2.30+ recommended (modern `git worktree`, `git switch`). |
+| GitHub CLI (`gh`) | `/commit-and-pr`, `/pr-only`, `/report-issue` | Authenticate with `gh auth login`. |
+| POSIX shell + core utilities | Assumed by commands, hooks, global CLAUDE.md | `bash` (or `zsh`), `diff`, `grep`, `sed`, `awk`, `find`, `xargs`, `cp`, `mv`, `rm`, `cat`, `jq`. Examples: `sed -i ''` for macOS, `gtimeout` instead of `timeout`. |
+| coreutils (macOS) | GNU-flavored `sed` / `timeout` | Optional. BSD defaults work; match the syntax. |
+| Docker | [Evaluation flow](./evaluations.md) only | Not required for normal use. |
 
 
 ## Windows
@@ -22,7 +24,7 @@ Atomic Claude assumes a POSIX-shaped environment. Everything below should be on 
 Use **WSL2** (Ubuntu, Debian, or similar). PowerShell is *not* supported:
 
 - Claude Code's PowerShell tool is a preview feature with known gaps (no profile loading, no sandboxing on Windows, opt-in only).
-- This repo's commands, hooks, and global CLAUDE.md assume POSIX semantics — `sed -i ''`, `mv`, `&&` chaining rules, `gtimeout`, etc. They will misbehave or fail outright under `cmd.exe` / PowerShell.
+- This repo's commands, hooks, and global CLAUDE.md assume POSIX semantics: `sed -i ''`, `mv`, `&&` chaining rules, `gtimeout`, etc. They will misbehave or fail outright under `cmd.exe` / PowerShell.
 - Install WSL2 → install your distro → install Node + Claude Code + git inside the distro → run `claude` from the WSL shell. Treat the Windows filesystem as foreign; keep repos inside the Linux home (`~/projects/...`) for sane file watching and performance.
 
 
@@ -52,7 +54,9 @@ Refresh later: `atomic claude update`.
 
 If you have customized `~/.claude/CLAUDE.md` locally, `install` and `update` will not overwrite it. Instead, they write the new version to `~/.claude/CLAUDE.md.atomic-proposed` and print a hint to run `/atomic-claude-merge` from any Claude Code session. That command dispatches the `atomic-claude-merger` agent to produce `~/.claude/CLAUDE.md.atomic-merged`, shows a diff, and prompts Accept / Show diff / Open editor / Abort. On Accept the prior `CLAUDE.md` is backed up under `~/.claude/.atomic-backups/<timestamp>/`. Full spec: [`../spec/install-workflow.md`](../spec/install-workflow.md).
 
-The install also registers a `SessionStart` hook (`atomic hooks install`) that injects any pending reminders at session open — supplementing cron-fired surfacing for missed cron fires, post-7-day cron expiry, tool unavailability, and post-restart catchup.
+By default `atomic claude install` also registers a `SessionStart` hook in `~/.claude/settings.json` that injects any pending reminders at session open. This supplements cron-fired surfacing for missed cron fires, post-7-day cron expiry, tool unavailability, and post-restart catchup. Pass `--no-hooks` to skip; you can register the hook later with `atomic hooks install`.
+
+After the install completes, the command prints the two manual steps it can't automate: activating the **Atomic** output style via `/config` in Claude Code, and running `/initialize-signals` in each repo where you want project signals.
 
 
 ## Manual install

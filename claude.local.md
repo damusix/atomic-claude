@@ -40,6 +40,81 @@ The `atomic` binary's embedded bundle (see `atomic/internal/bundlemirror/`) is s
 - Skill triggers, agent dispatch criteria, and command behaviors must not contradict each other. If `/atomic-plan` says it writes to `docs/spec/` and an agent expects `docs/specs/`, that's a bug.
 
 
+## Adding a new artifact (mandatory checklist)
+
+
+This is the **invisible-feature prevention checklist**. A new artifact is not "done" until every applicable row is updated. Skipping a row means the feature exists in code but nobody — user, agent, or future-you — knows it exists.
+
+
+Run this whenever you add, rename, or remove a command / agent / skill / output-style / rule. Do not batch across artifacts — finish the checklist for one before starting the next.
+
+
+| # | Surface | When to update | What to write |
+|---|---------|----------------|---------------|
+| 1 | The artifact file itself | Always | `agents/atomic-*.md`, `commands/<verb>.md`, `skills/<name>/SKILL.md`, `output-styles/atomic-*.md`, or `rules/<lang>/*.md`. Use `atomic-` prefix for custom artifacts. |
+| 2 | `claude.md` | Always — this is the global contract bundled into every install | Add to the relevant section: "Subagents available for dispatch" (agents), "Workflow" + "Other commands" (commands), "Project signals" or similar (skills), naming conventions (output styles/rules). |
+| 3 | `CLAUDE.md` | Always — it mirrors `claude.md` for this repo's committed instructions | Same edit as `claude.md`. These two files must stay synchronized. |
+| 4 | `README.md` | Always — public-facing index | Add to the matching table (commands table, agents table, skills table). Keep one-line descriptions. |
+| 5 | `docs/spec/<topic>.md` | If the artifact has non-trivial behavior or cross-references | Write or extend the spec. Required for anything dispatched by another artifact or that mutates state. **Amending an existing spec: see "Spec amendment rule" below — never silently overwrite the original.** |
+| 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit-only` requires editing the command to call it AND the skill to declare itself as called from there. |
+| 7 | Bundle inclusion (`atomic/internal/bundlemirror/mirror.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the inclusion rule. Existing kinds (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`) auto-include matching files. |
+| 8 | Signals refresh | After adding the file | Run `/refresh-signals` (or let `/commit-only` auto-fire `atomic-signals`) so `.claude/project/deterministic-signals.md` and `inferred-signals.md` reflect the new file. |
+| 9 | `claude.local.md` (this file) | Only if the artifact changes project-local conventions (e.g. new `@-ref` location, new bundle rule) | Edit the relevant section. |
+
+
+**Verification before commit.** Grep for the new artifact name across the repo. Every place it is *referenced from* should also reference it *back* where appropriate. A skill mentioned only in its own SKILL.md is an invisible skill.
+
+
+## Spec amendment rule (`docs/spec/<topic>.md`)
+
+
+Specs are the canonical contract for a feature. Editing one in place destroys the original intent and the reason it was written that way — future readers (human or agent) can't tell what shifted or why. Treat specs as **append-mostly**.
+
+
+**Every spec file must have a `## Change log` section at the bottom.** When amending, append a new dated entry; do not delete prior entries. The log is the audit trail.
+
+
+- **Adding behavior.** Add a new section to the spec body describing the new behavior. Append a change-log entry: `### YYYY-MM-DD — <short title>` with a one-paragraph **What changed** + **Why** (the trigger: bug, user feedback, axiom shift, downstream artifact requirement).
+- **Changing behavior.** Edit the spec body to reflect the new behavior. In the change-log entry, include a **Superseded** line quoting (or summarizing) the prior contract so the old intent isn't lost. Format: `Superseded: <one-line summary of what the spec used to say>`.
+- **Removing behavior.** Delete the section from the body. In the change-log entry, include a **Removed** line with what was removed and why. If the removal is reversible (feature parked, not killed), say so.
+- **Correcting a factually wrong spec.** Edit the body in place. Append a change-log entry with `**Correction:**` prefix explaining what was wrong, how you know it was wrong (test failure, prod incident, code already diverged), and what the truth is. Corrections are the *only* case where the body changes without an additive section — and even then the log records the delta.
+- **Renaming or splitting a spec file.** The old file gets a final change-log entry pointing to the new location: `Moved to: docs/spec/<new>.md` or `Split into: docs/spec/<a>.md + docs/spec/<b>.md`. Don't delete the old file in the same commit as the move — give one commit of overlap so grep finds both.
+
+
+**Change-log entry template:**
+
+
+```markdown
+### 2026-05-17 — <short title>
+
+**What changed:** <one paragraph>
+
+**Why:** <trigger — bug, feedback, axiom, dependency>
+
+**Superseded:** <if applicable, one line on prior contract>
+```
+
+
+**When in doubt, append.** A spec with a 10-entry change log is healthier than a spec that was rewritten 10 times with no trace. The log is cheap; the lost context is not.
+
+
+## Cross-artifact wiring rules (mandatory for cohesion)
+
+
+These rules exist because this repo is meant to be installed into *user repositories* — not just dogfooded here. Cohesion is the product. When a user runs `/commit-only` in their own repo, they expect signals to refresh and docs to stay current without typing five commands.
+
+
+- **Ship verbs must trigger signals refresh on source-tree changes.** The commit/squash/merge/PR family (`/commit-only`, `/commit-and-pr`, `/commit-and-merge`, `/commit-and-squash`, `/merge-to-main`, `/squash-only`, `/squash-and-merge`, `/pr-only`) must invoke the `atomic-signals` skill (silent mode) whenever the staged diff touches source files. If a ship verb does not do this, the user's project signals go stale — invisible drift.
+- **Ship verbs must remind the user to run `/documentation` after significant changes.** "Significant" = new file, removed file, public-API change, dependency change. Surface a one-line prompt at the end of the verb. Don't auto-run — `/documentation` is interactive and user-driven (axiom 3: destructive ops explicit confirm; doc rewrites are close enough).
+- **Symmetry within a command family.** The commit/squash/merge family must agree on shared concerns: message format (all delegate to `atomic-commit` skill), worktree detection (all detect on merge/squash and prompt to delete), signals refresh trigger (above). If you change one verb's behavior on a shared concern, change all of them.
+- **Skills that are invoked by commands must declare it.** A skill's description should mention "invoked by /foo, /bar" so the trigger surface is inspectable. Reverse holds: a command that invokes a skill must name it in the command file. No silent dependencies.
+- **Agents dispatched by commands must be listed in `claude.md` → "Subagents available for dispatch"**. The command file should also name the `subagent_type`. Dispatch is a public contract.
+- **When in doubt, write the spec first.** `docs/spec/<topic>.md` is the canonical source for any cross-artifact contract. If two artifacts reference the same flow and the spec doesn't exist, write it before adding the second reference.
+
+
+**Why these rules apply to user repos, not just this one.** Users install these artifacts and rely on the cohesion. A user's `/commit-only` that forgets to refresh signals leaves *their* Claude session with a stale project map. The bug is invisible to us but real to them. Treat every wiring rule as a contract the user has implicitly accepted by installing.
+
+
 ## Signals `@-refs` must stay wired (in this repo: `claude.local.md`)
 
 
@@ -97,3 +172,8 @@ No install script yet. Manual: copy each top-level directory into `~/.claude/`, 
 
 @.claude/project/deterministic-signals.md
 @.claude/project/inferred-signals.md
+
+
+## Project follow-ups (auto-loaded)
+
+@.claude/project/followups.md

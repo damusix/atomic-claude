@@ -474,6 +474,62 @@ func runDocker(args []string) {
 	}
 }
 
+// installResult bundles what runClaudeInstall did. HooksError is non-fatal
+// at the cmd layer — the caller decides whether to surface it as a warning.
+type installResult struct {
+	Plan           []claudeinstall.FileAction
+	HooksInstalled bool
+	HooksError     error
+}
+
+// runClaudeInstall performs the bundle install/update and, by default, also
+// registers the session-start hook. Extracted from the cmd switch so it can be
+// tested without invoking os.Exit. Hook registration is skipped under dry-run
+// and when noHooks is true.
+//
+// scopeRoot for the hook is the parent of targetDir: ~/.claude → $HOME (user
+// scope), <repo>/.claude → <repo> (project scope). This mirrors the mapping
+// used by `atomic hooks install --scope user|project`.
+func runClaudeInstall(targetDir, verb string, dryRun, noHooks bool) (installResult, error) {
+	var plan []claudeinstall.FileAction
+	var err error
+	if verb == "update" {
+		plan, err = claudeinstall.Update(targetDir, dryRun, claudeinstall.RealClock)
+	} else {
+		plan, err = claudeinstall.Install(targetDir, dryRun, claudeinstall.RealClock)
+	}
+	if err != nil {
+		return installResult{}, err
+	}
+
+	result := installResult{Plan: plan}
+	if dryRun || noHooks {
+		return result, nil
+	}
+
+	scopeRoot := filepath.Dir(targetDir)
+	if err := hooks.Install(scopeRoot, scopeRoot); err != nil {
+		result.HooksError = err
+		return result, nil
+	}
+	result.HooksInstalled = true
+	return result, nil
+}
+
+// printPostInstallHint surfaces the manual steps `atomic claude install` cannot
+// automate: output style activation (Claude Code requires user opt-in) and
+// per-repo signals initialization.
+func printPostInstallHint(verb string) {
+	if verb != "install" {
+		return
+	}
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintln(os.Stderr, "next steps:")
+	fmt.Fprintln(os.Stderr, "  1. open claude code and run /config → output style → Atomic")
+	fmt.Fprintln(os.Stderr, "     (claude code requires explicit user opt-in for output styles)")
+	fmt.Fprintln(os.Stderr, "  2. in each repo where you want project signals, run /initialize-signals")
+}
+
 func runClaude(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: atomic claude <install|update|list|diff> [flags]\n")
@@ -487,8 +543,10 @@ func runClaude(args []string) {
 		fs := flag.NewFlagSet("claude "+verb, flag.ContinueOnError)
 		var dryRun bool
 		var target string
+		var noHooks bool
 		fs.BoolVar(&dryRun, "dry-run", false, "print what would happen; make no changes")
 		fs.StringVar(&target, "target", "~/.claude", "target directory (default ~/.claude)")
+		fs.BoolVar(&noHooks, "no-hooks", false, "skip session-start hook installation")
 		if err := fs.Parse(args[1:]); err != nil {
 			os.Exit(2)
 		}
@@ -499,12 +557,7 @@ func runClaude(args []string) {
 			os.Exit(1)
 		}
 
-		var plan []claudeinstall.FileAction
-		if verb == "update" {
-			plan, err = claudeinstall.Update(targetDir, dryRun, claudeinstall.RealClock)
-		} else {
-			plan, err = claudeinstall.Install(targetDir, dryRun, claudeinstall.RealClock)
-		}
+		result, err := runClaudeInstall(targetDir, verb, dryRun, noHooks)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
 			os.Exit(1)
@@ -513,7 +566,17 @@ func runClaude(args []string) {
 		if dryRun {
 			fmt.Println("(dry-run — no changes written)")
 		}
-		fmt.Print(claudeinstall.Report(plan, targetDir))
+		fmt.Print(claudeinstall.Report(result.Plan, targetDir))
+
+		if !dryRun {
+			if result.HooksInstalled {
+				fmt.Fprintln(os.Stderr, "session-start hook installed.")
+			} else if result.HooksError != nil {
+				fmt.Fprintf(os.Stderr, "warning: hook install failed (non-fatal): %v\n", result.HooksError)
+				fmt.Fprintln(os.Stderr, "         retry later with: atomic hooks install")
+			}
+			printPostInstallHint(verb)
+		}
 
 	case "list":
 		rows := claudeinstall.List()

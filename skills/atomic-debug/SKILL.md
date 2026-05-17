@@ -29,6 +29,20 @@ One sentence. Quote the exact error. Note what changed recently (commit, dep, en
 Symptom: `POST /users` returns 500 since commit abc1234. Stack: `TypeError: Cannot read 'id' of undefined at users.ts:42`.
 ```
 
+### 1b. Locate the surface (when not already in context)
+
+If the suspect code isn't already mapped in the conversation (no `file:line` references, no recent reads of the relevant module), dispatch `atomic-investigator` BEFORE forming the hypothesis table. Haiku-backed and read-only, so it's cheap. Give it a focused brief:
+
+```
+Locate <symptom-relevant surface>. Report file:line table.
+
+Example: "Locate the request pipeline for POST /users — middleware order, body parsing, auth check. Report file:line table."
+```
+
+Use its `file:line — what` table as the evidence base for the hypothesis table. The investigator spends Haiku tokens so the main context (running this skill) doesn't burn Sonnet/Opus on grep work.
+
+**Skip this step when:** the symptom names the exact file:line (e.g. the stack trace pinpoints it), the bug is in code already in context, or the symptom is too abstract to map (e.g. "the build is slow" — there's no surface yet, hypotheses come first).
+
 ### 2. Hypothesis table
 
 List 3-5 candidates ranked by likelihood × cheapness to test.
