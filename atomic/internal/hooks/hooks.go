@@ -236,8 +236,7 @@ func Install(repoRoot, scopeRoot string) error {
 	if err := os.MkdirAll(filepath.Dir(sp), 0o755); err != nil {
 		return fmt.Errorf("hooks install: mkdir hooks dir: %w", err)
 	}
-	scriptContent := "#!/usr/bin/env bash\nexec atomic hooks session-start\n"
-	if err := os.WriteFile(sp, []byte(scriptContent), 0o755); err != nil {
+	if err := os.WriteFile(sp, []byte(expectedScriptContent), 0o755); err != nil {
 		return fmt.Errorf("hooks install: write script: %w", err)
 	}
 

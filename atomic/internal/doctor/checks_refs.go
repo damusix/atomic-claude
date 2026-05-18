@@ -3,6 +3,7 @@ package doctor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -42,7 +43,7 @@ func RunCheckRefsWith(repoRoot string) Result {
 	var partialMissing string
 
 	for _, name := range candidateFiles {
-		path := repoRoot + string(os.PathSeparator) + name
+		path := filepath.Join(repoRoot, name)
 		raw, err := os.ReadFile(path)
 		if err != nil {
 			// File absent or unreadable — skip.

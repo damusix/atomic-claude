@@ -116,18 +116,19 @@ func RunCheckFollowupsWith(root string) Result {
 
 	// Validate entries (ignore closed ones).
 	var malformed []string
+	validated := 0
 	for _, e := range entries {
 		if e.inClosed {
 			continue
 		}
+		validated++
 		if !e.inBucket || !e.hasOrigin {
 			malformed = append(malformed, "F-"+e.id)
 		}
 	}
 
-	total := len(entries)
 	if len(malformed) == 0 {
-		return Result{Severity: PASS, Detail: fmt.Sprintf("%d entries, schema OK", total)}
+		return Result{Severity: PASS, Detail: fmt.Sprintf("%d entries, schema OK", validated)}
 	}
 
 	// List up to 3 IDs then "..." if more.

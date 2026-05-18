@@ -57,21 +57,22 @@ func RunCheckMemoryWith(claudeHome, project string) Result {
 	targets := mdLinkTargetRe.FindAllSubmatch(data, -1)
 
 	var orphans []string
+	checked := 0
 	for _, m := range targets {
 		target := string(m[1])
 		// Skip absolute paths and URLs.
 		if strings.HasPrefix(target, "/") || strings.Contains(target, "://") {
 			continue
 		}
+		checked++
 		fullPath := filepath.Join(memoryDir, target)
 		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
 			orphans = append(orphans, target)
 		}
 	}
 
-	total := len(targets)
 	if len(orphans) == 0 {
-		return Result{Severity: PASS, Detail: fmt.Sprintf("%d/%d refs resolve", total, total)}
+		return Result{Severity: PASS, Detail: fmt.Sprintf("%d/%d refs resolve", checked, checked)}
 	}
 
 	listed := orphans

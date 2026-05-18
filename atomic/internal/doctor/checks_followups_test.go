@@ -158,6 +158,46 @@ func TestCheckFollowupsMultipleMalformed(t *testing.T) {
 	}
 }
 
+// TestCheckFollowupsPassCountExcludesClosed verifies the PASS detail count
+// only includes non-closed entries. In this file, F-1 (open, under risks) is
+// discarded by the H2 parser (pre-existing parser behavior: H2 headings drop
+// current entry without flushing). F-2 (closed, last in Closed section) is
+// the only entry in the parsed slice. Old code: "1 entries, schema OK" because
+// it used len(entries). New code: "0 entries, schema OK" because closed entries
+// are excluded from the validated count.
+func TestCheckFollowupsPassCountExcludesClosed(t *testing.T) {
+	root := t.TempDir()
+	// F-1 is open but in a bucket that gets displaced by "## Closed"; the H2
+	// transition drops F-1 without flushing it. F-2 is in Closed and is the
+	// last entry — it gets flushed to entries at EOF.
+	content := `# Project follow-ups
+
+## 🟡 risks
+
+### F-1 — Open entry
+
+Origin: session A.
+
+## Closed
+
+### F-2 — Closed entry
+
+*(closed 2026-05-17 — abc1234)*
+
+Origin: session B.
+`
+	makeFollowupsFile(t, root, content)
+	r := doctor.RunCheckFollowupsWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS (detail: %s)", r.Severity, r.Detail)
+	}
+	// Closed entries must NOT count toward the validated total.
+	// Old code (len(entries)) would report "1 entries"; new code (validated) reports "0 entries".
+	if r.Detail != "0 entries, schema OK" {
+		t.Errorf("detail = %q, want %q", r.Detail, "0 entries, schema OK")
+	}
+}
+
 // TestCheckFollowupsEmDashAndASCIIHyphen verifies both em-dash and ASCII hyphen
 // are accepted as the separator in the F-<id> heading.
 func TestCheckFollowupsEmDashAndASCIIHyphen(t *testing.T) {

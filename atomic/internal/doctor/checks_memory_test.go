@@ -89,6 +89,31 @@ func TestCheckMemoryOneOrphan(t *testing.T) {
 	}
 }
 
+// TestCheckMemoryAllResolve_ExcludesSkippedTargets verifies that absolute-path
+// and URL targets are NOT counted in the N/N refs resolve total. Including them
+// would over-report the denominator (e.g. "3/3" when only 1 relative link exists).
+func TestCheckMemoryAllResolve_ExcludesSkippedTargets(t *testing.T) {
+	project := "-tmp-testproject"
+	// MEMORY.md has one relative link (resolves), one absolute path, one URL.
+	// Only the relative link should be counted.
+	content := "# Persistent Agent Memory\n\n- [Topic A](topic_a.md)\n- [Absolute](/absolute/path.md)\n- [External](https://example.com/file.md)\n"
+	claudeHome := makeMemorySetup(t, project, content)
+
+	memDir := filepath.Join(claudeHome, "projects", project, "memory")
+	if err := os.WriteFile(filepath.Join(memDir, "topic_a.md"), []byte("content"), 0o644); err != nil {
+		t.Fatalf("write topic_a.md: %v", err)
+	}
+
+	r := doctor.RunCheckMemoryWith(claudeHome, project)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS (detail: %s)", r.Severity, r.Detail)
+	}
+	// Must be "1/1", not "1/3" (absolute+URL targets excluded from count).
+	if r.Detail != "1/1 refs resolve" {
+		t.Errorf("detail = %q, want %q", r.Detail, "1/1 refs resolve")
+	}
+}
+
 // TestCheckMemoryManyOrphans verifies WARN with "..." when more than 3 orphans.
 func TestCheckMemoryManyOrphans(t *testing.T) {
 	project := "-tmp-testproject"

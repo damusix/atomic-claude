@@ -150,17 +150,11 @@ func defaultManifestRepair(out io.Writer) error {
 func Repair(results []Result, _ Opts, p Prompter, out io.Writer) RepairSummary {
 	var summary RepairSummary
 	runAll := false // set when user chose 'a' (all)
-	quit := false   // set when user chose 'q'
 
 	actionable := filterActionable(results)
 
 	for i, r := range actionable {
 		fmt.Fprintf(out, "\n[%d] %s %s: %s\n", r.Index, string(r.Severity), r.Name, r.Detail)
-
-		if quit {
-			summary.Skipped++
-			continue
-		}
 
 		plan, fixable := repairPlan(r)
 		fmt.Fprintf(out, "repair plan: %s\n", plan)
@@ -179,7 +173,6 @@ func Repair(results []Result, _ Opts, p Prompter, out io.Writer) RepairSummary {
 
 		switch decision {
 		case DecisionQuit:
-			quit = true
 			// Count this item and all remaining as skipped.
 			summary.Skipped += len(actionable) - i
 			return summarizeAndPrint(summary, out)
