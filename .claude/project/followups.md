@@ -116,60 +116,41 @@ Next step when revisiting: promote design → `docs/spec/atomic-validate.md`. Cl
 Origin: chat session 2026-05-17 system improvement discussion, deferred to explore later.
 
 
-### F-4 — Design `/diagnose-ci` orchestrator command
+### F-4 — Design `/subagent-diagnose` orchestrator command
 
 
-Parallel to `/subagent-implementation` but dedicated to CI failure remediation. Three-phase loop:
+Parallel to `/subagent-implementation`. Same shape: scratchpad brief → context-gatherer agent → builder/surgeon → reviewer loop → Phase 3 finalize. Reuses existing `commands/_templates/{implementer-prompt,reviewer-prompt}.md` — no new template scaffolding.
 
 
-1. **Foreground orchestrator** captures context (branch, failed run ID, head SHA) and writes a verbose `$SCRATCH/CI-BRIEF.md` covering the failure: which workflow, which step, error excerpt, suspected files from the log, base SHA. Verbosity is a hard rule — the parent transfers everything so the next agent does no re-discovery.
-2. **`atomic-haiku` dispatch** pulls full logs into `$SCRATCH/CI-LOGS.md`.
-3. **`atomic-builder` (or `atomic-surgeon`) dispatch** reads brief + logs + spec gate, proposes fix, writes test, commits. Same review loop as `/subagent-implementation`. Same `FOLLOWUPS.md` ledger.
-4. **Re-watch** post-commit: dispatch `atomic-haiku` to watch the next CI run. Loop until green or hard stop.
+Two input modes (collapsed from prior F-4 `/diagnose-ci` + F-5 `/diagnose-bug` — same machinery, different brief source):
 
 
-Spec-worthy because the brief-verbosity discipline + multi-agent handoff needs codifying. Open questions:
+| Mode | Trigger | Brief source | Context gatherer |
+|------|---------|--------------|------------------|
+| `ci` | `/subagent-diagnose ci [<run-id>]` (defaults to latest failed run on current branch) | failed CI run | `atomic-haiku` pulls logs into `CONTEXT.md` |
+| `bug` | `/subagent-diagnose bug "<symptom>"` | user symptom paragraph | `atomic-investigator` maps suspect surface |
 
 
-- Scratchpad layout: same `<YYYY-MM-DD>-<topic>/` as `/subagent-implementation`, or separate `<YYYY-MM-DD>-ci-<run-id>/`?
-- How to detect "same failure repeats" vs "new failure" across iterations? Compare top-level error string?
-- Hard stop after N iterations (3? 5?) before bailing to the user?
-- Should the orchestrator open a PR comment summarizing what was tried if it bails?
+Both modes converge: builder/surgeon dispatch (brief + gatherer output), test-first hypothesis, fix, reviewer loop, optional re-watch for CI mode.
 
 
-Origin: chat session 2026-05-17 system improvement discussion, deferred to explore later.
+Scratchpad: `.claude/.scratchpad/<YYYY-MM-DD>-diagnose-<mode>-<slug>/` (mode in path so concurrent runs don't collide). Same `BRIEF.md` / `STATE.md` / `FOLLOWUPS.md` triad as `/subagent-implementation`.
 
 
-### F-5 — Design `/diagnose-bug` orchestrator command
+Spec drafted at `docs/spec/subagent-diagnose.md` on PR #6. Implementation deferred — spec is the contract, command implementation lands in a follow-up `/subagent-implementation` run.
 
 
-Heavy-debug counterpart to the `atomic-debug` skill. Skill stays for fast in-context hypothesis loops; `/diagnose-bug` is the orchestrated command for bugs that span sessions or need investigator + builder + reviewer with persistent scratchpad context. Naming: `/diagnose-bug` (not `/diagnose`) so it's explicitly distinct from `/diagnose-ci`.
+Open questions still in the spec (not yet implementation-blocking):
 
 
-Same scratchpad-backed pattern as `/diagnose-ci` and `/subagent-implementation`:
+- CI mode: PR comment summary when bailing? (Probably no — surface to user instead.)
+- Atomic-debug skill stays for in-context hypothesis loops; `/subagent-diagnose bug` is the orchestrated escalation when the bug spans sessions or needs investigator + builder + reviewer. F-1 tracks the skill-description boundary tweak separately.
 
 
-1. Foreground orchestrator writes `$SCRATCH/BUG-BRIEF.md` — symptom, reproduction steps, suspected surface, environment, recent commits, what's already been tried.
-2. Dispatch `atomic-investigator` to map the suspect surface.
-3. Dispatch `atomic-builder`/`atomic-surgeon` with the brief + investigator output to form hypothesis, write test that captures the bug, fix, commit.
-4. Loop on `CHANGES_REQUESTED`.
+Origin: chat session 2026-05-17 system improvement discussion. Collapsed from prior F-4 (`/diagnose-ci`) + F-5 (`/diagnose-bug`) on 2026-05-18 — naming aligned with `/subagent-implementation`, modes merged to reduce surface area, engine file rejected as premature factoring under N=1 consumer.
 
 
-Wait on `/diagnose-ci` to land first so the orchestrator pattern is proven before generalizing. Likely shares >80% of the scratchpad and review-loop logic.
-
-
-Open questions:
-
-
-- Does this collapse into `/subagent-implementation` with a "diagnose mode" flag, or stay separate? Separate keeps the contract sharp; flag avoids duplication. Lean separate.
-- Required spec at `docs/spec/<topic>.md`, or freeform bug brief? Lean freeform — bug reports rarely have specs.
-- Same FOLLOWUPS.md ledger and Phase 3 disposition flow as `/subagent-implementation`? Yes — consistent surface.
-
-
-Origin: chat session 2026-05-17 system improvement discussion, deferred to explore later. Naming clarified ("diagnose-bug" not "diagnose") to differentiate from `/diagnose-ci`.
-
-
-### F-6 — Spec the post-merge / post-squash signals-refresh integration
+### F-5 — Spec the post-merge / post-squash signals-refresh integration
 
 
 `docs/spec/signals-workflow.md` contracts the `/commit-only` integration (skill auto-fires pre-commit when source-tree changes). It does NOT cover the post-op defense-in-depth refresh now implemented in `/merge-to-main`, `/squash-and-merge`, and (as of this session) `/squash-only`. The pattern is in code but unspecced — future contributors editing those verbs have no canonical contract to follow.

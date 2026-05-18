@@ -1,4 +1,7 @@
-# Diagnose orchestrators (`/diagnose-ci` + `/diagnose-bug`)
+# Diagnose orchestrator (`/subagent-diagnose`)
+
+
+> **Latest decision (2026-05-18):** ship as a single command `/subagent-diagnose` with two input modes (`ci` and `bug`) sharing one engine file. Naming aligned with `/subagent-implementation` to signal the orchestrator pattern. Body below is preserved as the audit trail of the design path — earlier headings still say "two commands" / "`/diagnose-ci` only" because those were the prior recommendations. See `## Recommendation` for the current contract; everything above it documents how we got there.
 
 
 ## Problem
@@ -112,32 +115,37 @@ Same flow as `/subagent-implementation` Phase 3: at finalize, present the FOLLOW
 | Option | Pros | Cons |
 |--------|------|------|
 | **A. One combined spec** (`docs/spec/diagnose-orchestrators.md`) | Substrate defined once. Easier to keep the two flows in sync when the substrate evolves. Single file to grep. | Phase 0 + Phase 4 differ enough that the spec becomes a `if /diagnose-ci do X else do Y` ladder. Readers looking for one command's contract have to mentally filter. Commits touching one flow conflict with commits touching the other. |
-| **B. Two specs, no shared file** (`docs/spec/diagnose-ci.md`, `docs/spec/diagnose-bug.md`) | Each command has a clean self-contained contract. No conditional ladders. Commits stay scoped. | Substrate duplicated. Drift risk: a change to scratchpad layout in one spec misses the other. |
-| **C. Two specs + a shared substrate doc** (`docs/spec/diagnose-ci.md` + `docs/spec/diagnose-bug.md` + `docs/spec/diagnose-substrate.md`) | Substrate defined once, command specs stay clean and reference it. Drift risk minimized. | Three files instead of one or two. Cross-reference burden — readers must follow links. Substrate file has no command of its own, which breaks the "one spec, one feature" convention. |
+| **B. Two specs, no shared file** (`docs/spec/subagent-diagnose.md`, `docs/spec/diagnose-bug.md`) | Each command has a clean self-contained contract. No conditional ladders. Commits stay scoped. | Substrate duplicated. Drift risk: a change to scratchpad layout in one spec misses the other. |
+| **C. Two specs + a shared substrate doc** (`docs/spec/subagent-diagnose.md` + `docs/spec/diagnose-bug.md` + `docs/spec/diagnose-substrate.md`) | Substrate defined once, command specs stay clean and reference it. Drift risk minimized. | Three files instead of one or two. Cross-reference burden — readers must follow links. Substrate file has no command of its own, which breaks the "one spec, one feature" convention. |
 
 
 ## Recommendation
 
 
-**Ship `/diagnose-ci` only. Shelve `/diagnose-bug`. Use an engine-file-by-reference pattern (Option C lite), no inlining, no sync infrastructure.**
+**Ship `/subagent-diagnose` as a single command with two input modes (`ci` and `bug`). One spec file (`docs/spec/subagent-diagnose.md`) containing Goal / Non-goals / Invocation / per-mode Phase 0 + Phase 4 / shared Phase 1–3 loop / Checkpoints / Risks. No separate engine file — under N=1 consumer, a "shared engine" is just a split file with no readers benefiting from the split.**
 
 
-Reasoning (post strategy-review reversal, 2026-05-17):
+Reasoning (post second reversal, 2026-05-18):
+
+
+- Both prior entries (`/diagnose-ci` + `/diagnose-bug`) shared the same orchestrator shape: scratchpad brief → context-gatherer agent → builder/surgeon → reviewer loop → Phase 3 finalize. The only delta was the brief source. Two commands = two surfaces drifting independently for no benefit.
+- Naming `/subagent-diagnose` (not `/diagnose`) mirrors `/subagent-implementation` and signals the orchestrator pattern at the call site. `/diagnose` alone would collide nominally with the `atomic-debug` skill (which is the in-context hypothesis loop, not an orchestrator).
+- The mode subcommand (`ci` | `bug`) adds a Phase 0 + Phase 4 pair without touching the shared loop. Future modes (`perf`, `flake`) can be added the same way until one needs a different loop shape — at which point fork the engine file per its "When to fork instead of extend" rule.
+- The earlier shelve-`/diagnose-bug` decision (made under the two-command shape) no longer applies. Under one command with mode subcommands, the `bug` mode is cheap to ship alongside `ci`. `atomic-debug` skill stays for fast in-context loops; `/subagent-diagnose bug` is the orchestrated escalation. F-1 (skill-boundary tweak) still tracks separately.
+
+
+Prior reasoning (first reversal, 2026-05-17 — kept for the audit trail):
 
 
 - Independent opus strategy review found the inline-sync infrastructure (substrate doc + check script + Makefile target + pre-commit hook + CI step) disproportionate for N=2 consumers. Bundle-regen precedent doesn't apply — that syncs generated artifacts from human sources; this would sync human text into human text.
-- `/diagnose-bug` boundary against the `atomic-debug` skill is unresolved (F-1 in followups deferred pending evidence). Shipping the command first creates a turf war: `atomic-debug` auto-fires on the same triggers, so users never type `/diagnose-bug`; or the command cannibalizes the skill. Wait for F-1 misroute data before building.
-- Strategic risk of the inline-sync pattern: future orchestrators (`/diagnose-perf`, `/diagnose-flake`) won't pay the substrate tax — they'll fork inline. After two forks the substrate is meaningless and the sync infrastructure is dead weight that's hard to remove.
+- Strategic risk of the inline-sync pattern: future orchestrators won't pay the substrate tax — they'll fork inline. After two forks the substrate is meaningless and the sync infrastructure is dead weight that's hard to remove.
 - Engine-by-reference precedent already exists in this repo: `docs/spec/session-report.md § Ship-verb integration` is the canonical source for ship-verb behavior, and ship-verb command files reference it by link rather than inlining. Same pattern works here.
 
 
-### Engine-by-reference shape
+### Shape — single spec, no separate engine
 
 
-- Single engine file: `docs/spec/_engine/diagnose-loop.md`. Not a spec — no `## Goal` / `## Checkpoints`, no command of its own. Has its own `## Change log` since edits affect every consumer on every read.
-- Consumer specs (`docs/spec/diagnose-ci.md` and any future siblings) open with a one-paragraph `> **Engine:** docs/spec/_engine/diagnose-loop.md defines ...` block, then move to per-command Phase 0 and Phase 4 details.
-- No inlining. No fence markers. No sync script. No `make` target. No pre-commit step. No CI gate. Drift is impossible because there is only one copy.
-- **Fork rule when N grows:** if a future consumer needs a different loop shape, fork into a second engine file (`_engine/diagnose-loop-flake.md` etc.). Don't accumulate conditionals in one engine.
+All loop semantics live in `docs/spec/subagent-diagnose.md` directly. No `_engine/` subdirectory, no shared loop file, no link-jump on read. Under one command with two modes, factoring loop content into a separate file produces a split file with one reader, not an engine — pure overhead. If a second orchestrator command ever earns its keep (e.g. `/subagent-perf-diagnose` with a fundamentally different loop), revisit the engine question then; until then, one spec is the simplest thing that works.
 
 
 ### Original alternatives table (kept for the audit trail)
@@ -147,9 +155,9 @@ Reasoning (post strategy-review reversal, 2026-05-17):
 |--------|------|------|
 | **A. One combined spec** (`docs/spec/diagnose-orchestrators.md`) | Substrate defined once. Single file to grep. | Phase 0 + Phase 4 differ enough that the spec becomes an if-ladder. |
 | **B. Two specs, no shared file**, substrate duplicated verbatim | Each command self-contained. No conditional ladders. | Drift risk; reviewer-discipline-only. |
-| **B+. Two specs, substrate inlined via fenced sync markers + drift gate** (originally chosen, now rejected) | Read-time locality + mechanical drift prevention. | 5 pieces of new machinery for N=2 consumers; future forks bypass the tax; back-out cost high. |
-| **C. Two specs + shared substrate doc, link reference** | Single source. No machinery. Pattern already in use (session-report.md). | One link hop on read. |
-| **C-lite (chosen).** One spec for now + engine file referenced by link. Second consumer added when it earns its keep. | Minimal scaffolding. Engine evolves under its own change log. Fork-or-extend decision deferred to N=2. | `/diagnose-bug` shelved (acceptable per strategy-review backlog ranking). |
+| **B+. Two specs, substrate inlined via fenced sync markers + drift gate** (originally chosen, then rejected at first reversal) | Read-time locality + mechanical drift prevention. | 5 pieces of new machinery for N=2 consumers; future forks bypass the tax; back-out cost high. |
+| **C. Two specs + shared substrate doc, link reference** (chosen at first reversal, then made moot at second reversal) | Single source. No machinery. Pattern already in use (session-report.md). | One link hop on read. Engine file useless under N=1 consumer. |
+| **D (chosen, second reversal).** One spec (`/subagent-diagnose`) with two modes, no engine file, loop sections inlined in the spec body. | Simplest scaffolding. One file to read. No premature factoring. | Modes converge in the body; a third mode with a different loop would force re-factoring. Acceptable — defer until it happens. |
 
 
 ## Cross-artifact wiring (must update when specs land)
@@ -160,9 +168,8 @@ Per `claude.local.md` → "Adding a new artifact" checklist, the spec PRs must i
 
 | Surface | What to update |
 |---------|----------------|
-| `CLAUDE.md` "Other commands" paragraph | Add `/diagnose-ci` one-line description. |
-| `CLAUDE.md` (mirror) | Same edit — they must stay synchronized. |
-| `README.md` commands table | Add `/diagnose-ci` with one-line description. |
+| `CLAUDE.md` "Other commands" paragraph | Add `/subagent-diagnose` one-line description (covers both `ci` and `bug` modes). |
+| `README.md` commands table | Add `/subagent-diagnose` with one-line description. |
 | `commands/_templates/` | No new templates needed — reuse `implementer-prompt.md` + `reviewer-prompt.md`. |
 | Bundle inclusion | No `bundlemirror/mirror.go` change — `commands/*.md` auto-bundles. |
 | Signals refresh | `/refresh-signals` after command file lands. |
