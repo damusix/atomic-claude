@@ -38,6 +38,7 @@ Use it in personal projects or at work. Licensed [MIT](LICENSE). Still evolving:
   - `/git-cleanup`: scan stale worktrees, branches, and (optionally) remote tracking refs; per-item confirm.
   - `/worktree-start`: isolated worktree with auto-detected `npm install` / `cargo build` / etc. plus a baseline test run.
   - `/atomic-setup`: bootstrap a fresh repo for atomic conventions (gitignore, docs/ layout, starter CLAUDE.md).
+  - `/atomic-help`: routing assistant when you're unsure which verb to run; reads git state, recommends one next step.
   - `/atomic-claude-merge`: merge `~/.claude/CLAUDE.md` updates with your local edits.
 
 **Hooks are optional.** Install registers a `SessionStart` hook by default so pending reminders surface at session open, but the system is designed to work without it. If corporate policy blocks `settings.json` modifications, run `atomic claude install --no-hooks`. The commands, skills, agents, output style, signals workflow, and the full implement → review loop all work unchanged. You lose automatic reminder surfacing (use `/follow-up` manually instead).
@@ -259,6 +260,7 @@ The table groups capabilities by what they do, not where they sit in each projec
 | CI observation | `/watch-ci` | — | — |
 | Stale git cleanup | `/git-cleanup` + `atomic-git-scout` agent | — | — |
 | Bootstrap a fresh repo | `/atomic-setup` | — | — |
+| Help when lost in the workflow | `/atomic-help [topic\|intent]` | — | — |
 | Token usage stats | — | — | `/caveman-stats` |
 | MCP middleware compression | — | — | `caveman-shrink` (npm) |
 | Meta: write a new skill | — | `writing-skills` skill | — |

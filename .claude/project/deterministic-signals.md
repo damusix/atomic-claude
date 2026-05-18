@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-05-18T03:44:11Z
-atomic_version: 1.1.0
+generated_at: 2026-05-18T12:12:35Z
+atomic_version: 1.2.0
 ---
 # Deterministic signals
 
@@ -19,7 +19,7 @@ atomic_version: 1.1.0
 │       ├── ci.yml
 │       ├── release-please.yml
 │       └── release.yml
-├── agents/ (8)
+├── agents/ (9)
 │   ├── atomic-builder.md
 │   ├── atomic-claude-merger.md
 │   ├── atomic-git-scout.md
@@ -27,6 +27,7 @@ atomic_version: 1.1.0
 │   ├── atomic-investigator.md
 │   ├── atomic-reviewer.md
 │   ├── atomic-signals-inferrer.md
+│   ├── atomic-strategist.md
 │   └── atomic-surgeon.md
 ├── atomic/ (7)
 │   ├── cmd/ (2)
@@ -36,7 +37,7 @@ atomic_version: 1.1.0
 │   │   └── bundle-mirror/ (2)
 │   │       ├── main.go
 │   │       └── main_test.go
-│   ├── internal/ (16)
+│   ├── internal/ (17)
 │   │   ├── bundlemirror/ (1)
 │   │   │   └── mirror.go
 │   │   ├── bundlespec/ (2)
@@ -50,8 +51,42 @@ atomic_version: 1.1.0
 │   │   │   ├── convergence_test.go
 │   │   │   ├── dockerinit.go
 │   │   │   └── dockerinit_test.go
+│   │   ├── doctor/ (33)
+│   │   │   ├── checks_binary.go
+│   │   │   ├── checks_binary_test.go
+│   │   │   ├── checks_followups.go
+│   │   │   ├── checks_followups_test.go
+│   │   │   ├── checks_hooks.go
+│   │   │   ├── checks_hooks_test.go
+│   │   │   ├── checks_install.go
+│   │   │   ├── checks_install_test.go
+│   │   │   ├── checks_manifest.go
+│   │   │   ├── checks_manifest_test.go
+│   │   │   ├── checks_memory.go
+│   │   │   ├── checks_memory_test.go
+│   │   │   ├── checks_refs.go
+│   │   │   ├── checks_refs_test.go
+│   │   │   ├── checks_signals.go
+│   │   │   ├── checks_signals_test.go
+│   │   │   ├── doctor.go
+│   │   │   ├── doctor_test.go
+│   │   │   ├── exit.go
+│   │   │   ├── exit_test.go
+│   │   │   ├── fix.go
+│   │   │   ├── fix_impls.go
+│   │   │   ├── fix_test.go
+│   │   │   ├── flags.go
+│   │   │   ├── format.go
+│   │   │   ├── format_test.go
+│   │   │   ├── inode_unix.go
+│   │   │   ├── inode_windows.go
+│   │   │   ├── repodev.go
+│   │   │   ├── repodev_test.go
+│   │   │   ├── shortcircuit.go
+│   │   │   ├── shortcircuit_test.go
+│   │   │   └── stdin_prompter.go
 │   │   ├── embedded/ (3)
-│   │   │   ├── bundle/ (6 subitems) (47 total items)
+│   │   │   ├── bundle/ (6 subitems) (51 total items)
 │   │   │   ├── bundle.go
 │   │   │   └── manifest.go
 │   │   ├── frontmatter/ (2)
@@ -111,12 +146,13 @@ atomic_version: 1.1.0
 │   ├── Makefile
 │   ├── go.mod
 │   └── go.sum
-├── commands/ (29)
+├── commands/ (32)
 │   ├── _templates/ (2)
 │   │   ├── implementer-prompt.md
 │   │   └── reviewer-prompt.md
 │   ├── atomic-claude-merge.md
 │   ├── atomic-compress.md
+│   ├── atomic-help.md
 │   ├── atomic-plan.md
 │   ├── atomic-setup.md
 │   ├── commit-and-merge.md
@@ -130,6 +166,7 @@ atomic_version: 1.1.0
 │   ├── initialize-signals.md
 │   ├── merge-to-main.md
 │   ├── pr-only.md
+│   ├── pressure-test.md
 │   ├── push-only.md
 │   ├── refresh-signals.md
 │   ├── remind-me.md
@@ -139,14 +176,16 @@ atomic_version: 1.1.0
 │   ├── session-report.md
 │   ├── squash-and-merge.md
 │   ├── squash-only.md
+│   ├── subagent-diagnose.md
 │   ├── subagent-implementation.md
 │   ├── undo-commit.md
 │   ├── watch-ci.md
 │   └── worktree-start.md
 ├── docs/ (4)
-│   ├── design/ (2)
+│   ├── design/ (3)
 │   │   ├── atomic-doctor.md
-│   │   └── atomic-validate.md
+│   │   ├── atomic-validate.md
+│   │   └── diagnose-orchestrators.md
 │   ├── guides/ (3)
 │   │   ├── contributing.md
 │   │   ├── evaluations.md
@@ -159,15 +198,17 @@ atomic_version: 1.1.0
 │   │   ├── signals-workflow.md
 │   │   ├── skills.md
 │   │   └── workflow.md
-│   └── spec/ (8)
+│   └── spec/ (10)
 │       ├── atomic-binary.md
+│       ├── atomic-doctor.md
 │       ├── atomic-validate.md
 │       ├── cron-workflow.md
 │       ├── docker-eval-environment.md
 │       ├── install-workflow.md
 │       ├── session-report.md
 │       ├── signals-project-detection.md
-│       └── signals-workflow.md
+│       ├── signals-workflow.md
+│       └── subagent-diagnose.md
 ├── output-styles/ (1)
 │   └── atomic.md
 ├── rules/ (2)
@@ -219,8 +260,8 @@ atomic_version: 1.1.0
 
 ## Languages
 
-- Go: 13867 LOC (49%), 54 files (25%)
-- Markdown: 13862 LOC (49%), 150 files (71%)
+- Go: 18579 LOC (52%), 87 files (34%)
+- Markdown: 16424 LOC (46%), 161 files (63%)
 - Shell: 269 LOC (0%), 3 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
