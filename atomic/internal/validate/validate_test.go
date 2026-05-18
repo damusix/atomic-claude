@@ -147,4 +147,3 @@ func TestDispatch_ConfigCleanRepo(t *testing.T) {
 		t.Errorf("validate config stub: got exit %d, want 0", code)
 	}
 }
-
