@@ -116,41 +116,7 @@ Next step when revisiting: promote design → `docs/spec/atomic-validate.md`. Cl
 Origin: chat session 2026-05-17 system improvement discussion, deferred to explore later.
 
 
-### F-4 — Design `/subagent-diagnose` orchestrator command
-
-
-Parallel to `/subagent-implementation`. Same shape: scratchpad brief → context-gatherer agent → builder/surgeon → reviewer loop → Phase 3 finalize. Reuses existing `commands/_templates/{implementer-prompt,reviewer-prompt}.md` — no new template scaffolding.
-
-
-Two input modes (collapsed from prior F-4 `/diagnose-ci` + F-5 `/diagnose-bug` — same machinery, different brief source):
-
-
-| Mode | Trigger | Brief source | Context gatherer |
-|------|---------|--------------|------------------|
-| `ci` | `/subagent-diagnose ci [<run-id>]` (defaults to latest failed run on current branch) | failed CI run | `atomic-haiku` pulls logs into `CONTEXT.md` |
-| `bug` | `/subagent-diagnose bug "<symptom>"` | user symptom paragraph | `atomic-investigator` maps suspect surface |
-
-
-Both modes converge: builder/surgeon dispatch (brief + gatherer output), test-first hypothesis, fix, reviewer loop, optional re-watch for CI mode.
-
-
-Scratchpad: `.claude/.scratchpad/<YYYY-MM-DD>-diagnose-<mode>-<slug>/` (mode in path so concurrent runs don't collide). Same `BRIEF.md` / `STATE.md` / `FOLLOWUPS.md` triad as `/subagent-implementation`.
-
-
-Spec drafted at `docs/spec/subagent-diagnose.md` on PR #6. Implementation deferred — spec is the contract, command implementation lands in a follow-up `/subagent-implementation` run.
-
-
-Open questions still in the spec (not yet implementation-blocking):
-
-
-- CI mode: PR comment summary when bailing? (Probably no — surface to user instead.)
-- Atomic-debug skill stays for in-context hypothesis loops; `/subagent-diagnose bug` is the orchestrated escalation when the bug spans sessions or needs investigator + builder + reviewer. F-1 tracks the skill-description boundary tweak separately.
-
-
-Origin: chat session 2026-05-17 system improvement discussion. Collapsed from prior F-4 (`/diagnose-ci`) + F-5 (`/diagnose-bug`) on 2026-05-18 — naming aligned with `/subagent-implementation`, modes merged to reduce surface area, engine file rejected as premature factoring under N=1 consumer.
-
-
-### F-5 — Spec the post-merge / post-squash signals-refresh integration
+### F-4 — Spec the post-merge / post-squash signals-refresh integration
 
 
 `docs/spec/signals-workflow.md` contracts the `/commit-only` integration (skill auto-fires pre-commit when source-tree changes). It does NOT cover the post-op defense-in-depth refresh now implemented in `/merge-to-main`, `/squash-and-merge`, and (as of this session) `/squash-only`. The pattern is in code but unspecced — future contributors editing those verbs have no canonical contract to follow.
