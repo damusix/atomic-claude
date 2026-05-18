@@ -160,17 +160,65 @@ func runDoctor(args []string) {
 		os.Exit(2)
 	}
 
+	// Resolve home directory for the missing-~/.claude/ short-circuit.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic doctor: resolve home dir: %v\n", err)
+		os.Exit(2)
+	}
+
+	if doctor.ClaudeHomeMissing(home) {
+		msg := doctor.MissingHomeMessage()
+		if opts.JSON {
+			data, jerr := doctor.FormatJSONMissingHome(msg)
+			if jerr != nil {
+				fmt.Fprintf(os.Stderr, "atomic doctor: marshal json: %v\n", jerr)
+				os.Exit(2)
+			}
+			fmt.Println(string(data))
+		} else {
+			fmt.Println(msg)
+		}
+		os.Exit(0)
+	}
+
+	// Resolve project name: git toplevel basename, or cwd basename on failure.
+	project := doctorProjectName()
+
 	results, err := doctor.Run(opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic doctor: %v\n", err)
 		os.Exit(2)
 	}
 
-	// CP-6: human formatter and JSON formatter land here.
-	// For now, print a one-liner placeholder per result.
-	for _, r := range results {
-		fmt.Printf("[%d] %-4s  %s  %s\n", r.Index, r.Severity, r.Name, r.Detail)
+	exitCode := doctor.ExitCode(results)
+
+	if opts.JSON {
+		data, jerr := doctor.FormatJSON(results, project, exitCode)
+		if jerr != nil {
+			fmt.Fprintf(os.Stderr, "atomic doctor: marshal json: %v\n", jerr)
+			os.Exit(2)
+		}
+		fmt.Println(string(data))
+	} else {
+		fmt.Print(doctor.FormatHuman(results, project))
 	}
+
+	os.Exit(exitCode)
+}
+
+// doctorProjectName returns the project name to display in doctor output.
+// Uses the git toplevel directory basename; falls back to cwd basename.
+func doctorProjectName() string {
+	out, err := repoctx.Resolve("")
+	if err == nil && out != "" {
+		return filepath.Base(out)
+	}
+	cwd, err := os.Getwd()
+	if err == nil {
+		return filepath.Base(cwd)
+	}
+	return "unknown"
 }
 
 func runUpdate(args []string) {
