@@ -16,6 +16,65 @@ func RunBundleCheckAt(repoRoot string, w io.Writer) int {
 	return runBundleAt(repoRoot, false, false, w)
 }
 
+// runBundleCollect runs the bundle parity check and returns findings + summary
+// without printing anything. Used by runWholeRepo to aggregate findings before
+// printing a unified header+block.
+//
+// Returns (findings, summary, exitCode) where exitCode is 0 (ok), 1 (FAIL),
+// or 2 (internal error).
+func runBundleCollect(repoRoot string) ([]Finding, summary, int) {
+	embArtifacts := embedded.Manifest()
+	entries := make([]manifestcheck.ManifestEntry, len(embArtifacts))
+	for i, a := range embArtifacts {
+		entries[i] = manifestcheck.ManifestEntry{
+			Kind:   a.Kind,
+			Source: a.Source,
+			Target: a.Target,
+			SHA256: a.SHA256,
+		}
+	}
+
+	result, err := manifestcheck.CheckFromEntries(repoRoot, entries)
+	if err != nil {
+		return nil, summary{}, 2
+	}
+
+	var findings []Finding
+	overflow := 0
+	if len(result.Diffs) > 5 {
+		overflow = len(result.Diffs) - 5
+		for _, d := range result.Diffs[:5] {
+			findings = append(findings, Finding{
+				Severity: "FAIL",
+				Rule:     "bundle",
+				Path:     d.Target,
+				Line:     0,
+				Message:  fmt.Sprintf("%s: %s", d.Kind, d.Detail),
+			})
+		}
+		findings = append(findings, Finding{
+			Severity: "FAIL",
+			Rule:     "bundle",
+			Path:     "",
+			Line:     0,
+			Message:  fmt.Sprintf("%d more diffs not shown", overflow),
+		})
+	} else {
+		for _, d := range result.Diffs {
+			findings = append(findings, Finding{
+				Severity: "FAIL",
+				Rule:     "bundle",
+				Path:     d.Target,
+				Line:     0,
+				Message:  fmt.Sprintf("%s: %s", d.Kind, d.Detail),
+			})
+		}
+	}
+
+	s := summarize(findings)
+	return findings, s, 0
+}
+
 // runBundleImpl discovers repoRoot from cwd and delegates to runBundleAt.
 // Called from the validate dispatch when no explicit root is available.
 func runBundleImpl(jsonOut, suggest bool, w io.Writer) int {

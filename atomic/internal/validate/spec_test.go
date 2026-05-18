@@ -274,21 +274,34 @@ func TestDispatch_FlagBeforeSubcommand_JSONHonored(t *testing.T) {
 	}
 }
 
-// TestDispatch_NoSubcommand_NeutralMessage proves that no-subcommand exits 2 with
-// a neutral message (not the old "whole-repo mode not yet implemented").
-// WHY: F-3 — leaking checkpoint schedule to users is unprofessional.
-func TestDispatch_NoSubcommand_NeutralMessage(t *testing.T) {
+// TestDispatch_NoSubcommand_WholeRepo proves that no-subcommand now runs
+// whole-repo validation (CP-8), not the old "subcommand required" stub.
+// WHY: CP-8 contract — `atomic validate` (no args) must run all validators.
+// The test runs from a temp dir so findRepoRoot fails → exit 2. The meaningful
+// assertion is that the old "subcommand required" stub message is gone.
+func TestDispatch_NoSubcommand_WholeRepo(t *testing.T) {
+	// Run from a dir with no .git so we get a deterministic internal-error path.
+	orig, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	noRepo := t.TempDir()
+	if err := os.Chdir(noRepo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(orig) })
+
 	var buf strings.Builder
 	code := validate.RunWithOutput([]string{}, &buf)
-	if code != 2 {
-		t.Errorf("no subcommand: got exit %d, want 2", code)
-	}
 	out := buf.String()
-	if strings.Contains(out, "not yet implemented") {
-		t.Errorf("no-subcommand message leaks implementation schedule: %q", out)
+
+	// Outside a repo → exit 2 (internal error: no .git).
+	if code != 2 {
+		t.Errorf("no subcommand outside repo: got exit %d, want 2\noutput: %q", code, out)
 	}
-	if !strings.Contains(out, "subcommand required") {
-		t.Errorf("no-subcommand message should contain 'subcommand required', got: %q", out)
+	// Old stub message must be gone.
+	if strings.Contains(out, "subcommand required") {
+		t.Errorf("whole-repo dispatch: old stub message leaked: %q", out)
 	}
 }
 

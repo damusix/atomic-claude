@@ -48,14 +48,20 @@ func RunWithOutput(args []string, w io.Writer) int {
 
 	remaining := fs.Args()
 
-	// No subcommand: whole-repo mode (CP-8). Neutral message for now.
+	// No subcommand: whole-repo mode (CP-8).
 	if len(remaining) == 0 {
-		fmt.Fprintf(w, "atomic validate: subcommand required: spec | config | bundle\n")
-		return 2
+		return runWholeRepo(jsonOut, suggest, w)
 	}
 
 	sub := remaining[0]
 	subArgs := remaining[1:]
+
+	// Path-aware dispatch: if sub looks like a file path (contains a path
+	// separator or extension, i.e. not a bare verb), treat all remaining args
+	// as paths rather than a subcommand.
+	if isPathArg(sub) {
+		return runPathDispatch(append([]string{sub}, subArgs...), jsonOut, suggest, w)
+	}
 
 	switch sub {
 	case "spec":

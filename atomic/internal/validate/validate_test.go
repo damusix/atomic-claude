@@ -140,8 +140,8 @@ func writeTempSpec(t *testing.T, content string) string {
 	return f.Name()
 }
 
-// TestDispatch_ConfigStub proves validate config exits 0 in stub state.
-func TestDispatch_ConfigStub(t *testing.T) {
+// TestDispatch_ConfigCleanRepo proves validate config exits 0 on a clean repo.
+func TestDispatch_ConfigCleanRepo(t *testing.T) {
 	code := validate.Run([]string{"config"})
 	if code != 0 {
 		t.Errorf("validate config stub: got exit %d, want 0", code)
