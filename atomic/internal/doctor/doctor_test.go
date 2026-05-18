@@ -100,30 +100,41 @@ func TestRunFiltersBySkip(t *testing.T) {
 	}
 }
 
-// TestStubsReturnSkip verifies all check funcs are stubs returning SKIP.
+// TestStubsReturnSkip verifies that the 5 checks not yet implemented in CP-3
+// (hooks, signals, refs, followups, memory) still return SKIP.
+// Checks 1 (install), 5 (manifest), 8 (binary) are implemented in CP-3 and
+// no longer stubs.
 func TestStubsReturnSkip(t *testing.T) {
+	// Indices of checks that remain stubs after CP-3.
+	stillStub := map[int]bool{2: true, 3: true, 4: true, 6: true, 7: true}
+
 	cats := doctor.Categories()
 	opts := doctor.Opts{StaleDays: 7}
 	for _, c := range cats {
+		if !stillStub[c.Index] {
+			continue
+		}
 		r := c.Run(opts)
 		if r.Severity != doctor.SKIP {
-			t.Errorf("category %q stub returned severity %v, want SKIP", c.Name, r.Severity)
+			t.Errorf("category %q (index %d) stub returned severity %v, want SKIP", c.Name, c.Index, r.Severity)
 		}
 		if r.Detail == "" {
-			t.Errorf("category %q stub returned empty Detail", c.Name)
+			t.Errorf("category %q (index %d) stub returned empty Detail", c.Name, c.Index)
 		}
 	}
 }
 
-// TestRunReturnsAllResults verifies Run returns exactly 8 results in index order.
+// TestRunReturnsAllResults verifies Run returns results in index order.
+// Check 8 (binary) is excluded via Only to avoid live network calls — it is
+// tested in isolation via RunCheckBinaryWith in checks_binary_test.go.
 func TestRunReturnsAllResults(t *testing.T) {
-	opts := doctor.Opts{StaleDays: 7}
+	opts := doctor.Opts{Only: []int{1, 2, 3, 4, 5, 6, 7}, StaleDays: 7}
 	results, err := doctor.Run(opts)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(results) != 8 {
-		t.Fatalf("Run returned %d results, want 8", len(results))
+	if len(results) != 7 {
+		t.Fatalf("Run returned %d results, want 7", len(results))
 	}
 	for i, r := range results {
 		want := i + 1

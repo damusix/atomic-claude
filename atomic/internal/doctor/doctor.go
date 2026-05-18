@@ -66,6 +66,7 @@ func Run(opts Opts) ([]Result, error) {
 	onlySet := indexSet(opts.Only)
 	skipSet := indexSet(opts.Skip)
 
+	// TODO CP-6: short-circuit with PASS-everything and exit 0 when ResolveTarget(~/.claude/) is absent.
 	results := make([]Result, 0, len(categories))
 	for _, c := range categories {
 		if len(onlySet) > 0 && !onlySet[c.Index] {
@@ -95,10 +96,7 @@ func indexSet(indices []int) map[int]bool {
 }
 
 // --- stub check functions (replaced in CP-3/4/5) ---
-
-func checkInstall(_ Opts) Result {
-	return Result{Severity: SKIP, Detail: "not implemented (CP-3)"}
-}
+// checkInstall is implemented in checks_install.go (CP-3).
 
 func checkHooks(_ Opts) Result {
 	return Result{Severity: SKIP, Detail: "not implemented (CP-4)"}
@@ -112,9 +110,7 @@ func checkRefs(_ Opts) Result {
 	return Result{Severity: SKIP, Detail: "not implemented (CP-4)"}
 }
 
-func checkManifest(_ Opts) Result {
-	return Result{Severity: SKIP, Detail: "not implemented (CP-3)"}
-}
+// checkManifest is implemented in checks_manifest.go (CP-3).
 
 func checkFollowups(_ Opts) Result {
 	return Result{Severity: SKIP, Detail: "not implemented (CP-5)"}
@@ -124,6 +120,4 @@ func checkMemory(_ Opts) Result {
 	return Result{Severity: SKIP, Detail: "not implemented (CP-5)"}
 }
 
-func checkBinary(_ Opts) Result {
-	return Result{Severity: SKIP, Detail: "not implemented (CP-3)"}
-}
+// checkBinary is implemented in checks_binary.go (CP-3).
