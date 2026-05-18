@@ -13,7 +13,7 @@ Auto-loaded into every session via `@-ref` in `claude.local.md` (or `claude.md` 
 ## 🟡 risks
 
 
-### cron-workflow-v2-F-1 — `SetDue` double-reads + double-parses the reminder file
+### cron-workflow-v2-F-1 *(closed 2026-05-17 — 65ba6e6)* — `SetDue` double-reads + double-parses the reminder file
 
 
 `atomic/internal/reminder/reminder.go:153–165`
@@ -151,7 +151,7 @@ Scope when revisiting:
 Origin: chat session 2026-05-17 follow-on to fixing `/squash-only` signals-refresh gap. Pre-existing spec gap, not introduced by the fix.
 
 
-### cron-workflow-v2-F-2 — `orderedKVs` helper used only by `SetDue`; `Add` builds key list inline
+### cron-workflow-v2-F-2 *(closed 2026-05-17 — 65ba6e6)* — `orderedKVs` helper used only by `SetDue`; `Add` builds key list inline
 
 
 `atomic/internal/reminder/reminder.go:187–209`
@@ -163,7 +163,7 @@ Origin: chat session 2026-05-17 follow-on to fixing `/squash-only` signals-refre
 Origin: `docs/spec/cron-workflow.md`, cron-workflow-v2 iter 1 reviewer (CP-1). Deferred at finalize 2026-05-17.
 
 
-### cron-workflow-v2-F-4 — `addReminderWithDue` test helper conflates two concerns
+### cron-workflow-v2-F-4 *(closed 2026-05-17 — 65ba6e6)* — `addReminderWithDue` test helper conflates two concerns
 
 
 `atomic/internal/hooks/hooks_test.go:289–320`
@@ -175,7 +175,7 @@ Origin: `docs/spec/cron-workflow.md`, cron-workflow-v2 iter 1 reviewer (CP-1). D
 Origin: `docs/spec/cron-workflow.md`, cron-workflow-v2 iter 3 reviewer (CP-2). Deferred at finalize 2026-05-17.
 
 
-### cron-workflow-v2-F-6 — `buildAdditionalContextFromRows` and `buildBodyFromPastDue` are near-duplicates
+### cron-workflow-v2-F-6 *(closed 2026-05-17 — 65ba6e6)* — `buildAdditionalContextFromRows` and `buildBodyFromPastDue` are near-duplicates
 
 
 `atomic/internal/hooks/hooks.go:151–182`
@@ -187,7 +187,7 @@ After CP-2 iter 4 refactor, `buildAdditionalContextFromRows` (used by `SessionSt
 Origin: `docs/spec/cron-workflow.md`, cron-workflow-v2 iter 4 reviewer (CP-2). Deferred at finalize 2026-05-17.
 
 
-### cron-workflow-v2-F-7 — `systemMessage` count has grammar bug ("1 reminders pending")
+### cron-workflow-v2-F-7 *(closed 2026-05-17 — 65ba6e6)* — `systemMessage` count has grammar bug ("1 reminders pending")
 
 
 `atomic/internal/hooks/hooks.go:71`
