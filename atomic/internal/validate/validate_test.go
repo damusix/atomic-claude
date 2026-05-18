@@ -35,43 +35,108 @@ func TestDispatch_HelpFlag(t *testing.T) {
 	}
 }
 
-// TestDispatch_SpecStub proves that `validate spec` exits 0 in the stub
-// (no rules wired yet). WHY: CP-1 only scaffolds dispatch; rule logic ships in
-// CP-5. A non-zero exit here would block every downstream checkpoint from
-// having a clean baseline.
-func TestDispatch_SpecStub(t *testing.T) {
-	code := validate.Run([]string{"spec"})
-	if code != 0 {
-		t.Errorf("validate spec stub: got exit %d, want 0", code)
+// TestDispatch_SpecEmptyDir proves that `validate spec <dir-with-no-specs>` exits 2
+// (internal error: no files found), not 0. WHY: CP-5 wired real rule logic; the
+// old stub test is replaced. Passing an empty dir confirms the glob-zero-files
+// path returns 2 (internal error) not 0 (silent false-pass).
+func TestDispatch_SpecEmptyDir(t *testing.T) {
+	// Use a temp dir as the working directory so findRepoRoot fails gracefully,
+	// but pass an explicit path to a file that doesn't exist.
+	code := validate.Run([]string{"spec", "/tmp/does-not-exist-atomic-validate-test.md"})
+	// Exit 2 = internal error (cannot read file).
+	if code != 2 {
+		t.Errorf("validate spec on nonexistent file: got exit %d, want 2", code)
 	}
 }
 
 // TestDispatch_FlagBeforeSubcommand proves --json before the subcommand is
-// accepted (flag order independence). WHY: users composing scripts may place
-// flags before or after the subcommand; either must work or CI pipelines break
-// silently on "unrecognized flag" exits.
+// accepted (flag order independence) and produces JSON output, not a parse error.
+// WHY: users composing scripts may place flags before or after the subcommand;
+// either must work or CI pipelines break silently on "unrecognized flag" exits.
 func TestDispatch_FlagBeforeSubcommand(t *testing.T) {
-	code := validate.Run([]string{"--json", "spec"})
+	// Use a real-looking spec file so the runner has content to validate.
+	f := writeTempSpec(t, `# My Spec
+
+## Checkpoints
+
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | test | foo.go | passes |
+
+## Change log
+
+<!-- empty -->
+`)
+	var buf strings.Builder
+	code := validate.RunWithOutput([]string{"--json", "spec", f}, &buf)
+	out := buf.String()
+	// Exit 0 (no FAIL) and output must be JSON.
 	if code != 0 {
-		t.Errorf("flag before subcommand: got exit %d, want 0", code)
+		t.Errorf("flag before subcommand: got exit %d, want 0; output:\n%s", code, out)
+	}
+	if !strings.Contains(out, "schema_version") {
+		t.Errorf("--json before subcommand: expected JSON output, got:\n%s", out)
 	}
 }
 
 // TestDispatch_FlagAfterSubcommand proves --json after the subcommand is also
-// accepted. Same reasoning as TestDispatch_FlagBeforeSubcommand.
+// accepted and produces JSON output. Same reasoning as TestDispatch_FlagBeforeSubcommand.
 func TestDispatch_FlagAfterSubcommand(t *testing.T) {
-	code := validate.Run([]string{"spec", "--json"})
+	f := writeTempSpec(t, `# My Spec
+
+## Checkpoints
+
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | test | foo.go | passes |
+
+## Change log
+
+<!-- empty -->
+`)
+	var buf strings.Builder
+	code := validate.RunWithOutput([]string{"spec", "--json", f}, &buf)
+	out := buf.String()
 	if code != 0 {
-		t.Errorf("flag after subcommand: got exit %d, want 0", code)
+		t.Errorf("flag after subcommand: got exit %d, want 0; output:\n%s", code, out)
+	}
+	if !strings.Contains(out, "schema_version") {
+		t.Errorf("--json after subcommand: expected JSON output, got:\n%s", out)
 	}
 }
 
-// TestDispatch_SuggestFlag proves --suggest is accepted without error.
+// TestDispatch_SuggestFlag proves --suggest is accepted without error on a valid spec.
 func TestDispatch_SuggestFlag(t *testing.T) {
-	code := validate.Run([]string{"spec", "--suggest"})
+	f := writeTempSpec(t, `# My Spec
+
+## Checkpoints
+
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | test | foo.go | passes |
+
+## Change log
+
+<!-- empty -->
+`)
+	code := validate.Run([]string{"spec", "--suggest", f})
 	if code != 0 {
-		t.Errorf("--suggest flag: got exit %d, want 0", code)
+		t.Errorf("--suggest flag on valid spec: got exit %d, want 0", code)
 	}
+}
+
+// writeTempSpec writes content to a temp file and returns its path.
+func writeTempSpec(t *testing.T, content string) string {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "spec-*.md")
+	if err != nil {
+		t.Fatalf("create temp spec: %v", err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatalf("write temp spec: %v", err)
+	}
+	f.Close()
+	return f.Name()
 }
 
 // TestDispatch_ConfigStub proves validate config exits 0 in stub state.

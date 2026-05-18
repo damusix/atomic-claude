@@ -152,15 +152,44 @@ func Sections(src []byte) ([]Section, error) {
 //
 // Simpler and equally reliable: scan for lines that consist entirely of
 // '=' or '-' characters (at least two) immediately after a non-blank line.
-// This is a line-prescan regex approach. We choose this over AST inspection
+// This is a line-prescan approach. We choose this over AST inspection
 // because goldmark's Heading nodes do not expose a "is setext" flag, and
 // computing line spans from segment offsets requires careful arithmetic that
 // can hide off-by-one bugs. The prescan is simple, direct, and correct for
 // all CommonMark Setext heading forms.
+//
+// Fenced code block tracking: lines inside ``` or ~~~ fences are skipped
+// so that YAML/Markdown examples embedded in spec files do not trigger false
+// positives. Indented code blocks (lines with ≥4 leading spaces or a tab)
+// are also skipped — isSetextUnderline already ignores them because a leading
+// space causes the underline-character check to fail, but the skip is kept
+// explicit for clarity. Fence open: a line beginning with ``` or ~~~ (with
+// an optional info string after). Fence close: a line beginning with the
+// same marker characters (length ≥ opening fence — simplified CommonMark).
 func IsATXOnly(src []byte) bool {
 	lines := bytes.Split(src, []byte{'\n'})
+	inFence := false
+	var fenceMarker byte // '`' or '~'
+	var fenceLen int
+
 	for i := 1; i < len(lines); i++ {
 		line := lines[i]
+
+		// Detect fenced code block open/close.
+		if fenceChar, flen := fenceOpen(line); !inFence && flen > 0 {
+			inFence = true
+			fenceMarker = fenceChar
+			fenceLen = flen
+			continue
+		}
+		if inFence {
+			if isFenceClose(line, fenceMarker, fenceLen) {
+				inFence = false
+			}
+			// Inside fence: never treat any line as Setext underline.
+			continue
+		}
+
 		if len(line) < 2 {
 			continue
 		}
@@ -173,6 +202,47 @@ func IsATXOnly(src []byte) bool {
 		}
 	}
 	return true
+}
+
+// fenceOpen reports whether line opens a fenced code block (CommonMark §4.5).
+// Returns the fence character ('`' or '~') and the fence run length. Returns
+// 0,0 if this line is not a fence opener. Info strings after the fence
+// characters are allowed (and common for syntax-highlighted blocks).
+// Simplification: we do not track indented fence openers (up to 3 leading
+// spaces are allowed by CommonMark); those are uncommon in spec files and
+// the prescan is a best-effort approach.
+func fenceOpen(line []byte) (marker byte, length int) {
+	if len(line) == 0 {
+		return 0, 0
+	}
+	ch := line[0]
+	if ch != '`' && ch != '~' {
+		return 0, 0
+	}
+	n := 0
+	for n < len(line) && line[n] == ch {
+		n++
+	}
+	if n < 3 {
+		return 0, 0
+	}
+	return ch, n
+}
+
+// isFenceClose reports whether line closes the current fence. Per CommonMark
+// a close fence must begin with ≥ fenceLen of the same marker character and
+// contain only those characters (optional trailing spaces allowed).
+func isFenceClose(line []byte, marker byte, fenceLen int) bool {
+	n := 0
+	for n < len(line) && line[n] == marker {
+		n++
+	}
+	if n < fenceLen {
+		return false
+	}
+	// Rest of line must be blank (close fence has no info string).
+	rest := bytes.TrimRight(line[n:], " \t\r")
+	return len(rest) == 0
 }
 
 // isSetextUnderline reports whether line is a CommonMark Setext heading

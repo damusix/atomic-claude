@@ -48,20 +48,14 @@ func RunWithOutput(args []string, w io.Writer) int {
 
 	remaining := fs.Args()
 
-	// No subcommand: run all validators (whole-repo mode, CP-8).
-	// For CP-1 stub this falls through to "no subcommand yet" path.
+	// No subcommand: whole-repo mode (CP-8). Neutral message for now.
 	if len(remaining) == 0 {
-		// Whole-repo mode stub — wired in CP-8.
-		fmt.Fprintf(w, "atomic validate: no subcommand specified; whole-repo mode not yet implemented\n")
-		fmt.Fprintf(w, "  subcommands: spec, config, bundle\n")
+		fmt.Fprintf(w, "atomic validate: subcommand required: spec | config | bundle\n")
 		return 2
 	}
 
 	sub := remaining[0]
 	subArgs := remaining[1:]
-
-	_ = jsonOut
-	_ = suggest
 
 	switch sub {
 	case "spec":
@@ -77,18 +71,9 @@ func RunWithOutput(args []string, w io.Writer) int {
 	}
 }
 
-// runSpec is the spec validator entry point. Stub in CP-1; rules ship in CP-5.
-func runSpec(paths []string, jsonOut, suggest bool, w io.Writer) int {
-	_ = paths
-	_ = jsonOut
-	_ = suggest
-	fmt.Fprintf(w, "atomic validate spec — stub (rules ship in CP-5)\n")
-	return 0
-}
-
 // runConfig is the config validator entry point. Stub in CP-1; rules ship in CP-6.
-func runConfig(paths []string, jsonOut, suggest bool, w io.Writer) int {
-	_ = paths
+func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
+	_ = subArgs
 	_ = jsonOut
 	_ = suggest
 	fmt.Fprintf(w, "atomic validate config — stub (rules ship in CP-6)\n")

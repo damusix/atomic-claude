@@ -4,6 +4,7 @@
 package mdparse_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
@@ -190,6 +191,52 @@ func TestIsATXOnly_SetextWithCRLF(t *testing.T) {
 	src := []byte("Title\r\n=====\r\n\r\nSome text.\r\n")
 	if mdparse.IsATXOnly(src) {
 		t.Error("expected false for CRLF-encoded Setext H1 (IsATXOnly must not mis-detect as ATX-only)")
+	}
+}
+
+func TestIsATXOnly_SetextInsideFencedCodeBlockReturnsTrue(t *testing.T) {
+	// A fenced code block (backtick fence) containing a YAML frontmatter-style
+	// `---` line must NOT trigger Setext detection. The `---` is inside the
+	// block and therefore not a heading underline in the document.
+	src := []byte("# Title\n\n## Section\n\nHere is an example:\n\n```yaml\nkey: value\n---\nother: val\n```\n\nMore text.\n")
+	if !mdparse.IsATXOnly(src) {
+		t.Error("expected true: --- inside backtick fenced block must not be treated as Setext underline")
+	}
+}
+
+func TestIsATXOnly_SetextInsideTildeFencedCodeBlockReturnsTrue(t *testing.T) {
+	// Same but with tilde fence (~~~). The `---` inside must not trigger Setext.
+	src := []byte("# Title\n\n## Section\n\n~~~yaml\nkey: value\n---\nother: val\n~~~\n\nMore text.\n")
+	if !mdparse.IsATXOnly(src) {
+		t.Error("expected true: --- inside tilde fenced block must not be treated as Setext underline")
+	}
+}
+
+func TestIsATXOnly_SetextInsideIndentedCodeBlockReturnsTrue(t *testing.T) {
+	// An indented code block (4-space indent) containing `---` must not trigger
+	// Setext detection. The `---` is indented code content, not a heading underline.
+	src := []byte("# Title\n\n## Section\n\nExample:\n\n    key: value\n    ---\n    other: val\n\nMore text.\n")
+	if !mdparse.IsATXOnly(src) {
+		t.Error("expected true: --- inside indented code block must not be treated as Setext underline")
+	}
+}
+
+func TestIsATXOnly_RealRepoFiles(t *testing.T) {
+	// Dogfood test: real spec files in this repo must all be ATX-only.
+	// If run outside the repo tree, skip gracefully.
+	paths := []string{
+		"../../../docs/spec/atomic-binary.md",
+		"../../../docs/spec/install-workflow.md",
+		"../../../docs/spec/signals-workflow.md",
+	}
+	for _, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Skipf("cannot read %s (running outside repo tree): %v", p, err)
+		}
+		if !mdparse.IsATXOnly(data) {
+			t.Errorf("%s: IsATXOnly returned false — file contains Setext headings or false positive", p)
+		}
 	}
 }
 
