@@ -49,13 +49,24 @@ The `/subagent-implementation` flow deletes `.claude/.scratchpad/<YYYY-MM-DD>-<t
 | `/follow-up` | List + manage. |
 
 
-### `/remind-me [<duration>] <text>`
+### `/remind-me <prose>`
 
 
-1. Parse `$ARGUMENTS`. Detect whether the first token is a valid duration (`<n>(s|m|h|d|w)`, `<n>(months)`, or ISO date `YYYY-MM-DD`).
-    - **Text missing entirely**: refuse with usage hint. No reminder created.
-    - **Duration missing, text present**: invoke `AskUserQuestion` with options `3d` (Recommended), `1h`, `1d`, `1w`. The recommended option is listed first per the global `CLAUDE.md` convention for `AskUserQuestion`. If the user picks one, use it. If the user declines, ignores, or "Other" with empty input → **default `3d`**. The default is intentional: a forgotten reminder is worse than a slightly-wrong duration.
-    - **Both present**: proceed.
+1. Parse `$ARGUMENTS` as free-form prose. Claude infers a duration and a body from it — strict tokenization is not required. All of the following say the same thing and must all extract `duration = 3 days`, `body = "fix this issue"`:
+
+    - `3d fix this issue`
+    - `fix this issue in 3 days`
+    - `in about 3 days fix this issue`
+    - `fix this issue in 3d`
+
+    Accepted duration vocabulary that Claude maps to canonical units: bare tokens (`3d`, `2h`, `1w`, `30m`, `1month`), prose ("in 3 days", "about 2 hours", "a week from now", "next Tuesday", "tomorrow morning"), and ISO dates (`2026-06-01`). Round fuzzy phrases ("about 3 days", "around a week") to the nearest canonical unit and proceed without confirming — over-precision is not worth a round-trip.
+
+    - **Duration unambiguous**: extract and proceed.
+    - **Two or more candidate durations in the prose, no clear primary**: refuse with usage hint and the two candidates. Reasonable user input rarely contains two durations.
+    - **Body missing entirely** (input is just a duration, e.g. `/remind-me 3d`): refuse with usage hint. No reminder created.
+    - **Duration missing, body present**: invoke `AskUserQuestion` with options `3d` (Recommended), `1h`, `1d`, `1w`. The recommended option is listed first per the global `CLAUDE.md` convention for `AskUserQuestion`. If the user picks one, use it. If the user declines, ignores, or "Other" with empty input → **default `3d`**. The default is intentional: a forgotten reminder is worse than a slightly-wrong duration.
+
+    Strip the duration phrase from the body before saving, including any leading/trailing prepositions like `in` that only existed to glue the duration to the rest. The body in storage is the user's intent, not their raw phrasing.
 2. Compute `due = now + <duration>`. For day/week/month durations, the time component defaults to 09:00 local; for hour/second durations, use absolute time.
 3. Detect binary: `command -v atomic`.
     - **Binary present**: `atomic reminder add --due "<iso>" --transport "<cron|routine|none>" "<text>"`. Capture the id from stdout. (Binary CLI must accept these new flags; see § Binary changes.)
@@ -431,3 +442,13 @@ Live testing of `atomic update` v1.0.0 → v1.1.0 surfaced that `CronCreate` adv
 **What changed:** Reordered `AskUserQuestion` options in `/remind-me` so `3d` (Recommended) is first, then `1h`, `1d`, `1w`. Default behavior on decline (`3d`) is unchanged.
 
 **Why:** Spec was inconsistent with a global convention. Aligning the spec body avoids a permanent contradiction that future implementers would have to re-discover.
+
+
+### 2026-05-17 — `/remind-me` accepts free-form prose; Claude infers duration
+
+
+**What changed:** `/remind-me` no longer requires the duration to be the first token. It accepts any natural-language phrasing where Claude can infer a duration and a body — `"3d fix this issue"`, `"fix this issue in 3 days"`, `"in about 3 days fix this issue"`, and `"fix this issue in 3d"` all yield the same reminder. Strict regex-style tokenization is dropped from the spec; Claude is the parser. Fuzzy phrases (`"about 3 days"`, `"around a week"`) round to the nearest canonical unit silently. The body in storage is the user's intent with the duration phrase (including glue prepositions like `in`) stripped — not the raw input.
+
+**Why:** Forcing duration-first phrasing made natural usage awkward. Users type the way English actually flows, which is duration-trailing more often than duration-leading. Two examples surfaced from real use immediately after CP-3 shipped, including `"fix this issue in 3 days"`. Since Claude executes the slash command (not a shell parser), strict token rules add no robustness — they only constrain the surface against what Claude could already infer.
+
+**Superseded:** The v2 amendment said "Detect whether the first token is a valid duration". The Correction entry above only re-ordered the prompt options, not the parsing rule. This entry replaces the parsing rule itself.

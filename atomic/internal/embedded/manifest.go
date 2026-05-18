@@ -40,7 +40,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/pr-only.md", Target: "commands/pr-only.md", SHA256: "090d174c1fdd93ff6fabbbbb01cfac0f94ee3e2a33387cdce943ace632665031"},
 		{Kind: "command", Source: "bundle/commands/push-only.md", Target: "commands/push-only.md", SHA256: "a4d8a8a7e209416a0c6c1e53ef52b71bfa2646d1c9e496987ae45474e0592dda"},
 		{Kind: "command", Source: "bundle/commands/refresh-signals.md", Target: "commands/refresh-signals.md", SHA256: "87afb96672e1ba4271d6f3aaa8d9f0989670a0a0a434e24983b949bd4a82233a"},
-		{Kind: "command", Source: "bundle/commands/remind-me.md", Target: "commands/remind-me.md", SHA256: "fe640afbdf6d9bbbd69bdb6036cb26725b3baad19278c2b76c4bd86ade46ec95"},
+		{Kind: "command", Source: "bundle/commands/remind-me.md", Target: "commands/remind-me.md", SHA256: "d825df1dca502caac1fb7405b81c1567510573954d0fec47fab3205a6ce5596f"},
 		{Kind: "command", Source: "bundle/commands/report-issue-with-atomic.md", Target: "commands/report-issue-with-atomic.md", SHA256: "71e45426ea940911bd804125fcb127cd8b15204304091cc0bc830156b59ebd89"},
 		{Kind: "command", Source: "bundle/commands/report-issue.md", Target: "commands/report-issue.md", SHA256: "f80dd239e23f3d7a02bc90aa7af990420f4d616239c7f25dc6c9bfb826354de3"},
 		{Kind: "command", Source: "bundle/commands/review-branch.md", Target: "commands/review-branch.md", SHA256: "7baebd545a71e9d4920bc9412f3e18a983e05cd801009121118775947153a52a"},

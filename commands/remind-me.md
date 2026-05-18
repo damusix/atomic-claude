@@ -4,40 +4,56 @@ description: Schedule a reminder. Creates a reminder file and schedules it via c
 
 Schedule a reminder that fires at a future time.
 
-Spec: `docs/spec/cron-workflow.md § /remind-me [<duration>] <text>`
+Spec: `docs/spec/cron-workflow.md § /remind-me <prose>`
 
 ## Usage
 
 ```
-/remind-me [<duration>] <text>
+/remind-me <prose>
 ```
 
-Examples:
+`$ARGUMENTS` is free-form prose. Extract a duration and a body. All of these say the same thing:
 
 ```
-/remind-me 30m check if deploy finished
-/remind-me 1w benchmark the new query plan
-/remind-me 3d follow up on auth PR review
+/remind-me 3d fix this issue
+/remind-me fix this issue in 3 days
+/remind-me in about 3 days fix this issue
+/remind-me fix this issue in 3d
+/remind-me check if deploy finished in 30m
 /remind-me 2026-06-01 revisit error handling in ingest
 /remind-me fix that flaky test before Monday
 ```
 
-Duration formats: `<n>s`, `<n>m`, `<n>h`, `<n>d`, `<n>w`, `<n>months`, or an ISO date (`YYYY-MM-DD`). Duration is optional — if absent, Claude prompts.
+Canonical duration units: `<n>s`, `<n>m`, `<n>h`, `<n>d`, `<n>w`, `<n>months`, or ISO date `YYYY-MM-DD`. Prose forms ("in 3 days", "about a week", "tomorrow morning") are accepted; round to the nearest canonical unit silently. Duration is optional — if absent, Claude prompts.
 
 ## Steps
 
 ### Step 1 — Parse arguments
 
-Split `$ARGUMENTS`. Check whether the **first token** is a valid duration: matches `^\d+(s|m|h|d|w|months)$` or `^\d{4}-\d{2}-\d{2}$`.
+Read `$ARGUMENTS` as natural-language prose. Infer two things:
 
-- **Text missing entirely** (arguments empty): refuse and exit.
+- **`<duration>`** — the time offset before the reminder fires. May appear anywhere in the prose (commonly leading or trailing). May be a bare token (`3d`, `2h`), a phrase (`"in 3 days"`, `"about a week"`, `"tomorrow morning"`), or an ISO date.
+- **`<body>`** — the user's intent, with the duration phrase removed. Strip glue prepositions (`in`, `after`, `within`, etc.) that only existed to connect the duration to the rest. Strip extra whitespace.
+
+Round fuzzy phrases ("about 3 days", "around a week", "next Tuesday morning") to the nearest canonical unit without confirming.
+
+Edge cases:
+
+- **Arguments empty**: refuse and exit.
 
     ```
-    usage: /remind-me [<duration>] <text>
-    examples: /remind-me 1w fix auth race | /remind-me 3d check deploy | /remind-me check deploy
+    usage: /remind-me <prose>
+    examples:
+      /remind-me 3d fix the deploy
+      /remind-me fix the deploy in 3 days
+      /remind-me follow up on the PR
     ```
 
-- **Duration missing, text present** (first token is not a valid duration): invoke `AskUserQuestion` to pick a duration:
+- **Input is only a duration, body empty** (e.g. `/remind-me 3d`): refuse with the same usage hint.
+
+- **Two or more candidate durations in the prose, no clear primary** (e.g. `"fix bug A by 3d, bug B by 1w"`): refuse and surface both candidates so the user picks. Reasonable input rarely contains two.
+
+- **Duration missing, body present**: invoke `AskUserQuestion` to pick a duration:
 
     | Option | Label |
     |--------|-------|
@@ -48,7 +64,7 @@ Split `$ARGUMENTS`. Check whether the **first token** is a valid duration: match
 
     Present `3d` first as the recommended default. If the user picks one, use it as `<duration>`. If the user declines, provides no answer, or provides an empty "Other" input → default to `3d`. The default is intentional: a forgotten reminder is worse than a slightly-wrong duration.
 
-- **Both present**: proceed with the parsed `<duration>` and `<text>`.
+- **Both present**: proceed with the inferred `<duration>` and `<body>`.
 
 ### Step 2 — Compute due time
 
@@ -73,7 +89,7 @@ The `1h` boundary is inclusive: `1h` → `routine`. ISO dates are always `routin
 - **Binary present** (`command -v atomic` exits 0):
 
     ```bash
-    atomic reminder add --due "<iso>" --transport "<cron|routine>" "<text>"
+    atomic reminder add --due "<iso>" --transport "<cron|routine>" "<body>"
     ```
 
     Capture the id from stdout (e.g. `r-7b21ef`).
@@ -85,7 +101,7 @@ The `1h` boundary is inclusive: `1h` → `routine`. ISO dates are always `routin
     mkdir -p .claude/.scratchpad/reminders/
     ```
 
-    Write `.claude/.scratchpad/reminders/<YYYY-MM-DD>-<slug>.md` where `<slug>` is the first 4 words of `<text>` joined with hyphens, lowercased:
+    Write `.claude/.scratchpad/reminders/<YYYY-MM-DD>-<slug>.md` where `<slug>` is the first 4 words of `<body>` joined with hyphens, lowercased:
 
     ```
     ---
@@ -95,7 +111,7 @@ The `1h` boundary is inclusive: `1h` → `routine`. ISO dates are always `routin
     transport: <cron|routine>
     ---
 
-    <text>
+    <body>
     ```
 
 ### Step 5 — Schedule via chosen transport
