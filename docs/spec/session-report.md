@@ -86,6 +86,13 @@ Exempt (no commit message generated): `/pr-only`, `/push-only`, `/merge-to-main`
 - Should `/session-report` itself stage the report file? **Resolved:** no. The report lives in `.claude/.scratchpad/` which is gitignored — staging would be a no-op.
 - Multiple developers on the same branch (rare for this repo, common elsewhere)? **Resolved:** scratchpad is local-only. Each developer has their own reports.
 
+## Checkpoints
+
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | Ship `/session-report` command per Surface + Storage layout sections | `commands/session-report.md`, `.claude/.scratchpad/session-reports/` | Manual: command writes reports to expected path; ship verbs read and delete them after commit. |
+
+
 ## Change log
 
 ### 2026-05-17 — Initial spec
@@ -93,3 +100,10 @@ Exempt (no commit message generated): `/pr-only`, `/push-only`, `/merge-to-main`
 **What changed:** New spec for `/session-report` command and its integration with the commit/squash verb family.
 
 **Why:** Branches frequently span multiple Claude sessions. Without an explicit capture mechanism, the reasoning behind incremental work is lost by the time the branch is committed or squashed. Recent commits on this repo show the gap: accurate subjects, missing why.
+
+
+### 2026-05-17 — Conform to validator rules
+
+**What changed:** Added `## Checkpoints` section (was missing) with one backfilled row covering the shipped `/session-report` command.
+
+**Why:** `atomic validate spec` rule S5 flagged the file when the validator landed (CP-5 of `atomic-validate`).

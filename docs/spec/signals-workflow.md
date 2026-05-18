@@ -292,14 +292,14 @@ Proposed actions:
 ## Checkpoints
 
 
-| CP | Lands |
-|----|-------|
-| S-1 | `atomic-signals-inferrer` agent |
-| S-2 | `atomic-signals` skill |
-| S-3 | `/initialize-signals` command |
-| S-4 | Edit `/commit-only` to invoke skill pre-commit |
-| S-5 | Edit `/atomic-setup` audit + propose flow |
-| S-6 | Update `claude.md` (later collapsed to `CLAUDE.md`) + `README.md` tables to document signals |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| S-1 | `atomic-signals-inferrer` agent | `agents/atomic-signals-inferrer.md` | |
+| S-2 | `atomic-signals` skill | `skills/atomic-signals/SKILL.md` | |
+| S-3 | `/initialize-signals` command | `commands/initialize-signals.md` | |
+| S-4 | Edit `/commit-only` to invoke skill pre-commit | `commands/commit-only.md` | |
+| S-5 | Edit `/atomic-setup` audit + propose flow | `commands/atomic-setup.md` | |
+| S-6 | Update `CLAUDE.md` + `README.md` tables to document signals | `CLAUDE.md`, `README.md` | |
 
 
 ## Implementation log
@@ -356,6 +356,13 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Why:** macOS APFS is case-insensitive by default, so `claude.md` and `CLAUDE.md` were the same on-disk file but git tracked one explicit name. Editing one path silently mutated the other, and the bundle source path looked like a separate file but wasn't. The collapse removes the foot-gun.
 
 **Superseded:** prior contract said the source lived at `claude.md` and the bundle renamed it to `CLAUDE.md` on install. Both ends are now `CLAUDE.md`.
+
+
+### 2026-05-17 — Conform to validator rules
+
+**What changed:** Migrated `## Checkpoints` table to the canonical 4-column header `| # | Checkpoint | Files/areas | Verifies |` — existing rows preserved; `Files/areas` backfilled from checkpoint descriptions; `Verifies` left blank.
+
+**Why:** `atomic validate spec` rule S5 flagged the file when the validator landed (CP-5 of `atomic-validate`).
 
 
 ### 2026-05-17 — Drop the source-extension allowlist from `/commit-only` signals gate
