@@ -15,3 +15,4 @@ tmp/claude-home/*
 .claude/rules/
 !.claude/settings.local.json
 .claude/project/.deterministic-signals.prev.md
+/bin/

@@ -62,6 +62,8 @@ Flags: `--target ./.claude` for project-scoped install, `--dry-run` to preview, 
 
 Full prerequisites, Windows/WSL2 notes, manual install, and build-from-source: [docs/guides/install.md](docs/guides/install.md). To try it in a throwaway Docker container first: [docs/guides/evaluations.md](docs/guides/evaluations.md).
 
+After installing, run `atomic doctor` to verify your setup is coherent. It checks eight things: install integrity (SHA256 match against the bundle), session-start hook registration, signals freshness, `@`-ref wiring, manifest parity (in the atomic-claude repo itself), followups file structure, orphan memory links, and binary version. Exits 0 when everything passes or only warnings remain; exits 1 on any FAIL. Run `atomic doctor --fix` to walk through repairs interactively, or `atomic doctor --json` for CI-friendly output.
+
 
 ## Activate the output style (opt-in)
 
