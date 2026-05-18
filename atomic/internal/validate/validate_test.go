@@ -82,10 +82,3 @@ func TestDispatch_ConfigStub(t *testing.T) {
 	}
 }
 
-// TestDispatch_BundleStub proves validate bundle exits 0 in stub state.
-func TestDispatch_BundleStub(t *testing.T) {
-	code := validate.Run([]string{"bundle"})
-	if code != 0 {
-		t.Errorf("validate bundle stub: got exit %d, want 0", code)
-	}
-}

@@ -39,7 +39,9 @@ func MatchesRule(path string) bool {
 }
 
 // IsClaudeMd reports whether name is the canonical CLAUDE.md artifact.
-// Exact match only — case-sensitive.
+// Exact match only — case-sensitive. Used by manifestcheck at runtime to
+// identify the single CLAUDE.md bundle entry; bundlemirror uses it at build
+// time for the same purpose.
 func IsClaudeMd(name string) bool {
 	return name == "CLAUDE.md"
 }
