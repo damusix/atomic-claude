@@ -247,6 +247,7 @@ The table groups capabilities by what they do, not where they sit in each projec
 | Narrative-doc voice (README, guides) | `atomic-prose` skill | — | — |
 | Brainstorm / plan | `/atomic-plan` (one verb, picks design vs spec) | `brainstorming`, `writing-plans` (split) | — |
 | Execute a plan | `/subagent-implementation` | `executing-plans`, `subagent-driven-development` | — |
+| Investigate and fix a failure | `/subagent-diagnose <ci\|bug> [args]` | — | — |
 | Parallel subagents | `atomic-builder` / `atomic-surgeon` / `atomic-investigator` / `atomic-reviewer` | `dispatching-parallel-agents` skill | `cavecrew-*` (investigator / builder / reviewer) |
 | Heavyweight reasoning over plans / problems | `atomic-strategist` (opus, read-only) | — | — |
 | Worktree isolation | `/worktree-start` | `using-git-worktrees` skill | — |
