@@ -236,8 +236,7 @@ func Install(repoRoot, scopeRoot string) error {
 	if err := os.MkdirAll(filepath.Dir(sp), 0o755); err != nil {
 		return fmt.Errorf("hooks install: mkdir hooks dir: %w", err)
 	}
-	scriptContent := "#!/usr/bin/env bash\nexec atomic hooks session-start\n"
-	if err := os.WriteFile(sp, []byte(scriptContent), 0o755); err != nil {
+	if err := os.WriteFile(sp, []byte(expectedScriptContent), 0o755); err != nil {
 		return fmt.Errorf("hooks install: write script: %w", err)
 	}
 
@@ -293,6 +292,42 @@ func hasRegistration(settings map[string]any, scriptAbsPath string) bool {
 		}
 	}
 	return false
+}
+
+// expectedScriptContent is the exact content Install writes to the hook script.
+const expectedScriptContent = "#!/usr/bin/env bash\nexec atomic hooks session-start\n"
+
+// IsInstalled reports whether the session-start hook is registered in
+// scopeRoot/.claude/settings.json and the hook script matches expected content.
+//
+// Returns:
+//   - installed=true, drifted=false, err=nil  → hook registered and script matches
+//   - installed=false, drifted=false, err=nil  → hook not registered (settings missing or no entry)
+//   - installed=true, drifted=true, err=nil   → hook registered but script content differs
+//   - installed=false, drifted=false, err!=nil → settings.json unreadable / malformed
+func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
+	sfPath := settingsPath(scopeRoot)
+	settings, _, _, readErr := readSettingsHujson(sfPath)
+	if readErr != nil {
+		// Could not read / parse settings.json.
+		return false, false, readErr
+	}
+
+	sp := scriptPath(scopeRoot)
+	if !hasRegistration(settings, sp) {
+		return false, false, nil
+	}
+
+	// Hook is registered. Now verify script content.
+	raw, err := os.ReadFile(sp)
+	if err != nil {
+		// Script file missing — registered but drifted.
+		return true, true, nil
+	}
+	if string(raw) != expectedScriptContent {
+		return true, true, nil
+	}
+	return true, false, nil
 }
 
 // malformedErrorWithScript returns an error for a malformed settings.json,

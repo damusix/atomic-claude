@@ -926,6 +926,145 @@ func TestUninstall_PreservesOtherRegistrations(t *testing.T) {
 	}
 }
 
+// --- IsInstalled tests ---
+
+func TestIsInstalled_AfterInstall_InstalledNotDrifted(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	installed, drifted, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if !installed {
+		t.Error("installed = false, want true")
+	}
+	if drifted {
+		t.Error("drifted = true, want false")
+	}
+}
+
+func TestIsInstalled_NoSettingsFile_NotInstalled(t *testing.T) {
+	scopeRoot := t.TempDir()
+	installed, drifted, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if installed {
+		t.Error("installed = true, want false")
+	}
+	if drifted {
+		t.Error("drifted = true, want false")
+	}
+}
+
+func TestIsInstalled_NoHookEntry_NotInstalled(t *testing.T) {
+	scopeRoot := t.TempDir()
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(settingsPath, []byte(`{"theme":"dark"}`), 0o644)
+
+	installed, drifted, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if installed {
+		t.Error("installed = true, want false")
+	}
+	if drifted {
+		t.Error("drifted = true, want false")
+	}
+}
+
+func TestIsInstalled_ScriptContentDrifted_InstalledAndDrifted(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	// Corrupt the script content.
+	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
+	os.WriteFile(scriptPath, []byte("#!/bin/bash\necho corrupted\n"), 0o755)
+
+	installed, drifted, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if !installed {
+		t.Error("installed = false, want true (registration still present)")
+	}
+	if !drifted {
+		t.Error("drifted = false, want true (content differs)")
+	}
+}
+
+func TestIsInstalled_ScriptMissing_InstalledAndDrifted(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	// Remove the script after install.
+	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
+	os.Remove(scriptPath)
+
+	installed, drifted, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if !installed {
+		t.Error("installed = false, want true (registration still present)")
+	}
+	if !drifted {
+		t.Error("drifted = false, want true (script missing)")
+	}
+}
+
+func TestIsInstalled_MalformedSettings_Error(t *testing.T) {
+	scopeRoot := t.TempDir()
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	os.MkdirAll(filepath.Dir(settingsPath), 0o755)
+	os.WriteFile(settingsPath, []byte("{ bad json"), 0o644)
+
+	_, _, err := hooks.IsInstalled(scopeRoot)
+	if err == nil {
+		t.Fatal("expected error for malformed settings.json, got nil")
+	}
+}
+
+// TestInstall_WritesExactExpectedScriptContent verifies Install uses the same
+// literal as expectedScriptContent (single source of truth). A drift between
+// the two would cause IsInstalled to report drifted=true immediately after a
+// fresh install.
+func TestInstall_WritesExactExpectedScriptContent(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
+	raw, err := os.ReadFile(scriptPath)
+	if err != nil {
+		t.Fatalf("read script: %v", err)
+	}
+
+	// IsInstalled must report not-drifted: this proves Install and IsInstalled
+	// share a single source of truth for the script content.
+	_, drifted, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if drifted {
+		t.Errorf("drifted=true immediately after fresh Install — Install wrote %q but IsInstalled expected different content", string(raw))
+	}
+}
+
 func TestUninstall_MalformedSettings_Refuses(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()

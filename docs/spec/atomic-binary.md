@@ -130,6 +130,45 @@ Self-update the binary. Foreground check (not the background lookup other comman
 | `--channel <stable\|prerelease>` | Default `stable` (only non-prerelease tags). `prerelease` includes RC/beta tags. |
 
 
+### `atomic doctor`
+
+
+Integrity check for the atomic-claude install and current project state. Runs eight deterministic checks and reports PASS / WARN / FAIL / SKIP per category. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`. Full contract: `docs/spec/atomic-doctor.md`.
+
+
+```
+atomic doctor [--fix] [--json] [--only <cat[,cat...]>] [--skip <cat[,cat...]>] [--stale-days N] [--verbose]
+```
+
+
+| Flag | Effect |
+|------|--------|
+| `--fix` | Per-item confirm prompt before applying any repair. Implies interactive. |
+| `--json` | Emit machine-readable result to stdout (schema_version 1). Suppresses human output. `--fix` + `--json` is a usage error (exit 2). |
+| `--only` | Comma-separated category indices (`1,3`) or names (`install,signals`). |
+| `--skip` | Same syntax as `--only`. Skip listed categories. |
+| `--stale-days` | Override stale-signals threshold (positive int, default 7). |
+| `--verbose` | Print per-file detail for `install` and `manifest` checks. |
+
+
+Check categories (indices stable; never renumber):
+
+
+| # | Name | Fail severity |
+|---|------|---------------|
+| 1 | `install` | WARN drift / FAIL missing |
+| 2 | `hooks` | WARN |
+| 3 | `signals` | WARN |
+| 4 | `refs` | FAIL |
+| 5 | `manifest` | FAIL (repo-dev only; SKIP elsewhere) |
+| 6 | `followups` | WARN |
+| 7 | `memory` | WARN |
+| 8 | `binary` | WARN |
+
+
+Exit codes: 0 = all PASS/WARN/SKIP (also: `~/.claude/` absent — short-circuit); 1 = any FAIL; 2 = usage error.
+
+
 ### Invocation responsibility
 
 
@@ -639,3 +678,13 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 - CP-8 manual smoke (tag `v0.1.0`, watch goreleaser pipeline end-to-end on real GitHub, run `atomic claude install` + `atomic update` on macOS and linux from a published release) — manual gate; happens once at first real release.
 - `/atomic-claude-merge` slash-command + `atomic-claude-merger` agent — referenced by `### CLAUDE.md handling` but not yet created. Future spec.
 - macOS code signing, Homebrew tap, Windows hook integration — listed in `## Open follow-ups` above; deferred to v0.2.0+.
+
+
+## Change log
+
+
+### 2026-05-17 — atomic doctor subcommand
+
+**What changed:** Documented `atomic doctor` (eight-check integrity verb with `--fix` repair mode) as a new `### atomic doctor` H3 section in the CLI surface. Full behavioral contract lives at `docs/spec/atomic-doctor.md`; this section is a summary + flag table.
+
+**Why:** CP-8 of atomic-doctor implementation — wire the CLI surface into the binary's subcommand inventory so the spec inventory stays current.

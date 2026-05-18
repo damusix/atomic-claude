@@ -11,6 +11,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
+	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
@@ -40,6 +41,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  claude list                                       List bundled artifacts\n")
 		fmt.Fprintf(os.Stderr, "  claude diff    [--target ~/.claude]               Diff bundle vs on-disk\n")
 		fmt.Fprintf(os.Stderr, "  docker init [--target ./atomic-docker] [--force]  Scaffold Docker eval environment\n")
+		fmt.Fprintf(os.Stderr, "  doctor [--fix] [--json] [--only <cat>] [--skip <cat>] [--stale-days N] [--verbose]  Integrity check\n")
 		fmt.Fprintf(os.Stderr, "  update [--check] [--channel stable|prerelease]   Self-update the atomic binary\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
@@ -102,6 +104,8 @@ func main() {
 		runHooks(args[1:], repoOverride)
 	case "claude":
 		runClaude(args[1:])
+	case "doctor":
+		runDoctor(args[1:])
 	case "docker":
 		runDocker(args[1:])
 	case "update":
@@ -147,6 +151,79 @@ func scanNoUpdateCheck(argv []string) (found bool, cleaned []string) {
 		}
 	}
 	return found, cleaned
+}
+
+func runDoctor(args []string) {
+	opts, err := doctor.ParseFlags(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(2)
+	}
+
+	// Resolve home directory for the missing-~/.claude/ short-circuit.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic doctor: resolve home dir: %v\n", err)
+		os.Exit(2)
+	}
+
+	if doctor.ClaudeHomeMissing(home) {
+		msg := doctor.MissingHomeMessage()
+		if opts.JSON {
+			data, jerr := doctor.FormatJSONMissingHome(msg)
+			if jerr != nil {
+				fmt.Fprintf(os.Stderr, "atomic doctor: marshal json: %v\n", jerr)
+				os.Exit(2)
+			}
+			fmt.Println(string(data))
+		} else {
+			fmt.Println(msg)
+		}
+		os.Exit(0)
+	}
+
+	// Resolve project name: git toplevel basename, or cwd basename on failure.
+	project := doctorProjectName()
+
+	results, err := doctor.Run(opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic doctor: %v\n", err)
+		os.Exit(2)
+	}
+
+	exitCode := doctor.ExitCode(results)
+
+	if opts.JSON {
+		data, jerr := doctor.FormatJSON(results, project, exitCode)
+		if jerr != nil {
+			fmt.Fprintf(os.Stderr, "atomic doctor: marshal json: %v\n", jerr)
+			os.Exit(2)
+		}
+		fmt.Println(string(data))
+	} else {
+		fmt.Print(doctor.FormatHuman(results, project))
+	}
+
+	if opts.Fix {
+		p := doctor.NewStdinPrompter(os.Stdin, os.Stdout)
+		doctor.Repair(results, opts, p, os.Stdout)
+	}
+
+	os.Exit(exitCode)
+}
+
+// doctorProjectName returns the project name to display in doctor output.
+// Uses the git toplevel directory basename; falls back to cwd basename.
+func doctorProjectName() string {
+	out, err := repoctx.Resolve("")
+	if err == nil && out != "" {
+		return filepath.Base(out)
+	}
+	cwd, err := os.Getwd()
+	if err == nil {
+		return filepath.Base(cwd)
+	}
+	return "unknown"
 }
 
 func runUpdate(args []string) {

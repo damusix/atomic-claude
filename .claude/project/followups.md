@@ -13,7 +13,52 @@ Auto-loaded into every session via `@-ref` in `claude.local.md` (or `claude.md` 
 ## 🟡 risks
 
 
-(none)
+### atomic-doctor-F-1 — `bundlemirror.Run` double-reads files via path reconstruction
+
+
+`atomic/internal/bundlemirror/mirror.go:196-216`
+
+
+After the CP-2 refactor, `Run` calls `enumerate` to get `[]embedded.Artifact`, then reconstructs paths via `filepath.Join(repoRoot, filepath.FromSlash(ea.Target))` inside `mirrorFile`, re-reading each file. Harmless today (all targets are repoRoot-relative by construction) but creates a hidden contract between `enumerate` output and `Run` consumption. If any future walker rule produces a target that doesn't map cleanly back under `repoRoot`, `Run` silently breaks. Document the contract, or have `enumerate` return both the artifact + the source path so `Run` doesn't reconstruct.
+
+
+Origin: docs/spec/atomic-doctor.md, iter 3 reviewer (CP-2). Deferred to project followups at Phase 3 finalize 2026-05-17.
+
+
+### atomic-doctor-F-2 — `gitToplevel` called 3× per doctor run
+
+
+`atomic/internal/doctor/checks_manifest.go:38`, `checks_refs.go`, plus `repodev.go` `IsRepoDev`
+
+
+Three call sites each spawn `git rev-parse --show-toplevel` per doctor run. Latency nit (~20-30ms total wasted); minor correctness surface if cwd-relative symlinks change between calls. Thread the resolved toplevel through Run, or hoist to a Run-level cache passed via `Opts`.
+
+
+Origin: docs/spec/atomic-doctor.md, iter 5 + iter 6 reviewers (CP-3 + CP-4). Deferred to project followups at Phase 3 finalize 2026-05-17.
+
+
+### atomic-doctor-F-3 — Repair seam globals are exported `Set*` mutators
+
+
+`atomic/internal/doctor/fix.go:41-98`
+
+
+`installRepairFn`, `hooksRepairFn`, `manifestRepairFn`, `isRepoDevFn`, `repoRootFn` are package-level globals with exported `SetXxxFn` mutators for tests. Works today because tests don't `t.Parallel()`; would race if they did. Consider repackaging as a `Repairer` struct with injected fields, or move the `Set*` helpers to an unexported test-only file.
+
+
+Origin: docs/spec/atomic-doctor.md, iter 9 reviewer (CP-7). Deferred to project followups at Phase 3 finalize 2026-05-17.
+
+
+### atomic-doctor-F-4 — `defaultManifestRepair` does not stream `make` output
+
+
+`atomic/internal/doctor/fix_impls.go:54`
+
+
+Uses `CombinedOutput()` then discards on success — user sees `$ make -C atomic bundle` with no confirmation of what regenerated. Forward to the repair's `io.Writer` for transparency. Also: `cmd.Stdout = nil` + `cmd.Stderr = nil` before `CombinedOutput` are redundant.
+
+
+Origin: docs/spec/atomic-doctor.md, iter 9 reviewer (CP-7). Deferred to project followups at Phase 3 finalize 2026-05-17.
 
 
 ## 🔵 nits
@@ -34,7 +79,7 @@ Open question: does this actually work in practice, or do we see misroutes? Deci
 Origin: chat session 2026-05-17 audit review, deferred at user's request pending evidence of misrouting.
 
 
-### F-2 — Design and decide on `atomic doctor` CLI subcommand
+### F-2 — Design and decide on `atomic doctor` CLI subcommand *(closed 2026-05-17 — dbe2a53)*
 
 
 Design exists at `docs/design/atomic-doctor.md`. Open questions in the design doc:
@@ -49,7 +94,7 @@ Design exists at `docs/design/atomic-doctor.md`. Open questions in the design do
 Next step when revisiting: promote design → `docs/spec/atomic-doctor.md` and feed into `/subagent-implementation`. Cohesion bundle: implementation lives in new package `atomic/internal/doctor/`, shares manifest parity check with `atomic-validate`.
 
 
-Origin: chat session 2026-05-17 system improvement discussion, deferred to explore later.
+Origin: chat session 2026-05-17 system improvement discussion, deferred to explore later. Closed by atomic-doctor branch (commits `ba5992f`..`dbe2a53`): design promoted to spec, all 4 open questions resolved (opt-in only, `--stale-days` flag, bundlemirror dir heuristic, exit-0 short-circuit), 8 checks + repair mode shipped.
 
 
 ### F-3 — Design and decide on `atomic validate` CLI subcommand

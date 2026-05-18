@@ -11,9 +11,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
 
 // Artifact describes one file in the embedded manifest.
+// Kept for backward compatibility with cmd/bundle-mirror; consumers outside
+// this package should prefer embedded.Artifact.
 type Artifact struct {
 	Kind   string
 	Source string // path inside embedded FS, e.g. "bundle/agents/atomic-builder.md"
@@ -21,15 +25,17 @@ type Artifact struct {
 	SHA256 string
 }
 
-// Run walks repoRoot per the inclusion rules, copies matching files into
-// outDir/bundle/<target-path>, and returns the artifact list.
-func Run(repoRoot, outDir string) ([]Artifact, error) {
-	bundleDir := filepath.Join(outDir, "bundle")
-	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create bundle dir: %w", err)
-	}
+// Enumerate walks repoRoot per the bundle inclusion rules and returns the
+// artifact list without writing anything to disk. Callers outside this package
+// (e.g. manifestcheck) should use this instead of Run when no disk write is
+// needed.
+func Enumerate(repoRoot string) ([]embedded.Artifact, error) {
+	return enumerate(repoRoot)
+}
 
-	var artifacts []Artifact
+// enumerate is the internal no-write walker shared by Enumerate and Run.
+func enumerate(repoRoot string) ([]embedded.Artifact, error) {
+	var artifacts []embedded.Artifact
 
 	// agents/atomic-*.md
 	agentsDir := filepath.Join(repoRoot, "agents")
@@ -43,16 +49,14 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		}
 		src := filepath.Join(agentsDir, e.Name())
 		target := "agents/" + e.Name()
-		a, err := mirrorFile(src, target, "agent", bundleDir)
+		a, err := readArtifact(src, target, "agent")
 		if err != nil {
 			return nil, err
 		}
 		artifacts = append(artifacts, a)
 	}
 
-	// skills/atomic-*/** — full directory tree per matching skill. Skills may
-	// ship supporting files (scripts, references, sub-prompts) referenced via
-	// ${CLAUDE_SKILL_DIR}; bundling only SKILL.md would strip those.
+	// skills/atomic-*/** — full directory tree per matching skill.
 	skillsDir := filepath.Join(repoRoot, "skills")
 	skillEntries, err := os.ReadDir(skillsDir)
 	if err != nil {
@@ -78,7 +82,7 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 				return err
 			}
 			target := filepath.ToSlash(rel)
-			a, err := mirrorFile(path, target, "skill", bundleDir)
+			a, err := readArtifact(path, target, "skill")
 			if err != nil {
 				return err
 			}
@@ -102,16 +106,14 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		}
 		src := filepath.Join(outputStylesDir, e.Name())
 		target := "output-styles/" + e.Name()
-		a, err := mirrorFile(src, target, "output-style", bundleDir)
+		a, err := readArtifact(src, target, "output-style")
 		if err != nil {
 			return nil, err
 		}
 		artifacts = append(artifacts, a)
 	}
 
-	// commands/*.md — every top-level markdown file ships. Subdirectories
-	// (e.g. commands/_templates/) are intentionally skipped since Claude Code
-	// commands are single-file artifacts.
+	// commands/*.md — every top-level markdown file ships. Subdirectories skipped.
 	commandsDir := filepath.Join(repoRoot, "commands")
 	cmdEntries, err := os.ReadDir(commandsDir)
 	if err != nil {
@@ -123,7 +125,7 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		}
 		src := filepath.Join(commandsDir, e.Name())
 		target := "commands/" + e.Name()
-		a, err := mirrorFile(src, target, "command", bundleDir)
+		a, err := readArtifact(src, target, "command")
 		if err != nil {
 			return nil, err
 		}
@@ -143,8 +145,8 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		if err != nil {
 			return err
 		}
-		target := filepath.ToSlash(rel) // e.g. rules/python/style.md
-		a, err := mirrorFile(path, target, "rule", bundleDir)
+		target := filepath.ToSlash(rel)
+		a, err := readArtifact(path, target, "rule")
 		if err != nil {
 			return err
 		}
@@ -155,9 +157,9 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		return nil, fmt.Errorf("walk rules: %w", err)
 	}
 
-	// CLAUDE.md → CLAUDE.md (single canonical filename; no rename)
+	// CLAUDE.md
 	claudeMdSrc := filepath.Join(repoRoot, "CLAUDE.md")
-	a, err := mirrorFile(claudeMdSrc, "CLAUDE.md", "claude-md", bundleDir)
+	a, err := readArtifact(claudeMdSrc, "CLAUDE.md", "claude-md")
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +172,46 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 		}
 		return artifacts[i].Target < artifacts[j].Target
 	})
+
+	return artifacts, nil
+}
+
+// readArtifact reads src, computes its SHA256, and returns an embedded.Artifact
+// without writing anything to disk.
+func readArtifact(src, target, kind string) (embedded.Artifact, error) {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return embedded.Artifact{}, fmt.Errorf("read %s: %w", src, err)
+	}
+	return embedded.Artifact{
+		Kind:   kind,
+		Source: "bundle/" + target,
+		Target: target,
+		SHA256: SHA256Hex(data),
+	}, nil
+}
+
+// Run walks repoRoot per the inclusion rules, copies matching files into
+// outDir/bundle/<target-path>, and returns the artifact list.
+func Run(repoRoot, outDir string) ([]Artifact, error) {
+	bundleDir := filepath.Join(outDir, "bundle")
+	if err := os.MkdirAll(bundleDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create bundle dir: %w", err)
+	}
+
+	embeds, err := enumerate(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	artifacts := make([]Artifact, 0, len(embeds))
+	for _, ea := range embeds {
+		a, err := mirrorFile(filepath.Join(repoRoot, filepath.FromSlash(ea.Target)), ea.Target, ea.Kind, bundleDir)
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, a)
+	}
 
 	return artifacts, nil
 }

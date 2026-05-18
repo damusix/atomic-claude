@@ -22,7 +22,7 @@ func Manifest() []Artifact {
 		{Kind: "agent", Source: "bundle/agents/atomic-signals-inferrer.md", Target: "agents/atomic-signals-inferrer.md", SHA256: "09a83f235d5080efc954066986c77f6daaf78a49993a29e75c4a31e8b5214f07"},
 		{Kind: "agent", Source: "bundle/agents/atomic-strategist.md", Target: "agents/atomic-strategist.md", SHA256: "6a8433f9c1a6dd871f9fbce41be94862adebcaedb1dffb96c3d50bcbd2bfb68a"},
 		{Kind: "agent", Source: "bundle/agents/atomic-surgeon.md", Target: "agents/atomic-surgeon.md", SHA256: "abe9b60dc48e9edcdc1dd17a4b1da2edda09a1b00304b0fb81172cb6b8c169d6"},
-		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "c37d011664440c2146a7595c833046bdbeca59ce987b1650d5ded12fdda51b48"},
+		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "a236c22fbe2f660580cd58d58fbfabaac11af492569bd0cbd8584f186e0366b8"},
 		{Kind: "command", Source: "bundle/commands/atomic-claude-merge.md", Target: "commands/atomic-claude-merge.md", SHA256: "38c153e4abc60ae008e16dab507c9b0743e2a31c800d3d70110548e92ab6f3cd"},
 		{Kind: "command", Source: "bundle/commands/atomic-compress.md", Target: "commands/atomic-compress.md", SHA256: "77b0dec348cbb7dafa08ff2860faa7e23c2809f6b978096f2ebc3fe8cf907735"},
 		{Kind: "command", Source: "bundle/commands/atomic-plan.md", Target: "commands/atomic-plan.md", SHA256: "18dae12bd1255c1b64c9159a96d41ae7cac1096de8a78a9577a5d705dd3fe956"},
