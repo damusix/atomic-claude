@@ -246,3 +246,13 @@ Parsed via `github.com/BurntSushi/toml`. Unknown keys → log warning to stderr,
 
 
 None — surfaced concerns from `/atomic-plan` clarify round were resolved before drafting (see preamble in transcript).
+
+
+## Change log
+
+
+### 2026-05-17 — Conform to validator rules
+
+**What changed:** Added `## Change log` section (was missing).
+
+**Why:** `atomic validate spec` rule S6 flagged the file when the validator landed (CP-5 of `atomic-validate`).

@@ -311,13 +311,13 @@ Proposed actions when missing:
 ## Checkpoints
 
 
-| CP | Lands |
-|----|-------|
-| C-1 | `/remind-me` command (binary + fallback + `CronCreate`) |
-| C-2 | `/follow-up` command (binary + fallback + `CronCreate`/`CronDelete`/`CronList`) |
-| C-3 | Session-start hook script installable via `atomic hooks install`; manual fallback documented |
-| C-4 | `/atomic-setup` audit + propose flow updated |
-| C-5 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to document cron workflow |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| C-1 | `/remind-me` command (binary + fallback + `CronCreate`) | `commands/remind-me.md`, `atomic/internal/reminder/` | |
+| C-2 | `/follow-up` command (binary + fallback + `CronCreate`/`CronDelete`/`CronList`) | `commands/follow-up.md` | |
+| C-3 | Session-start hook script installable via `atomic hooks install`; manual fallback documented | `atomic/internal/hooks/` | |
+| C-4 | `/atomic-setup` audit + propose flow updated | `commands/atomic-setup.md` | |
+| C-5 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to document cron workflow | `CLAUDE.md`, `README.md` | |
 
 
 ## Implementation log
@@ -423,6 +423,8 @@ Live testing of `atomic update` v1.0.0 → v1.1.0 surfaced that `CronCreate` adv
 - *No `due` field, no status tracking.* Prior spec: "No `status` field. No `due` field. No `snooze_count`." New: `due` and `transport` are tracked. `status`, `snooze_count`, `acknowledged_at` remain absent.
 - *Refuse on missing duration.* Prior spec: "Parse `$ARGUMENTS` as `<duration> <text>`. Refuse if either is missing." New: missing duration prompts via `AskUserQuestion` and defaults to `3d`.
 - *Scheduling-tools-unavailable warning is an error path.* Prior spec printed an explicit "scheduling tools unavailable" warning. New: silent file-only degradation with `transport: none`; the hook handles past-due surfacing.
+
+
 - *Hook injects all reminders unconditionally.* Prior spec: hook script iterated every file in `reminders/` and dumped each one. New: hook filters by `due >= now`, prefixed with `should-remind-user: true`.
 
 
@@ -452,3 +454,11 @@ Live testing of `atomic update` v1.0.0 → v1.1.0 surfaced that `CronCreate` adv
 **Why:** Forcing duration-first phrasing made natural usage awkward. Users type the way English actually flows, which is duration-trailing more often than duration-leading. Two examples surfaced from real use immediately after CP-3 shipped, including `"fix this issue in 3 days"`. Since Claude executes the slash command (not a shell parser), strict token rules add no robustness — they only constrain the surface against what Claude could already infer.
 
 **Superseded:** The v2 amendment said "Detect whether the first token is a valid duration". The Correction entry above only re-ordered the prompt options, not the parsing rule. This entry replaces the parsing rule itself.
+
+
+### 2026-05-17 — Conform to validator rules
+
+
+**What changed:** Migrated `## Checkpoints` table to the canonical 4-column header `| # | Checkpoint | Files/areas | Verifies |` — existing rows preserved; `Files/areas` backfilled from checkpoint descriptions where file paths were evident; `Verifies` left blank.
+
+**Why:** `atomic validate spec` rule S5 flagged the file when the validator landed (CP-5 of `atomic-validate`).

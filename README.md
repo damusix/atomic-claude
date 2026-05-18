@@ -254,6 +254,7 @@ The table groups capabilities by what they do, not where they sit in each projec
 | Ship a branch | `/commit-only`, `/commit-and-push`, `/commit-and-pr`, `/merge-to-main`, `/squash-and-merge`, … (10 verbs) | `finishing-a-development-branch` skill | — |
 | Compress a markdown file | `/atomic-compress <file>` | — | `/caveman-compress <file>` |
 | Project signal scanning | `/initialize-signals` + `atomic` binary + `atomic-signals` skill | — | — |
+| Artifact linting | `atomic validate [spec\|config\|bundle] [paths...]` | — | — |
 | Cron-backed reminders | `/remind-me`, `/follow-up` | — | — |
 | CI observation | `/watch-ci` | — | — |
 | Stale git cleanup | `/git-cleanup` + `atomic-git-scout` agent | — | — |

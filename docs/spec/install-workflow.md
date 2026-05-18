@@ -172,12 +172,12 @@ Conflicts flagged:
 ## Checkpoints
 
 
-| CP | Lands |
-|----|-------|
-| I-1 | `atomic-claude-merger` agent |
-| I-2 | `/atomic-claude-merge` command |
-| I-3 | Both artifacts wired into the embedded bundle manifest in the Go binary (so `atomic claude install` ships them) |
-| I-4 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to mention the install workflow |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| I-1 | `atomic-claude-merger` agent | `agents/atomic-claude-merger.md` | |
+| I-2 | `/atomic-claude-merge` command | `commands/atomic-claude-merge.md` | |
+| I-3 | Both artifacts wired into the embedded bundle manifest in the Go binary (so `atomic claude install` ships them) | `atomic/internal/embedded/` | |
+| I-4 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to mention the install workflow | `CLAUDE.md`, `README.md` | |
 
 
 ## Implementation log
@@ -209,5 +209,15 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 - CP-4 — sync `CLAUDE.md` / `CLAUDE.md` / `README.md` to mention the install merge workflow. Handled out-of-band via `/documentation` (next step after this log lands).
 - F-4 (extra `## Workflow` section in agent body) and F-5 (sha256 short-circuit folded into Pre-flight instead of `### Refusals`) — user dropped at FOLLOWUPS triage. Cosmetic only.
 - Spec's `## Open follow-ups` carry-over: `atomic claude rollback` verb, `--strategy ours/theirs/manual` flag on the merge command, revisit the 10% conflict heuristic. All explicitly v0.2.0+ scope.
+
+
+## Change log
+
+
+### 2026-05-17 — Conform to validator rules
+
+**What changed:** Migrated `## Checkpoints` table to the canonical 4-column header `| # | Checkpoint | Files/areas | Verifies |` — existing rows preserved; `Files/areas` backfilled from checkpoint descriptions; `Verifies` left blank. Added `## Change log` section (was missing).
+
+**Why:** `atomic validate spec` rule S5 and S6 flagged the file when the validator landed (CP-5 of `atomic-validate`).
 
 **Squashed onto `main` as `e6cf258` — 2026-05-17.** Per-iteration SHAs above are historical (unreachable post-squash).

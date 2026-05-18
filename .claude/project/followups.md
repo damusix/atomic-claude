@@ -13,6 +13,7 @@ Auto-loaded into every session via `@-ref` in `claude.local.md` (or `claude.md` 
 ## 🟡 risks
 
 
+
 ### atomic-doctor-F-1 — `bundlemirror.Run` double-reads files via path reconstruction
 
 
@@ -59,6 +60,8 @@ Uses `CombinedOutput()` then discards on success — user sees `$ make -C atomic
 
 
 Origin: docs/spec/atomic-doctor.md, iter 9 reviewer (CP-7). Deferred to project followups at Phase 3 finalize 2026-05-17.
+
+
 
 
 ## 🔵 nits

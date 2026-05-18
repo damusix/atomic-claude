@@ -4,6 +4,12 @@
 
 Capture the *why* behind work-in-progress on a branch across multiple Claude Code sessions, so that when the branch is eventually committed (or squashed), the resulting commit message carries the reasoning — not just the diff.
 
+## Checkpoints
+
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | Ship `/session-report` command per Surface + Storage layout sections | `commands/session-report.md`, `.claude/.scratchpad/session-reports/` | Manual: command writes reports to expected path; ship verbs read and delete them after commit. |
+
 ## Problem statement
 
 A single feature branch frequently spans multiple Claude Code sessions. Each session's context (what was tried, why an approach was rejected, what the user clarified mid-flight) is lost when the session ends. By the time `/commit-only` or `/squash-only` runs, the commit message has to be synthesized from `git diff` alone — which loses the reasoning. Recent commits on this very repo exemplify the failure: subject lines are accurate, but the "why" is gone.
@@ -93,3 +99,17 @@ Exempt (no commit message generated): `/pr-only`, `/push-only`, `/merge-to-main`
 **What changed:** New spec for `/session-report` command and its integration with the commit/squash verb family.
 
 **Why:** Branches frequently span multiple Claude sessions. Without an explicit capture mechanism, the reasoning behind incremental work is lost by the time the branch is committed or squashed. Recent commits on this repo show the gap: accurate subjects, missing why.
+
+
+### 2026-05-17 — Conform to validator rules
+
+**What changed:** Added `## Checkpoints` section (was missing) with one backfilled row covering the shipped `/session-report` command.
+
+**Why:** `atomic validate spec` rule S5 flagged the file when the validator landed (CP-5 of `atomic-validate`).
+
+
+### 2026-05-18 — Move Checkpoints section to after Goal
+
+**What changed:** Relocated `## Checkpoints` from just before `## Change log` to immediately after `## Goal`, matching the canonical spec section order.
+
+**Why:** The previous placement was a cleanup-pass artifact; specs in this project list Checkpoints near the top (after Goal) so they're visible without scrolling past the full body.

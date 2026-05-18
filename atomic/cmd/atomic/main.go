@@ -17,6 +17,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 	"github.com/damusix/atomic-claude/atomic/internal/signals"
+	"github.com/damusix/atomic-claude/atomic/internal/validate"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
 
@@ -43,6 +44,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  docker init [--target ./atomic-docker] [--force]  Scaffold Docker eval environment\n")
 		fmt.Fprintf(os.Stderr, "  doctor [--fix] [--json] [--only <cat>] [--skip <cat>] [--stale-days N] [--verbose]  Integrity check\n")
 		fmt.Fprintf(os.Stderr, "  update [--check] [--channel stable|prerelease]   Self-update the atomic binary\n")
+		fmt.Fprintf(os.Stderr, "  validate [flags] [spec|config|bundle] [paths...]  Lint repo artifacts\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -110,6 +112,8 @@ func main() {
 		runDocker(args[1:])
 	case "update":
 		runUpdate(args[1:])
+	case "validate":
+		os.Exit(validate.Run(args[1:]))
 	default:
 		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
 		os.Exit(1)

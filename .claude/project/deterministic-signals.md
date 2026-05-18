@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-05-17T22:09:29Z
-atomic_version: 1.0.0
+generated_at: 2026-05-18T03:44:11Z
+atomic_version: 1.1.0
 ---
 # Deterministic signals
 
@@ -36,9 +36,12 @@ atomic_version: 1.0.0
 │   │   └── bundle-mirror/ (2)
 │   │       ├── main.go
 │   │       └── main_test.go
-│   ├── internal/ (12)
+│   ├── internal/ (16)
 │   │   ├── bundlemirror/ (1)
 │   │   │   └── mirror.go
+│   │   ├── bundlespec/ (2)
+│   │   │   ├── bundlespec.go
+│   │   │   └── bundlespec_test.go
 │   │   ├── claudeinstall/ (2)
 │   │   │   ├── install.go
 │   │   │   └── install_test.go
@@ -61,6 +64,12 @@ atomic_version: 1.0.0
 │   │   ├── ids/ (2)
 │   │   │   ├── ids.go
 │   │   │   └── ids_test.go
+│   │   ├── manifestcheck/ (2)
+│   │   │   ├── manifestcheck.go
+│   │   │   └── manifestcheck_test.go
+│   │   ├── mdparse/ (2)
+│   │   │   ├── mdparse.go
+│   │   │   └── mdparse_test.go
 │   │   ├── reminder/ (2)
 │   │   │   ├── reminder.go
 │   │   │   └── reminder_test.go
@@ -79,6 +88,21 @@ atomic_version: 1.0.0
 │   │   │   ├── signals.go
 │   │   │   ├── signals_test.go
 │   │   │   └── tree.go
+│   │   ├── validate/ (14)
+│   │   │   ├── testdata/ (2 subitems) (26 total items)
+│   │   │   ├── bundle.go
+│   │   │   ├── config.go
+│   │   │   ├── config_test.go
+│   │   │   ├── dispatch.go
+│   │   │   ├── dispatch_test.go
+│   │   │   ├── finding.go
+│   │   │   ├── output.go
+│   │   │   ├── output_test.go
+│   │   │   ├── repo.go
+│   │   │   ├── spec.go
+│   │   │   ├── spec_test.go
+│   │   │   ├── validate.go
+│   │   │   └── validate_test.go
 │   │   └── version/ (1)
 │   │       └── version.go
 │   ├── test/ (1)
@@ -135,8 +159,9 @@ atomic_version: 1.0.0
 │   │   ├── signals-workflow.md
 │   │   ├── skills.md
 │   │   └── workflow.md
-│   └── spec/ (7)
+│   └── spec/ (8)
 │       ├── atomic-binary.md
+│       ├── atomic-validate.md
 │       ├── cron-workflow.md
 │       ├── docker-eval-environment.md
 │       ├── install-workflow.md
@@ -194,8 +219,8 @@ atomic_version: 1.0.0
 
 ## Languages
 
-- Markdown: 13313 LOC (57%), 123 files (75%)
-- Go: 9344 LOC (40%), 35 files (21%)
-- Shell: 269 LOC (1%), 3 files (1%)
+- Go: 13867 LOC (49%), 54 files (25%)
+- Markdown: 13862 LOC (49%), 150 files (71%)
+- Shell: 269 LOC (0%), 3 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)

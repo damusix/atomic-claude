@@ -595,16 +595,16 @@ Or via `make build` at repo root.
 ## Checkpoints
 
 
-| CP | Lands | Agent |
-|----|-------|-------|
-| CP-1 | Module skeleton + `--version` + repoctx + frontmatter parser/writer + ids + their tests | builder |
-| CP-2 | `signals` subcommand: scanners (tree, manifests, languages), `scan` + `show` + `stale`, golden tests | builder |
-| CP-3 | `reminder` subcommand: add/list/show/rm, tests | builder |
-| CP-4 | `hooks` subcommand: session-start/install/uninstall, golden render tests | builder |
-| CP-5 | `claude` subcommand: install/update/list/diff + embed bundle + backup logic + CLAUDE.md proposed-file flow, tests via fake `~/.claude` in temp dir | builder |
-| CP-6 | `update` (self-update) + background update-check goroutine + cache file + banner, tests via mocked HTTP server | builder |
-| CP-7 | goreleaser config + GitHub Actions workflow + `install.sh` + README install section | builder |
-| CP-8 | Tag v0.1.0, verify pipeline, smoke-test install script + `atomic claude install` + `atomic update` on macOS + linux | manual |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| CP-1 | Module skeleton + `--version` + repoctx + frontmatter parser/writer + ids + their tests | `atomic/internal/repoctx/`, `atomic/internal/frontmatter/`, `atomic/internal/ids/` | |
+| CP-2 | `signals` subcommand: scanners (tree, manifests, languages), `scan` + `show` + `stale`, golden tests | `atomic/internal/signals/` | |
+| CP-3 | `reminder` subcommand: add/list/show/rm, tests | `atomic/internal/reminder/` | |
+| CP-4 | `hooks` subcommand: session-start/install/uninstall, golden render tests | `atomic/internal/hooks/` | |
+| CP-5 | `claude` subcommand: install/update/list/diff + embed bundle + backup logic + CLAUDE.md proposed-file flow, tests via fake `~/.claude` in temp dir | `atomic/internal/claudeinstall/`, `atomic/internal/embedded/` | |
+| CP-6 | `update` (self-update) + background update-check goroutine + cache file + banner, tests via mocked HTTP server | `atomic/internal/selfupdate/` | |
+| CP-7 | goreleaser config + GitHub Actions workflow + `install.sh` + README install section | `.goreleaser.yaml`, `.github/workflows/`, `install.sh` | |
+| CP-8 | Tag v0.1.0, verify pipeline, smoke-test install script + `atomic claude install` + `atomic update` on macOS + linux | | Manual smoke test |
 
 
 ## Success criteria
