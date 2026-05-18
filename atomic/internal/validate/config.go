@@ -428,8 +428,10 @@ func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 
 	s := summarize(findings)
 	if jsonOut {
+		// No header in JSON mode — JSON envelope is the only UI chrome.
 		printJSON(w, findings, s)
 	} else {
+		printHeader(w, "config", "referential integrity")
 		printHuman(w, findings, s, suggest)
 	}
 	return exitCode(s)

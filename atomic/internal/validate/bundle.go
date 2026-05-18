@@ -10,14 +10,15 @@ import (
 )
 
 // RunBundleCheckAt runs the bundle parity check against an explicit repoRoot
-// and writes human-readable output to w. Returns 0 (OK), 1 (FAIL — drift found),
-// or 2 (internal error). Exported for tests and future atomic doctor.
+// and writes output to w. Returns 0 (OK), 1 (FAIL — drift found), or
+// 2 (internal error). Exported for tests and future atomic doctor.
 func RunBundleCheckAt(repoRoot string, w io.Writer) int {
-	return runBundleAt(repoRoot, w)
+	return runBundleAt(repoRoot, false, false, w)
 }
 
 // runBundleImpl discovers repoRoot from cwd and delegates to runBundleAt.
-func runBundleImpl(w io.Writer) int {
+// Called from the validate dispatch when no explicit root is available.
+func runBundleImpl(jsonOut, suggest bool, w io.Writer) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate bundle: cannot get working directory: %v\n", err)
@@ -30,52 +31,77 @@ func runBundleImpl(w io.Writer) int {
 		return 2
 	}
 
-	return runBundleAt(repoRoot, w)
+	return runBundleAt(repoRoot, jsonOut, suggest, w)
 }
 
-// runBundleAt performs the actual bundle parity check against repoRoot using
-// manifestcheck.Compare (shared with atomic doctor).
-func runBundleAt(repoRoot string, w io.Writer) int {
+// runBundleAt performs the actual bundle parity check against repoRoot via
+// manifestcheck.Compare (shared with atomic doctor). Drift entries are
+// converted to Findings with Rule="bundle" and Severity="FAIL", emitted via
+// the unified formatter so all three subcommands share one output contract.
+//
+// Rule choice: a single "bundle" rule ID is used (not enumerated sub-rules)
+// because the spec rule table has no bundle sub-rules — parity is binary.
+//
+// Cap: at most 5 diff findings are shown. If more exist, a synthetic
+// "N more diffs not shown" finding is appended so the cap is visible in
+// both human and JSON output.
+func runBundleAt(repoRoot string, jsonOut, suggest bool, w io.Writer) int {
 	result, err := manifestcheck.Compare(repoRoot, embedded.Manifest())
 	if err != nil {
 		fmt.Fprintf(w, "atomic validate bundle: %v\n", err)
 		return 2
 	}
 
-	if result.OK {
-		fmt.Fprintf(w, "atomic validate bundle — OK\n")
-		return 0
-	}
-
-	fmt.Fprintf(w, "atomic validate bundle — FAIL\n")
-
-	type line struct {
-		kind, target, detail string
-	}
-	var lines []line
+	// Flatten Missing / Extra / Drifted into Findings.
+	var findings []Finding
 	for _, t := range result.Missing {
-		lines = append(lines, line{"removed", t, ""})
+		findings = append(findings, Finding{
+			Severity: "FAIL",
+			Rule:     "bundle",
+			Path:     t,
+			Line:     0,
+			Message:  "removed: not present in working tree",
+		})
 	}
 	for _, t := range result.Extra {
-		lines = append(lines, line{"added", t, ""})
+		findings = append(findings, Finding{
+			Severity: "FAIL",
+			Rule:     "bundle",
+			Path:     t,
+			Line:     0,
+			Message:  "added: not present in committed manifest",
+		})
 	}
 	for _, d := range result.Drifted {
-		lines = append(lines, line{"changed", d.Target, fmt.Sprintf("sha256: %s != %s", d.GeneratedSHA, d.CommittedSHA)})
+		findings = append(findings, Finding{
+			Severity: "FAIL",
+			Rule:     "bundle",
+			Path:     d.Target,
+			Line:     0,
+			Message:  fmt.Sprintf("changed: sha256 %s != %s", d.GeneratedSHA, d.CommittedSHA),
+		})
 	}
 
-	shown := lines
-	if len(shown) > 5 {
-		shown = shown[:5]
+	// Cap at 5 visible + synthetic overflow.
+	if len(findings) > 5 {
+		overflow := len(findings) - 5
+		findings = append(findings[:5], Finding{
+			Severity: "FAIL",
+			Rule:     "bundle",
+			Path:     "",
+			Line:     0,
+			Message:  fmt.Sprintf("%d more diffs not shown", overflow),
+		})
 	}
-	for _, l := range shown {
-		if l.detail != "" {
-			fmt.Fprintf(w, "  [%s] %s  %s\n", l.kind, l.target, l.detail)
-		} else {
-			fmt.Fprintf(w, "  [%s] %s\n", l.kind, l.target)
-		}
+
+	s := summarize(findings)
+
+	if jsonOut {
+		printJSON(w, findings, s)
+	} else {
+		printHeader(w, "bundle", "manifest parity")
+		printHuman(w, findings, s, suggest)
 	}
-	if len(lines) > 5 {
-		fmt.Fprintf(w, "  ... and %d more\n", len(lines)-5)
-	}
-	return 1
+
+	return exitCode(s)
 }

@@ -233,8 +233,10 @@ func runSpec(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 	s := summarize(all)
 
 	if jsonOut {
+		// No header in JSON mode — JSON envelope is the only UI chrome.
 		printJSON(w, all, s)
 	} else {
+		printHeader(w, "spec", "structural integrity")
 		printHuman(w, all, s, suggest)
 	}
 

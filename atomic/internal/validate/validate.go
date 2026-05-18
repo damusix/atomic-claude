@@ -74,7 +74,5 @@ func RunWithOutput(args []string, w io.Writer) int {
 // runBundle is the bundle validator entry point. Wired in CP-3.
 func runBundle(paths []string, jsonOut, suggest bool, w io.Writer) int {
 	_ = paths
-	_ = jsonOut
-	_ = suggest
-	return runBundleImpl(w)
+	return runBundleImpl(jsonOut, suggest, w)
 }
