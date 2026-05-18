@@ -67,9 +67,14 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 		}
 	}
 	if oldestDays > oldThresholdDay {
+		n := len(pastDue)
+		word := "reminders"
+		if n == 1 {
+			word = "reminder"
+		}
 		payload["systemMessage"] = fmt.Sprintf(
-			"%d reminders pending, oldest is %d days old",
-			len(pastDue), oldestDays,
+			"%d %s pending, oldest is %d days old",
+			n, word, oldestDays,
 		)
 	}
 
@@ -148,37 +153,10 @@ func filterPastDue(rows []reminder.Row, now time.Time) []reminder.Row {
 	return out
 }
 
-// buildAdditionalContextFromRows constructs the markdown body from pre-fetched rows.
-// Filters to past-due reminders first; applies the 10-item cap to that filtered set.
-// Each reminder bullet is prefixed with "should-remind-user: true" so Claude can
-// distinguish reminder context from other injected context.
+// buildAdditionalContextFromRows filters rows to past-due reminders and
+// delegates body formatting to buildBodyFromPastDue.
 func buildAdditionalContextFromRows(rows []reminder.Row, now time.Time) (string, error) {
-	pastDue := filterPastDue(rows, now)
-	if len(pastDue) == 0 {
-		return "", nil
-	}
-
-	total := len(pastDue)
-	shown := pastDue
-	overflow := 0
-	if total > maxReminders {
-		shown = pastDue[:maxReminders]
-		overflow = total - maxReminders
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "## Pending reminders (%d)\n", total)
-	for _, r := range shown {
-		// Truncate the raw preview from the reminder package at the rendering layer.
-		preview := truncate(r.Preview, previewMaxLen)
-		ago := relativeAge(r.Created, now)
-		fmt.Fprintf(&sb, "- [%s] should-remind-user: true — %s (created %s)\n", r.ID, preview, ago)
-	}
-	if overflow > 0 {
-		fmt.Fprintf(&sb, "- (and %d more)\n", overflow)
-	}
-
-	return strings.TrimRight(sb.String(), "\n"), nil
+	return buildBodyFromPastDue(filterPastDue(rows, now), now)
 }
 
 // relativeAge returns a human-readable string like "today", "yesterday",

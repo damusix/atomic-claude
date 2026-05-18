@@ -114,17 +114,18 @@ func Add(repoRoot, body string, opts ...Option) (string, error) {
 			continue
 		}
 
-		// Order: id, created, due (when set), transport (when set) — spec order.
-		kvs := []frontmatter.KV{
-			{Key: "id", Value: id},
-			{Key: "created", Value: today},
+		// Build meta map and emit via orderedKVs to share canonical ordering logic.
+		meta := map[string]any{
+			"id":      id,
+			"created": today,
 		}
 		if o.due != "" {
-			kvs = append(kvs, frontmatter.KV{Key: "due", Value: o.due})
+			meta["due"] = o.due
 		}
 		if o.transport != "" {
-			kvs = append(kvs, frontmatter.KV{Key: "transport", Value: o.transport})
+			meta["transport"] = o.transport
 		}
+		kvs := orderedKVs(meta)
 
 		// Ensure body ends with a newline.
 		content := strings.TrimRight(body, "\n") + "\n"
@@ -150,18 +151,9 @@ func SetDue(repoRoot, id, iso string) error {
 		return fmt.Errorf("reminder: invalid due timestamp %q: must be RFC3339", iso)
 	}
 
-	path, body, err := findByID(repoRoot, id)
+	path, meta, body, err := findByID(repoRoot, id)
 	if err != nil {
 		return err
-	}
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("reminder set-due: read %q: %w", path, err)
-	}
-	meta, _, err := frontmatter.Parse(string(raw))
-	if err != nil {
-		return fmt.Errorf("reminder set-due: parse %q: %w", path, err)
 	}
 
 	// Rebuild kvs in spec order: id, created, due, transport.
@@ -269,7 +261,7 @@ func List(repoRoot string) ([]Row, error) {
 // Show returns the body (frontmatter stripped) of the reminder with the given id.
 // Returns an error if no matching reminder is found.
 func Show(repoRoot, id string) (string, error) {
-	_, body, err := findByID(repoRoot, id)
+	_, _, body, err := findByID(repoRoot, id)
 	if err != nil {
 		return "", err
 	}
@@ -279,7 +271,7 @@ func Show(repoRoot, id string) (string, error) {
 // Rm deletes the reminder file with the given id.
 // Returns an error if no matching reminder is found.
 func Rm(repoRoot, id string) error {
-	path, _, err := findByID(repoRoot, id)
+	path, _, _, err := findByID(repoRoot, id)
 	if err != nil {
 		return err
 	}
@@ -290,15 +282,15 @@ func Rm(repoRoot, id string) error {
 }
 
 // findByID scans the reminders directory for a file whose frontmatter id
-// matches the given id. Returns the file path and body on success.
-func findByID(repoRoot, id string) (path, body string, err error) {
+// matches the given id. Returns the file path, parsed meta, and body on success.
+func findByID(repoRoot, id string) (path string, meta map[string]any, body string, err error) {
 	dir := remindersDir(repoRoot)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", "", fmt.Errorf("reminder: no reminder with id %q", id)
+			return "", nil, "", fmt.Errorf("reminder: no reminder with id %q", id)
 		}
-		return "", "", fmt.Errorf("reminder: %w", err)
+		return "", nil, "", fmt.Errorf("reminder: %w", err)
 	}
 
 	for _, e := range entries {
@@ -310,16 +302,16 @@ func findByID(repoRoot, id string) (path, body string, err error) {
 		if err != nil {
 			continue
 		}
-		meta, b, err := frontmatter.Parse(string(raw))
+		m, b, err := frontmatter.Parse(string(raw))
 		if err != nil {
 			continue
 		}
-		if fid, _ := meta["id"].(string); fid == id {
-			return p, b, nil
+		if fid, _ := m["id"].(string); fid == id {
+			return p, m, b, nil
 		}
 	}
 
-	return "", "", fmt.Errorf("reminder: no reminder with id %q", id)
+	return "", nil, "", fmt.Errorf("reminder: no reminder with id %q", id)
 }
 
 // firstNonEmpty returns the first non-empty (after trimming) line of s.

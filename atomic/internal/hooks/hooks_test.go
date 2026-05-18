@@ -284,38 +284,14 @@ func TestSessionStart_AgoBuckets(t *testing.T) {
 	}
 }
 
-// addReminderWithDue writes a reminder with an explicit due timestamp.
-// If daysAgo > 0 it also backdates the created field by that many days.
-func addReminderWithDue(t *testing.T, root, body string, daysOffset int, daysAgo int) string {
+// addReminderWithDue writes a reminder with an explicit due timestamp offset
+// from now. daysOffset may be negative (past), zero (now), or positive (future).
+func addReminderWithDue(t *testing.T, root, body string, daysOffset int) string {
 	t.Helper()
 	due := time.Now().UTC().AddDate(0, 0, daysOffset).Format(time.RFC3339)
 	id, err := reminder.Add(root, body, reminder.WithDue(due))
 	if err != nil {
 		t.Fatalf("addReminderWithDue: Add: %v", err)
-	}
-	if daysAgo > 0 {
-		dir := filepath.Join(root, ".claude", ".scratchpad", "reminders")
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			t.Fatalf("addReminderWithDue: ReadDir: %v", err)
-		}
-		target := time.Now().UTC().AddDate(0, 0, -daysAgo).Format("2006-01-02")
-		today := time.Now().UTC().Format("2006-01-02")
-		for _, e := range entries {
-			if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-				continue
-			}
-			p := filepath.Join(dir, e.Name())
-			raw, _ := os.ReadFile(p)
-			content := string(raw)
-			if !strings.Contains(content, "id: "+id) {
-				continue
-			}
-			patched := strings.Replace(content, "created: "+today, "created: "+target, 1)
-			os.WriteFile(p, []byte(patched), 0o644)
-			return id
-		}
-		t.Fatalf("addReminderWithDue: could not find file for id %q", id)
 	}
 	return id
 }
@@ -358,7 +334,7 @@ func TestSessionStart_FutureDue_Silent(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now().UTC()
 	// Reminder due 1 day in the future — must not appear.
-	addReminderWithDue(t, root, "future reminder should be silent", +1, 0)
+	addReminderWithDue(t, root, "future reminder should be silent", +1)
 
 	out, err := hooks.SessionStart(root, now)
 	if err != nil {
@@ -373,7 +349,7 @@ func TestSessionStart_PastDue_InOutput(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now().UTC()
 	// Reminder due 1 day in the past — must appear with marker.
-	addReminderWithDue(t, root, "past due reminder", -1, 0)
+	addReminderWithDue(t, root, "past due reminder", -1)
 
 	out, err := hooks.SessionStart(root, now)
 	if err != nil {
@@ -430,7 +406,7 @@ func TestSessionStart_MalformedDue_InOutput(t *testing.T) {
 	// legacy Due=="" branch.
 	root := t.TempDir()
 	now := time.Now().UTC()
-	id := addReminderWithDue(t, root, "malformed due reminder", -1, 0)
+	id := addReminderWithDue(t, root, "malformed due reminder", -1)
 	// Overwrite the valid due value with a non-parseable string.
 	patchDueField(t, root, id, "not-a-valid-iso")
 
@@ -466,7 +442,7 @@ func TestSessionStart_OldReminder_SystemMessage_CountsOnlySurfaced(t *testing.T)
 	addReminderWithDate(t, root, "old past due reminder", 15)
 	// Five future reminders — must not appear and must not count in systemMessage.
 	for i := range 5 {
-		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future silent", +1, 0)
+		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future silent", +1)
 	}
 
 	out, err := hooks.SessionStart(root, now)
@@ -496,9 +472,9 @@ func TestSessionStart_MixedDue_OnlyPastDue(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now().UTC()
 	// Past-due: should appear.
-	addReminderWithDue(t, root, "past due visible", -2, 0)
+	addReminderWithDue(t, root, "past due visible", -2)
 	// Future: should be silent.
-	addReminderWithDue(t, root, "future silent", +2, 0)
+	addReminderWithDue(t, root, "future silent", +2)
 	// Legacy (no due): should appear.
 	addReminderWithDate(t, root, "legacy visible", 0)
 
@@ -532,11 +508,11 @@ func TestSessionStart_CapAppliedToPastDueSet(t *testing.T) {
 	now := time.Now().UTC()
 	// 12 past-due reminders.
 	for i := range 12 {
-		addReminderWithDue(t, root, strings.Repeat("p", i+1)+" past due", -1, 0)
+		addReminderWithDue(t, root, strings.Repeat("p", i+1)+" past due", -1)
 	}
 	// 5 future reminders — must not appear and must not count against cap.
 	for i := range 5 {
-		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future", +1, 0)
+		addReminderWithDue(t, root, strings.Repeat("f", i+1)+" future", +1)
 	}
 
 	out, err := hooks.SessionStart(root, now)
@@ -577,8 +553,8 @@ func TestSessionStart_CapAppliedToPastDueSet(t *testing.T) {
 func TestSessionStartText_PastDueFilter(t *testing.T) {
 	root := t.TempDir()
 	now := time.Now().UTC()
-	addReminderWithDue(t, root, "past due text check", -1, 0)
-	addReminderWithDue(t, root, "future text silent", +1, 0)
+	addReminderWithDue(t, root, "past due text check", -1)
+	addReminderWithDue(t, root, "future text silent", +1)
 
 	out, err := hooks.SessionStartText(root, now)
 	if err != nil {
@@ -596,6 +572,59 @@ func TestSessionStartText_PastDueFilter(t *testing.T) {
 	if !strings.Contains(out, "should-remind-user: true") {
 		t.Errorf("should-remind-user marker missing from text output: %q", out)
 	}
+}
+
+// TestSessionStart_SystemMessage_Pluralization verifies that systemMessage uses
+// singular "reminder" when exactly one reminder is past-due and old enough to
+// trigger the systemMessage, and plural "reminders" for two or more.
+func TestSessionStart_SystemMessage_Pluralization(t *testing.T) {
+	t.Run("singular", func(t *testing.T) {
+		root := t.TempDir()
+		now := time.Now().UTC()
+		addReminderWithDate(t, root, "one old reminder", 15)
+
+		out, err := hooks.SessionStart(root, now)
+		if err != nil {
+			t.Fatalf("SessionStart: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("not valid JSON: %v", err)
+		}
+		sm, ok := payload["systemMessage"].(string)
+		if !ok || sm == "" {
+			t.Fatalf("expected systemMessage, got %v", payload["systemMessage"])
+		}
+		if strings.Contains(sm, "1 reminders") {
+			t.Errorf("grammar bug: got %q, want '1 reminder pending'", sm)
+		}
+		if !strings.Contains(sm, "1 reminder pending") {
+			t.Errorf("expected '1 reminder pending' in systemMessage, got: %q", sm)
+		}
+	})
+
+	t.Run("plural", func(t *testing.T) {
+		root := t.TempDir()
+		now := time.Now().UTC()
+		addReminderWithDate(t, root, "old reminder one", 15)
+		addReminderWithDate(t, root, "old reminder two", 15)
+
+		out, err := hooks.SessionStart(root, now)
+		if err != nil {
+			t.Fatalf("SessionStart: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(out), &payload); err != nil {
+			t.Fatalf("not valid JSON: %v", err)
+		}
+		sm, ok := payload["systemMessage"].(string)
+		if !ok || sm == "" {
+			t.Fatalf("expected systemMessage, got %v", payload["systemMessage"])
+		}
+		if !strings.Contains(sm, "2 reminders pending") {
+			t.Errorf("expected '2 reminders pending' in systemMessage, got: %q", sm)
+		}
+	})
 }
 
 // --- Install tests ---
