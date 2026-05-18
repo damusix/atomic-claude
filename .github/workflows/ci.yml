@@ -39,3 +39,9 @@ jobs:
             echo "$out"
             exit 1
           fi
+
+      - name: Validate
+        working-directory: ./atomic
+        run: |
+          make build
+          ../bin/atomic validate
