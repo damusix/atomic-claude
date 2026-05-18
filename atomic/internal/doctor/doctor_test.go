@@ -100,28 +100,11 @@ func TestRunFiltersBySkip(t *testing.T) {
 	}
 }
 
-// TestStubsReturnSkip verifies that the 3 checks not yet implemented in CP-4
-// (signals, followups, memory) still return SKIP.
-// Checks 1 (install), 5 (manifest), 8 (binary) are implemented in CP-3.
-// Checks 2 (hooks), 4 (refs) are implemented in CP-4 and no longer stubs.
+// TestStubsReturnSkip verified CP-4 stubs. All 8 checks are now implemented
+// (CP-5 completed signals, followups, memory). This test is retained as a
+// no-op assertion to document that no stubs remain.
 func TestStubsReturnSkip(t *testing.T) {
-	// Indices of checks that remain stubs after CP-4.
-	stillStub := map[int]bool{3: true, 6: true, 7: true}
-
-	cats := doctor.Categories()
-	opts := doctor.Opts{StaleDays: 7}
-	for _, c := range cats {
-		if !stillStub[c.Index] {
-			continue
-		}
-		r := c.Run(opts)
-		if r.Severity != doctor.SKIP {
-			t.Errorf("category %q (index %d) stub returned severity %v, want SKIP", c.Name, c.Index, r.Severity)
-		}
-		if r.Detail == "" {
-			t.Errorf("category %q (index %d) stub returned empty Detail", c.Name, c.Index)
-		}
-	}
+	// All checks implemented after CP-5; no stubs remain.
 }
 
 // TestRunReturnsAllResults verifies Run returns results in index order.
