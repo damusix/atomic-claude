@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/damusix/atomic-claude/compare/v1.1.0...v1.2.0) (2026-05-18)
+
+
+### Features
+
+* **agents:** add atomic-strategist (opus) ([#3](https://github.com/damusix/atomic-claude/issues/3)) ([32db48c](https://github.com/damusix/atomic-claude/commit/32db48cb5dfb172b51bdf035bed276b50fb45f42))
+* **commands:** /subagent-diagnose orchestrator (ci + bug modes) ([f1c4f3a](https://github.com/damusix/atomic-claude/commit/f1c4f3a2d1034e5525552f8cdab97630536119da))
+* **commands:** add /pressure-test challenger ([#9](https://github.com/damusix/atomic-claude/issues/9)) ([3942a65](https://github.com/damusix/atomic-claude/commit/3942a65006b7c22af6d1de85da824da76f77e9e8))
+* **doctor:** atomic doctor health-check subcommand ([#7](https://github.com/damusix/atomic-claude/issues/7)) ([26e3ab1](https://github.com/damusix/atomic-claude/commit/26e3ab1347fd88dd6d3fcde329fe931c86b2dd17))
+* **reminder:** hybrid cron/Routines transport with past-due hook surfacing ([#4](https://github.com/damusix/atomic-claude/issues/4)) ([1616ad5](https://github.com/damusix/atomic-claude/commit/1616ad5428758793d3051e143c11279f49579bc8))
+* **validate:** add atomic validate artifact linter (v1) ([82cd9cc](https://github.com/damusix/atomic-claude/commit/82cd9cc22fac5cd79b729459356771810c6a3c0d))
+
 ## [1.1.0](https://github.com/damusix/atomic-claude/compare/v1.0.0...v1.1.0) (2026-05-17)
 
 
