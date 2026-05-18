@@ -97,17 +97,11 @@ func indexSet(indices []int) map[int]bool {
 
 // --- stub check functions (replaced in CP-3/4/5) ---
 // checkInstall is implemented in checks_install.go (CP-3).
-
-func checkHooks(_ Opts) Result {
-	return Result{Severity: SKIP, Detail: "not implemented (CP-4)"}
-}
+// checkHooks is implemented in checks_hooks.go (CP-4).
+// checkRefs is implemented in checks_refs.go (CP-4).
 
 func checkSignals(_ Opts) Result {
 	return Result{Severity: SKIP, Detail: "not implemented (CP-5)"}
-}
-
-func checkRefs(_ Opts) Result {
-	return Result{Severity: SKIP, Detail: "not implemented (CP-4)"}
 }
 
 // checkManifest is implemented in checks_manifest.go (CP-3).

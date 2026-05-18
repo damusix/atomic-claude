@@ -100,13 +100,13 @@ func TestRunFiltersBySkip(t *testing.T) {
 	}
 }
 
-// TestStubsReturnSkip verifies that the 5 checks not yet implemented in CP-3
-// (hooks, signals, refs, followups, memory) still return SKIP.
-// Checks 1 (install), 5 (manifest), 8 (binary) are implemented in CP-3 and
-// no longer stubs.
+// TestStubsReturnSkip verifies that the 3 checks not yet implemented in CP-4
+// (signals, followups, memory) still return SKIP.
+// Checks 1 (install), 5 (manifest), 8 (binary) are implemented in CP-3.
+// Checks 2 (hooks), 4 (refs) are implemented in CP-4 and no longer stubs.
 func TestStubsReturnSkip(t *testing.T) {
-	// Indices of checks that remain stubs after CP-3.
-	stillStub := map[int]bool{2: true, 3: true, 4: true, 6: true, 7: true}
+	// Indices of checks that remain stubs after CP-4.
+	stillStub := map[int]bool{3: true, 6: true, 7: true}
 
 	cats := doctor.Categories()
 	opts := doctor.Opts{StaleDays: 7}
