@@ -13,6 +13,7 @@ Auto-loaded into every session via `@-ref` in `claude.local.md` (or `claude.md` 
 ## 🟡 risks
 
 
+
 ### atomic-doctor-F-1 — `bundlemirror.Run` double-reads files via path reconstruction
 
 
@@ -60,8 +61,104 @@ Uses `CombinedOutput()` then discards on success — user sees `$ make -C atomic
 
 Origin: docs/spec/atomic-doctor.md, iter 9 reviewer (CP-7). Deferred to project followups at Phase 3 finalize 2026-05-17.
 
+### atomic-validate-F-5 — `MatchesSkillDir` predicate lacks file-vs-dir contract documentation
+
+
+`atomic/internal/bundlespec/bundlespec.go` (predicate) / `bundlespec_test.go` (tests)
+
+
+Predicate matches name strings with `atomic-` prefix regardless of file vs directory — the caller in `bundlemirror/mirror.go` gates on `IsDir()`. A future consumer reading the predicate alone cannot tell that file-named strings would also match. Add a doc comment to the predicate stating the caller-must-gate-on-IsDir contract, and add a test case demonstrating the loose match (e.g. `MatchesSkillDir("atomic-foo.md") == true`) to encode the design intent.
+
+
+Origin: `docs/spec/atomic-validate.md`, iteration 2 reviewer.
+
+
+### atomic-validate-F-7 — `manifestcheck` symlink-loop test placed outside walked source dirs (vacuous)
+
+
+`atomic/internal/manifestcheck/manifestcheck_test.go:213`
+
+
+`TestCheck_SymlinkLoop` puts the loop at `root/loopdir/self -> root/loopdir`, which the walker never descends into (not under `agents/`/`commands/`/`skills/`/`output-styles/`/`rules/`). The loop-detection code paths at lines 173-179 and 231-237 are not exercised. Move the symlink fixture inside e.g. `rules/` to actually exercise dedup.
+
+
+Origin: `docs/spec/atomic-validate.md`, iteration 3 reviewer.
+
+
+### atomic-validate-F-8 — Bundle integration tests accept both exit 0 and 1 (no contract verification)
+
+
+`atomic/internal/validate/validate_test.go:137-143, 193-197`
+
+
+`TestDispatch_BundleCleanTree` and `TestDispatch_BundleTamperedTree` assert `code != 0 && code != 1` — accept either. Cannot detect contract regressions. Reason: the embedded manifest baked into the test binary mismatches the synthetic tempdir tree, so both exit codes are "valid" from the test's perspective. Fix: inject a manifest into `RunBundleCheckAt` (cleaner — testability hook), or delete these tests and rely on `CheckFromEntries` unit tests + the manual `./bin/atomic validate bundle` smoke.
+
+
+Origin: `docs/spec/atomic-validate.md`, iteration 3 reviewer.
+
+
+### atomic-validate-F-12 — `mdparse.FindTableByHeader` line-number relies on `TableCell.Lines()` non-empty
+
+
+`atomic/internal/mdparse/mdparse.go:253-255`
+
+
+`lineNumber` comes from `hdr.FirstChild().Lines().At(0).Start`. If a goldmark version returns empty `TableCell.Lines()`, line stays 0 despite `found = true`. Add a fallback via `tbl.Lines()` or `hdr.Lines()`, or document the version assumption.
+
+
+Origin: `docs/spec/atomic-validate.md`, iteration 4 reviewer.
+
+
+### atomic-validate-F-13 — Empty ATX heading falls back to `startLine = 1`
+
+
+`atomic/internal/mdparse/mdparse.go:119-126`
+
+
+`## ` (heading marker with no content) → `h.Lines().Len() == 0` → `startLine = 1`. Silent wrong line for non-first empties. Not a blocker for prose spec files but is valid CommonMark.
+
+
+Origin: `docs/spec/atomic-validate.md`, iteration 4 reviewer.
+
+
+### atomic-validate-F-14 — Indented-code Setext test passes vacuously
+
+
+`atomic/internal/mdparse/mdparse_test.go:217` (`TestIsATXOnly_SetextInsideIndentedCodeBlockReturnsTrue`)
+
+
+Test passes regardless of the fence-tracking fix because `    ---` starts with a space and `isSetextUnderline` returns false at `trimmed[0] == ' '` before any fence logic runs. Doesn't exercise the new code path. Strengthen by also asserting against a less-trivially-non-matching indented form, OR drop the test as it tests pre-existing behavior.
+
+
+Origin: `docs/spec/atomic-validate.md`, iteration 5 round 2 reviewer.
+
+
+### atomic-validate-F-16 — `session-report.md` Checkpoints section placement loose
+
+
+`docs/spec/session-report.md`
+
+
+Cleanup pass placed the new `## Checkpoints` section at the end (just before `## Change log`) rather than immediately after `## Goal`. Functionally fine — validator passes — but reads oddly when the spec is read top-to-bottom.
+
+
+Origin: `docs/spec/atomic-validate.md`, iteration 5.5 round 1 reviewer.
+
+
 
 ## 🔵 nits
+
+
+### atomic-validate-F-10 — Bundle test repo-seeding loop duplicated across packages
+
+
+`atomic/internal/validate/validate_test.go:94-143`
+
+
+`TestDispatch_BundleCleanTree` duplicates the synthetic-repo seeding loop from `manifestcheck_test.go`. The two are in different packages so sharing is non-trivial, but at minimum a comment pointing at the canonical fixture would help. If `atomic-validate-F-8` resolves by deleting these tests, this closes automatically.
+
+
+Origin: `docs/spec/atomic-validate.md`, iteration 3 reviewer.
 
 
 ### F-1 — Encode skill trigger boundary in atomic-tdd and atomic-debug descriptions

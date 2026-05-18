@@ -232,4 +232,56 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 ## Change log
 
 
-<!-- Empty on creation. Append dated entries on amendments to approved spec. -->
+<!-- Drafting/refinement edits before approval are not logged. First entry is at v1 ship. -->
+
+
+## Implementation log
+
+
+### v1 — 2026-05-17
+
+
+Built across 10 iterations of `/subagent-implementation` (9 spec checkpoints + 1 inserted dogfood cleanup + 1 polish pass). Commits, chronological:
+
+
+- `007bfaa` — CP-1 scaffold `validate` subcommand + `--json` / `--suggest` flag parsing.
+- `841a1b2` — CP-2 extract bundle inclusion predicates into `bundlespec/`.
+- `0547486` — CP-3 `manifestcheck/` package + `validate bundle` wiring; symlink-aware tree walk.
+- `f4358ca` — CP-4 `mdparse/` goldmark wrapper (sections, ATX-only, table-by-header, inline refs).
+- `fbea6f3` — CP-5 spec rules S0/S1/S5/S6, JSON output, flag-after-subcommand fix.
+- `5609e64` — CP-5.5 (inserted) conform 7 pre-existing specs to S5/S6.
+- `d0655a0` — CP-6 config rules C1/C3/C5/C7/C9.
+- `803bb9a` — CP-7 unified output formatters across all subcommands.
+- `0ad2cb0` — CP-8 whole-repo + path-aware dispatch; perf-budget test.
+- `4aa3ed8` — CP-9 wire into `CLAUDE.md`, `README.md`, `.github/workflows/ci.yml`.
+- `91b6c8c` — polish pass closing F-6, F-11, F-15, F-17, F-19.
+
+
+**Out-of-scope work performed during this build:**
+
+
+- **CP-5.5 (spec-cleanup iteration, not in original spec)** — after CP-5 landed, dogfood surfaced 9 real defects in pre-existing `docs/spec/` files (missing Change log sections, legacy `| CP | Lands |` table headers). User chose to modernize the legacy specs rather than relax the new S5 rule. 7 specs amended in place via append-mostly convention.
+
+
+**Unforeseens — surprises that emerged during implementation:**
+
+
+- **`IsATXOnly` line-prescan was buggy** — CP-4 chose line prescan over goldmark AST for Setext detection because goldmark Heading nodes don't differentiate Setext from ATX. The initial prescan didn't track fenced code-block state, so `---` inside YAML or markdown code blocks triggered false S0 positives on 3 of 7 dogfood specs. Caught at CP-5 round 2 review; round 2 surgery added fence-tracking state machine. Spec R1 had warned about exactly this failure mode.
+- **CRLF Setext false-negative** — CP-4 round 1 reviewer caught that `bytes.TrimRight(line, " \t")` did not strip `\r`, so CRLF files containing Setext silently passed S0. Round 2 fixed.
+- **Bundle integration tests' embedded-manifest mismatch** — synthetic-tempdir bundle tests cannot cleanly assert `validate bundle` exit code because the binary's embedded manifest is generated from the real repo, not the test fixture. Documented as deferred follow-up `atomic-validate-F-8`.
+
+
+**Deferred items still open** (promoted to `.claude/project/followups.md` with topic-prefixed ids):
+
+
+- `atomic-validate-F-5` — `MatchesSkillDir` doc/test on file-vs-dir contract.
+- `atomic-validate-F-7` — `manifestcheck` symlink-loop test placed outside walked dirs (vacuous).
+- `atomic-validate-F-8` — bundle integration tests accept both exit codes.
+- `atomic-validate-F-10` — bundle test seeding duplicated across packages.
+- `atomic-validate-F-12` — `FindTableByHeader` line-number depends on goldmark version-specific behavior.
+- `atomic-validate-F-13` — empty ATX heading falls back to `startLine = 1`.
+- `atomic-validate-F-14` — indented-code Setext test passes vacuously.
+- `atomic-validate-F-16` — `session-report.md` Checkpoints section placement loose.
+
+
+Closed during the build (dropped from ledger; commits cover them): F-1 (flag-after-subcommand), F-2 (flag test strengthened), F-3 (no-subcommand message), F-4 (`IsClaudeMd` doc → consumer), F-6 (`manifestcheck` uses `IsClaudeMd`), F-9 (bundle output rewired through formatter), F-11 (drop unused parseAST return), F-15 (rewrite misleading comment), F-17 (TextSegments callsite docs), F-18 (rename stale test), F-19 (`lineOfMatch` documentation strengthened).
