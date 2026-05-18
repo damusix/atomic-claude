@@ -246,6 +246,7 @@ The table groups capabilities by what they do, not where they sit in each projec
 | Brainstorm / plan | `/atomic-plan` (one verb, picks design vs spec) | `brainstorming`, `writing-plans` (split) | — |
 | Execute a plan | `/subagent-implementation` | `executing-plans`, `subagent-driven-development` | — |
 | Parallel subagents | `atomic-builder` / `atomic-surgeon` / `atomic-investigator` / `atomic-reviewer` | `dispatching-parallel-agents` skill | `cavecrew-*` (investigator / builder / reviewer) |
+| Heavyweight reasoning over plans / problems | `atomic-strategist` (opus, read-only) | — | — |
 | Worktree isolation | `/worktree-start` | `using-git-worktrees` skill | — |
 | Ship a branch | `/commit-only`, `/commit-and-push`, `/commit-and-pr`, `/merge-to-main`, `/squash-and-merge`, … (10 verbs) | `finishing-a-development-branch` skill | — |
 | Compress a markdown file | `/atomic-compress <file>` | — | `/caveman-compress <file>` |
