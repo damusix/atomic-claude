@@ -76,7 +76,9 @@ Write the full `BRIEF.md` before dispatching. Include: source pointer, failure s
 Dispatch:
 
 - `subagent_type: "atomic-investigator"`
-- Prompt: `Read $SCRATCH/BRIEF.md and $SCRATCH/CONTEXT.md. Map the suspect surface — files, call sites, functions, test coverage. Return a file:line — what table appended to $SCRATCH/BRIEF.md under ## Phase 1 — surface map.`
+- Prompt: `Read $SCRATCH/BRIEF.md and $SCRATCH/CONTEXT.md. Map the suspect surface — files, call sites, functions, test coverage. Return a file:line — what table as your output.`
+
+Orchestrator appends the investigator's output to `BRIEF.md` as `## Phase 1 — surface map`.
 
 **Cohesion classification (orchestrator, not agent).** After reading the investigator's surface map, classify the work:
 
@@ -85,7 +87,7 @@ Dispatch:
 | `tight` | Single logical change, ≤2 files would suffice | `atomic-surgeon` |
 | `loose` | Multi-file, multi-concern | `atomic-builder` |
 
-Record classification in `STATE.md` under `## Iteration 1`. On surgeon self-refusal (>2 files in actual diff), fall back to `atomic-builder` immediately — do not loop on refusal.
+Record classification in `STATE.md` under `## Iteration 1`. If surgeon returns `OUT OF SCOPE: needs N files. Split: ...`, re-dispatch the same scope to `atomic-builder` immediately — do not loop on refusal.
 
 ## Phase 2 — Implementation
 
@@ -157,7 +159,7 @@ Two normalized strings equal → "same failure". Store hash (first 12 chars of s
 
 ## FOLLOWUPS handling
 
-- Reviewer findings tagged non-blocking (🔵 / 🟡 without blocker disposition) are appended to `FOLLOWUPS.md` by the orchestrator after each reviewer pass — even on PASS verdicts.
+- Reviewer findings tagged non-blocking (🟡 / 🔵 / ❓ that don't block PASS, or any finding the next iteration won't address) are appended to `FOLLOWUPS.md` by the orchestrator after each reviewer pass — even on PASS verdicts.
 - Carried across iterations. Reviewer may re-affirm or close prior entries. Mark closed entries `*(closed iter N — <sha>)*` — do not delete.
 - At Phase 4, present per-item to user. Dispositions per item:
     - **`close`** — discard; state reason in implementation log.
@@ -193,7 +195,7 @@ Topic dir includes mode + per-mode unique suffix (run-id for `ci`, slug for `bug
 After verification:
 
 1. **FOLLOWUPS disposition.** Present `FOLLOWUPS.md` ledger to user per-item (see § FOLLOWUPS handling).
-2. **Archive on success.** `mv "$SCRATCH" ".claude/.scratchpad/.archive/<topic>/"`. Verify: archive dir exists, original dir does not.
+2. **Archive on success.** `mkdir -p .claude/.scratchpad/.archive/` then `mv "$SCRATCH" ".claude/.scratchpad/.archive/<topic>/"`. Verify: archive dir exists, original dir does not.
 3. **Retain on bail.** Do not archive. Leave `$SCRATCH` in place for resume inspection.
 4. **Report to user:** what was fixed, commit SHA(s), iterations run, signals verified, FOLLOWUPS dispositioned, what's left (if any).
 
