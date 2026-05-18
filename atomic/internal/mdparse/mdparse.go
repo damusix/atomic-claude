@@ -392,6 +392,86 @@ func InlineRefs(src []byte) ([]InlineRef, error) {
 	return refs, nil
 }
 
+// TextSegment is a contiguous run of plain text extracted from a markdown
+// document, outside of fenced code blocks and indented code blocks. Line is
+// the 1-indexed start line of the segment in the original source. Text is the
+// raw content of the segment (may span multiple lines).
+type TextSegment struct {
+	Text string
+	Line int
+}
+
+// TextSegments extracts prose text from src, skipping fenced code blocks
+// (``` ... ``` and ~~~ ... ~~~) and indented code blocks. Used by the config
+// validator to regex for @-refs and subagent_type: "..." literals without
+// matching documentation examples embedded in code blocks.
+//
+// Implementation: line-by-line prescan (same strategy as IsATXOnly). Prose
+// lines are accumulated into segments; a new segment starts after each
+// code-block skip. Each segment carries the 1-indexed line number of its first
+// line. This is simpler and sufficient for the regex patterns C3/C5 require;
+// the goldmark AST approach would also work but requires more plumbing for
+// paragraph-level line recovery.
+func TextSegments(src []byte) []TextSegment {
+	lines := bytes.Split(src, []byte{'\n'})
+	var segments []TextSegment
+
+	inFence := false
+	var fenceMarker byte
+	var fenceLen int
+
+	var segLines [][]byte
+	segStartLine := 1
+
+	flush := func(nextLine int) {
+		if len(segLines) > 0 {
+			segments = append(segments, TextSegment{
+				Text: string(bytes.Join(segLines, []byte{'\n'})),
+				Line: segStartLine,
+			})
+			segLines = nil
+		}
+		segStartLine = nextLine
+	}
+
+	for i, raw := range lines {
+		lineNum := i + 1 // 1-indexed
+
+		if fenceChar, flen := fenceOpen(raw); !inFence && flen > 0 {
+			flush(lineNum)
+			inFence = true
+			fenceMarker = fenceChar
+			fenceLen = flen
+			segStartLine = lineNum + 1
+			continue
+		}
+		if inFence {
+			if isFenceClose(raw, fenceMarker, fenceLen) {
+				inFence = false
+				segStartLine = lineNum + 1
+			}
+			continue
+		}
+
+		// Skip indented code blocks (4+ leading spaces or a leading tab).
+		// CommonMark: indented code blocks require 4 spaces of indentation.
+		if len(raw) >= 4 && raw[0] == ' ' && raw[1] == ' ' && raw[2] == ' ' && raw[3] == ' ' {
+			flush(lineNum)
+			segStartLine = lineNum + 1
+			continue
+		}
+		if len(raw) > 0 && raw[0] == '\t' {
+			flush(lineNum)
+			segStartLine = lineNum + 1
+			continue
+		}
+
+		segLines = append(segLines, raw)
+	}
+	flush(len(lines) + 1)
+	return segments
+}
+
 // codeSpanText extracts the text content of a CodeSpan node. CodeSpan
 // children are ast.Text nodes carrying the raw segments (with soft
 // line-break normalization handled by goldmark).

@@ -71,15 +71,6 @@ func RunWithOutput(args []string, w io.Writer) int {
 	}
 }
 
-// runConfig is the config validator entry point. Stub in CP-1; rules ship in CP-6.
-func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
-	_ = subArgs
-	_ = jsonOut
-	_ = suggest
-	fmt.Fprintf(w, "atomic validate config — stub (rules ship in CP-6)\n")
-	return 0
-}
-
 // runBundle is the bundle validator entry point. Wired in CP-3.
 func runBundle(paths []string, jsonOut, suggest bool, w io.Writer) int {
 	_ = paths
