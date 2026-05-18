@@ -20,16 +20,6 @@ usage: /subagent-diagnose <mode> [args]
 
 Stop. Do not proceed until mode is valid.
 
-### Concurrent-run guard
-
-Derive the topic dir path (per-mode, below) before creating it. If the dir already exists:
-
-```
-scratchpad <path> already exists; rm -rf it or pick a different topic suffix.
-```
-
-Stop. Per axiom 3, no silent overwrite.
-
 ---
 
 ### `ci` mode — Phase 0 steps
@@ -38,7 +28,7 @@ Stop. Per axiom 3, no silent overwrite.
 |------|--------|
 | 0.1 | Resolve argument to a run ID. If no arg given: `gh run list --status failure --branch <current-branch> --limit 1 --json databaseId,name,headSha,createdAt`. Refuse if no failed run found: `no failed run found on branch <branch>. provide a run-id, pr#, or workflow.yml as argument.` |
 | 0.2 | Capture into `BRIEF.md` source-pointer section: branch, head SHA, base SHA (`git merge-base HEAD origin/main`), workflow name, failed step name (from `gh run view <id> --json jobs`), failure timestamp, provider URL. |
-| 0.3 | Topic: `<YYYY-MM-DD>-diagnose-ci-<run-id>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. `mkdir -p "$SCRATCH"`. Verify `.claude/.scratchpad/` is gitignored (add `**/.scratchpad/` to `.gitignore` if missing). |
+| 0.3 | Topic: `<YYYY-MM-DD>-diagnose-ci-<run-id>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise `mkdir -p "$SCRATCH"`. Verify `.claude/.scratchpad/` is gitignored (add `**/.scratchpad/` to `.gitignore` if missing). |
 | 0.4 | Dispatch `atomic-haiku` (read-only, foreground) with this brief: `Fetch full logs for CI run <id>, failed step "<step-name>". Write to <SCRATCH>/CONTEXT.md. If logs exceed 64KB, truncate with footer: "[truncated, full log at <provider-url>]". Extract the primary failing assertion / panic / error line and append as a trailing YAML key: top_level_error: "<exact error string>"`. |
 | 0.5 | Read `CONTEXT.md`. Copy `top_level_error` value into `STATE.md` as `## Iteration 0 — baseline` entry: `top_level_error: <value>` + `normalized_hash: <sha256 of normalized string, first 12 chars>`. |
 
@@ -48,7 +38,7 @@ Stop. Per axiom 3, no silent overwrite.
 
 | Step | Action |
 |------|--------|
-| 0.1 | Slug: kebab-case from first ~6 words of the symptom arg (e.g. `"user login fails with 500"` → `user-login-fails-with-500`). Topic: `<YYYY-MM-DD>-diagnose-bug-<slug>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. Concurrent-run guard (above). `mkdir -p "$SCRATCH"`. Verify `.claude/.scratchpad/` is gitignored. |
+| 0.1 | Slug: kebab-case from first ~6 words of the symptom arg (e.g. `"user login fails with 500"` → `user-login-fails-with-500`). Topic: `<YYYY-MM-DD>-diagnose-bug-<slug>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise `mkdir -p "$SCRATCH"`. Verify `.claude/.scratchpad/` is gitignored. |
 | 0.2 | Single `AskUserQuestion` block. For each of the four context fields not already answered by the symptom: **repro steps**, **expected vs actual behavior**, **environment fingerprint** (OS, runtime versions, branch, dirty/clean working tree), **what's been tried**. Skip fields the symptom paragraph already answers. |
 | 0.3 | Write `CONTEXT.md` with four stable headings (`## Repro`, `## Expected vs actual`, `## Environment`, `## Already tried`). Append trailing YAML key `top_level_error:` — use a paste-able error string if the brief or answers contain one, else `<none — behavioral bug>`. |
 | 0.4 | Auto-capture: if suspected paths are inferable from the brief, run `git log --oneline -20 -- <paths>` and append output as `## Recent commits` to `CONTEXT.md`. Skip silently if no paths inferable. |
@@ -69,7 +59,7 @@ Stop. Per axiom 3, no silent overwrite.
 
 ## Phase 1 — Investigator pass
 
-Write the full `BRIEF.md` before dispatching. Include: source pointer, failure summary from `CONTEXT.md`, head SHA, base SHA, suspected surface area (if known from Phase 0), iteration scope, reviewer feedback (`"N/A — first iteration"` on first pass).
+Write the full `BRIEF.md` before dispatching (refreshed each iteration — orchestrator overwrites, not appends; Phase 0 source-pointer section is restored each time). Include: source pointer, failure summary from `CONTEXT.md`, head SHA, base SHA, suspected surface area (if known from Phase 0), iteration scope, reviewer feedback (`"N/A — first iteration"` on first pass).
 
 **Brief verbosity discipline:** every fact the next agent needs lives in the brief — log excerpts, file:line refs, base SHA, what's been tried, hypotheses, prior reviewer feedback. A short brief that forces re-discovery is a false economy. Tokens spent on a verbose brief are tokens saved on subagent re-search.
 
@@ -132,7 +122,7 @@ Reviewer emits `## Spec compliance` + `## Code quality` + signals block + exactl
 - Parse `VERDICT:` line.
 - Update `STATE.md`: iteration number, implementer summary, reviewer findings, next-iteration focus.
 - **Harvest non-blocking findings** (🟡 / 🔵 / ❓ that didn't block PASS, or CHANGES_REQUESTED items not addressed next iteration) into `FOLLOWUPS.md` as `F-N` entries. Cite `path:line`, severity emoji, problem, suggested fix, origin iteration. Don't self-censor non-blockers.
-- **Same-failure check:** after each CHANGES_REQUESTED, extract the normalized top-level error from the implementer's signal output and compare to prior iterations (see § Iteration cap + bail-out). If three consecutive normalized matches → bail.
+- **Same-failure check:** after each CHANGES_REQUESTED, extract the normalized top-level error from `STATE.md`'s `top_level_error:` entries across iterations (originally written at Phase 0 into `CONTEXT.md`) and compare to prior iterations (see § Iteration cap + bail-out). If three consecutive normalized matches → bail.
 - `CHANGES_REQUESTED` → overwrite `BRIEF.md` reviewer-feedback section with blocking findings, increment iteration counter in `STATE.md`, loop back to Phase 2.
 - `PASS` → proceed to Phase 4.
 - Implementer `BLOCKED` or `NEEDS_CONTEXT` → stop loop, surface to user.
@@ -160,7 +150,7 @@ Two normalized strings equal → "same failure". Store hash (first 12 chars of s
 ## FOLLOWUPS handling
 
 - Reviewer findings tagged non-blocking (🟡 / 🔵 / ❓ that don't block PASS, or any finding the next iteration won't address) are appended to `FOLLOWUPS.md` by the orchestrator after each reviewer pass — even on PASS verdicts.
-- Carried across iterations. Reviewer may re-affirm or close prior entries. Mark closed entries `*(closed iter N — <sha>)*` — do not delete.
+- Carried across iterations. Reviewer may re-affirm or signal prior findings closed; **orchestrator** marks resolved entries `*(closed iter N — <sha>)*` in `FOLLOWUPS.md` — do not delete the entry.
 - At Phase 4, present per-item to user. Dispositions per item:
     - **`close`** — discard; state reason in implementation log.
     - **`defer`** — promote to `.claude/project/followups.md` with `Origin:` line pointing at this run. Optionally chain to `/remind-me`.
