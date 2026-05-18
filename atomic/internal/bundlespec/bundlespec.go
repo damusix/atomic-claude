@@ -15,6 +15,11 @@ func MatchesAgent(name string) bool {
 // MatchesSkillDir reports whether name is a bundleable skill directory.
 // Rule: skills/atomic-*/ — atomic- prefix, directory. Caller still checks
 // that SKILL.md exists inside the directory before bundling.
+//
+// Name-only predicate: this function matches by name prefix only. Caller
+// must gate on IsDir() (or os.ReadDir entry type) separately — passing a
+// regular file name like "atomic-foo.md" will also return true because the
+// predicate cannot distinguish files from directories by name alone.
 func MatchesSkillDir(name string) bool {
 	return strings.HasPrefix(name, "atomic-")
 }

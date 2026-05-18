@@ -44,6 +44,9 @@ func TestMatchesSkillDir(t *testing.T) {
 		{"_templates", false},
 		// partial prefix
 		{"atomiccommit", false},
+		// file name (not a directory) — predicate matches by name only;
+		// caller is responsible for gating on IsDir() separately.
+		{"atomic-foo.md", true},
 	}
 	for _, tc := range cases {
 		got := bundlespec.MatchesSkillDir(tc.name)

@@ -212,14 +212,12 @@ func TestIsATXOnly_SetextInsideTildeFencedCodeBlockReturnsTrue(t *testing.T) {
 	}
 }
 
-func TestIsATXOnly_SetextInsideIndentedCodeBlockReturnsTrue(t *testing.T) {
-	// An indented code block (4-space indent) containing `---` must not trigger
-	// Setext detection. The `---` is indented code content, not a heading underline.
-	src := []byte("# Title\n\n## Section\n\nExample:\n\n    key: value\n    ---\n    other: val\n\nMore text.\n")
-	if !mdparse.IsATXOnly(src) {
-		t.Error("expected true: --- inside indented code block must not be treated as Setext underline")
-	}
-}
+// TestIsATXOnly_SetextInsideIndentedCodeBlockReturnsTrue was deleted: the test
+// passed vacuously because "    ---" starts with a space and isSetextUnderline
+// returns false at trimmed[0] == ' ' before any fence-tracking logic runs. The
+// indented-code short-circuit is pre-existing behavior independent of the fence
+// fix. TestIsATXOnly_SetextInsideFencedCodeBlockReturnsTrue (backtick fence) and
+// TestIsATXOnly_SetextWithCRLF cover the meaningful detection paths.
 
 func TestIsATXOnly_RealRepoFiles(t *testing.T) {
 	// Dogfood test: real spec files in this repo must all be ATX-only.

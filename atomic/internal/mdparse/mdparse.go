@@ -117,12 +117,18 @@ func Sections(src []byte) ([]Section, error) {
 		}
 
 		// Determine line number from the heading's first segment.
+		// Known limitation: an empty ATX heading (e.g. "## " with no content)
+		// causes goldmark to produce a Heading node with Lines().Len() == 0.
+		// In that case startLine falls back to 1. For non-first empty headings
+		// this is a silent wrong line number. Empty ATX headings are not valid
+		// CommonMark (a heading marker without content is not a heading), but
+		// goldmark accepts them. Real spec files in this project never use empty
+		// headings, so this limitation is documented but not fixed.
 		var startLine int
 		if h.Lines().Len() > 0 {
 			startLine = lineOf(src, h.Lines().At(0).Start)
 		} else {
-			// ATX headings on a single line — fall back to first segment of
-			// the children (should not happen for well-formed ATX headings).
+			// Empty heading or unexpected goldmark behavior — fall back to 1.
 			startLine = 1
 		}
 
@@ -321,11 +327,26 @@ func FindTableByHeader(src []byte, header []string) (found bool, lineNumber int,
 
 		// Match. Determine line number from the first header cell's first segment.
 		// Table and TableHeader nodes carry no line segments in goldmark's GFM
-		// extension; line info lives on the TableCell grandchildren.
+		// extension; line info typically lives on the TableCell grandchildren.
+		//
+		// Goldmark version assumption: goldmark v1.4+ populates TableCell.Lines()
+		// for GFM tables. If a future or alternate goldmark version returns an
+		// empty Lines() slice on the cell, we fall back progressively:
+		//   1. hdr.FirstChild().Lines() — the first TableCell
+		//   2. hdr.Lines()              — the TableHeader row
+		//   3. tbl.Lines()              — the whole table node
+		// If all three return empty, lineNumber stays 0 and found=true is still
+		// returned — callers treat lineNumber=0 as "line unknown" and report
+		// findings without a precise line reference.
 		if first := hdr.FirstChild(); first != nil {
 			if first.Lines().Len() > 0 {
 				lineNumber = lineOf(src, first.Lines().At(0).Start)
+			} else if hdr.Lines().Len() > 0 {
+				lineNumber = lineOf(src, hdr.Lines().At(0).Start)
+			} else if tbl.Lines().Len() > 0 {
+				lineNumber = lineOf(src, tbl.Lines().At(0).Start)
 			}
+			// If all three are empty, lineNumber remains 0 (unknown).
 		}
 		found = true
 		return ast.WalkStop, nil
