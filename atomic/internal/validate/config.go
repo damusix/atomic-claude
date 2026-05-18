@@ -183,6 +183,8 @@ func runC3(repoRoot string) ([]Finding, error) {
 		}
 
 		// Extract prose-only text segments (skips fenced/indented code blocks).
+		// Note: inline backtick code spans are NOT excluded; a subagent_type
+		// literal inside `backtick span` will still match reSubagentType.
 		segments := mdparse.TextSegments(src)
 		for _, seg := range segments {
 			matches := reSubagentType.FindAllStringSubmatchIndex(seg.Text, -1)
@@ -225,6 +227,8 @@ func runC5(repoRoot string) ([]Finding, error) {
 		}
 
 		// Extract prose-only text segments (skips fenced/indented code blocks).
+		// Note: inline backtick code spans are NOT excluded; an @-ref inside
+		// `backtick span` will still match reAtRef.
 		segments := mdparse.TextSegments(src)
 		for _, seg := range segments {
 			matches := reAtRef.FindAllStringSubmatchIndex(seg.Text, -1)
@@ -380,6 +384,14 @@ func relPath(root, path string) string {
 
 // lineOfMatch returns the approximate 1-indexed line number of match m within
 // src, biased by the section start offset.
+//
+// Limitation: strings.Index searches the full src from byte 0, so it returns
+// the position of the FIRST occurrence anywhere in the file. If the agent name
+// appears in prose earlier than the registry section (e.g. a description or
+// example), the reported line points to that earlier prose mention rather than
+// the registry entry. The line is documented as "approximate" for this reason.
+// A caller that needs exact section-local line numbers should pass only the
+// section's byte range as src.
 func lineOfMatch(src, match []byte, sectionStart int) int {
 	idx := strings.Index(string(src), string(match))
 	if idx < 0 {

@@ -51,13 +51,14 @@ func newParser() goldmark.Markdown {
 	)
 }
 
-// parseAST parses src and returns the document AST root. The returned node is
-// valid only as long as reader is alive, so both are returned together.
-func parseAST(src []byte) (ast.Node, *text.Reader) {
+// parseAST parses src and returns the document AST root. The reader is kept
+// alive inside this function for the duration of the parse; the returned node
+// holds segment offsets into src (not into the reader), so src must remain
+// valid for the lifetime of the returned node.
+func parseAST(src []byte) ast.Node {
 	md := newParser()
 	reader := text.NewReader(src)
-	doc := md.Parser().Parse(reader, parser.WithContext(parser.NewContext()))
-	return doc, &reader
+	return md.Parser().Parse(reader, parser.WithContext(parser.NewContext()))
 }
 
 // lineOf returns the 1-indexed line number for the byte offset pos in src.
@@ -96,7 +97,7 @@ func Sections(src []byte) ([]Section, error) {
 	if len(src) == 0 {
 		return nil, nil
 	}
-	doc, _ := parseAST(src)
+	doc := parseAST(src)
 
 	var sections []Section
 
@@ -160,12 +161,13 @@ func Sections(src []byte) ([]Section, error) {
 //
 // Fenced code block tracking: lines inside ``` or ~~~ fences are skipped
 // so that YAML/Markdown examples embedded in spec files do not trigger false
-// positives. Indented code blocks (lines with ≥4 leading spaces or a tab)
-// are also skipped — isSetextUnderline already ignores them because a leading
-// space causes the underline-character check to fail, but the skip is kept
-// explicit for clarity. Fence open: a line beginning with ``` or ~~~ (with
-// an optional info string after). Fence close: a line beginning with the
-// same marker characters (length ≥ opening fence — simplified CommonMark).
+// positives. Fence open: a line beginning with ``` or ~~~ (with an optional
+// info string after). Fence close: a line beginning with the same marker
+// characters (length ≥ opening fence — simplified CommonMark).
+//
+// Indented code blocks pass through isSetextUnderline harmlessly — a leading
+// space character fails the '='/'−' only check before any Setext logic runs.
+// No explicit skip is needed for them.
 func IsATXOnly(src []byte) bool {
 	lines := bytes.Split(src, []byte{'\n'})
 	inFence := false
@@ -273,7 +275,7 @@ func FindTableByHeader(src []byte, header []string) (found bool, lineNumber int,
 	if len(src) == 0 {
 		return false, 0, nil
 	}
-	doc, _ := parseAST(src)
+	doc := parseAST(src)
 
 	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering || found {
@@ -357,7 +359,7 @@ func InlineRefs(src []byte) ([]InlineRef, error) {
 	if len(src) == 0 {
 		return nil, nil
 	}
-	doc, _ := parseAST(src)
+	doc := parseAST(src)
 
 	var refs []InlineRef
 
@@ -405,6 +407,12 @@ type TextSegment struct {
 // (``` ... ``` and ~~~ ... ~~~) and indented code blocks. Used by the config
 // validator to regex for @-refs and subagent_type: "..." literals without
 // matching documentation examples embedded in code blocks.
+//
+// Limitation: inline backtick code spans are NOT excluded. A pattern like
+// @.claude/foo.md inside a `backtick span` will still match reAtRef (C5) or
+// reSubagentType (C3). Only block-level code is skipped. This matches the
+// spec's stated scope and is intentional — inline spans in prose are
+// uncommon for these patterns. Callers at C3/C5 are aware of this scope.
 //
 // Implementation: line-by-line prescan (same strategy as IsATXOnly). Prose
 // lines are accumulated into segments; a new segment starts after each
