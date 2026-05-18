@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/damusix/atomic-claude/compare/v1.2.0...v1.2.1) (2026-05-18)
+
+
+### Bug Fixes
+
+* **commands:** add /atomic-help routing assistant ([633c7c7](https://github.com/damusix/atomic-claude/commit/633c7c7483671f3968be1717121a012e647aca8b))
+
 ## [1.2.0](https://github.com/damusix/atomic-claude/compare/v1.1.0...v1.2.0) (2026-05-18)
 
 
