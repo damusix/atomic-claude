@@ -1,7 +1,7 @@
 # Project follow-ups
 
 
-Non-blocking findings and deferred decisions, promoted from per-task scratchpad `FOLLOWUPS.md` ledgers. Each entry carries an `Origin:` line so future sessions know where the item came from. Closed entries stay (marked `*(closed <date> — <sha>)*`) — the audit trail is the point.
+Non-blocking findings and deferred decisions, promoted from per-task scratchpad `FOLLOWUPS.md` ledgers. Each entry carries an `Origin:` line so future sessions know where the item came from. Closed entries are deleted — `git log` is the audit trail.
 
 
 Auto-loaded into every session via `@-ref` in `claude.local.md` (or `claude.md` for repos without a local file).
@@ -146,12 +146,3 @@ Origin: chat session 2026-05-17 follow-on to fixing `/squash-only` signals-refre
 
 
 (none)
-
-
----
-
-
-## Closed
-
-
-(none — first entries)

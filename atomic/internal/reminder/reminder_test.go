@@ -310,6 +310,201 @@ func TestRm_UnknownIDErrors(t *testing.T) {
 	}
 }
 
+// TestAdd_DueAndTransportFlags verifies that --due and --transport values are
+// written into frontmatter when supplied.
+func TestAdd_DueAndTransportFlags(t *testing.T) {
+	root := t.TempDir()
+	due := "2026-05-24T09:00:00Z"
+	transport := "routine"
+	id, err := reminder.Add(root, "benchmark the query plan", reminder.WithDue(due), reminder.WithTransport(transport))
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if !strings.HasPrefix(id, "r-") {
+		t.Errorf("id %q should start with 'r-'", id)
+	}
+
+	entries, _ := os.ReadDir(remindersDir(root))
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(entries))
+	}
+	raw, _ := os.ReadFile(filepath.Join(remindersDir(root), entries[0].Name()))
+	content := string(raw)
+
+	if !strings.Contains(content, "due: "+due) {
+		t.Errorf("file missing due field; got:\n%s", content)
+	}
+	if !strings.Contains(content, "transport: "+transport) {
+		t.Errorf("file missing transport field; got:\n%s", content)
+	}
+}
+
+// TestAdd_NoDueNoTransport verifies legacy callers (no options) still work and
+// the file does not contain due or transport keys.
+func TestAdd_NoDueNoTransport(t *testing.T) {
+	root := t.TempDir()
+	_, err := reminder.Add(root, "legacy reminder")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	entries, _ := os.ReadDir(remindersDir(root))
+	raw, _ := os.ReadFile(filepath.Join(remindersDir(root), entries[0].Name()))
+	content := string(raw)
+
+	if strings.Contains(content, "due:") {
+		t.Errorf("file should NOT contain due when not supplied; got:\n%s", content)
+	}
+	if strings.Contains(content, "transport:") {
+		t.Errorf("file should NOT contain transport when not supplied; got:\n%s", content)
+	}
+}
+
+// TestAdd_FrontmatterKeyOrderV2 verifies the four-key order: id, created, due, transport.
+func TestAdd_FrontmatterKeyOrderV2(t *testing.T) {
+	root := t.TempDir()
+	_, err := reminder.Add(root, "order test",
+		reminder.WithDue("2026-05-24T09:00:00Z"),
+		reminder.WithTransport("cron"),
+	)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	dir := remindersDir(root)
+	entries, _ := os.ReadDir(dir)
+	raw, _ := os.ReadFile(filepath.Join(dir, entries[0].Name()))
+	content := string(raw)
+
+	idIdx := strings.Index(content, "id:")
+	createdIdx := strings.Index(content, "created:")
+	dueIdx := strings.Index(content, "due:")
+	transportIdx := strings.Index(content, "transport:")
+
+	if idIdx == -1 || createdIdx == -1 || dueIdx == -1 || transportIdx == -1 {
+		t.Fatalf("missing one or more frontmatter keys in:\n%s", content)
+	}
+	if !(idIdx < createdIdx && createdIdx < dueIdx && dueIdx < transportIdx) {
+		t.Errorf("key order wrong; expected id < created < due < transport in:\n%s", content)
+	}
+}
+
+// TestAdd_InvalidDue verifies that a malformed due timestamp is rejected.
+func TestAdd_InvalidDue(t *testing.T) {
+	root := t.TempDir()
+	_, err := reminder.Add(root, "bad due", reminder.WithDue("not-a-date"))
+	if err == nil {
+		t.Error("Add with malformed due should return an error")
+	}
+}
+
+// TestAdd_InvalidTransport verifies that an unknown transport kind is rejected.
+func TestAdd_InvalidTransport(t *testing.T) {
+	root := t.TempDir()
+	_, err := reminder.Add(root, "bad transport", reminder.WithTransport("ftp"))
+	if err == nil {
+		t.Error("Add with unknown transport should return an error")
+	}
+}
+
+// TestSetDue_HappyPath verifies SetDue rewrites only the due field in place.
+func TestSetDue_HappyPath(t *testing.T) {
+	root := t.TempDir()
+	id, err := reminder.Add(root, "snooze me",
+		reminder.WithDue("2026-05-24T09:00:00Z"),
+		reminder.WithTransport("cron"),
+	)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	newDue := "2026-05-25T09:00:00Z"
+	if err := reminder.SetDue(root, id, newDue); err != nil {
+		t.Fatalf("SetDue: %v", err)
+	}
+
+	entries, _ := os.ReadDir(remindersDir(root))
+	raw, _ := os.ReadFile(filepath.Join(remindersDir(root), entries[0].Name()))
+	content := string(raw)
+
+	if !strings.Contains(content, "due: "+newDue) {
+		t.Errorf("expected new due %q in file; got:\n%s", newDue, content)
+	}
+	// id, transport unchanged
+	if !strings.Contains(content, "id: "+id) {
+		t.Errorf("id field changed unexpectedly; got:\n%s", content)
+	}
+	if !strings.Contains(content, "transport: cron") {
+		t.Errorf("transport field changed unexpectedly; got:\n%s", content)
+	}
+	// old due must be gone
+	if strings.Contains(content, "due: 2026-05-24T09:00:00Z") {
+		t.Errorf("old due still present; got:\n%s", content)
+	}
+}
+
+// TestSetDue_UnknownID verifies SetDue errors on missing id.
+func TestSetDue_UnknownID(t *testing.T) {
+	root := t.TempDir()
+	err := reminder.SetDue(root, "r-ffff", "2026-05-25T09:00:00Z")
+	if err == nil {
+		t.Error("SetDue with unknown id should return an error")
+	}
+}
+
+// TestSetDue_MalformedISO verifies SetDue rejects non-RFC3339 timestamps.
+func TestSetDue_MalformedISO(t *testing.T) {
+	root := t.TempDir()
+	id, err := reminder.Add(root, "snooze me", reminder.WithDue("2026-05-24T09:00:00Z"), reminder.WithTransport("cron"))
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := reminder.SetDue(root, id, "not-a-date"); err == nil {
+		t.Error("SetDue with malformed ISO should return an error")
+	}
+}
+
+// TestList_ExposeDueAndTransport verifies that Row.Due and Row.Transport are
+// populated from frontmatter when present, and zero-valued for legacy files.
+func TestList_ExposeDueAndTransport(t *testing.T) {
+	root := t.TempDir()
+	dir := remindersDir(root)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Modern file with due and transport.
+	writeFixture(t, dir, "2026-05-17-modern.md",
+		"---\nid: r-mod\ncreated: 2026-05-17\ndue: 2026-05-24T09:00:00Z\ntransport: routine\n---\n\nModern reminder\n")
+	// Legacy file without due/transport.
+	writeFixture(t, dir, "2026-05-16-legacy.md",
+		"---\nid: r-leg\ncreated: 2026-05-16\n---\n\nLegacy reminder\n")
+
+	rows, err := reminder.List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+
+	// Sorted ascending by created: legacy first, modern second.
+	legacy := rows[0]
+	modern := rows[1]
+
+	if legacy.Due != "" {
+		t.Errorf("legacy row Due should be empty, got %q", legacy.Due)
+	}
+	if legacy.Transport != "" {
+		t.Errorf("legacy row Transport should be empty, got %q", legacy.Transport)
+	}
+	if modern.Due != "2026-05-24T09:00:00Z" {
+		t.Errorf("modern row Due wrong; got %q", modern.Due)
+	}
+	if modern.Transport != "routine" {
+		t.Errorf("modern row Transport wrong; got %q", modern.Transport)
+	}
+}
+
 func writeFixture(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
