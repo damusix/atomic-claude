@@ -224,3 +224,46 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 
 
 <!-- empty on creation; entries appended on amendment after approval -->
+
+
+## Implementation log
+
+
+### v1 — 2026-05-17
+
+
+Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec promotion + 2 reviewer-driven fix iterations + 1 polish pass). Commits chronological:
+
+
+- `ba5992f` — docs(spec): promote atomic-doctor design to spec
+- `b0d8475` — feat(doctor): CP-1 scaffold (types, registry, flag parsing, CLI subcommand)
+- `2248b68` — feat(manifestcheck): CP-2 in-memory bundle parity substrate
+- `9eb1e4c` — feat(doctor): CP-3 checks 1/5/8 (install, manifest, binary)
+- `05fbc8e` — feat(doctor): CP-4 checks 2/4 (hooks, refs)
+- `b98b3f9` — feat(doctor): CP-5 checks 3/6/7 (signals, followups, memory)
+- `1331e3d` — feat(doctor): CP-6 human + JSON formatters, exit codes, CLI wiring
+- `28314cc` — feat(doctor): CP-7 --fix repair mode with axiom-3 per-item confirm
+- `044fe00` — docs(doctor): CP-8 wire CLAUDE.md, README, atomic-binary spec, .gitignore
+- `dbe2a53` — chore(doctor): close 6 FOLLOWUPS in polish pass
+
+
+**Out-of-scope work performed during this build:**
+
+
+- Added `hooks.IsInstalled` exported func (`atomic/internal/hooks/hooks.go`). Needed for check 2; could not be inferred from existing surface. Single new export, mirrors `Install` style.
+- Added `bundlemirror.Enumerate` exported func (read-only walker). Needed by `manifestcheck.Compare` to reuse the inclusion rules without writing. Refactor preserves `bundlemirror.Run` behavior bit-for-bit (CI parity check passes).
+
+
+**Unforeseens — surprises that emerged during implementation:**
+
+
+- Spec initially proposed memory-configured stale-signals threshold (axiom 2). Caught during plan review — doctor is a deterministic Go CLI with no LLM in the loop, so memory is unreadable from its perspective. Replaced with `--stale-days` flag per-invocation override (default 7). Axiom 2 explicitly N/A.
+- `TestRunReturnsAllResults` (added in CP-1 when every check was a SKIP stub) started making live GitHub Releases calls once check 8 was wired in CP-3. Caught at CP-3 review; fixed by filtering check 8 out of the integration-shape test (its dedicated tests use the `binaryLookupFn` seam).
+- `appendRefsIfMissing` initially appended the full ref block even when one ref was already present, creating a semantic duplicate. Caught at CP-7 review; fixed to append only the missing line(s) in partial cases.
+
+
+**Deferred items still open:**
+
+
+- 4 entries promoted to `.claude/project/followups.md` as `atomic-doctor-F-1` through `atomic-doctor-F-4`: bundlemirror hidden contract, `gitToplevel` triple-call latency, repair-seam global mutators, manifest-repair output forwarding.
+- 13 nits dropped at finalize (test-quality cosmetics, inherited spec format quirks). Audit trail in branch commit history and per-iteration `STATE.md` (deleted with the scratchpad).
