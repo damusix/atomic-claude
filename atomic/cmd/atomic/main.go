@@ -204,6 +204,11 @@ func runDoctor(args []string) {
 		fmt.Print(doctor.FormatHuman(results, project))
 	}
 
+	if opts.Fix {
+		p := doctor.NewStdinPrompter(os.Stdin, os.Stdout)
+		doctor.Repair(results, opts, p, os.Stdout)
+	}
+
 	os.Exit(exitCode)
 }
 
