@@ -10,8 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
-
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
 
@@ -44,7 +43,7 @@ func enumerate(repoRoot string) ([]embedded.Artifact, error) {
 		return nil, fmt.Errorf("read agents dir: %w", err)
 	}
 	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), "atomic-") || !strings.HasSuffix(e.Name(), ".md") {
+		if e.IsDir() || !bundlespec.MatchesAgent(e.Name()) {
 			continue
 		}
 		src := filepath.Join(agentsDir, e.Name())
@@ -63,7 +62,7 @@ func enumerate(repoRoot string) ([]embedded.Artifact, error) {
 		return nil, fmt.Errorf("read skills dir: %w", err)
 	}
 	for _, e := range skillEntries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), "atomic-") {
+		if !e.IsDir() || !bundlespec.MatchesSkillDir(e.Name()) {
 			continue
 		}
 		skillRoot := filepath.Join(skillsDir, e.Name())
@@ -101,7 +100,7 @@ func enumerate(repoRoot string) ([]embedded.Artifact, error) {
 		return nil, fmt.Errorf("read output-styles dir: %w", err)
 	}
 	for _, e := range osEntries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), "atomic") || !strings.HasSuffix(e.Name(), ".md") {
+		if e.IsDir() || !bundlespec.MatchesOutputStyle(e.Name()) {
 			continue
 		}
 		src := filepath.Join(outputStylesDir, e.Name())
@@ -120,7 +119,7 @@ func enumerate(repoRoot string) ([]embedded.Artifact, error) {
 		return nil, fmt.Errorf("read commands dir: %w", err)
 	}
 	for _, e := range cmdEntries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+		if e.IsDir() || !bundlespec.MatchesCommand(e.Name()) {
 			continue
 		}
 		src := filepath.Join(commandsDir, e.Name())
@@ -138,7 +137,7 @@ func enumerate(repoRoot string) ([]embedded.Artifact, error) {
 		if werr != nil {
 			return werr
 		}
-		if d.IsDir() || !strings.HasSuffix(path, ".md") {
+		if d.IsDir() || !bundlespec.MatchesRule(path) {
 			return nil
 		}
 		rel, err := filepath.Rel(repoRoot, path)
