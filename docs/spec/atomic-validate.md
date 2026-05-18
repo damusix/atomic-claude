@@ -285,3 +285,6 @@ Built across 10 iterations of `/subagent-implementation` (9 spec checkpoints + 1
 
 
 Closed during the build (dropped from ledger; commits cover them): F-1 (flag-after-subcommand), F-2 (flag test strengthened), F-3 (no-subcommand message), F-4 (`IsClaudeMd` doc → consumer), F-6 (`manifestcheck` uses `IsClaudeMd`), F-9 (bundle output rewired through formatter), F-11 (drop unused parseAST return), F-15 (rewrite misleading comment), F-17 (TextSegments callsite docs), F-18 (rename stale test), F-19 (`lineOfMatch` documentation strengthened).
+
+
+**Squashed onto `main` as `82cd9cc` — 2026-05-18.** Per-iteration SHAs above are historical (unreachable post-squash).
