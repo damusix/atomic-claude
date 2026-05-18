@@ -260,7 +260,45 @@ After scratchpad teardown and FOLLOWUPS disposition, **before** archiving:
 | Mode subcommand drift (third mode added later — `perf`? `flake`?) | low | Spec adds modes by appending a Phase 0 + Phase 4 pair, leaving Phase 1–3 untouched. If a future mode needs a different loop, fork the engine file per the engine's "When to fork instead of extend" rule. |
 
 
+## Implementation log
+
+
+### v1 — shipped 2026-05-18
+
+
+Built across 3 iterations of `/subagent-implementation`. Commits (chronological, base `6814df8`):
+
+
+- `2967ee6` — feat(commands): add /subagent-diagnose orchestrator command — initial command file covering CP 1–7 (mode parsing + per-mode Phase 0 + shared Phase 1–3 loop + per-mode Phase 4 + iteration cap + same-failure normalization + FOLLOWUPS triage + archive teardown).
+- `a855f36` — feat(commands): wire /subagent-diagnose + iter-1 polish — CP 8 wiring (`CLAUDE.md` "Other commands" + `README.md` commands table) plus four 🟡 fixes from iter-1 reviewer (investigator-dispatch wording, surgeon-refusal semantics, ❓ in FOLLOWUPS harvest, `mkdir -p .archive/` before `mv`).
+- `e4d1a81` — refactor(commands): polish /subagent-diagnose per FOLLOWUPS — four user-dispositioned fix-now items from Phase 3 FOLLOWUPS ledger (same-failure source, orchestrator-marks-closed, lazy concurrent-run guard, BRIEF.md overwrite semantics).
+
+
+**Out-of-scope work performed during this build:**
+
+
+- None. All iterations stayed within stated scope.
+
+
+**Unforeseens — surprises that emerged during implementation:**
+
+
+- Iter-1 reviewer flagged that `atomic-investigator` has no Write tool (verified against `agents/atomic-investigator.md` `tools: [Read, Grep, Glob, Bash]`), so the dispatch prompt originally written by the builder would have misled the agent. Fixed in iter 2 — orchestrator (not the agent) appends investigator output to `BRIEF.md`.
+- Iter-1 reviewer flagged that `atomic-surgeon` refuses on stated scope (mechanical file count, `OUT OF SCOPE: needs N files. Split: ...` signal) before any edit, not by examining the actual diff after. Fixed in iter 2.
+- Iter-1 reviewer flagged that the concurrent-run guard fires at mode-parse time but for `ci` mode the topic path isn't known until step 0.3. Fixed in iter 3 by moving the guard into each mode's path-construction step (lazy evaluation at mkdir time).
+
+
+**Deferred items still open:**
+
+
+- F-2 (🔵) — Phase 4 teardown step order diverges from spec (FOLLOWUPS-then-archive vs spec's archive-then-FOLLOWUPS). **Dropped** by user — pure ordering pedantry; both happen on PASS path, reflowing prose for spec-vs-command order isn't worth an iter.
+- F-4 (🔵) — push/PR constraint lives in shared teardown rather than the dedicated Rules section. **Dropped** by user — constraint is stated correctly; placement is organizational pedantry only.
+
+
+No open follow-ups remain in the durable project ledger from this build.
+
+
 ## Change log
 
 
-<!-- Populated on first amendment after this spec is approved. Initial draft (2026-05-18) is not an amendment. -->
+<!-- Populated on first amendment after this spec is approved. Initial draft + v1 implementation log (2026-05-18) are not amendments. -->
