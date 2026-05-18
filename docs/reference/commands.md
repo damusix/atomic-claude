@@ -6,6 +6,7 @@
 | `/atomic-setup` | Bootstrap the current repo for atomic conventions. Audits .gitignore, docs/ layout, CLAUDE.md; proposes only what's missing. Never overwrites. |
 | `/atomic-plan` | Collaborative plan → checkpoint table in `docs/design/` or `docs/spec/`. |
 | `/atomic-compress <file>` | Compress a prose Markdown file into atomic style. Backs up original as `<file>.original.md`. |
+| `/pressure-test [<topic> \| @<path-to.md>]` | Socratic challenger session for design decisions. Pressure-tests assumptions, surfaces contradictions, forces fuzzy maybes into yes/no — through questions only, never producing code or artifacts. Pairs with `/atomic-plan` as a pre-approval gate. |
 | `/subagent-implementation` | Orchestrate implement → review subagent loop until task is complete. |
 | `/worktree-start <name>` | Create isolated worktree at `.worktrees/<name>/`, new branch, auto-detected project setup. |
 | `/git-cleanup [<name>]` | Scan stale git state (worktrees, branches, optional remote) via `atomic-git-scout`, present indexed report, ask before deleting. Local-only by default; asks about remote. |
