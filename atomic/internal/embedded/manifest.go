@@ -53,7 +53,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/subagent-implementation.md", Target: "commands/subagent-implementation.md", SHA256: "5edf631c69b2b2f82fb49bd8bc59448e6a4cac6c5095ceeda47d7de49dabbaf7"},
 		{Kind: "command", Source: "bundle/commands/undo-commit.md", Target: "commands/undo-commit.md", SHA256: "db504e15a10aab4648159268ea67450208ce4733d3bd7df57398b2ff9722c57b"},
 		{Kind: "command", Source: "bundle/commands/watch-ci.md", Target: "commands/watch-ci.md", SHA256: "464a3dea1a496bf9aa48cb94064d725c3dc41e00ce1fa0518fc7f39149d535ff"},
-		{Kind: "command", Source: "bundle/commands/worktree-start.md", Target: "commands/worktree-start.md", SHA256: "e3736fb4f8fd4b305e3849705ef79f1ab902f00631640d9f00099cc60b4bb610"},
+		{Kind: "command", Source: "bundle/commands/worktree-start.md", Target: "commands/worktree-start.md", SHA256: "adb6ab2d186c8d088da8df30633a9c3882f434fbefc6960461fdf94f5b832207"},
 		{Kind: "output-style", Source: "bundle/output-styles/atomic.md", Target: "output-styles/atomic.md", SHA256: "27f21698e58b5c48f25992f14d3a6b6973ecca6d2eaceebc272d2385998142d5"},
 		{Kind: "rule", Source: "bundle/rules/python/style.md", Target: "rules/python/style.md", SHA256: "f1a8b083bc6b7ed6567e12758852d96aff48efdd6e6414d8ca6086a723228f36"},
 		{Kind: "rule", Source: "bundle/rules/typescript/style.md", Target: "rules/typescript/style.md", SHA256: "90e60e16dc64d4a24219f3df40f8bd2ef421cce4f573b4817793bd056c2ad8e2"},

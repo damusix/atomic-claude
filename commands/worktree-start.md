@@ -68,7 +68,33 @@ If exit code is non-zero (not ignored):
 - Stage `.gitignore` explicitly by path.
 - Commit with message `chore: gitignore .worktrees/`.
 
-## 5. Verify branch does not already exist
+## 5. Carry forward an in-context spec or design
+
+A worktree branches from `HEAD`. Anything uncommitted in the source working tree does not follow — including the spec or design doc the user just had you write. If the implementer subagent later reads `docs/spec/<topic>.md` from the worktree and the file isn't there, the loop fails before iteration 1.
+
+Detect carry-over candidates:
+
+- A spec path was passed in arguments (step 1), and `git status --porcelain -- <path>` reports it as untracked or modified.
+- The current conversation just produced a `docs/spec/*.md` or `docs/design/*.md` file (the LLM knows this from context), and `git status --porcelain` reports it as untracked or modified, and its basename matches or is closely related to the branch name.
+
+For each candidate, ask the user once with `AskUserQuestion`:
+
+```
+Spec `<path>` is uncommitted. Commit it before creating the worktree so
+the branch carries it forward?
+```
+
+Options: `commit now (recommended)` / `skip`. On `commit now`:
+
+- Invoke the `atomic-commit` skill for the message.
+- Stage the file explicitly by path. Do not `git add -A`.
+- Commit on the current branch (typically `main`).
+
+On `skip`, continue without committing. The user accepts that the file won't be in the worktree until they sync it manually.
+
+Only spec / design files in `docs/spec/` and `docs/design/` qualify here. Other uncommitted changes are out of scope — the user can `/commit-only` separately.
+
+## 6. Verify branch does not already exist
 
 ```bash
 git rev-parse --verify <branch>
@@ -82,7 +108,7 @@ branch <name> already exists. pick a different name or checkout existing.
 
 Stop.
 
-## 6. Create the worktree
+## 7. Create the worktree
 
 ```bash
 git worktree add .worktrees/<branch> -b <branch>
@@ -96,7 +122,7 @@ sandbox blocked worktree creation. working in place.
 
 Stop — do not run setup or tests, do not continue.
 
-## 7. Auto-detect and run setup
+## 8. Auto-detect and run setup
 
 Run all detection from inside `.worktrees/<branch>/`. Check files in this order:
 
@@ -112,7 +138,7 @@ Run all detection from inside `.worktrees/<branch>/`. Check files in this order:
 
 If the setup command fails with a network or permission error, note `setup skipped (sandboxed or no network)` and continue.
 
-## 8. Run baseline tests
+## 9. Run baseline tests
 
 Detect the test command from inside `.worktrees/<branch>/`:
 
@@ -126,7 +152,7 @@ Detect the test command from inside `.worktrees/<branch>/`:
 
 If tests fail: list each failure, then ask whether to proceed or investigate before continuing.
 
-## 9. Report
+## 10. Report
 
 ```
 Worktree: .worktrees/<branch>/
@@ -140,12 +166,15 @@ Ready.
 
 If a spec or brief was passed, note that the user likely wants to continue with `/subagent-implementation` (for spec) or `/atomic-plan` (for an unrefined brief) next — surface that one-line hint after the report.
 
+If step 5 committed a carry-forward spec or design, also report the new commit SHA on the source branch so the user can see what was preserved.
+
 ---
 
 ## Rules
 
 - Never chain `cd` with `&&` for git commands — use separate Bash calls.
 - Only call `git worktree add` when step 3 confirms this is not already an isolated workspace.
-- The only commit allowed is the optional `.gitignore` patch in step 4, created via the `atomic-commit` skill.
+- Commits permitted by this command: (a) the `.gitignore` patch in step 4; (b) spec / design carry-forward in step 5. Both go through the `atomic-commit` skill. No other commits.
+- Step 5 only touches files under `docs/spec/` and `docs/design/`. Other uncommitted changes are out of scope.
 - Do not create worktrees at global or home-directory paths — always `.worktrees/` inside the project root.
 - Do not run setup commands that require network access if sandboxed — detect via first failure and report.
