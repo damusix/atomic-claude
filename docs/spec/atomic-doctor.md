@@ -71,6 +71,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 6 | `followups`      | If `.claude/project/followups.md` exists, every `### F-<id>` entry has an `Origin:` line and a severity bucket. | WARN |
 | 7 | `memory`         | `~/.claude/projects/<project>/memory/MEMORY.md` link targets all resolve (file exists in same dir). | WARN |
 | 8 | `binary`         | `atomic update --check` succeeds without performing update. | WARN |
+| 9 | `config`         | `~/.claude/.atomic/config.toml` parses + validates; `~/.claude/.atomic/config.resolved.md` matches render of TOML (byte-stable). Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN; drifted/missing resolved.md → WARN. | WARN by default; FAIL for parse error or invalid value |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -224,6 +225,12 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 
 
 <!-- empty on creation; entries appended on amendment after approval -->
+
+### 2026-05-20 — Add config check category
+
+**What changed:** New check category 9 (`config`) verifies `~/.claude/.atomic/config.toml` parses + validates and that `~/.claude/.atomic/config.resolved.md` matches the TOML render. `--fix` re-renders the resolved view on drift (WARN). Parse errors and invalid enum values are reported as non-fixable FAIL.
+
+**Why:** Spec `docs/spec/atomic-state-and-config.md` introduces user-persistent config storage delivered to every session via an `@-ref` from `CLAUDE.md` to `~/.claude/.atomic/config.resolved.md`. The new check ensures coherence between the TOML source and the rendered view, and catches values that would otherwise be silently injected into Claude sessions.
 
 
 ## Implementation log

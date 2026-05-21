@@ -78,6 +78,35 @@ func TestCheckInstall_skip_missing_dir(t *testing.T) {
 	}
 }
 
+// TestCheckInstall_atomic_subtree_not_flagged: files under <claudeHome>/.atomic/
+// are NOT in the embedded manifest and must not be flagged as missing or drifted.
+// The install check only compares manifest entries vs on-disk; files in .atomic/
+// that are not manifest entries should be invisible to the check.
+func TestCheckInstall_atomic_subtree_not_flagged(t *testing.T) {
+	target := t.TempDir()
+
+	// Write all embedded artifacts (clean install).
+	for _, a := range embedded.Manifest() {
+		installArtifact(t, target, a)
+	}
+
+	// Add .atomic/ files that claudeinstall creates but that are NOT in the manifest.
+	atomicFiles := []string{
+		filepath.Join(target, ".atomic", "config.resolved.md"),
+		filepath.Join(target, ".atomic", "config.toml"),
+		filepath.Join(target, ".atomic", "backups", "2026-01-01T00-00-00Z", "CLAUDE.md"),
+		filepath.Join(target, ".atomic", "proposed", "CLAUDE.md"),
+	}
+	for _, f := range atomicFiles {
+		writeFile(t, f, []byte("# atomic-owned state"))
+	}
+
+	r := doctor.RunCheckInstall(target)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS; detail: %s (atomic subtree must not be flagged)", r.Severity, r.Detail)
+	}
+}
+
 // --- helpers ---
 
 func installArtifact(t *testing.T, target string, a embedded.Artifact) {

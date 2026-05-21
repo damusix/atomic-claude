@@ -123,3 +123,34 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 
 
 <!-- Populated on first amendment after spec approval. -->
+
+
+## Implementation log
+
+
+### v1 — 2026-05-21
+
+Built across 5 implement-review iterations of `/subagent-implementation` plus a Phase 3 polish pass. Commits on `atomic-state-and-config` branch (chronological):
+
+- `b6f1417` — CP-1 + CP-2: `atomic/internal/config/` package — TOML load (lenient) / validate (strict) / get / set / unset / atomic `WritePersist`, deterministic `Render` to markdown, path helpers (`Dir`, `TOMLPath`, `ResolvedPath`, `BackupDir`, `ProposedCLAUDEMD`). 15 unit tests.
+- `6cbde38` — CP-3: `atomic config get|set|unset|list|path` CLI wired through `atomic/cmd/atomic/main.go`. Re-renders `config.resolved.md` after every `set`/`unset`. Near-match (Levenshtein-2) suggestions on unknown keys for all three of get/set/unset. 24 CLI tests.
+- `0ed7004` — CP-4 + CP-5 + CP-6: bundled `CLAUDE.md` gains the `@~/.claude/.atomic/config.resolved.md` `@-ref` and a "Where things live" bullet. `claudeinstall` migrates backups to `.atomic/backups/<ts>/`, proposed merges to `.atomic/proposed/CLAUDE.md`, and idempotently pre-creates `config.resolved.md` on every Apply so the bundled ref always resolves. Cross-references in `agents/atomic-claude-merger.md` + `commands/atomic-claude-merge.md` updated. Bundle regenerated.
+- `c5c34fc` — CP-7 + CP-8: new doctor check category #9 (`config`), with PASS / WARN / FAIL coverage and a `--fix` repair that re-renders on drift but refuses to write when validation fails (`bogus` never reaches `config.resolved.md`). `repairPlan` reports FAIL-severity config results as non-fixable. Install-integrity check confirmed to skip the `.atomic/` subtree. `CLAUDE.md` prose updated from "eight" to "nine" checks.
+- `009baaa` — CP-9 + CP-10: `docs/spec/atomic-doctor.md` gains row 9 + change-log entry per the append-mostly rule. `.claude/docs/axioms.md` axiom 2 gains the shell-settable carve-out paragraph settled during pressure-test.
+- `57ab0ae` — Phase 3 polish: closed F-1, F-2, F-3, F-4, F-5, F-8, F-9 (test gaps, hoisted package vars, dead-code removal, alphabetical usage printer, combined-WARN UX in doctor config check, `strings.Contains` cleanup). Added `claude.local.md` Platform support rule (macOS/Linux only).
+
+**Out-of-scope work performed during this build:** none. Spec was tight; no schema additions, no expansion beyond CP-1..CP-10.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- Iter 2: builder shipped `Set` with Levenshtein suggestions but not `Get`/`Unset` — caught by reviewer; fixed in iter 2b.
+- Iter 3: spec text used `@~/...` tilde-prefix `@-ref`, with no local precedent. Verified upstream (`https://code.claude.com/docs/en/memory`) before ship — tilde IS supported. Closed F-7.
+- Iter 4: builder's first repair implementation reported FAIL as fixable AND wrote invalid values into `config.resolved.md`. Caught by reviewer; fixed in iter 4b by gating `fixable: r.Severity == WARN` and calling `config.Validate` inside the repair before writing.
+- Iter 3: builder originally used `Resolved` map iteration with an unreachable empty-keys guard in `Render`; reviewer flagged as dead code, closed during the polish pass.
+
+**Deferred items still open:**
+
+- `F-1` accepted with a known limitation: `TestWritePersistAtomic` asserts no tempfile residue post-write, but the assertion would also pass for a direct-write regression (no tmp ever existed). Reviewer noted; the brief explicitly accepted that form.
+- `F-6` dropped: pre-existing Windows path-extraction fragility in `install_test.go:534`. macOS/Linux are the only supported platforms going forward (recorded in `claude.local.md`).
+
+No items deferred to project-level `.claude/project/followups.md`. No tracked issues filed.

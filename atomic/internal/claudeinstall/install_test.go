@@ -81,9 +81,9 @@ func TestInstallIntoEmptyTarget(t *testing.T) {
 	}
 
 	// No proposed file for CLAUDE.md on fresh install.
-	proposed := filepath.Join(target, "CLAUDE.md.atomic-proposed")
+	proposed := filepath.Join(target, ".atomic", "proposed", "CLAUDE.md")
 	if _, err := os.Stat(proposed); !os.IsNotExist(err) {
-		t.Errorf("CLAUDE.md.atomic-proposed should not exist on fresh install")
+		t.Errorf(".atomic/proposed/CLAUDE.md should not exist on fresh install")
 	}
 }
 
@@ -187,8 +187,8 @@ func TestInstallCLAUDEmdDiffers(t *testing.T) {
 		t.Errorf("CLAUDE.md was modified; should be untouched")
 	}
 
-	// Proposed file must exist and contain embedded bytes.
-	proposedPath := filepath.Join(target, "CLAUDE.md.atomic-proposed")
+	// Proposed file must exist at new path and contain embedded bytes.
+	proposedPath := filepath.Join(target, ".atomic", "proposed", "CLAUDE.md")
 	proposed, err := os.ReadFile(proposedPath)
 	if err != nil {
 		t.Fatalf("proposed file: %v", err)
@@ -225,9 +225,9 @@ func TestInstallCLAUDEmdIdentical(t *testing.T) {
 	}
 
 	// No proposed file.
-	proposed := filepath.Join(target, "CLAUDE.md.atomic-proposed")
+	proposed := filepath.Join(target, ".atomic", "proposed", "CLAUDE.md")
 	if _, err := os.Stat(proposed); !os.IsNotExist(err) {
-		t.Errorf("CLAUDE.md.atomic-proposed should not exist when CLAUDE.md is unchanged")
+		t.Errorf(".atomic/proposed/CLAUDE.md should not exist when CLAUDE.md is unchanged")
 	}
 }
 
@@ -447,6 +447,59 @@ func TestBackupPathContainsTimestamp(t *testing.T) {
 	t.Error("no updated action found")
 }
 
+// TestApply_PreCreatesResolvedConfigStub: Apply pre-creates config.resolved.md under
+// <targetDir>/.atomic/ when it does not exist yet. This file is @-referenced from
+// CLAUDE.md so every Claude session sees it; the file must exist after first install.
+func TestApply_PreCreatesResolvedConfigStub(t *testing.T) {
+	target := t.TempDir()
+
+	plan, err := claudeinstall.Plan(target, embedded.Manifest())
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if err := claudeinstall.Apply(target, plan, false, fixedClock); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	resolvedPath := filepath.Join(target, ".atomic", "config.resolved.md")
+	if _, err := os.Stat(resolvedPath); err != nil {
+		t.Errorf("config.resolved.md not created: %v", err)
+	}
+}
+
+// TestApply_PreserveExistingResolvedConfig: Apply must not overwrite config.resolved.md
+// when it already exists with content. The file is user-managed after first create.
+func TestApply_PreserveExistingResolvedConfig(t *testing.T) {
+	target := t.TempDir()
+
+	// Pre-create the resolved config with existing content.
+	atomicDir := filepath.Join(target, ".atomic")
+	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	resolvedPath := filepath.Join(atomicDir, "config.resolved.md")
+	existingContent := []byte("existing\n")
+	if err := os.WriteFile(resolvedPath, existingContent, 0o644); err != nil {
+		t.Fatalf("write existing: %v", err)
+	}
+
+	plan, err := claudeinstall.Plan(target, embedded.Manifest())
+	if err != nil {
+		t.Fatalf("Plan: %v", err)
+	}
+	if err := claudeinstall.Apply(target, plan, false, fixedClock); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	after, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		t.Fatalf("read resolved: %v", err)
+	}
+	if string(after) != string(existingContent) {
+		t.Errorf("Apply overwrote config.resolved.md: got %q, want %q", after, existingContent)
+	}
+}
+
 // TestBackupTimestampUsesRunStart: Apply uses the clock captured at the start of the
 // run, not the time of the first ActionUpdated. Both items in the plan that are
 // Updated must share the same timestamp directory, which must equal the fixed
@@ -479,11 +532,11 @@ func TestBackupTimestampUsesRunStart(t *testing.T) {
 	for _, fa := range plan {
 		if fa.Kind == claudeinstall.ActionUpdated && fa.BackupPath != "" {
 			// Extract the timestamp portion from the path.
-			// BackupPath: <target>/.atomic-backups/<timestamp>/<relpath>
+			// BackupPath: <target>/.atomic/backups/<timestamp>/<relpath>
 			rel := strings.TrimPrefix(fa.BackupPath, target)
 			parts := strings.Split(strings.TrimPrefix(rel, string(os.PathSeparator)), string(os.PathSeparator))
-			if len(parts) >= 2 {
-				seen[parts[1]] = true // parts[1] is the timestamp dir
+			if len(parts) >= 3 {
+				seen[parts[2]] = true // parts[0]=.atomic, parts[1]=backups, parts[2]=timestamp
 			}
 		}
 	}

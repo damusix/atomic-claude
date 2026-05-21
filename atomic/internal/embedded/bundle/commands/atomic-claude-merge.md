@@ -1,5 +1,5 @@
 ---
-description: Merge ~/.claude/CLAUDE.md.atomic-proposed into ~/.claude/CLAUDE.md using the atomic-claude-merger agent. Preserves user customizations, replaces atomic-owned sections. Requires explicit accept before overwriting.
+description: Merge ~/.claude/.atomic/proposed/CLAUDE.md into ~/.claude/CLAUDE.md using the atomic-claude-merger agent. Preserves user customizations, replaces atomic-owned sections. Requires explicit accept before overwriting.
 ---
 
 You orchestrate the CLAUDE.md merge. The `atomic-claude-merger` subagent does the merge work. You present the diff. The user decides. You execute only on Accept.
@@ -9,10 +9,10 @@ You orchestrate the CLAUDE.md merge. The `atomic-claude-merger` subagent does th
 **Check 1 — proposed file exists:**
 
 ```bash
-test -f ~/.claude/CLAUDE.md.atomic-proposed
+test -f ~/.claude/.atomic/proposed/CLAUDE.md
 ```
 
-If missing: print `nothing to merge. ~/.claude/CLAUDE.md.atomic-proposed not found.` and stop.
+If missing: print `nothing to merge. ~/.claude/.atomic/proposed/CLAUDE.md not found.` and stop.
 
 **Check 2 — current CLAUDE.md exists:**
 
@@ -29,7 +29,7 @@ If missing (first-time install case the binary handles directly), print:
 Print this command before running it:
 
 ```bash
-mv ~/.claude/CLAUDE.md.atomic-proposed ~/.claude/CLAUDE.md
+mv ~/.claude/.atomic/proposed/CLAUDE.md ~/.claude/CLAUDE.md
 ```
 
 Print `done.` and stop.
@@ -39,16 +39,16 @@ Print `done.` and stop.
 Compute sha256 of both files:
 
 ```bash
-shasum -a 256 ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.atomic-proposed
+shasum -a 256 ~/.claude/CLAUDE.md ~/.claude/.atomic/proposed/CLAUDE.md
 ```
 
 If the digests are identical: print `no changes needed.` then print this command before running it:
 
 ```bash
-rm ~/.claude/CLAUDE.md.atomic-proposed
+rm ~/.claude/.atomic/proposed/CLAUDE.md
 ```
 
-Print `removed ~/.claude/CLAUDE.md.atomic-proposed` and stop.
+Print `removed ~/.claude/.atomic/proposed/CLAUDE.md` and stop.
 
 ## Step 1 — Dispatch merger agent
 
@@ -56,7 +56,7 @@ Dispatch via the `Agent` tool with `subagent_type: "atomic-claude-merger"`.
 
 Prompt:
 
-> Read `~/.claude/CLAUDE.md` (the user's current global) and `~/.claude/CLAUDE.md.atomic-proposed` (the new atomic-claude version). Produce a merged version that (a) preserves every user customization that does not directly conflict with the proposed atomic sections, (b) updates atomic-owned sections to match the proposed version, (c) adds new atomic sections from the proposed file. Write the merged result to `~/.claude/CLAUDE.md.atomic-merged`. Do not modify `~/.claude/CLAUDE.md` directly. Report which sections you preserved, replaced, added, and any conflicts you flagged.
+> Read `~/.claude/CLAUDE.md` (the user's current global) and `~/.claude/.atomic/proposed/CLAUDE.md` (the new atomic-claude version). Produce a merged version that (a) preserves every user customization that does not directly conflict with the proposed atomic sections, (b) updates atomic-owned sections to match the proposed version, (c) adds new atomic sections from the proposed file. Write the merged result to `~/.claude/CLAUDE.md.atomic-merged`. Do not modify `~/.claude/CLAUDE.md` directly. Report which sections you preserved, replaced, added, and any conflicts you flagged.
 
 Wait for the agent to return. Print the agent's report.
 
@@ -100,8 +100,8 @@ TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 Print each command before running it. Back up the current CLAUDE.md:
 
 ```bash
-mkdir -p ~/.claude/.atomic-backups/${TIMESTAMP}
-cp ~/.claude/CLAUDE.md ~/.claude/.atomic-backups/${TIMESTAMP}/CLAUDE.md
+mkdir -p ~/.claude/.atomic/backups/${TIMESTAMP}
+cp ~/.claude/CLAUDE.md ~/.claude/.atomic/backups/${TIMESTAMP}/CLAUDE.md
 ```
 
 Apply the merged file:
@@ -113,7 +113,7 @@ mv ~/.claude/CLAUDE.md.atomic-merged ~/.claude/CLAUDE.md
 Remove the proposed file:
 
 ```bash
-rm ~/.claude/CLAUDE.md.atomic-proposed
+rm ~/.claude/.atomic/proposed/CLAUDE.md
 ```
 
 Continue to Step 4 (final report).
@@ -143,7 +143,7 @@ Print:
 ```
 aborted. files left in place:
   ~/.claude/CLAUDE.md              — unchanged original
-  ~/.claude/CLAUDE.md.atomic-proposed — the update (binary wrote this)
+  ~/.claude/.atomic/proposed/CLAUDE.md — the update (binary wrote this)
   ~/.claude/CLAUDE.md.atomic-merged   — the proposed merge (agent wrote this)
 
 To apply manually: cp ~/.claude/CLAUDE.md.atomic-merged ~/.claude/CLAUDE.md
@@ -155,9 +155,9 @@ Stop. Do not modify any file.
 
 ```
 Done.
-  backed up: ~/.claude/.atomic-backups/<TIMESTAMP>/CLAUDE.md
+  backed up: ~/.claude/.atomic/backups/<TIMESTAMP>/CLAUDE.md
   applied:   ~/.claude/CLAUDE.md
-  removed:   ~/.claude/CLAUDE.md.atomic-proposed
+  removed:   ~/.claude/.atomic/proposed/CLAUDE.md
 ```
 
 ## Rules

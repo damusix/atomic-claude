@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
@@ -26,23 +27,28 @@ func main() {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: atomic [flags] <command> [args]\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  signals scan        Walk repo and write deterministic-signals.md\n")
-		fmt.Fprintf(os.Stderr, "  signals show        Print deterministic-signals.md to stdout\n")
-		fmt.Fprintf(os.Stderr, "  signals stale       Exit 0 if fresh, 1 if stale\n")
-		fmt.Fprintf(os.Stderr, "  signals diff        Print unified diff of signals file\n")
-		fmt.Fprintf(os.Stderr, "  reminder add <text> Create a reminder file; prints assigned id\n")
-		fmt.Fprintf(os.Stderr, "  reminder list       List all reminders\n")
-		fmt.Fprintf(os.Stderr, "  reminder show <id>  Print body of a reminder\n")
-		fmt.Fprintf(os.Stderr, "  reminder rm <id>    Delete a reminder\n")
-		fmt.Fprintf(os.Stderr, "  hooks session-start [--format=text]  Print session-start hook payload\n")
-		fmt.Fprintf(os.Stderr, "  hooks install [--scope user|project]  Install session-start hook\n")
-		fmt.Fprintf(os.Stderr, "  hooks uninstall [--scope user|project]  Remove session-start hook\n")
 		fmt.Fprintf(os.Stderr, "  claude install [--dry-run] [--target ~/.claude]  Install artifact bundle\n")
 		fmt.Fprintf(os.Stderr, "  claude update  [--dry-run] [--target ~/.claude]  Update artifact bundle\n")
 		fmt.Fprintf(os.Stderr, "  claude list                                       List bundled artifacts\n")
 		fmt.Fprintf(os.Stderr, "  claude diff    [--target ~/.claude]               Diff bundle vs on-disk\n")
+		fmt.Fprintf(os.Stderr, "  config get <key>        Print resolved config value\n")
+		fmt.Fprintf(os.Stderr, "  config set <key> <val>  Set config value; re-renders config.resolved.md\n")
+		fmt.Fprintf(os.Stderr, "  config unset <key>      Revert key to built-in default\n")
+		fmt.Fprintf(os.Stderr, "  config list [--json]    List all resolved key=value pairs\n")
+		fmt.Fprintf(os.Stderr, "  config path             Print path to config.toml\n")
 		fmt.Fprintf(os.Stderr, "  docker init [--target ./atomic-docker] [--force]  Scaffold Docker eval environment\n")
 		fmt.Fprintf(os.Stderr, "  doctor [--fix] [--json] [--only <cat>] [--skip <cat>] [--stale-days N] [--verbose]  Integrity check\n")
+		fmt.Fprintf(os.Stderr, "  hooks session-start [--format=text]  Print session-start hook payload\n")
+		fmt.Fprintf(os.Stderr, "  hooks install [--scope user|project]  Install session-start hook\n")
+		fmt.Fprintf(os.Stderr, "  hooks uninstall [--scope user|project]  Remove session-start hook\n")
+		fmt.Fprintf(os.Stderr, "  reminder add <text> Create a reminder file; prints assigned id\n")
+		fmt.Fprintf(os.Stderr, "  reminder list       List all reminders\n")
+		fmt.Fprintf(os.Stderr, "  reminder show <id>  Print body of a reminder\n")
+		fmt.Fprintf(os.Stderr, "  reminder rm <id>    Delete a reminder\n")
+		fmt.Fprintf(os.Stderr, "  signals scan        Walk repo and write deterministic-signals.md\n")
+		fmt.Fprintf(os.Stderr, "  signals show        Print deterministic-signals.md to stdout\n")
+		fmt.Fprintf(os.Stderr, "  signals stale       Exit 0 if fresh, 1 if stale\n")
+		fmt.Fprintf(os.Stderr, "  signals diff        Print unified diff of signals file\n")
 		fmt.Fprintf(os.Stderr, "  update [--check] [--channel stable|prerelease]   Self-update the atomic binary\n")
 		fmt.Fprintf(os.Stderr, "  validate [flags] [spec|config|bundle] [paths...]  Lint repo artifacts\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
@@ -112,6 +118,13 @@ func main() {
 		runDocker(args[1:])
 	case "update":
 		runUpdate(args[1:])
+	case "config":
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic config: resolve home dir: %v\n", err)
+			os.Exit(2)
+		}
+		os.Exit(config.Run(args[1:], filepath.Join(home, ".claude"), os.Stdout, os.Stderr))
 	case "validate":
 		os.Exit(validate.Run(args[1:]))
 	default:

@@ -44,7 +44,7 @@ atomic claude install
 
 That's it. Activate the output style with `/config` → **Output style** → **Atomic** in any Claude Code session, and you're set.
 
-**On update.** Run `atomic claude update` to refresh. If you've customized `~/.claude/CLAUDE.md`, the new version lands at `~/.claude/CLAUDE.md.atomic-proposed` — run `/atomic-claude-merge` to reconcile.
+**On update.** Run `atomic claude update` to refresh. If you've customized `~/.claude/CLAUDE.md`, the new version lands at `~/.claude/.atomic/proposed/CLAUDE.md` — run `/atomic-claude-merge` to reconcile. All atomic-owned per-user state (backups, proposed merges, the config TOML and its rendered view) lives under `~/.claude/.atomic/`.
 
 Prereqs, flags, full merge contract, `atomic doctor` verification, Docker eval → [docs/guides/install.md](docs/guides/install.md).
 
@@ -152,8 +152,9 @@ A holistic Claude Code configuration designed as one coherent system. Grouped by
 - `/worktree-start` — isolated `.worktrees/<branch>/` with auto-detected setup + baseline test.
 - `/remind-me` + `/follow-up` — cron-fired reminders surfaced at session open or on demand.
 - `/atomic-help` — reads git state, recommends the next verb.
-- [`atomic doctor`](docs/spec/atomic-doctor.md) — eight integrity checks (install / hooks / signals / refs / manifest / followups / memory / binary). `--fix` interactive; `--json` for CI.
+- [`atomic doctor`](docs/spec/atomic-doctor.md) — nine integrity checks (install / hooks / signals / refs / manifest / followups / memory / binary / config). `--fix` interactive; `--json` for CI.
 - `atomic validate` — lints spec markdown, cross-reference integrity, bundle parity against the embedded manifest.
+- [`atomic config`](docs/spec/atomic-state-and-config.md) — `get | set | unset | list | path` over `~/.claude/.atomic/config.toml`. Shell-settable defaults that steer every Claude session via an `@-ref` from the bundled `CLAUDE.md`. Works with or without the session-start hook (universal file-based delivery), so enterprise environments that block hooks are still covered. Schema v1 starts with `output.intensity` only; more keys land per concrete steering need.
 
 
 ## Canonical workflow

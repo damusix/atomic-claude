@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
 
@@ -78,7 +79,7 @@ func planArtifact(targetDir string, a embedded.Artifact) (FileAction, error) {
 
 	// Differs. CLAUDE.md gets the proposed-file treatment.
 	if a.Target == "CLAUDE.md" {
-		proposedPath := filepath.Join(targetDir, "CLAUDE.md.atomic-proposed")
+		proposedPath := config.ProposedCLAUDEMD(targetDir)
 		return FileAction{Artifact: a, Kind: ActionMergeRequired, ProposedPath: proposedPath}, nil
 	}
 
@@ -107,7 +108,26 @@ func Apply(targetDir string, plan []FileAction, dryRun bool, clock Clock) error 
 			return err
 		}
 	}
+	if !dryRun {
+		if err := ensureResolvedConfigStub(targetDir); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// ensureResolvedConfigStub creates <targetDir>/.atomic/config.resolved.md as an empty
+// file if it does not already exist. Idempotent: leaves any existing content untouched.
+// This file is @-referenced from CLAUDE.md so every Claude session can load it.
+func ensureResolvedConfigStub(targetDir string) error {
+	resolvedPath := config.ResolvedPath(targetDir)
+	if _, err := os.Stat(resolvedPath); err == nil {
+		return nil // already exists — leave it alone
+	}
+	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o755); err != nil {
+		return fmt.Errorf("mkdir for config.resolved.md: %w", err)
+	}
+	return os.WriteFile(resolvedPath, []byte{}, 0o644)
 }
 
 func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp string) error {
@@ -129,7 +149,7 @@ func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp 
 		return os.WriteFile(onDiskPath, embeddedData, 0o644)
 
 	case ActionUpdated:
-		backupPath := filepath.Join(targetDir, ".atomic-backups", backupTimestamp, filepath.FromSlash(fa.Artifact.Target))
+		backupPath := filepath.Join(config.BackupDir(targetDir), backupTimestamp, filepath.FromSlash(fa.Artifact.Target))
 		fa.BackupPath = backupPath
 		if dryRun {
 			return nil
@@ -272,8 +292,8 @@ func Report(plan []FileAction, targetDir string) string {
 	}
 
 	// Compute the shared backup directory from the first updated action's BackupPath.
-	// BackupPath shape: <targetDir>/.atomic-backups/<timestamp>/<relpath>
-	// We want: <targetDir>/.atomic-backups/<timestamp>
+	// BackupPath shape: <targetDir>/.atomic/backups/<timestamp>/<relpath>
+	// We want: <targetDir>/.atomic/backups/<timestamp>
 	backupDir := ""
 	for _, fa := range updated {
 		if fa.BackupPath != "" {

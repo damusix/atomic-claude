@@ -10,6 +10,11 @@ A holistic Claude Code configuration. The artifacts here (`CLAUDE.md`, `commands
 Replaces (for the author) heavier toolkits like superpowers and caveman. Personal config, no stability guarantee.
 
 
+## Platform support
+
+macOS and Linux only. Windows is not a concern — do not file Windows-specific risks, do not write tests that probe `os.PathSeparator` behavior on Windows, do not gate work on Windows compatibility. `.goreleaser.yaml` may still produce Windows binaries, but Windows-correctness review findings should be dropped.
+
+
 ## File roles (this repo specifically)
 
 | File | Role | Destination |

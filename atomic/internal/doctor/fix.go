@@ -237,6 +237,10 @@ func repairPlan(r Result) (plan string, fixable bool) {
 		return "cannot auto-fix — user-authored; orphan refs: " + r.Detail, false
 	case "binary":
 		return "cannot auto-fix — run `atomic update` to update.", false
+	case "config":
+		// Parse errors and invalid values cannot be auto-fixed; user must edit.
+		// Only drift (WARN) is fixable.
+		return "re-render config.resolved.md from current config.toml", r.Severity == WARN
 	default:
 		return "cannot auto-fix — unknown category", false
 	}
@@ -258,9 +262,21 @@ func applyRepair(r Result, p Prompter, out io.Writer) error {
 		return applyRefsRepair(p, out)
 	case "manifest":
 		return applyManifestRepairWithGuard(out)
+	case "config":
+		return applyConfigRepair(out)
 	default:
 		return fmt.Errorf("no repair for %q", r.Name)
 	}
+}
+
+// applyConfigRepair re-renders config.resolved.md from the current TOML.
+func applyConfigRepair(out io.Writer) error {
+	fmt.Fprintln(out, "$ re-rendering config.resolved.md")
+	claudeHome, err := resolveClaudeHome()
+	if err != nil {
+		return fmt.Errorf("resolve claude home: %w", err)
+	}
+	return configRepairFn(claudeHome)
 }
 
 // applyManifestRepairWithGuard checks repo-dev before delegating.

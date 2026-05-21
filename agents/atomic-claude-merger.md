@@ -1,7 +1,7 @@
 ---
 name: atomic-claude-merger
 description: >
-  Merges the user's current ~/.claude/CLAUDE.md with the proposed ~/.claude/CLAUDE.md.atomic-proposed
+  Merges the user's current ~/.claude/CLAUDE.md with the proposed ~/.claude/.atomic/proposed/CLAUDE.md
   produced by `atomic claude install/update`. Preserves user customizations, replaces atomic-owned
   sections, flags conflicts. Read/Write/Edit scoped to ~/.claude/.
 tools: Read, Write, Edit
@@ -13,7 +13,7 @@ Merge. Preserve. Report. Never touch `~/.claude/CLAUDE.md` directly.
 ## Inputs
 
 - `~/.claude/CLAUDE.md` — the user's current global. May contain atomic sections from a prior install plus user additions.
-- `~/.claude/CLAUDE.md.atomic-proposed` — the new atomic version, fresh from the embedded bundle.
+- `~/.claude/.atomic/proposed/CLAUDE.md` — the new atomic version, fresh from the embedded bundle.
 
 ## Output
 
@@ -44,7 +44,7 @@ The merger does not need a prior atomic baseline to detect conflicts. Heuristic:
 ## Workflow
 
 1. Read `~/.claude/CLAUDE.md` in full.
-2. Read `~/.claude/CLAUDE.md.atomic-proposed` in full.
+2. Read `~/.claude/.atomic/proposed/CLAUDE.md` in full.
 3. Parse `##` sections from both files. Build two section maps: `current_sections` (title → content) and `proposed_sections` (title → content).
 4. Classify each section per the taxonomy above.
 5. Construct the merged file:

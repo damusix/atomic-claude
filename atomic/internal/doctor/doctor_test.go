@@ -7,14 +7,14 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// TestRegistryCount verifies exactly 8 entries with stable indices 1–8.
+// TestRegistryCount verifies exactly 9 entries with stable indices 1–9.
 func TestRegistryCount(t *testing.T) {
 	cats := doctor.Categories()
-	if len(cats) != 8 {
-		t.Fatalf("registry len = %d, want 8", len(cats))
+	if len(cats) != 9 {
+		t.Fatalf("registry len = %d, want 9", len(cats))
 	}
 
-	// Indices must be 1..8 with no gaps.
+	// Indices must be 1..9 with no gaps.
 	for i, c := range cats {
 		want := i + 1
 		if c.Index != want {
@@ -34,6 +34,7 @@ func TestRegistryCategoryNames(t *testing.T) {
 		"followups",
 		"memory",
 		"binary",
+		"config",
 	}
 	cats := doctor.Categories()
 	for i, want := range wantNames {
@@ -55,6 +56,7 @@ func TestRegistryCategorySeverities(t *testing.T) {
 		doctor.WARN, // 6 followups
 		doctor.WARN, // 7 memory
 		doctor.WARN, // 8 binary
+		doctor.WARN, // 9 config
 	}
 	cats := doctor.Categories()
 	for i, want := range wantSeverities {
@@ -82,17 +84,17 @@ func TestRunFiltersByOnly(t *testing.T) {
 	}
 }
 
-// TestRunFiltersBySkip verifies Run with Skip=[2,4,6,8] returns indices [1,3,5,7].
+// TestRunFiltersBySkip verifies Run with Skip=[2,4,6,8] returns indices [1,3,5,7,9].
 func TestRunFiltersBySkip(t *testing.T) {
 	opts := doctor.Opts{Skip: []int{2, 4, 6, 8}, StaleDays: 7}
 	results, err := doctor.Run(opts)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(results) != 4 {
-		t.Fatalf("Run returned %d results, want 4", len(results))
+	if len(results) != 5 {
+		t.Fatalf("Run returned %d results, want 5", len(results))
 	}
-	wantIndices := []int{1, 3, 5, 7}
+	wantIndices := []int{1, 3, 5, 7, 9}
 	for i, want := range wantIndices {
 		if results[i].Index != want {
 			t.Errorf("results[%d].Index = %d, want %d", i, results[i].Index, want)
@@ -222,11 +224,11 @@ func TestFlagParsingRejectsUnknownCategory(t *testing.T) {
 	}
 }
 
-// TestFlagParsingRejectsOutOfRangeIndex verifies --only rejects index 0 and >8.
+// TestFlagParsingRejectsOutOfRangeIndex verifies --only rejects index 0 and >9.
 func TestFlagParsingRejectsOutOfRangeIndex(t *testing.T) {
-	_, err := doctor.ParseFlags([]string{"--only", "9"})
+	_, err := doctor.ParseFlags([]string{"--only", "10"})
 	if err == nil {
-		t.Fatal("expected error for out-of-range index 9, got nil")
+		t.Fatal("expected error for out-of-range index 10, got nil")
 	}
 
 	_, err = doctor.ParseFlags([]string{"--only", "0"})
