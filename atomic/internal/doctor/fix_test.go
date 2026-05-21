@@ -585,3 +585,49 @@ func TestRepair_SummaryLine(t *testing.T) {
 		t.Errorf("summary line missing '1 repair':\n%s", output)
 	}
 }
+
+// -- DecisionAbort: Repair loop stops on Abort (Ctrl+C / huh ErrUserAborted) --
+
+// TestRepair_DecisionAbort_stopsLoop verifies the Repair loop short-circuits
+// on DecisionAbort, prints "Aborted", and counts remaining items as Skipped.
+// WHY: silently treating Ctrl+C as "No" means a user trying to escape the
+// entire repair loop gets only the current item skipped, not the whole loop.
+//
+// Part (a) — prompt.Confirm surfaces ErrAborted — is covered in the prompt
+// package via stubbed runConfirm. Part (b) — stdinPrompter translates
+// ErrAborted → DecisionAbort — has no direct unit test because the
+// translation lives in the huh-path branch of stdin_prompter.Confirm and is
+// reachable only with a real TTY. Tracked as a structural coverage gap.
+func TestRepair_DecisionAbort_stopsLoop(t *testing.T) {
+	installCalled := false
+	hooksCalled := false
+	doctor.SetInstallRepairFn(func(out io.Writer) error { installCalled = true; return nil })
+	doctor.SetHooksRepairFn(func(out io.Writer) error { hooksCalled = true; return nil })
+	t.Cleanup(func() {
+		doctor.SetInstallRepairFn(nil)
+		doctor.SetHooksRepairFn(nil)
+	})
+
+	results := []doctor.Result{
+		makeResult(1, "install", doctor.WARN, "drift"),
+		makeResult(2, "hooks", doctor.WARN, "missing"),
+	}
+	var sb strings.Builder
+	// First prompt returns Abort; second should never be reached.
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionAbort}}
+	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	if installCalled || hooksCalled {
+		t.Error("no repair should run after DecisionAbort")
+	}
+	if summary.Skipped != 2 {
+		t.Errorf("Skipped = %d, want 2 (Abort stops all remaining)", summary.Skipped)
+	}
+	if p.nextIdx != 1 {
+		t.Errorf("Confirm called %d times, want 1", p.nextIdx)
+	}
+	output := sb.String()
+	if !strings.Contains(output, "Aborted") {
+		t.Errorf("expected 'Aborted' in output, got:\n%s", output)
+	}
+}

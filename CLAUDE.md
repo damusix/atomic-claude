@@ -9,7 +9,7 @@
 - Simplicity first. Minimum code. No speculation. No abstractions for single-use code.
 - Surgical changes. Touch only what's needed. Don't improve adjacent code. Match existing style.
 - Goal-driven. Define success criteria up front. Loop until verified. Strong success criteria let Claude loop independently.
-- Use the model for judgment calls only (classification, drafting, summarization, extraction). Never for routing, retries, status-code handling, or deterministic transforms. If code can answer, code answers.
+- Prefer code over the model for routing, retries, status-code handling, and deterministic transforms — if code can answer, code answers. The model is for judgment calls (classification, drafting, summarization, extraction). Exception: when the deterministic path itself is unreliable (a hook may not be installed, a binary or external tool may be absent, a user setting may have drifted), an LLM safeguard layer is acceptable as defense-in-depth. Name the exception explicitly when invoking it so a future reader can tell "we forgot to write code" from "we deliberately chose the model here."
 - Surface conflicts, don't average them. Pick one (more recent / more tested), explain why, flag the other. Never blend.
 - Read before you write. Check exports, callers, shared utilities. If unsure why code is structured a certain way, ask.
 - Verify before asserting. Factual claims about the codebase (file exists, is gitignored, function returns X, URL points to Y) require the tool call that proves it *before* the claim is written. Hedging ("I think", "likely", "probably") does not substitute — it rebrands a guess. Applies to reviews and analysis, not only code-writing. If you can't verify in this turn, mark the claim unverified explicitly; don't ship it as fact.
@@ -36,19 +36,6 @@ When Read+Write is correct: brand-new file with no source, or genuine full rewri
 
 
 macOS sed: `sed -i '' 's/old/new/g' file` (empty string after `-i`). Verify with `git diff` after — sed is silent on no-match.
-
-
-## Design axioms
-
-
-Enduring principles for the atomic-claude system. Apply when adding new commands, skills, or agents.
-
-
-1. **Cohesion-bounded scope, not file-count-bounded.** Feature-slice agents accept many files when they form one logical unit; surgical agents hard-cap on file count.
-2. **Memory over config.** Variable thresholds and user preferences live in auto-memory, not config files.
-3. **Destructive ops require explicit per-item confirm.** Default to report-only. Never auto-act on data-losing operations.
-4. **Plain-text indexed selection over multi-select UI.** For N-item lists, print a numbered list and accept typed input (`1 3 5`, `all`, `none`).
-5. **Skills auto-fire on triggers; commands are explicit-only.** If a description has to forbid auto-firing, convert the skill to a command.
 
 
 ## Where things live
@@ -150,6 +137,6 @@ Other commands: `/atomic-help [<topic> | <freeform intent>]` (routing assistant 
 
 Atomic binary subcommands beyond `claude install` / `signals scan` / `hooks install` / `reminder` / `update`: `atomic docker init [--target DIR] [--force]` writes a Dockerfile + docker-compose.yml + entrypoint into the target dir (default `./atomic-docker/`) so users can evaluate atomic-claude on their own projects without cloning this repo. Mirror of the contributor Docker setup at the repo root (see `## Evaluations` in README.md).
 
-`atomic doctor [--fix] [--json] [--only <cat[,...]>] [--skip <cat[,...]>] [--stale-days N] [--verbose]` runs nine indexed integrity checks (install, hooks, signals, refs, manifest, followups, memory, binary, config) against `~/.claude/` and the current project. Exits 0 (all PASS or only WARN/SKIP), 1 (any FAIL), 2 (usage error). `--fix` prompts per item to apply repairs (per axiom 3). Full spec: `docs/spec/atomic-doctor.md`.
+`atomic doctor [--fix] [--json] [--only <cat[,...]>] [--skip <cat[,...]>] [--stale-days N] [--verbose]` runs nine indexed integrity checks (install, hooks, signals, refs, manifest, followups, memory, binary, config) against `~/.claude/` and the current project. Exits 0 (all PASS or only WARN/SKIP), 1 (any FAIL), 2 (usage error). `--fix` prompts per item to apply repairs. Full spec: `docs/spec/atomic-doctor.md`.
 
 `atomic validate [spec|config|bundle] [paths...]` runs deterministic lints against the repo's artifacts: spec markdown structure (S0/S1/S5/S6), cross-reference integrity in CLAUDE.md / commands / agents / skills (C1/C3/C5/C7/C9), and bundle parity against the embedded manifest. No args → whole-repo run. `--json` for machine output, `--suggest` for structural template hints. Exit 1 on any FAIL, 2 on internal error.

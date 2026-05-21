@@ -12,10 +12,11 @@ import (
 type Decision int
 
 const (
-	DecisionYes  Decision = iota // y — apply this repair
-	DecisionNo                   // N (default) — skip this repair
-	DecisionAll                  // a — apply this and all remaining
-	DecisionQuit                 // q — skip this and all remaining
+	DecisionYes   Decision = iota // y — apply this repair
+	DecisionNo                    // N (default) — skip this repair
+	DecisionAll                   // a — apply this and all remaining
+	DecisionQuit                  // q — skip this and all remaining
+	DecisionAbort                 // Ctrl+C / huh ErrUserAborted — stop entire loop
 )
 
 // Prompter is the interface for interactive fix-mode prompts.
@@ -174,6 +175,11 @@ func Repair(results []Result, _ Opts, p Prompter, out io.Writer) RepairSummary {
 		switch decision {
 		case DecisionQuit:
 			// Count this item and all remaining as skipped.
+			summary.Skipped += len(actionable) - i
+			return summarizeAndPrint(summary, out)
+		case DecisionAbort:
+			// Ctrl+C / huh ErrUserAborted — stop entire loop.
+			fmt.Fprintln(out, "Aborted.")
 			summary.Skipped += len(actionable) - i
 			return summarizeAndPrint(summary, out)
 		case DecisionNo:

@@ -54,6 +54,17 @@ Each axiom: what it is, why it exists, where it applies, what it forbids.
 **Carve-out for shell-settable defaults.** Tunables that must be writable from a shell (CI scripts, `atomic config set`, dotfile-managed setup) live in `~/.claude/.atomic/config.toml`, not memory. Memory cannot be written non-interactively. Config is the durable floor; memory is a per-conversation nudge on top, intended to decay with the conversation. Memory entries overriding config should be scoped ("for this session", "for this task"), never "remember forever" — a stale memory must not silently outlive a recent `atomic config set`. Example: `output.intensity = "lite"` (config, durable) vs "use atomic ultra for this session" (memory, scoped). See `docs/spec/atomic-state-and-config.md` for the full contract.
 
 
+**When memory is the wrong primitive.** Memory is conversational and eventually consistent. Beyond the shell-settable carve-out above, several other failure modes push values out of memory and into code or committed config:
+
+
+- **Hard contracts** (test thresholds, security gates, version pins, CI exit codes) — memory drift = silent regression.
+- **Values that scope-bleed badly** (project-specific settings that would corrupt other projects if recalled in the wrong context) — memory's per-user scope is too broad. Use project config.
+- **Values the user must see and review in a diff** (anything safety-related) — memory edits are invisible to git. Use a tracked file.
+
+
+When you go against the "memory over config" default, document the choice in the same place the value lives (comment in the config file, change-log entry in the spec). This axiom remains the default; the exception is what gets called out.
+
+
 ---
 
 

@@ -62,6 +62,42 @@ Uses `CombinedOutput()` then discards on success — user sees `$ make -C atomic
 Origin: docs/spec/atomic-doctor.md, iter 9 reviewer (CP-7). Deferred to project followups at Phase 3 finalize 2026-05-17.
 
 
+### install-output-style-F-1 — `prompt.Confirm` default-value plumbing is untested
+
+
+`atomic/internal/prompt/prompt_test.go:28-50` + `prompt.go:54`
+
+
+Both Confirm tests stub the runner entirely; neither exercises the path where `def` reaches `defaultRunConfirm` and survives huh's form init. The `result = def` line could be deleted with no test failure. Hard to test cleanly without a real TTY. Revisit when adding any integration harness for huh, or when huh ships a `.Default(bool)` builder we can rely on directly.
+
+
+Origin: install-output-style branch (abandoned 2026-05-21), iter 1 reviewer. Logged here because the prompt package was salvaged forward.
+
+
+### install-output-style-F-2 — huh PointerAccessor read-timing risk on huh upgrade
+
+
+`atomic/internal/prompt/prompt.go:44-58`
+
+
+`huh.NewConfirm()` has no explicit `.Default(bool)` builder. Current code sets `result = def` after `Value(&result)` and before `form.Run()`, relying on huh's `PointerAccessor` reading through the pointer at render time. If a future huh version resets bound values during form init, every confirm silently becomes `false`. huh's minor version is pinned in `go.mod`; revisit on every huh upgrade.
+
+
+Origin: install-output-style branch (abandoned 2026-05-21), iter 1 reviewer. Logged here because the prompt package was salvaged forward.
+
+
+### install-output-style-F-5 — `defaultRunConfirm` huh-abort mapping is test-dead
+
+
+`atomic/internal/prompt/prompt.go:61-63` + `atomic/internal/doctor/stdin_prompter.go:42-44`
+
+
+The `if errors.Is(err, huh.ErrUserAborted) { return false, ErrAborted }` line and the doctor-side `prompt.ErrAborted → DecisionAbort` translation cannot be reached without a real TTY. Tests cover the layers above (stubbed `runConfirm`, `Repair` loop respecting `DecisionAbort`) but not the actual mapping. Deleting either line would compile and pass `go test`. Structural gap — add an integration harness or a `huh`-side stub once the testability story for `huh` improves.
+
+
+Origin: install-output-style branch (abandoned 2026-05-21), polish-pass reviewer. Logged here because the abort-handling code was salvaged forward.
+
+
 
 
 ## 🔵 nits

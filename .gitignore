@@ -11,7 +11,9 @@ tmp/claude-home/*
 .claude/agents/
 .claude/commands/
 .claude/output-styles/
-.claude/skills/
+.claude/skills/*
+!.claude/skills/atomic-cli-contrib/
+!.claude/skills/atomic-cli-contrib/**
 .claude/rules/
 !.claude/settings.local.json
 .claude/project/.deterministic-signals.prev.md
