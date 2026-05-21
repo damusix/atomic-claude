@@ -154,3 +154,6 @@ Built across 5 implement-review iterations of `/subagent-implementation` plus a 
 - `F-6` dropped: pre-existing Windows path-extraction fragility in `install_test.go:534`. macOS/Linux are the only supported platforms going forward (recorded in `claude.local.md`).
 
 No items deferred to project-level `.claude/project/followups.md`. No tracked issues filed.
+
+
+**Squashed onto `main` as `5c9d61c` — 2026-05-21.** Per-iteration SHAs above are historical (unreachable post-squash).

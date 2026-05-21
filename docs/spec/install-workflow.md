@@ -230,3 +230,6 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 **Why:** `docs/spec/atomic-state-and-config.md` consolidates all atomic-owned per-user state under `~/.claude/.atomic/`. Scattered legacy paths (`.atomic-proposed`, `.atomic-backups/`) gave `atomic doctor` three separate cleanup targets and made every new piece of state another top-level entry under `~/.claude/`.
 
 **Superseded:** prior contract wrote merge proposal to `~/.claude/CLAUDE.md.atomic-proposed` and backups to `~/.claude/.atomic-backups/<ts>/`. Both still exist on installed machines that ran older `atomic` binaries; cleanup is the user's responsibility (no migration code).
+
+
+**This branch (atomic-state-and-config) squashed onto `main` as `5c9d61c` — 2026-05-21.** Change log entry above amended via squash.

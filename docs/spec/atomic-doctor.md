@@ -274,3 +274,6 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 
 - 4 entries promoted to `.claude/project/followups.md` as `atomic-doctor-F-1` through `atomic-doctor-F-4`: bundlemirror hidden contract, `gitToplevel` triple-call latency, repair-seam global mutators, manifest-repair output forwarding.
 - 13 nits dropped at finalize (test-quality cosmetics, inherited spec format quirks). Audit trail in branch commit history and per-iteration `STATE.md` (deleted with the scratchpad).
+
+
+**This branch (atomic-state-and-config) squashed onto `main` as `5c9d61c` — 2026-05-21.** Change log entry above amended via squash.
