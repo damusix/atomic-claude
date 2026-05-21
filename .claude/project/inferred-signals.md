@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-18T12:30:00Z
+generated_at: 2026-05-21T07:00:00Z
 source: .claude/project/deterministic-signals.md
 ---
 
@@ -8,11 +8,11 @@ source: .claude/project/deterministic-signals.md
 ## Framework / runtime
 
 - **Go 1.23**, single module at `atomic/go.mod` (`module github.com/damusix/atomic-claude/atomic`). Runtime target: CLI binary named `atomic`.
-- **External Go dependencies**: `gopkg.in/yaml.v3 v3.0.1` (YAML frontmatter parsing, used in `atomic/internal/frontmatter/`), `github.com/tailscale/hujson` (lenient JSON for hooks config, `atomic/internal/hooks/hooks_hujson.go`).
+- **External Go dependencies**: `gopkg.in/yaml.v3 v3.0.1` (YAML frontmatter parsing, `atomic/internal/frontmatter/`), `github.com/tailscale/hujson` (lenient JSON for hooks config, `atomic/internal/hooks/hooks_hujson.go`), `github.com/pelletier/go-toml/v2` (TOML config read/write, `atomic/internal/config/`).
 - **Go embed** (`//go:embed bundle`, `atomic/internal/embedded/bundle.go`): artifact bundle is embedded at build time via `go:generate`.
-- **goreleaser** (`.goreleaser.yaml`): multi-platform release pipeline producing `linux/darwin/windows × amd64/arm64` binaries (Windows arm64 excluded). CGO disabled. Version injected via ldflags from `internal/version`.
+- **goreleaser** (`.goreleaser.yaml`): multi-platform release pipeline producing `linux/darwin × amd64/arm64` binaries. macOS/Linux only — Windows out of scope (`claude.local.md`). CGO disabled. Version injected via ldflags from `internal/version`.
 - **release-please** (`.github/workflows/release-please.yml`, `release-please-config.json`, `release-please-manifest.json`): automated changelog and tag generation on main.
-- No web framework. No database. No runtime dependencies outside the Go standard library and the two listed third-party modules.
+- No web framework. No database. No runtime dependencies outside the Go standard library and the three listed third-party modules.
 
 ## Build / test / lint commands
 
@@ -42,23 +42,24 @@ The repo has two logical layers:
 Internal package layout inside `atomic/internal/`:
 
 - `bundlemirror/` — build-time mirror: walks repo root, copies matching artifacts into `embedded/bundle/`, writes `manifest.go`
-- `embedded/` — holds the `go:embed`-ed `bundle/` FS and the generated `Manifest()` slice; bundle grew to 44 total items as of this scan (new commands: `review-branch.md`, `undo-commit.md`; new skill: `atomic-prose/`)
-- `claudeinstall/` — install/update/diff/list verbs; SHA256-based idempotency; backs up changed files under `.atomic-backups/<timestamp>/`; special-cases `CLAUDE.md` as merge-required
+- `embedded/` — holds the `go:embed`-ed `bundle/` FS and the generated `Manifest()` slice; bundle is 51 total items
+- `claudeinstall/` — install/update/diff/list verbs; SHA256-based idempotency; backs up changed files under `~/.claude/.atomic/backups/<timestamp>/`; writes proposed merge to `~/.claude/.atomic/proposed/CLAUDE.md`; pre-creates `~/.claude/.atomic/config.resolved.md` on every `Apply`; special-cases `CLAUDE.md` as merge-required
+- `config/` — TOML-backed config (`~/.claude/.atomic/config.toml`); v1 schema has one key: `output.intensity` (`lite|full|ultra`, default `full`); lenient load (unknown keys → warnings, not errors); atomic write via `os.Rename`; renders resolved values to `~/.claude/.atomic/config.resolved.md` (markdown snapshot `@`-ref'd from bundled `CLAUDE.md`); Levenshtein typo-suggestion on unknown key names; uses `github.com/pelletier/go-toml/v2`
 - `signals/` — tree walker, manifest scanner, language counter; writes `.claude/project/deterministic-signals.md`; keeps `.deterministic-signals.prev.md` for diff; uses `git diff` when in a git repo, falls back to `diff(1)`
 - `hooks/` — session-start hook payload generation and install/uninstall
 - `reminder/` — file-based reminder CRUD
 - `selfupdate/` — GitHub Releases API lookup, SHA256-verified binary download, atomic replace via `os.Rename` with cross-filesystem fallback
 - `repoctx/`, `frontmatter/`, `ids/`, `version/` — support utilities
 
-Not a monorepo (single go.mod). Not a library (no exported packages intended for external import). Not a web app. This is a **CLI tool with an embedded configuration bundle**.
+Not a monorepo (single go.mod). Not a library (no exported packages intended for external import). Not a web app. macOS/Linux only. This is a **CLI tool with an embedded configuration bundle**.
 
-Commands: 32 top-level `.md` files (up from 29). New additions since last scan: `commands/atomic-help.md` (`/atomic-help` — routing assistant; reads git state, classifies user intent, recommends one next verb; never executes), `commands/pressure-test.md` (`/pressure-test` — Socratic challenger session for design/spec pressure-testing; questions only, no artifacts, no agents dispatched; pairs with `/atomic-plan`), `commands/subagent-diagnose.md` (`/subagent-diagnose <ci|bug>` — parallel to `/subagent-implementation` but starts from a failure; `ci` mode pulls a failed CI run's logs, `bug` mode starts from a freeform symptom; same scratchpad + investigator + builder/surgeon + reviewer + FOLLOWUPS loop). All three auto-bundle via the existing `commands/*.md` inclusion rule. Bundle is now 51 total items (`atomic/internal/embedded/` reports 51 total). Agents roster: 9 (new: `agents/atomic-strategist.md` — Opus-powered, read-only heavyweight reasoning; audits specs/designs, surfaces tradeoffs; dispatched via the `Agent` tool with `subagent_type: "atomic-strategist"`). `atomic/internal/` grew a new package: `doctor/` (33 files) implementing all 8 `atomic doctor` integrity checks, repair mode, exit-code logic, and format/output layer. `docs/spec/` grew to 10 files: added `atomic-doctor.md`, `atomic-validate.md`, `subagent-diagnose.md`. `docs/design/` grew to 3 files: added `diagnose-orchestrators.md`.
+Commands: 32 top-level `.md` files. Agents roster: 9. `atomic/internal/` has 18 subdirectories. `doctor/` grew to 35 files (new: `checks_config.go`, `checks_config_test.go` — category #9 in the doctor registry). `docs/spec/` grew to 12 files: added `atomic-state-and-config.md`, `install-output-style.md`. `docs/design/` grew to 4 files: added `atomic-state-and-config.md`. `docs/credits.md` added at `docs/` root. `assets/atomic-claude.png` added (logo/image asset, not bundled).
 
 ## Conventions detected
 
 **Test layout**: tests are co-located with implementation (`*_test.go` alongside source, e.g. `signals_test.go` next to `signals.go`). One integration test lives separately at `atomic/test/install_sh_test.go`.
 
-**Source layout**: standard Go flat package layout — no `internal/pkg/` nesting. Each subdomain is one package directly under `internal/`. Exception: `doctor/` (33 files) is significantly larger than all other packages (next largest: `validate/` at 14, `signals/` at 6). It stays flat within the package but uses file-level subdivision (`checks_<domain>.go`, `fix.go`, `fix_impls.go`, `format.go`, `exit.go`, `shortcircuit.go`) rather than sub-packages.
+**Source layout**: standard Go flat package layout — no `internal/pkg/` nesting. Each subdomain is one package directly under `internal/`. Exception: `doctor/` (35 files) is significantly larger than all other packages (next largest: `validate/` at 14, `config/` at 8, `signals/` at 6). It stays flat within the package but uses file-level subdivision (`checks_<domain>.go`, `fix.go`, `fix_impls.go`, `format.go`, `exit.go`, `shortcircuit.go`) rather than sub-packages.
 
 **Bundle inclusion rules** (from `atomic/internal/bundlemirror/mirror.go`):
 
@@ -86,7 +87,7 @@ Commands: 32 top-level `.md` files (up from 29). New additions since last scan: 
 - **Session hooks**: `atomic hooks session-start/install/uninstall` — injects pending-reminders context at session open.
 - **Reminders**: `atomic reminder add/list/show/rm` — file-based reminder CRUD stored in repo root.
 - **Self-update**: `atomic update [--check] [--channel]` — GitHub Releases-backed binary update with SHA256 verification and background check on every command invocation.
-- **Integrity checks**: `atomic/internal/doctor/` — 8-check health-check suite (`install`, `hooks`, `signals`, `refs`, `manifest`, `followups`, `memory`, `binary`). Implements `atomic doctor [--fix]`; exit 0 (PASS/WARN/SKIP), 1 (FAIL), 2 (usage error). Full spec at `docs/spec/atomic-doctor.md`.
+- **Integrity checks**: `atomic/internal/doctor/` — 9-check health-check suite (`install`, `hooks`, `signals`, `refs`, `manifest`, `followups`, `memory`, `binary`, `config`). Implements `atomic doctor [--fix]`; exit 0 (PASS/WARN/SKIP), 1 (FAIL), 2 (usage error). Full spec at `docs/spec/atomic-doctor.md`. Category 9 (`config`): verifies `config.toml` parses, no unknown keys, `config.resolved.md` matches re-render; repair re-renders `config.resolved.md`.
 - **Claude Code config authoring**: the root-level `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/` directories are the authoritative source for the artifact bundle.
 - **Prose discipline**: `skills/atomic-prose/` — voice and tone rules for human-readable developer documentation written into files. Distinct from the atomic TUI output style. Invoked by `/documentation`, `/atomic-plan` (design and prose sections), and auto-fires on documentation-editing phrases.
 - **Issue filing (atomic repo)**: `commands/report-issue-with-atomic.md` — `/report-issue-with-atomic` targets `damusix/atomic-claude` specifically. Sibling to `/report-issue` (which targets the user's current repo). Entry point for bugs/feature requests about the installed config itself.
@@ -97,13 +98,16 @@ Commands: 32 top-level `.md` files (up from 29). New additions since last scan: 
 - **Workflow routing**: `commands/atomic-help.md` — `/atomic-help` is a routing assistant for disoriented users. Reads git state (branch, ahead/behind, dirty, scratchpad presence, spec presence), classifies user intent (empty args = state-driven recommendation; topic keyword = focused pointer; freeform = one-verb classification), and recommends the single next action. Never executes. Atomic style output only.
 - **Design pressure-testing**: `commands/pressure-test.md` — `/pressure-test [<topic> | @<path>]` enters a Socratic challenger session. Questions only; no code, no specs, no agents. Explicit-only (never auto-fires). Pairs with `/atomic-plan` as pre-approval gate. Persists settled decisions in-conversation; no disk writes.
 - **Failure investigation**: `commands/subagent-diagnose.md` — `/subagent-diagnose <ci|bug>` is a multi-agent orchestrator for failure-root-cause loops. `ci` mode seeds from a failed GitHub Actions run (`gh run`); `bug` mode seeds from a freeform symptom. Same scratchpad (`BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`, `CONTEXT.md`), investigator + builder/surgeon + reviewer chain, and FOLLOWUPS disposition as `/subagent-implementation`. Hard bail at 5 iterations (user-memory-configurable) or 3 consecutive same-failure iterations. `ci` mode spawns `atomic-haiku` background watcher after fix commit. Full spec at `docs/spec/subagent-diagnose.md`.
-- **Design docs**: `docs/design/` holds `atomic-doctor.md`, `atomic-validate.md`, and `diagnose-orchestrators.md` — design rationale for shipped and planned features.
+- **User config**: `atomic config get|set|unset|list|path` — TOML-backed user config stored at `~/.claude/.atomic/config.toml`. Resolved values rendered to `~/.claude/.atomic/config.resolved.md` and `@`-ref'd from bundled `CLAUDE.md` so every Claude session sees current config without hooks. v1 schema: `output.intensity` (`lite|full|ultra`). `atomic/internal/config/` implements load/validate/render/persist; `atomic/internal/doctor/checks_config.go` enforces integrity. Spec: `docs/spec/atomic-state-and-config.md`.
+- **State directory consolidation**: `~/.claude/.atomic/` is now the canonical atomic-owned state root. Paths: `config.toml` (user config), `config.resolved.md` (rendered snapshot), `backups/<ts>/` (install backups), `proposed/CLAUDE.md` (merge target). Supersedes `~/.claude/.atomic-backups/` and `~/.claude/CLAUDE.md.atomic-proposed` (old paths orphaned; no migration).
+- **Design docs**: `docs/design/` holds `atomic-doctor.md`, `atomic-validate.md`, `atomic-state-and-config.md`, and `diagnose-orchestrators.md` — design rationale for shipped and planned features.
 
 ## Cross-references
 
 - `atomic/internal/bundlemirror/mirror.go` is the sole source of bundle inclusion logic; no `CommandAllowlist` exists. Every top-level `commands/*.md` ships. `commands/_templates/` subdirectory is explicitly skipped (loop skips dirs). Adding a new top-level command file is sufficient to include it in the bundle. `commands/atomic-help.md`, `commands/pressure-test.md`, and `commands/subagent-diagnose.md` all auto-bundle via this rule — no mirror.go change needed. Bundle is now 51 items.
 - `agents/atomic-strategist.md` ships in the bundle automatically via the `agents/atomic-*.md` inclusion rule. No bundle config change needed.
-- `atomic/internal/doctor/` is a new package (33 files) that implements `atomic doctor`. It is consumed by `atomic/cmd/atomic/main.go` (the CLI dispatcher) and shares `manifestcheck` with `atomic/internal/validate/`. The `doctor/` package itself has no exported public API — it is wired via the CLI subcommand dispatch layer.
+- `atomic/internal/doctor/` (35 files) implements `atomic doctor`. Consumed by `atomic/cmd/atomic/main.go`. Shares `manifestcheck` with `atomic/internal/validate/`. The new `checks_config.go` imports `atomic/internal/config` directly — `config` package is a shared dependency between `doctor` and the `atomic config` CLI commands.
+- `atomic/internal/config/` (8 files) is consumed by `atomic/cmd/atomic/main.go` (CLI dispatch for `atomic config get|set|unset|list|path`), `atomic/internal/claudeinstall/install.go` (pre-creates `config.resolved.md` on `Apply`), and `atomic/internal/doctor/checks_config.go` (integrity check). The `paths.go` functions (`TOMLPath`, `ResolvedPath`, `BackupDir`, `ProposedCLAUDEMD`) are the canonical source for all `~/.claude/.atomic/` path derivation — all three consumers call these rather than constructing paths independently.
 - `skills/atomic-prose/SKILL.md` ships in the bundle automatically: the `skills/atomic-*/` inclusion rule picks up all subdirs matching the `atomic-` prefix that contain a `SKILL.md`. No bundle config change needed when adding a new `atomic-`-prefixed skill directory.
 - `atomic/internal/embedded/manifest.go` is generated by `go generate`; editing it by hand is explicitly forbidden (file header: "Code generated by cmd/bundle-mirror. DO NOT EDIT.").
 - `.claude/project/deterministic-signals.md` is written by `atomic signals scan`; `inferred-signals.md` (this file) is written by the `atomic-signals-inferrer` agent. Both are `@`-referenced in `claude.local.md` (not `CLAUDE.md` — `CLAUDE.md` is the bundle source and must not carry project-specific paths).
@@ -117,7 +121,7 @@ Commands: 32 top-level `.md` files (up from 29). New additions since last scan: 
 
 - **Self-update binary replacement**: `selfupdate.Apply()` downloads a release archive, verifies SHA256 against `checksums.txt` from the same release, then atomically replaces the running binary via `os.Rename`. No signature verification beyond SHA256 (no GPG, no Sigstore). The checksums file itself is fetched from the same GitHub Release — a compromised release would provide matching checksums.
 - **Artifact install**: `claudeinstall.Apply()` writes files from the embedded FS to `~/.claude`. No signature check on the embedded bundle; trust derives from the binary itself.
-- **`CLAUDE.md` merge-required guard**: if `~/.claude/CLAUDE.md` differs from the bundled version, `claudeinstall` writes a `.atomic-proposed` file instead of overwriting, preventing silent replacement of user-customized global instructions.
+- **`CLAUDE.md` merge-required guard**: if `~/.claude/CLAUDE.md` differs from the bundled version, `claudeinstall` writes to `~/.claude/.atomic/proposed/CLAUDE.md` instead of overwriting, preventing silent replacement of user-customized global instructions. Old path (`~/.claude/CLAUDE.md.atomic-proposed`) is no longer written.
 - **No network access in signals or hooks**: `signals`, `hooks`, and `reminder` subcommands are local-only. Only `selfupdate` and `claude install/update` make outbound calls.
 - **CGO disabled** (`.goreleaser.yaml` `CGO_ENABLED=0`): no native code in the binary; no shared library attack surface.
 
@@ -129,3 +133,4 @@ Commands: 32 top-level `.md` files (up from 29). New additions since last scan: 
 - **`release-please-config.json` / `release-please-manifest.json` not read**: release-please versioning strategy (component vs. root) not confirmed. The `.goreleaser.yaml` injects `version.Version` from a single `atomic/internal/version/version.go` — unclear how release-please and goreleaser coordinate the version value.
 - **TypeScript file (100 LOC, 1 file)**: the deterministic scan reports 1 TypeScript file but the tree shows no `.ts` files at root level. Location not confirmed; likely inside `atomic/internal/signals/testdata/` (7 total items reported there). Requires `ls` or Read of that subtree to verify.
 - **Python file (30 LOC, 1 file)**: same as TypeScript — 1 Python file detected but not located in the visible tree. Likely inside `atomic/internal/signals/testdata/`. Requires verification.
+- **`atomic-claude-merger` agent and `/atomic-claude-merge` command**: the spec (`docs/spec/atomic-state-and-config.md` success criterion) states these must reference the new proposed path (`~/.claude/.atomic/proposed/CLAUDE.md`). Whether the agent and command files were updated to match was not verified in this incremental run — only `atomic/internal/claudeinstall/install.go` and `atomic/internal/config/paths.go` were read.

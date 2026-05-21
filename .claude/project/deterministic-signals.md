@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-05-18T12:12:35Z
-atomic_version: 1.2.0
+generated_at: 2026-05-21T05:29:59Z
+atomic_version: 1.2.1
 ---
 # Deterministic signals
 
@@ -29,6 +29,8 @@ atomic_version: 1.2.0
 │   ├── atomic-signals-inferrer.md
 │   ├── atomic-strategist.md
 │   └── atomic-surgeon.md
+├── assets/ (1)
+│   └── atomic-claude.png
 ├── atomic/ (7)
 │   ├── cmd/ (2)
 │   │   ├── atomic/ (2)
@@ -37,7 +39,7 @@ atomic_version: 1.2.0
 │   │   └── bundle-mirror/ (2)
 │   │       ├── main.go
 │   │       └── main_test.go
-│   ├── internal/ (17)
+│   ├── internal/ (18)
 │   │   ├── bundlemirror/ (1)
 │   │   │   └── mirror.go
 │   │   ├── bundlespec/ (2)
@@ -46,14 +48,25 @@ atomic_version: 1.2.0
 │   │   ├── claudeinstall/ (2)
 │   │   │   ├── install.go
 │   │   │   └── install_test.go
+│   │   ├── config/ (8)
+│   │   │   ├── cli.go
+│   │   │   ├── cli_test.go
+│   │   │   ├── config.go
+│   │   │   ├── config_test.go
+│   │   │   ├── paths.go
+│   │   │   ├── paths_test.go
+│   │   │   ├── render.go
+│   │   │   └── render_test.go
 │   │   ├── dockerinit/ (4)
 │   │   │   ├── templates/ (4 subitems) (4 total items)
 │   │   │   ├── convergence_test.go
 │   │   │   ├── dockerinit.go
 │   │   │   └── dockerinit_test.go
-│   │   ├── doctor/ (33)
+│   │   ├── doctor/ (35)
 │   │   │   ├── checks_binary.go
 │   │   │   ├── checks_binary_test.go
+│   │   │   ├── checks_config.go
+│   │   │   ├── checks_config_test.go
 │   │   │   ├── checks_followups.go
 │   │   │   ├── checks_followups_test.go
 │   │   │   ├── checks_hooks.go
@@ -181,9 +194,10 @@ atomic_version: 1.2.0
 │   ├── undo-commit.md
 │   ├── watch-ci.md
 │   └── worktree-start.md
-├── docs/ (4)
-│   ├── design/ (3)
+├── docs/ (5)
+│   ├── design/ (4)
 │   │   ├── atomic-doctor.md
+│   │   ├── atomic-state-and-config.md
 │   │   ├── atomic-validate.md
 │   │   └── diagnose-orchestrators.md
 │   ├── guides/ (3)
@@ -198,17 +212,20 @@ atomic_version: 1.2.0
 │   │   ├── signals-workflow.md
 │   │   ├── skills.md
 │   │   └── workflow.md
-│   └── spec/ (10)
-│       ├── atomic-binary.md
-│       ├── atomic-doctor.md
-│       ├── atomic-validate.md
-│       ├── cron-workflow.md
-│       ├── docker-eval-environment.md
-│       ├── install-workflow.md
-│       ├── session-report.md
-│       ├── signals-project-detection.md
-│       ├── signals-workflow.md
-│       └── subagent-diagnose.md
+│   ├── spec/ (12)
+│   │   ├── atomic-binary.md
+│   │   ├── atomic-doctor.md
+│   │   ├── atomic-state-and-config.md
+│   │   ├── atomic-validate.md
+│   │   ├── cron-workflow.md
+│   │   ├── docker-eval-environment.md
+│   │   ├── install-output-style.md
+│   │   ├── install-workflow.md
+│   │   ├── session-report.md
+│   │   ├── signals-project-detection.md
+│   │   ├── signals-workflow.md
+│   │   └── subagent-diagnose.md
+│   └── credits.md
 ├── output-styles/ (1)
 │   └── atomic.md
 ├── rules/ (2)
@@ -260,8 +277,8 @@ atomic_version: 1.2.0
 
 ## Languages
 
-- Go: 18579 LOC (52%), 87 files (34%)
-- Markdown: 16424 LOC (46%), 161 files (63%)
+- Go: 20423 LOC (54%), 97 files (36%)
+- Markdown: 16992 LOC (44%), 165 files (61%)
 - Shell: 269 LOC (0%), 3 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
