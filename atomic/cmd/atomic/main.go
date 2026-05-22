@@ -18,6 +18,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 	"github.com/damusix/atomic-claude/atomic/internal/signals"
+	"github.com/damusix/atomic-claude/atomic/internal/updatedoctor"
 	"github.com/damusix/atomic-claude/atomic/internal/validate"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
@@ -247,8 +248,10 @@ func runUpdate(args []string) {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	var check bool
 	var channel string
+	var noDoctor bool
 	fs.BoolVar(&check, "check", false, "only check if an update is available; do not apply")
 	fs.StringVar(&channel, "channel", "stable", "release channel: stable or prerelease")
+	fs.BoolVar(&noDoctor, "no-doctor", false, "skip post-update doctor self-check")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
@@ -287,6 +290,28 @@ func runUpdate(args []string) {
 		fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Post-update doctor: load config to check user preference, then run.
+	// Ignore home-dir errors and config warnings — doctor will catch real issues.
+	cfgRunDoctor := true // safe default when config is unreadable
+	if home, herr := os.UserHomeDir(); herr == nil {
+		cfgPath := config.TOMLPath(filepath.Join(home, ".claude"))
+		if cfg, _, cerr := config.Load(cfgPath); cerr == nil {
+			cfgRunDoctor = cfg.Update.RunDoctor
+		}
+	}
+	if shouldRunPostUpdateDoctor(noDoctor, cfgRunDoctor) {
+		updatedoctor.Run(doctor.Run, os.Stdout)
+	}
+}
+
+// shouldRunPostUpdateDoctor returns true when the post-update doctor should run.
+// Precedence: --no-doctor flag (highest) > config update.run_doctor > default true.
+func shouldRunPostUpdateDoctor(noDoctor, cfgRunDoctor bool) bool {
+	if noDoctor {
+		return false
+	}
+	return cfgRunDoctor
 }
 
 func runReminder(args []string, repoOverride string) {

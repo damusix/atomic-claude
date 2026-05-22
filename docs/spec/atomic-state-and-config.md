@@ -122,7 +122,15 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 ## Change log
 
 
-<!-- Populated on first amendment after spec approval. -->
+### 2026-05-22 — Add update.run_doctor config key
+
+**What changed:** Schema v1 gains a second key: `update.run_doctor` (bool, default `true`). When `true`, `atomic update` invokes the doctor pass automatically after a successful binary swap. Setting it to `false` suppresses the pass permanently for that user. The `--no-doctor` flag overrides per-invocation regardless of config value. Precedence follows the existing order: flag > config > default.
+
+| Key | Type | Default | Valid values |
+|-----|------|---------|--------------|
+| `update.run_doctor` | bool | `true` | `true`, `false` |
+
+**Why:** Users who find the automatic post-update doctor pass noisy or who run doctor explicitly as part of a CI gate can disable it durably without passing `--no-doctor` on every invocation.
 
 
 ## Implementation log

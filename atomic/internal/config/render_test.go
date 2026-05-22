@@ -50,3 +50,44 @@ func TestRenderSetValue(t *testing.T) {
 		t.Errorf("expected 'lite' in render after Set, got: %q", out)
 	}
 }
+
+// TestRenderSectionOrder: [output] appears before [update] (alphabetical key sort).
+func TestRenderSectionOrder(t *testing.T) {
+	cfg := Default()
+	out := Render(cfg)
+	outputIdx := strings.Index(out, "## [output]")
+	updateIdx := strings.Index(out, "## [update]")
+	if outputIdx < 0 {
+		t.Error("expected '## [output]' in render")
+	}
+	if updateIdx < 0 {
+		t.Error("expected '## [update]' in render")
+	}
+	if outputIdx > updateIdx {
+		t.Errorf("[output] should appear before [update]; output=%d update=%d", outputIdx, updateIdx)
+	}
+}
+
+// TestRenderUpdateSection: Render includes update.run_doctor with its value.
+func TestRenderUpdateSection(t *testing.T) {
+	cfg := Default()
+	out := Render(cfg)
+	if !strings.Contains(out, "update.run_doctor") {
+		t.Errorf("expected 'update.run_doctor' in render, got: %q", out)
+	}
+	if !strings.Contains(out, "true") {
+		t.Errorf("expected 'true' (default) in render, got: %q", out)
+	}
+}
+
+// TestRenderUpdateSectionFalse: Render shows false after Set false.
+func TestRenderUpdateSectionFalse(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "update.run_doctor", "false"); err != nil {
+		t.Fatal(err)
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, "false") {
+		t.Errorf("expected 'false' in render after Set, got: %q", out)
+	}
+}

@@ -117,6 +117,24 @@ func TestFormatHumanDetailPresent(t *testing.T) {
 	}
 }
 
+// TestFormatResultLine verifies the canonical column layout used by both
+// FormatHuman and updatedoctor. The name field must be padded to 25 characters
+// so columns align regardless of name length.
+func TestFormatResultLine(t *testing.T) {
+	r := doctor.Result{Index: 4, Name: "refs", Severity: doctor.FAIL, Detail: "@-refs not present"}
+	line := doctor.FormatResultLine(r)
+	// Must start with index and severity.
+	if !strings.HasPrefix(line, "[4] FAIL") {
+		t.Errorf("line does not start with '[4] FAIL': %q", line)
+	}
+	// Name must be padded: "refs" + 21 spaces = 25 chars, then "  " separator.
+	// Check the raw column by looking for the padded name followed by detail.
+	want := "[4] FAIL  refs                       @-refs not present\n"
+	if line != want {
+		t.Errorf("FormatResultLine =\n  %q\nwant\n  %q", line, want)
+	}
+}
+
 // TestFormatJSONSchemaVersion verifies schema_version=1 in JSON output.
 func TestFormatJSONSchemaVersion(t *testing.T) {
 	data, err := doctor.FormatJSON(sampleResults, "myproject", 1)

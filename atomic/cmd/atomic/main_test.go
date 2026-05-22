@@ -9,6 +9,31 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
 
+// TestShouldRunPostUpdateDoctor tests precedence:
+// flag (--no-doctor) > config (update.run_doctor=false) > default true.
+func TestShouldRunPostUpdateDoctor(t *testing.T) {
+	cases := []struct {
+		name      string
+		noDoctor  bool
+		runDoctor bool
+		want      bool
+	}{
+		{"flag suppresses, config true", true, true, false},
+		{"flag suppresses, config false", true, false, false},
+		{"no flag, config true", false, true, true},
+		{"no flag, config false", false, false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := shouldRunPostUpdateDoctor(tc.noDoctor, tc.runDoctor)
+			if got != tc.want {
+				t.Errorf("shouldRunPostUpdateDoctor(noDoctor=%v, runDoctor=%v) = %v, want %v",
+					tc.noDoctor, tc.runDoctor, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestScanNoUpdateCheck(t *testing.T) {
 	cases := []struct {
 		name      string

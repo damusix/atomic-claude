@@ -52,6 +52,28 @@ For a project-scoped install instead of global: `atomic claude install --target 
 
 Refresh later: `atomic claude update`.
 
+
+## Self-update
+
+
+The `atomic` binary updates itself. Run `atomic update` to fetch the latest stable release, verify its SHA256 checksum, and replace the running binary atomically.
+
+After a successful binary swap, `atomic update` runs a doctor pass automatically. The doctor checks install coherence, hooks, signals, config validity, and related integrity categories. If everything is healthy, the command produces no additional output. If any check returns FAIL, the doctor prints the affected lines so you can diagnose and repair before your next Claude session.
+
+Three flags control update behavior:
+
+- `--check` — query the latest release version and print whether an update is available. Does not download or apply anything.
+- `--channel <name>` — select a release channel. `stable` is the default. Use `prerelease` to track release candidates.
+- `--no-doctor` — skip the post-update doctor pass for this invocation. Useful when running `atomic update` in a non-interactive script or CI step where the doctor output is noise.
+
+To suppress the doctor pass permanently, set `update.run_doctor = false` in `~/.claude/.atomic/config.toml`:
+
+```bash
+atomic config set update.run_doctor false
+```
+
+Precedence: `--no-doctor` flag beats the config value, which beats the default (`true`). Passing `--no-doctor` disables the pass for that invocation only, regardless of what the config says.
+
 If you have customized `~/.claude/CLAUDE.md` locally, `install` and `update` will not overwrite it. Instead, they write the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and print a hint to run `/atomic-claude-merge` from any Claude Code session. That command dispatches the `atomic-claude-merger` agent to produce `~/.claude/CLAUDE.md.atomic-merged`, shows a diff, and prompts Accept / Show diff / Open editor / Abort. On Accept the prior `CLAUDE.md` is backed up under `~/.claude/.atomic/backups/<timestamp>/`. Full spec: [`../spec/install-workflow.md`](../spec/install-workflow.md).
 
 By default `atomic claude install` also registers a `SessionStart` hook in `~/.claude/settings.json` that injects any pending reminders at session open. This supplements cron-fired surfacing for missed cron fires, post-7-day cron expiry, tool unavailability, and post-restart catchup. Pass `--no-hooks` to skip; you can register the hook later with `atomic hooks install`.

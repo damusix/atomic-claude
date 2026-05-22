@@ -226,6 +226,14 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 
 <!-- empty on creation; entries appended on amendment after approval -->
 
+### 2026-05-22 — Post-update auto-fire (from atomic-update-doctor)
+
+**What changed:** Doctor now has a second invocation surface beyond the explicit `atomic doctor` command. After a successful binary swap, `atomic update` invokes the doctor pass automatically (controlled by `update.run_doctor` config key, default `true`; overridable per-invocation via `--no-doctor`). Only FAIL-severity lines are printed in this mode; a clean run produces no output. The check set, format, and exit semantics are identical to the explicit invocation.
+
+**Why:** Post-update drift is the most common window for install/config coherence failures. Automatic post-update execution catches these without requiring the user to remember to run doctor manually after every binary swap.
+
+**Cross-reference:** `docs/spec/atomic-update-doctor.md` — full spec for the `atomic update` post-update doctor integration, including flag surface, config key, FAIL filtering, and panic recovery contract.
+
 ### 2026-05-20 — Add config check category
 
 **What changed:** New check category 9 (`config`) verifies `~/.claude/.atomic/config.toml` parses + validates and that `~/.claude/.atomic/config.resolved.md` matches the TOML render. `--fix` re-renders the resolved view on drift (WARN). Parse errors and invalid enum values are reported as non-fixable FAIL.

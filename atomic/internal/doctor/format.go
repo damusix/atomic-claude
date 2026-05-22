@@ -27,13 +27,7 @@ func FormatHuman(results []Result, project string) string {
 	b.WriteString("\n")
 
 	for _, r := range results {
-		fmt.Fprintf(&b, "[%d] %-4s  %-*s  %s\n",
-			r.Index,
-			string(r.Severity),
-			nameWidth,
-			r.Name,
-			r.Detail,
-		)
+		b.WriteString(FormatResultLine(r))
 	}
 
 	b.WriteString("\n")
@@ -48,6 +42,20 @@ func FormatHuman(results []Result, project string) string {
 	}
 
 	return b.String()
+}
+
+// FormatResultLine returns one formatted result line (with trailing newline)
+// using the canonical column layout: [index] severity  name  detail.
+// Used by both FormatHuman and the post-update doctor adapter (updatedoctor)
+// so the format stays in one place.
+func FormatResultLine(r Result) string {
+	return fmt.Sprintf("[%d] %-4s  %-*s  %s\n",
+		r.Index,
+		string(r.Severity),
+		nameWidth,
+		r.Name,
+		r.Detail,
+	)
 }
 
 // FormatJSON returns the machine-readable JSON output bytes per the spec schema:

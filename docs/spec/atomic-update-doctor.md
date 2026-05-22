@@ -164,3 +164,30 @@ For testability, `runUpdate` accepts a function-typed dependency `runDoctor func
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. -->
+
+## Implementation log
+
+### shipped — 2026-05-22
+
+Built across 4 iterations of /subagent-implementation on branch `update-doctor`. Commits (chronological):
+
+- `dd33c70` — CP-1 + CP-2: `feat(config): add update.run_doctor key`
+- `59620d2` — CP-3 + CP-4 + CP-5 + CP-6 + CP-7 + iter-1 cleanup: `feat(update): post-update doctor auto-fire`
+- `6d5539b` — CP-8 + CP-9: `docs(update): self-update guide + spec change-logs`
+- `257c997` — CP-10: `chore(signals): refresh after update-doctor`
+- `3035318` — finalize: `docs(followups): promote update-doctor F-1 + add implementation log`
+- `bdfe72c` — finalize: `docs(claude): document atomic update --no-doctor + run_doctor`
+
+**Out-of-scope work performed during this build:**
+
+- Exported `doctor.FormatResultLine(r Result) string` so the adapter and `FormatHuman` share one format. Driven by spec § "Output rules" requiring identical formatting between `atomic doctor` and post-update FAIL output.
+- Dropped the `UpdateRunDoctorExplicit` field originally added in iter 1. User mid-iter clarification ("don't worry about backwards compatibility") + reviewer signal that `Default()` seeding before TOML decode already gives correct "absent → true, explicit-false → false" semantics → field was dead surface.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- Iter 1's `UpdateRunDoctorExplicit` field was over-engineered per spec hint, but the downstream adapter (CP-3) only needed `cfg.Update.RunDoctor`. The spec's raw-map presence-check guidance was correct but addressed a requirement that never materialized in CP-3..CP-7. Folded the cleanup into iter 2.
+- Iter 2's first reviewer pass caught a FAIL format divergence (`%s` vs `%-25s`) between the adapter and `atomic doctor`. Spec § "Output rules" required identity; fix required a shared formatter helper. Surgeon pass resolved.
+
+**Deferred items still open:**
+
+- `atomic-update-doctor-F-1` — `render.go:69` bool default heuristic piggybacks on `cfg.Output.Intensity == ""` sentinel. Will break silently if a future `outputSection` field has a meaningful zero value. Promoted to `.claude/project/followups.md` for cross-task durability.

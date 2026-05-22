@@ -13,6 +13,9 @@ import (
 // intensityDefault is the built-in default for output.intensity.
 const intensityDefault = "full"
 
+// runDoctorDefault is the built-in default for update.run_doctor.
+const runDoctorDefault = true
+
 // validIntensity is the set of allowed output.intensity values.
 var validIntensity = map[string]bool{
 	"lite":  true,
@@ -23,6 +26,7 @@ var validIntensity = map[string]bool{
 // knownKeys is the exhaustive list of v1 dotted keys.
 var knownKeys = []string{
 	"output.intensity",
+	"update.run_doctor",
 }
 
 // knownSections is the set of known top-level TOML table names.
@@ -49,18 +53,23 @@ type outputSection struct {
 	Intensity string `toml:"intensity"`
 }
 
+// updateSection is the [update] TOML table.
+type updateSection struct {
+	RunDoctor bool `toml:"run_doctor"`
+}
+
 // Config is the parsed + defaulted configuration.
 // Fields track explicit set values; zero values mean "use built-in default".
 type Config struct {
 	Output outputSection `toml:"output"`
+	Update updateSection `toml:"update"`
 }
 
 // Default returns a Config populated with built-in defaults.
 func Default() *Config {
 	return &Config{
-		Output: outputSection{
-			Intensity: intensityDefault,
-		},
+		Output: outputSection{Intensity: intensityDefault},
+		Update: updateSection{RunDoctor: runDoctorDefault},
 	}
 }
 
@@ -84,6 +93,18 @@ func Load(path string) (*Config, []Warning, error) {
 	var warns []Warning
 	warns = append(warns, checkUnknownKeys(rawMap, "")...)
 
+	// Detect explicit presence of update.run_doctor before decoding into the
+	// typed struct. The bool zero-value (false) is indistinguishable from
+	// "absent" after decode, so we check the raw map here.
+	updateRunDoctorExplicit := false
+	if updateRaw, ok := rawMap["update"]; ok {
+		if updateTable, ok := updateRaw.(map[string]any); ok {
+			if _, ok := updateTable["run_doctor"]; ok {
+				updateRunDoctorExplicit = true
+			}
+		}
+	}
+
 	// Decode into the typed struct (strict fields only).
 	cfg := Default()
 	if err := toml.Unmarshal(raw, cfg); err != nil {
@@ -93,6 +114,13 @@ func Load(path string) (*Config, []Warning, error) {
 	// Backfill defaults for any zero-value fields.
 	if cfg.Output.Intensity == "" {
 		cfg.Output.Intensity = intensityDefault
+	}
+	// update.run_doctor: only backfill default when the key was absent.
+	// When explicitly set to false, the decoded value is already false — correct.
+	// When absent, Default() already set it to true; TOML decode of a missing
+	// section resets the struct to zero (false), so we must restore the default.
+	if !updateRunDoctorExplicit {
+		cfg.Update.RunDoctor = runDoctorDefault
 	}
 
 	return cfg, warns, nil
@@ -144,6 +172,7 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 }
 
 // Validate returns an error if cfg contains values outside the allowed schema.
+// update.run_doctor is a bool and has no invalid state at the Config level.
 func Validate(cfg *Config) error {
 	if cfg.Output.Intensity != "" && !validIntensity[cfg.Output.Intensity] {
 		allowed := strings.Join(sortedKeys(validIntensity), ", ")
@@ -187,6 +216,15 @@ func Set(cfg *Config, dottedKey, value string) error {
 			return fmt.Errorf("config: output.intensity %q is not one of: %s", value, allowed)
 		}
 		cfg.Output.Intensity = value
+	case "update.run_doctor":
+		switch value {
+		case "true":
+			cfg.Update.RunDoctor = true
+		case "false":
+			cfg.Update.RunDoctor = false
+		default:
+			return fmt.Errorf("config: update.run_doctor %q is not one of: false, true", value)
+		}
 	}
 	return nil
 }
@@ -205,6 +243,8 @@ func Unset(cfg *Config, dottedKey string) error {
 	switch dottedKey {
 	case "output.intensity":
 		cfg.Output.Intensity = intensityDefault
+	case "update.run_doctor":
+		cfg.Update.RunDoctor = runDoctorDefault
 	}
 	return nil
 }

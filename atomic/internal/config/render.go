@@ -59,7 +59,20 @@ func Resolved(cfg *Config) map[string]string {
 	if intensity == "" {
 		intensity = intensityDefault
 	}
+	// For update.run_doctor: bool's zero value (false) is indistinguishable
+	// from an explicit false without a sentinel. We use the same zero-value
+	// signal as intensity: a Config where intensity == "" is a literal zero-value
+	// struct, not one produced by Default() or Load(). In that case apply the
+	// default for run_doctor too. A Config where intensity != "" was produced by
+	// Default()/Load() — RunDoctor=false there is intentional and preserved.
+	runDoctor := cfg.Update.RunDoctor
+	if !runDoctor && intensity == intensityDefault && cfg.Output.Intensity == "" {
+		// intensity was backfilled above (cfg.Output.Intensity was ""), meaning
+		// this is a zero-value Config. Apply the run_doctor default too.
+		runDoctor = runDoctorDefault
+	}
 	return map[string]string{
-		"output.intensity": intensity,
+		"output.intensity":  intensity,
+		"update.run_doctor": fmt.Sprintf("%t", runDoctor),
 	}
 }

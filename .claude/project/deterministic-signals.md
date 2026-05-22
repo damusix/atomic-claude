@@ -1,16 +1,19 @@
 ---
-generated_at: 2026-05-21T05:29:59Z
+generated_at: 2026-05-22T06:12:54Z
 atomic_version: 1.2.1
 ---
 # Deterministic signals
 
 ## Tree
 
-├── .claude/ (2)
+├── .claude/ (3)
 │   ├── docs/ (3)
 │   │   ├── agent-config.md
 │   │   ├── axioms.md
 │   │   └── claude-code-references.md
+│   ├── skills/ (1)
+│   │   └── atomic-cli-contrib/ (1)
+│   │       └── SKILL.md
 │   └── settings.local.json
 ├── .githooks/ (1)
 │   └── pre-commit
@@ -39,7 +42,7 @@ atomic_version: 1.2.1
 │   │   └── bundle-mirror/ (2)
 │   │       ├── main.go
 │   │       └── main_test.go
-│   ├── internal/ (18)
+│   ├── internal/ (20)
 │   │   ├── bundlemirror/ (1)
 │   │   │   └── mirror.go
 │   │   ├── bundlespec/ (2)
@@ -118,6 +121,9 @@ atomic_version: 1.2.1
 │   │   ├── mdparse/ (2)
 │   │   │   ├── mdparse.go
 │   │   │   └── mdparse_test.go
+│   │   ├── prompt/ (2)
+│   │   │   ├── prompt.go
+│   │   │   └── prompt_test.go
 │   │   ├── reminder/ (2)
 │   │   │   ├── reminder.go
 │   │   │   └── reminder_test.go
@@ -136,6 +142,9 @@ atomic_version: 1.2.1
 │   │   │   ├── signals.go
 │   │   │   ├── signals_test.go
 │   │   │   └── tree.go
+│   │   ├── updatedoctor/ (2)
+│   │   │   ├── updatedoctor.go
+│   │   │   └── updatedoctor_test.go
 │   │   ├── validate/ (14)
 │   │   │   ├── testdata/ (2 subitems) (26 total items)
 │   │   │   ├── bundle.go
@@ -212,14 +221,16 @@ atomic_version: 1.2.1
 │   │   ├── signals-workflow.md
 │   │   ├── skills.md
 │   │   └── workflow.md
-│   ├── spec/ (12)
+│   ├── spec/ (14)
 │   │   ├── atomic-binary.md
 │   │   ├── atomic-doctor.md
 │   │   ├── atomic-state-and-config.md
+│   │   ├── atomic-update-doctor.md
 │   │   ├── atomic-validate.md
 │   │   ├── cron-workflow.md
 │   │   ├── docker-eval-environment.md
-│   │   ├── install-output-style.md
+│   │   ├── documentation-skill-split.md
+│   │   ├── follow-ups-folder.md
 │   │   ├── install-workflow.md
 │   │   ├── session-report.md
 │   │   ├── signals-project-detection.md
@@ -272,13 +283,13 @@ atomic_version: 1.2.1
 
 ## Manifests
 
-- atomic/go.mod: module=github.com/damusix/atomic-claude/atomic, go=1.23
+- atomic/go.mod: module=github.com/damusix/atomic-claude/atomic, go=1.23.0
 - atomic/internal/signals/testdata/signals/multilang/repo/go.mod: module=github.com/example/test, go=1.22
 
 ## Languages
 
-- Go: 20423 LOC (54%), 97 files (36%)
-- Markdown: 16992 LOC (44%), 165 files (61%)
+- Go: 21420 LOC (53%), 101 files (36%)
+- Markdown: 17874 LOC (45%), 168 files (61%)
 - Shell: 269 LOC (0%), 3 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
