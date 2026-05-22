@@ -356,3 +356,5 @@ Shipped on branch `followups-folder` across 8 commits (orchestrated via `/subage
 
 - The 3 iter-1 nits all closed in commit `8cec34a` (no deferrals out of FOLLOWUPS triage).
 - `status` field cleanup tracked only in the spec change-log; no project follow-up entry created (user disposition).
+
+**Squashed onto `main` as `1ff0a3bb7037c6b9a31fa03918221392d73c8e8a` — 2026-05-22.** Per-iteration SHAs above are historical (unreachable post-squash).
