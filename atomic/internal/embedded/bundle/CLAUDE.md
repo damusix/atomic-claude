@@ -45,8 +45,8 @@ macOS sed: `sed -i '' 's/old/new/g' file` (empty string after `-i`). Verify with
 - **Session reports** (LLM-only, gitignored): `.claude/.scratchpad/session-reports/<branch>/<YYYY-MM-DD-HHMM>-<slug>.md` — written by `/session-report` to capture what changed and why across a long-running branch's sessions. Read by the commit-message-generating ship verbs (`/commit-only`, `/commit-and-pr`, `/commit-and-push`, `/commit-and-merge`, `/commit-and-squash`, `/squash-only`, `/squash-and-merge`) as supplemental why-context for `atomic-commit`. Deleted after a successful commit on the same branch. Full spec: `docs/spec/session-report.md`.
 - **Project-level follow-ups** (committed, auto-loaded): `.claude/project/followups/<id>.md` — one file per entry with YAML frontmatter (`id`, `title`, `created`, `origin`, `severity`, `review_by`, `status`, optional `file`). Auto-regenerated `INDEX.md` is the `@-ref` target (same search order as signals: `claude.local.md` → `CLAUDE.local.md` → `CLAUDE.md` → `CLAUDE.md`). Closed entries collapse to a one-line `CLOSED.md` audit-trail. Managed via `atomic followups {list,add,close,render,migrate,path}` and the `/follow-up review` subverb for stale-entry triage. Entries are promoted from a task's scratchpad `FOLLOWUPS.md` when the user picks `defer` at `/subagent-implementation` Phase 3 (shells out to `atomic followups add`). Surfaced on demand via `/remind-me` + `/follow-up`.
 - **Durable docs** (committed, human-facing):
-  - `docs/design/<topic>.md` — design rationale, alternatives considered, brainstorming. Written collaboratively via `/atomic-plan` when classified as design.
-  - `docs/spec/<topic>.md` — implementation contract for an approved feature. Written collaboratively via `/atomic-plan` when classified as spec. The canonical source for `/subagent-implementation` runs.
+  - `docs/design/<topic>.md` — conceptual workspace: feature shape, business rules, user-facing behavior, philosophy, approaches. Written by `/atomic-plan` for non-trivial work; skipped for trivial.
+  - `docs/spec/<topic>.md` — implementation contract derived from the design. Written by `/atomic-plan` (inline for trivial; subagent-looped for non-trivial). The canonical source for `/subagent-implementation` runs.
 - **Worktrees** (gitignored): `.worktrees/<branch-name>/` — every isolated branch lives here. Created by `/worktree-start`. The ship verbs detect worktree provenance on merge/squash and prompt to delete.
 - **Throwaway** (gitignored): `tmp/` — ad-hoc code experiments, scratch scripts, one-off test files. Different from `.claude/.scratchpad/` (which is the orchestrator's working memory tied to a specific task).
 - **Atomic-owned state** (per-user, never committed): `~/.claude/.atomic/` — holds `config.toml` (shell-settable defaults via `atomic config`), `config.resolved.md` (auto-loaded into every session), `backups/<ts>/` (`atomic claude update` backups), and `proposed/CLAUDE.md` (divergence merge target).
@@ -114,7 +114,7 @@ Full spec: `docs/spec/signals-workflow.md`.
 ## Workflow (canonical lifecycle)
 
 
-1. **Plan** — `/atomic-plan` collaboratively writes to `docs/design/` or `docs/spec/`. Human approves.
+1. **Plan** — `/atomic-plan` gauges triviality. Trivial → inline spec. Non-trivial → design doc + spec authored via subagent loop (`atomic-builder` writes, `atomic-reviewer` checks alignment in spec-mode). Optionally grounds via `atomic-investigator` and consults `atomic-strategist` on hard tradeoffs. Human approves.
 2. **Implement** — `/subagent-implementation` reads the spec, runs the implement→review loop, commits per green iteration.
 3. **Ship** — pick the right verb:
     - `/commit-only` — stage + commit, nothing else.

@@ -4,7 +4,7 @@
 | Command | What it does |
 |---------|-------------|
 | `/atomic-setup` | Bootstrap the current repo for atomic conventions. Audits .gitignore, docs/ layout, CLAUDE.md; proposes only what's missing. Never overwrites. |
-| `/atomic-plan` | Collaborative plan → checkpoint table in `docs/design/` or `docs/spec/`. |
+| `/atomic-plan` | Triviality-gauged plan. Trivial → inline `docs/spec/<topic>.md`. Non-trivial → design doc + spec authored via subagent loop (`atomic-builder` ↔ `atomic-reviewer` in spec-mode). Optional `atomic-investigator` / `atomic-strategist` passes. Conditional `/pressure-test` handoff. |
 | `/atomic-compress <file>` | Compress a prose Markdown file into atomic style. Backs up original as `<file>.original.md`. |
 | `/pressure-test [<topic> \| @<path-to.md>]` | Socratic challenger session for design decisions. Pressure-tests assumptions, surfaces contradictions, forces fuzzy maybes into yes/no — through questions only, never producing code or artifacts. Pairs with `/atomic-plan` as a pre-approval gate. |
 | `/subagent-implementation` | Orchestrate implement → review subagent loop until task is complete. |

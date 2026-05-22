@@ -177,7 +177,7 @@ The loop you run every time you build something.
 
 | Step | Verb | What it does |
 |------|------|--------------|
-| 1 | `/atomic-plan` | Human approval gate. Writes `docs/design/<topic>.md` (brainstorm) or `docs/spec/<topic>.md` (implementation contract). |
+| 1 | `/atomic-plan` | Human approval gate. Gauges triviality: trivial → inline `docs/spec/<topic>.md`; non-trivial → `docs/design/<topic>.md` (concepts) + `docs/spec/<topic>.md` (contract) authored via subagent loop. Optional investigator / strategist passes. |
 | 2 | `/worktree-start <branch>` | Isolated `.worktrees/<branch>/` with auto-detected setup and baseline test run. |
 | 3 | `/subagent-implementation` | Autonomous implement → review loop. Builder writes failing test, implements, runs quality signals. Reviewer re-runs and gates. Commits per green checkpoint. |
 | 4 | `/subagent-diagnose [ci/bug]` | When something breaks. Same scratchpad + investigator + builder + reviewer loop as `/subagent-implementation`, but seeded from a failed CI run or a freeform bug symptom. |
