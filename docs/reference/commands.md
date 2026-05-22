@@ -23,7 +23,7 @@
 | `/review-branch` | Dispatch `atomic-reviewer` once on `<base>..HEAD` for a pre-PR / pre-merge branch review. No spec required, no orchestration loop. |
 | `/undo-commit` | Soft-undo the last commit (`reset --soft HEAD~1`). Refuses if HEAD is a merge commit, the initial commit, or already pushed. |
 | `/remind-me <duration> <text>` | Schedule a reminder. Writes a reminder file and creates a one-shot cron that fires `/follow-up due <id>` at the given time. Degrades to file-only if `CronCreate` is unavailable. |
-| `/follow-up [due <id>]` | Review pending reminders. Bare: indexed list + done/snooze/reschedule actions. Cron-fired: surfaces the specific reminder and waits for user response. |
+| `/follow-up [due <id> \| review]` | Review pending reminders. Bare: indexed list + done/snooze/reschedule actions. Cron-fired: surfaces the specific reminder and waits for user response. `review`: triage stale `.claude/project/followups/` entries with per-item extend/close/promote/skip disposition. |
 | `/initialize-signals` | Bootstrap signals for a project that has never had them. Interactive, idempotent. Requires `atomic` binary. |
 | `/refresh-signals` | Deliberate on-demand refresh of existing signals. |
 | `/documentation` | Diff-scoped doc-impact pass. Invokes the `atomic-documentation` skill on the diff, walks proposed surfaces (edit / skip / continue), stages edits. Does not commit. Flags: `--print-template`, `--dry-run`. |
