@@ -191,3 +191,5 @@ Built across 4 iterations of /subagent-implementation on branch `update-doctor`.
 **Deferred items still open:**
 
 - `atomic-update-doctor-F-1` — `render.go:69` bool default heuristic piggybacks on `cfg.Output.Intensity == ""` sentinel. Will break silently if a future `outputSection` field has a meaningful zero value. Promoted to `.claude/project/followups.md` for cross-task durability.
+
+**Squashed onto `main` as `bf543099ed86fce523740c483e10f786227242c0` — 2026-05-22.** Per-iteration SHAs above are historical (unreachable post-squash).
