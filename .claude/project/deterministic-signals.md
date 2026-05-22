@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-22T17:41:53Z
+generated_at: 2026-05-22T17:56:13Z
 atomic_version: 1.2.1
 ---
 # Deterministic signals
@@ -42,7 +42,7 @@ atomic_version: 1.2.1
 │   │   └── bundle-mirror/ (2)
 │   │       ├── main.go
 │   │       └── main_test.go
-│   ├── internal/ (20)
+│   ├── internal/ (21)
 │   │   ├── bundlemirror/ (1)
 │   │   │   └── mirror.go
 │   │   ├── bundlespec/ (2)
@@ -105,6 +105,24 @@ atomic_version: 1.2.1
 │   │   │   ├── bundle/ (6 subitems) (51 total items)
 │   │   │   ├── bundle.go
 │   │   │   └── manifest.go
+│   │   ├── followups/ (17)
+│   │   │   ├── testdata/ (3 subitems) (5 total items)
+│   │   │   ├── add.go
+│   │   │   ├── add_test.go
+│   │   │   ├── cli.go
+│   │   │   ├── cli_test.go
+│   │   │   ├── close_entry.go
+│   │   │   ├── close_test.go
+│   │   │   ├── closed.go
+│   │   │   ├── closed_test.go
+│   │   │   ├── entry.go
+│   │   │   ├── entry_test.go
+│   │   │   ├── list.go
+│   │   │   ├── list_test.go
+│   │   │   ├── migrate.go
+│   │   │   ├── migrate_test.go
+│   │   │   ├── render.go
+│   │   │   └── render_test.go
 │   │   ├── frontmatter/ (2)
 │   │   │   ├── frontmatter.go
 │   │   │   └── frontmatter_test.go
@@ -289,8 +307,8 @@ atomic_version: 1.2.1
 
 ## Languages
 
-- Go: 21420 LOC (53%), 101 files (36%)
-- Markdown: 18071 LOC (45%), 169 files (61%)
+- Go: 24747 LOC (56%), 117 files (39%)
+- Markdown: 18676 LOC (42%), 174 files (58%)
 - Shell: 269 LOC (0%), 3 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
