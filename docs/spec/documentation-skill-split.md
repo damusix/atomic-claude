@@ -267,3 +267,5 @@ Built across 7 iterations of `/subagent-implementation` on worktree branch `docu
 **Deferred items still open:**
 
 - none. F-1 (`commit-and-squash` post-squash signals refresh symmetry gap) closed in `c622bf2`.
+
+**Merged into `main` as `4d7a7bf` — 2026-05-22.** Iteration commits above remain reachable in history.
