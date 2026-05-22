@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-22T06:12:54Z
+generated_at: 2026-05-22T17:41:53Z
 atomic_version: 1.2.1
 ---
 # Deterministic signals
@@ -204,11 +204,12 @@ atomic_version: 1.2.1
 │   ├── watch-ci.md
 │   └── worktree-start.md
 ├── docs/ (5)
-│   ├── design/ (4)
+│   ├── design/ (5)
 │   │   ├── atomic-doctor.md
 │   │   ├── atomic-state-and-config.md
 │   │   ├── atomic-validate.md
-│   │   └── diagnose-orchestrators.md
+│   │   ├── diagnose-orchestrators.md
+│   │   └── signals-router.md
 │   ├── guides/ (3)
 │   │   ├── contributing.md
 │   │   ├── evaluations.md
@@ -289,7 +290,7 @@ atomic_version: 1.2.1
 ## Languages
 
 - Go: 21420 LOC (53%), 101 files (36%)
-- Markdown: 17874 LOC (45%), 168 files (61%)
+- Markdown: 18071 LOC (45%), 169 files (61%)
 - Shell: 269 LOC (0%), 3 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
