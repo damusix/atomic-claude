@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-22T17:56:13Z
+generated_at: 2026-05-22T18:06:38Z
 atomic_version: 1.2.1
 ---
 # Deterministic signals
@@ -102,7 +102,7 @@ atomic_version: 1.2.1
 │   │   │   ├── shortcircuit_test.go
 │   │   │   └── stdin_prompter.go
 │   │   ├── embedded/ (3)
-│   │   │   ├── bundle/ (6 subitems) (51 total items)
+│   │   │   ├── bundle/ (6 subitems) (52 total items)
 │   │   │   ├── bundle.go
 │   │   │   └── manifest.go
 │   │   ├── followups/ (17)
@@ -265,10 +265,12 @@ atomic_version: 1.2.1
 │       └── style.md
 ├── scripts/ (1)
 │   └── link-local.sh
-├── skills/ (7)
+├── skills/ (8)
 │   ├── atomic-commit/ (1)
 │   │   └── SKILL.md
 │   ├── atomic-debug/ (1)
+│   │   └── SKILL.md
+│   ├── atomic-documentation/ (1)
 │   │   └── SKILL.md
 │   ├── atomic-prose/ (1)
 │   │   └── SKILL.md
@@ -307,8 +309,8 @@ atomic_version: 1.2.1
 
 ## Languages
 
-- Go: 24747 LOC (56%), 117 files (39%)
-- Markdown: 18676 LOC (42%), 174 files (58%)
+- Go: 24748 LOC (55%), 117 files (39%)
+- Markdown: 19127 LOC (43%), 176 files (59%)
 - Shell: 269 LOC (0%), 3 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
