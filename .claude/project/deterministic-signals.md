@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-05-22T18:06:38Z
-atomic_version: 1.2.1
+generated_at: 2026-05-22T18:30:30Z
+atomic_version: dev
 ---
 # Deterministic signals
 
@@ -240,9 +240,10 @@ atomic_version: 1.2.1
 │   │   ├── signals-workflow.md
 │   │   ├── skills.md
 │   │   └── workflow.md
-│   ├── spec/ (14)
+│   ├── spec/ (15)
 │   │   ├── atomic-binary.md
 │   │   ├── atomic-doctor.md
+│   │   ├── atomic-plan.md
 │   │   ├── atomic-state-and-config.md
 │   │   ├── atomic-update-doctor.md
 │   │   ├── atomic-validate.md
@@ -310,7 +311,7 @@ atomic_version: 1.2.1
 ## Languages
 
 - Go: 24748 LOC (55%), 117 files (39%)
-- Markdown: 19127 LOC (43%), 176 files (59%)
+- Markdown: 19637 LOC (43%), 177 files (59%)
 - Shell: 269 LOC (0%), 3 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
