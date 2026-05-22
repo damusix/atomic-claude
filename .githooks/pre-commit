@@ -9,6 +9,8 @@ set -euo pipefail
 # this commit).
 mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
 
+repo_root=$(git rev-parse --show-toplevel)
+
 needs_regen=0
 for f in "${staged[@]}"; do
     case "$f" in
@@ -19,18 +21,38 @@ for f in "${staged[@]}"; do
     esac
 done
 
-if [ "$needs_regen" -eq 0 ]; then
-    exit 0
+if [ "$needs_regen" -eq 1 ]; then
+    echo "pre-commit: source artifact changed — regenerating embedded bundle"
+    make -C "$repo_root/atomic" bundle >/dev/null
+    # Re-stage the bundle outputs so they ride along with this commit.
+    git add "$repo_root/atomic/internal/embedded/bundle" "$repo_root/atomic/internal/embedded/manifest.go"
 fi
-
-repo_root=$(git rev-parse --show-toplevel)
-echo "pre-commit: source artifact changed — regenerating embedded bundle"
-make -C "$repo_root/atomic" bundle >/dev/null
-
-# Re-stage the bundle outputs so they ride along with this commit.
-git add "$repo_root/atomic/internal/embedded/bundle" "$repo_root/atomic/internal/embedded/manifest.go"
 
 # Surface drift the developer should know about.
 if ! git diff --cached --quiet -- atomic/internal/embedded; then
     echo "pre-commit: bundle outputs re-staged"
+fi
+
+# Regenerate follow-ups INDEX.md when any entry file (other than INDEX.md
+# itself) is staged. Skips silently if the atomic binary is not on PATH —
+# fresh clones and pre-install states should commit without failing.
+followups_touched=0
+for f in "${staged[@]}"; do
+    case "$f" in
+        .claude/project/followups/INDEX.md) ;;
+        .claude/project/followups/*.md)
+            followups_touched=1
+            break
+            ;;
+    esac
+done
+
+if [ "$followups_touched" -eq 1 ]; then
+    if command -v atomic >/dev/null 2>&1; then
+        atomic followups render >/dev/null
+        git add "$repo_root/.claude/project/followups/INDEX.md"
+        echo "pre-commit: follow-ups INDEX.md regenerated and re-staged"
+    else
+        echo "pre-commit: atomic binary not on PATH; skipping follow-ups INDEX regen" >&2
+    fi
 fi

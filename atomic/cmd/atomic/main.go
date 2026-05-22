@@ -13,6 +13,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
+	"github.com/damusix/atomic-claude/atomic/internal/followups"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
@@ -51,6 +52,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  signals stale       Exit 0 if fresh, 1 if stale\n")
 		fmt.Fprintf(os.Stderr, "  signals diff        Print unified diff of signals file\n")
 		fmt.Fprintf(os.Stderr, "  update [--check] [--channel stable|prerelease]   Self-update the atomic binary\n")
+		fmt.Fprintf(os.Stderr, "  followups list [--stale] [--json]                 List open follow-up entries\n")
+		fmt.Fprintf(os.Stderr, "  followups add --id <id> --title <t> --severity <s> --origin <o>  Create entry\n")
+		fmt.Fprintf(os.Stderr, "  followups close <id> [--reason <r>]               Close an entry\n")
+		fmt.Fprintf(os.Stderr, "  followups render                                  Regenerate INDEX.md\n")
+		fmt.Fprintf(os.Stderr, "  followups migrate                                 Migrate legacy followups.md\n")
+		fmt.Fprintf(os.Stderr, "  followups path                                    Print followups folder path\n")
 		fmt.Fprintf(os.Stderr, "  validate [flags] [spec|config|bundle] [paths...]  Lint repo artifacts\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
@@ -126,6 +133,8 @@ func main() {
 			os.Exit(2)
 		}
 		os.Exit(config.Run(args[1:], filepath.Join(home, ".claude"), os.Stdout, os.Stderr))
+	case "followups":
+		runFollowups(args[1:], repoOverride)
 	case "validate":
 		os.Exit(validate.Run(args[1:]))
 	default:
@@ -565,6 +574,16 @@ func runSignals(args []string, repoOverride string) {
 		fmt.Fprintf(os.Stderr, "atomic signals: unknown verb %q\n", verb)
 		os.Exit(1)
 	}
+}
+
+func runFollowups(args []string, repoOverride string) {
+	root, err := repoctx.Resolve(repoOverride)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic followups: %v\n", err)
+		os.Exit(1)
+	}
+	clock := func() time.Time { return time.Now().UTC() }
+	os.Exit(followups.Run(args, root, os.Stdout, os.Stderr, clock))
 }
 
 func runDocker(args []string) {

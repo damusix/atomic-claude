@@ -1,27 +1,16 @@
 package doctor
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
+	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/followups"
 )
 
-// entryHeadingRe matches ### F-<id> — <title> or ### F-<id> - <title>
-// (em-dash U+2014 or ASCII hyphen).
-var entryHeadingRe = regexp.MustCompile(`^###\s+F-([A-Za-z0-9-]+)\s*[-—]`)
-
-// bucketHeadingRe matches H2 headings that are recognized severity buckets.
-var bucketHeadingRe = regexp.MustCompile(`^##\s`)
-
-// recognizedBuckets is a set of H2 heading prefixes that are valid severity buckets.
-// Match is case-insensitive on the emoji+label; we just check "## " prefix and
-// that it is NOT "## Closed" — closed entries are excluded from schema validation.
-var closedBucketRe = regexp.MustCompile(`(?i)^##\s+(closed)`)
-
-// checkFollowups implements category 6: followups schema.
+// checkFollowups implements category 6: followups folder integrity.
 func checkFollowups(_ Opts) Result {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -31,115 +20,144 @@ func checkFollowups(_ Opts) Result {
 	return RunCheckFollowupsWith(root)
 }
 
-// RunCheckFollowupsWith runs the followups schema check against an explicit root.
+// RunCheckFollowupsWith runs the followups check against an explicit root.
 // Exported for testing; production callers use checkFollowups.
+//
+// Decision table:
+//   - folder absent + legacy followups.md absent → SKIP
+//   - folder absent + legacy followups.md present → WARN (migration hint)
+//   - folder present, invalid/missing frontmatter in any entry → WARN
+//   - folder present, one or more entries past review_by → WARN
+//   - folder present, INDEX.md missing or byte-differs from re-render → WARN
+//   - folder present, all entries fresh, INDEX in sync → PASS
 func RunCheckFollowupsWith(root string) Result {
-	path := filepath.Join(root, ".claude", "project", "followups.md")
+	folderPath := filepath.Join(root, ".claude", "project", "followups")
+	legacyPath := filepath.Join(root, ".claude", "project", "followups.md")
 
-	f, err := os.Open(path)
+	folderExists := dirExists(folderPath)
+	legacyExists := fileExists(legacyPath)
+
+	// SKIP: neither folder nor legacy file.
+	if !folderExists && !legacyExists {
+		return Result{Severity: SKIP, Detail: "no followups folder or legacy file"}
+	}
+
+	// WARN: legacy file present but folder not yet created — migration needed.
+	if !folderExists && legacyExists {
+		return Result{
+			Severity: WARN,
+			Detail:   "legacy followups.md present; run `atomic followups migrate` to convert to folder layout",
+		}
+	}
+
+	// Folder exists — load entries.
+	entries, parseErrs, err := followups.LoadEntriesWithErrors(folderPath)
+	if err != nil {
+		return Result{Severity: WARN, Detail: fmt.Sprintf("could not read followups folder: %v", err)}
+	}
+
+	var issues []string
+
+	// WARN: invalid/missing frontmatter.
+	if len(parseErrs) > 0 {
+		filenames := make([]string, 0, len(parseErrs))
+		for name := range parseErrs {
+			filenames = append(filenames, name)
+		}
+		// Sort for deterministic output.
+		sortStrings(filenames)
+		listed := filenames
+		suffix := ""
+		if len(listed) > 3 {
+			listed = listed[:3]
+			suffix = " ..."
+		}
+		issues = append(issues, fmt.Sprintf("invalid frontmatter in: %s%s", strings.Join(listed, ", "), suffix))
+	}
+
+	// WARN: stale entries.
+	today := time.Now()
+	stale := staleEntries(entries, today)
+	if len(stale) > 0 {
+		listed := stale
+		suffix := ""
+		if len(listed) > 3 {
+			listed = listed[:3]
+			suffix = " ..."
+		}
+		issues = append(issues, fmt.Sprintf("%d stale entr%s: %s%s — run /follow-up review",
+			len(stale), pluralSuffix(len(stale)), strings.Join(listed, ", "), suffix))
+	}
+
+	// WARN: INDEX.md missing or out of sync (byte-compare).
+	indexPath := filepath.Join(folderPath, "INDEX.md")
+	expected := followups.Render(entries, today)
+	actual, err := os.ReadFile(indexPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Result{Severity: PASS, Detail: "no .claude/project/followups.md"}
+			issues = append(issues, "INDEX.md missing — run `atomic followups render`")
+		} else {
+			issues = append(issues, fmt.Sprintf("could not read INDEX.md: %v", err))
 		}
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not read followups.md: %v", err)}
-	}
-	defer f.Close()
-
-	type entry struct {
-		id        string
-		inBucket  bool
-		hasOrigin bool
-		inClosed  bool
+	} else if string(actual) != expected {
+		issues = append(issues, "INDEX.md out of sync — run `atomic followups render`")
 	}
 
-	var entries []entry
-	var current *entry
-	inBucket := false
-	inClosed := false
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		// H2 heading — update bucket state.
-		if bucketHeadingRe.MatchString(line) {
-			if closedBucketRe.MatchString(line) {
-				inBucket = false
-				inClosed = true
-			} else {
-				inBucket = true
-				inClosed = false
-			}
-			current = nil
-			continue
-		}
-
-		// H3 F-entry heading.
-		if m := entryHeadingRe.FindStringSubmatch(line); m != nil {
-			// Save previous entry.
-			if current != nil {
-				entries = append(entries, *current)
-			}
-			e := entry{
-				id:       m[1],
-				inBucket: inBucket,
-				inClosed: inClosed,
-			}
-			current = &e
-			continue
-		}
-
-		// Any other heading terminates current entry tracking.
-		if strings.HasPrefix(line, "#") {
-			if current != nil {
-				entries = append(entries, *current)
-				current = nil
-			}
-			continue
-		}
-
-		// Check for Origin: in current entry body.
-		if current != nil && !current.inClosed {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(strings.ToLower(trimmed), "origin:") {
-				current.hasOrigin = true
-			}
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not read followups.md: %v", err)}
-	}
-	// Flush last entry.
-	if current != nil {
-		entries = append(entries, *current)
+	if len(issues) > 0 {
+		return Result{Severity: WARN, Detail: strings.Join(issues, "; ")}
 	}
 
-	// Validate entries (ignore closed ones).
-	var malformed []string
-	validated := 0
-	for _, e := range entries {
-		if e.inClosed {
-			continue
-		}
-		validated++
-		if !e.inBucket || !e.hasOrigin {
-			malformed = append(malformed, "F-"+e.id)
-		}
-	}
-
-	if len(malformed) == 0 {
-		return Result{Severity: PASS, Detail: fmt.Sprintf("%d entries, schema OK", validated)}
-	}
-
-	// List up to 3 IDs then "..." if more.
-	listed := malformed
-	suffix := ""
-	if len(listed) > 3 {
-		listed = listed[:3]
-		suffix = " ..."
-	}
 	return Result{
-		Severity: WARN,
-		Detail:   fmt.Sprintf("%d entries malformed: %s%s", len(malformed), strings.Join(listed, ", "), suffix),
+		Severity: PASS,
+		Detail:   fmt.Sprintf("%d entries, INDEX in sync", len(entries)),
+	}
+}
+
+// dirExists returns true when path is a directory that can be stat'd.
+func dirExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
+// fileExists returns true when path is a regular file (or at least stat-able and not a dir).
+func fileExists(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
+}
+
+// staleEntries returns the IDs of entries past their review_by date.
+func staleEntries(entries []followups.Entry, today time.Time) []string {
+	t := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+	var out []string
+	for _, e := range entries {
+		if e.ReviewBy == "" {
+			continue
+		}
+		rb, err := time.Parse("2006-01-02", e.ReviewBy)
+		if err != nil {
+			continue
+		}
+		if t.After(rb) {
+			out = append(out, e.ID)
+		}
+	}
+	sortStrings(out)
+	return out
+}
+
+// pluralSuffix returns "y" when n==1 and "ies" otherwise (for "entry"/"entries").
+func pluralSuffix(n int) string {
+	if n == 1 {
+		return "y"
+	}
+	return "ies"
+}
+
+// sortStrings sorts a string slice in place (insertion sort — n is always small).
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
 	}
 }

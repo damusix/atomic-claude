@@ -1,0 +1,1 @@
+- 2026-05-22 nits-design-and-decide-on-f-2 — "Design and decide on `atomic doctor` CLI subcommand" — *(closed 2026-05-17 — dbe2a53)*

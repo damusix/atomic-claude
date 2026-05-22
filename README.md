@@ -155,6 +155,7 @@ A holistic Claude Code configuration designed as one coherent system. Grouped by
 - [`atomic doctor`](docs/spec/atomic-doctor.md) — nine integrity checks (install / hooks / signals / refs / manifest / followups / memory / binary / config). `--fix` interactive; `--json` for CI.
 - `atomic validate` — lints spec markdown, cross-reference integrity, bundle parity against the embedded manifest.
 - [`atomic config`](docs/spec/atomic-state-and-config.md) — `get | set | unset | list | path` over `~/.claude/.atomic/config.toml`. Shell-settable defaults that steer every Claude session via an `@-ref` from the bundled `CLAUDE.md`. Works with or without the session-start hook (universal file-based delivery), so enterprise environments that block hooks are still covered. Schema v1 starts with `output.intensity` only; more keys land per concrete steering need.
+- [`atomic followups`](docs/spec/follow-ups-folder.md) — `list | add | close | render | migrate | path` over `.claude/project/followups/`. Per-entry YAML frontmatter files plus a regenerated `INDEX.md` auto-loaded into every session. `add` is the deterministic entrypoint shelled out to by `/subagent-implementation` Phase 3 `defer`; `/follow-up review` triages stale entries with per-item disposition.
 
 
 ## Canonical workflow

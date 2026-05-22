@@ -199,19 +199,40 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 2. **Surface `FOLLOWUPS.md` to the user.** Read it, list every open `F-N` entry, and ask the user what to do with each. Four dispositions:
 
     - **`fix-now`** — run another iteration to address it.
-    - **`defer`** — promote to project-level `.claude/project/followups.md` (committed, durable, auto-loaded into future sessions). The entry survives scratchpad deletion. Optionally chain to `/remind-me <duration> <text>` so the user gets surfaced via `/follow-up` later.
+    - **`defer`** — promote to a project-level entry under `.claude/project/followups/<id>.md` (committed, durable, auto-loaded into future sessions via the regenerated `INDEX.md`). The entry survives scratchpad deletion. Optionally chain to `/remind-me <duration> <text>` so the user gets surfaced via `/follow-up` later.
     - **`issue`** — file as a tracked GitHub issue via `/report-issue`.
     - **`drop`** — discard. State the reason in the implementation log so the audit trail explains why it wasn't worth keeping.
 
     Don't auto-decide; this is the deliberate-decision gate the ledger exists for.
 
-    **`defer` mechanics.** When promoting an F-N entry to project-level:
+    **`defer` mechanics.** When promoting an F-N entry to project-level via `atomic followups add`:
 
-    1. Create `.claude/project/followups.md` if absent.
-    2. Append the entry under its severity section (🔴 / 🟡 / 🔵 / ❓), keeping the same F-id (rewrite to a project-wide unique id if collision — prefix with topic slug, e.g. `oauth-refresh-F-3`).
-    3. Each entry must carry an `Origin:` line citing the source spec + iteration (e.g. `Origin: docs/spec/oauth-refresh.md, iter 3 reviewer`).
-    4. Verify `.claude/project/followups.md` is `@-ref`'d from `CLAUDE.md` / `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` (same search order as signals). If not present in any, append the `@-ref` block to whichever signals are wired in.
-    5. Stage and commit alongside the implementation log: `docs(followups): promote F-N <title> from <topic>`.
+    1. Compute args from the FOLLOWUPS.md entry:
+       - `--id` = `<topic-slug>-F-<N>` (topic-slug from the spec/design file path; N from existing count in `.claude/project/followups/`)
+       - `--title` = short one-line description from the F-N header
+       - `--severity` = `risk` | `nit` | `question` (map from 🟡/🔵/❓)
+       - `--origin` = `"docs/spec/<topic>.md, iter <N> reviewer (CP-<X>)"`
+       - `--file` = `<path:line>` from the entry (optional)
+    2. Pipe the entry body to `atomic followups add` via stdin:
+
+        ```bash
+        printf '%s' "<entry body text>" | atomic followups add \
+            --id "<topic-slug>-F-<N>" \
+            --title "<short title>" \
+            --severity <risk|nit|question> \
+            --origin "<origin>" \
+            --file "<path:line>" \
+            --body -
+        ```
+
+       `atomic followups add` validates the id, writes `.claude/project/followups/<id>.md` with correct frontmatter, and regenerates `INDEX.md`. No LLM-authored frontmatter — the command owns that surface.
+    3. On exit 1 from `atomic followups add` (e.g. duplicate id): surface the error to the user and prompt for a different id suffix. Retry once. If still failing, fall back to asking the user to run `atomic followups add` manually with a chosen id.
+    4. Stage and commit:
+
+        ```bash
+        git add .claude/project/followups/<id>.md .claude/project/followups/INDEX.md
+        git commit -m "docs(followups): defer <id>"
+        ```
 3. **Write an implementation log to the spec.** Append (or create) an `## Implementation log` section at the END of `docs/spec/<topic>.md`. This is the durable record someone reads in 6 months when they ask "what did we ship?", "where did this come from?", or "what's still open?". Format:
 
     ```markdown

@@ -1,8 +1,8 @@
 ---
-description: Review and act on pending reminders. Bare invocation shows all reminders as an indexed list; cron-fired invocation (/follow-up due <id>) surfaces the specific reminder and waits for a response. Transport-aware: handles both cron and Routines schedules.
+description: Review and act on pending reminders. Bare invocation shows all reminders as an indexed list; cron-fired invocation (/follow-up due <id>) surfaces the specific reminder and waits for a response; /follow-up review lists stale project follow-up entries for per-item disposition (extend/close/promote/skip). Transport-aware: handles both cron and Routines schedules.
 ---
 
-Handle pending reminders. Two modes: bare (`/follow-up`) and cron-fired (`/follow-up due <id>`).
+Handle pending reminders and project follow-up entries. Three modes: bare (`/follow-up`), cron-fired (`/follow-up due <id>`), and review (`/follow-up review`).
 
 Spec: `docs/spec/cron-workflow.md § /follow-up`
 
@@ -12,6 +12,7 @@ Inspect `$ARGUMENTS`:
 
 - Empty → **bare flow** (interactive list, steps 1–6 below).
 - `due <id>` → **cron-fired flow** (steps A–D below).
+- `review` → **review flow** (steps R1–R6 below).
 
 ---
 
@@ -220,6 +221,115 @@ After surfacing the body, wait. Detect intent from what the user types or does n
 
 - Done: `r-<id> — marked done.`
 - Snoozed/rescheduled: `r-<id> — rescheduled. fires: <human-readable when>. transport: <new-transport>.`
+
+---
+
+## Review flow (`/follow-up review`)
+
+Reviews stale project follow-up entries (past `review_by`) with per-item disposition.
+
+### Step R1 — Fetch stale entries
+
+```bash
+atomic followups list --stale --json
+```
+
+Parse the JSON array. If empty: print `no stale follow-ups; <N> open, all within TTL` (get N from `atomic followups list --json` | count) and exit.
+
+### Step R2 — Print numbered list (axiom 4)
+
+```
+Stale follow-ups (N)
+  [1] <id> — <title> (<age>d old, severity: <severity>)
+  [2] <id> — <title> (<age>d old, severity: <severity>)
+  ...
+```
+
+Print one line per stale entry. Include id, title, severity, and age in days.
+
+### Step R3 — Per-item disposition
+
+For each stale entry (in order), ask the user:
+
+```
+[<N>] <id> — <title>
+Disposition: extend | close | promote | skip
+```
+
+Use `AskUserQuestion` with choices `["extend", "close", "promote", "skip"]` — binary/small-choice decision per axiom 4 guidance.
+
+For `close` and `promote` (destructive — axiom 3): confirm explicitly before acting:
+
+- `close`: `AskUserQuestion` — "Close <id>? This writes to CLOSED.md and deletes the entry file. Yes / No"
+  - If Yes: optionally prompt for a reason — `AskUserQuestion`: "Reason (optional — leave blank to skip):"
+- `promote`: `AskUserQuestion` — "Promote <id> to a GitHub issue? This creates a gh issue and then closes the entry. Yes / No"
+
+`extend` and `skip` require no confirm — they are non-destructive.
+
+### Step R4 — Apply dispositions
+
+**`extend`**: rewrite `review_by` in the entry frontmatter to `today + ttl_days`.
+
+- Read TTL from user memory key `feedback_followups_ttl` (format `Nd`). Default: `60d`.
+- Compute new date: today + N days, formatted `YYYY-MM-DD`.
+- Edit the frontmatter line `review_by: <old>` to `review_by: <new>` via Bash `sed`:
+
+    ```bash
+    sed -i '' "s/^review_by: .*/review_by: $(date -v+60d +%Y-%m-%d)/" .claude/project/followups/<id>.md
+    ```
+
+    Substitute the correct N in the `+Nd` expression from the TTL value.
+
+- Print: `[<N>] <id> — review_by extended to <new-date>.`
+
+**`close`**: run:
+
+```bash
+atomic followups close <id>          # no reason
+atomic followups close <id> --reason "<r>"   # if user provided one
+```
+
+Print: `[<N>] <id> — closed.`
+
+**`promote`**: create a GitHub issue, then close on success.
+
+1. Run:
+
+    ```bash
+    gh issue create --title "<title>" --body "Origin: <origin>\n\nSee .claude/project/followups/<id>.md"
+    ```
+
+2. Capture the issue URL from stdout. On success:
+
+    ```bash
+    atomic followups close <id> --reason "promoted to gh issue #<N>"
+    ```
+
+    Print: `[<N>] <id> — promoted to <issue-url> and closed.`
+
+3. On `gh issue create` failure: print `WARN: gh issue create failed for <id>; entry left open. Error: <stderr>.` Do NOT close the entry.
+
+**`skip`**: no-op. Print: `[<N>] <id> — skipped.`
+
+### Step R5 — Regenerate INDEX
+
+INDEX regeneration is automatic after each `atomic followups close` call (the CLI runs render internally). If only `extend` or `skip` dispositions were applied, run:
+
+```bash
+atomic followups render
+```
+
+### Step R6 — Summary
+
+After all dispositions:
+
+```
+Review complete.
+  Extended: <id-list or "none">
+  Closed:   <id-list or "none">
+  Promoted: <id-list or "none">
+  Skipped:  <id-list or "none">
+```
 
 ---
 

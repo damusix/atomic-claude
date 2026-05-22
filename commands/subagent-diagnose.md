@@ -153,7 +153,7 @@ Two normalized strings equal → "same failure". Store hash (first 12 chars of s
 - Carried across iterations. Reviewer may re-affirm or signal prior findings closed; **orchestrator** marks resolved entries `*(closed iter N — <sha>)*` in `FOLLOWUPS.md` — do not delete the entry.
 - At Phase 4, present per-item to user. Dispositions per item:
     - **`close`** — discard; state reason in implementation log.
-    - **`defer`** — promote to `.claude/project/followups.md` with `Origin:` line pointing at this run. Optionally chain to `/remind-me`.
+    - **`defer`** — shell out to `atomic followups add` to promote to `.claude/project/followups/<id>.md` with `--origin` pointing at this run. Optionally chain to `/remind-me`.
     - **`convert-to-spec`** — invoke `/atomic-plan` with the entry as the brief.
 
 ## Concurrent runs

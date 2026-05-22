@@ -199,4 +199,4 @@ No install script yet. Manual: copy each top-level directory into `~/.claude/`, 
 
 ## Project follow-ups (auto-loaded)
 
-@.claude/project/followups.md
+@.claude/project/followups/INDEX.md

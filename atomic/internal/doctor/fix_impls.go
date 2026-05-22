@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +40,48 @@ func applyHooksRepair() error {
 	}
 	repoRoot := gitToplevel(cwd)
 	return hooks.Install(repoRoot, home)
+}
+
+// defaultFollowupsRenderRepair shells out to `atomic followups render`.
+func defaultFollowupsRenderRepair(out io.Writer) error {
+	fmt.Fprintln(out, "$ atomic followups render")
+	return applyFollowupsRenderRepair()
+}
+
+// defaultFollowupsMigrateRepair shells out to `atomic followups migrate`.
+func defaultFollowupsMigrateRepair(out io.Writer) error {
+	fmt.Fprintln(out, "$ atomic followups migrate")
+	return applyFollowupsMigrateRepair()
+}
+
+// applyFollowupsRenderRepair runs `atomic followups render` from the git toplevel.
+func applyFollowupsRenderRepair() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve cwd: %w", err)
+	}
+	root := gitToplevel(cwd)
+	cmd := exec.Command("atomic", "followups", "render")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("atomic followups render: %w\n%s", err, out)
+	}
+	return nil
+}
+
+// applyFollowupsMigrateRepair runs `atomic followups migrate` from the git toplevel.
+func applyFollowupsMigrateRepair() error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("resolve cwd: %w", err)
+	}
+	root := gitToplevel(cwd)
+	cmd := exec.Command("atomic", "followups", "migrate")
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("atomic followups migrate: %w\n%s", err, out)
+	}
+	return nil
 }
 
 // applyManifestRepair runs `make -C atomic bundle` from the git toplevel.

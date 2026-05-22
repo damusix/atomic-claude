@@ -4,218 +4,185 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
+	"github.com/damusix/atomic-claude/atomic/internal/followups"
 )
 
-// makeFollowupsFile writes .claude/project/followups.md with the given content.
-func makeFollowupsFile(t *testing.T, root, content string) {
+// makeFollowupsFolder creates the .claude/project/followups/ directory tree
+// and populates it with the given entry files. entries is a map of
+// filename → raw content (full frontmatter+body document).
+func makeFollowupsFolder(t *testing.T, root string, entries map[string]string) {
+	t.Helper()
+	dir := filepath.Join(root, ".claude", "project", "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdirall: %v", err)
+	}
+	for name, content := range entries {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+}
+
+// writeLegacyFile writes .claude/project/followups.md with the given content.
+func writeLegacyFile(t *testing.T, root, content string) {
 	t.Helper()
 	dir := filepath.Join(root, ".claude", "project")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdirall: %v", err)
 	}
-	path := filepath.Join(dir, "followups.md")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write followups: %v", err)
+	if err := os.WriteFile(filepath.Join(dir, "followups.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write followups.md: %v", err)
 	}
 }
 
-// TestCheckFollowupsFileAbsent verifies PASS when no followups.md exists.
-func TestCheckFollowupsFileAbsent(t *testing.T) {
+// writeIndex writes an INDEX.md file into the followups folder.
+func writeIndex(t *testing.T, root, content string) {
+	t.Helper()
+	dir := filepath.Join(root, ".claude", "project", "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdirall: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "INDEX.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write INDEX.md: %v", err)
+	}
+}
+
+// freshEntry returns a well-formed entry document with review_by in the future.
+func freshEntry(id, title string) string {
+	future := time.Now().AddDate(0, 0, 30).Format("2006-01-02")
+	return "---\nid: " + id + "\ntitle: \"" + title + "\"\ncreated: 2026-05-01\norigin: test\nseverity: nit\nreview_by: " + future + "\nstatus: open\n---\n\nBody.\n"
+}
+
+// staleEntry returns a well-formed entry document with review_by in the past.
+func staleEntry(id, title string) string {
+	return "---\nid: " + id + "\ntitle: \"" + title + "\"\ncreated: 2026-01-01\norigin: test\nseverity: risk\nreview_by: 2026-01-02\nstatus: open\n---\n\nBody.\n"
+}
+
+// TestCheckFollowupsSkip_FolderAndLegacyAbsent verifies SKIP when neither the
+// folder nor the legacy file exist. This proves the "no followups at all"
+// state is benign and does not WARN.
+func TestCheckFollowupsSkip_FolderAndLegacyAbsent(t *testing.T) {
 	root := t.TempDir()
 	r := doctor.RunCheckFollowupsWith(root)
-	if r.Severity != doctor.PASS {
-		t.Errorf("severity = %v, want PASS", r.Severity)
+	if r.Severity != doctor.SKIP {
+		t.Errorf("severity = %v, want SKIP (detail: %s)", r.Severity, r.Detail)
 	}
 }
 
-// TestCheckFollowupsWellFormed verifies PASS for a file with all F-entries
-// inside severity buckets and each having an Origin: line.
-func TestCheckFollowupsWellFormed(t *testing.T) {
+// TestCheckFollowupsWarn_LegacyPresent verifies WARN when the folder is absent
+// but the legacy followups.md exists. The repair hint must mention migration.
+func TestCheckFollowupsWarn_LegacyPresent(t *testing.T) {
 	root := t.TempDir()
-	content := `# Project follow-ups
-
-## 🟡 risks
-
-### F-1 — Some risk
-
-Body text.
-
-Origin: chat session 2026-05-17.
-
-## 🔵 nits
-
-### F-2 — Some nit
-
-Body text.
-
-Origin: another session.
-
-## Closed
-
-(none)
-`
-	makeFollowupsFile(t, root, content)
-	r := doctor.RunCheckFollowupsWith(root)
-	if r.Severity != doctor.PASS {
-		t.Errorf("severity = %v, want PASS (detail: %s)", r.Severity, r.Detail)
-	}
-}
-
-// TestCheckFollowupsMissingOrigin verifies WARN when an F-entry lacks Origin:.
-func TestCheckFollowupsMissingOrigin(t *testing.T) {
-	root := t.TempDir()
-	content := `# Project follow-ups
-
-## 🟡 risks
-
-### F-1 — Risk without origin
-
-Body text only, no origin line.
-
-`
-	makeFollowupsFile(t, root, content)
+	writeLegacyFile(t, root, "# legacy\n")
 	r := doctor.RunCheckFollowupsWith(root)
 	if r.Severity != doctor.WARN {
-		t.Errorf("severity = %v, want WARN", r.Severity)
+		t.Errorf("severity = %v, want WARN (detail: %s)", r.Severity, r.Detail)
 	}
-	// Detail must mention F-1.
 	if r.Detail == "" {
-		t.Error("Detail is empty")
+		t.Error("Detail is empty; want migration hint")
 	}
 }
 
-// TestCheckFollowupsEntryOutsideBucket verifies WARN when an F-entry is not
-// under any recognized severity bucket heading.
-func TestCheckFollowupsEntryOutsideBucket(t *testing.T) {
+// TestCheckFollowupsWarn_StaleEntry verifies WARN when at least one entry is
+// past its review_by date. The check must mention stale count, not auto-close.
+func TestCheckFollowupsWarn_StaleEntry(t *testing.T) {
 	root := t.TempDir()
-	content := `# Project follow-ups
+	makeFollowupsFolder(t, root, map[string]string{
+		"stale-F-1.md": staleEntry("stale-F-1", "A stale entry"),
+	})
+	// Write a matching INDEX so INDEX drift does not also trigger.
+	dir := filepath.Join(root, ".claude", "project", "followups")
+	entries, _, _ := followups.LoadEntriesWithErrors(dir)
+	idx := followups.Render(entries, time.Now())
+	writeIndex(t, root, idx)
 
-### F-1 — Floating entry
-
-Origin: somewhere.
-
-`
-	makeFollowupsFile(t, root, content)
 	r := doctor.RunCheckFollowupsWith(root)
 	if r.Severity != doctor.WARN {
-		t.Errorf("severity = %v, want WARN", r.Severity)
+		t.Errorf("severity = %v, want WARN (detail: %s)", r.Severity, r.Detail)
 	}
-}
-
-// TestCheckFollowupsNoEntries verifies PASS when file has no F-<id> entries.
-func TestCheckFollowupsNoEntries(t *testing.T) {
-	root := t.TempDir()
-	content := `# Project follow-ups
-
-## 🟡 risks
-
-(none)
-
-## Closed
-
-(none)
-`
-	makeFollowupsFile(t, root, content)
-	r := doctor.RunCheckFollowupsWith(root)
-	if r.Severity != doctor.PASS {
-		t.Errorf("severity = %v, want PASS", r.Severity)
-	}
-}
-
-// TestCheckFollowupsMultipleMalformed verifies WARN lists up to 3 IDs then "...".
-func TestCheckFollowupsMultipleMalformed(t *testing.T) {
-	root := t.TempDir()
-	content := `# Project follow-ups
-
-## 🟡 risks
-
-### F-1 — No origin
-
-### F-2 — No origin
-
-### F-3 — No origin
-
-### F-4 — No origin
-
-`
-	makeFollowupsFile(t, root, content)
-	r := doctor.RunCheckFollowupsWith(root)
-	if r.Severity != doctor.WARN {
-		t.Errorf("severity = %v, want WARN", r.Severity)
-	}
-	// Detail must contain "..." for the overflow.
+	// Detail must mention stale.
 	found := false
-	for i := 0; i < len(r.Detail)-2; i++ {
-		if r.Detail[i:i+3] == "..." {
+	for i := 0; i+4 < len(r.Detail); i++ {
+		if r.Detail[i:i+5] == "stale" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("detail %q: expected '...' for 4 malformed entries", r.Detail)
+		t.Errorf("detail %q: expected 'stale' mention", r.Detail)
 	}
 }
 
-// TestCheckFollowupsPassCountExcludesClosed verifies the PASS detail count
-// only includes non-closed entries. In this file, F-1 (open, under risks) is
-// discarded by the H2 parser (pre-existing parser behavior: H2 headings drop
-// current entry without flushing). F-2 (closed, last in Closed section) is
-// the only entry in the parsed slice. Old code: "1 entries, schema OK" because
-// it used len(entries). New code: "0 entries, schema OK" because closed entries
-// are excluded from the validated count.
-func TestCheckFollowupsPassCountExcludesClosed(t *testing.T) {
+// TestCheckFollowupsWarn_IndexDrift verifies WARN when the on-disk INDEX.md
+// does not byte-match the re-rendered INDEX in memory. This catches the case
+// where someone hand-edited an entry without regenerating the index.
+func TestCheckFollowupsWarn_IndexDrift(t *testing.T) {
 	root := t.TempDir()
-	// F-1 is open but in a bucket that gets displaced by "## Closed"; the H2
-	// transition drops F-1 without flushing it. F-2 is in Closed and is the
-	// last entry — it gets flushed to entries at EOF.
-	content := `# Project follow-ups
+	makeFollowupsFolder(t, root, map[string]string{
+		"fresh-F-1.md": freshEntry("fresh-F-1", "A fresh entry"),
+	})
+	// Write a stale/wrong INDEX.
+	writeIndex(t, root, "# stale index content\n")
 
-## 🟡 risks
+	r := doctor.RunCheckFollowupsWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %v, want WARN (detail: %s)", r.Severity, r.Detail)
+	}
+}
 
-### F-1 — Open entry
+// TestCheckFollowupsWarn_InvalidFrontmatter verifies WARN when at least one
+// entry file has invalid or missing frontmatter. The failing filename must
+// appear in the detail.
+func TestCheckFollowupsWarn_InvalidFrontmatter(t *testing.T) {
+	root := t.TempDir()
+	makeFollowupsFolder(t, root, map[string]string{
+		"broken-F-1.md": "no frontmatter here\n",
+	})
+	// Write a valid INDEX so only the parse error fires.
+	// LoadEntriesWithErrors returns 0 valid entries here; render an empty index.
+	writeIndex(t, root, followups.Render(nil, time.Now()))
 
-Origin: session A.
+	r := doctor.RunCheckFollowupsWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %v, want WARN (detail: %s)", r.Severity, r.Detail)
+	}
+	// Detail must name the failing file.
+	if r.Detail == "" {
+		t.Error("Detail is empty; want filename mention")
+	}
+}
 
-## Closed
+// TestCheckFollowupsPass_FreshAndInSync verifies PASS when the folder exists,
+// all entries are fresh, and INDEX.md byte-matches the re-rendered content.
+func TestCheckFollowupsPass_FreshAndInSync(t *testing.T) {
+	root := t.TempDir()
+	makeFollowupsFolder(t, root, map[string]string{
+		"fresh-F-1.md": freshEntry("fresh-F-1", "A fresh entry"),
+		"fresh-F-2.md": freshEntry("fresh-F-2", "Another fresh entry"),
+	})
+	// Render and write a matching INDEX.
+	dir := filepath.Join(root, ".claude", "project", "followups")
+	entries, _, _ := followups.LoadEntriesWithErrors(dir)
+	today := time.Now()
+	idx := followups.Render(entries, today)
+	writeIndex(t, root, idx)
 
-### F-2 — Closed entry
-
-*(closed 2026-05-17 — abc1234)*
-
-Origin: session B.
-`
-	makeFollowupsFile(t, root, content)
 	r := doctor.RunCheckFollowupsWith(root)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %v, want PASS (detail: %s)", r.Severity, r.Detail)
 	}
-	// Closed entries must NOT count toward the validated total.
-	// Old code (len(entries)) would report "1 entries"; new code (validated) reports "0 entries".
-	if r.Detail != "0 entries, schema OK" {
-		t.Errorf("detail = %q, want %q", r.Detail, "0 entries, schema OK")
-	}
 }
 
-// TestCheckFollowupsEmDashAndASCIIHyphen verifies both em-dash and ASCII hyphen
-// are accepted as the separator in the F-<id> heading.
-func TestCheckFollowupsEmDashAndASCIIHyphen(t *testing.T) {
+// TestCheckFollowupsPass_EmptyFolder verifies PASS when the folder exists but
+// has no entry files and the INDEX matches an empty render.
+func TestCheckFollowupsPass_EmptyFolder(t *testing.T) {
 	root := t.TempDir()
-	content := `# Project follow-ups
+	makeFollowupsFolder(t, root, nil)
+	writeIndex(t, root, followups.Render(nil, time.Now()))
 
-## 🔵 nits
-
-### F-1 — Em-dash entry
-
-Origin: session A.
-
-### F-2 - ASCII-hyphen entry
-
-Origin: session B.
-
-`
-	makeFollowupsFile(t, root, content)
 	r := doctor.RunCheckFollowupsWith(root)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %v, want PASS (detail: %s)", r.Severity, r.Detail)
