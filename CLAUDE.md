@@ -52,18 +52,15 @@ macOS sed: `sed -i '' 's/old/new/g' file` (empty string after `-i`). Verify with
 - **Atomic-owned state** (per-user, never committed): `~/.claude/.atomic/` — holds `config.toml` (shell-settable defaults via `atomic config`), `config.resolved.md` (auto-loaded into every session), `backups/<ts>/` (`atomic claude update` backups), and `proposed/CLAUDE.md` (divergence merge target).
 
 
-## Three doc voices, three surfaces
+## Four doc voices, four surfaces
 
 
-Documentation in this system follows three distinct voices. Picking the wrong voice for a surface is an invisible bug — readers either drown in narrative where they wanted a table, or hit a wall of fragments where they wanted explanation.
+- **Atomic style** — Claude's TUI replies. Governed by `output-styles/atomic.md`.
+- **`atomic-prose` skill** — enduring narrative docs: `README.md`, `docs/guides/`, CHANGELOG narrative entries.
+- **Spec/design voice** — `docs/spec/*`, `docs/design/*`. Tables, diagrams, terse bullets. Append-mostly for specs.
+- **LLM-reference voice** — `CLAUDE.md`, `claude.local.md`, `.claude/project/*-signals.md`. Technical-imperative, conventions and dispatch contracts only, never tutorial or narrative.
 
-
-- **Atomic style** — Claude's *TUI replies to the user*. Terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`.
-- **`atomic-prose` skill** — *enduring narrative docs*: `README.md`, `docs/guides/`, CHANGELOG narrative entries. Clear, specific, active-voice technical paragraphs. No em dashes, no marketing jargon, no throat-clearing, no AI-tell phrases. Auto-fires when drafting or editing those surfaces; invoked by `/documentation` when it touches README or a guide.
-- **Spec / design voice** — `docs/spec/<topic>.md` and `docs/design/<topic>.md`. **Tables, diagrams, terse bullets first.** Prose only where a contract truly needs sentences (Goal, Problem statement, Rationale). Brevity dominates: these files are re-read often by both humans and agents and live or die by token cost. Enforced by `/atomic-plan` (see `commands/atomic-plan.md`).
-
-
-Never apply `atomic-prose` to specs or design docs. Never let spec/design terseness creep into the README or guides.
+Diff-signal → surface routing lives in the `atomic-documentation` skill. Invoke `/documentation` to apply, or let ship verbs fire it automatically on staged diffs.
 
 
 ## Spec files are append-mostly

@@ -79,6 +79,12 @@ When the invoking ship verb passes session-report content (markdown files from `
 
 If no reports are passed in, behave as before — diff alone drives synthesis.
 
+## Supplemental input: doc-skip trailers
+
+When the invoking ship verb passes `doc-skip: <reason>` lines (collected by `/documentation`'s skip-with-reason path or by a ship verb's doc-check step), include them verbatim in the commit's trailer block. The trailer block sits after the body's terminating blank line, in `git interpret-trailers --parse` range. One line per skip.
+
+They sit alongside other trailers like `Co-authored-by:` and `Closes #N`. Do not paraphrase, do not merge multiple skips into one line, do not move them into the body. Emit `doc-skip:` lines in the order received; place them adjacent to other trailers without enforcing a fixed position relative to `Co-authored-by:` or issue refs.
+
 ## Boundaries
 
 Generates the commit message only. Does not run `git commit`, does not stage files, does not amend, does not read or delete session-report files (that is the invoking ship verb's job). Output the message as a code block ready to paste.

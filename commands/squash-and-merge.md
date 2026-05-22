@@ -47,8 +47,17 @@ description: Squash all branch commits via git merge --squash on base. One clean
         1. `git checkout <base>`.
         2. `git pull`.
         3. `git merge --squash <feature>` — stages all changes, no commit yet.
-        4. Commit via HEREDOC with the synthesized subject + body.
-        5. Record SHA: `SQUASH_SHA=$(git rev-parse HEAD)`.
+        4. **Documentation impact check** — invoke the `atomic-documentation` skill on the staged diff (`git diff --cached`). Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, has no `surfaces` key, or `surfaces` is empty, skip silently. For each non-empty surface:
+           - Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
+           - Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
+           - **edit**: open the file, apply the suggested change, stage it with `git add <path>`.
+           - **skip**: ask for a typed reason; record `doc-skip: <reason>` to append to the commit trailer block (after the body's blank line, in `git interpret-trailers --parse` range). One line per skip.
+           - **continue**: treat as misclassification; no edit, no `doc-skip` line.
+
+           Why doc-before-signals: new doc files staged here must be picked up by signals at step 9 in a single pass. Doc-after-signals would force a second stale-gate. One pass. Remote path skips this sub-step — no staged diff is available after a server-side squash.
+
+        5. Commit via HEREDOC with the synthesized subject + body.
+        6. Record SHA: `SQUASH_SHA=$(git rev-parse HEAD)`.
 
 6. **On successful merge: delete the feature branch's session-reports dir.** `rm -rf .claude/.scratchpad/session-reports/<feature-sanitized>/`. Silent. If the merge/commit failed, leave the dir.
 7. Re-run tests. If fail:

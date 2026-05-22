@@ -1,60 +1,129 @@
 ---
-description: Update or create project documentation. Ensures README.md, CLAUDE.md, docs/spec/, and docs/design/ are accurate after significant changes.
+description: Orchestrate a diff-scoped documentation update. Invokes the atomic-documentation skill with a git diff, parses proposed surfaces, walks per-surface accept/skip/continue prompts, applies edits, and stages. Does not commit — that is the user's choice via a ship verb.
 ---
 
-Sync repo documentation to current state. Run after any significant change. Run on demand.
+Run `/documentation` to trigger a documentation impact pass over a range of commits, then apply any proposed edits surface by surface.
 
-## Scope
+## Flags
 
-This command manages four documentation surfaces:
+- `--print-template` — print the `## Documentation surfaces` override-table skeleton to stdout and exit. Paste this into your `claude.local.md` to declare custom surfaces for a non-atomic repo.
+- `--dry-run` — print the skill's proposed surfaces without applying edits or staging anything.
+- `<range>` — any valid git range (`HEAD~5..HEAD`, `main..feature-branch`). If omitted, defaults to `<base>..HEAD` where `<base>` is the merge-base with `main`.
 
-| Surface | Audience | Lives in | Updated when |
-|---------|----------|----------|--------------|
-| `README.md` | Humans (users + contributors) | repo root | Public behavior, install, usage, or top-level architecture changed |
-| `CLAUDE.md` | Future Claude sessions | repo root | Conventions, commands, file layout, or load-bearing context changed |
-| `docs/spec/<topic>.md` | Future implementers | `docs/spec/` | Implementation contract for a feature changed |
-| `docs/design/<topic>.md` | Humans deciding what to build | `docs/design/` | Design rationale, alternatives considered, trade-offs |
+## Step 0 — Handle flags
 
-## Steps
-
-1. Scan repo state:
-    - `git log -n 20 --oneline` to see recent change shape
-    - `git diff <last-doc-update>..HEAD` if the user pointed at a commit range, else `git diff main..HEAD`
-    - List existing docs: `ls README.md CLAUDE.md docs/ 2>/dev/null`
-2. For each surface above, decide: **create**, **update**, or **skip (still accurate)**. State the decision per surface in one line before editing.
-3. Apply edits. Use the right voice for each surface — see `CLAUDE.md` → "Three doc voices, three surfaces":
-    - **README.md** — narrative prose. Run the `atomic-prose` skill. Keep marketing-free. Sections: what it is, why, install, usage, links. No AI bylines. If creating, use existing similar projects in the org for tone (`gh repo list <owner> --limit 5`).
-    - **docs/guides/** — narrative prose. Run the `atomic-prose` skill. Long-form walkthroughs, install notes, contributor docs.
-    - **CLAUDE.md** — MEANINGFUL CONTEXT ONLY. Conventions the AI can't infer from code, commands to run, file layout that isn't obvious, gotchas. NOT: restating code, NOT: full architecture essay, NOT: a tutorial. If a line could be derived by reading the code, delete it. Voice is technical-imperative, neither narrative nor atomic-terse.
-    - **docs/spec/** — implementation contract. Spec/design voice: tables, diagrams, terse bullets first, prose only where a contract needs sentences. **Do NOT invoke `atomic-prose`.** What inputs, outputs, error modes, invariants. Mermaid diagrams render here — use `sequenceDiagram` for flows, `erDiagram` for data, `flowchart` for state. One file per feature/subsystem. **Append-mostly: do not silently overwrite. Apply the rules in `CLAUDE.md` → "Spec files are append-mostly". Every amendment adds a dated entry to `## Change log`. If a legacy spec lacks the section, add it before editing.**
-    - **docs/design/** — design rationale. Spec/design voice: tables, diagrams, terse bullets. **Do NOT invoke `atomic-prose`.** What was considered, what was picked, why. Mermaid diagrams welcome. Snapshot in time, okay to date the file.
-4. After edits, run a sanity pass:
-    - Every code path mentioned in README install/usage actually works (run it if cheap).
-    - Every command mentioned in CLAUDE.md actually exists in `package.json` / `Makefile` / etc.
-    - No dead links in docs/.
-5. Print a summary: which files changed, what changed in each, what was skipped and why.
-
-## Diagrams
-
-`docs/` renders Markdown — use Mermaid. Caption each diagram with a one-sentence summary so non-rendering readers (grep, raw text view) still get the gist.
+If `--print-template` is present, print the following and exit with no further steps:
 
 ```markdown
-**Auth request flow:**
+## Documentation surfaces
 
-\```mermaid
-sequenceDiagram
-  Client->>API: POST /login
-  API->>DB: SELECT user WHERE email
-  ...
-\```
+| Diff signal | Surface | Voice |
+|-------------|---------|-------|
+| New file in `src/api/routes/*.ts` | `docs/api.md` | atomic-prose |
+| Public function added to `pkg/*/exports.go` | `docs/reference.md` | spec-design |
 ```
 
-Replies in the TUI use ASCII, not Mermaid (TUI doesn't render).
+Add this section to your `claude.local.md` (or `CLAUDE.md`) and rerun `/documentation` to apply the overrides. Voice values: `atomic-prose`, `spec-design`, `llm-reference`.
+
+## Step 1 — Resolve the diff range
+
+If the user supplied a `<range>` argument, use it verbatim.
+
+If no argument was supplied, resolve the base:
+
+```bash
+git merge-base HEAD main 2>/dev/null || echo "main"
+```
+
+Then run:
+
+```bash
+git diff <base>..HEAD
+```
+
+If the diff is empty, print `no changes in range; nothing to document.` and exit.
+
+## Step 2 — Invoke the atomic-documentation skill
+
+Pass the full diff text to the `atomic-documentation` skill. The skill analyzes the diff against the surface routing table, reads any `## Documentation surfaces` override in `claude.local.md` / `CLAUDE.md`, and emits a fenced `yaml` block as its final output.
+
+## Step 3 — Parse the skill output
+
+Search the skill's response for the **last** fenced code block tagged `` ```yaml `` or `` ```yml `` (both accepted).
+
+Parse rules:
+
+1. If the last fenced `yaml`/`yml` block is present, parse it as YAML.
+2. On YAML parse error, treat as no surfaces. Log: `skill output could not be parsed; treating as no doc impact.`
+3. If no fenced `yaml`/`yml` block is present, treat as no surfaces.
+4. If the parsed YAML has no `surfaces` key or `surfaces` is not a list, treat as no surfaces.
+5. Surfaces with unknown `voice` values are skipped with a note: `skipping <path>: unknown voice <value>.`
+6. Surface entries missing `path` or `voice` are skipped with a note: `skipping incomplete surface entry.`
+7. `surfaces: []` is valid and means the skill found no doc impact.
+
+If the result is empty after parsing, print `no doc impact detected.` and exit.
+
+## Step 4 — Walk surfaces (skipped in --dry-run mode)
+
+If `--dry-run` was supplied, print the parsed surfaces list and exit without applying anything:
+
+```
+dry-run: proposed surfaces
+  1. README.md (atomic-prose) — new file commands/foo.md
+  2. CLAUDE.md (llm-reference) — new file commands/foo.md
+no edits applied.
+```
+
+Otherwise, walk surfaces one at a time. For each surface, print:
+
+```
+surface <N>/<total>: <path>
+voice:  <voice>
+reason: <reason>
+change: <suggested_change>
+
+  [e] edit   — open file, apply the suggested change, re-stage
+  [s] skip   — record a reason; no edit
+  [c] continue — treat as misclassification; no edit, no note
+```
+
+Wait for the user to type one of `e`, `s`, or `c`.
+
+**edit** (`e`): Open `<path>` and apply the `suggested_change`. After applying, stage the file:
+
+```bash
+git add <path>
+```
+
+**skip** (`s`): Ask for a reason (`skip reason: `). Record the path and reason in the run summary. Do not stage anything for this surface.
+
+**continue** (`c`): Treat the skill's classification as a misclassification. No edit, no skip note in the summary.
+
+## Step 5 — Print summary
+
+After all surfaces are walked, print a summary:
+
+```
+documentation pass complete.
+
+  edited (staged):
+    README.md — added commands table row
+    CLAUDE.md — appended Other commands entry
+
+  skipped:
+    docs/spec/foo.md — skip reason: spec already covers this
+
+  misclassified (continued):
+    docs/design/bar.md
+
+  total: <N> surfaces / <E> edited / <S> skipped / <C> continued
+```
 
 ## Rules
 
-- `CLAUDE.md` stays lean. Aggressively delete lines that don't earn their slot. A 30-line `CLAUDE.md` beats a 300-line one because Claude reads the whole thing every session.
-- Do NOT commit unless user asked. This command edits files only.
-- Do NOT create files in `docs/` unless content warrants it. Empty stubs rot.
-- Match the project's existing tone if README/CLAUDE.md already exist. Don't rewrite to match a template.
-- Never include AI bylines or "Generated with Claude Code" anywhere.
+- This command does not commit. Edits are staged; the user commits via a ship verb.
+- `--dry-run` prints the proposal and exits without touching any file.
+- `--print-template` exits immediately after printing; no diff is taken.
+- The voice rules and surface taxonomy live in `skills/atomic-documentation/SKILL.md`. This command does not duplicate them.
+- Apply edits as described in `suggested_change`. If the change is unclear, apply the closest reasonable interpretation and note it in the summary. Do not abort the walk on an ambiguous entry.
+- Never open or apply changes to files outside the paths emitted by the skill.

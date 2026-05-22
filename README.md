@@ -135,7 +135,7 @@ A holistic Claude Code configuration designed as one coherent system. Grouped by
 
 - `/atomic-plan` writes an append-mostly `docs/spec/<topic>.md` with a `## Change log` of every amendment.
 - `/subagent-implementation` keeps `BRIEF.md`, `STATE.md`, `FOLLOWUPS.md` in `.claude/.scratchpad/` and dispatches fresh-context [subagents](docs/reference/agents.md): `atomic-builder` (feature slices), `atomic-surgeon` (1-2 file edits), `atomic-investigator` (read-only locator, haiku), `atomic-reviewer` (re-runs the quality signals it verifies), `atomic-strategist` (opus, heavyweight reasoning).
-- Seven [discipline skills](docs/reference/skills.md) auto-fire on natural-language phrases — `atomic-tdd` ("let's implement X"), `atomic-verify` ("looks done"), `atomic-debug` ("this is broken"), `atomic-commit`, `atomic-review`, `atomic-signals`, `atomic-prose`. Everything else is an explicit slash command.
+- Eight [discipline skills](docs/reference/skills.md) auto-fire on natural-language phrases — `atomic-tdd` ("let's implement X"), `atomic-verify` ("looks done"), `atomic-debug` ("this is broken"), `atomic-commit`, `atomic-review`, `atomic-signals`, `atomic-prose`, `atomic-documentation` ("doc this change", "what surfaces does this touch"). Everything else is an explicit slash command.
 - Close your laptop for a week, rerun the same command, pick up where you left off.
 
 **[Ten ship verbs](docs/reference/workflow.md)** covering every combination of commit / push / squash / PR / merge-to-base

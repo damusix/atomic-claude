@@ -235,4 +235,35 @@ Rejected: `atomic-doc-impact`, `atomic-docs`, `atomic-doc-review`. The skill is 
 
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. -->
+### 2026-05-22 — v1 shipped
+
+**What changed:** Spec implemented across 7 iterations of `/subagent-implementation` on branch `documentation-split`. CP-1 through CP-11 land verbatim. CP-12 (final bundle parity) auto-handled by `.githooks/pre-commit` on every checkpoint commit. Open-question on `--dry-run` resolved as "yes" — included in CP-4.
+
+**Why:** Cohesion of the documentation surface needed a clear owner (rules → skill) separate from the orchestrator (flow → command), and ship verbs needed just-in-time doc-impact checks during commit synthesis.
+
+## Implementation log
+
+### v1 — 2026-05-22
+
+Built across 7 iterations of `/subagent-implementation` on worktree branch `documentation-split`. Commits (chronological):
+
+- `5befd9a` — CP-1/2/3 new `skills/atomic-documentation/SKILL.md` (frontmatter + four-voice + surface routing + override format + yaml output contract + "why structured handoff here" note). Two surgical iterations: first builder, then surgeon to fix override search-order missing lowercase `claude.md` (🔴) and remove `Does NOT` negation language in description per axiom 5 (🟡).
+- `d6df787` — CP-4 rewrite `commands/documentation.md` as thin orchestrator. Voice rules + taxonomy deleted (live in skill). Flow = args → diff → invoke skill → parse last yaml block (parser contract steps 1–7) → walk surfaces (edit/skip/continue) → summary. `--print-template` and `--dry-run` added.
+- `6460a6e` — CP-5/6 audit + wire ship verbs. Inliners: `commit-only`, `squash-only`, `squash-and-merge` (local path only). Delegators inherit via `/commit-only`: `commit-and-pr`, `commit-and-push`, `commit-and-merge`. New step lands after staging, before signals. `doc-skip:` lines route to commit trailer block.
+- (within `6460a6e`) — CP-5 correction: `commit-and-squash` was initially misclassified as a pure delegate; surgeon pass wired the doc-check into both Step 1 (inlined commit pipeline) and Step 2 (inlined squash sub-pipeline). Single combined commit.
+- `4132def` — CP-7/8 `atomic-prose` description gains callee declaration ("Invoked as callee by `atomic-documentation` when surface is human-facing prose"). `atomic-commit` gains `## Supplemental input: doc-skip trailers` section enforcing verbatim trailer preservation, one line per skip.
+- `82a45d6` — CP-9/10/11 `CLAUDE.md` voice section renamed "Four doc voices, four surfaces" with `LLM-reference` bullet added and routing pointer to the skill. `docs/reference/skills.md` row for `atomic-documentation` (and reciprocal callee declaration on `atomic-prose`). `README.md` skill count `Seven → Eight`.
+
+**Out-of-scope work performed during this build:**
+
+- During CP-5 audit, reviewer caught that `commit-and-squash.md` inlines `/commit-only`'s pipeline in Step 1 (not delegating as the builder initially classified). Surgeon iter wired doc-check into Step 1 as well as Step 2. Same iter, single follow-up commit. Counted under CP-5/6 scope.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- Mid-loop user clarification: "don't worry about backwards compatibility." Applied retrospectively from CP-7 forward — `atomic-commit`'s doc-skip section is unconditional (no "when supplied" hedge), `CLAUDE.md` voice section was wholesale-replaced without transition prose.
+- `commit-and-squash.md` (Step 2 squash sub-pipeline) revealed a pre-existing post-squash signals-refresh gap relative to `/squash-only`. Out of scope for this branch; logged as project followup.
+- `claude.local.md` does not exist in a freshly-added `git worktree` (gitignored files don't propagate). Project-mirror edit for that file is a no-op in the worktree by design; the dogfood file in the main checkout remains untouched and was not in scope.
+
+**Deferred items still open:**
+
+- none. F-1 (`commit-and-squash` post-squash signals refresh symmetry gap) closed in `c622bf2`.

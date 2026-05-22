@@ -8,7 +8,8 @@ description: >
   atomic output style governs Claude's TUI replies (terse, fragments); atomic-prose
   governs enduring narrative docs (this skill); specs and design docs use a separate
   terse-structured convention (tables, diagrams, brevity-first — they live and die by
-  token cost). Invoked by /documentation when editing README or guides. Auto-fires on
+  token cost). Invoked by /documentation when editing README or guides. Invoked as callee
+  by `atomic-documentation` when surface is human-facing prose. Auto-fires on
   "draft the README", "write the docs", "improve this prose", "edit the guide".
 ---
 
