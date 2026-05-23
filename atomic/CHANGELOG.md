@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0](https://github.com/damusix/atomic-claude/compare/v1.2.1...v1.3.0) (2026-05-23)
+
+
+### Features
+
+* **atomic-plan:** redesign for triviality tiers + spec loop ([cd43182](https://github.com/damusix/atomic-claude/commit/cd43182e853971864e522a899af0396d60e2b145))
+* **config:** atomic config CLI + ~/.claude/.atomic/ state directory ([5c9d61c](https://github.com/damusix/atomic-claude/commit/5c9d61cc1ab3e82d260352261767002fdb8d4d7a))
+* **documentation:** split skill from command, wire ship verbs ([4d7a7bf](https://github.com/damusix/atomic-claude/commit/4d7a7bf45e46699efb77553b32400b9aa0c4ddcb))
+* **followups:** per-entry folder + INDEX + CLI ([1ff0a3b](https://github.com/damusix/atomic-claude/commit/1ff0a3bb7037c6b9a31fa03918221392d73c8e8a))
+* **prompt:** add internal/prompt + axiom softenings + contrib skill ([2a06664](https://github.com/damusix/atomic-claude/commit/2a06664c70dc852086fdd9a42640339d148dc7a6))
+* **update:** auto-run doctor after self-update ([bf54309](https://github.com/damusix/atomic-claude/commit/bf543099ed86fce523740c483e10f786227242c0))
+* **worktree-start:** carry forward in-context specs ([d61ff4a](https://github.com/damusix/atomic-claude/commit/d61ff4a27d1d50b09776c456f8f86ecf1747da75))
+
 ## [1.2.1](https://github.com/damusix/atomic-claude/compare/v1.2.0...v1.2.1) (2026-05-18)
 
 
