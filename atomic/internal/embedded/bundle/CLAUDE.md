@@ -130,14 +130,60 @@ Full spec: `docs/spec/signals-workflow.md`.
 4. **Sync docs** — `/documentation` runs a diff-scoped doc-impact pass via the `atomic-documentation` skill (per-surface edit / skip / continue). Ship verbs fire the same skill on the staged diff automatically.
 
 
-Other commands: `/atomic-help [<topic> | <freeform intent>]` (routing assistant for a lost user — reads git state, classifies intent, recommends one next verb; no menus, never executes), `/subagent-diagnose <ci|bug> [args]` (multi-agent failure-investigation orchestrator; `ci` mode pulls a failed CI run's logs and drives a fix loop, `bug` mode starts from a freeform symptom — same scratchpad + investigator + builder/surgeon + reviewer loop as `/subagent-implementation`), `/session-report [<slug>]` (capture what changed and why for the current branch's session; writes to `.claude/.scratchpad/session-reports/<branch>/`; read and deleted by the next commit-message-generating ship verb), `/atomic-setup` (bootstrap a repo for atomic conventions — gitignore, docs/ layout, starter CLAUDE.md), `/report-issue` (open a GitHub issue against the user's current repo), `/report-issue-with-atomic` (open a GitHub issue against the atomic-claude repo itself — bugs/feature requests with the installed config, not the user's current project), `/worktree-start <branch>` (create isolated `.worktrees/<branch>/`), `/git-cleanup [<name>]` (scan stale git state — worktrees, branches, optional remote — via `atomic-git-scout`; confirm before deleting anything), `/atomic-compress <file>` (compress prose file into atomic style), `/pressure-test [<topic> | @<path-to.md>]` (Socratic challenger session — pressure-tests assumptions, surfaces contradictions, forces fuzzy maybes into yes/no through questions only; no artifacts produced; pairs with `/atomic-plan` as a pre-approval gate), `/initialize-signals` (one-shot bootstrap of project signals), `/refresh-signals` (deliberate re-scan of existing signals), `/review-branch` (dispatch `atomic-reviewer` once on `<base>..HEAD` for a pre-PR / pre-merge branch review — no orchestration loop, no spec required), `/undo-commit` (soft-undo the last commit; refuses if HEAD is a merge commit, the initial commit, or already pushed), `/watch-ci [<branch>|<pr#>|<run-id>|<workflow.yml>]` (spawn background Haiku subagent to watch CI — provider auto-detected from signals: GitHub Actions, GitLab CI, CircleCI, Jenkins, Buildkite, Bitbucket, Azure), `/remind-me <duration> <text>` (schedule a reminder via cron; degrades to file-only without `CronCreate`), `/follow-up [due <id> | review]` (review pending reminders — reminders surface three ways: cron fires `/follow-up due <id>`, session-start hook injects pending items at session open, and `/follow-up` on demand; `/follow-up review` triages stale `.claude/project/followups/` entries with per-item `extend|close|promote|skip` disposition), `/atomic-claude-merge` (merge `~/.claude/.atomic/proposed/CLAUDE.md` produced by `atomic claude install/update` into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent — preserves user sections, replaces atomic-owned ones, backs up prior CLAUDE.md under `~/.claude/.atomic/backups/<ts>/`).
+## Other commands
 
-Atomic binary subcommands beyond `claude install` / `signals scan` / `hooks install` / `reminder` / `update`: `atomic docker init [--target DIR] [--force]` writes a Dockerfile + docker-compose.yml + entrypoint into the target dir (default `./atomic-docker/`) so users can evaluate atomic-claude on their own projects without cloning this repo. Mirror of the contributor Docker setup at the repo root (see `## Evaluations` in README.md).
 
-`atomic doctor [--fix] [--json] [--only <cat[,...]>] [--skip <cat[,...]>] [--stale-days N] [--verbose]` runs nine indexed integrity checks (install, hooks, signals, refs, manifest, followups, memory, binary, config) against `~/.claude/` and the current project. Exits 0 (all PASS or only WARN/SKIP), 1 (any FAIL), 2 (usage error). `--fix` prompts per item to apply repairs. Full spec: `docs/spec/atomic-doctor.md`.
+**Routing / planning**
 
-`atomic validate [spec|config|bundle] [paths...]` runs deterministic lints against the repo's artifacts: spec markdown structure (S0/S1/S5/S6), cross-reference integrity in CLAUDE.md / commands / agents / skills (C1/C3/C5/C7/C9), and bundle parity against the embedded manifest. No args → whole-repo run. `--json` for machine output, `--suggest` for structural template hints. Exit 1 on any FAIL, 2 on internal error.
 
-`atomic update [--check] [--channel <stable|prerelease>] [--no-doctor]` self-updates the binary from GitHub Releases (SHA256-verified). After a successful binary swap, runs `doctor.Run` automatically with `signals` and `binary` skipped and prints FAIL lines only (silent on healthy). Update success is preserved unconditionally — doctor outcome (including panics) never changes the exit code. Disable the post-update doctor per-invocation with `--no-doctor` or durably via `update.run_doctor = false` in `~/.claude/.atomic/config.toml`. Precedence: flag > config > default (`true`). Full spec: `docs/spec/atomic-update-doctor.md`.
+- `/atomic-help [<topic> | <freeform intent>]` — routing assistant for a lost user. Reads git state, classifies intent, recommends one next verb. No menus, never executes.
+- `/pressure-test [<topic> | @<path-to.md>]` — Socratic challenger session. Pressure-tests assumptions, surfaces contradictions, forces fuzzy maybes into yes/no through questions only. No artifacts. Pairs with `/atomic-plan` as a pre-approval gate.
+- `/review-branch` — dispatches `atomic-reviewer` once on `<base>..HEAD` for a pre-PR / pre-merge branch review. No orchestration loop, no spec required.
+- `/subagent-diagnose <ci|bug> [args]` — multi-agent failure-investigation orchestrator. `ci` mode pulls a failed CI run's logs and drives a fix loop; `bug` mode starts from a freeform symptom. Same scratchpad + investigator + builder/surgeon + reviewer loop as `/subagent-implementation`.
 
-`atomic followups <list|add|close|render|migrate|path>` manages the per-entry follow-ups folder at `.claude/project/followups/`. `list [--stale] [--json]` enumerates open entries; `add --id <id> --title <t> --severity <s> --origin <o> [--file <f>] [--body -]` writes a new entry (deterministic frontmatter; LLM-free); `close <id> [--reason <r>]` appends to `CLOSED.md` and deletes the entry file; `render` regenerates `INDEX.md`; `migrate` one-shot converts the legacy `followups.md` into the folder layout; `path` prints the absolute folder path. Spec: `docs/spec/follow-ups-folder.md`.
+
+**Repo bootstrap**
+
+
+- `/atomic-setup` — bootstrap a repo for atomic conventions: gitignore, `docs/` layout, starter `CLAUDE.md`.
+- `/initialize-signals` — one-shot bootstrap of project signals.
+- `/refresh-signals` — deliberate re-scan of existing signals.
+- `/worktree-start <branch>` — create isolated `.worktrees/<branch>/`.
+
+
+**Maintenance**
+
+
+- `/git-cleanup [<name>]` — scan stale git state (worktrees, branches, optional remote) via `atomic-git-scout`. Confirm before deleting anything.
+- `/undo-commit` — soft-undo the last commit. Refuses if HEAD is a merge commit, the initial commit, or already pushed.
+- `/atomic-claude-merge` — merge `~/.claude/.atomic/proposed/CLAUDE.md` produced by `atomic claude install/update` into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent. Preserves user sections, replaces atomic-owned ones, backs up prior `CLAUDE.md` under `~/.claude/.atomic/backups/<ts>/`.
+- `/atomic-compress <file>` — compress prose file into atomic style.
+
+
+**Session memory / reminders**
+
+
+- `/session-report [<slug>]` — capture what changed and why for the current branch's session. Writes to `.claude/.scratchpad/session-reports/<branch>/`. Read and deleted by the next commit-message-generating ship verb.
+- `/remind-me <duration> <text>` — schedule a reminder via cron. Degrades to file-only without `CronCreate`.
+- `/follow-up [due <id> | review]` — review pending reminders. Surface paths: cron fires `/follow-up due <id>`, session-start hook injects pending items at session open, `/follow-up` on demand. `/follow-up review` triages stale `.claude/project/followups/` entries with per-item `extend|close|promote|skip` disposition.
+
+
+**Observability / reporting**
+
+
+- `/watch-ci [<branch>|<pr#>|<run-id>|<workflow.yml>]` — spawn background Haiku subagent to watch CI. Provider auto-detected from signals: GitHub Actions, GitLab CI, CircleCI, Jenkins, Buildkite, Bitbucket, Azure.
+- `/report-issue` — open a GitHub issue against the user's current repo.
+- `/report-issue-with-atomic` — open a GitHub issue against the atomic-claude repo itself. Bugs / feature requests with the installed config, not the user's current project.
+
+
+## Atomic binary subcommands
+
+
+Beyond `claude install` / `signals scan` / `hooks install` / `reminder` / `update`:
+
+
+- `atomic docker init [--target DIR] [--force]` — writes a Dockerfile + docker-compose.yml + entrypoint into the target dir (default `./atomic-docker/`) so users can evaluate atomic-claude on their own projects without cloning this repo. Mirror of the contributor Docker setup at the repo root (see `## Evaluations` in README.md).
+- `atomic doctor [--fix] [--json] [--only <cat[,...]>] [--skip <cat[,...]>] [--stale-days N] [--verbose]` — runs nine indexed integrity checks (install, hooks, signals, refs, manifest, followups, memory, binary, config) against `~/.claude/` and the current project. Exits 0 (PASS or only WARN/SKIP), 1 (any FAIL), 2 (usage error). `--fix` prompts per item to apply repairs. Spec: `docs/spec/atomic-doctor.md`.
+- `atomic validate [spec|config|bundle] [paths...]` — deterministic lints against the repo's artifacts: spec markdown structure (S0/S1/S5/S6), cross-reference integrity in CLAUDE.md / commands / agents / skills (C1/C3/C5/C7/C9), bundle parity against the embedded manifest. No args → whole-repo run. `--json` for machine output, `--suggest` for structural template hints. Exit 1 on any FAIL, 2 on internal error.
+- `atomic update [--check] [--channel <stable|prerelease>] [--no-doctor]` — self-updates the binary from GitHub Releases (SHA256-verified). After a successful binary swap, runs `doctor.Run` with `signals` and `binary` skipped, prints FAIL lines only (silent on healthy). Update success preserved unconditionally — doctor outcome (including panics) never changes exit code. Disable per-invocation with `--no-doctor` or durably via `update.run_doctor = false` in `~/.claude/.atomic/config.toml`. Precedence: flag > config > default (`true`). Spec: `docs/spec/atomic-update-doctor.md`.
+- `atomic followups <list|add|close|render|migrate|path>` — manages the per-entry follow-ups folder at `.claude/project/followups/`. `list [--stale] [--json]` enumerates open entries; `add --id <id> --title <t> --severity <s> --origin <o> [--file <f>] [--body -]` writes a new entry (deterministic frontmatter, LLM-free); `close <id> [--reason <r>]` appends to `CLOSED.md` and deletes the entry file; `render` regenerates `INDEX.md`; `migrate` one-shot converts the legacy `followups.md` into the folder layout; `path` prints the absolute folder path. Spec: `docs/spec/follow-ups-folder.md`.

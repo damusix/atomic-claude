@@ -54,7 +54,7 @@ For each missing item, propose an action. Skip items already present.
 | `.gitignore` exists but missing `tmp/` | Append `tmp/`. |
 | `.gitignore` exists but missing `.claude/.scratchpad/` | Append `.claude/.scratchpad/`. |
 | `.gitignore` exists but missing `.worktrees/` | Append `.worktrees/`. |
-| `CLAUDE.md` missing | Write the atomic starter template (see below). |
+| `CLAUDE.md` missing | Run the survey procedure (see "CLAUDE.md survey" in Step 4). Never write a blank scaffold; always seed each section with an agent guess from signals/README/code, user edits the guess. |
 | `docs/spec/` missing | Create directory + `docs/spec/.gitkeep` (so git tracks it before any content lands). |
 | `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
 | `README.md` missing | Offer to scaffold a minimal starter. If user declines, skip — don't push it. |
@@ -107,10 +107,96 @@ For each confirmed action, in order:
 grep -qxF 'tmp/' .gitignore || echo 'tmp/' >> .gitignore
 ```
 
-### `CLAUDE.md`
+### `CLAUDE.md` survey
 
-- Refuse to overwrite if file exists. (Audit already gated this — defensive double-check.)
-- Write the template from this command (see below).
+Refuse to overwrite if file exists (audit already gated this — defensive double-check).
+
+**Never write a blank scaffold.** Every section is seeded with an agent guess; the user edits the guess. The point of project `CLAUDE.md` is durable intent, scope, tribal knowledge, rules, processes, and external references — content global `~/.claude/CLAUDE.md` cannot carry and project signals cannot infer. Do not duplicate global principles, "where things live", or the canonical workflow. Those load globally.
+
+**Inputs the agent reads to form guesses** (in order, stop when enough signal):
+
+1. `.claude/project/deterministic-signals.md` and `inferred-signals.md` if present.
+2. `README.md`.
+3. Top-level manifest files (`package.json`, `go.mod`, `pyproject.toml`, `Cargo.toml`, etc.) for purpose / language / domain hints.
+4. `.github/workflows/`, `Makefile`, release scripts for processes.
+5. Recent `git log --oneline -50` for commit style and rule signals.
+6. `rg -n 'HACK|FIXME|XXX|WORKAROUND'` for tribal-knowledge candidates.
+
+**Survey loop.** Walk the six sections below in order. For each:
+
+1. Form the guess from the documented source.
+2. If the guess is **non-empty** (the source returned real content), present it and ask `[a]ccept / [e]dit`. Skip is NOT offered — the agent already found durable signal, so the section gets written.
+3. If the guess is **empty** (the source returned nothing actionable), present the fallback placeholder and ask `[a]ccept / [e]dit / [s]kip`. Skip writes the placeholder as the section body.
+
+Accept → use as-is. Edit → user supplies replacement text. Skip (empty-guess path only) → render the one-line honest placeholder. Never an HTML comment. Never blank.
+
+| # | Section | Guess source | If nothing inferable |
+|---|---------|--------------|----------------------|
+| 1 | **What this is** | First README paragraph + manifest `description` field + dominant language | "One-line purpose. Who uses it, who maintains it." prompt, asked of user |
+| 2 | **Scope boundary** | Platform support comments (`claude.local.md`-style "macOS+Linux only"), CI matrix, language exclusions | Ask user explicitly: "What is this for? What is it deliberately NOT for?" |
+| 3 | **Tribal knowledge** | `HACK`/`FIXME`/`XXX`/`WORKAROUND` comments with surrounding context; non-standard directory layout | "No surprising patterns detected. Add gotchas as they surface." |
+| 4 | **Project rules** | Commit-message style from recent git log, lint config, pre-commit hooks, CI gates | "No repo-specific rules detected beyond global defaults." |
+| 5 | **Processes** | `Makefile` targets, `.github/workflows/*.yml` job names, release scripts, `CONTRIBUTING.md` | "No release / rollback / on-call processes detected." |
+| 6 | **External references** | URLs scraped from `README.md` matching Linear/Notion/Slack/Grafana/Sentry/Datadog domains | "No external references detected. Add Linear/Notion/Slack/dashboards as they arise." |
+
+**Render.** Assemble the accepted/edited content into this skeleton, then write to `CLAUDE.md`:
+
+````markdown
+# CLAUDE.md
+
+
+## What this is
+
+
+<§1 content>
+
+
+## Scope boundary
+
+
+<§2 content>
+
+
+## Tribal knowledge
+
+
+<§3 content>
+
+
+## Project rules
+
+
+<§4 content>
+
+
+## Processes
+
+
+<§5 content>
+
+
+## External references
+
+
+<§6 content>
+
+
+## Project signals (auto-loaded)
+
+
+@.claude/project/deterministic-signals.md
+@.claude/project/inferred-signals.md
+````
+
+The `## Project signals (auto-loaded)` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets).
+
+**Forbidden content in the rendered file.** Do not write any of these — they live globally already and duplicating them noise-pollutes the project file:
+
+- Principles ("Think before coding", "Simplicity first", etc.)
+- "Where things live" (scratchpad / docs/design / docs/spec / worktrees)
+- Canonical workflow steps (Plan → Implement → Ship → Sync docs)
+- Subagent roster
+- Slash command catalog
 
 ### `docs/spec/` and `docs/design/`
 
@@ -166,74 +252,19 @@ Final state:
 ```
 Applied:
   ✓ .gitignore updated: added tmp/, .claude/.scratchpad/, .worktrees/
-  ✓ CLAUDE.md created (atomic template — edit it with project-specific context)
+  ✓ CLAUDE.md created via survey (N sections accepted, M edited, K skipped)
   ✓ docs/spec/ + docs/design/ created with .gitkeep
 
 Skipped:
   • README.md (you said no)
 
 Next steps:
-  - Edit CLAUDE.md to capture this project's meaningful context.
+  - Revisit CLAUDE.md as tribal knowledge accrues — skipped sections in particular.
   - Run /atomic-plan to start your first design or spec.
   - Commit when ready: /commit-only.
 ```
 
 Delete no scratch (this command writes no scratchpad).
-
-## CLAUDE.md starter template
-
-Use this exactly when creating `CLAUDE.md`. Tabs and blank-line spacing preserved.
-
-```markdown
-# CLAUDE.md
-
-
-## Principles
-
-
-- Think before coding. State assumptions. Ask, don't guess.
-- Simplicity first. Minimum code. No abstractions for single-use code.
-- Surgical changes. Touch only what's needed. Match existing style.
-- Read before you write. Check exports, callers, shared utilities.
-- Tests verify intent. A test that still passes when business logic changes is wrong.
-- Fail loud. "Completed" is wrong if anything was skipped.
-
-
-## Where things live
-
-
-- **Working memory** (LLM-only, gitignored): `.claude/.scratchpad/<YYYY-MM-DD>-<desc>/` — used by `/subagent-implementation`. Holds `BRIEF.md` + `STATE.md`. Deleted on task completion.
-- **Durable docs** (committed):
-  - `docs/design/<topic>.md` — design rationale, alternatives, brainstorming. Written via `/atomic-plan`.
-  - `docs/spec/<topic>.md` — implementation contract for an approved feature. Written via `/atomic-plan`. Canonical source for `/subagent-implementation`.
-- **Worktrees** (gitignored): `.worktrees/<branch-name>/` — created via `/worktree-start`.
-- **Throwaway** (gitignored): `tmp/` — ad-hoc experiments, scratch scripts, one-off test files.
-
-
-## Project-specific
-
-
-<!--
-Replace this section with what's meaningful for THIS repo. Examples:
-
-- Build / test / lint commands the agent should know
-- Architectural patterns the codebase uses
-- Gotchas or non-obvious conventions
-- Deployment targets, env vars, infra notes
-
-Keep it lean. If the agent can read the code and figure it out, leave it out.
--->
-
-
-## Workflow (atomic)
-
-
-1. Plan: `/atomic-plan` → `docs/design/<topic>.md` or `docs/spec/<topic>.md` (human-approved).
-2. Implement: `/subagent-implementation` (reads spec, runs implement→review loop).
-3. Ship: `/commit-only`, `/commit-and-pr`, `/pr-only`, `/merge-to-main`, `/squash-and-merge`, etc.
-4. Sync docs: `/documentation`.
-5. Clean up: `/git-cleanup`.
-```
 
 ## Rules
 
