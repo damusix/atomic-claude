@@ -1,11 +1,4 @@
 {{define "pr-flow"}}
-## Prereqs
-
-- `command -v gh` — if missing: tell user to install (`brew install gh` / `winget install --id GitHub.cli` / https://cli.github.com/) then `gh auth login`. Stop.
-- `gh auth status` — if unauthed: tell user `gh auth login`. Stop.
-
-## Steps
-
 1. Invoke the `atomic-review` skill. PR title and body follow that tone.
 2. `git branch --show-current`. If on base branch, stop.
 3. Determine base: `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`.

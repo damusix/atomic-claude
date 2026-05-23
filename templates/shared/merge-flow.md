@@ -1,13 +1,7 @@
-{{define "merge-flow"}}
-## Pre-flight
-
+{{define "merge-flow-preflight"}}
 1. Invoke `atomic-verify` skill — gate: no merge claim without fresh evidence.
 2. Determine base:
-   ```
-   gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null \
-     || git config init.defaultBranch \
-     || echo main
-   ```
+   {{ template "base-resolution" . }}
 3. `git branch --show-current`. If on base: `refused: already on <base>. nothing to merge.`
 4. `git status --porcelain`. If dirty: `refused: working tree dirty. /commit-only first, then /merge-to-main.`
 5. **Detect open PR for this branch.** Decides remote vs local path:
@@ -16,10 +10,9 @@
    ```
    - Output `OPEN` → capture PR number; use **remote path** (preferred — closes the PR cleanly).
    - Otherwise → **local path**. A local merge of a branch that has an open PR leaves the PR open as "Not merged" because the merge commit on base carries no PR reference; prefer remote whenever a PR exists.
-   - If `gh` is missing or unauthed: fall through to local path with a one-line note.
+   - If `gh` is missing or unauthed: fall through to local path with a one-line note.{{- end}}
 
-## Steps
-
+{{define "merge-flow-steps"}}
 1. Record feature branch name and PR number (if any).
 2. **Execute merge — pick path:**
 
@@ -60,21 +53,9 @@
 6. **Delete local feature branch**: `git branch -d <feature>`.
     - **Remote path**: `gh pr merge --delete-branch` already removed the remote branch.
     - **Local path**: no remote branch to clean up.
-7. Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via `AskUserQuestion`:
-   > Branch was checked out in worktree at `<path>`. Delete it?
-   > - Yes, remove worktree
-   > - No, keep it
+7. {{ template "worktree-cleanup-prompt" . }}{{- end}}
 
-   On Yes: find repo root via `git rev-parse --show-toplevel` on the main checkout (not the worktree). `git worktree remove <path>`. `git worktree prune`.
+{{define "merge-flow"}}
+{{ template "merge-flow-preflight" . }}
 
-## Report
-
-`merged <feature> into <base> as <MERGE_SHA> [via gh pr <PR#>]. branch deleted [local + remote]. worktree: <kept|removed>.`
-
-## Rules
-
-- No `--no-verify`. No `--amend` on hook failure — fix root cause and recommit.
-- Use relative paths for `git add`. No `git -C`. No `cd && git`.
-- Separate Bash calls for each `git` command — no `&&` chaining.
-- **Never force-push the base branch.** If a remote-path rollback is needed post-merge, use `git revert` — the bad SHA stays in history, a new commit reverses it.
-- **Remote path is preferred whenever a PR is open.** GitHub does not auto-close PRs on local merge + push of the base branch; the PR stays open as "Not merged" indefinitely. `gh pr merge` is the only way to close it cleanly without manual `gh pr close`.{{- end}}
+{{ template "merge-flow-steps" . }}{{- end}}

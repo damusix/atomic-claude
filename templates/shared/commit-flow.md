@@ -6,22 +6,11 @@
     - `REPORTS_DIR=.claude/.scratchpad/session-reports/<BRANCH-sanitized>/`.
     - If the dir exists and contains `*.md`, read all files in chronological order and pass their content to the `atomic-commit` skill as supplemental why-context for the commit message. If the dir is empty or missing, proceed normally.
 4. Stage relevant files explicitly by path. No `git add -A` / `.`. Skip secrets, build artifacts, large binaries. If staged/unstaged intent is ambiguous, ask.
-5. **Documentation impact check** — invoke the `atomic-documentation` skill on the staged diff (`git diff --cached`). Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, has no `surfaces` key, or `surfaces` is empty, skip this step silently. For each non-empty surface:
-    - Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
-    - Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
-    - **edit**: open the file, apply the suggested change, stage it with `git add <path>`.
-    - **skip**: ask for a typed reason; record `doc-skip: <reason>` to append to the commit trailer block (after the body's blank line, in `git interpret-trailers --parse` range). One line per skip.
-    - **continue**: treat as misclassification; no edit, no `doc-skip` line.
+5. {{ template "doc-impact" . }}
 
-    Why doc-before-signals: new doc files staged at step 5 must be picked up by signals at step 6 in a single pass. Doc-after-signals would force a second stale-gate. One pass.
+    {{ template "doc-impact-why" . }}
 
-6. **Signals pre-commit** — evaluate these gates in order; stop at the first that fails:
-    1. `command -v atomic` succeeds? If not, skip.
-    2. `atomic signals stale` exits 1 (stale)? If it exits 0 (fresh), skip.
-
-    Both pass → invoke the `atomic-signals` skill in silent mode (no report line). If signals regenerate, stage `.claude/project/deterministic-signals.md` and `.claude/project/inferred-signals.md`.
-
-    No file-extension allowlist. `atomic signals stale` is the source of truth; it fast-fails when nothing changed and catches structural shifts (e.g. a new `commands/*.md` file) that an extension list would miss.
+6. {{ template "signals-gate" . }}
 7. Commit using a HEREDOC message.
 8. **On successful commit (exit 0): delete the branch's session-reports dir.**
     - `rm -rf .claude/.scratchpad/session-reports/<BRANCH-sanitized>/`

@@ -45,7 +45,6 @@ If nothing to commit AND branch up to date with base → stop.
 ## Step 2 — Merge
 
 
-## Pre-flight
 
 1. Invoke `atomic-verify` skill — gate: no merge claim without fresh evidence.
 2. Determine base:
@@ -64,7 +63,6 @@ If nothing to commit AND branch up to date with base → stop.
    - Otherwise → **local path**. A local merge of a branch that has an open PR leaves the PR open as "Not merged" because the merge commit on base carries no PR reference; prefer remote whenever a PR exists.
    - If `gh` is missing or unauthed: fall through to local path with a one-line note.
 
-## Steps
 
 1. Record feature branch name and PR number (if any).
 2. **Execute merge — pick path:**
@@ -112,18 +110,6 @@ If nothing to commit AND branch up to date with base → stop.
    > - No, keep it
 
    On Yes: find repo root via `git rev-parse --show-toplevel` on the main checkout (not the worktree). `git worktree remove <path>`. `git worktree prune`.
-
-## Report
-
-`merged <feature> into <base> as <MERGE_SHA> [via gh pr <PR#>]. branch deleted [local + remote]. worktree: <kept|removed>.`
-
-## Rules
-
-- No `--no-verify`. No `--amend` on hook failure — fix root cause and recommit.
-- Use relative paths for `git add`. No `git -C`. No `cd && git`.
-- Separate Bash calls for each `git` command — no `&&` chaining.
-- **Never force-push the base branch.** If a remote-path rollback is needed post-merge, use `git revert` — the bad SHA stays in history, a new commit reverses it.
-- **Remote path is preferred whenever a PR is open.** GitHub does not auto-close PRs on local merge + push of the base branch; the PR stays open as "Not merged" indefinitely. `gh pr merge` is the only way to close it cleanly without manual `gh pr close`.
 
 ## Report
 

@@ -1,30 +1,18 @@
-{{define "squash-flow"}}
-## Pre-flight
-
+{{define "squash-flow-preflight"}}
 1. Determine base:
-   ```
-   gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null \
-     || git config init.defaultBranch \
-     || echo main
-   ```
+   {{ template "base-resolution" . }}
 2. `git branch --show-current`. If on base: `refused: already on <base>. nothing to squash.`
 3. `git status --porcelain`. If dirty: `refused: working tree dirty. commit or stash first.`
-4. Count commits: `git rev-list --count <base>..HEAD`. If 1: `refused: only one commit on branch. nothing to squash.`
+4. Count commits: `git rev-list --count <base>..HEAD`. If 1: `refused: only one commit on branch. nothing to squash.`{{- end}}
 
-## Steps
-
+{{define "squash-flow-steps"}}
 1. Gather subjects (oldest-first): `SUBJECTS=$(git log <base>..HEAD --format='%s' --reverse)`.
 2. **Read session reports for the current branch** (if any):
     - `BRANCH=$(git branch --show-current)`.
     - `REPORTS_DIR=.claude/.scratchpad/session-reports/<BRANCH-sanitized>/`.
     - If the dir exists and contains `*.md`, read all files in chronological order and pass their content to the `atomic-commit` skill as supplemental why-context alongside `SUBJECTS`. If the dir is empty or missing, proceed with `SUBJECTS` only.
 3. `git reset --soft $(git merge-base HEAD <base>)` — collapses all branch commits into the index.
-4. **Documentation impact check** — invoke the `atomic-documentation` skill on the staged diff (`git diff --cached`). Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, has no `surfaces` key, or `surfaces` is empty, skip this step silently. For each non-empty surface:
-    - Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
-    - Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
-    - **edit**: open the file, apply the suggested change, stage it with `git add <path>`.
-    - **skip**: ask for a typed reason; record `doc-skip: <reason>` to append to the commit trailer block (after the body's blank line, in `git interpret-trailers --parse` range). One line per skip.
-    - **continue**: treat as misclassification; no edit, no `doc-skip` line.
+4. {{ template "doc-impact" . }}
 
     Why doc-before-signals: new doc files staged at step 4 must be picked up by signals at step 8 in a single pass. Doc-after-signals would force a second stale-gate. One pass.
 
@@ -45,19 +33,14 @@
     ```
 
     Stage by explicit path. Commit as a follow-up: `docs(spec): record squash SHA <new-sha>`. Never amend the squash commit. If no specs match: skip silently.
-8. **Post-squash signals refresh.** Defense in depth — even if each branch commit ran `/commit-only`, manual commits or rebased history may have bypassed it. Evaluate in order; stop at first failure:
-    1. `command -v atomic` succeeds? If not, skip.
-    2. `atomic signals stale` exits 1 (stale)? If 0 (fresh), skip.
-    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `CLAUDE.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/inferred-signals.md`, and `CLAUDE.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after squash`. Never amend the squash commit.
-9. `git status` to confirm.
+8. **Post-squash signals refresh** (defense in depth — even if each branch commit ran `/commit-only`, manual commits or rebased history may have bypassed it):
 
-## Report
+    {{ template "signals-gate" . }}
 
-`squashed N commits into <new-sha>. branch still <branch>.`
+    When signals regenerate: commit as a follow-up: `chore(signals): refresh after squash`. Never amend the squash commit.
+9. `git status` to confirm.{{- end}}
 
-## Rules
+{{define "squash-flow"}}
+{{ template "squash-flow-preflight" . }}
 
-- No `--no-verify`. On hook failure: fix root cause, re-stage, NEW commit (no `--amend`).
-- Use relative paths for `git add`. No `git -C`. No `cd && git`.
-- Separate Bash calls for each `git` command — no `&&` chaining.
-- This command does NOT merge into base and does NOT delete the branch.{{- end}}
+{{ template "squash-flow-steps" . }}{{- end}}

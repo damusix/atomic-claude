@@ -5,7 +5,6 @@ description: Squash all branch commits via git merge --squash on base. One clean
 ## Squash
 
 
-## Pre-flight
 
 1. Determine base:
    ```
@@ -17,7 +16,6 @@ description: Squash all branch commits via git merge --squash on base. One clean
 3. `git status --porcelain`. If dirty: `refused: working tree dirty. commit or stash first.`
 4. Count commits: `git rev-list --count <base>..HEAD`. If 1: `refused: only one commit on branch. nothing to squash.`
 
-## Steps
 
 1. Gather subjects (oldest-first): `SUBJECTS=$(git log <base>..HEAD --format='%s' --reverse)`.
 2. **Read session reports for the current branch** (if any):
@@ -51,27 +49,22 @@ description: Squash all branch commits via git merge --squash on base. One clean
     ```
 
     Stage by explicit path. Commit as a follow-up: `docs(spec): record squash SHA <new-sha>`. Never amend the squash commit. If no specs match: skip silently.
-8. **Post-squash signals refresh.** Defense in depth — even if each branch commit ran `/commit-only`, manual commits or rebased history may have bypassed it. Evaluate in order; stop at first failure:
+8. **Post-squash signals refresh** (defense in depth — even if each branch commit ran `/commit-only`, manual commits or rebased history may have bypassed it):
+
+    **Signals pre-commit** — evaluate these gates in order; stop at the first that fails:
     1. `command -v atomic` succeeds? If not, skip.
-    2. `atomic signals stale` exits 1 (stale)? If 0 (fresh), skip.
-    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `CLAUDE.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/inferred-signals.md`, and `CLAUDE.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after squash`. Never amend the squash commit.
+    2. `atomic signals stale` exits 1 (stale)? If it exits 0 (fresh), skip.
+
+    Both pass → invoke the `atomic-signals` skill in silent mode (no report line). If signals regenerate, stage `.claude/project/deterministic-signals.md` and `.claude/project/inferred-signals.md`.
+
+    No file-extension allowlist. `atomic signals stale` is the source of truth; it fast-fails when nothing changed and catches structural shifts (e.g. a new `commands/*.md` file) that an extension list would miss.
+
+    When signals regenerate: commit as a follow-up: `chore(signals): refresh after squash`. Never amend the squash commit.
 9. `git status` to confirm.
-
-## Report
-
-`squashed N commits into <new-sha>. branch still <branch>.`
-
-## Rules
-
-- No `--no-verify`. On hook failure: fix root cause, re-stage, NEW commit (no `--amend`).
-- Use relative paths for `git add`. No `git -C`. No `cd && git`.
-- Separate Bash calls for each `git` command — no `&&` chaining.
-- This command does NOT merge into base and does NOT delete the branch.
 
 ## Merge
 
 
-## Pre-flight
 
 1. Invoke `atomic-verify` skill — gate: no merge claim without fresh evidence.
 2. Determine base:
@@ -90,7 +83,6 @@ description: Squash all branch commits via git merge --squash on base. One clean
    - Otherwise → **local path**. A local merge of a branch that has an open PR leaves the PR open as "Not merged" because the merge commit on base carries no PR reference; prefer remote whenever a PR exists.
    - If `gh` is missing or unauthed: fall through to local path with a one-line note.
 
-## Steps
 
 1. Record feature branch name and PR number (if any).
 2. **Execute merge — pick path:**
@@ -138,18 +130,6 @@ description: Squash all branch commits via git merge --squash on base. One clean
    > - No, keep it
 
    On Yes: find repo root via `git rev-parse --show-toplevel` on the main checkout (not the worktree). `git worktree remove <path>`. `git worktree prune`.
-
-## Report
-
-`merged <feature> into <base> as <MERGE_SHA> [via gh pr <PR#>]. branch deleted [local + remote]. worktree: <kept|removed>.`
-
-## Rules
-
-- No `--no-verify`. No `--amend` on hook failure — fix root cause and recommit.
-- Use relative paths for `git add`. No `git -C`. No `cd && git`.
-- Separate Bash calls for each `git` command — no `&&` chaining.
-- **Never force-push the base branch.** If a remote-path rollback is needed post-merge, use `git revert` — the bad SHA stays in history, a new commit reverses it.
-- **Remote path is preferred whenever a PR is open.** GitHub does not auto-close PRs on local merge + push of the base branch; the PR stays open as "Not merged" indefinitely. `gh pr merge` is the only way to close it cleanly without manual `gh pr close`.
 
 ## Rules
 
