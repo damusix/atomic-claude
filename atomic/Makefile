@@ -1,4 +1,9 @@
-.PHONY: bundle test build vet fmt tidy
+.PHONY: render bundle test build vet fmt tidy
+
+# render: render templates/ into commands/ (and any other future kinds).
+# Run this after editing any file under templates/.
+render:
+	go run ./cmd/render-templates -repo ../ -outdir ../
 
 # bundle: regenerate the embedded artifact bundle from the repo root.
 # Run this after editing any source artifact (agents/, commands/, skills/, etc.).

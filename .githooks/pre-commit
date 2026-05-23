@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# Pre-commit hook: regenerate the embedded bundle when a staged change
-# touches a source artifact (agents/, commands/, skills/, output-styles/,
-# rules/, CLAUDE.md). Without this, CI fails the "Verify bundle is committed"
-# step. Installed by `make hooks` (sets core.hooksPath=.githooks).
+# Pre-commit hook:
+#   Stage 1 — render templates when a staged change touches templates/.
+#              Re-stages commands/ outputs so they ride along with this commit.
+#              The bundle stage below will then pick up the re-staged commands/.
+#   Stage 2 — regenerate the embedded bundle when a staged change touches a
+#              source artifact (agents/, commands/, skills/, output-styles/,
+#              rules/, CLAUDE.md). Without this, CI fails the "Verify bundle
+#              is committed" step.
+# Installed by `make hooks` (sets core.hooksPath=.githooks).
 set -euo pipefail
 
 # Only react to staged changes (ignore unstaged edits — they aren't part of
@@ -10,6 +15,30 @@ set -euo pipefail
 mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
 
 repo_root=$(git rev-parse --show-toplevel)
+
+# --- Stage 1: render templates ---
+needs_render=0
+for f in "${staged[@]}"; do
+    case "$f" in
+        templates/*)
+            needs_render=1
+            break
+            ;;
+    esac
+done
+
+if [ "$needs_render" -eq 1 ]; then
+    echo "pre-commit: templates changed — running make render"
+    make -C "$repo_root" render >/dev/null
+    # Re-stage rendered outputs so they ride along with this commit.
+    git add "$repo_root/commands"
+    echo "pre-commit: rendered outputs re-staged"
+fi
+
+# --- Stage 2: regenerate bundle ---
+# After the render stage may have re-staged commands/, refresh the staged list
+# so the bundle stage sees the updated set.
+mapfile -t staged < <(git diff --cached --name-only --diff-filter=ACMR)
 
 needs_regen=0
 for f in "${staged[@]}"; do

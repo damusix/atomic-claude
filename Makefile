@@ -1,4 +1,4 @@
-.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall bundle link dev-setup
+.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall render bundle link dev-setup
 
 .DEFAULT_GOAL := help
 
@@ -14,6 +14,9 @@ hooks: ## Install repo git hooks (sets core.hooksPath to .githooks)
 hooks-uninstall: ## Restore default git hooks path
 	git config --unset core.hooksPath
 	@echo "git hooks restored to default (.git/hooks/)."
+
+render: ## Render templates/ into commands/ (delegates to atomic/)
+	$(MAKE) -C atomic render
 
 bundle: ## Regenerate the embedded artifact bundle (delegates to atomic/)
 	$(MAKE) -C atomic bundle

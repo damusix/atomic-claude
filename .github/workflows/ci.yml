@@ -19,6 +19,13 @@ jobs:
         with:
           go-version-file: ./atomic/go.mod
 
+      - name: Render templates
+        working-directory: .
+        run: make render
+
+      - name: Verify render is committed
+        run: git diff --exit-code
+
       - name: Generate bundle
         run: go generate ./...
 
