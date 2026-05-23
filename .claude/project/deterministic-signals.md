@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-23T18:07:37Z
+generated_at: 2026-05-23T18:48:39Z
 atomic_version: 1.3.0
 ---
 # Deterministic signals
@@ -246,7 +246,7 @@ atomic_version: 1.3.0
 │   │   ├── signals-workflow.md
 │   │   ├── skills.md
 │   │   └── workflow.md
-│   ├── spec/ (17)
+│   ├── spec/ (18)
 │   │   ├── artifact-templates.md
 │   │   ├── atomic-binary.md
 │   │   ├── atomic-doctor.md
@@ -262,6 +262,7 @@ atomic_version: 1.3.0
 │   │   ├── install-workflow.md
 │   │   ├── session-report.md
 │   │   ├── signals-project-detection.md
+│   │   ├── signals-router.md
 │   │   ├── signals-workflow.md
 │   │   └── subagent-diagnose.md
 │   └── credits.md
@@ -362,8 +363,8 @@ atomic_version: 1.3.0
 
 ## Languages
 
-- Go: 25179 LOC (50%), 120 files (34%)
-- Markdown: 24531 LOC (48%), 221 files (63%)
+- Go: 25179 LOC (49%), 120 files (34%)
+- Markdown: 24877 LOC (49%), 222 files (63%)
 - Shell: 269 LOC (0%), 3 files (0%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
