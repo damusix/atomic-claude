@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/damusix/atomic-claude/compare/v1.4.0...v1.4.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* **docs,bundle:** sync docs with 1.2-1.4 reality + ship _templates ([b2f6514](https://github.com/damusix/atomic-claude/commit/b2f65144d2fb5e00a0c4a76790ec59fabfd248c9))
+
 ## [1.4.0](https://github.com/damusix/atomic-claude/compare/v1.3.0...v1.4.0) (2026-05-23)
 
 
