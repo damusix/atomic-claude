@@ -85,8 +85,8 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 ## Checkpoints
 
 
-| # | Checkpoint | Files / areas | Verifies |
-|---|------------|---------------|----------|
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
 | 1 | New package `atomic/internal/config/` with TOML load (lenient), schema validate (strict), get/set/unset, atomic write via `os.Rename` from tmp | `atomic/internal/config/*.go` | unit: round-trip set→load→get; unknown key rejected on set; unknown key ignored on load with WARN |
 | 2 | Renderer: `config.resolved.md` generated from resolved values (TOML + defaults) | `atomic/internal/config/render.go` | unit: deterministic output (byte-stable for same input); empty TOML renders empty-but-present file with header |
 | 3 | CLI wiring: `atomic config get|set|unset|list|path`, including `list --json` | `atomic/cmd/atomic/main.go`, `atomic/internal/config/cli.go` | integration: each subcommand exit codes + output match contract; typo suggestion fires on near-match |
@@ -120,6 +120,13 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 
 
 ## Change log
+
+
+### 2026-05-23 — Conform checkpoints table header
+
+**Correction:** Checkpoints header was `| # | Checkpoint | Files / areas | Verifies |` (spaces around slash). `atomic validate spec` rule S5 requires exact `Files/areas`. CI run #102 failed on this. Header normalized; row content unchanged.
+
+**Why:** Spec lint gates merge.
 
 
 ### 2026-05-22 — Add update.run_doctor config key
