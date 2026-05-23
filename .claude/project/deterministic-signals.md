@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-23T18:54:28Z
+generated_at: 2026-05-23T19:26:57Z
 atomic_version: 1.3.0
 ---
 # Deterministic signals
@@ -364,8 +364,8 @@ atomic_version: 1.3.0
 
 ## Languages
 
-- Go: 26866 LOC (51%), 121 files (34%)
-- Markdown: 25218 LOC (48%), 222 files (63%)
+- Go: 26997 LOC (51%), 121 files (34%)
+- Markdown: 25270 LOC (47%), 222 files (63%)
 - Shell: 269 LOC (0%), 3 files (0%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)

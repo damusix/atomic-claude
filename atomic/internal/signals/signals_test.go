@@ -391,6 +391,106 @@ func TestScanLanguages_MultipleLanguages(t *testing.T) {
 	}
 }
 
+func TestScanLanguages_Stylesheets(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"a.css":  strings.Repeat("line\n", 10),
+		"b.scss": strings.Repeat("line\n", 10),
+		"c.sass": strings.Repeat("line\n", 10),
+		"d.less": strings.Repeat("line\n", 10),
+		"e.styl": strings.Repeat("line\n", 10),
+	})
+	out, err := signals.ScanLanguages(root)
+	if err != nil {
+		t.Fatalf("ScanLanguages: %v", err)
+	}
+	for _, lang := range []string{"CSS:", "SCSS:", "Sass:", "Less:", "Stylus:"} {
+		if !strings.Contains(out, lang) {
+			t.Errorf("expected %s in output: %s", lang, out)
+		}
+	}
+}
+
+func TestScanLanguages_WebFrameworks(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"page.html": strings.Repeat("line\n", 10),
+		"app.vue":   strings.Repeat("line\n", 10),
+		"x.svelte":  strings.Repeat("line\n", 10),
+		"y.astro":   strings.Repeat("line\n", 10),
+		"esm.mjs":   strings.Repeat("line\n", 10),
+		"cjs.cjs":   strings.Repeat("line\n", 10),
+		"doc.mdx":   strings.Repeat("line\n", 10),
+	})
+	out, err := signals.ScanLanguages(root)
+	if err != nil {
+		t.Fatalf("ScanLanguages: %v", err)
+	}
+	for _, lang := range []string{"HTML:", "Vue:", "Svelte:", "Astro:", "JavaScript:", "MDX:"} {
+		if !strings.Contains(out, lang) {
+			t.Errorf("expected %s in output: %s", lang, out)
+		}
+	}
+}
+
+func TestScanLanguages_Templates(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"a.hbs":        strings.Repeat("line\n", 10),
+		"b.handlebars": strings.Repeat("line\n", 10),
+		"c.ejs":        strings.Repeat("line\n", 10),
+		"d.pug":        strings.Repeat("line\n", 10),
+		"e.liquid":     strings.Repeat("line\n", 10),
+		"f.erb":        strings.Repeat("line\n", 10),
+		"g.twig":       strings.Repeat("line\n", 10),
+	})
+	out, err := signals.ScanLanguages(root)
+	if err != nil {
+		t.Fatalf("ScanLanguages: %v", err)
+	}
+	for _, lang := range []string{"Handlebars:", "EJS:", "Pug:", "Liquid:", "ERB:", "Twig:"} {
+		if !strings.Contains(out, lang) {
+			t.Errorf("expected %s in output: %s", lang, out)
+		}
+	}
+}
+
+func TestScanLanguages_OtherWeb(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"a.coffee":  strings.Repeat("line\n", 10),
+		"b.graphql": strings.Repeat("line\n", 10),
+		"c.gql":     strings.Repeat("line\n", 10),
+		"d.dart":    strings.Repeat("line\n", 10),
+		"e.sol":     strings.Repeat("line\n", 10),
+		"f.elm":     strings.Repeat("line\n", 10),
+	})
+	out, err := signals.ScanLanguages(root)
+	if err != nil {
+		t.Fatalf("ScanLanguages: %v", err)
+	}
+	for _, lang := range []string{"CoffeeScript:", "GraphQL:", "Dart:", "Solidity:", "Elm:"} {
+		if !strings.Contains(out, lang) {
+			t.Errorf("expected %s in output: %s", lang, out)
+		}
+	}
+}
+
+func TestScanLanguages_ConfigData(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"a.json": strings.Repeat("line\n", 10),
+		"b.yml":  strings.Repeat("line\n", 10),
+		"c.yaml": strings.Repeat("line\n", 10),
+		"d.toml": strings.Repeat("line\n", 10),
+		"e.xml":  strings.Repeat("line\n", 10),
+	})
+	out, err := signals.ScanLanguages(root)
+	if err != nil {
+		t.Fatalf("ScanLanguages: %v", err)
+	}
+	for _, lang := range []string{"JSON:", "YAML:", "TOML:", "XML:"} {
+		if !strings.Contains(out, lang) {
+			t.Errorf("expected %s in output: %s", lang, out)
+		}
+	}
+}
+
 func TestScanLanguages_SkipDirs(t *testing.T) {
 	root := makeRepo(t, map[string]string{
 		"main.go":                   strings.Repeat("line\n", 10),
