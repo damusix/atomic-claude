@@ -47,13 +47,13 @@ Evidence: existing `/subagent-implementation` and `/subagent-diagnose` already u
 
 ## Checkpoints
 
-| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
-|---|------------|-------------|-------|------------|----------|
-| 1 | Redesign `commands/atomic-plan.md` with phase-based flow, triviality tiers, spec loop description | `commands/atomic-plan.md` | atomic-surgeon | 1 | command reads top-to-bottom with the new flow; no contradictions with `CLAUDE.md` |
-| 2 | Update workflow blurbs and command-table descriptions across `CLAUDE.md`, `README.md`, `docs/reference/commands.md` | `CLAUDE.md`, `README.md`, `docs/reference/commands.md` | atomic-surgeon | 3 | grep `atomic-plan` shows consistent descriptions referencing triviality + spec loop |
-| 3 | Extend `atomic-reviewer` agent with spec-mode branch | `agents/atomic-reviewer.md` | atomic-surgeon | 1 | agent file has Modes table, separate workflow + output sections, brief-driven mode selection |
-| 4 | Write `docs/spec/atomic-plan.md` capturing the canonical contract | `docs/spec/atomic-plan.md` | atomic-builder | 1 | spec exists, follows the spec/design voice, has `## Change log` empty |
-| 5 | Regenerate embedded bundle | `atomic/internal/embedded/bundle/**`, `atomic/internal/embedded/manifest.go` | atomic-surgeon | ~3 | `make -C atomic bundle && git diff --exit-code` clean |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | Redesign `commands/atomic-plan.md` with phase-based flow, triviality tiers, spec loop description (atomic-surgeon, ~1 file) | `commands/atomic-plan.md` | command reads top-to-bottom with the new flow; no contradictions with `CLAUDE.md` |
+| 2 | Update workflow blurbs and command-table descriptions across `CLAUDE.md`, `README.md`, `docs/reference/commands.md` (atomic-surgeon, ~3 files) | `CLAUDE.md`, `README.md`, `docs/reference/commands.md` | grep `atomic-plan` shows consistent descriptions referencing triviality + spec loop |
+| 3 | Extend `atomic-reviewer` agent with spec-mode branch (atomic-surgeon, ~1 file) | `agents/atomic-reviewer.md` | agent file has Modes table, separate workflow + output sections, brief-driven mode selection |
+| 4 | Write `docs/spec/atomic-plan.md` capturing the canonical contract (atomic-builder, ~1 file) | `docs/spec/atomic-plan.md` | spec exists, follows the spec/design voice, has `## Change log` empty |
+| 5 | Regenerate embedded bundle (atomic-surgeon, ~3 files) | `atomic/internal/embedded/bundle/**`, `atomic/internal/embedded/manifest.go` | `make -C atomic bundle && git diff --exit-code` clean |
 
 ## Risks
 
@@ -70,3 +70,9 @@ Evidence: existing `/subagent-implementation` and `/subagent-diagnose` already u
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+
+### 2026-05-23 — Conform checkpoints table to canonical 4-column header
+
+**Correction:** Checkpoints table previously had 6 columns (`# | Checkpoint | Files/areas | Agent | Est. files | Verifies`); `atomic validate spec` rule S5 requires the exact 4-column header `| # | Checkpoint | Files/areas | Verifies |`. CI run #102 failed on this. Agent + est-files info folded into the Checkpoint cell as parenthetical (e.g. `(atomic-surgeon, ~1 file)`); no contract loss.
+
+**Why:** Spec lint gates merge.
