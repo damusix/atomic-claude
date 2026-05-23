@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.1](https://github.com/damusix/atomic-claude/compare/v1.5.0...v1.5.1) (2026-05-23)
+
+
+### Bug Fixes
+
+* **signals:** replace stale inferred-signals.md refs with signals.md ([27eca57](https://github.com/damusix/atomic-claude/commit/27eca57520e2c0df68dc7692772518978e5c75f2))
+
 ## [1.5.0](https://github.com/damusix/atomic-claude/compare/v1.4.1...v1.5.0) (2026-05-23)
 
 
