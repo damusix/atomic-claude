@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-05-22T18:30:30Z
-atomic_version: dev
+generated_at: 2026-05-23T07:30:19Z
+atomic_version: 1.3.0
 ---
 # Deterministic signals
 
@@ -222,7 +222,8 @@ atomic_version: dev
 │   ├── watch-ci.md
 │   └── worktree-start.md
 ├── docs/ (5)
-│   ├── design/ (5)
+│   ├── design/ (6)
+│   │   ├── artifact-templates.md
 │   │   ├── atomic-doctor.md
 │   │   ├── atomic-state-and-config.md
 │   │   ├── atomic-validate.md
@@ -240,10 +241,12 @@ atomic_version: dev
 │   │   ├── signals-workflow.md
 │   │   ├── skills.md
 │   │   └── workflow.md
-│   ├── spec/ (15)
+│   ├── spec/ (18)
+│   │   ├── artifact-templates.md
 │   │   ├── atomic-binary.md
 │   │   ├── atomic-doctor.md
 │   │   ├── atomic-plan.md
+│   │   ├── atomic-setup.md
 │   │   ├── atomic-state-and-config.md
 │   │   ├── atomic-update-doctor.md
 │   │   ├── atomic-validate.md
@@ -254,6 +257,7 @@ atomic_version: dev
 │   │   ├── install-workflow.md
 │   │   ├── session-report.md
 │   │   ├── signals-project-detection.md
+│   │   ├── signals-router.md
 │   │   ├── signals-workflow.md
 │   │   └── subagent-diagnose.md
 │   └── credits.md
@@ -310,8 +314,8 @@ atomic_version: dev
 
 ## Languages
 
-- Go: 24748 LOC (55%), 117 files (39%)
-- Markdown: 19637 LOC (43%), 177 files (59%)
-- Shell: 269 LOC (0%), 3 files (1%)
+- Go: 24748 LOC (54%), 117 files (38%)
+- Markdown: 20634 LOC (45%), 181 files (59%)
+- Shell: 269 LOC (0%), 3 files (0%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
