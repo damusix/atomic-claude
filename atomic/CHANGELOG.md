@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/damusix/atomic-claude/compare/v1.4.1...v1.5.0) (2026-05-23)
+
+
+### Features
+
+* **signals:** vertical-slice domain partitioning ([3a9c645](https://github.com/damusix/atomic-claude/commit/3a9c6454035d88293a652b55e744f41cbe1c0777))
+
 ## [1.4.1](https://github.com/damusix/atomic-claude/compare/v1.4.0...v1.4.1) (2026-05-23)
 
 
