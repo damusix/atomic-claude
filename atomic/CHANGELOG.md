@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.4.0](https://github.com/damusix/atomic-claude/compare/v1.3.0...v1.4.0) (2026-05-23)
+
+
+### Features
+
+* **pressure-test:** verify codebase claims before asserting ([ac096c8](https://github.com/damusix/atomic-claude/commit/ac096c810be2c0f76de9d0ee4da7e1ef4acaa1ff))
+* **render:** add render-templates tool + bootstrap ([8347bbe](https://github.com/damusix/atomic-claude/commit/8347bbe1978d173b72badfdd62d99630134e7a51))
+* **setup:** survey-driven CLAUDE.md scaffold ([cda3053](https://github.com/damusix/atomic-claude/commit/cda3053b0bea66b2d80f8f79e25a5f11d952b22a))
+* **signals:** expand language detection to 26 languages ([6e5a0b7](https://github.com/damusix/atomic-claude/commit/6e5a0b7eaabf51a37b663ded25792396d012f135))
+* **signals:** router-shaped signals.md + content-SHA change detection ([f15c325](https://github.com/damusix/atomic-claude/commit/f15c3256377f856a5814d6ff0ff01cc1489c2dd5))
+
 ## [1.3.0](https://github.com/damusix/atomic-claude/compare/v1.2.1...v1.3.0) (2026-05-23)
 
 
