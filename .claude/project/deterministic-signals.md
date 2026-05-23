@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-23T07:30:19Z
+generated_at: 2026-05-23T18:07:37Z
 atomic_version: 1.3.0
 ---
 # Deterministic signals
@@ -35,14 +35,16 @@ atomic_version: 1.3.0
 ├── assets/ (1)
 │   └── atomic-claude.png
 ├── atomic/ (7)
-│   ├── cmd/ (2)
+│   ├── cmd/ (3)
 │   │   ├── atomic/ (2)
 │   │   │   ├── main.go
 │   │   │   └── main_test.go
-│   │   └── bundle-mirror/ (2)
-│   │       ├── main.go
-│   │       └── main_test.go
-│   ├── internal/ (21)
+│   │   ├── bundle-mirror/ (2)
+│   │   │   ├── main.go
+│   │   │   └── main_test.go
+│   │   └── render-templates/ (1)
+│   │       └── main.go
+│   ├── internal/ (22)
 │   │   ├── bundlemirror/ (1)
 │   │   │   └── mirror.go
 │   │   ├── bundlespec/ (2)
@@ -160,6 +162,9 @@ atomic_version: 1.3.0
 │   │   │   ├── signals.go
 │   │   │   ├── signals_test.go
 │   │   │   └── tree.go
+│   │   ├── templaterender/ (2)
+│   │   │   ├── templaterender.go
+│   │   │   └── templaterender_test.go
 │   │   ├── updatedoctor/ (2)
 │   │   │   ├── updatedoctor.go
 │   │   │   └── updatedoctor_test.go
@@ -241,7 +246,7 @@ atomic_version: 1.3.0
 │   │   ├── signals-workflow.md
 │   │   ├── skills.md
 │   │   └── workflow.md
-│   ├── spec/ (18)
+│   ├── spec/ (17)
 │   │   ├── artifact-templates.md
 │   │   ├── atomic-binary.md
 │   │   ├── atomic-doctor.md
@@ -257,7 +262,6 @@ atomic_version: 1.3.0
 │   │   ├── install-workflow.md
 │   │   ├── session-report.md
 │   │   ├── signals-project-detection.md
-│   │   ├── signals-router.md
 │   │   ├── signals-workflow.md
 │   │   └── subagent-diagnose.md
 │   └── credits.md
@@ -287,6 +291,50 @@ atomic_version: 1.3.0
 │   │   └── SKILL.md
 │   └── atomic-verify/ (1)
 │       └── SKILL.md
+├── templates/ (2)
+│   ├── commands/ (31)
+│   │   ├── atomic-claude-merge.md
+│   │   ├── atomic-compress.md
+│   │   ├── atomic-help.md
+│   │   ├── atomic-plan.md
+│   │   ├── atomic-setup.md
+│   │   ├── commit-and-merge.md
+│   │   ├── commit-and-pr.md
+│   │   ├── commit-and-push.md
+│   │   ├── commit-and-squash.md
+│   │   ├── commit-only.md
+│   │   ├── documentation.md
+│   │   ├── follow-up.md
+│   │   ├── git-cleanup.md
+│   │   ├── initialize-signals.md
+│   │   ├── merge-to-main.md
+│   │   ├── pr-only.md
+│   │   ├── pressure-test.md
+│   │   ├── push-only.md
+│   │   ├── refresh-signals.md
+│   │   ├── remind-me.md
+│   │   ├── report-issue-with-atomic.md
+│   │   ├── report-issue.md
+│   │   ├── review-branch.md
+│   │   ├── session-report.md
+│   │   ├── squash-and-merge.md
+│   │   ├── squash-only.md
+│   │   ├── subagent-diagnose.md
+│   │   ├── subagent-implementation.md
+│   │   ├── undo-commit.md
+│   │   ├── watch-ci.md
+│   │   └── worktree-start.md
+│   └── shared/ (10)
+│       ├── base-resolution.md
+│       ├── commit-flow.md
+│       ├── doc-impact-why.md
+│       ├── doc-impact.md
+│       ├── merge-flow.md
+│       ├── pr-flow.md
+│       ├── push-flow.md
+│       ├── signals-gate.md
+│       ├── squash-flow.md
+│       └── worktree-cleanup-prompt.md
 ├── tmp/ (2)
 │   ├── claude-home/ (1)
 │   │   └── .gitkeep
@@ -314,8 +362,8 @@ atomic_version: 1.3.0
 
 ## Languages
 
-- Go: 24748 LOC (54%), 117 files (38%)
-- Markdown: 20634 LOC (45%), 181 files (59%)
+- Go: 25179 LOC (50%), 120 files (34%)
+- Markdown: 24531 LOC (48%), 221 files (63%)
 - Shell: 269 LOC (0%), 3 files (0%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)

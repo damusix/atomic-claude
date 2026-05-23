@@ -23,7 +23,9 @@ macOS and Linux only. Windows is not a concern — do not file Windows-specific 
 | `claude.local.md` | This file. Project-local context for editing this repo. Gitignored. | Stays here, cwd-scoped. |
 | `CLAUDE.md` | The committed project instructions for anyone working in this repo. Mirrors `CLAUDE.md` content because this repo *is* the config source. | Repo root, committed. |
 | `README.md` | Human-facing overview of what the config does and how to install it. | Repo root, committed. |
-| `commands/*.md` | Slash command definitions. Copied to `~/.claude/commands/`. | `~/.claude/commands/` |
+| `commands/*.md` | **Rendered** slash command definitions. Edit `templates/commands/<verb>.md` (and `templates/shared/<flow>.md` for cross-verb partials); `make render` regenerates these. Copied to `~/.claude/commands/` by `atomic claude install`. | `~/.claude/commands/` |
+| `templates/commands/<verb>.md` | Source of truth for command files. Either a single `{{ template "<flow>" . }}` directive plus verb-specific orchestration, or a self-contained body if no partial applies. | Renders to `commands/<verb>.md`. |
+| `templates/shared/<name>.md` | Reusable partials composed by command templates via `{{ template "<name>" . }}`. Two-level taxonomy: big partials (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`) + small partials (`doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`). | Not copied directly; consumed at render time. |
 | `agents/*.md` | Subagent definitions. Copied to `~/.claude/agents/`. | `~/.claude/agents/` |
 | `skills/*/SKILL.md` | Discipline skills. Copied to `~/.claude/skills/`. | `~/.claude/skills/` |
 | `output-styles/*.md` | Output style definitions. Copied to `~/.claude/output-styles/`. | `~/.claude/output-styles/` |
@@ -34,6 +36,8 @@ macOS and Linux only. Windows is not a concern — do not file Windows-specific 
 
 
 The `atomic` binary's embedded bundle (see `atomic/internal/bundlemirror/`) is sourced **only** from the root of this repo — never from `.claude/`. Bundleable directories: `agents/`, `commands/`, `output-styles/`, `rules/`, `skills/`, and `CLAUDE.md`. The `.claude/` tree is the *installed* config for dogfooding inside this repo (symlinks to the same root dirs); it must not be a bundle input. If you add a new artifact kind to bundle-mirror, source it from the root path, not its `.claude/` mirror.
+
+**`commands/` is now a rendered output**, generated from `templates/commands/` by `make render`. Bundle-mirror still sources from `commands/` — that contract is unchanged. The new edit-surface is `templates/`; commands/ contents are downstream. See "Templates: regenerate before every commit" below for the full pipeline.
 
 
 ## Coherence rules (when editing here)
@@ -56,7 +60,7 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 
 | # | Surface | When to update | What to write |
 |---|---------|----------------|---------------|
-| 1 | The artifact file itself | Always | `agents/atomic-*.md`, `commands/<verb>.md`, `skills/<name>/SKILL.md`, `output-styles/atomic-*.md`, or `rules/<lang>/*.md`. Use `atomic-` prefix for custom artifacts. |
+| 1 | The artifact file itself | Always | `agents/atomic-*.md`, `templates/commands/<verb>.md` (NEVER `commands/<verb>.md` directly — that's rendered), `skills/<name>/SKILL.md`, `output-styles/atomic-*.md`, or `rules/<lang>/*.md`. Use `atomic-` prefix for custom artifacts. For new commands, also run `make render` to materialize `commands/<verb>.md`. |
 | 2 | `CLAUDE.md` | Always — this is the global contract bundled into every install | Add to the relevant section: "Subagents available for dispatch" (agents), "Workflow" + "Other commands" (commands), "Project signals" or similar (skills), naming conventions (output styles/rules). |
 | 3 | `CLAUDE.md` | Always — it mirrors `CLAUDE.md` for this repo's committed instructions | Same edit as `CLAUDE.md`. These two files must stay synchronized. |
 | 4 | `README.md` | Always — public-facing index | Add to the matching table (commands table, agents table, skills table). Keep one-line descriptions. |
@@ -82,10 +86,24 @@ The `atomic` binary embeds the artifact bundle at build time via `go:embed`. Sou
 **How to regenerate.** From repo root: `make -C atomic bundle`. Outputs `atomic/internal/embedded/bundle/**` + `atomic/internal/embedded/manifest.go`. Stage everything under `atomic/internal/embedded/`, include in the same commit. Do not split the regen into a follow-up commit unless CI already caught the gap.
 
 
-**Pre-commit check (when wearing the maintainer hat).** Before `git commit`: if `git diff --cached --name-only` includes any of `agents/|commands/|skills/|output-styles/|rules/|^CLAUDE.md$`, run the regen, stage the bundle, then commit. The ship verbs (`/commit-only`, `/commit-and-pr`, etc.) should eventually probe for this the same way they probe for signals refresh — track as a follow-up.
+**Pre-commit hook handles this automatically.** `.githooks/pre-commit` (installed via `make hooks`, which sets `core.hooksPath=.githooks`) has two stages: (1) `make render` when any `templates/` file is staged, re-staging `commands/`; (2) `make bundle` when any source artifact is staged (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`), re-staging the embedded bundle. Render runs before bundle since bundle reads what render wrote. If you commit without the hook installed, the regen is your responsibility — CI fails the "Verify render is committed" and "Verify bundle is committed" steps on drift.
 
 
-**Do not confuse `atomic hooks` with git hooks.** `atomic hooks install` registers a Claude Code session-start hook (injects pending reminders into context). That has nothing to do with bundle regen. Bundle parity is enforced by CI; a future git pre-commit hook (in `.githooks/`, opted into via `git config core.hooksPath .githooks`) is the right place to automate the regen locally. Until that hook ships, the rule above is the contract.
+**Do not confuse `atomic hooks` with git hooks.** `atomic hooks install` registers a Claude Code session-start hook (injects pending reminders into context). That has nothing to do with the build pipeline. Bundle and render parity are enforced by CI; the git pre-commit hook in `.githooks/` is the local convenience layer.
+
+
+## Templates: regenerate before every commit
+
+
+`commands/` is fully generated from `templates/` via `make render`. Sources are `templates/commands/<verb>.md` (per-verb orchestration) and `templates/shared/<name>.md` (reusable partials). The rendered `commands/` files are **tracked**, not gitignored — same pattern as the embedded bundle.
+
+**Hard rule: any commit that touches a template must include the re-rendered `commands/` outputs in the same commit.** Editing `commands/<verb>.md` directly is overwritten on the next render; the contributor skill `.claude/skills/atomic-cli-contrib/SKILL.md` §10 spells out the rule.
+
+**How to regenerate.** From repo root: `make render`. Outputs flow to `commands/<verb>.md`. Stage everything under `commands/`, include in the same commit. The pre-commit hook automates this when templates are staged.
+
+**Orphan rule.** `commands/<verb>.md` without a matching `templates/commands/<verb>.md` causes `make render` to halt with a non-zero exit and an error that names both remediation paths (create the template OR `rm` the orphan output). Adding a new command means creating the template file under `templates/commands/`, never directly in `commands/`.
+
+**Two-stage pipeline.** Render runs before bundle. `make render` writes `commands/`; `make bundle` reads `commands/` to update the embedded bundle. CI runs both gates (`make render && git diff --exit-code` then `make bundle && git diff --exit-code`); pre-commit hook chains both stages.
 
 
 ## Spec amendment rule (`docs/spec/<topic>.md`)
