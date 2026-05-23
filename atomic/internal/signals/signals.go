@@ -1,6 +1,7 @@
 package signals
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
@@ -33,6 +35,47 @@ type Options struct {
 	// Clock returns the current time. If nil, time.Now().UTC() is used.
 	// Inject a fixed clock in tests to get deterministic generated_at values.
 	Clock func() time.Time
+	// MaxDepth limits the tree depth. Files at depth ≤ MaxDepth are fully
+	// enumerated with per-file metadata. Directories at MaxDepth+1 show a
+	// summary (N files, M dirs). Directories beyond MaxDepth+1 are elided.
+	// If 0, ScanWithOptions reads output.signals.max_depth from ConfigPath
+	// (defaulting to 3 when the config file is absent or the key unset).
+	MaxDepth int
+	// ConfigPath is the path to the atomic config TOML file
+	// (~/.claude/.atomic/config.toml). When empty, ScanWithOptions resolves it
+	// from os.UserHomeDir. Used by tests to inject an alternate config.
+	ConfigPath string
+	// SignalsIgnoreGlobs holds the parsed glob patterns from .signalsignore.
+	// Files matching any glob appear in the tree with a [generated] marker.
+	// Populated automatically by ScanWithOptions from the repo's .signalsignore.
+	// Callers may also set this directly for testing.
+	SignalsIgnoreGlobs []string
+}
+
+// readSignalsIgnore reads .signalsignore from the repo root and returns the
+// parsed glob patterns. Comment lines (# ...) and blank lines are ignored.
+// If the file is absent, an empty slice is returned without error.
+func readSignalsIgnore(root string) ([]string, error) {
+	path := filepath.Join(root, ".signalsignore")
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read .signalsignore: %w", err)
+	}
+	defer f.Close()
+
+	var globs []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		globs = append(globs, line)
+	}
+	return globs, scanner.Err()
 }
 
 func (o *Options) clock() time.Time {
@@ -49,9 +92,46 @@ func Scan(root string) error {
 	return ScanWithOptions(root, nil)
 }
 
+// resolveConfigPath returns the atomic config TOML path for the current user.
+// Falls back to empty string (which config.Load treats as missing) on error.
+func resolveConfigPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return config.TOMLPath(filepath.Join(home, ".claude"))
+}
+
 // ScanWithOptions is like Scan but accepts Options for dependency injection.
 func ScanWithOptions(root string, opts *Options) error {
-	body, err := assembleBody(root)
+	// Read .signalsignore once per scan and inject into opts so the tree
+	// scanner can flag matching paths as [generated].
+	if opts == nil {
+		opts = &Options{}
+	}
+
+	// Resolve MaxDepth from config when not explicitly set by the caller.
+	if opts.MaxDepth == 0 {
+		cfgPath := opts.ConfigPath
+		if cfgPath == "" {
+			cfgPath = resolveConfigPath()
+		}
+		cfg, _, _ := config.Load(cfgPath) // lenient: ignore warnings and errors
+		if cfg != nil {
+			opts.MaxDepth = cfg.Output.Signals.MaxDepth
+		}
+		// Final fallback handled inside ScanTreeWithOptions (defaultMaxDepth).
+	}
+
+	if len(opts.SignalsIgnoreGlobs) == 0 {
+		globs, err := readSignalsIgnore(root)
+		if err != nil {
+			return fmt.Errorf("signals scan: %w", err)
+		}
+		opts.SignalsIgnoreGlobs = globs
+	}
+
+	body, err := assembleBody(root, opts)
 	if err != nil {
 		return fmt.Errorf("signals scan: %w", err)
 	}
@@ -112,8 +192,8 @@ func ScanWithOptions(root string, opts *Options) error {
 }
 
 // assembleBody builds the body of the signals document (without frontmatter).
-func assembleBody(root string) (string, error) {
-	tree, err := ScanTree(root)
+func assembleBody(root string, opts *Options) (string, error) {
+	tree, err := ScanTreeWithOptions(root, opts)
 	if err != nil {
 		return "", fmt.Errorf("tree scanner: %w", err)
 	}

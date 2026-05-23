@@ -71,8 +71,14 @@ func Resolved(cfg *Config) map[string]string {
 		// this is a zero-value Config. Apply the run_doctor default too.
 		runDoctor = runDoctorDefault
 	}
+	// output.signals.max_depth: int zero-value (0) means "use default".
+	maxDepth := cfg.Output.Signals.MaxDepth
+	if maxDepth <= 0 {
+		maxDepth = signalsMaxDepthDefault
+	}
 	return map[string]string{
-		"output.intensity":  intensity,
-		"update.run_doctor": fmt.Sprintf("%t", runDoctor),
+		"output.intensity":         intensity,
+		"output.signals.max_depth": fmt.Sprintf("%d", maxDepth),
+		"update.run_doctor":        fmt.Sprintf("%t", runDoctor),
 	}
 }

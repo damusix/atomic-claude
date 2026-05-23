@@ -80,6 +80,30 @@ func TestRenderUpdateSection(t *testing.T) {
 	}
 }
 
+// TestRenderSignalsMaxDepth: Render includes output.signals.max_depth.
+func TestRenderSignalsMaxDepth(t *testing.T) {
+	cfg := Default()
+	out := Render(cfg)
+	if !strings.Contains(out, "output.signals.max_depth") {
+		t.Errorf("expected 'output.signals.max_depth' in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, "3") {
+		t.Errorf("expected default value '3' in render, got:\n%s", out)
+	}
+}
+
+// TestRenderSignalsMaxDepthSetValue: Render reflects non-default max_depth.
+func TestRenderSignalsMaxDepthSetValue(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "output.signals.max_depth", "5"); err != nil {
+		t.Fatal(err)
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, "5") {
+		t.Errorf("expected '5' in render after Set, got:\n%s", out)
+	}
+}
+
 // TestRenderUpdateSectionFalse: Render shows false after Set false.
 func TestRenderUpdateSectionFalse(t *testing.T) {
 	cfg := Default()

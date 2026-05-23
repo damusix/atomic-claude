@@ -372,3 +372,12 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Why:** The allowlist produced false negatives on the atomic-claude repo itself. Adding `commands/commit-and-push.md` and `commands/push-only.md` (pure `.md`) did not trip the gate, so `/commit-only` skipped the signals refresh even though the project's command surface had changed. `atomic signals stale` is a single binary call (~10ms) and is the source of truth — running it unconditionally is cheaper than maintaining the extension list and eliminates the false-negative class.
 
 **Superseded:** prior contract gated step 1 on `git diff --cached --name-only` matching one of `{.ts .tsx .js .jsx .py .go .rs .rb .java .c .cc .cpp .h .hpp .swift .kt .php}` or one of `{package.json, tsconfig.json, Cargo.toml, pyproject.toml, requirements.txt, Gemfile, composer.json, pom.xml, build.gradle, build.gradle.kts, go.mod, go.sum}`, with `.md`-only and generic `.json/.yml/.toml`-only diffs skipped before `atomic signals stale` ran. The prior F-4 manifest-filename trigger surface is no longer needed; that closed item remains in the implementation log as historical record.
+
+
+### 2026-05-23 — Breaking: signals router replaces flat inferred-signals.md
+
+**What changed:** The flat `inferred-signals.md` file is replaced by a router-shaped `signals.md` that auto-loads a complete project orientation (framework, build commands, language breakdown, devops, domain index) plus optional per-domain detail files under `signals/`. The `@-ref` target switches from `inferred-signals.md` to `signals.md`. The inferrer agent is rewritten as a multi-agent orchestrator.
+
+**Why:** Flat file scales poorly — ~7-8k tokens on small repos, unbounded on large ones. Router shape bounds auto-loaded tokens (~2-3k typical, ~7k extreme) while preserving the "Claude already knows where things live" property. Content-SHA change detection enables incremental domain refresh.
+
+**Superseded:** `inferred-signals.md` as the single LLM-authored signals output. `@.claude/project/inferred-signals.md` as the auto-load target. Single-agent inferrer that rewrites the entire file.

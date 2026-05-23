@@ -18,9 +18,9 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
 
 3. **Regenerate deterministic.** Run `atomic signals scan`. This writes `.claude/project/deterministic-signals.md` and copies the prior content to `.claude/project/.deterministic-signals.prev.md` (gitignored) so `atomic signals diff` works regardless of git state.
 
-4. **Dispatch inferrer.** Spawn the `atomic-signals-inferrer` subagent via the `Agent` tool. The inferrer runs `atomic signals diff` internally to identify changed sections and updates only the dependent sections of `inferred-signals.md`. See the agent definition for the section dependency mapping.
+4. **Dispatch inferrer.** Spawn the `atomic-signals-inferrer` subagent via the `Agent` tool. The inferrer runs `atomic signals diff` internally to identify changed sections and updates only the dependent sections of `signals.md`. See the agent definition for the section dependency mapping.
 
-5. **Ensure `@-refs` are wired somewhere Claude auto-loads.** Check, in order, for an existing pair of refs (`@.claude/project/deterministic-signals.md` AND `@.claude/project/inferred-signals.md`) in any of:
+5. **Ensure `@-refs` are wired somewhere Claude auto-loads.** Check, in order, for an existing pair of refs (`@.claude/project/deterministic-signals.md` AND `@.claude/project/signals.md`) in any of:
 
     - `claude.local.md` / `CLAUDE.local.md` (project-local, gitignored — preferred when present)
     - `CLAUDE.md` (committed project instructions)
@@ -41,7 +41,7 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
 
 
     @.claude/project/deterministic-signals.md
-    @.claude/project/inferred-signals.md
+    @.claude/project/signals.md
     ```
 
     Print the diff and the chosen target file before writing. Confirmation rules:
@@ -69,7 +69,7 @@ When `/commit-only` runs and `atomic signals stale` reports stale, it invokes th
 - Skip the `AskUserQuestion` on `CLAUDE.md` append — write directly.
 - If signals are already fresh (`atomic signals stale` exits 0), skip entirely.
 - If `atomic` is not installed, skip entirely — do not fall back during commit.
-- If signals were regenerated, stage `.claude/project/deterministic-signals.md` and `.claude/project/inferred-signals.md` alongside the commit.
+- If signals were regenerated, stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` alongside the commit.
 - "Silent" = suppress step 6's report line. Interactive prompts are already gated by the bullet above; this clarifies that the skill produces no stdout in silent mode so the host commit flow's output stays clean.
 
 This integration is implemented in `/commit-only` (CP S-4), not here.

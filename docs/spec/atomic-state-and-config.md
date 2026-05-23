@@ -122,6 +122,19 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 ## Change log
 
 
+### 2026-05-23 — Add output.signals.max_depth config key
+
+**What changed:** Schema gains a third key: `output.signals.max_depth` (int, default `3`). Controls the bounded tree depth in `atomic signals scan`. Shell-settable via `atomic config set output.signals.max_depth 5`. The signals scan reads this value when `MaxDepth` is not explicitly passed via `Options`.
+
+| Key | Type | Default | Valid values |
+|-----|------|---------|--------------|
+| `output.signals.max_depth` | int | `3` | positive integer |
+
+**Why:** Signals router spec (`docs/spec/signals-router.md`) requires configurable tree depth per axiom-2 carve-out for shell-settable defaults.
+
+**Superseded:** Tree depth was hardcoded at `3` in `atomic/internal/signals/tree.go` with no config override.
+
+
 ### 2026-05-23 — Conform checkpoints table header
 
 **Correction:** Checkpoints header was `| # | Checkpoint | Files / areas | Verifies |` (spaces around slash). `atomic validate spec` rule S5 requires exact `Files/areas`. CI run #102 failed on this. Header normalized; row content unchanged.

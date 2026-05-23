@@ -226,6 +226,13 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 
 <!-- empty on creation; entries appended on amendment after approval -->
 
+### 2026-05-23 — Signals check gains router validation
+
+**What changed:** The `signals` check (category 3) now validates the signals router in addition to existing freshness checks. New validations: `signals.md` present, `signals.md` `@-ref`'d in a CLAUDE.md-family file, all domain files referenced in the router's Domains table exist on disk, no orphan domain files under `signals/`. Missing router emits WARN (not FAIL) to allow the transition period where repos still have the flat `inferred-signals.md`. Check remains anchored to cwd via `repoctx.Toplevel()` — no worktree cross-comparison.
+
+**Why:** Signals router spec (`docs/spec/signals-router.md`) replaces the flat `inferred-signals.md` with a router + domain files architecture. The doctor check must validate the new file layout to catch broken refs, orphan files, and missing `@-ref` wiring.
+
+
 ### 2026-05-22 — Post-update auto-fire (from atomic-update-doctor)
 
 **What changed:** Doctor now has a second invocation surface beyond the explicit `atomic doctor` command. After a successful binary swap, `atomic update` invokes the doctor pass automatically (controlled by `update.run_doctor` config key, default `true`; overridable per-invocation via `--no-doctor`). Only FAIL-severity lines are printed in this mode; a clean run produces no output. The check set, format, and exit semantics are identical to the explicit invocation.

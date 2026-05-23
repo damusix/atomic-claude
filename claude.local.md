@@ -67,7 +67,7 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 | 5 | `docs/spec/<topic>.md` | If the artifact has non-trivial behavior or cross-references | Write or extend the spec. Required for anything dispatched by another artifact or that mutates state. **Amending an existing spec: see "Spec amendment rule" below — never silently overwrite the original.** |
 | 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit-only` requires editing the command to call it AND the skill to declare itself as called from there. |
 | 7 | Bundle inclusion (`atomic/internal/bundlemirror/mirror.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the inclusion rule. Existing kinds (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`) auto-include matching files. |
-| 8 | Signals refresh | After adding the file | Run `/refresh-signals` (or let `/commit-only` auto-fire `atomic-signals`) so `.claude/project/deterministic-signals.md` and `inferred-signals.md` reflect the new file. |
+| 8 | Signals refresh | After adding the file | Run `/refresh-signals` (or let `/commit-only` auto-fire `atomic-signals`) so `.claude/project/deterministic-signals.md` and `signals.md` reflect the new file. |
 | 9 | `claude.local.md` (this file) | Only if the artifact changes project-local conventions (e.g. new `@-ref` location, new bundle rule) | Edit the relevant section. |
 
 
@@ -159,7 +159,7 @@ These rules exist because this repo is meant to be installed into *user reposito
 ## Signals `@-refs` must stay wired (in this repo: `claude.local.md`)
 
 
-The whole point of the signals workflow is that Claude has a current map of the project before exploring. That only works if some auto-loaded Claude instructions file `@-references` both `.claude/project/deterministic-signals.md` and `.claude/project/inferred-signals.md`.
+The whole point of the signals workflow is that Claude has a current map of the project before exploring. That only works if some auto-loaded Claude instructions file `@-references` both `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
 
 
 **In this repo specifically**, the refs live in `claude.local.md` (this file) — not in `CLAUDE.md`. Reason: `CLAUDE.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for project-scoped `@`-refs.
@@ -212,7 +212,7 @@ No install script yet. Manual: copy each top-level directory into `~/.claude/`, 
 ## Project signals (auto-loaded)
 
 @.claude/project/deterministic-signals.md
-@.claude/project/inferred-signals.md
+@.claude/project/signals.md
 
 
 ## Project follow-ups (auto-loaded)

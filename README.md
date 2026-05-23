@@ -100,7 +100,7 @@ First session inside a new project — `/atomic-setup` audits conventions, then 
 ⏺ atomic-signals-inferrer (35 tool uses · 80.9k tokens · 3m 3s)
   ⎿  Framework: NestJS · package manager: pnpm
   ⎿  Build: pnpm build · test: pnpm test · lint: pnpm lint
-  ⎿  → .claude/project/inferred-signals.md
+  ⎿  → .claude/project/signals.md
 
   signals initialized.
 

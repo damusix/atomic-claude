@@ -16,6 +16,9 @@ const intensityDefault = "full"
 // runDoctorDefault is the built-in default for update.run_doctor.
 const runDoctorDefault = true
 
+// signalsMaxDepthDefault is the built-in default for output.signals.max_depth.
+const signalsMaxDepthDefault = 3
+
 // validIntensity is the set of allowed output.intensity values.
 var validIntensity = map[string]bool{
 	"lite":  true,
@@ -26,6 +29,7 @@ var validIntensity = map[string]bool{
 // knownKeys is the exhaustive list of v1 dotted keys.
 var knownKeys = []string{
 	"output.intensity",
+	"output.signals.max_depth",
 	"update.run_doctor",
 }
 
@@ -48,9 +52,15 @@ type Warning struct {
 
 func (w Warning) Error() string { return w.Message }
 
+// signalsSubSection is the [output.signals] TOML sub-table.
+type signalsSubSection struct {
+	MaxDepth int `toml:"max_depth"`
+}
+
 // outputSection is the [output] TOML table.
 type outputSection struct {
-	Intensity string `toml:"intensity"`
+	Intensity string            `toml:"intensity"`
+	Signals   signalsSubSection `toml:"signals"`
 }
 
 // updateSection is the [update] TOML table.
@@ -68,7 +78,10 @@ type Config struct {
 // Default returns a Config populated with built-in defaults.
 func Default() *Config {
 	return &Config{
-		Output: outputSection{Intensity: intensityDefault},
+		Output: outputSection{
+			Intensity: intensityDefault,
+			Signals:   signalsSubSection{MaxDepth: signalsMaxDepthDefault},
+		},
 		Update: updateSection{RunDoctor: runDoctorDefault},
 	}
 }
@@ -105,6 +118,22 @@ func Load(path string) (*Config, []Warning, error) {
 		}
 	}
 
+	// Detect explicit presence of output.signals.max_depth before decoding into
+	// the typed struct. The int zero-value (0) is indistinguishable from
+	// "absent" after decode, so we check the raw map here.
+	signalsMaxDepthExplicit := false
+	if outputRaw, ok := rawMap["output"]; ok {
+		if outputTable, ok := outputRaw.(map[string]any); ok {
+			if signalsRaw, ok := outputTable["signals"]; ok {
+				if signalsTable, ok := signalsRaw.(map[string]any); ok {
+					if _, ok := signalsTable["max_depth"]; ok {
+						signalsMaxDepthExplicit = true
+					}
+				}
+			}
+		}
+	}
+
 	// Decode into the typed struct (strict fields only).
 	cfg := Default()
 	if err := toml.Unmarshal(raw, cfg); err != nil {
@@ -122,6 +151,12 @@ func Load(path string) (*Config, []Warning, error) {
 	if !updateRunDoctorExplicit {
 		cfg.Update.RunDoctor = runDoctorDefault
 	}
+	// output.signals.max_depth: only backfill default when the key was absent.
+	// When explicitly set, it is decoded as-is (even 0 or negative); Validate
+	// will catch non-positive values. When absent, restore the default.
+	if !signalsMaxDepthExplicit {
+		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
+	}
 
 	return cfg, warns, nil
 }
@@ -131,6 +166,24 @@ var knownLeaves = func() map[string]bool {
 	m := map[string]bool{}
 	for _, k := range knownKeys {
 		m[k] = true
+	}
+	return m
+}()
+
+// knownPrefixes is the set of known intermediate dotted paths (non-leaf sections),
+// computed once. Example: "output.signals" is a prefix of "output.signals.max_depth".
+var knownPrefixes = func() map[string]bool {
+	m := map[string]bool{}
+	for _, k := range knownKeys {
+		for i := 0; i < len(k); i++ {
+			if k[i] == '.' {
+				prefix := k[:i]
+				// Deduplicate: skip if this prefix was already added.
+				if !m[prefix] {
+					m[prefix] = true
+				}
+			}
+		}
 	}
 	return m
 }()
@@ -154,8 +207,10 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 				continue
 			}
 		} else {
-			// For nested keys, check against the full dotted path.
-			if !knownLeaves[dotted] {
+			// For nested keys, accept both leaf keys and known intermediate prefixes.
+			// knownPrefixes covers cases like "output.signals" which is a sub-table,
+			// not a leaf, but must not produce a false-positive warning.
+			if !knownLeaves[dotted] && !knownPrefixes[dotted] {
 				warns = append(warns, Warning{
 					Message: fmt.Sprintf("config: unknown key %q (ignored)", dotted),
 				})
@@ -177,6 +232,9 @@ func Validate(cfg *Config) error {
 	if cfg.Output.Intensity != "" && !validIntensity[cfg.Output.Intensity] {
 		allowed := strings.Join(sortedKeys(validIntensity), ", ")
 		return fmt.Errorf("config: output.intensity %q is not one of: %s", cfg.Output.Intensity, allowed)
+	}
+	if cfg.Output.Signals.MaxDepth <= 0 {
+		return fmt.Errorf("config: output.signals.max_depth must be a positive integer, got %d", cfg.Output.Signals.MaxDepth)
 	}
 	return nil
 }
@@ -216,6 +274,12 @@ func Set(cfg *Config, dottedKey, value string) error {
 			return fmt.Errorf("config: output.intensity %q is not one of: %s", value, allowed)
 		}
 		cfg.Output.Intensity = value
+	case "output.signals.max_depth":
+		var n int
+		if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n <= 0 {
+			return fmt.Errorf("config: output.signals.max_depth must be a positive integer, got %q", value)
+		}
+		cfg.Output.Signals.MaxDepth = n
 	case "update.run_doctor":
 		switch value {
 		case "true":
@@ -243,6 +307,8 @@ func Unset(cfg *Config, dottedKey string) error {
 	switch dottedKey {
 	case "output.intensity":
 		cfg.Output.Intensity = intensityDefault
+	case "output.signals.max_depth":
+		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
 	case "update.run_doctor":
 		cfg.Update.RunDoctor = runDoctorDefault
 	}

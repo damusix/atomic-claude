@@ -2,6 +2,7 @@
 package signals
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,7 +11,28 @@ import (
 	"strings"
 )
 
+// matchesSignalsIgnore reports whether rel matches any of the provided globs.
+// Each glob is tested against rel directly and also against the base filename,
+// so patterns like "gen.go" match both "gen.go" and "dir/gen.go".
+func matchesSignalsIgnore(rel string, globs []string) bool {
+	base := filepath.Base(rel)
+	for _, glob := range globs {
+		// Match against full repo-relative path.
+		if ok, _ := filepath.Match(glob, rel); ok {
+			return true
+		}
+		// Match against base filename (for bare-name patterns like "gen.go").
+		if ok, _ := filepath.Match(glob, base); ok {
+			return true
+		}
+	}
+	return false
+}
+
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// defaultMaxDepth is the default tree depth used when no depth is configured.
+const defaultMaxDepth = 3
 
 // skipDirs is the set of directory names excluded from WalkDir-based scans
 // (used when not inside a git repo). In git repos, git ls-files is the source
@@ -34,8 +56,6 @@ var skipPrefixes = []string{
 	".claude/.scratchpad/",
 	".claude/project/",
 }
-
-const maxDepth = 3
 
 // enumerateFiles returns repo-relative file paths for all tracked (and
 // untracked-but-not-ignored) files in root.
@@ -137,12 +157,61 @@ func isSkippedPrefix(rel string) bool {
 	return false
 }
 
-// ScanTree returns a depth-limited (max 3) tree rendering of the repo at root.
-// It uses enumerateFiles as the source of truth, so in git repos dotfile
-// directories like .claude/ and .github/ appear when they contain tracked files.
-// Branch glyphs: ├── for non-last entries, └── for last; continuation prefix
-// is "│   " or "    " depending on whether the parent has more siblings.
+// treeNode is an internal node in the in-memory directory tree.
+type treeNode struct {
+	name     string
+	isDir    bool
+	children []*treeNode
+	// File nodes: per-file metadata (from single read).
+	meta fileMeta
+	// generated: file matched a .signalsignore glob — inferrer skips it for
+	// domain content but the node (and its metadata) are still emitted.
+	generated bool
+	// depthCapped: this dir is at exactly max_depth+1 — render summary, no children.
+	depthCapped bool
+	// beyond: this dir is > max_depth+1 — elide entirely from output.
+	beyond bool
+}
+
+// ScanTree returns a depth-limited (default max_depth=3) tree rendering of the
+// repo at root. It uses enumerateFiles as the source of truth, so in git repos
+// dotfile directories like .claude/ and .github/ appear when they contain
+// tracked files. Branch glyphs: ├── for non-last entries, └── for last;
+// continuation prefix is "│   " or "    " depending on whether the parent has
+// more siblings.
+//
+// Per-file metadata format (for files at depth ≤ max_depth):
+//
+//	<filename> (<sha>, <lines>L, <chars>ch, <bytes>B)
+//
+// Directories at max_depth+1: <dirname>/ (<N> files, <M> dirs)
+// Directories > max_depth+1: elided (appear only as counts in parent summary)
 func ScanTree(root string) (string, error) {
+	return ScanTreeWithOptions(root, nil)
+}
+
+// ScanTreeWithOptions is like ScanTree but reads MaxDepth and SignalsIgnoreGlobs from opts.
+// When opts is nil or opts.MaxDepth is 0, defaultMaxDepth (3) is used.
+// When opts is nil or opts.SignalsIgnoreGlobs is empty, .signalsignore is read from root.
+func ScanTreeWithOptions(root string, opts *Options) (string, error) {
+	maxDepth := defaultMaxDepth
+	if opts != nil && opts.MaxDepth > 0 {
+		maxDepth = opts.MaxDepth
+	}
+
+	// Load .signalsignore globs. When opts.SignalsIgnoreGlobs is already set
+	// (populated by ScanWithOptions), skip the file read to avoid double I/O.
+	var ignoreGlobs []string
+	if opts != nil && len(opts.SignalsIgnoreGlobs) > 0 {
+		ignoreGlobs = opts.SignalsIgnoreGlobs
+	} else {
+		globs, err := readSignalsIgnore(root)
+		if err != nil {
+			return "", fmt.Errorf("tree scanner: %w", err)
+		}
+		ignoreGlobs = globs
+	}
+
 	files, err := enumerateFiles(root)
 	if err != nil {
 		return "", err
@@ -152,16 +221,7 @@ func ScanTree(root string) (string, error) {
 	}
 
 	// Build a tree from the flat file list.
-	type node struct {
-		name        string
-		isDir       bool
-		children    []*node
-		directCount int  // set before pruning: direct child count
-		totalCount  int  // set before pruning: total recursive descendant count
-		depthCapped bool // true when children were pruned due to depth limit
-	}
-
-	rootNode := &node{name: ".", isDir: true}
+	rootNode := &treeNode{name: ".", isDir: true}
 
 	for _, rel := range files {
 		// Forward-slash normalize (git ls-files uses / on all platforms).
@@ -172,8 +232,7 @@ func ScanTree(root string) (string, error) {
 		cur := rootNode
 		for d := 0; d < len(parts)-1; d++ {
 			seg := parts[d]
-			// Find or create child dir node.
-			var found *node
+			var found *treeNode
 			for _, c := range cur.children {
 				if c.name == seg && c.isDir {
 					found = c
@@ -181,126 +240,195 @@ func ScanTree(root string) (string, error) {
 				}
 			}
 			if found == nil {
-				found = &node{name: seg, isDir: true}
+				found = &treeNode{name: seg, isDir: true}
 				cur.children = append(cur.children, found)
 			}
 			cur = found
 		}
 
-		// Add the file node.
 		fname := parts[len(parts)-1]
-		fileNode := &node{name: fname, isDir: false}
-		cur.children = append(cur.children, fileNode)
+		cur.children = append(cur.children, &treeNode{name: fname, isDir: false})
 	}
 
 	// Sort each node's children: dirs before files, alphabetically within group.
-	var sortNode func(n *node)
-	sortNode = func(n *node) {
-		sort.Slice(n.children, func(i, j int) bool {
-			ci, cj := n.children[i], n.children[j]
-			if ci.isDir != cj.isDir {
-				return ci.isDir // dirs first
-			}
-			return ci.name < cj.name
-		})
-		for _, c := range n.children {
-			if c.isDir {
-				sortNode(c)
-			}
-		}
-	}
-	sortNode(rootNode)
+	sortTree(rootNode)
 
-	// Compute directCount and totalCount on each node before pruning.
-	// directCount = number of immediate children.
-	// totalCount = total number of descendants (recursive).
-	var computeCounts func(n *node) int
-	computeCounts = func(n *node) int {
-		n.directCount = len(n.children)
-		total := 0
-		for _, c := range n.children {
-			if c.isDir {
-				total += computeCounts(c)
-			} else {
-				total++
-			}
-		}
-		n.totalCount = total
-		return total
-	}
-	computeCounts(rootNode)
+	// Mark directory nodes as depthCapped or beyond based on depth.
+	markDepths(rootNode, 1, maxDepth)
 
-	// Prune directory nodes deeper than maxDepth.
-	// At depth == maxDepth: keep file children AND keep dir children as "terminal"
-	// entries (depthCapped=true, children cleared). The parent shows all its
-	// children and therefore uses the simple (N) annotation.
-	// depth counts from 1 at root's children.
-	var pruneNode func(n *node, depth int)
-	pruneNode = func(n *node, depth int) {
-		if depth >= maxDepth {
-			// At max depth: keep file children; convert dir children to terminal entries.
-			for _, c := range n.children {
-				if c.isDir {
-					// Mark as terminal: clear children but retain counts for annotation.
-					c.depthCapped = true
-					c.children = nil
-				}
-			}
-			return
+	// Build a map from repo-relative path → *treeNode for file nodes only.
+	// Used to load per-file metadata in one pass.
+	fileNodeByRel := make(map[string]*treeNode, len(files))
+	buildFileMap(rootNode, "", fileNodeByRel)
+
+	// Load per-file metadata for all non-hidden (non-beyond) file nodes.
+	// Files are hidden only when their parent dir is depthCapped or beyond
+	// (markAllBeyond propagates the flag). A single file read computes all 4
+	// metadata fields (SHA, lines, chars, bytes) at once — no double reads.
+	// Also mark generated nodes based on .signalsignore globs.
+	for rel, node := range fileNodeByRel {
+		if len(ignoreGlobs) > 0 && matchesSignalsIgnore(rel, ignoreGlobs) {
+			node.generated = true
 		}
-		for _, c := range n.children {
-			if c.isDir {
-				pruneNode(c, depth+1)
+		if !node.beyond {
+			absPath := filepath.Join(root, filepath.FromSlash(rel))
+			if m, err := readFileMeta(absPath); err == nil {
+				node.meta = m
 			}
 		}
 	}
-	pruneNode(rootNode, 0)
 
 	// Render using tree glyphs.
 	var sb strings.Builder
-	var render func(n *node, prefix string)
-	render = func(n *node, prefix string) {
-		for i, child := range n.children {
-			isLast := i == len(n.children)-1
-			connector := "├── "
-			if isLast {
-				connector = "└── "
-			}
-			name := child.name
-			if child.isDir {
-				name += "/"
-				if child.depthCapped {
-					// Depth-cap annotation: (N subitem[s]) (M total item[s])
-					sub := "subitems"
-					if child.directCount == 1 {
-						sub = "subitem"
+	renderTree(rootNode, "", &sb)
+
+	result := sb.String()
+	result = strings.TrimRight(result, "\n")
+	return result, nil
+}
+
+// sortTree sorts children of every directory node: dirs before files,
+// alphabetically within each group.
+func sortTree(n *treeNode) {
+	sort.Slice(n.children, func(i, j int) bool {
+		ci, cj := n.children[i], n.children[j]
+		if ci.isDir != cj.isDir {
+			return ci.isDir
+		}
+		return ci.name < cj.name
+	})
+	for _, c := range n.children {
+		if c.isDir {
+			sortTree(c)
+		}
+	}
+}
+
+// markDepths marks directory nodes at depth == maxDepth+1 as depthCapped,
+// and nodes at depth > maxDepth+1 as beyond.
+// depth is 1-based: rootNode's children are at depth 1.
+// Files are never marked directly — they inherit visibility from their parent dir.
+func markDepths(n *treeNode, depth, maxDepth int) {
+	for _, c := range n.children {
+		if !c.isDir {
+			continue
+		}
+		if depth == maxDepth+1 {
+			c.depthCapped = true
+			markAllBeyond(c)
+		} else if depth > maxDepth+1 {
+			c.beyond = true
+			markAllBeyond(c)
+		} else {
+			markDepths(c, depth+1, maxDepth)
+		}
+	}
+}
+
+// markAllBeyond marks all descendants of n as beyond.
+func markAllBeyond(n *treeNode) {
+	for _, c := range n.children {
+		c.beyond = true
+		if c.isDir {
+			markAllBeyond(c)
+		}
+	}
+}
+
+// buildFileMap populates m with repo-relative path → *treeNode for all file nodes.
+func buildFileMap(n *treeNode, prefix string, m map[string]*treeNode) {
+	for _, c := range n.children {
+		var p string
+		if prefix == "" {
+			p = c.name
+		} else {
+			p = prefix + "/" + c.name
+		}
+		if c.isDir {
+			buildFileMap(c, p, m)
+		} else {
+			m[p] = c
+		}
+	}
+}
+
+// renderTree writes the tree output for n's children into sb.
+func renderTree(n *treeNode, prefix string, sb *strings.Builder) {
+	// Collect visible children (exclude beyond nodes).
+	visible := make([]*treeNode, 0, len(n.children))
+	for _, c := range n.children {
+		if !c.beyond {
+			visible = append(visible, c)
+		}
+	}
+
+	for i, child := range visible {
+		isLast := i == len(visible)-1
+		connector := "├── "
+		if isLast {
+			connector = "└── "
+		}
+
+		if child.isDir {
+			var label string
+			if child.depthCapped {
+				// max_depth+1: show file/dir summary.
+				// Count direct file children and direct dir children of this capped node.
+				df, dd := directChildCounts(child)
+				label = child.name + "/ (" + pluralize(df, "file") + ", " + pluralize(dd, "dir") + ")"
+			} else {
+				// Normal: show count of visible (non-beyond) children.
+				vc := 0
+				for _, c := range child.children {
+					if !c.beyond {
+						vc++
 					}
-					totalWord := "total items"
-					if child.totalCount == 1 {
-						totalWord = "total item"
-					}
-					name += " (" + itoa(child.directCount) + " " + sub + ") (" + itoa(child.totalCount) + " " + totalWord + ")"
-				} else {
-					// Normal directory annotation: (N)
-					name += " (" + itoa(len(child.children)) + ")"
 				}
+				label = child.name + "/ (" + itoa(vc) + ")"
 			}
-			sb.WriteString(prefix + connector + name + "\n")
-			if child.isDir && len(child.children) > 0 {
+			sb.WriteString(prefix + connector + label + "\n")
+			if !child.depthCapped && len(child.children) > 0 {
 				var childPrefix string
 				if isLast {
 					childPrefix = prefix + "    "
 				} else {
 					childPrefix = prefix + "│   "
 				}
-				render(child, childPrefix)
+				renderTree(child, childPrefix, sb)
 			}
+		} else {
+			// File node: append metadata when available (depth ≤ maxDepth).
+			name := child.name
+			if child.meta.sha != "" {
+				name += fmt.Sprintf(" (%s, %dL, %dch, %dB)",
+					child.meta.sha, child.meta.lines, child.meta.chars, child.meta.bytes)
+			}
+			if child.generated {
+				name += " [generated]"
+			}
+			sb.WriteString(prefix + connector + name + "\n")
 		}
 	}
-	render(rootNode, "")
+}
 
-	result := sb.String()
-	// Trim trailing newline.
-	result = strings.TrimRight(result, "\n")
-	return result, nil
+// directChildCounts returns the number of direct file children and direct dir
+// children of a depth-capped node. Used for the summary annotation.
+// Direct means immediate — no recursion.
+func directChildCounts(n *treeNode) (files, dirs int) {
+	for _, c := range n.children {
+		if c.isDir {
+			dirs++
+		} else {
+			files++
+		}
+	}
+	return files, dirs
+}
+
+// pluralize returns "N word" or "N words" (singular when N==1).
+func pluralize(n int, word string) string {
+	if n == 1 {
+		return itoa(n) + " " + word
+	}
+	return itoa(n) + " " + word + "s"
 }

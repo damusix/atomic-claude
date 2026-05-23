@@ -2,6 +2,7 @@ package signals_test
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"flag"
 	"fmt"
 	"io"
@@ -1094,9 +1095,9 @@ func TestScanTree_NormalDirChildCount(t *testing.T) {
 	if !strings.Contains(out, "pkg/ (2)") {
 		t.Errorf("expected 'pkg/ (2)' in tree:\n%s", out)
 	}
-	// Files must NOT be annotated.
-	if strings.Contains(out, "main.go (") {
-		t.Errorf("file main.go should not be annotated:\n%s", out)
+	// Files carry metadata annotations — main.go should have a "(" annotation.
+	if !strings.Contains(out, "main.go (") {
+		t.Errorf("file main.go should have metadata annotation:\n%s", out)
 	}
 }
 
@@ -1115,10 +1116,9 @@ func TestScanTree_NormalDirChildCountSingular(t *testing.T) {
 }
 
 func TestScanTree_DepthCapAnnotation(t *testing.T) {
-	// a/b/c/ is at depth 3; d/ inside it would be depth 4.
-	// Fix 3: c/ now shows d/ as a terminal dir entry (with verbose annotation),
-	// so c/ itself uses the simple (N) annotation since all children are shown.
-	// d/ carries the depth-cap verbose annotation.
+	// a/b/c/ is at depth 3; d/ inside it would be depth 4 (max_depth+1).
+	// c/ shows all its children (d/ + deep.go) — uses simple (N) annotation.
+	// d/ carries the new (N files, M dirs) summary annotation.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/deep.go":  "package main\n",
 		"a/b/c/d/too.go": "package main\n",
@@ -1131,9 +1131,9 @@ func TestScanTree_DepthCapAnnotation(t *testing.T) {
 	if !strings.Contains(out, "c/ (2)") {
 		t.Errorf("expected simple annotation 'c/ (2)' (all children shown):\n%s", out)
 	}
-	// d/ is the terminal dir entry with verbose annotation.
-	if !strings.Contains(out, "d/ (1 subitem) (1 total item)") {
-		t.Errorf("expected 'd/ (1 subitem) (1 total item)' terminal annotation:\n%s", out)
+	// d/ is the depth-cap dir with (N files, M dirs) annotation.
+	if !strings.Contains(out, "d/ (1 file, 0 dirs)") {
+		t.Errorf("expected 'd/ (1 file, 0 dirs)' summary annotation:\n%s", out)
 	}
 	// too.go must not appear (depth 4).
 	if strings.Contains(out, "too.go") {
@@ -1142,9 +1142,8 @@ func TestScanTree_DepthCapAnnotation(t *testing.T) {
 }
 
 func TestScanTree_DepthCapAnnotationSingularSubitem(t *testing.T) {
-	// c/ has only 1 direct child (dir d/) which is a terminal dir entry.
-	// Fix 3: c/ shows d/ (so c/ uses simple annotation (1));
-	// d/ carries "1 subitem" (singular) verbose annotation.
+	// c/ has only 1 direct child (dir d/) which is at depth 4 (max_depth+1).
+	// c/ shows d/ → simple annotation (1). d/ carries the new (N files, M dirs) summary.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/d/only.go": "package main\n",
 	})
@@ -1156,9 +1155,9 @@ func TestScanTree_DepthCapAnnotationSingularSubitem(t *testing.T) {
 	if !strings.Contains(out, "c/ (1)") {
 		t.Errorf("expected 'c/ (1)' (simple annotation, child shown):\n%s", out)
 	}
-	// d/ is the terminal dir with singular subitem annotation.
-	if !strings.Contains(out, "d/ (1 subitem)") {
-		t.Errorf("expected 'd/ (1 subitem)' (singular) annotation on terminal dir:\n%s", out)
+	// d/ is the depth-cap dir with (1 file, 0 dirs) summary.
+	if !strings.Contains(out, "d/ (1 file, 0 dirs)") {
+		t.Errorf("expected 'd/ (1 file, 0 dirs)' summary annotation:\n%s", out)
 	}
 }
 
@@ -1205,8 +1204,8 @@ func TestScanLanguages_FileCountSingular(t *testing.T) {
 // ---- Fix 2: Total items singular ----
 
 func TestScanTree_DepthCapAnnotationSingularTotalItem(t *testing.T) {
-	// c/ has 1 direct child (dir d/) which itself has 1 file — total = 1.
-	// Must render "1 total item" not "1 total items".
+	// c/ has 1 direct child (dir d/) which is at depth 4 (max_depth+1).
+	// d/ shows (1 file, 0 dirs) summary. Verify no stale "total items" text.
 	root := makeRepo(t, map[string]string{
 		"a/b/c/d/only.go": "package main\n",
 	})
@@ -1214,12 +1213,13 @@ func TestScanTree_DepthCapAnnotationSingularTotalItem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	if strings.Contains(out, "1 total items") {
-		t.Errorf("expected '1 total item' (singular), got '1 total items':\n%s", out)
+	// Old format should not appear.
+	if strings.Contains(out, "total items") || strings.Contains(out, "total item") {
+		t.Errorf("old 'total item(s)' annotation should not appear:\n%s", out)
 	}
-	// The annotation should include total-item count (1 total item).
-	if !strings.Contains(out, "1 total item") {
-		t.Errorf("expected '1 total item' in output:\n%s", out)
+	// New format: d/ shows file/dir counts.
+	if !strings.Contains(out, "d/ (1 file, 0 dirs)") {
+		t.Errorf("expected 'd/ (1 file, 0 dirs)' summary:\n%s", out)
 	}
 }
 
@@ -1227,8 +1227,8 @@ func TestScanTree_DepthCapAnnotationSingularTotalItem(t *testing.T) {
 
 func TestScanTree_DepthCapShowsDirEntry(t *testing.T) {
 	// a/b/c/ is at depth 3 — it has two children:
-	//   - deep.go (file, shown)
-	//   - d/ (dir, previously hidden — must now appear as terminal dir entry)
+	//   - deep.go (file, shown with metadata)
+	//   - d/ (dir at depth 4 = max_depth+1, shown as summary)
 	root := makeRepo(t, map[string]string{
 		"a/b/c/deep.go":  "package main\n",
 		"a/b/c/d/too.go": "package main\n",
@@ -1237,21 +1237,26 @@ func TestScanTree_DepthCapShowsDirEntry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// d/ must appear in the output.
+	// d/ must appear (depth 4 = max_depth+1).
 	if !strings.Contains(out, "d/") {
-		t.Errorf("expected 'd/' (terminal dir entry) to be visible:\n%s", out)
+		t.Errorf("expected 'd/' (depth-cap dir entry) to be visible:\n%s", out)
 	}
-	// d/ must carry verbose annotation (it's terminal — contents not expanded).
-	if !strings.Contains(out, "d/ (1 subitem)") {
-		t.Errorf("expected 'd/ (1 subitem)' annotation on terminal dir:\n%s", out)
+	// d/ must carry the new (N files, M dirs) annotation.
+	if !strings.Contains(out, "d/ (1 file, 0 dirs)") {
+		t.Errorf("expected 'd/ (1 file, 0 dirs)' annotation:\n%s", out)
 	}
 	// too.go must NOT appear (it's a file at depth 4).
 	if strings.Contains(out, "too.go") {
 		t.Errorf("too.go should be pruned (depth 4):\n%s", out)
 	}
-	// c/ must NOT have depth-cap (verbose) annotation now (it shows all children).
-	if strings.Contains(out, "c/ (2 subitems)") {
-		t.Errorf("c/ should not have depth-cap annotation (all children shown):\n%s", out)
+	// c/ shows all children — must use simple (N) annotation, not (N files, M dirs) summary.
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "c/") && strings.Contains(l, "file") {
+			t.Errorf("c/ should use simple annotation, not file/dir summary; got: %q\nfull output:\n%s", l, out)
+		}
+	}
+	if !strings.Contains(out, "c/ (2)") {
+		t.Errorf("expected 'c/ (2)' (simple annotation):\n%s", out)
 	}
 }
 
@@ -1269,5 +1274,670 @@ func TestScanTree_DepthCapParentAnnotation(t *testing.T) {
 	// c/ has 2 children (d/ + deep.go); it shows both — use simple annotation.
 	if !strings.Contains(out, "c/ (2)") {
 		t.Errorf("expected 'c/ (2)' (simple annotation after showing all children):\n%s", out)
+	}
+}
+
+// ---- CP-1: Bounded tree + per-path metadata ----
+
+func TestScanTree_FileMetadata(t *testing.T) {
+	// File entries at depth ≤ max_depth must carry per-file metadata:
+	// "<filename> (<sha>, <lines>L, <chars>ch, <bytes>B)"
+	// sha = 7-char hex prefix of SHA-256 of file bytes.
+	content := "package main\n\nfunc main() {}\n"
+	root := makeRepo(t, map[string]string{
+		"main.go": content,
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// Must contain filename.
+	if !strings.Contains(out, "main.go") {
+		t.Fatalf("expected main.go in output:\n%s", out)
+	}
+	// Must contain lines annotation.
+	if !strings.Contains(out, "L,") {
+		t.Errorf("expected lines metadata (e.g. '3L,') in output:\n%s", out)
+	}
+	// Must contain chars annotation.
+	if !strings.Contains(out, "ch,") {
+		t.Errorf("expected chars metadata (e.g. '30ch,') in output:\n%s", out)
+	}
+	// Must contain bytes annotation.
+	if !strings.Contains(out, "B)") {
+		t.Errorf("expected bytes metadata (e.g. '30B)') in output:\n%s", out)
+	}
+	// Must contain a 7-char hex string (sha prefix).
+	// Format: "main.go (abc1234, 3L, 30ch, 30B)"
+	// The sha is 7 hex chars followed by a comma.
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	found := false
+	for _, l := range lines {
+		if strings.Contains(l, "main.go") {
+			// Extract what's in the parentheses: (sha, NL, Nch, NB)
+			open := strings.Index(l, "(")
+			close := strings.LastIndex(l, ")")
+			if open == -1 || close == -1 || close <= open {
+				t.Errorf("metadata parentheses not found in line: %q", l)
+				break
+			}
+			meta := l[open+1 : close]
+			parts := strings.Split(meta, ", ")
+			if len(parts) != 4 {
+				t.Errorf("expected 4 metadata parts, got %d in %q", len(parts), meta)
+				break
+			}
+			// parts[0] = sha (7 hex chars)
+			sha := parts[0]
+			if len(sha) != 7 {
+				t.Errorf("expected 7-char sha, got %q (len=%d)", sha, len(sha))
+			}
+			for _, c := range sha {
+				if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+					t.Errorf("sha contains non-hex char %q in %q", c, sha)
+				}
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("no line containing 'main.go' found in:\n%s", out)
+	}
+}
+
+func TestScanTree_MetadataSingleRead(t *testing.T) {
+	// Verify that metadata values are consistent with actual file content
+	// (proving a single read is used for both LOC and SHA derivation).
+	content := "line one\nline two\nline three\n"
+	// SHA-256 of content, 7-char prefix.
+	wantSHA := fmt.Sprintf("%x", sha256.Sum256([]byte(content)))[:7]
+	lines := 3
+	chars := len([]rune(content))
+	bytesz := len(content)
+
+	root := makeRepo(t, map[string]string{
+		"file.go": content,
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+
+	// Find the line for file.go.
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "file.go") {
+			open := strings.Index(l, "(")
+			close := strings.LastIndex(l, ")")
+			if open == -1 || close == -1 {
+				t.Fatalf("no metadata parens in line %q", l)
+			}
+			meta := l[open+1 : close]
+			parts := strings.Split(meta, ", ")
+			if len(parts) != 4 {
+				t.Fatalf("expected 4 parts, got %d: %q", len(parts), meta)
+			}
+			if parts[0] != wantSHA {
+				t.Errorf("sha mismatch: want %q, got %q", wantSHA, parts[0])
+			}
+			wantLines := fmt.Sprintf("%dL", lines)
+			if parts[1] != wantLines {
+				t.Errorf("lines mismatch: want %q, got %q", wantLines, parts[1])
+			}
+			wantChars := fmt.Sprintf("%dch", chars)
+			if parts[2] != wantChars {
+				t.Errorf("chars mismatch: want %q, got %q", wantChars, parts[2])
+			}
+			wantBytes := fmt.Sprintf("%dB", bytesz)
+			if parts[3] != wantBytes {
+				t.Errorf("bytes mismatch: want %q, got %q", wantBytes, parts[3])
+			}
+			return
+		}
+	}
+	t.Errorf("file.go not found in output:\n%s", out)
+}
+
+func TestScanTree_DepthPlusOneShowsFolderSummary(t *testing.T) {
+	// Directory at max_depth+1 (depth 4 with default max_depth=3) must show:
+	// "<dirname>/ (<N> files, <M> dirs)" — NOT contents, NOT file metadata.
+	// Structure: a/b/c/ is depth 3 (shown with files); d/ inside is depth 4 (summary only).
+	root := makeRepo(t, map[string]string{
+		"a/b/c/deep.go":      "package main\n",
+		"a/b/c/d/file1.go":   "package main\n",
+		"a/b/c/d/file2.go":   "package main\n",
+		"a/b/c/d/sub/too.go": "package main\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// d/ must appear (depth 4 = max_depth+1).
+	if !strings.Contains(out, "d/") {
+		t.Fatalf("expected d/ (depth 4 = max_depth+1) in output:\n%s", out)
+	}
+	// d/ must show files=2, dirs=1 summary. Format: "d/ (2 files, 1 dir)" or "d/ (2 files, 1 dirs)".
+	// The exact format per spec: "<N> files, <M> dirs".
+	if !strings.Contains(out, "2 files") {
+		t.Errorf("expected '2 files' in d/ summary:\n%s", out)
+	}
+	// file1.go and file2.go must NOT appear individually.
+	if strings.Contains(out, "file1.go") {
+		t.Errorf("file1.go should not appear (depth 4 content):\n%s", out)
+	}
+	if strings.Contains(out, "file2.go") {
+		t.Errorf("file2.go should not appear (depth 4 content):\n%s", out)
+	}
+	// too.go must NOT appear (depth 5 = > max_depth+1 — elided entirely).
+	if strings.Contains(out, "too.go") {
+		t.Errorf("too.go should not appear (depth 5 — elided):\n%s", out)
+	}
+}
+
+func TestScanTree_BeyondDepthPlusOneElided(t *testing.T) {
+	// Directories > max_depth+1 are elided (contribute to parent count only).
+	// Structure: a/b/c/d/e/f.go — e/ is depth 5, elided.
+	root := makeRepo(t, map[string]string{
+		"a/b/c/d/e/f.go": "package main\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// d/ appears at depth 4 (max_depth+1) — should show summary.
+	if !strings.Contains(out, "d/") {
+		t.Fatalf("expected d/ at depth 4 in output:\n%s", out)
+	}
+	// e/ must NOT appear (depth 5 — elided).
+	if strings.Contains(out, "e/") {
+		t.Errorf("e/ should not appear (depth 5 — elided):\n%s", out)
+	}
+	// f.go must NOT appear.
+	if strings.Contains(out, "f.go") {
+		t.Errorf("f.go should not appear (depth 5+ — elided):\n%s", out)
+	}
+	// d/ summary should mention 1 dir (e/).
+	if !strings.Contains(out, "1 dir") {
+		t.Errorf("expected '1 dir' in d/ summary:\n%s", out)
+	}
+}
+
+func TestScanTree_MaxDepthParameterized(t *testing.T) {
+	// When MaxDepth=1 is passed via Options:
+	//   - Files at depth 1 (direct children of root) appear with metadata.
+	//   - pkg/ (dir at depth 1) is fully expanded — its direct file children appear.
+	//   - Subdirs of pkg/ at depth 2 (= max_depth+1) appear as summaries.
+	//   - Files inside those subdirs (depth 3) are elided.
+	root := makeRepo(t, map[string]string{
+		"top.go":          "package main\n",
+		"pkg/lib.go":      "package pkg\n",
+		"pkg/util.go":     "package pkg\n",
+		"pkg/sub/deep.go": "package sub\n",
+	})
+	opts := &signals.Options{MaxDepth: 1}
+	out, err := signals.ScanTreeWithOptions(root, opts)
+	if err != nil {
+		t.Fatalf("ScanTreeWithOptions: %v", err)
+	}
+	// top.go is a direct child of root — must appear with metadata.
+	if !strings.Contains(out, "top.go") {
+		t.Errorf("expected top.go in output:\n%s", out)
+	}
+	// top.go must have metadata annotation.
+	if !strings.Contains(out, "L,") {
+		t.Errorf("expected metadata on top.go:\n%s", out)
+	}
+	// pkg/ is at depth 1 — shown.
+	if !strings.Contains(out, "pkg/") {
+		t.Errorf("expected pkg/ in output:\n%s", out)
+	}
+	// pkg/sub/ is a dir at depth 2 (max_depth+1) — must appear as summary.
+	if !strings.Contains(out, "sub/") {
+		t.Errorf("expected sub/ (depth 2 = max_depth+1) as summary:\n%s", out)
+	}
+	// sub/ summary must list file/dir counts.
+	if !strings.Contains(out, "1 file") {
+		t.Errorf("expected '1 file' in sub/ summary:\n%s", out)
+	}
+	// deep.go is inside sub/ (summarized) — must NOT appear individually.
+	if strings.Contains(out, "deep.go") {
+		t.Errorf("deep.go should not appear (inside summarized sub/):\n%s", out)
+	}
+}
+
+func TestScanWithOptions_MaxDepthDefault(t *testing.T) {
+	// Options with MaxDepth=0 (zero value) should fall back to default of 3.
+	root := makeRepo(t, map[string]string{
+		"a/b/c/file.go": "package main\n",
+	})
+	opts := &signals.Options{}
+	out, err := signals.ScanTreeWithOptions(root, opts)
+	if err != nil {
+		t.Fatalf("ScanTreeWithOptions: %v", err)
+	}
+	// file.go is at depth 3 — must appear (default max_depth=3).
+	if !strings.Contains(out, "file.go") {
+		t.Errorf("expected file.go (depth 3) with default max_depth=3:\n%s", out)
+	}
+}
+
+// ---- CP-2: .signalsignore read + [generated] flagging ----
+
+func TestSignalsIgnore_MatchingPathFlagged(t *testing.T) {
+	// Files matching .signalsignore globs must appear in tree with [generated] marker.
+	// WHY: inferrer must be able to identify generated files without omitting them from the
+	// deterministic substrate (their SHA is still needed for change detection).
+	content := "package main\n"
+	root := makeRepo(t, map[string]string{
+		"main.go":              content,
+		"generated/openapi.go": content,
+		".signalsignore":       "generated/*\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// main.go must NOT be flagged.
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "main.go") && strings.Contains(l, "[generated]") {
+			t.Errorf("main.go should not have [generated] flag:\n%s", l)
+		}
+	}
+	// openapi.go must be flagged.
+	found := false
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "openapi.go") {
+			found = true
+			if !strings.Contains(l, "[generated]") {
+				t.Errorf("openapi.go should have [generated] flag, got: %q", l)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("openapi.go not found in tree output (must appear even when generated):\n%s", out)
+	}
+}
+
+func TestSignalsIgnore_ContentSHAStillComputed(t *testing.T) {
+	// [generated] files must still carry full metadata (SHA, lines, chars, bytes).
+	// WHY: content SHA on generated files is needed for change detection (CP-4).
+	content := "package main\n\nfunc main() {}\n"
+	root := makeRepo(t, map[string]string{
+		"gen.go":         content,
+		".signalsignore": "gen.go\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// gen.go must appear with both metadata and [generated] flag.
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "gen.go") {
+			if !strings.Contains(l, "[generated]") {
+				t.Errorf("gen.go missing [generated] flag: %q", l)
+			}
+			// Metadata: must contain a 7-char hex SHA followed by "L," pattern.
+			if !strings.Contains(l, "L,") {
+				t.Errorf("gen.go missing line count metadata: %q", l)
+			}
+			if !strings.Contains(l, "ch,") {
+				t.Errorf("gen.go missing char count metadata: %q", l)
+			}
+			if !strings.Contains(l, "B)") {
+				t.Errorf("gen.go missing byte count metadata: %q", l)
+			}
+			return
+		}
+	}
+	t.Errorf("gen.go not found in output:\n%s", out)
+}
+
+func TestSignalsIgnore_AbsentFileNoExclusions(t *testing.T) {
+	// Absent .signalsignore means no files are flagged — no error.
+	// WHY: .signalsignore is opt-in; absence is the common case.
+	content := "package main\n"
+	root := makeRepo(t, map[string]string{
+		"main.go": content,
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree without .signalsignore: %v", err)
+	}
+	if strings.Contains(out, "[generated]") {
+		t.Errorf("no .signalsignore = no [generated] flags, but got:\n%s", out)
+	}
+}
+
+func TestSignalsIgnore_CommentsAndBlankLinesIgnored(t *testing.T) {
+	// Comment lines (# ...) and blank lines in .signalsignore are skipped.
+	// WHY: standard .gitignore-style format; comments are documentation, not patterns.
+	content := "package main\n"
+	root := makeRepo(t, map[string]string{
+		"gen.go":  content,
+		"real.go": content,
+		".signalsignore": "# this is a comment\n" +
+			"\n" +
+			"gen.go\n" +
+			"  # indented comment\n" +
+			"\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// gen.go matches the pattern — must be flagged.
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "gen.go") {
+			if !strings.Contains(l, "[generated]") {
+				t.Errorf("gen.go should be flagged: %q", l)
+			}
+		}
+	}
+	// real.go does not match — must NOT be flagged.
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "real.go") && strings.Contains(l, "[generated]") {
+			t.Errorf("real.go should not be flagged: %q", l)
+		}
+	}
+}
+
+// ---- CP-3: output.signals.max_depth config wiring ----
+
+func TestScanWithOptions_ConfigMaxDepthWiring(t *testing.T) {
+	// WHY: CP-3 requires that when opts.MaxDepth==0, ScanWithOptions reads
+	// output.signals.max_depth from config. This test injects a config that
+	// sets max_depth=1 and verifies the tree is bounded accordingly. With
+	// max_depth=1, directories at depth 2 (= max_depth+1) appear as summaries;
+	// their sub-directories' contents are elided. Verified via the written file.
+	root := makeRepo(t, map[string]string{
+		"top.go":          "package main\n",
+		"pkg/sub/deep.go": "package sub\n",
+	})
+
+	// Write a config file with max_depth=1.
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte("[output.signals]\nmax_depth = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Inject the config path so we don't touch ~/.claude/.atomic/config.toml.
+	// MaxDepth is left 0 — ScanWithOptions must read it from ConfigPath.
+	opts := &signals.Options{ConfigPath: configPath}
+	if err := signals.ScanWithOptions(root, opts); err != nil {
+		t.Fatalf("ScanWithOptions: %v", err)
+	}
+
+	data, err := os.ReadFile(signals.SignalsPath(root))
+	if err != nil {
+		t.Fatalf("read signals file: %v", err)
+	}
+	out := string(data)
+
+	// top.go is at depth 1 — must appear with metadata.
+	if !strings.Contains(out, "top.go") {
+		t.Errorf("expected top.go in output:\n%s", out)
+	}
+	if !strings.Contains(out, "L,") {
+		t.Errorf("expected metadata on top.go:\n%s", out)
+	}
+
+	// pkg/ is at depth 1 — must appear.
+	if !strings.Contains(out, "pkg/") {
+		t.Errorf("expected pkg/ in output:\n%s", out)
+	}
+
+	// sub/ is a directory at depth 2 (= max_depth+1) — must appear as a file/dir summary.
+	if !strings.Contains(out, "sub/") {
+		t.Errorf("expected sub/ (depth 2 = max_depth+1) to appear as summary:\n%s", out)
+	}
+
+	// deep.go is inside sub/ (depth 3, elided) — must NOT appear individually.
+	if strings.Contains(out, "deep.go") {
+		t.Errorf("deep.go should not appear (depth 3 > max_depth+1 with max_depth=1):\n%s", out)
+	}
+}
+
+func TestScanWithOptions_ConfigMaxDepthFallbackDefault(t *testing.T) {
+	// WHY: when ConfigPath points to a missing file and MaxDepth is 0,
+	// ScanWithOptions must use the built-in default of 3.
+	root := makeRepo(t, map[string]string{
+		"a/b/c/file.go": "package main\n",
+	})
+
+	opts := &signals.Options{ConfigPath: "/nonexistent/path/config.toml"}
+	if err := signals.ScanWithOptions(root, opts); err != nil {
+		t.Fatalf("ScanWithOptions: %v", err)
+	}
+
+	data, err := os.ReadFile(signals.SignalsPath(root))
+	if err != nil {
+		t.Fatalf("read signals file: %v", err)
+	}
+	out := string(data)
+
+	// file.go is at depth 3 — must appear with default max_depth=3.
+	if !strings.Contains(out, "file.go") {
+		t.Errorf("expected file.go (depth 3) with fallback default max_depth=3:\n%s", out)
+	}
+}
+
+// ---- CP-4: Content-SHA diff: prev vs current deterministic scan ----
+
+func TestParseTreeSHAs_UnchangedNotInChanged(t *testing.T) {
+	// WHY: files with identical SHAs in prev and current must NOT appear in the
+	// changed set — only actual modifications should trigger domain refresh.
+	content := `## Tree
+
+├── main.go (abc1234, 10L, 100ch, 100B)
+└── lib.go (def5678, 5L, 50ch, 50B)
+`
+	shas := signals.ParseTreeSHAs(content)
+	if shas["main.go"] != "abc1234" {
+		t.Errorf("expected main.go sha=abc1234, got %q", shas["main.go"])
+	}
+	if shas["lib.go"] != "def5678" {
+		t.Errorf("expected lib.go sha=def5678, got %q", shas["lib.go"])
+	}
+
+	// Diff against itself: no changes.
+	cp := signals.DiffSHAs(shas, shas)
+	if len(cp.Changed) != 0 {
+		t.Errorf("expected 0 changed, got %v", cp.Changed)
+	}
+	if len(cp.Added) != 0 {
+		t.Errorf("expected 0 added, got %v", cp.Added)
+	}
+	if len(cp.Removed) != 0 {
+		t.Errorf("expected 0 removed, got %v", cp.Removed)
+	}
+}
+
+func TestParseTreeSHAs_ChangedSHAInChangedSet(t *testing.T) {
+	// WHY: a file whose SHA differs between scans means its content changed —
+	// the inferrer must refresh any domain that references this path.
+	prev := signals.ParseTreeSHAs(`## Tree
+
+└── main.go (abc1234, 10L, 100ch, 100B)
+`)
+	curr := signals.ParseTreeSHAs(`## Tree
+
+└── main.go (zzz9999, 12L, 120ch, 120B)
+`)
+	cp := signals.DiffSHAs(prev, curr)
+	if len(cp.Changed) != 1 || cp.Changed[0] != "main.go" {
+		t.Errorf("expected changed=[main.go], got %v", cp.Changed)
+	}
+	if len(cp.Added) != 0 {
+		t.Errorf("expected 0 added, got %v", cp.Added)
+	}
+	if len(cp.Removed) != 0 {
+		t.Errorf("expected 0 removed, got %v", cp.Removed)
+	}
+}
+
+func TestParseTreeSHAs_AddedFileInAddedSet(t *testing.T) {
+	// WHY: a new file that didn't exist in prev must appear in Added so the
+	// inferrer knows to include it in domain analysis.
+	prev := signals.ParseTreeSHAs(`## Tree
+
+└── main.go (abc1234, 10L, 100ch, 100B)
+`)
+	curr := signals.ParseTreeSHAs(`## Tree
+
+├── main.go (abc1234, 10L, 100ch, 100B)
+└── new.go (fff0000, 3L, 30ch, 30B)
+`)
+	cp := signals.DiffSHAs(prev, curr)
+	if len(cp.Added) != 1 || cp.Added[0] != "new.go" {
+		t.Errorf("expected added=[new.go], got %v", cp.Added)
+	}
+	if len(cp.Changed) != 0 {
+		t.Errorf("expected 0 changed, got %v", cp.Changed)
+	}
+	if len(cp.Removed) != 0 {
+		t.Errorf("expected 0 removed, got %v", cp.Removed)
+	}
+}
+
+func TestParseTreeSHAs_RemovedFileInRemovedSet(t *testing.T) {
+	// WHY: a file deleted between scans must appear in Removed so the inferrer
+	// can clean up domain references to that path.
+	prev := signals.ParseTreeSHAs(`## Tree
+
+├── main.go (abc1234, 10L, 100ch, 100B)
+└── old.go (111aaaa, 5L, 50ch, 50B)
+`)
+	curr := signals.ParseTreeSHAs(`## Tree
+
+└── main.go (abc1234, 10L, 100ch, 100B)
+`)
+	cp := signals.DiffSHAs(prev, curr)
+	if len(cp.Removed) != 1 || cp.Removed[0] != "old.go" {
+		t.Errorf("expected removed=[old.go], got %v", cp.Removed)
+	}
+	if len(cp.Changed) != 0 {
+		t.Errorf("expected 0 changed, got %v", cp.Changed)
+	}
+	if len(cp.Added) != 0 {
+		t.Errorf("expected 0 added, got %v", cp.Added)
+	}
+}
+
+func TestParseTreeSHAs_GeneratedPathsExcluded(t *testing.T) {
+	// WHY: [generated] files must NOT appear in the changed set even when their
+	// SHA changes — generated files don't drive domain narratives (spec §Change
+	// detection: "Changed content SHAs on generated files do not trigger domain
+	// file refresh").
+	prev := signals.ParseTreeSHAs(`## Tree
+
+├── main.go (abc1234, 10L, 100ch, 100B)
+└── gen.go (old0000, 5L, 50ch, 50B) [generated]
+`)
+	curr := signals.ParseTreeSHAs(`## Tree
+
+├── main.go (abc1234, 10L, 100ch, 100B)
+└── gen.go (new9999, 8L, 80ch, 80B) [generated]
+`)
+	cp := signals.DiffSHAs(prev, curr)
+	// gen.go SHA changed but it's [generated] — must NOT be in any set.
+	for _, p := range cp.Changed {
+		if p == "gen.go" {
+			t.Errorf("gen.go should not appear in Changed (it's [generated])")
+		}
+	}
+	for _, p := range cp.Added {
+		if p == "gen.go" {
+			t.Errorf("gen.go should not appear in Added (it's [generated])")
+		}
+	}
+	for _, p := range cp.Removed {
+		if p == "gen.go" {
+			t.Errorf("gen.go should not appear in Removed (it's [generated])")
+		}
+	}
+	if len(cp.Changed) != 0 || len(cp.Added) != 0 || len(cp.Removed) != 0 {
+		t.Errorf("expected all-empty sets, got changed=%v added=%v removed=%v", cp.Changed, cp.Added, cp.Removed)
+	}
+}
+
+func TestParseTreeSHAs_NestedPathsNeverCollide(t *testing.T) {
+	// WHY: two files with the same leaf name in different directories must produce
+	// distinct map keys. ParseTreeSHAs must reconstruct repo-relative paths by
+	// tracking the directory stack from tree indentation, not just returning the
+	// leaf filename. Without this fix, src/main.go and cmd/main.go would both map
+	// to "main.go" and silently collide — only the last one written survives.
+	content := `## Tree
+
+├── cmd/ (1)
+│   └── main.go (aaa1111, 5L, 50ch, 50B)
+└── src/ (1)
+    └── main.go (bbb2222, 8L, 80ch, 80B)
+`
+	shas := signals.ParseTreeSHAs(content)
+	if len(shas) != 2 {
+		t.Fatalf("expected 2 entries (cmd/main.go and src/main.go), got %d: %v", len(shas), shas)
+	}
+	if shas["cmd/main.go"] != "aaa1111" {
+		t.Errorf("expected cmd/main.go sha=aaa1111, got %q (map: %v)", shas["cmd/main.go"], shas)
+	}
+	if shas["src/main.go"] != "bbb2222" {
+		t.Errorf("expected src/main.go sha=bbb2222, got %q (map: %v)", shas["src/main.go"], shas)
+	}
+}
+
+func TestParseTreeSHAs_DeepNestedPath(t *testing.T) {
+	// WHY: paths nested more than one level deep must be fully reconstructed.
+	// Without directory-stack tracking, internal/signals/diff.go would yield
+	// "diff.go" instead of "internal/signals/diff.go".
+	content := `## Tree
+
+└── internal/ (1)
+    └── signals/ (1)
+        └── diff.go (ccc3333, 20L, 200ch, 200B)
+`
+	shas := signals.ParseTreeSHAs(content)
+	if len(shas) != 1 {
+		t.Fatalf("expected 1 entry, got %d: %v", len(shas), shas)
+	}
+	if shas["internal/signals/diff.go"] != "ccc3333" {
+		t.Errorf("expected internal/signals/diff.go=ccc3333, got map: %v", shas)
+	}
+}
+
+func TestDiffPaths_WorksWithoutGit(t *testing.T) {
+	// WHY: content-SHA diff must work in any directory — no git commands, no mtime.
+	// The spec requires: "works without git; content SHA comparison, not git commands."
+	root := makeRepo(t, map[string]string{
+		"main.go": "package main\n",
+	})
+
+	// First scan — no prev file yet.
+	if err := signals.Scan(root); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	// Add a new file to force a second scan to differ.
+	if err := os.WriteFile(filepath.Join(root, "new.go"), []byte("package main\n// new\n"), 0o644); err != nil {
+		t.Fatalf("write new.go: %v", err)
+	}
+	if err := signals.Scan(root); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+
+	// DiffPaths must succeed without git.
+	cp, err := signals.DiffPaths(root)
+	if err != nil {
+		t.Fatalf("DiffPaths: %v", err)
+	}
+	// new.go should appear as Added.
+	found := false
+	for _, p := range cp.Added {
+		if p == "new.go" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected new.go in Added, got added=%v changed=%v removed=%v", cp.Added, cp.Changed, cp.Removed)
 	}
 }

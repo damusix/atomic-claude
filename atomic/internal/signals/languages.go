@@ -1,12 +1,22 @@
 package signals
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
+
+// fileMeta holds per-file metadata derived from a single file read.
+type fileMeta struct {
+	sha   string // 7-char hex prefix of SHA-256 of file bytes
+	lines int
+	chars int
+	bytes int
+}
 
 // extToLang maps file extensions to language names.
 var extToLang = map[string]string{
@@ -120,19 +130,42 @@ func ScanLanguages(root string) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// countLines counts the number of lines in a file.
-func countLines(path string) (int, error) {
+// readFileMeta reads the file at path once and computes all per-file metadata:
+// SHA-256 (7-char hex prefix), line count, character count, and byte size.
+// This is the single-read source for both LOC counting and tree metadata.
+func readFileMeta(path string) (fileMeta, error) {
 	data, err := os.ReadFile(path)
+	if err != nil {
+		return fileMeta{}, err
+	}
+	sum := sha256.Sum256(data)
+	shaHex := fmt.Sprintf("%x", sum)[:7]
+
+	byteSize := len(data)
+	charCount := utf8.RuneCount(data)
+
+	lineCount := 0
+	if byteSize > 0 {
+		lineCount = strings.Count(string(data), "\n")
+		// If file doesn't end in newline, the last line still counts.
+		if data[byteSize-1] != '\n' {
+			lineCount++
+		}
+	}
+
+	return fileMeta{
+		sha:   shaHex,
+		lines: lineCount,
+		chars: charCount,
+		bytes: byteSize,
+	}, nil
+}
+
+// countLines counts the number of lines in a file (thin wrapper over readFileMeta).
+func countLines(path string) (int, error) {
+	m, err := readFileMeta(path)
 	if err != nil {
 		return 0, err
 	}
-	if len(data) == 0 {
-		return 0, nil
-	}
-	count := strings.Count(string(data), "\n")
-	// If file doesn't end in newline, the last line still counts.
-	if data[len(data)-1] != '\n' {
-		count++
-	}
-	return count, nil
+	return m.lines, nil
 }

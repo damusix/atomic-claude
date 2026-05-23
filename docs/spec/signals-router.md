@@ -289,17 +289,17 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 
 ## Checkpoints
 
-| # | Checkpoint | Files / areas | Agent | Est. files | Verifies |
-|---|------------|---------------|-------|-----------|---------|
-| 1 | Bounded tree + per-path metadata (content SHA, line count, char count, byte size) in deterministic scan | `atomic/internal/signals/tree.go`, `signals.go`, `signals_test.go` | atomic-builder | 3 | `go test ./internal/signals/...` passes; tree output at depth 3 shows full enum with all 4 metadata fields; depth 4 shows summary; depth 5 elided; content SHA is 7-char hex of SHA-256; metadata derived from single file read |
-| 2 | `.signalsignore` read + `[generated]` flagging in scan output | `atomic/internal/signals/signals.go`, `signals_test.go` | atomic-surgeon | 2 | Matching paths appear in tree with `[generated]` marker; content SHA still computed; `.signalsignore` absent = no exclusions; `go test ./internal/signals/...` passes |
-| 3 | `output.signals.max_depth` config key | `atomic/internal/config/config.go`, `config_test.go`, `render.go`, `render_test.go` | atomic-surgeon | 4 | Config loads default `3`; explicit value overrides; rendered in `config.resolved.md`; `go test ./internal/config/...` passes |
-| 4 | Content-SHA diff: prev vs current deterministic scan, changed-paths extraction | `atomic/internal/signals/signals.go`, `signals_test.go` | atomic-surgeon | 2 | Prev saved as `.prev.md`; diff output lists entries with changed SHAs; `[generated]` paths excluded from changed set; works without git; `go test ./internal/signals/...` passes |
-| 5 | Inferrer agent prompt: orchestrator role, sub-agent dispatch, reviewer loop, cross-domain refs, router assembly, migration, naming continuity | `agents/atomic-signals-inferrer.md` | atomic-surgeon | 1 | Prompt describes: sub-agent dispatch per domain, reviewer validation loop, cross-domain ref wiring, router orientation sections (framework, build, language, devops, domain table), domain file sections, naming-continuity rule, migration instructions, `.signalsignore`/`[generated]` skip rule; `grep -c` confirms key phrases |
-| 6 | `atomic-signals` skill + bundled `CLAUDE.md` + `claude.local.md` `@-ref` switch | `skills/atomic-signals/SKILL.md`, `CLAUDE.md` (root), `claude.local.md` | atomic-surgeon | 3 | Skill references `signals.md` not `inferred-signals.md`; `CLAUDE.md` and `claude.local.md` `@-ref`s updated; bundle regen (`make -C atomic bundle`) exits 0 |
-| 7 | `/atomic-setup` blank `.signalsignore` generation | `commands/atomic-setup.md` | atomic-surgeon | 1 | Command generates `.signalsignore` with commented explanation when absent; does not overwrite existing |
-| 8 | Doctor `signals` check update | `atomic/internal/doctor/checks_signals.go`, `checks_signals_test.go` | atomic-surgeon | 2 | Validates: router present + `@-ref`'d; domain files in router table exist on disk; no orphan files in `signals/`; check runs per-cwd only (no worktree cross-compare); `go test ./internal/doctor/...` passes |
-| 9 | Spec cross-references + signals-workflow change-log | `docs/spec/signals-workflow.md`, `docs/spec/signals-router.md` (this file) | atomic-surgeon | 2 | `signals-workflow.md` change-log entry appended noting breaking change + pointer to this spec; no body sections deleted; `atomic validate spec` exits 0 on both files |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|---------|
+| 1 | Bounded tree + per-path metadata (content SHA, line count, char count, byte size) in deterministic scan | `atomic/internal/signals/tree.go`, `signals.go`, `signals_test.go` (atomic-builder) | `go test ./internal/signals/...` passes; tree output at depth 3 shows full enum with all 4 metadata fields; depth 4 shows summary; depth 5 elided; content SHA is 7-char hex of SHA-256; metadata derived from single file read |
+| 2 | `.signalsignore` read + `[generated]` flagging in scan output | `atomic/internal/signals/signals.go`, `signals_test.go` (atomic-surgeon) | Matching paths appear in tree with `[generated]` marker; content SHA still computed; `.signalsignore` absent = no exclusions; `go test ./internal/signals/...` passes |
+| 3 | `output.signals.max_depth` config key | `atomic/internal/config/config.go`, `config_test.go`, `render.go`, `render_test.go` (atomic-surgeon) | Config loads default `3`; explicit value overrides; rendered in `config.resolved.md`; `go test ./internal/config/...` passes |
+| 4 | Content-SHA diff: prev vs current deterministic scan, changed-paths extraction | `atomic/internal/signals/signals.go`, `signals_test.go` (atomic-surgeon) | Prev saved as `.prev.md`; diff output lists entries with changed SHAs; `[generated]` paths excluded from changed set; works without git; `go test ./internal/signals/...` passes |
+| 5 | Inferrer agent prompt: orchestrator role, sub-agent dispatch, reviewer loop, cross-domain refs, router assembly, migration, naming continuity | `agents/atomic-signals-inferrer.md` (atomic-surgeon) | Prompt describes: sub-agent dispatch per domain, reviewer validation loop, cross-domain ref wiring, router orientation sections (framework, build, language, devops, domain table), domain file sections, naming-continuity rule, migration instructions, `.signalsignore`/`[generated]` skip rule; `grep -c` confirms key phrases |
+| 6 | `atomic-signals` skill + bundled `CLAUDE.md` + `claude.local.md` `@-ref` switch | `skills/atomic-signals/SKILL.md`, `CLAUDE.md` (root), `claude.local.md` (atomic-surgeon) | Skill references `signals.md` not `inferred-signals.md`; `CLAUDE.md` and `claude.local.md` `@-ref`s updated; bundle regen (`make -C atomic bundle`) exits 0 |
+| 7 | `/atomic-setup` blank `.signalsignore` generation | `commands/atomic-setup.md` (atomic-surgeon) | Command generates `.signalsignore` with commented explanation when absent; does not overwrite existing |
+| 8 | Doctor `signals` check update | `atomic/internal/doctor/checks_signals.go`, `checks_signals_test.go` (atomic-surgeon) | Validates: router present + `@-ref`'d; domain files in router table exist on disk; no orphan files in `signals/`; check runs per-cwd only (no worktree cross-compare); `go test ./internal/doctor/...` passes |
+| 9 | Spec cross-references + signals-workflow change-log | `docs/spec/signals-workflow.md`, `docs/spec/signals-router.md` (atomic-surgeon) | `signals-workflow.md` change-log entry appended noting breaking change + pointer to this spec; no body sections deleted; `atomic validate spec` exits 0 on both files |
 
 
 ## Risks
@@ -342,3 +342,33 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 **Why:** Pressure-test session (`/pressure-test @docs/spec/signals-router.md`) surfaced contradictions in the original spec: router budget too small for orientation content, content SHA available for free from existing file reads making git SHA redundant, single-agent inference insufficient for quality on large repos.
 
 **Superseded:** Original spec used ~2,048 token budget, git commit SHA for change detection, mtime fallback outside git, `git diff --name-only` for incremental refresh, LLM-judged ~500-line flat-vs-router activation, structural > LLM partitioning precedence, < 3 files micro-domain consolidation threshold, single-agent inferrer, `signals/<domain>/<domain>.md` entry-point naming.
+
+
+## Implementation log
+
+### v1 — 2026-05-23
+
+Built across 9 checkpoints + 1 fix iteration + 1 polish pass of /subagent-implementation. Commits (chronological):
+
+- `8bdb5c2` — CP-1: bounded tree depth + per-path metadata (SHA, lines, chars, bytes)
+- `a729726` — CP-2: .signalsignore read + [generated] flagging
+- `3f8f72b` — CP-3: output.signals.max_depth config key
+- `a5eeaa2` — CP-4: content-SHA diff + changed-paths extraction (fix: repo-relative path parsing)
+- `ee874ee` — CP-5: inferrer agent prompt rewrite (multi-agent orchestrator)
+- `307b426` — CP-6: skill + CLAUDE.md + claude.local.md @-ref switch
+- `886e315` — CP-7 + CP-8: atomic-setup .signalsignore + doctor router check
+- `501df30` — CP-9: signals-workflow change-log entry + spec lint fix
+- `6aa2ca8` — Polish: truth-in-codebase fixes (7 items)
+- `47f22b9` — Deferred follow-ups (F-2, F-4)
+
+**Out-of-scope work performed during this build:**
+- Checkpoints table reformatted from 6-column to 4-column to pass `atomic validate spec` S5 rule (CP-9)
+- `.claude/project/signals.md` created in worktree as copy of `inferred-signals.md` so `@-ref` resolves for validate tests
+
+**Unforeseens — surprises that emerged during implementation:**
+- CP-4 first pass extracted leaf filenames instead of repo-relative paths (ParseTreeSHAs) — caught by reviewer, fixed in follow-up iteration
+- `atomic validate config` test failed after @-ref switch because `signals.md` didn't exist on disk yet — fixed by creating placeholder
+
+**Deferred items still open:**
+- `signals-router-f-2` — Double file reads across assembleBody (perf optimization)
+- `signals-router-f-4` — ScanWithOptions mutates caller-passed opts pointer (latent risk)

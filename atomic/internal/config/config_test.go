@@ -433,6 +433,125 @@ func TestGetUpdateRunDoctor(t *testing.T) {
 	}
 }
 
+// TestSignalsMaxDepthDefault: Default() sets output.signals.max_depth = 3.
+func TestSignalsMaxDepthDefault(t *testing.T) {
+	cfg := Default()
+	if cfg.Output.Signals.MaxDepth != 3 {
+		t.Errorf("Default() Output.Signals.MaxDepth = %d, want 3", cfg.Output.Signals.MaxDepth)
+	}
+}
+
+// TestSignalsMaxDepthExplicit: explicit output.signals.max_depth in TOML overrides default.
+func TestSignalsMaxDepthExplicit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[output.signals]\nmax_depth = 5\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Output.Signals.MaxDepth != 5 {
+		t.Errorf("Output.Signals.MaxDepth = %d, want 5", cfg.Output.Signals.MaxDepth)
+	}
+}
+
+// TestSignalsMaxDepthNonPositiveValidation: Validate rejects max_depth <= 0.
+func TestSignalsMaxDepthNonPositiveValidation(t *testing.T) {
+	cfg := Default()
+	cfg.Output.Signals.MaxDepth = 0
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected Validate to error on max_depth = 0")
+	}
+
+	cfg2 := Default()
+	cfg2.Output.Signals.MaxDepth = -1
+	if err := Validate(cfg2); err == nil {
+		t.Fatal("expected Validate to error on max_depth = -1")
+	}
+}
+
+// TestSignalsMaxDepthGetSet: Get and Set work for output.signals.max_depth.
+func TestSignalsMaxDepthGetSet(t *testing.T) {
+	cfg := Default()
+	v, err := Get(cfg, "output.signals.max_depth")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if v != "3" {
+		t.Errorf("default Get = %q, want \"3\"", v)
+	}
+
+	if err := Set(cfg, "output.signals.max_depth", "7"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	v, err = Get(cfg, "output.signals.max_depth")
+	if err != nil {
+		t.Fatalf("Get after Set: %v", err)
+	}
+	if v != "7" {
+		t.Errorf("after Set 7, Get = %q, want \"7\"", v)
+	}
+}
+
+// TestSignalsMaxDepthUnknownKeyNoFalsePositive: output.signals.max_depth does not
+// emit an unknown-key warning when present in a valid TOML file.
+func TestSignalsMaxDepthUnknownKeyNoFalsePositive(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[output]\nintensity = \"full\"\n[output.signals]\nmax_depth = 5\n[update]\nrun_doctor = true\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "max_depth") || strings.Contains(w.Message, "signals") {
+			t.Errorf("unexpected warning for known key: %q", w.Message)
+		}
+	}
+}
+
+// TestSignalsMaxDepthRoundTrip: set → persist → load → get returns the set value.
+func TestSignalsMaxDepthRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	if err := Set(cfg, "output.signals.max_depth", "10"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	got, err := Get(loaded, "output.signals.max_depth")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != "10" {
+		t.Errorf("got %q, want \"10\"", got)
+	}
+}
+
 // TestUpdateUnknownLeafKeyWarn: unknown key under [update] section emits a warning.
 func TestUpdateUnknownLeafKeyWarn(t *testing.T) {
 	dir := t.TempDir()
