@@ -7,7 +7,7 @@ render:
 
 # bundle: regenerate the embedded artifact bundle from the repo root.
 # Run this after editing any source artifact (agents/, commands/, skills/, etc.).
-bundle:
+bundle: render
 	go run ./cmd/bundle-mirror -repo ../ -outdir ./internal/embedded
 
 # test: run all tests.

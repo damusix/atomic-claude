@@ -8,6 +8,7 @@
 package templaterender
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -159,7 +160,7 @@ func checkOrphans(commandsOutDir, commandsTemplDir string, srcTemplates []string
 		sb.WriteString(fmt.Sprintf("    rm:     commands/%s\n", name))
 	}
 
-	return fmt.Errorf("%s", strings.TrimRight(sb.String(), "\n"))
+	return errors.New(strings.TrimRight(sb.String(), "\n"))
 }
 
 // renderFile parses src as a text/template (cloned from the shared base so all
