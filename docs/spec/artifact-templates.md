@@ -118,3 +118,5 @@ Built across 7 iterations of `/subagent-implementation` on branch `artifact-temp
 - `artifact-templates-f-4` — Orphan error message hardcodes `commands/` prefix (refactor when agents/skills templates land).
 - `artifact-templates-f-7` — `worktree-cleanup-prompt` has 1 consumer (accepted SC 11 deviation; revisit if squash-only gains worktree detection).
 - `artifact-templates-f-8` — `doc-impact-why` has 1 consumer (step-number divergence; revisit in text-harmonization pass).
+
+**Merged into `main` as `a0d7f93` — 2026-05-23.** Iteration commits above remain reachable in history.
