@@ -82,3 +82,39 @@ Approach B rejected: mixes render and embed concerns, blocks future dry-run or p
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+
+
+## Implementation log
+
+
+### v1 — 2026-05-23
+
+Built across 7 iterations of `/subagent-implementation` on branch `artifact-templates`. Commits (chronological):
+
+- `e0a94c1` — CP1: render-templates tool + templaterender package + Makefile/hook/CI wiring + 31-file `templates/commands/` bootstrap
+- `eb9fe68` — CP2: extract `commit-flow` partial; migrate `/commit-only`
+- `669691d` — CP3: extract `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`; migrate the four leaf verbs
+- `592e5fc` — CP4: migrate the 5 pipeline verbs (commit-and-pr/push/merge/squash, squash-and-merge) to consume their flow partials; intentional behavior expansion
+- `198ea73` — CP5: extract 5 small partials (`doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`); restructure flow partials to strip document-level headings (closed F-5, F-6)
+- `04a607a` — CP6: update `.claude/skills/atomic-cli-contrib/SKILL.md` with the templates-system contract; dogfood test
+- `3c68381` — polish: close F-1 (`errors.New`) and F-3 (`bundle: render` dep)
+- `114a832` — defer F-2/F-4/F-7/F-8 to project followups
+
+**Out-of-scope work performed during this build:**
+
+- **CP5 absorbed the F-5/F-6 cleanup** identified by the CP4 reviewer (doubled `## Rules` sections + heading-level inversion in pipeline-verb renders). Originally CP5 was scoped to small-partial extraction only; restructuring the big partials became coupled because removing the small-partial duplication required moving section headings out of the flow partials anyway. Done in one CP rather than two.
+- **merge-flow and squash-flow split into named sub-partials** (`*-preflight`, `*-steps`, plus the wrapper). Not specified in the spec — emerged during CP5 as the cleanest way to give the leaf-verb templates seams where their own section headings could land without breaking byte-equality.
+- **Polish iteration** (F-1, F-3) ran AFTER the spec's 6 checkpoints, on user disposition at Phase 3. Spec contract met before the polish; polish is hygiene.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- **Text divergence across flows prevented 3/5 small partials from reaching the SC 11 "≥2 consumers" bar.** `signals-gate` was resolved by adopting the canonical text in `squash-flow` (an intentional, documented byte-equality break in `commands/squash-only.md`). `doc-impact-why` and `worktree-cleanup-prompt` were accepted as 1-consumer deviations and deferred to project followups for a future text-harmonization pass (F-7, F-8).
+- **CP4 reviewer asserted a worktree-cleanup regression in `/squash-only`.** Iter 6 investigation (`git show 592e5fc:commands/squash-only.md | grep -c worktree` → 0) proved squash-only never had worktree detection at the base SHA. No regression — the reviewer misread the rendered output. The investigation-first pattern (iter 6 BRIEF) prevented an unnecessary fix that would have introduced new content.
+- **`atomic validate bundle` reports stale SHA mismatches under the installed binary** because the binary predates this branch's `commands/` rewrites. Not introduced by this work; resolves itself when the branch lands and CI builds a fresh binary.
+
+**Deferred items still open** (in `.claude/project/followups/`):
+
+- `artifact-templates-f-2` — Renderer success message on stderr (matches `bundle-mirror`; convention question, revisit both together).
+- `artifact-templates-f-4` — Orphan error message hardcodes `commands/` prefix (refactor when agents/skills templates land).
+- `artifact-templates-f-7` — `worktree-cleanup-prompt` has 1 consumer (accepted SC 11 deviation; revisit if squash-only gains worktree detection).
+- `artifact-templates-f-8` — `doc-impact-why` has 1 consumer (step-number divergence; revisit in text-harmonization pass).
