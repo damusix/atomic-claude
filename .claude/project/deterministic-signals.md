@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-23T18:48:39Z
+generated_at: 2026-05-23T18:54:28Z
 atomic_version: 1.3.0
 ---
 # Deterministic signals
@@ -155,8 +155,9 @@ atomic_version: 1.3.0
 │   │   │   ├── selfupdate.go
 │   │   │   ├── selfupdate_test.go
 │   │   │   └── semver.go
-│   │   ├── signals/ (6)
+│   │   ├── signals/ (7)
 │   │   │   ├── testdata/ (1 subitem) (7 total items)
+│   │   │   ├── diff.go
 │   │   │   ├── languages.go
 │   │   │   ├── manifests.go
 │   │   │   ├── signals.go
@@ -363,8 +364,8 @@ atomic_version: 1.3.0
 
 ## Languages
 
-- Go: 25179 LOC (49%), 120 files (34%)
-- Markdown: 24877 LOC (49%), 222 files (63%)
+- Go: 26866 LOC (51%), 121 files (34%)
+- Markdown: 25218 LOC (48%), 222 files (63%)
 - Shell: 269 LOC (0%), 3 files (0%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
