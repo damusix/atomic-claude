@@ -347,7 +347,7 @@ func applyManifestRepairWithGuard(out io.Writer) error {
 
 // -- refs repair --
 
-const refsBlock = "\n## Project signals (auto-loaded)\n\n@.claude/project/deterministic-signals.md\n@.claude/project/inferred-signals.md\n"
+const refsBlock = "\n## Project signals (auto-loaded)\n\n@.claude/project/deterministic-signals.md\n@.claude/project/signals.md\n"
 
 // applyRefsRepair appends the @-ref block to the chosen candidate file.
 // Selection rules per brief:
@@ -417,7 +417,7 @@ func appendRefsIfMissing(path string) error {
 	content := string(raw)
 
 	hasDet := strings.Contains(content, deterministicSignalsRef)
-	hasInf := strings.Contains(content, inferredSignalsRef)
+	hasInf := strings.Contains(content, signalsRef)
 	if hasDet && hasInf {
 		// Already wired — nothing to do.
 		return nil
@@ -433,7 +433,7 @@ func appendRefsIfMissing(path string) error {
 		content += refsBlock
 	} else if hasDet {
 		// Det already there; only the inferred ref is missing.
-		content += inferredSignalsRef + "\n"
+		content += signalsRef + "\n"
 	} else {
 		// Inf already there; only the deterministic ref is missing.
 		content += deterministicSignalsRef + "\n"

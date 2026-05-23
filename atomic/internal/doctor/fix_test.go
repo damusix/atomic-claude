@@ -406,7 +406,7 @@ func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 	if !strings.Contains(content, "@.claude/project/deterministic-signals.md") {
 		t.Errorf("deterministic-signals ref missing from CLAUDE.md")
 	}
-	if !strings.Contains(content, "@.claude/project/inferred-signals.md") {
+	if !strings.Contains(content, "@.claude/project/signals.md") {
 		t.Errorf("inferred-signals ref missing from CLAUDE.md")
 	}
 }
@@ -474,13 +474,13 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 	globalData, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 
 	localHasRefs := strings.Contains(string(localData), "@.claude/project/deterministic-signals.md") ||
-		strings.Contains(string(localData), "@.claude/project/inferred-signals.md")
+		strings.Contains(string(localData), "@.claude/project/signals.md")
 	if localHasRefs {
 		t.Errorf("claude.local.md should not have been patched (index 2 maps to CLAUDE.md); content:\n%s", string(localData))
 	}
 
 	detCount := strings.Count(string(globalData), "@.claude/project/deterministic-signals.md")
-	infCount := strings.Count(string(globalData), "@.claude/project/inferred-signals.md")
+	infCount := strings.Count(string(globalData), "@.claude/project/signals.md")
 	if detCount != 1 || infCount != 1 {
 		t.Errorf("CLAUDE.md: det=%d inf=%d (both want 1)\ncontent:\n%s", detCount, infCount, string(globalData))
 	}
@@ -543,7 +543,7 @@ func TestRepair_Refs_PartialFile_AppendsOnlyMissing(t *testing.T) {
 	content := string(data)
 
 	// The missing inferred ref must be present exactly once.
-	infCount := strings.Count(content, "@.claude/project/inferred-signals.md")
+	infCount := strings.Count(content, "@.claude/project/signals.md")
 	if infCount != 1 {
 		t.Errorf("inferred-signals ref appears %d times (want 1)", infCount)
 	}

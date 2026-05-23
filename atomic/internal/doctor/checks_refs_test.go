@@ -15,13 +15,13 @@ func RunCheckRefsWith(repoRoot string) doctor.Result {
 
 const (
 	deterministicRef = "@.claude/project/deterministic-signals.md"
-	inferredRef      = "@.claude/project/inferred-signals.md"
+	signalsRef       = "@.claude/project/signals.md"
 )
 
 func bothRefs() string {
 	return "\n## Project signals (auto-loaded)\n\n" +
 		deterministicRef + "\n" +
-		inferredRef + "\n"
+		signalsRef + "\n"
 }
 
 func writeRefsFile(t *testing.T, path, content string) {
@@ -88,7 +88,7 @@ func TestCheckRefs_OnlyFirstRef_Fail(t *testing.T) {
 // TestCheckRefs_OnlySecondRef_Fail verifies FAIL when only inferred ref is present.
 func TestCheckRefs_OnlySecondRef_Fail(t *testing.T) {
 	root := t.TempDir()
-	writeRefsFile(t, filepath.Join(root, "CLAUDE.md"), inferredRef+"\n")
+	writeRefsFile(t, filepath.Join(root, "CLAUDE.md"), signalsRef+"\n")
 
 	r := RunCheckRefsWith(root)
 	if r.Severity != doctor.FAIL {
@@ -101,7 +101,7 @@ func TestCheckRefs_OnlySecondRef_Fail(t *testing.T) {
 func TestCheckRefs_RefsSplitAcrossFiles_Fail(t *testing.T) {
 	root := t.TempDir()
 	writeRefsFile(t, filepath.Join(root, "claude.local.md"), deterministicRef+"\n")
-	writeRefsFile(t, filepath.Join(root, "CLAUDE.md"), inferredRef+"\n")
+	writeRefsFile(t, filepath.Join(root, "CLAUDE.md"), signalsRef+"\n")
 
 	r := RunCheckRefsWith(root)
 	if r.Severity != doctor.FAIL {

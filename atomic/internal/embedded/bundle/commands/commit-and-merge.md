@@ -100,7 +100,7 @@ If nothing to commit AND branch up to date with base → stop.
 5. **Post-merge signals refresh.** Defense in depth — even if the branch's commits each ran `/commit-only`, a merged PR from another contributor or manual commits may have bypassed it. Evaluate in order; stop at first failure:
     1. `command -v atomic` succeeds? If not, skip.
     2. `atomic signals stale` exits 1 (stale)? If 0 (fresh), skip.
-    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `CLAUDE.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/inferred-signals.md`, and `CLAUDE.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Push after commit on remote path. Never amend.
+    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `CLAUDE.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/signals.md`, and `CLAUDE.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Push after commit on remote path. Never amend.
 6. **Delete local feature branch**: `git branch -d <feature>`.
     - **Remote path**: `gh pr merge --delete-branch` already removed the remote branch.
     - **Local path**: no remote branch to clean up.

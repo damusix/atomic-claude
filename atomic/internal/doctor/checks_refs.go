@@ -18,7 +18,7 @@ var candidateFiles = []string{
 
 const (
 	deterministicSignalsRef = "@.claude/project/deterministic-signals.md"
-	inferredSignalsRef      = "@.claude/project/inferred-signals.md"
+	signalsRef              = "@.claude/project/signals.md"
 )
 
 // checkRefs implements category 4: @-refs wired.
@@ -51,7 +51,7 @@ func RunCheckRefsWith(repoRoot string) Result {
 		}
 		content := string(raw)
 		hasDet := strings.Contains(content, deterministicSignalsRef)
-		hasInf := strings.Contains(content, inferredSignalsRef)
+		hasInf := strings.Contains(content, signalsRef)
 
 		if hasDet && hasInf {
 			return Result{Severity: PASS, Detail: fmt.Sprintf("refs wired in %s", name)}
@@ -62,7 +62,7 @@ func RunCheckRefsWith(repoRoot string) Result {
 			if partialFile == "" {
 				partialFile = name
 				if hasDet {
-					partialMissing = inferredSignalsRef
+					partialMissing = signalsRef
 				} else {
 					partialMissing = deterministicSignalsRef
 				}
