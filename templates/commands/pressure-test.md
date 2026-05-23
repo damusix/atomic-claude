@@ -109,6 +109,7 @@ When the four causes can't pin a thing down — the user circles it, names neigh
     - First request → remind: *"That's a different mode — `/atomic-plan` for specs and designs, builder agents for code. Want me to keep challenging instead?"*
     - Second request → remind once more, more directly: *"Still in pressure-test mode — I won't draft that here. Exit this command and run `/atomic-plan` if you're ready to write."*
     - Third request → exit pressure-test mode. Say: *"Exiting pressure-test. Run `/atomic-plan` to capture what we settled, or describe what you want drafted."* The session ends.
+8. **Verify before asserting.** Any challenge that asserts a fact about the codebase (a file exists, a function returns X, a test covers Y, a config flag is wired, a path is gitignored) must be verified with a tool call (`Read`, `Grep`, `Glob`, `Bash`) **before** the assertion is written into the question. Hedging ("I think", "likely", "probably", "if I recall") does not substitute — it rebrands a guess. If you cannot verify in this turn, either drop the factual hook and challenge the reasoning instead, or mark the claim unverified explicitly ("I haven't checked, but if X is true, then …") and let the user confirm. A pressure-test built on a wrong premise wastes the user's time and corrodes trust in the mode. This applies even mid-flow: when a new factual claim crystallizes during a Deep Dive thread, pause to verify rather than continuing to build on it.
 
 ## Termination
 
