@@ -372,3 +372,5 @@ Built across 9 checkpoints + 1 fix iteration + 1 polish pass of /subagent-implem
 **Deferred items still open:**
 - `signals-router-f-2` — Double file reads across assembleBody (perf optimization)
 - `signals-router-f-4` — ScanWithOptions mutates caller-passed opts pointer (latent risk)
+
+**Squashed onto `main` as `f15c325` — 2026-05-23.** Per-iteration SHAs above are historical (unreachable post-squash).
