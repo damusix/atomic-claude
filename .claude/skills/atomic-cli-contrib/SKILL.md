@@ -1,6 +1,6 @@
 ---
 name: atomic-cli-contrib
-description: Conventions for editing the atomic CLI in this repo. Auto-fires on phrases like "add a CLI subcommand", "wire a new flag", "prompt the user", "add a doctor check", "add a doctor repair", "edit cmd/atomic/main.go", "extend claudeinstall", "add an internal package", or "use huh". Contributor-only — never bundled, never installed.
+description: Conventions for editing the atomic CLI and command artifacts in this repo. Auto-fires on phrases like "add a CLI subcommand", "wire a new flag", "prompt the user", "add a doctor check", "add a doctor repair", "edit cmd/atomic/main.go", "extend claudeinstall", "add an internal package", "use huh", "add a command", "create a new verb", "add a partial", "render templates", "edit a command", "edit commands/", or "create a new command". Contributor-only — never bundled, never installed.
 user-invocable: false
 ---
 
@@ -125,7 +125,48 @@ When adding a verb, flag, or repair:
 - The bundle regenerator runs on every commit that touches a source artifact (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`). Pure `atomic/` changes do NOT trigger a regen. See `.githooks/pre-commit`.
 
 
-## 10. Manual exercisers in `tmp/`
+## 10. Command artifact templates — `templates/` is the only edit path
+
+
+`commands/` is **fully generated** from `templates/commands/` via `make render`. Never edit `commands/<name>.md` directly — the change will be overwritten on the next render.
+
+
+**Source of truth:**
+
+- `templates/commands/<name>.md` — verb-specific orchestration for that command.
+- `templates/shared/<name>.md` — reusable partials included via `{{ template "<name>" . }}`.
+
+
+**Two-level partial taxonomy:**
+
+| Kind | Examples | Description |
+|------|---------|-------------|
+| Big partials | `commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow` | Entire flow bodies consumed by one or more command templates |
+| Small partials | `doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt` | Fragments embedded inside big partials |
+
+
+**Adding a new command:** drop `templates/commands/<name>.md`, run `make render`. Never create `commands/<name>.md` directly.
+
+
+**Removing a command:** delete BOTH `templates/commands/<name>.md` AND `commands/<name>.md`. An orphan `commands/<name>.md` without a matching template causes `make render` to halt with a non-zero exit.
+
+
+**Partial design rules:**
+
+- Pure fragments only. No `dict` function, no `{{ if }}` conditionals, no variant flags inside partials.
+- Optional sub-fragments are their own micro-partials (e.g. `doc-impact-why` is separate from `doc-impact` so callers can include one without the other).
+- To verify: `make render && git diff --exit-code commands/` must exit 0 after any template edit.
+
+
+**Render workflow:**
+
+    make render                        # regenerate commands/ from templates/
+    git diff --exit-code commands/     # assert no stale output
+
+The pre-commit hook auto-runs `make render` and re-stages `commands/` whenever any `templates/` file is staged.
+
+
+## 11. Manual exercisers in `tmp/`
 
 
 - `tmp/` is gitignored except for the two `.gitkeep` files.
@@ -133,7 +174,7 @@ When adding a verb, flag, or repair:
 - Keep these scripts cheap to write and re-runnable. Don't commit them (gitignored is correct) but reference them in PR descriptions when they helped find a bug.
 
 
-## 11. Library references
+## 12. Library references
 
 
 ### `charmbracelet/huh` — interactive forms / prompts
