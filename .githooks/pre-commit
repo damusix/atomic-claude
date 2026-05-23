@@ -7,6 +7,9 @@
 #              source artifact (agents/, commands/, skills/, output-styles/,
 #              rules/, CLAUDE.md). Without this, CI fails the "Verify bundle
 #              is committed" step.
+#   Stage 3 — regenerate followups INDEX.md when a staged change touches
+#              .claude/project/followups/ entry files (excluding INDEX.md).
+#              Degrades to WARN if atomic binary is absent.
 # Installed by `make hooks` (sets core.hooksPath=.githooks).
 set -euo pipefail
 

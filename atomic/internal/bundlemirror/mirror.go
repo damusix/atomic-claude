@@ -112,23 +112,29 @@ func enumerate(repoRoot string) ([]embedded.Artifact, error) {
 		artifacts = append(artifacts, a)
 	}
 
-	// commands/*.md — every top-level markdown file ships. Subdirectories skipped.
+	// commands/**/*.md — all markdown files, including subdirectories.
 	commandsDir := filepath.Join(repoRoot, "commands")
-	cmdEntries, err := os.ReadDir(commandsDir)
-	if err != nil {
-		return nil, fmt.Errorf("read commands dir: %w", err)
-	}
-	for _, e := range cmdEntries {
-		if e.IsDir() || !bundlespec.MatchesCommand(e.Name()) {
-			continue
+	err = filepath.WalkDir(commandsDir, func(path string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			return werr
 		}
-		src := filepath.Join(commandsDir, e.Name())
-		target := "commands/" + e.Name()
-		a, err := readArtifact(src, target, "command")
+		if d.IsDir() || !bundlespec.MatchesCommand(d.Name()) {
+			return nil
+		}
+		rel, err := filepath.Rel(repoRoot, path)
 		if err != nil {
-			return nil, err
+			return err
+		}
+		target := filepath.ToSlash(rel)
+		a, err := readArtifact(path, target, "command")
+		if err != nil {
+			return err
 		}
 		artifacts = append(artifacts, a)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk commands: %w", err)
 	}
 
 	// rules/**/*.md

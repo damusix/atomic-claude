@@ -118,7 +118,7 @@ If a survey reviewer detects any of the above in a freshly-rendered `CLAUDE.md`,
 
 
 @.claude/project/deterministic-signals.md
-@.claude/project/inferred-signals.md
+@.claude/project/signals.md
 ```
 
 The trailing `## Project signals (auto-loaded)` block is appended unconditionally — even when signals have not yet been scanned, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets).
@@ -141,6 +141,10 @@ When `CLAUDE.md` already exists, the survey does not run. The audit step gates o
 **What changed:** First spec written for `/atomic-setup`. Captures the survey-driven `CLAUDE.md` creation contract.
 
 **Why:** Prior starter template at `commands/atomic-setup.md:188-236` hard-coded a duplicate of global `CLAUDE.md` content (Principles, Where things live, Workflow). Project `CLAUDE.md` files created via `/atomic-setup` were generic boilerplate, not durable project knowledge. User flagged that project `CLAUDE.md` should carry intent / tribal knowledge / direction / rules / processes — content signals cannot infer and global does not own.
+
+### 2026-05-23 — Correction: stale signals @-ref in CLAUDE.md scaffold
+
+**Correction:** The `## Project signals (auto-loaded)` scaffold block wrote `@.claude/project/inferred-signals.md` but the signals router renamed the file to `signals.md`. Corrected to `@.claude/project/signals.md`. This is load-bearing — freshly bootstrapped repos would get a broken `@-ref` pointing to a file that never exists.
 
 ### 2026-05-23 — Conditional skip
 

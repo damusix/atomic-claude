@@ -31,7 +31,7 @@ func MatchesOutputStyle(name string) bool {
 }
 
 // MatchesCommand reports whether name is a bundleable command file.
-// Rule: commands/*.md — any .md file at the top level (caller skips subdirs).
+// Rule: commands/**/*.md — any .md file, including subdirectories.
 func MatchesCommand(name string) bool {
 	return strings.HasSuffix(name, ".md")
 }

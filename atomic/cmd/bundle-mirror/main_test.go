@@ -76,9 +76,9 @@ func TestRunBasic(t *testing.T) {
 	if counts["output-style"] != 1 {
 		t.Errorf("output-style count = %d, want 1", counts["output-style"])
 	}
-	// Every top-level .md in commands/ ships. No allowlist.
-	if counts["command"] != 3 {
-		t.Errorf("command count = %d, want 3", counts["command"])
+	// All .md files in commands/ ship, including subdirectories.
+	if counts["command"] != 4 {
+		t.Errorf("command count = %d, want 4", counts["command"])
 	}
 	if counts["rule"] != 2 {
 		t.Errorf("rule count = %d, want 2", counts["rule"])
@@ -102,7 +102,6 @@ func TestRunExclusions(t *testing.T) {
 		"skills/non-atomic-skill/SKILL.md",
 		"skills/non-atomic-skill/scripts/leak.sh",
 		"output-styles/other.md",
-		"commands/_templates/something.md",
 	}
 	for _, a := range artifacts {
 		for _, excl := range excluded {

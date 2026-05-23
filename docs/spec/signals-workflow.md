@@ -13,10 +13,10 @@ This spec depends on [`atomic-binary.md`](./atomic-binary.md) — the `atomic` b
 | Path | Source | Purpose |
 |------|--------|---------|
 | `.claude/project/deterministic-signals.md` | `atomic signals scan` (regenerated every run) | Pure facts: tree, manifests, languages, lockfile presence |
-| `.claude/project/inferred-signals.md` | `atomic-signals-inferrer` subagent (regenerated every run) | Inferred meaning: framework, build commands, test runner, deployment target, architectural style |
+| `.claude/project/signals.md` | `atomic-signals-inferrer` subagent (regenerated every run) | Inferred meaning: framework, build commands, test runner, deployment target, architectural style |
 
 
-Both files are committed to the project (not gitignored). They travel with the repo so any future Claude session can read them without re-scanning. The inferrer gets an incremental-diff source for free via `atomic signals diff` — a thin wrapper that delegates to `git diff` in a git repo or unix `diff` against `.deterministic-signals.prev.md` (a snapshot `scan` writes before overwriting) outside one.
+Both files are gitignored (project-specific, regenerated on demand). They are auto-referenced via `@`-refs from the project's `CLAUDE.md` (or `claude.local.md`) so the harness loads them on every session. The inferrer gets an incremental-diff source for free via `atomic signals diff` — a thin wrapper that delegates to `git diff` in a git repo or unix `diff` against `.deterministic-signals.prev.md` (a snapshot `scan` writes before overwriting) outside one.
 
 
 ## Artifacts to build
@@ -61,8 +61,8 @@ Also fires implicitly when `/commit-only` runs and the staged diff includes sour
 1. **Detect binary**. `command -v atomic`. If missing: print "atomic binary not installed. install via [link]. falling back to markdown-only mode." and continue with the fallback flow.
 2. **Staleness check (binary path)**. Run `atomic signals stale`. Exit 0 → no work. Exit 1 → regenerate.
 3. **Regenerate deterministic**. Run `atomic signals scan`. Writes `.claude/project/deterministic-signals.md` and copies the prior content to `.claude/project/.deterministic-signals.prev.md` (gitignored) so `atomic signals diff` works regardless of git state.
-4. **Dispatch inferrer**. Spawn `atomic-signals-inferrer` subagent via `Agent` tool. The inferrer runs `atomic signals diff` to learn what changed and updates only the dependent sections of `inferred-signals.md`. See agent spec below for details.
-5. **Ensure `@-refs` in project `CLAUDE.md`**. If `CLAUDE.md` exists at repo root and does not already contain `@.claude/project/deterministic-signals.md` and `@.claude/project/inferred-signals.md`, append a section:
+4. **Dispatch inferrer**. Spawn `atomic-signals-inferrer` subagent via `Agent` tool. The inferrer runs `atomic signals diff` to learn what changed and updates only the dependent sections of `signals.md`. See agent spec below for details.
+5. **Ensure `@-refs` in project `CLAUDE.md`**. If `CLAUDE.md` exists at repo root and does not already contain `@.claude/project/deterministic-signals.md` and `@.claude/project/signals.md`, append a section:
 
     ```markdown
 
@@ -71,7 +71,7 @@ Also fires implicitly when `/commit-only` runs and the staged diff includes sour
 
 
     @.claude/project/deterministic-signals.md
-    @.claude/project/inferred-signals.md
+    @.claude/project/signals.md
     ```
 
     Print the diff first. If running non-interactively (e.g. inside `/commit-only`), append without confirmation. If running from `/initialize-signals`, ask via `AskUserQuestion` before writing.
@@ -103,7 +103,7 @@ The fallback is deliberately limited — users hit it once and install the binar
 ```yaml
 ---
 name: atomic-signals-inferrer
-description: Reads deterministic-signals.md and produces inferred-signals.md — framework detection, command guesses, architectural style. Read-write but scoped to .claude/project/.
+description: Reads deterministic-signals.md and produces signals.md — framework detection, command guesses, architectural style. Read-write but scoped to .claude/project/.
 tools: Read, Write, Grep, Glob
 model: sonnet
 ---
@@ -116,8 +116,8 @@ model: sonnet
 Two modes:
 
 
-- **Incremental (preferred)** — `atomic signals diff` exits 1 (diff present). Read its stdout. Use the unified-diff hunk headers (`## Manifests`, `## Languages`, etc.) to identify which deterministic sections changed, then use the section dependency mapping below to find which inferred sections need updates. Read `inferred-signals.md`, edit only the dependent sections in place, leave untouched sections byte-identical.
-- **Full (first run or fallback)** — `inferred-signals.md` does not exist, or `atomic signals diff` exits 2 (no prior version available). Read `.claude/project/deterministic-signals.md` end-to-end. Write `inferred-signals.md` from scratch.
+- **Incremental (preferred)** — `atomic signals diff` exits 1 (diff present). Read its stdout. Use the unified-diff hunk headers (`## Manifests`, `## Languages`, etc.) to identify which deterministic sections changed, then use the section dependency mapping below to find which inferred sections need updates. Read `signals.md`, edit only the dependent sections in place, leave untouched sections byte-identical.
+- **Full (first run or fallback)** — `signals.md` does not exist, or `atomic signals diff` exits 2 (no prior version available). Read `.claude/project/deterministic-signals.md` end-to-end. Write `signals.md` from scratch.
 
 
 No custom diff format. Standard unified diff via the binary's `diff` wrapper.
@@ -136,13 +136,13 @@ Each deterministic section drives one or more inferred sections. The inferrer us
 | `Languages` | `Framework / runtime`, `Architectural style` |
 
 
-If a deterministic section changes but no inferred section depends on it, leave `inferred-signals.md` untouched and report `0 sections updated`. Always refresh the frontmatter `generated_at` timestamp.
+If a deterministic section changes but no inferred section depends on it, leave `signals.md` untouched and report `0 sections updated`. Always refresh the frontmatter `generated_at` timestamp.
 
 
 Input: `.claude/project/deterministic-signals.md` + `atomic signals diff` output (incremental mode).
 
 
-Output: `.claude/project/inferred-signals.md` with these sections:
+Output: `.claude/project/signals.md` with these sections:
 
 
 ```markdown
@@ -233,7 +233,7 @@ Edit `/commit-only` to invoke the `atomic-signals` skill *before* the commit, ga
 1. Stage check (existing).
 2. If atomic is installed AND atomic signals stale exits 1:
    - Invoke atomic-signals skill silently.
-   - If signals regenerated, stage the resulting deterministic-signals.md + inferred-signals.md.
+   - If signals regenerated, stage the resulting deterministic-signals.md + signals.md.
 3. Continue with existing commit flow.
 ```
 
@@ -286,7 +286,7 @@ Proposed actions:
 - A `/commit-only` that only touches `README.md` does NOT regenerate signals.
 - A `/commit-only` that touches `package.json` (or any other manifest on the trigger list) regenerates signals and stages the updated docs alongside the commit.
 - Removing the binary and re-running the skill produces the fallback message and a degraded-but-non-empty signals file.
-- When `package.json` changes its `scripts.test` value, the skill's incremental path: (a) `atomic signals diff` returns the `Manifests` hunk after `atomic signals scan`, (b) the inferrer reads only that diff + the cited manifests, and (c) `inferred-signals.md` updates only `Build / test / lint commands`. Other sections of `inferred-signals.md` are byte-identical to the previous run.
+- When `package.json` changes its `scripts.test` value, the skill's incremental path: (a) `atomic signals diff` returns the `Manifests` hunk after `atomic signals scan`, (b) the inferrer reads only that diff + the cited manifests, and (c) `signals.md` updates only `Build / test / lint commands`. Other sections of `signals.md` are byte-identical to the previous run.
 
 
 ## Checkpoints

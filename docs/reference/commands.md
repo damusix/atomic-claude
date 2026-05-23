@@ -30,5 +30,7 @@
 | `/report-issue` | Open a GitHub issue via `gh` against the user's current repo. Auto-detects bug report vs. feature request. |
 | `/report-issue-with-atomic` | Open a GitHub issue against the **atomic-claude repo itself** (`damusix/atomic-claude`). For bugs or feature requests with the installed config, not the user's current project. |
 | `/watch-ci [<target>]` | Spawn a background Haiku subagent to watch CI for the current branch/PR/run. Provider auto-detected from signals. |
-| `/atomic-claude-merge` | Merge `~/.claude/CLAUDE.md.atomic-proposed` (produced by `atomic claude install/update`) into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent. |
+| `/atomic-claude-merge` | Merge `~/.claude/.atomic/proposed/CLAUDE.md` (produced by `atomic claude install/update`) into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent. |
+| `/atomic-help [<topic> \| <freeform intent>]` | Routing assistant for a disoriented user. Reads git state, classifies intent, recommends the single next action. Never executes. |
+| `/subagent-diagnose <ci\|bug> [args]` | Multi-agent failure-investigation orchestrator. `ci` mode seeds from a failed GitHub Actions run; `bug` mode from a freeform symptom. Same scratchpad + investigator + builder + reviewer chain as `/subagent-implementation`. |
 | `/session-report [<slug>]` | Capture what changed and why for the current branch's session. Writes a timestamped markdown file to `.claude/.scratchpad/session-reports/<branch>/`. Read by the next commit-message-generating ship verb as supplemental *why*-context, then deleted. Opt-in; does not auto-fire. |

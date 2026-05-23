@@ -63,7 +63,7 @@ If you prefer not to install the hook, the rule still applies. Run `make bundle`
 
 Slash commands live under `commands/` in their final form, but those files are generated. The source of truth is `templates/`. Edit a command by editing its template, not the rendered file.
 
-The pipeline has two stages: `make render` reads `templates/` and writes `commands/`, then `make bundle` reads `commands/` and writes the embedded bundle. The pre-commit hook chains both stages whenever a `templates/` file is staged.
+The pipeline has three stages: (1) `make render` reads `templates/` and writes `commands/`; (2) `make bundle` reads `commands/` and writes the embedded bundle; (3) `atomic followups render` regenerates `INDEX.md` when followup entries are staged. The pre-commit hook chains all three stages.
 
 `templates/commands/<verb>.md` holds each verb's orchestration — frontmatter, prereqs, step headers, rules. Bodies that recur across verbs live once in `templates/shared/<name>.md` and get composed via Go `text/template` directives like `{{ template "commit-flow" . }}`. The shared set today is five big partials (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`) plus five small partials inside them (`doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`).
 

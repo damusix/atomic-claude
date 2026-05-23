@@ -86,7 +86,7 @@ The `atomic` binary embeds the artifact bundle at build time via `go:embed`. Sou
 **How to regenerate.** From repo root: `make -C atomic bundle`. Outputs `atomic/internal/embedded/bundle/**` + `atomic/internal/embedded/manifest.go`. Stage everything under `atomic/internal/embedded/`, include in the same commit. Do not split the regen into a follow-up commit unless CI already caught the gap.
 
 
-**Pre-commit hook handles this automatically.** `.githooks/pre-commit` (installed via `make hooks`, which sets `core.hooksPath=.githooks`) has two stages: (1) `make render` when any `templates/` file is staged, re-staging `commands/`; (2) `make bundle` when any source artifact is staged (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`), re-staging the embedded bundle. Render runs before bundle since bundle reads what render wrote. If you commit without the hook installed, the regen is your responsibility — CI fails the "Verify render is committed" and "Verify bundle is committed" steps on drift.
+**Pre-commit hook handles this automatically.** `.githooks/pre-commit` (installed via `make hooks`, which sets `core.hooksPath=.githooks`) has three stages: (1) `make render` when any `templates/` file is staged, re-staging `commands/`; (2) `make bundle` when any source artifact is staged (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`), re-staging the embedded bundle; (3) `atomic followups render` when any followups entry file (other than INDEX.md) is staged, re-staging `INDEX.md` (degrades to WARN if `atomic` binary absent). Render runs before bundle since bundle reads what render wrote. If you commit without the hook installed, the regen is your responsibility — CI fails the "Verify render is committed" and "Verify bundle is committed" steps on drift.
 
 
 **Do not confuse `atomic hooks` with git hooks.** `atomic hooks install` registers a Claude Code session-start hook (injects pending reminders into context). That has nothing to do with the build pipeline. Bundle and render parity are enforced by CI; the git pre-commit hook in `.githooks/` is the local convenience layer.
@@ -103,7 +103,7 @@ The `atomic` binary embeds the artifact bundle at build time via `go:embed`. Sou
 
 **Orphan rule.** `commands/<verb>.md` without a matching `templates/commands/<verb>.md` causes `make render` to halt with a non-zero exit and an error that names both remediation paths (create the template OR `rm` the orphan output). Adding a new command means creating the template file under `templates/commands/`, never directly in `commands/`.
 
-**Two-stage pipeline.** Render runs before bundle. `make render` writes `commands/`; `make bundle` reads `commands/` to update the embedded bundle. CI runs both gates (`make render && git diff --exit-code` then `make bundle && git diff --exit-code`); pre-commit hook chains both stages.
+**Three-stage pipeline.** Render runs before bundle. `make render` writes `commands/`; `make bundle` reads `commands/` to update the embedded bundle; `atomic followups render` regenerates `INDEX.md`. CI runs two drift gates (`make render && git diff --exit-code` then `make bundle && git diff --exit-code`); the pre-commit hook chains all three stages.
 
 
 ## Spec amendment rule (`docs/spec/<topic>.md`)

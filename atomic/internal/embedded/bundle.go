@@ -9,5 +9,5 @@ package embedded
 
 import "embed"
 
-//go:embed bundle
+//go:embed all:bundle
 var FS embed.FS

@@ -126,7 +126,7 @@ A holistic Claude Code configuration designed as one coherent system. Grouped by
 
 **[Project-state awareness via signals](docs/reference/signals-workflow.md)**
 
-- The `atomic` binary scans your repo and writes `.claude/project/{deterministic,inferred}-signals.md`, auto-loaded into every session via `@`-ref.
+- The `atomic` binary scans your repo and writes `.claude/project/{deterministic-signals,signals}.md`, auto-loaded into every session via `@`-ref.
 - Claude knows your framework, package manager, and build/test/lint commands instead of guessing.
 - The `atomic-signals` skill auto-refreshes on phrases like "rescan the project" and runs silently when `/commit-only` detects source-tree changes.
 - No hallucinated `npm run` scripts, no invented `make` targets.
@@ -167,7 +167,7 @@ Bootstrap a fresh repo for atomic conventions, then teach Claude what it looks l
 | Step | Verb | What it does |
 |------|------|--------------|
 | 1 | `/atomic-setup` | Audits `.gitignore` (`.worktrees/`, `.claude/.scratchpad/`, `tmp/`), proposes `docs/{spec,design,guides,reference}/` scaffold, drops starter `CLAUDE.md` if missing. Proposes only what's missing; never overwrites. |
-| 2 | `/initialize-signals` | Scans the project and writes `.claude/project/{deterministic,inferred}-signals.md`. Wires `@`-refs so Claude loads your repo's shape every session. |
+| 2 | `/initialize-signals` | Scans the project and writes `.claude/project/{deterministic-signals,signals}.md`. Wires `@`-refs so Claude loads your repo's shape every session. |
 
 Now you can get to work.
 

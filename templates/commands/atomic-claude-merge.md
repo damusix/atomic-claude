@@ -94,7 +94,7 @@ If that check fails (exit non-zero): print `merge produced no output file. Abort
 Generate a fresh ISO timestamp at accept time:
 
 ```bash
-TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+TIMESTAMP=$(date -u +"%Y-%m-%dT%H-%M-%SZ")
 ```
 
 Print each command before running it. Back up the current CLAUDE.md:

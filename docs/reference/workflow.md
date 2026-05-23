@@ -7,7 +7,9 @@ The canonical lifecycle:
 
 2. **`/subagent-implementation`** — autonomous from the spec. The orchestrator reads `docs/spec/`, writes a thin `BRIEF.md` + `STATE.md` + `FOLLOWUPS.md` to `.claude/.scratchpad/`, then drives an implement → review loop using fresh-context subagents. Each reviewer `VERDICT: PASS` triggers a commit before the next iteration. Non-blocking findings (🟡 risks, 🔵 nits, ❓ questions) accumulate in `FOLLOWUPS.md` and get dispositioned with you at finalize — fix now, file an issue, or drop. Nothing gets silently dropped just because the iteration passed.
 
-3. **Ship** — pick the verb that matches your situation:
+3. **`/subagent-diagnose [ci|bug]`** — when something breaks. Same scratchpad + investigator + builder + reviewer loop as `/subagent-implementation`, seeded from a failed CI run or a freeform bug symptom.
+
+4. **Ship** — pick the verb that matches your situation:
 
 | Command | What it does |
 |---------|-------------|

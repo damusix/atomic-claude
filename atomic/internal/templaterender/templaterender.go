@@ -10,6 +10,7 @@ package templaterender
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,8 +33,8 @@ func Run(repoRoot, outDir string) error {
 		return fmt.Errorf("load shared partials: %w", err)
 	}
 
-	// Enumerate source templates.
-	srcTemplates, err := listMDFiles(commandsTemplDir)
+	// Enumerate source templates (recursive — includes subdirs like _templates/).
+	srcTemplates, err := listMDFilesRecursive(commandsTemplDir)
 	if err != nil {
 		return fmt.Errorf("list templates/commands: %w", err)
 	}
@@ -47,15 +48,14 @@ func Run(repoRoot, outDir string) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(commandsOutDir, 0o755); err != nil {
-		return fmt.Errorf("create commands output dir: %w", err)
-	}
-
-	for _, name := range srcTemplates {
-		src := filepath.Join(commandsTemplDir, name)
-		dst := filepath.Join(commandsOutDir, name)
+	for _, relPath := range srcTemplates {
+		src := filepath.Join(commandsTemplDir, relPath)
+		dst := filepath.Join(commandsOutDir, relPath)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("create output dir for %s: %w", relPath, err)
+		}
 		if err := renderFile(sharedTmpl, src, dst); err != nil {
-			return fmt.Errorf("render %s: %w", name, err)
+			return fmt.Errorf("render %s: %w", relPath, err)
 		}
 	}
 
@@ -101,7 +101,7 @@ func loadSharedPartials(sharedDir string) (*template.Template, error) {
 }
 
 // listMDFiles returns sorted *.md file names (base names only) in dir.
-// Returns nil (not an error) if dir does not exist.
+// Returns nil (not an error) if dir does not exist. Non-recursive.
 func listMDFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -121,16 +121,45 @@ func listMDFiles(dir string) ([]string, error) {
 	return names, nil
 }
 
-// checkOrphans enumerates outDir/commands/*.md and returns an error for any
+// listMDFilesRecursive returns sorted *.md file paths (relative to dir) in dir
+// and all subdirectories. Returns nil (not an error) if dir does not exist.
+func listMDFilesRecursive(dir string) ([]string, error) {
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return nil, nil
+	}
+
+	var paths []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			return werr
+		}
+		if d.IsDir() || !strings.HasSuffix(d.Name(), ".md") {
+			return nil
+		}
+		rel, err := filepath.Rel(dir, path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk %s: %w", dir, err)
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// checkOrphans enumerates outDir/commands/**/*.md and returns an error for any
 // file that has no corresponding source template. The error message names both
 // remediation paths: create the template OR rm the output file.
 func checkOrphans(commandsOutDir, commandsTemplDir string, srcTemplates []string) error {
-	existing, err := listMDFiles(commandsOutDir)
+	existing, err := listMDFilesRecursive(commandsOutDir)
 	if err != nil {
 		return fmt.Errorf("list output commands: %w", err)
 	}
 
-	// Build a set of template names for O(1) lookup.
+	// Build a set of template paths for O(1) lookup.
 	tmplSet := make(map[string]bool, len(srcTemplates))
 	for _, name := range srcTemplates {
 		tmplSet[name] = true

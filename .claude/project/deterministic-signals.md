@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-05-23T19:26:57Z
-atomic_version: 1.3.0
+generated_at: 2026-05-23T21:15:26Z
+atomic_version: 1.4.0
 ---
 # Deterministic signals
 
@@ -8,354 +8,357 @@ atomic_version: 1.3.0
 
 ├── .claude/ (3)
 │   ├── docs/ (3)
-│   │   ├── agent-config.md
-│   │   ├── axioms.md
-│   │   └── claude-code-references.md
+│   │   ├── agent-config.md (1450481, 905L, 26746ch, 27008B)
+│   │   ├── axioms.md (545fa7b, 172L, 10839ch, 10889B)
+│   │   └── claude-code-references.md (1066f3b, 21L, 3449ch, 3455B)
 │   ├── skills/ (1)
 │   │   └── atomic-cli-contrib/ (1)
-│   │       └── SKILL.md
-│   └── settings.local.json
+│   │       └── SKILL.md (8d08cb6, 283L, 19192ch, 19324B)
+│   └── settings.local.json (a6d7cf1, 3L, 30ch, 30B)
 ├── .githooks/ (1)
-│   └── pre-commit
+│   └── pre-commit (fb7efa2, 90L, 3298ch, 3312B)
 ├── .github/ (1)
 │   └── workflows/ (3)
-│       ├── ci.yml
-│       ├── release-please.yml
-│       └── release.yml
+│       ├── ci.yml (b480c26, 54L, 1039ch, 1039B)
+│       ├── release-please.yml (ac20458, 19L, 394ch, 394B)
+│       └── release.yml (5f717c6, 28L, 487ch, 487B)
 ├── agents/ (9)
-│   ├── atomic-builder.md
-│   ├── atomic-claude-merger.md
-│   ├── atomic-git-scout.md
-│   ├── atomic-haiku.md
-│   ├── atomic-investigator.md
-│   ├── atomic-reviewer.md
-│   ├── atomic-signals-inferrer.md
-│   ├── atomic-strategist.md
-│   └── atomic-surgeon.md
+│   ├── atomic-builder.md (fd8b84f, 78L, 3585ch, 3627B)
+│   ├── atomic-claude-merger.md (fb628b2, 78L, 4416ch, 4430B)
+│   ├── atomic-git-scout.md (e9bebd7, 128L, 6189ch, 6219B)
+│   ├── atomic-haiku.md (7680878, 40L, 2611ch, 2625B)
+│   ├── atomic-investigator.md (ab56871, 66L, 2091ch, 2133B)
+│   ├── atomic-reviewer.md (2d17106, 128L, 7631ch, 7780B)
+│   ├── atomic-signals-inferrer.md (1adde1c, 253L, 10572ch, 10704B)
+│   ├── atomic-strategist.md (6a8433f, 84L, 4082ch, 4106B)
+│   └── atomic-surgeon.md (abe9b60, 67L, 2648ch, 2680B)
 ├── assets/ (1)
-│   └── atomic-claude.png
+│   └── atomic-claude.png (524bcdc, 5981L, 1474254ch, 1531344B)
 ├── atomic/ (7)
 │   ├── cmd/ (3)
 │   │   ├── atomic/ (2)
-│   │   │   ├── main.go
-│   │   │   └── main_test.go
+│   │   │   ├── main.go (74d8859, 779L, 24604ch, 24632B)
+│   │   │   └── main_test.go (a13118d, 271L, 8875ch, 8883B)
 │   │   ├── bundle-mirror/ (2)
-│   │   │   ├── main.go
-│   │   │   └── main_test.go
+│   │   │   ├── main.go (0478057, 105L, 3245ch, 3245B)
+│   │   │   └── main_test.go (f5f4524, 245L, 6546ch, 6546B)
 │   │   └── render-templates/ (1)
-│   │       └── main.go
+│   │       └── main.go (4fdb309, 62L, 1559ch, 1559B)
 │   ├── internal/ (22)
 │   │   ├── bundlemirror/ (1)
-│   │   │   └── mirror.go
+│   │   │   └── mirror.go (89a210e, 252L, 7039ch, 7043B)
 │   │   ├── bundlespec/ (2)
-│   │   │   ├── bundlespec.go
-│   │   │   └── bundlespec_test.go
+│   │   │   ├── bundlespec.go (5d089b6, 52L, 2256ch, 2270B)
+│   │   │   └── bundlespec_test.go (d18b083, 141L, 3191ch, 3195B)
 │   │   ├── claudeinstall/ (2)
-│   │   │   ├── install.go
-│   │   │   └── install_test.go
+│   │   │   ├── install.go (4fdd3ab, 382L, 11325ch, 11341B)
+│   │   │   └── install_test.go (dd18d44, 551L, 16607ch, 16613B)
 │   │   ├── config/ (8)
-│   │   │   ├── cli.go
-│   │   │   ├── cli_test.go
-│   │   │   ├── config.go
-│   │   │   ├── config_test.go
-│   │   │   ├── paths.go
-│   │   │   ├── paths_test.go
-│   │   │   ├── render.go
-│   │   │   └── render_test.go
+│   │   │   ├── cli.go (5ad5bf3, 161L, 4158ch, 4158B)
+│   │   │   ├── cli_test.go (c54cf1a, 342L, 9748ch, 9750B)
+│   │   │   ├── config.go (730047f, 440L, 12603ch, 12615B)
+│   │   │   ├── config_test.go (82c559d, 579L, 16332ch, 16362B)
+│   │   │   ├── paths.go (b7fa731, 33L, 1246ch, 1248B)
+│   │   │   ├── paths_test.go (886cd14, 30L, 760ch, 760B)
+│   │   │   ├── render.go (dc81687, 84L, 2764ch, 2768B)
+│   │   │   └── render_test.go (83e15d6, 117L, 3427ch, 3427B)
 │   │   ├── dockerinit/ (4)
-│   │   │   ├── templates/ (4 subitems) (4 total items)
-│   │   │   ├── convergence_test.go
-│   │   │   ├── dockerinit.go
-│   │   │   └── dockerinit_test.go
+│   │   │   ├── templates/ (4 files, 0 dirs)
+│   │   │   ├── convergence_test.go (e021101, 63L, 1875ch, 1877B)
+│   │   │   ├── dockerinit.go (2a5f93b, 165L, 4501ch, 4501B)
+│   │   │   └── dockerinit_test.go (31b594a, 229L, 6060ch, 6060B)
 │   │   ├── doctor/ (35)
-│   │   │   ├── checks_binary.go
-│   │   │   ├── checks_binary_test.go
-│   │   │   ├── checks_config.go
-│   │   │   ├── checks_config_test.go
-│   │   │   ├── checks_followups.go
-│   │   │   ├── checks_followups_test.go
-│   │   │   ├── checks_hooks.go
-│   │   │   ├── checks_hooks_test.go
-│   │   │   ├── checks_install.go
-│   │   │   ├── checks_install_test.go
-│   │   │   ├── checks_manifest.go
-│   │   │   ├── checks_manifest_test.go
-│   │   │   ├── checks_memory.go
-│   │   │   ├── checks_memory_test.go
-│   │   │   ├── checks_refs.go
-│   │   │   ├── checks_refs_test.go
-│   │   │   ├── checks_signals.go
-│   │   │   ├── checks_signals_test.go
-│   │   │   ├── doctor.go
-│   │   │   ├── doctor_test.go
-│   │   │   ├── exit.go
-│   │   │   ├── exit_test.go
-│   │   │   ├── fix.go
-│   │   │   ├── fix_impls.go
-│   │   │   ├── fix_test.go
-│   │   │   ├── flags.go
-│   │   │   ├── format.go
-│   │   │   ├── format_test.go
-│   │   │   ├── inode_unix.go
-│   │   │   ├── inode_windows.go
-│   │   │   ├── repodev.go
-│   │   │   ├── repodev_test.go
-│   │   │   ├── shortcircuit.go
-│   │   │   ├── shortcircuit_test.go
-│   │   │   └── stdin_prompter.go
+│   │   │   ├── checks_binary.go (844d169, 62L, 1865ch, 1871B)
+│   │   │   ├── checks_binary_test.go (0d95e65, 49L, 1338ch, 1344B)
+│   │   │   ├── checks_config.go (9071572, 133L, 4672ch, 4702B)
+│   │   │   ├── checks_config_test.go (abeaf64, 331L, 11064ch, 11090B)
+│   │   │   ├── checks_followups.go (3987a36, 163L, 4762ch, 4786B)
+│   │   │   ├── checks_followups_test.go (5050d8b, 190L, 6962ch, 6964B)
+│   │   │   ├── checks_hooks.go (8b0c09c, 38L, 1200ch, 1200B)
+│   │   │   ├── checks_hooks_test.go (52a755a, 169L, 5259ch, 5263B)
+│   │   │   ├── checks_install.go (914397f, 71L, 1926ch, 1934B)
+│   │   │   ├── checks_install_test.go (a4ebe80, 129L, 3874ch, 3882B)
+│   │   │   ├── checks_manifest.go (16878cf, 55L, 1460ch, 1464B)
+│   │   │   ├── checks_manifest_test.go (d2528e4, 102L, 3306ch, 3316B)
+│   │   │   ├── checks_memory.go (bb14a89, 88L, 2764ch, 2766B)
+│   │   │   ├── checks_memory_test.go (80f4d56, 138L, 4957ch, 4959B)
+│   │   │   ├── checks_refs.go (2cb82a2, 84L, 2244ch, 2248B)
+│   │   │   ├── checks_refs_test.go (b83fb62, 184L, 5858ch, 5860B)
+│   │   │   ├── checks_signals.go (9643d81, 220L, 6683ch, 6701B)
+│   │   │   ├── checks_signals_test.go (f9ca439, 294L, 10724ch, 10728B)
+│   │   │   ├── doctor.go (36c6103, 108L, 3350ch, 3376B)
+│   │   │   ├── doctor_test.go (7453fac, 249L, 7429ch, 7439B)
+│   │   │   ├── exit.go (bd50502, 14L, 305ch, 309B)
+│   │   │   ├── exit_test.go (cb735b6, 62L, 1426ch, 1440B)
+│   │   │   ├── fix.go (bb807fc, 446L, 13702ch, 13744B)
+│   │   │   ├── fix_impls.go (d0cb4c8, 103L, 3164ch, 3164B)
+│   │   │   ├── fix_test.go (992796b, 633L, 20741ch, 20773B)
+│   │   │   ├── flags.go (fd7dfdc, 124L, 3272ch, 3274B)
+│   │   │   ├── format.go (50dfc9f, 157L, 3978ch, 3982B)
+│   │   │   ├── format_test.go (4a779fc, 272L, 9321ch, 9321B)
+│   │   │   ├── inode_unix.go (cb95f44, 20L, 503ch, 503B)
+│   │   │   ├── inode_windows.go (8960bed, 13L, 313ch, 313B)
+│   │   │   ├── repodev.go (ea41338, 44L, 1126ch, 1126B)
+│   │   │   ├── repodev_test.go (eb705b6, 64L, 1873ch, 1873B)
+│   │   │   ├── shortcircuit.go (cb375a4, 21L, 612ch, 612B)
+│   │   │   ├── shortcircuit_test.go (2cf88e1, 30L, 926ch, 930B)
+│   │   │   └── stdin_prompter.go (911e993, 108L, 2873ch, 2885B)
 │   │   ├── embedded/ (3)
-│   │   │   ├── bundle/ (6 subitems) (52 total items)
-│   │   │   ├── bundle.go
-│   │   │   └── manifest.go
+│   │   │   ├── bundle/ (1 file, 5 dirs)
+│   │   │   ├── bundle.go (73b79e7, 13L, 437ch, 437B)
+│   │   │   └── manifest.go (a656693, 71L, 10393ch, 10393B)
 │   │   ├── followups/ (17)
-│   │   │   ├── testdata/ (3 subitems) (5 total items)
-│   │   │   ├── add.go
-│   │   │   ├── add_test.go
-│   │   │   ├── cli.go
-│   │   │   ├── cli_test.go
-│   │   │   ├── close_entry.go
-│   │   │   ├── close_test.go
-│   │   │   ├── closed.go
-│   │   │   ├── closed_test.go
-│   │   │   ├── entry.go
-│   │   │   ├── entry_test.go
-│   │   │   ├── list.go
-│   │   │   ├── list_test.go
-│   │   │   ├── migrate.go
-│   │   │   ├── migrate_test.go
-│   │   │   ├── render.go
-│   │   │   └── render_test.go
+│   │   │   ├── testdata/ (1 file, 2 dirs)
+│   │   │   ├── add.go (4cef8a5, 119L, 3129ch, 3129B)
+│   │   │   ├── add_test.go (91de7bf, 189L, 4755ch, 4755B)
+│   │   │   ├── cli.go (18bf49b, 214L, 6026ch, 6026B)
+│   │   │   ├── cli_test.go (d52756a, 198L, 5965ch, 5965B)
+│   │   │   ├── close_entry.go (5d5b47e, 60L, 1763ch, 1763B)
+│   │   │   ├── close_test.go (711595f, 122L, 3716ch, 3716B)
+│   │   │   ├── closed.go (b704eec, 123L, 4056ch, 4078B)
+│   │   │   ├── closed_test.go (cbb1dbe, 213L, 5876ch, 5888B)
+│   │   │   ├── entry.go (33a658a, 215L, 5800ch, 5802B)
+│   │   │   ├── entry_test.go (73af0d3, 425L, 8972ch, 8972B)
+│   │   │   ├── list.go (6c59866, 147L, 3413ch, 3433B)
+│   │   │   ├── list_test.go (ab8c2f8, 136L, 3417ch, 3419B)
+│   │   │   ├── migrate.go (d8f1fa6, 486L, 13513ch, 13524B)
+│   │   │   ├── migrate_test.go (61ac0ce, 300L, 8358ch, 8400B)
+│   │   │   ├── render.go (ddacb29, 126L, 3444ch, 3472B)
+│   │   │   └── render_test.go (af2b274, 162L, 5530ch, 5549B)
 │   │   ├── frontmatter/ (2)
-│   │   │   ├── frontmatter.go
-│   │   │   └── frontmatter_test.go
+│   │   │   ├── frontmatter.go (9bf466f, 242L, 7173ch, 7173B)
+│   │   │   └── frontmatter_test.go (8b1f389, 255L, 7254ch, 7260B)
 │   │   ├── hooks/ (3)
-│   │   │   ├── hooks.go
-│   │   │   ├── hooks_hujson.go
-│   │   │   └── hooks_test.go
+│   │   │   ├── hooks.go (1e6b285, 354L, 10259ch, 10285B)
+│   │   │   ├── hooks_hujson.go (2dd38d0, 313L, 8764ch, 8768B)
+│   │   │   └── hooks_test.go (f7283e0, 1084L, 34517ch, 34539B)
 │   │   ├── ids/ (2)
-│   │   │   ├── ids.go
-│   │   │   └── ids_test.go
+│   │   │   ├── ids.go (5593355, 85L, 2743ch, 2803B)
+│   │   │   └── ids_test.go (ba77d7e, 95L, 2421ch, 2424B)
 │   │   ├── manifestcheck/ (2)
-│   │   │   ├── manifestcheck.go
-│   │   │   └── manifestcheck_test.go
+│   │   │   ├── manifestcheck.go (ed72a00, 80L, 2474ch, 2478B)
+│   │   │   └── manifestcheck_test.go (04b138b, 256L, 7324ch, 7328B)
 │   │   ├── mdparse/ (2)
-│   │   │   ├── mdparse.go
-│   │   │   └── mdparse_test.go
+│   │   │   ├── mdparse.go (651d3e2, 551L, 17559ch, 17588B)
+│   │   │   └── mdparse_test.go (267c5fa, 423L, 12994ch, 12998B)
 │   │   ├── prompt/ (2)
-│   │   │   ├── prompt.go
-│   │   │   └── prompt_test.go
+│   │   │   ├── prompt.go (09c39e0, 114L, 3264ch, 3264B)
+│   │   │   └── prompt_test.go (0d30854, 164L, 4451ch, 4453B)
 │   │   ├── reminder/ (2)
-│   │   │   ├── reminder.go
-│   │   │   └── reminder_test.go
+│   │   │   ├── reminder.go (5889368, 334L, 8946ch, 8954B)
+│   │   │   └── reminder_test.go (7f98ec2, 513L, 15624ch, 15630B)
 │   │   ├── repoctx/ (2)
-│   │   │   ├── repoctx.go
-│   │   │   └── repoctx_test.go
+│   │   │   ├── repoctx.go (6fde7eb, 44L, 1381ch, 1381B)
+│   │   │   └── repoctx_test.go (560fe5b, 100L, 2725ch, 2727B)
 │   │   ├── selfupdate/ (4)
-│   │   │   ├── cache.go
-│   │   │   ├── selfupdate.go
-│   │   │   ├── selfupdate_test.go
-│   │   │   └── semver.go
+│   │   │   ├── cache.go (6c93723, 65L, 1662ch, 1662B)
+│   │   │   ├── selfupdate.go (1f21398, 498L, 14201ch, 14209B)
+│   │   │   ├── selfupdate_test.go (d4e8945, 759L, 20754ch, 20758B)
+│   │   │   └── semver.go (1730544, 95L, 2333ch, 2335B)
 │   │   ├── signals/ (7)
-│   │   │   ├── testdata/ (1 subitem) (7 total items)
-│   │   │   ├── diff.go
-│   │   │   ├── languages.go
-│   │   │   ├── manifests.go
-│   │   │   ├── signals.go
-│   │   │   ├── signals_test.go
-│   │   │   └── tree.go
+│   │   │   ├── testdata/ (0 files, 1 dir)
+│   │   │   ├── diff.go (e51e488, 216L, 6759ch, 6830B)
+│   │   │   ├── languages.go (296a867, 202L, 4900ch, 4900B)
+│   │   │   ├── manifests.go (ca1029f, 378L, 9842ch, 9842B)
+│   │   │   ├── signals.go (0784b34, 364L, 10844ch, 10860B)
+│   │   │   ├── signals_test.go (897ce8c, 2043L, 62599ch, 62908B)
+│   │   │   └── tree.go (946ec21, 434L, 12023ch, 12075B)
 │   │   ├── templaterender/ (2)
-│   │   │   ├── templaterender.go
-│   │   │   └── templaterender_test.go
+│   │   │   ├── templaterender.go (7b62ea9, 228L, 6996ch, 7000B)
+│   │   │   └── templaterender_test.go (f2706df, 170L, 5314ch, 5316B)
 │   │   ├── updatedoctor/ (2)
-│   │   │   ├── updatedoctor.go
-│   │   │   └── updatedoctor_test.go
+│   │   │   ├── updatedoctor.go (03eb740, 42L, 1242ch, 1244B)
+│   │   │   └── updatedoctor_test.go (989db7c, 174L, 5163ch, 5173B)
 │   │   ├── validate/ (14)
-│   │   │   ├── testdata/ (2 subitems) (26 total items)
-│   │   │   ├── bundle.go
-│   │   │   ├── config.go
-│   │   │   ├── config_test.go
-│   │   │   ├── dispatch.go
-│   │   │   ├── dispatch_test.go
-│   │   │   ├── finding.go
-│   │   │   ├── output.go
-│   │   │   ├── output_test.go
-│   │   │   ├── repo.go
-│   │   │   ├── spec.go
-│   │   │   ├── spec_test.go
-│   │   │   ├── validate.go
-│   │   │   └── validate_test.go
+│   │   │   ├── testdata/ (0 files, 2 dirs)
+│   │   │   ├── bundle.go (309f123, 124L, 3754ch, 3756B)
+│   │   │   ├── config.go (b32ef46, 450L, 14285ch, 14311B)
+│   │   │   ├── config_test.go (ec794a6, 251L, 8876ch, 8890B)
+│   │   │   ├── dispatch.go (9044089, 222L, 7017ch, 7027B)
+│   │   │   ├── dispatch_test.go (b8e2dc1, 327L, 11615ch, 11653B)
+│   │   │   ├── finding.go (57e66ec, 66L, 1501ch, 1503B)
+│   │   │   ├── output.go (d4e3fd4, 163L, 5672ch, 5698B)
+│   │   │   ├── output_test.go (344b86f, 231L, 7914ch, 7926B)
+│   │   │   ├── repo.go (8d1571c, 28L, 777ch, 777B)
+│   │   │   ├── spec.go (0c4e469, 244L, 6603ch, 6611B)
+│   │   │   ├── spec_test.go (20a2c71, 356L, 11433ch, 11449B)
+│   │   │   ├── validate.go (a35356e, 84L, 2751ch, 2751B)
+│   │   │   └── validate_test.go (45d465a, 149L, 4843ch, 4844B)
 │   │   └── version/ (1)
-│   │       └── version.go
+│   │       └── version.go (600993d, 14L, 585ch, 585B)
 │   ├── test/ (1)
-│   │   └── install_sh_test.go
-│   ├── CHANGELOG.md
-│   ├── Makefile
-│   ├── go.mod
-│   └── go.sum
+│   │   └── install_sh_test.go (dfa131f, 229L, 6304ch, 6310B)
+│   ├── CHANGELOG.md (6e23456, 74L, 6215ch, 6217B)
+│   ├── Makefile (d68669b, 31L, 751ch, 751B)
+│   ├── go.mod (0b1e956, 41L, 1784ch, 1784B)
+│   └── go.sum (1567032, 69L, 6492ch, 6492B)
 ├── commands/ (32)
 │   ├── _templates/ (2)
-│   │   ├── implementer-prompt.md
-│   │   └── reviewer-prompt.md
-│   ├── atomic-claude-merge.md
-│   ├── atomic-compress.md
-│   ├── atomic-help.md
-│   ├── atomic-plan.md
-│   ├── atomic-setup.md
-│   ├── commit-and-merge.md
-│   ├── commit-and-pr.md
-│   ├── commit-and-push.md
-│   ├── commit-and-squash.md
-│   ├── commit-only.md
-│   ├── documentation.md
-│   ├── follow-up.md
-│   ├── git-cleanup.md
-│   ├── initialize-signals.md
-│   ├── merge-to-main.md
-│   ├── pr-only.md
-│   ├── pressure-test.md
-│   ├── push-only.md
-│   ├── refresh-signals.md
-│   ├── remind-me.md
-│   ├── report-issue-with-atomic.md
-│   ├── report-issue.md
-│   ├── review-branch.md
-│   ├── session-report.md
-│   ├── squash-and-merge.md
-│   ├── squash-only.md
-│   ├── subagent-diagnose.md
-│   ├── subagent-implementation.md
-│   ├── undo-commit.md
-│   ├── watch-ci.md
-│   └── worktree-start.md
+│   │   ├── implementer-prompt.md (fd0f4bc, 88L, 2954ch, 3016B)
+│   │   └── reviewer-prompt.md (3fd55ac, 114L, 3596ch, 3704B)
+│   ├── atomic-claude-merge.md (a0d905b, 169L, 4605ch, 4635B)
+│   ├── atomic-compress.md (77b0dec, 59L, 3190ch, 3204B)
+│   ├── atomic-help.md (d15a5e5, 107L, 5479ch, 5539B)
+│   ├── atomic-plan.md (d81f61c, 296L, 14821ch, 14955B)
+│   ├── atomic-setup.md (e0736b1, 301L, 12824ch, 12904B)
+│   ├── commit-and-merge.md (0899bde, 124L, 8578ch, 8620B)
+│   ├── commit-and-pr.md (d7660a1, 76L, 5525ch, 5563B)
+│   ├── commit-and-push.md (f6fcd38, 62L, 4699ch, 4727B)
+│   ├── commit-and-squash.md (7313ed6, 114L, 8095ch, 8131B)
+│   ├── commit-only.md (808bcae, 37L, 3483ch, 3495B)
+│   ├── documentation.md (dfd6d14, 129L, 5101ch, 5137B)
+│   ├── follow-up.md (18ebf8e, 358L, 14369ch, 14527B)
+│   ├── git-cleanup.md (039f893, 179L, 6675ch, 6743B)
+│   ├── initialize-signals.md (8bf2d14, 158L, 4257ch, 4279B)
+│   ├── merge-to-main.md (5357b3d, 83L, 5235ch, 5259B)
+│   ├── pr-only.md (090d174, 21L, 1195ch, 1209B)
+│   ├── pressure-test.md (8728472, 161L, 13589ch, 13683B)
+│   ├── push-only.md (a4d8a8a, 19L, 1121ch, 1133B)
+│   ├── refresh-signals.md (87afb96, 69L, 2295ch, 2309B)
+│   ├── remind-me.md (d825df1, 162L, 6212ch, 6239B)
+│   ├── report-issue-with-atomic.md (71e4542, 101L, 3942ch, 3976B)
+│   ├── report-issue.md (f80dd23, 90L, 2686ch, 2716B)
+│   ├── review-branch.md (7baebd5, 122L, 2868ch, 2886B)
+│   ├── session-report.md (5ea0799, 76L, 4274ch, 4302B)
+│   ├── squash-and-merge.md (a513f81, 142L, 9494ch, 9532B)
+│   ├── squash-only.md (502498b, 73L, 4683ch, 4699B)
+│   ├── subagent-diagnose.md (f5b73d6, 203L, 14621ch, 14748B)
+│   ├── subagent-implementation.md (33129db, 276L, 14003ch, 14163B)
+│   ├── undo-commit.md (db504e1, 123L, 2650ch, 2656B)
+│   ├── watch-ci.md (464a3de, 131L, 6031ch, 6095B)
+│   └── worktree-start.md (adb6ab2, 180L, 7209ch, 7267B)
 ├── docs/ (5)
 │   ├── design/ (6)
-│   │   ├── artifact-templates.md
-│   │   ├── atomic-doctor.md
-│   │   ├── atomic-state-and-config.md
-│   │   ├── atomic-validate.md
-│   │   ├── diagnose-orchestrators.md
-│   │   └── signals-router.md
+│   │   ├── artifact-templates.md (e418887, 238L, 18708ch, 18872B)
+│   │   ├── atomic-doctor.md (954af57, 149L, 6474ch, 6506B)
+│   │   ├── atomic-state-and-config.md (7e19871, 204L, 10632ch, 10716B)
+│   │   ├── atomic-validate.md (1ef667f, 198L, 7805ch, 7846B)
+│   │   ├── diagnose-orchestrators.md (14ecaec, 197L, 14876ch, 14941B)
+│   │   └── signals-router.md (243f522, 202L, 12800ch, 12976B)
 │   ├── guides/ (3)
-│   │   ├── contributing.md
-│   │   ├── evaluations.md
-│   │   └── install.md
+│   │   ├── contributing.md (0214cfb, 77L, 6147ch, 6154B)
+│   │   ├── evaluations.md (6eb21df, 70L, 2480ch, 2484B)
+│   │   └── install.md (997206d, 97L, 5696ch, 5708B)
 │   ├── reference/ (7)
-│   │   ├── agents.md
-│   │   ├── commands.md
-│   │   ├── conventions.md
-│   │   ├── output-style.md
-│   │   ├── signals-workflow.md
-│   │   ├── skills.md
-│   │   └── workflow.md
+│   │   ├── agents.md (8d19c46, 16L, 2157ch, 2159B)
+│   │   ├── commands.md (8fb8c5f, 36L, 4825ch, 4835B)
+│   │   ├── conventions.md (b3c569e, 10L, 908ch, 912B)
+│   │   ├── output-style.md (1ab6526, 78L, 5567ch, 5593B)
+│   │   ├── signals-workflow.md (be71927, 11L, 1282ch, 1288B)
+│   │   ├── skills.md (2b4f023, 15L, 1674ch, 1680B)
+│   │   └── workflow.md (cbf798e, 27L, 2047ch, 2067B)
 │   ├── spec/ (18)
-│   │   ├── artifact-templates.md
-│   │   ├── atomic-binary.md
-│   │   ├── atomic-doctor.md
-│   │   ├── atomic-plan.md
-│   │   ├── atomic-setup.md
-│   │   ├── atomic-state-and-config.md
-│   │   ├── atomic-update-doctor.md
-│   │   ├── atomic-validate.md
-│   │   ├── cron-workflow.md
-│   │   ├── docker-eval-environment.md
-│   │   ├── documentation-skill-split.md
-│   │   ├── follow-ups-folder.md
-│   │   ├── install-workflow.md
-│   │   ├── session-report.md
-│   │   ├── signals-project-detection.md
-│   │   ├── signals-router.md
-│   │   ├── signals-workflow.md
-│   │   └── subagent-diagnose.md
-│   └── credits.md
+│   │   ├── artifact-templates.md (9c31bdb, 122L, 13661ch, 13732B)
+│   │   ├── atomic-binary.md (8887c35, 694L, 34486ch, 34812B)
+│   │   ├── atomic-doctor.md (5355c89, 294L, 17488ch, 17552B)
+│   │   ├── atomic-plan.md (893464b, 78L, 7545ch, 7571B)
+│   │   ├── atomic-setup.md (f92599a, 155L, 8983ch, 9043B)
+│   │   ├── atomic-state-and-config.md (8a814db, 187L, 13692ch, 13782B)
+│   │   ├── atomic-update-doctor.md (f0bab1a, 195L, 14870ch, 14940B)
+│   │   ├── atomic-validate.md (f270f3e, 290L, 18792ch, 18906B)
+│   │   ├── cron-workflow.md (8835c24, 464L, 33893ch, 34142B)
+│   │   ├── docker-eval-environment.md (27709f2, 195L, 14412ch, 14478B)
+│   │   ├── documentation-skill-split.md (a1252c1, 271L, 25178ch, 25281B)
+│   │   ├── follow-ups-folder.md (9ff5d27, 364L, 30502ch, 30744B)
+│   │   ├── install-workflow.md (bb09dcb, 235L, 13516ch, 13572B)
+│   │   ├── session-report.md (d9fec4a, 115L, 7207ch, 7247B)
+│   │   ├── signals-project-detection.md (4f9402d, 258L, 13414ch, 13533B)
+│   │   ├── signals-router.md (1ce7b2e, 376L, 26251ch, 26447B)
+│   │   ├── signals-workflow.md (697a430, 383L, 21995ch, 22127B)
+│   │   └── subagent-diagnose.md (666d650, 304L, 18624ch, 18757B)
+│   └── credits.md (07d3194, 62L, 5741ch, 5819B)
 ├── output-styles/ (1)
-│   └── atomic.md
+│   └── atomic.md (27f2169, 86L, 4492ch, 4532B)
 ├── rules/ (2)
 │   ├── python/ (1)
-│   │   └── style.md
+│   │   └── style.md (f1a8b08, 9L, 572ch, 572B)
 │   └── typescript/ (1)
-│       └── style.md
+│       └── style.md (90e60e1, 9L, 538ch, 540B)
 ├── scripts/ (1)
-│   └── link-local.sh
+│   └── link-local.sh (6e8e2e0, 28L, 754ch, 754B)
 ├── skills/ (8)
 │   ├── atomic-commit/ (1)
-│   │   └── SKILL.md
+│   │   └── SKILL.md (c62154a, 90L, 4004ch, 4020B)
 │   ├── atomic-debug/ (1)
-│   │   └── SKILL.md
+│   │   └── SKILL.md (6b474fd, 106L, 4483ch, 4522B)
 │   ├── atomic-documentation/ (1)
-│   │   └── SKILL.md
+│   │   └── SKILL.md (5b543c5, 99L, 6782ch, 6790B)
 │   ├── atomic-prose/ (1)
-│   │   └── SKILL.md
+│   │   └── SKILL.md (a915e13, 136L, 9911ch, 9934B)
 │   ├── atomic-review/ (1)
-│   │   └── SKILL.md
+│   │   └── SKILL.md (af782e3, 68L, 2871ch, 2920B)
 │   ├── atomic-signals/ (1)
-│   │   └── SKILL.md
+│   │   └── SKILL.md (acf05d0, 81L, 5013ch, 5037B)
 │   ├── atomic-tdd/ (1)
-│   │   └── SKILL.md
+│   │   └── SKILL.md (c112fd5, 86L, 3519ch, 3541B)
 │   └── atomic-verify/ (1)
-│       └── SKILL.md
+│       └── SKILL.md (bacd131, 66L, 2403ch, 2433B)
 ├── templates/ (2)
-│   ├── commands/ (31)
-│   │   ├── atomic-claude-merge.md
-│   │   ├── atomic-compress.md
-│   │   ├── atomic-help.md
-│   │   ├── atomic-plan.md
-│   │   ├── atomic-setup.md
-│   │   ├── commit-and-merge.md
-│   │   ├── commit-and-pr.md
-│   │   ├── commit-and-push.md
-│   │   ├── commit-and-squash.md
-│   │   ├── commit-only.md
-│   │   ├── documentation.md
-│   │   ├── follow-up.md
-│   │   ├── git-cleanup.md
-│   │   ├── initialize-signals.md
-│   │   ├── merge-to-main.md
-│   │   ├── pr-only.md
-│   │   ├── pressure-test.md
-│   │   ├── push-only.md
-│   │   ├── refresh-signals.md
-│   │   ├── remind-me.md
-│   │   ├── report-issue-with-atomic.md
-│   │   ├── report-issue.md
-│   │   ├── review-branch.md
-│   │   ├── session-report.md
-│   │   ├── squash-and-merge.md
-│   │   ├── squash-only.md
-│   │   ├── subagent-diagnose.md
-│   │   ├── subagent-implementation.md
-│   │   ├── undo-commit.md
-│   │   ├── watch-ci.md
-│   │   └── worktree-start.md
+│   ├── commands/ (32)
+│   │   ├── _templates/ (2)
+│   │   │   ├── implementer-prompt.md (fd0f4bc, 88L, 2954ch, 3016B)
+│   │   │   └── reviewer-prompt.md (3fd55ac, 114L, 3596ch, 3704B)
+│   │   ├── atomic-claude-merge.md (a0d905b, 169L, 4605ch, 4635B)
+│   │   ├── atomic-compress.md (77b0dec, 59L, 3190ch, 3204B)
+│   │   ├── atomic-help.md (d15a5e5, 107L, 5479ch, 5539B)
+│   │   ├── atomic-plan.md (d81f61c, 296L, 14821ch, 14955B)
+│   │   ├── atomic-setup.md (e0736b1, 301L, 12824ch, 12904B)
+│   │   ├── commit-and-merge.md (0e48743, 26L, 1076ch, 1088B)
+│   │   ├── commit-and-pr.md (0b72832, 24L, 597ch, 603B)
+│   │   ├── commit-and-push.md (2be6f30, 20L, 554ch, 560B)
+│   │   ├── commit-and-squash.md (c5ef6dc, 25L, 663ch, 673B)
+│   │   ├── commit-only.md (dff5877, 4L, 154ch, 154B)
+│   │   ├── documentation.md (dfd6d14, 129L, 5101ch, 5137B)
+│   │   ├── follow-up.md (18ebf8e, 358L, 14369ch, 14527B)
+│   │   ├── git-cleanup.md (039f893, 179L, 6675ch, 6743B)
+│   │   ├── initialize-signals.md (8bf2d14, 158L, 4257ch, 4279B)
+│   │   ├── merge-to-main.md (457ea3e, 21L, 1110ch, 1116B)
+│   │   ├── pr-only.md (9136933, 11L, 412ch, 416B)
+│   │   ├── pressure-test.md (8728472, 161L, 13589ch, 13683B)
+│   │   ├── push-only.md (d68b12a, 10L, 305ch, 307B)
+│   │   ├── refresh-signals.md (87afb96, 69L, 2295ch, 2309B)
+│   │   ├── remind-me.md (d825df1, 162L, 6212ch, 6239B)
+│   │   ├── report-issue-with-atomic.md (71e4542, 101L, 3942ch, 3976B)
+│   │   ├── report-issue.md (f80dd23, 90L, 2686ch, 2716B)
+│   │   ├── review-branch.md (7baebd5, 122L, 2868ch, 2886B)
+│   │   ├── session-report.md (5ea0799, 76L, 4274ch, 4302B)
+│   │   ├── squash-and-merge.md (2f38c7e, 21L, 1218ch, 1224B)
+│   │   ├── squash-only.md (05d8f8a, 20L, 629ch, 631B)
+│   │   ├── subagent-diagnose.md (f5b73d6, 203L, 14621ch, 14748B)
+│   │   ├── subagent-implementation.md (33129db, 276L, 14003ch, 14163B)
+│   │   ├── undo-commit.md (db504e1, 123L, 2650ch, 2656B)
+│   │   ├── watch-ci.md (464a3de, 131L, 6031ch, 6095B)
+│   │   └── worktree-start.md (adb6ab2, 180L, 7209ch, 7267B)
 │   └── shared/ (10)
-│       ├── base-resolution.md
-│       ├── commit-flow.md
-│       ├── doc-impact-why.md
-│       ├── doc-impact.md
-│       ├── merge-flow.md
-│       ├── pr-flow.md
-│       ├── push-flow.md
-│       ├── signals-gate.md
-│       ├── squash-flow.md
-│       └── worktree-cleanup-prompt.md
+│       ├── base-resolution.md (bb7143f, 5L, 186ch, 186B)
+│       ├── commit-flow.md (a585419, 23L, 1816ch, 1820B)
+│       ├── doc-impact-why.md (90c1bc0, 1L, 209ch, 209B)
+│       ├── doc-impact.md (ec449db, 6L, 905ch, 909B)
+│       ├── merge-flow.md (9d5eb4b, 61L, 3935ch, 3953B)
+│       ├── pr-flow.md (20e6037, 11L, 839ch, 849B)
+│       ├── push-flow.md (ab5186e, 10L, 876ch, 886B)
+│       ├── signals-gate.md (c1d29e0, 7L, 661ch, 665B)
+│       ├── squash-flow.md (11d862a, 46L, 2777ch, 2783B)
+│       └── worktree-cleanup-prompt.md (93b1da3, 6L, 432ch, 432B)
 ├── tmp/ (2)
 │   ├── claude-home/ (1)
-│   │   └── .gitkeep
+│   │   └── .gitkeep (e3b0c44, 0L, 0ch, 0B)
 │   └── workspace/ (1)
-│       └── .gitkeep
-├── .dockerignore
-├── .gitignore
-├── .goreleaser.yaml
-├── CLAUDE.md
-├── Dockerfile
-├── LICENSE
-├── Makefile
-├── README.md
-├── claude.local.md
-├── docker-compose.yml
-├── docker-entrypoint.sh
-├── install.sh
-├── release-please-config.json
-└── release-please-manifest.json
+│       └── .gitkeep (e3b0c44, 0L, 0ch, 0B)
+├── .dockerignore (355f212, 7L, 89ch, 89B)
+├── .gitignore (a9b6058, 20L, 479ch, 479B)
+├── .goreleaser.yaml (d0d3524, 52L, 974ch, 974B)
+├── CLAUDE.md (da9d445, 189L, 19535ch, 19699B)
+├── Dockerfile (0e5b6e5, 61L, 2316ch, 2592B)
+├── LICENSE (42eaf96, 21L, 1070ch, 1070B)
+├── Makefile (58b17de, 37L, 1371ch, 1371B)
+├── README.md (fc1b3a0, 231L, 12897ch, 13490B)
+├── claude.local.md (61d4bbd, 220L, 19865ch, 19930B)
+├── docker-compose.yml (8e77524, 12L, 261ch, 261B)
+├── docker-entrypoint.sh (fc1c1d6, 19L, 465ch, 467B)
+├── install.sh (4346bf8, 222L, 8076ch, 8080B)
+├── release-please-config.json (fc8b307, 15L, 419ch, 419B)
+└── release-please-manifest.json (25a685e, 3L, 24ch, 24B)
 
 ## Manifests
 
@@ -364,8 +367,10 @@ atomic_version: 1.3.0
 
 ## Languages
 
-- Go: 26997 LOC (51%), 121 files (34%)
-- Markdown: 25270 LOC (47%), 222 files (63%)
+- Go: 27033 LOC (50%), 121 files (33%)
+- Markdown: 25720 LOC (48%), 226 files (62%)
 - Shell: 269 LOC (0%), 3 files (0%)
+- YAML: 165 LOC (0%), 5 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)
 - Python: 30 LOC (0%), 1 file (0%)
+- JSON: 21 LOC (0%), 3 files (0%)

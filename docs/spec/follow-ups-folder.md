@@ -64,7 +64,7 @@ Replace `.claude/project/followups.md` (single file, merge-conflict-prone) with 
 │   ├── install-output-style-F-1.md
 │   └── skill-routing-F-1.md
 ├── deterministic-signals.md
-└── inferred-signals.md
+└── signals.md
 ```
 
 ## Entry frontmatter schema
@@ -326,6 +326,10 @@ Migration's rewrite step is exact-line anchored: it matches `@.claude/project/fo
 **What changed:** The `status` field in entry frontmatter (per § Field rules) was originally documented as existing "for grep-ability during the migration window." With migration complete and no backcompat to preserve, the field is now dead weight. It was kept in the iter-1 parser to avoid churn on entry files in flight; removing it touches `entry.go` validation, every entry file in `testdata/`, every live entry written by `migrate`, and every entry written by `add`.
 
 **Why:** Cosmetic cleanup deferred because it has no behavioral impact and would inflate the iter-6 diff. Tracked as a follow-up entry; revisit when next touching the parser.
+
+### 2026-05-23 — Correction: stale signals filename in directory listing
+
+**Correction:** The sample `.claude/project/` directory tree showed `inferred-signals.md` which was renamed to `signals.md` when the signals router shipped. Corrected to `signals.md`.
 
 ## Implementation log
 
