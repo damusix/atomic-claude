@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-05-23T21:15:26Z
-atomic_version: 1.4.0
+generated_at: 2026-05-23T22:33:01Z
+atomic_version: 1.4.1
 ---
 # Deterministic signals
 
@@ -29,7 +29,7 @@ atomic_version: 1.4.0
 │   ├── atomic-haiku.md (7680878, 40L, 2611ch, 2625B)
 │   ├── atomic-investigator.md (ab56871, 66L, 2091ch, 2133B)
 │   ├── atomic-reviewer.md (2d17106, 128L, 7631ch, 7780B)
-│   ├── atomic-signals-inferrer.md (1adde1c, 253L, 10572ch, 10704B)
+│   ├── atomic-signals-inferrer.md (a2ff112, 287L, 13212ch, 13362B)
 │   ├── atomic-strategist.md (6a8433f, 84L, 4082ch, 4106B)
 │   └── atomic-surgeon.md (abe9b60, 67L, 2648ch, 2680B)
 ├── assets/ (1)
@@ -106,7 +106,7 @@ atomic_version: 1.4.0
 │   │   ├── embedded/ (3)
 │   │   │   ├── bundle/ (1 file, 5 dirs)
 │   │   │   ├── bundle.go (73b79e7, 13L, 437ch, 437B)
-│   │   │   └── manifest.go (a656693, 71L, 10393ch, 10393B)
+│   │   │   └── manifest.go (f417d52, 71L, 10393ch, 10393B)
 │   │   ├── followups/ (17)
 │   │   │   ├── testdata/ (1 file, 2 dirs)
 │   │   │   ├── add.go (4cef8a5, 119L, 3129ch, 3129B)
@@ -188,7 +188,7 @@ atomic_version: 1.4.0
 │   │       └── version.go (600993d, 14L, 585ch, 585B)
 │   ├── test/ (1)
 │   │   └── install_sh_test.go (dfa131f, 229L, 6304ch, 6310B)
-│   ├── CHANGELOG.md (6e23456, 74L, 6215ch, 6217B)
+│   ├── CHANGELOG.md (aaecaf5, 85L, 7119ch, 7121B)
 │   ├── Makefile (d68669b, 31L, 751ch, 751B)
 │   ├── go.mod (0b1e956, 41L, 1784ch, 1784B)
 │   └── go.sum (1567032, 69L, 6492ch, 6492B)
@@ -263,7 +263,7 @@ atomic_version: 1.4.0
 │   │   ├── install-workflow.md (bb09dcb, 235L, 13516ch, 13572B)
 │   │   ├── session-report.md (d9fec4a, 115L, 7207ch, 7247B)
 │   │   ├── signals-project-detection.md (4f9402d, 258L, 13414ch, 13533B)
-│   │   ├── signals-router.md (1ce7b2e, 376L, 26251ch, 26447B)
+│   │   ├── signals-router.md (0335ab8, 388L, 29068ch, 29288B)
 │   │   ├── signals-workflow.md (697a430, 383L, 21995ch, 22127B)
 │   │   └── subagent-diagnose.md (666d650, 304L, 18624ch, 18757B)
 │   └── credits.md (07d3194, 62L, 5741ch, 5819B)
@@ -358,7 +358,7 @@ atomic_version: 1.4.0
 ├── docker-entrypoint.sh (fc1c1d6, 19L, 465ch, 467B)
 ├── install.sh (4346bf8, 222L, 8076ch, 8080B)
 ├── release-please-config.json (fc8b307, 15L, 419ch, 419B)
-└── release-please-manifest.json (25a685e, 3L, 24ch, 24B)
+└── release-please-manifest.json (f1a6633, 3L, 24ch, 24B)
 
 ## Manifests
 
@@ -368,7 +368,7 @@ atomic_version: 1.4.0
 ## Languages
 
 - Go: 27033 LOC (50%), 121 files (33%)
-- Markdown: 25720 LOC (48%), 226 files (62%)
+- Markdown: 25811 LOC (48%), 226 files (62%)
 - Shell: 269 LOC (0%), 3 files (0%)
 - YAML: 165 LOC (0%), 5 files (1%)
 - TypeScript: 100 LOC (0%), 1 file (0%)

@@ -12,9 +12,27 @@ Signals inferrer orchestrator. Reads the deterministic project snapshot and diff
 Inputs depend on mode (see below). Outputs are:
 
 - `.claude/project/signals.md` — router + frontloaded orientation, always written.
-- `.claude/project/signals/<domain>.md` or `.claude/project/signals/<domain>/index.md` — per-domain detail files, written only when router-only content would exceed ~1,000 lines / ~5k tokens.
+- `.claude/project/signals/<domain>.md` or `.claude/project/signals/<domain>/index.md` — per-domain detail files. Written as **vertical slices** grouping all related artifacts, code, and docs for one functional concern.
 
 The deterministic substrate (`.claude/project/deterministic-signals.md`) is read-only input. Never rewrite it.
+
+
+## Domain partitioning: vertical slices
+
+Domains are **vertical slices by functional concern**, not horizontal layers by file type. Each domain groups everything related to one feature across all layers of the repo:
+
+- **Artifacts** — the user-facing Claude Code files (commands, agents, skills, templates) for this concern
+- **CLI code** — the Go packages that implement, manage, or validate this concern (or "none" if purely artifact-based)
+- **Docs** — specs, design docs, reference pages, and guides about this concern
+- **Tests** — test files co-located with the code for this concern
+
+Example: a "signals" domain includes `skills/atomic-signals/SKILL.md` (artifact) + `atomic/internal/signals/` (CLI code) + `docs/spec/signals-workflow.md` (doc) + `atomic/internal/signals/signals_test.go` (test). NOT a separate "artifacts domain" with all skills lumped together.
+
+**Why vertical, not horizontal:** The primary question signals answer is "I'm working on X — what do I need to know?" Horizontal layers (all artifacts / all Go code / all docs) force the reader to cross-reference three files to understand one concern. Vertical slices put everything coupled to one concern in one file.
+
+**Partitioning heuristic:** Look for commands, skills, or agents that form a cohesive workflow. The Go packages that serve them and the docs that describe them belong in the same domain. When in doubt, ask: "if someone changes this, what else might break?" — things that break together belong together.
+
+**Size is a secondary trigger, not the primary axis.** A domain with 3 files still gets its own domain file if it's a distinct functional concern. A domain file is never created just because a flat file got long — it's created because a concern exists.
 
 
 ## Modes
@@ -44,7 +62,7 @@ Run the complete pipeline across all inferred domains (see Pipeline below).
 On first run when `.claude/project/inferred-signals.md` exists and `.claude/project/signals.md` does not:
 
 1. Back up `inferred-signals.md` to `inferred-signals.md.bak` (same directory).
-2. Run the full pipeline: write `signals.md` + domain files if content exceeds budget.
+2. Run the full pipeline: write `signals.md` + domain files per functional concern.
 3. Remove `inferred-signals.md`.
 4. Print: `Migrated to router shape. Review with \`git diff\`.`
 5. Update the project `CLAUDE.md` `@-ref` from `inferred-signals.md` to `signals.md`.
@@ -64,9 +82,13 @@ Read `.claude/project/deterministic-signals.md` end-to-end. On incremental runs,
 
 Naming continuity check: read existing `signals/*.md` and `signals/*/index.md` filenames. For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
 
-**Step 2 — Infer domain partitioning.**
+**Step 2 — Infer domain partitioning (vertical slices).**
 
-Infer domains from structural signals: top-level directories under the primary source root, manifest-declared workspaces (pnpm `packages/`, cargo workspace members, go module dirs), co-located test files as cohesion signals. LLM judgment determines domain boundaries — no mechanical rules. Document the partitioning basis in the router's `## Cross-cutting` section.
+Partition by functional concern, not by file type or directory structure. Each domain groups the artifacts, CLI code, docs, and tests for one cohesive workflow or feature.
+
+Heuristic: identify commands, skills, or agents that form a cohesive unit. Find the Go packages that serve them and the docs that describe them. Things that break together belong together. Structural signals (top-level dirs, workspaces, co-located tests) inform the grouping but do not dictate it.
+
+Document the partitioning basis in the router's `## Cross-domain coupling` section.
 
 Skip `[generated]` entries when partitioning — generated files do not drive domain narratives.
 
@@ -90,10 +112,14 @@ Domain file schema:
 # <domain>
 ## What it does
 <1-3 fact lines>
-## Where it lives
-<bullet list: path — role>
-## What it talks to
-<bullet list: external systems / sibling domains (leave blank if none — will be filled by orchestrator)>
+## Artifacts
+<bullet list: path — role. User-facing Claude Code files: commands, agents, skills, templates for this concern. Omit section if none.>
+## CLI code
+<bullet list: path — role. Go packages that implement/manage/validate this concern. Omit section if none.>
+## Docs
+<bullet list: path — role. Specs, design docs, reference pages, guides about this concern. Omit section if none.>
+## Coupling
+<bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known bugs or stale cross-references.>
 ## Conventions worth knowing
 <domain-local convention facts>
 
@@ -185,12 +211,12 @@ Write `.claude/project/signals.md` with the router shape below.
 
 Detail links are plain markdown paths, NOT `@-refs`. `@-refs` are eager and transitive; plain paths require explicit `Read`.
 
-**Budget model.** ~1,000 lines / ~5k tokens triggers domain file creation. Threshold: `~chars_without_whitespace / 4` as token approximation. After domain files exist, router keeps all frontloaded orientation content even if it grows past 5k tokens. Budget is a split trigger, not a cap.
+**Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. Size (~1,000 lines / ~5k tokens) is a secondary hint to look for concern boundaries. After domain files exist, router keeps all frontloaded orientation content even if it grows past 5k tokens.
 
 
 ## Domain file shape
 
-Required sections per domain file:
+Required sections per domain file (vertical slice):
 
 ```markdown
 # <domain>
@@ -199,13 +225,21 @@ Required sections per domain file:
 
 <1-3 fact lines>
 
-## Where it lives
+## Artifacts
 
-<bullet list: path — role>
+<bullet list: path — role. User-facing Claude Code files for this concern.>
 
-## What it talks to
+## CLI code
 
-<bullet list: external systems / sibling domains. Populated by orchestrator after cross-ref wiring.>
+<bullet list: path — role. Go packages for this concern. Omit if none.>
+
+## Docs
+
+<bullet list: path — role. Specs, design docs, reference pages, guides.>
+
+## Coupling
+
+<bullet list: what changes here force changes in other domains. Name the other domain.>
 
 ## Conventions worth knowing
 
@@ -239,7 +273,7 @@ Entries in `deterministic-signals.md` marked `[generated]` must be skipped by su
 └── deterministic-signals.prev.md # prev scan for diffing
 ```
 
-The `signals/` directory is created only when the budget threshold is exceeded.
+The `signals/` directory is created when the inferrer identifies multiple functional concerns worth separate domain files.
 
 
 ## Rules

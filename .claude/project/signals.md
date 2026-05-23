@@ -1,172 +1,79 @@
 ---
-generated_at: 2026-05-23T20:08:31Z
+generated_at: 2026-05-23T22:00:00Z
 source: .claude/project/deterministic-signals.md
 ---
 
-# Inferred signals
+# Project signals
 
-## Framework / runtime
+## Framework & runtime
 
-- **Go 1.23**, single module at `atomic/go.mod` (`module github.com/damusix/atomic-claude/atomic`). Runtime target: CLI binary named `atomic`.
-- **External Go dependencies**: `gopkg.in/yaml.v3 v3.0.1` (YAML frontmatter parsing, `atomic/internal/frontmatter/`), `github.com/tailscale/hujson` (lenient JSON for hooks config and settings.json surgery, `atomic/internal/hooks/hooks_hujson.go`), `github.com/pelletier/go-toml/v2` (TOML config read/write, `atomic/internal/config/`), `github.com/charmbracelet/huh` (interactive TUI prompts, `atomic/internal/prompt/`).
-- **Go embed** (`//go:embed bundle`, `atomic/internal/embedded/bundle.go`): artifact bundle is embedded at build time via `go:generate`.
-- **goreleaser** (`.goreleaser.yaml`): multi-platform release pipeline producing `linux/darwin x amd64/arm64` binaries. macOS/Linux only - Windows out of scope (`claude.local.md`). CGO disabled. Version injected via ldflags from `internal/version`.
-- **release-please** (`.github/workflows/release-please.yml`, `release-please-config.json`, `release-please-manifest.json`): automated changelog and tag generation on main.
-- No web framework. No database. No runtime dependencies outside the Go standard library and the four listed third-party modules.
-- **Signal scanner language coverage** (`atomic/internal/signals/languages.go`): `extToLang` map expanded from 21 to 51 extensions covering 26 languages — web frameworks (HTML/Vue/Svelte/Astro/MDX), JS variants (`mjs`/`cjs`), template engines (Handlebars/EJS/Pug/Liquid/ERB/Twig), stylesheets (Stylus alongside CSS/SCSS/Sass/Less), niche langs (CoffeeScript/GraphQL/Dart/Solidity/Elm), and config/data formats (JSON/YAML/TOML/XML). This repo's `Languages` section now shows Go/Markdown/Shell/YAML/TypeScript/Python/JSON — YAML (165 LOC, 5 files: CI workflows + release-please config) and JSON (21 LOC, 3 files) now surface because atomic 1.4.0 detects them. Scans on multi-language repos will surface all 26 language families correctly.
+- **Go 1.23**, single module at `atomic/go.mod` (`module github.com/damusix/atomic-claude/atomic`). CLI binary named `atomic`.
+- **External Go deps**: `gopkg.in/yaml.v3` (YAML frontmatter), `github.com/tailscale/hujson` (lenient JSON for hooks/settings), `github.com/pelletier/go-toml/v2` (TOML config), `github.com/charmbracelet/huh` (interactive TUI prompts).
+- **Go embed**: `//go:embed all:bundle` in `atomic/internal/embedded/bundle.go`. `all:` prefix required to include `commands/_templates/` (underscore prefix skipped by plain `bundle` glob).
+- **goreleaser**: multi-platform release — `linux/darwin x amd64/arm64`. CGO disabled. Version from `internal/version` via ldflags.
+- **release-please**: automated changelog + tag on main push.
+- No web framework. No database.
 
-## Build / test / lint commands
+## Build / test / lint
 
-All commands run from `atomic/` (CI sets `working-directory: ./atomic`):
+All commands run from `atomic/` (CI: `working-directory: ./atomic`):
 
 | Purpose | Command | Source |
 |---------|---------|--------|
-| Regenerate embedded bundle | `go generate ./...` (calls `cmd/bundle-mirror`) | `atomic/Makefile` target `bundle`, `.github/workflows/ci.yml` |
-| Run tests | `go test ./...` | `atomic/Makefile` target `test`, `ci.yml` step `Test` |
-| Vet | `go vet ./...` | `atomic/Makefile` target `vet`, `ci.yml` step `Vet` |
-| Format check | `gofmt -l .` | `atomic/Makefile` target `fmt`, `ci.yml` step `Format check` |
+| Render command templates | `make render` (root) or `make -C atomic render` | `atomic/Makefile`, CI "Verify render is committed" |
+| Regenerate embedded bundle | `go generate ./...` → `make -C atomic bundle` | `atomic/Makefile` target `bundle`, CI "Verify bundle is committed" |
+| Run tests | `go test ./...` | `atomic/Makefile` target `test` |
+| Vet | `go vet ./...` | `atomic/Makefile` target `vet` |
+| Format check | `gofmt -l .` | `atomic/Makefile` target `fmt` |
 | Build binary | `go build -o ../bin/atomic ./cmd/atomic` | `atomic/Makefile` target `build` |
 | Tidy deps | `go mod tidy` | `atomic/Makefile` target `tidy` |
-| Release | `goreleaser release --clean` (triggered on `v*` tag push) | `.github/workflows/release.yml` |
+| Release | `goreleaser release --clean` | `.github/workflows/release.yml` (on `v*` tag) |
 
-CI gate: `go generate ./...` followed by `git diff --exit-code` enforces that the committed `manifest.go` matches the generated bundle - a stale manifest is a CI failure (`.github/workflows/ci.yml` step "Verify bundle is committed").
+CI gates: (1) `make render && git diff --exit-code` — stale `commands/` fails. (2) `make bundle && git diff --exit-code` — stale `manifest.go` fails. Pipeline order: render must run before bundle.
 
-## Architectural style
+## Language breakdown
 
-**Dual-product repo**: a Go CLI binary (`atomic/`) co-located with the Claude Code configuration artifacts it manages (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`).
+| Language | LOC | Files | % |
+|----------|-----|-------|---|
+| Go | 26997 | 121 | 51% |
+| Markdown | 25299 | 222 | 47% |
+| Shell | 269 | 3 | 0% |
+| YAML | 165 | 5 | 0% |
+| TypeScript | 100 | 1 | 0% |
+| Python | 30 | 1 | 0% |
+| JSON | 21 | 3 | 0% |
 
-The repo has two logical layers:
+## DevOps & CI
 
-1. **Source-of-truth artifacts** (root: `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`) - human-authored markdown files that are both the live dogfood config for this repo and the bundle input.
-2. **Go CLI** (`atomic/`) - reads those artifacts, embeds them at build time, and provides subcommands to install/update them into `~/.claude`, scan project signals, manage reminders, manage hooks, and self-update.
-
-Internal package layout inside `atomic/internal/`:
-
-- `bundlemirror/` - build-time mirror: walks repo root, copies matching artifacts into `embedded/bundle/`, writes `manifest.go`; calls `bundlespec` predicates for inclusion decisions
-- `bundlespec/` - pure predicate functions for bundle inclusion rules (`MatchesAgent`, `MatchesSkillDir`, `MatchesCommand`, etc.); used by both `bundlemirror` (build-time) and `manifestcheck` (runtime validator) as the single source of truth for inclusion logic
-- `embedded/` - holds the `go:embed`-ed `bundle/` FS and the generated `Manifest()` slice; bundle is 52 total items
-- `claudeinstall/` - install/update/diff/list verbs; SHA256-based idempotency; backs up changed files under `~/.claude/.atomic/backups/<timestamp>/`; writes proposed merge to `~/.claude/.atomic/proposed/CLAUDE.md`; pre-creates `~/.claude/.atomic/config.resolved.md` on every `Apply`; special-cases `CLAUDE.md` as merge-required
-- `config/` - TOML-backed config (`~/.claude/.atomic/config.toml`); v1 schema: `output.intensity` (`lite|full|ultra`, default `full`) and `update.run_doctor` (bool, default `true`); lenient load (unknown keys to warnings, not errors); atomic write via `os.Rename`; renders resolved values to `~/.claude/.atomic/config.resolved.md` (markdown snapshot `@`-ref'd from bundled `CLAUDE.md`); Levenshtein typo-suggestion on unknown key names; uses `github.com/pelletier/go-toml/v2`
-- `signals/` - tree walker, manifest scanner, language counter (`atomic/internal/signals/languages.go`); writes `.claude/project/deterministic-signals.md`; keeps `.deterministic-signals.prev.md` for diff; uses `git diff` when in a git repo, falls back to `diff(1)`. Language detection: `extToLang` map covers 51 extensions across 26 languages as of this scan (expanded from 21). Deterministic — extensions map is the single source of truth; no heuristics or content sniffing.
-- `hooks/` - session-start hook payload generation and install/uninstall
-- `prompt/` - TTY abstraction over `github.com/charmbracelet/huh`; exposes `Confirm` and `Select[T]`; returns `ErrNonInteractive` (no TTY) and `ErrAborted` (Ctrl+C) as typed sentinels; sole entry point for all interactive prompts in the binary
-- `reminder/` - file-based reminder CRUD
-- `selfupdate/` - GitHub Releases API lookup, SHA256-verified binary download, atomic replace via `os.Rename` with cross-filesystem fallback
-- `updatedoctor/` - post-update doctor adapter; sits above both `selfupdate` and `doctor` to avoid import cycles; exposes `Run(runDoctor RunDoctorFn, w io.Writer)`; calls `doctor.Run(Opts{Skip:[3,8]})` (skip signals=3, binary=8), recovers panics, prints FAIL lines only; WARN/SKIP always suppressed; never changes update exit code
-- `followups/` - YAML-frontmatter follow-up entry parser, INDEX renderer, CLOSED.md append-only ledger, and legacy-file migration. Implements `atomic followups list|add|close|render|migrate|path`. Uses `atomic/internal/repoctx` to anchor at git toplevel. Entries stored under `.claude/project/followups/` as per-file YAML + markdown; INDEX.md is the generated human-readable view. `add` is the deterministic LLM-free entrypoint called by command scratchpad FOLLOWUPS disposition.
-- `templaterender/` - Go `text/template` (stdlib) renderer for `templates/commands/*.md` + `templates/shared/*.md` → `commands/*.md`. Same shape as `bundlemirror`: a `cmd/render-templates/main.go` entry point calls the package. Enforces the orphan rule: `commands/<verb>.md` without a matching `templates/commands/<verb>.md` halts with non-zero exit and a two-path remediation message (create the template OR remove the orphan). Engine: pure fragment composition (`{{ template "<name>" . }}`); no dict func, no conditionals.
-- `repoctx/`, `frontmatter/`, `ids/`, `version/` - support utilities
-
-Not a monorepo (single go.mod). Not a library (no exported packages intended for external import). Not a web app. macOS/Linux only. This is a **CLI tool with an embedded configuration bundle**.
-
-Commands: 32 top-level `.md` files (rendered output — edit surface is `templates/commands/`). Agents roster: 9. Skills roster: 8. `atomic/internal/` has 22 subdirectories. `atomic/cmd/` has 3 entries. `doctor/` at 35 files. `docs/spec/` at 18 files (includes `documentation-skill-split.md` — present in tree despite prior note; `signals-router.md` added). `docs/design/` at 6 files. `templates/` dir: 31 command templates + 10 shared partials. `.claude/project/followups/` folder (per-entry YAML + `INDEX.md` + `CLOSED.md`). `.claude/skills/atomic-cli-contrib/SKILL.md` project-local contributor skill (not bundled). `docs/credits.md` at `docs/` root. `assets/atomic-claude.png` (logo, not bundled). `atomic/internal/embedded/bundle/` has 1 file + 5 subdirs.
-
-## Conventions detected
-
-**Test layout**: tests are co-located with implementation (`*_test.go` alongside source, e.g. `signals_test.go` next to `signals.go`). One integration test lives separately at `atomic/test/install_sh_test.go`.
-
-**Source layout**: standard Go flat package layout - no `internal/pkg/` nesting. Each subdomain is one package directly under `internal/`. Exception: `doctor/` (35 files) is significantly larger than all other packages (next largest: `validate/` at 14, `config/` at 8, `signals/` at 6). It stays flat within the package but uses file-level subdivision (`checks_<domain>.go`, `fix.go`, `fix_impls.go`, `format.go`, `exit.go`, `shortcircuit.go`) rather than sub-packages.
-
-**Bundle inclusion rules** (from `atomic/internal/bundlespec/bundlespec.go`, called by `atomic/internal/bundlemirror/mirror.go`):
-
-- Agents: `agents/atomic-*.md` (prefix filter, files only)
-- Skills: `skills/atomic-*/` full directory subtree (prefix filter on dir name; requires `SKILL.md` present; all files under the dir are bundled, not just `SKILL.md`)
-- Output styles: `output-styles/atomic*.md` (prefix filter, files only)
-- Commands: every top-level `commands/*.md` - no allowlist; subdirectories (e.g. `commands/_templates/`) are skipped
-- Rules: all `rules/**/*.md` (recursive)
-- `CLAUDE.md` (bundled directly; no rename step - `bundlemirror` reads `CLAUDE.md` at repo root as-is)
-
-`commands/` is now a **rendered output**, not the hand-authored source. Edit surface is `templates/commands/<verb>.md`; `make render` (root) or `make -C atomic render` materializes `commands/<verb>.md`. Bundle-mirror reads from `commands/` — that contract is unchanged. `templates/` is NOT a bundle input.
-
-`.claude/skills/` is NOT a bundle input - only root-level `skills/` ships. The `atomic-cli-contrib` skill at `.claude/skills/atomic-cli-contrib/SKILL.md` is project-local and contributor-scoped; it is never installed into users' `~/.claude/`.
-
-**Naming convention**: all custom Claude Code artifacts use the `atomic-` prefix (`atomic-builder`, `atomic-tdd`, `atomic-prose`, etc.).
-
-**Four-voice taxonomy** (`skills/atomic-documentation/SKILL.md`): the system now formalizes four distinct writing surfaces and voices:
-
-1. **Atomic TUI** — Claude's chat replies; `output-styles/atomic.md` enforces terse/telegraphic style. Never written to files.
-2. **Atomic-prose** — `README.md`, `docs/guides/*`, CHANGELOG narrative; `skills/atomic-prose/SKILL.md` enforces clear, active-voice technical prose.
-3. **Spec/design** — `docs/spec/*`, `docs/design/*`; tables/diagrams/bullets first, append-mostly for specs, token-cost-aware. Never invokes `atomic-prose`.
-4. **LLM-reference** — `CLAUDE.md`, `CLAUDE.md`, `claude.local.md`, `*-signals.md`; technical-imperative, lean, no narrative.
-
-`atomic-documentation` owns diff-driven surface classification and routing. `atomic-prose` owns raw prose drafting (README intro, guide narrative). They do not overlap. `atomic-documentation` auto-fires on "doc this change", "doc impact for this diff", "what surfaces does this touch". Also invoked by `/documentation` (full-scope mode) and by ship verbs (staged-diff mode, between stage and signals refresh).
-
-**Lint config**: no `.golangci.yml` or `golangci-lint` found; CI uses `go vet` + `gofmt -l` only.
-
-**Markdown conventions**: CLAUDE.md and project docs follow atomic output style (double newline after headings, 4-space code blocks) - enforced by `output-styles/atomic.md`.
-
-**`bundle/` and `commands/` directories are both tracked in git**: `atomic/internal/embedded/bundle/` files, `manifest.go`, and `commands/*.md` are all committed outputs. The pre-commit hook (`.githooks/pre-commit`) has three stages: (1) regen templates via `make render` when any `templates/` file is staged, re-staging `commands/`; (2) regen bundle via `make bundle` when any source artifact is staged (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`), re-staging `atomic/internal/embedded/bundle` and `manifest.go` — render runs before bundle since bundle reads what render wrote; (3) regen `followups/INDEX.md` via `atomic followups render` when any followups entry file (other than INDEX) is staged — degrades with WARN if `atomic` binary absent. All stages re-stage their outputs automatically. CI runs two drift gates: "Verify render is committed" (`make render && git diff --exit-code`) and "Verify bundle is committed" (`make bundle && git diff --exit-code`). Install via `make hooks` (sets `core.hooksPath=.githooks`); undo via `make hooks-uninstall` (root `Makefile`).
-
-**Interactive prompts are centralized in `atomic/internal/prompt/`**: all interactive user-facing prompts route through `prompt.Confirm` or `prompt.Select[T]`. Direct `huh.*` calls outside the prompt package are forbidden by convention (documented in `.claude/skills/atomic-cli-contrib/SKILL.md` section 1). The `doctor` package's `stdin_prompter.go` adapts `prompt` errors to the doctor's `DecisionYes/No/Skip/Abort` shape.
-
-**Doctor adapter pattern for orchestration**: subsystems that need doctor output but must not import `doctor` directly (or vice versa) use a `RunDoctorFn` function type. `updatedoctor.Run` takes `func(doctor.Opts) ([]doctor.Result, error)` as an injected dependency - production wires `doctor.Run`, tests inject stubs. Pattern documented in `.claude/skills/atomic-cli-contrib/SKILL.md` section 2.
+- CI: GitHub Actions (`.github/workflows/`). Three workflows: `ci.yml` (test/vet/fmt/bundle-drift gates), `release-please.yml` (changelog automation), `release.yml` (goreleaser on tag).
+- Release: goreleaser produces multi-arch binaries. release-please manages version + tag.
+- Pre-commit hook (`.githooks/pre-commit`): three-stage render→bundle→followups chain. Install via `make hooks`.
 
 ## Domains
 
-- **Artifact distribution**: `atomic claude install/update/diff/list` - installs the embedded bundle into `~/.claude`.
-- **Project signals**: `atomic signals scan/show/stale/diff` - deterministic project snapshot for Claude context injection.
-- **Session hooks**: `atomic hooks session-start/install/uninstall` - injects pending-reminders context at session open.
-- **Reminders**: `atomic reminder add/list/show/rm` - file-based reminder CRUD stored in repo root.
-- **Self-update**: `atomic update [--check] [--channel] [--no-doctor]` - GitHub Releases-backed binary update with SHA256 verification, background check on every command invocation, and optional post-update doctor auto-fire.
-- **Post-update doctor auto-fire**: `atomic/internal/updatedoctor/` - after `atomic update` successfully swaps the binary, `updatedoctor.Run` calls `doctor.Run(Opts{Skip:[3,8]})` (skips signals=3 and binary=8), prints FAIL lines only, recovers panics, never changes update exit code. Controlled by `--no-doctor` flag (per-invocation) or `update.run_doctor = false` in config (durable). Spec: `docs/spec/atomic-update-doctor.md`.
-- **Integrity checks**: `atomic/internal/doctor/` - 9-check health-check suite (`install`, `hooks`, `signals`, `refs`, `manifest`, `followups`, `memory`, `binary`, `config`). Implements `atomic doctor [--fix]`; exit 0 (PASS/WARN/SKIP), 1 (FAIL), 2 (usage error). Full spec at `docs/spec/atomic-doctor.md`. `doctor.FormatResultLine(r Result) string` is the single exported format primitive shared between `FormatHuman` and `updatedoctor.Run`.
-- **Claude Code config authoring**: the root-level `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/` directories are the authoritative source for the artifact bundle.
-- **Documentation orchestration**: `commands/documentation.md` — `/documentation [--dry-run] [--print-template] [<range>]` is now a thin orchestrator: resolves a git diff range (default `merge-base(HEAD, main)..HEAD`), invokes `atomic-documentation` skill, parses the fenced YAML block from skill output, then walks surfaces one at a time with `[e]dit / [s]kip / [c]ontinue` prompts. Staged changes only; never commits. `--dry-run` prints the proposed surface list and exits. `--print-template` prints the `## Documentation surfaces` override-table skeleton for non-atomic repos.
-- **Documentation surface classification**: `skills/atomic-documentation/` — diff-driven surface taxonomy classifier. Classifies changed diff entities against the four-voice routing table (see Conventions), emits a fenced `yaml` block as structured handoff for callers. Reads `## Documentation surfaces` override section from `claude.local.md` / `CLAUDE.md` for non-atomic repos. Auto-fires on "doc this change", "doc impact for this diff". Invoked by `/documentation` and ship verbs. Boundary: surface routing only — raw prose drafting delegated to `atomic-prose`.
-- **Prose discipline**: `skills/atomic-prose/` - voice and tone rules for human-readable developer documentation written into files. Distinct from the atomic TUI output style and `atomic-documentation` (which classifies; this drafts). Invoked by `/documentation` (via `atomic-documentation` handoff when voice = `atomic-prose`), `/atomic-plan` (design and prose sections), and auto-fires on documentation-editing phrases.
-- **Issue filing (atomic repo)**: `commands/report-issue-with-atomic.md` - `/report-issue-with-atomic` targets `damusix/atomic-claude` specifically. Sibling to `/report-issue` (which targets the user's current repo). Entry point for bugs/feature requests about the installed config itself.
-- **Branch review**: `commands/review-branch.md` - `/review-branch` dispatches `atomic-reviewer` once on `<base>..HEAD` for a pre-PR / pre-merge review pass; no orchestration loop, no spec required.
-- **Commit undo**: `commands/undo-commit.md` - `/undo-commit` soft-resets the last commit; refuses on merge commits, initial commit, and already-pushed HEAD.
-- **Trunk-based ship verbs**: `commands/commit-and-push.md` (`/commit-and-push`) and `commands/push-only.md` (`/push-only`) - trunk-based counterparts to `/commit-and-pr` and `/pr-only`. Push directly to the current branch without opening a PR. Intended for trunk workflows where PRs are bypassed.
-- **Session reports**: `commands/session-report.md` - `/session-report` writes a timestamped working-memory note to `.claude/.scratchpad/session-reports/<branch>/` capturing what changed and why in the current session. Ship verbs read all reports for the current branch before commit-message synthesis, then delete them after a successful commit. Opt-in only; does not auto-fire. Full spec at `docs/spec/session-report.md`.
-- **Workflow routing**: `commands/atomic-help.md` - `/atomic-help` is a routing assistant for disoriented users. Reads git state (branch, ahead/behind, dirty, scratchpad presence, spec presence), classifies user intent (empty args = state-driven recommendation; topic keyword = focused pointer; freeform = one-verb classification), and recommends the single next action. Never executes. Atomic style output only.
-- **Design pressure-testing**: `commands/pressure-test.md` - `/pressure-test [<topic> | @<path>]` enters a Socratic challenger session. Questions only; no code, no specs, no agents. Explicit-only (never auto-fires). Pairs with `/atomic-plan` as pre-approval gate. Persists settled decisions in-conversation; no disk writes.
-- **Failure investigation**: `commands/subagent-diagnose.md` - `/subagent-diagnose <ci|bug>` is a multi-agent orchestrator for failure-root-cause loops. `ci` mode seeds from a failed GitHub Actions run (`gh run`); `bug` mode seeds from a freeform symptom. Same scratchpad (`BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`, `CONTEXT.md`), investigator + builder/surgeon + reviewer chain, and FOLLOWUPS disposition as `/subagent-implementation`. Hard bail at 5 iterations (user-memory-configurable) or 3 consecutive same-failure iterations. `ci` mode spawns `atomic-haiku` background watcher after fix commit. Full spec at `docs/spec/subagent-diagnose.md`.
-- **User config**: `atomic config get|set|unset|list|path` - TOML-backed user config stored at `~/.claude/.atomic/config.toml`. Resolved values rendered to `~/.claude/.atomic/config.resolved.md` and `@`-ref'd from bundled `CLAUDE.md` so every Claude session sees current config without hooks. v1 schema: `output.intensity` (`lite|full|ultra`) and `update.run_doctor` (bool, default `true`). `atomic/internal/config/` implements load/validate/render/persist; `atomic/internal/doctor/checks_config.go` enforces integrity. Spec: `docs/spec/atomic-state-and-config.md`.
-- **State directory consolidation**: `~/.claude/.atomic/` is now the canonical atomic-owned state root. Paths: `config.toml` (user config), `config.resolved.md` (rendered snapshot), `backups/<ts>/` (install backups), `proposed/CLAUDE.md` (merge target). Supersedes `~/.claude/.atomic-backups/` and `~/.claude/CLAUDE.md.atomic-proposed` (old paths orphaned; no migration).
-- **Command template rendering**: `atomic/cmd/render-templates/` + `atomic/internal/templaterender/` — renders `templates/commands/*.md` (per-verb) and `templates/shared/*.md` (partials) into `commands/*.md` using Go `text/template`. Invoked via `make render` (root) or `make -C atomic render`. Orphan guard: any `commands/<verb>.md` without a corresponding `templates/commands/<verb>.md` causes halt. Partial taxonomy: 5 big partials (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`) and 5 small partials (`doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`). Spec: `docs/spec/artifact-templates.md`. Design: `docs/design/artifact-templates.md`.
-- **Design docs**: `docs/design/` holds `artifact-templates.md`, `atomic-doctor.md`, `atomic-validate.md`, `atomic-state-and-config.md`, `diagnose-orchestrators.md`, and `signals-router.md` - design rationale for shipped and planned features.
-- **Planned: signals router architecture**: `docs/design/signals-router.md` proposes replacing the flat eager-loaded signals files with a bounded-depth deterministic substrate + a small auto-loaded `signals.md` router (≤2k tokens) that tables per-domain entries with repo paths and plain markdown links to on-disk `signals/<domain>.md` files. Domain files are NOT `@`-ref'd — the LLM `Read`s them on demand. Activation is LLM-judged at inferrer run time: flat `signals.md` with no `signals/` dir when the whole repo fits in ~500 lines; router + per-domain files above that. No config threshold. Change detection uses git: per-path last-touch SHA inline in the deterministic tree, `git diff --name-only <prev-head>..HEAD` maps touched paths to owning domains, only affected domain files refresh. Falls back to mtime comparison outside a git repo. Bounded tree: `max_depth` default 3 (shell-settable via `output.signals.max_depth`); beyond cutoff, folder name + child count + folder SHA, no contents. Naming continuity: inferrer reads existing `signals/*.md` as anchor, keeps prior filenames when underlying paths still match. Per-domain migration confirm (axiom 3): first flat→router flip presents proposed partition as numbered list, generates only confirmed domain files. Breaking change to current flat-file consumer contract. Open questions: domain partitioning heuristic (structural + LLM hybrid), per-subtree `max_depth` override, worktree multiplication behavior. Status: design only, not yet spec'd for implementation.
-- **Documentation skill split (shipped)**: `skills/atomic-documentation/SKILL.md` + `commands/documentation.md` implement the documentation-skill-split spec. `atomic-documentation` owns surface taxonomy and voice routing; `/documentation` is now the thin orchestrator. Ship verbs invoke the skill in staged-diff mode between stage and signals refresh. `docs/spec/documentation-skill-split.md` is present in the tree (`docs/spec/` at 18 files confirmed).
-- **Project follow-ups**: `atomic followups list|add|close|render|migrate|path` manages `.claude/project/followups/` — a folder of per-entry YAML-frontmatter files with a generated `INDEX.md` and an append-only `CLOSED.md`. `add` is the deterministic entrypoint: `/subagent-implementation` Phase 3 `defer` block shells out to `atomic followups add`; `/subagent-diagnose` updated in lockstep. `migrate` converts the legacy single-file `.claude/project/followups.md` to the folder layout. `atomic/internal/doctor/checks_followups.go` walks the folder via `followups.LoadEntriesWithErrors`, byte-compares re-rendered INDEX against on-disk, emits WARN on stale/drift/invalid frontmatter/legacy-file-present, SKIP on absent-both. Two repair fns: `followupsRenderRepair` (re-renders INDEX), `followupsMigrateRepair` (runs migrate). Spec: `docs/spec/follow-ups-folder.md` (shipped with change-log, status-field deferral noted).
-- **Contributor skill**: `.claude/skills/atomic-cli-contrib/SKILL.md` - project-local skill for working on the `atomic` CLI. Auto-fires on contributor phrases ("add a CLI subcommand", "add a doctor check", "use huh", etc.). Captures prompt-layer, seam-injection, scopeRoot, and build conventions. Never bundled.
+Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for one feature concern. Read a domain file when you're working on that feature end-to-end.
 
-## Cross-references
+| Domain | Repo paths | One-liner | Detail |
+|--------|------------|-----------|--------|
+| signals | `skills/atomic-signals/`, `agents/atomic-signals-inferrer.md`, `commands/initialize-signals.md`, `commands/refresh-signals.md`, `atomic/internal/signals/`, `atomic/internal/doctor/checks_signals.go`, `atomic/internal/doctor/checks_refs.go`, `docs/spec/signals-*.md` | Scan → infer → wire: project context generation pipeline | .claude/project/signals/signals.md |
+| bundle | `templates/`, `commands/`, `agents/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`, `atomic/internal/bundlespec/`, `atomic/internal/bundlemirror/`, `atomic/internal/embedded/`, `atomic/internal/templaterender/`, `atomic/internal/claudeinstall/`, `atomic/cmd/bundle-mirror/`, `atomic/cmd/render-templates/` | Template render → bundle embed → install into ~/.claude | .claude/project/signals/bundle.md |
+| doctor | `atomic/internal/doctor/`, `atomic/internal/validate/`, `atomic/internal/manifestcheck/`, `atomic/internal/updatedoctor/`, `docs/spec/atomic-doctor.md`, `docs/spec/atomic-validate.md`, `docs/spec/atomic-update-doctor.md` | 9-check integrity suite + static validation + post-update auto-fire | .claude/project/signals/doctor.md |
+| workflow | `commands/atomic-plan.md`, `commands/subagent-implementation.md`, `commands/subagent-diagnose.md`, ship verbs (`commands/commit-*.md`, `commands/push-only.md`, etc.), `commands/_templates/`, `agents/atomic-builder.md`, `agents/atomic-surgeon.md`, `agents/atomic-reviewer.md`, `agents/atomic-investigator.md`, `agents/atomic-strategist.md`, `skills/atomic-tdd/`, `skills/atomic-verify/`, `skills/atomic-commit/`, `skills/atomic-review/`, `skills/atomic-debug/` | Plan → implement → review → ship lifecycle | .claude/project/signals/workflow.md |
+| config | `commands/follow-up.md`, `commands/remind-me.md`, `commands/git-cleanup.md`, `commands/watch-ci.md`, `commands/atomic-claude-merge.md`, `agents/atomic-git-scout.md`, `agents/atomic-haiku.md`, `agents/atomic-claude-merger.md`, `atomic/internal/config/`, `atomic/internal/hooks/`, `atomic/internal/reminder/`, `atomic/internal/followups/`, `atomic/internal/prompt/`, `atomic/internal/selfupdate/` | User config, state dir, session hooks, reminders, follow-ups, self-update | .claude/project/signals/config.md |
+| docs-meta | `output-styles/atomic.md`, `skills/atomic-documentation/`, `skills/atomic-prose/`, `commands/documentation.md`, `commands/atomic-compress.md`, `.claude/docs/axioms.md`, `.claude/docs/agent-config.md`, `docs/spec/documentation-skill-split.md` | Four-voice taxonomy, surface routing, prose style, design axioms | .claude/project/signals/docs-meta.md |
 
-- `atomic/internal/templaterender/` (2 files: `templaterender.go` + `templaterender_test.go`) is called by `atomic/cmd/render-templates/main.go`. It reads `templates/commands/` (per-verb) and `templates/shared/` (partials), renders with Go `text/template`, writes to `commands/`. The orphan check compares `commands/*.md` against `templates/commands/*.md` — mismatch halts. `bundlemirror` reads `commands/` downstream of this step. Pipeline order: `make render` → `make bundle`. The pre-commit hook enforces this order (stage 1 before stage 2). Adding a new command requires creating `templates/commands/<verb>.md` (not `commands/<verb>.md` directly).
-- `atomic/internal/bundlespec/bundlespec.go` is the single source of truth for bundle inclusion predicates (`MatchesAgent`, `MatchesSkillDir`, etc.). Both `bundlemirror` (build-time copy) and `manifestcheck` (runtime validation) import it — changing a rule here automatically propagates to both. `atomic/internal/bundlemirror/mirror.go` calls these predicates rather than re-implementing the logic. Every top-level `commands/*.md` ships; `commands/_templates/` subdirectory is explicitly skipped (loop skips dirs). Adding a new command requires a `templates/commands/<verb>.md`; the rendered output in `commands/` is what bundle-mirror picks up. Bundle is 52 items.
-- `agents/atomic-strategist.md` ships in the bundle automatically via the `agents/atomic-*.md` inclusion rule. No bundle config change needed.
-- `atomic/internal/doctor/` (35 files) implements `atomic doctor`. Consumed by `atomic/cmd/atomic/main.go`. Shares `manifestcheck` with `atomic/internal/validate/`. `checks_config.go` imports `atomic/internal/config` directly. `checks_followups.go` imports `atomic/internal/followups` directly — `followups.LoadEntriesWithErrors` is the parse boundary; `followups.RenderIndex` is the render-for-comparison call. `format.go` exports `FormatResultLine(r Result) string` - called by both `FormatHuman` (full doctor output) and `atomic/internal/updatedoctor/updatedoctor.go` (post-update FAIL-only lines). Changing the format function affects both surfaces.
-- `atomic/internal/updatedoctor/` (2 files) sits above both `selfupdate` and `doctor` in the dependency graph. `updatedoctor.go` imports `doctor` but not `selfupdate`; `selfupdate` imports neither - the call chain is `main.go:runUpdate -> selfupdate.Apply -> updatedoctor.Run -> doctor.Run`. No import cycle. `RunDoctorFn` function type is the injectable test seam.
-- `atomic/internal/config/` (8 files) is consumed by `atomic/cmd/atomic/main.go` (CLI dispatch for `atomic config` and `--no-doctor` flag read in `runUpdate`), `atomic/internal/claudeinstall/install.go` (pre-creates `config.resolved.md` on `Apply`), and `atomic/internal/doctor/checks_config.go` (integrity check). The `paths.go` functions (`TOMLPath`, `ResolvedPath`, `BackupDir`, `ProposedCLAUDEMD`) are the canonical source for all `~/.claude/.atomic/` path derivation. `config.go` uses a raw-map presence check to distinguish absent `update.run_doctor` (default `true`) from explicit `false`.
-- `atomic/internal/prompt/` (2 files) is imported by `atomic/internal/doctor/stdin_prompter.go` (adapts `prompt.ErrAborted` to `DecisionAbort`, `prompt.ErrNonInteractive` to `DecisionSkip`) and any new CLI surface requiring interactive prompts. `huh` is the sole TUI dep; only accessed through the `prompt` package. `atomic-cli-contrib` SKILL.md section 1 is the contract.
-- `skills/atomic-documentation/SKILL.md` ships in the bundle automatically via the `skills/atomic-*/` inclusion rule. Callers that parse its structured `yaml` output: `commands/documentation.md` (full-scope orchestrator) and ship verbs that invoke it in staged-diff mode. The skill's `## Override format for non-atomic repos` section defines a search order (`claude.local.md` → `CLAUDE.md`) — any consumer that invokes the skill must ensure those files are available in context. `atomic-prose` is a named downstream dependency: when the skill emits `voice: atomic-prose`, the caller hands off to `atomic-prose` for prose drafting.
-- `skills/atomic-prose/SKILL.md` ships in the bundle automatically: the `skills/atomic-*/` inclusion rule picks up all subdirs matching the `atomic-` prefix that contain a `SKILL.md`. No bundle config change needed when adding a new `atomic-`-prefixed skill directory.
-- `atomic/internal/embedded/manifest.go` is generated by `go generate`; editing it by hand is explicitly forbidden (file header: "Code generated by cmd/bundle-mirror. DO NOT EDIT.").
-- `.claude/project/deterministic-signals.md` is written by `atomic signals scan`; `inferred-signals.md` (this file) is written by the `atomic-signals-inferrer` agent. Both are `@`-referenced in `claude.local.md` (not `CLAUDE.md` - `CLAUDE.md` is the bundle source and must not carry project-specific paths). `.claude/project/followups/INDEX.md` is `@`-referenced in `claude.local.md` in place of the deleted `followups.md`; the folder holds the live per-entry files and `CLOSED.md`.
-- `.githooks/pre-commit` has three stages: (1) template render — triggers on staged changes to `templates/`; runs `make render`, re-stages `commands/`. (2) bundle regen — triggers on staged changes to `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or `CLAUDE.md`; runs `make bundle`, re-stages `atomic/internal/embedded/bundle` and `manifest.go`. Render fires before bundle because bundle reads `commands/`. (3) followups INDEX regen — triggers on staged changes to `.claude/project/followups/` (excluding INDEX.md itself); shells out to `atomic followups render`; re-stages `INDEX.md`; degrades to WARN if binary absent. Installed via `make hooks`; reverted via `make hooks-uninstall` (root `Makefile`).
-- `atomic/internal/followups/` (12 files) is consumed by `atomic/cmd/atomic/main.go` (`followups` verb dispatch), `atomic/internal/doctor/checks_followups.go` (integrity check via `LoadEntriesWithErrors` + `RenderIndex`), and the `/subagent-implementation` / `/subagent-diagnose` commands (via shell-out to `atomic followups add`). Uses `atomic/internal/repoctx` to anchor the `.claude/project/followups/` path at git toplevel. `yaml.v3` is the parser (same dep as `frontmatter/`).
-- `commands/session-report.md` to `atomic-commit` skill: ship verbs read `.claude/.scratchpad/session-reports/<branch>/*.md` in chronological order and pass the concatenated content to `atomic-commit` as supplemental why-context before message synthesis. Delete the branch's reports dir after a successful commit. Exempt verbs (no message synthesis): `/pr-only`, `/push-only`, `/merge-to-main`. Full integration contract in `docs/spec/session-report.md`.
-- `commands/subagent-diagnose.md` reuses `commands/_templates/implementer-prompt.md` and `commands/_templates/reviewer-prompt.md` - same templates as `/subagent-implementation`. The orchestrator halts with an error message if the templates are missing. `docs/spec/subagent-diagnose.md` is the canonical contract.
-- `commands/atomic-help.md` consumes git state via Bash (`git`, `gh`) and consults scratchpad presence and `docs/spec/` presence to drive routing decisions. Pure read-only; dispatches nothing.
-- `scripts/link-local.sh` - the only shell script besides `install.sh`; likely creates symlinks between root artifacts and `.claude/` for dogfooding. Not read in this run; content unverified.
-- `docs/spec/atomic-update-doctor.md` specifies the post-update doctor contract. Cross-referenced by `docs/spec/atomic-doctor.md` change-log (auto-fire surface from update path) and `docs/spec/atomic-state-and-config.md` change-log (`update.run_doctor` schema entry).
+## Cross-cutting
 
-## Security boundaries
+**Deterministic substrate**: `.claude/project/deterministic-signals.md` — written by `atomic signals scan`. Never edit by hand.
 
-- **Self-update binary replacement**: `selfupdate.Apply()` downloads a release archive, verifies SHA256 against `checksums.txt` from the same release, then atomically replaces the running binary via `os.Rename`. No signature verification beyond SHA256 (no GPG, no Sigstore). The checksums file itself is fetched from the same GitHub Release - a compromised release would provide matching checksums.
-- **Artifact install**: `claudeinstall.Apply()` writes files from the embedded FS to `~/.claude`. No signature check on the embedded bundle; trust derives from the binary itself.
-- **`CLAUDE.md` merge-required guard**: if `~/.claude/CLAUDE.md` differs from the bundled version, `claudeinstall` writes to `~/.claude/.atomic/proposed/CLAUDE.md` instead of overwriting, preventing silent replacement of user-customized global instructions. Old path (`~/.claude/CLAUDE.md.atomic-proposed`) is no longer written.
-- **No network access in signals or hooks**: `signals`, `hooks`, and `reminder` subcommands are local-only. Only `selfupdate` and `claude install/update` make outbound calls.
-- **CGO disabled** (`.goreleaser.yaml` `CGO_ENABLED=0`): no native code in the binary; no shared library attack surface.
+**@-ref wiring**: for this repo, `@-refs` to both signals files live in `claude.local.md` (not `CLAUDE.md` — `CLAUDE.md` is the bundle source and must not carry project-specific paths). For most user repos, refs live in `CLAUDE.md` directly.
 
-## Risks / unknowns
+**Known bug — doctor refs check (doctor ↔ signals)**: `atomic/internal/doctor/checks_refs.go` looks for `@.claude/project/inferred-signals.md`. The current wiring uses `signals.md`. Any project migrated to the router shape will fail check 4 (`refs`) even when correctly configured. Fix in `checks_refs.go`: add `signals.md` as an accepted ref target alongside `inferred-signals.md`.
 
-- **`scripts/link-local.sh` not read**: purpose and targets unverified. If it symlinks `.claude/` subdirs to root dirs, edits to root artifacts would immediately affect the dogfood config without a `go generate` step - but this creates a divergence between the live config and the committed manifest. Read the script to confirm.
-- **SHA256-only self-update integrity**: no GPG or Sigstore signature verification. The checksums file is fetched from the same GitHub Release as the binary, meaning a compromised release token or release account could serve a malicious binary with matching checksums. Acceptable for a personal config tool; worth noting for any broader distribution.
-- **`atomic/test/install_sh_test.go` scope**: this test exercises `install.sh` but the file was not read. It is unknown whether it mocks the GitHub API or makes live network calls, which would make it flaky in offline/CI environments without credentials.
-- **`release-please-config.json` / `release-please-manifest.json` not read**: release-please versioning strategy (component vs. root) not confirmed. The `.goreleaser.yaml` injects `version.Version` from a single `atomic/internal/version/version.go` - unclear how release-please and goreleaser coordinate the version value.
-- **TypeScript file (100 LOC, 1 file)**: the deterministic scan reports 1 TypeScript file. `atomic/internal/signals/testdata/` shows `(0 files, 1 dir)` — the TS file is not there. Location not confirmed; `atomic/internal/validate/testdata/` (2 dirs) or `atomic/internal/followups/testdata/` (1 file, 2 dirs) are the remaining collapsed subtrees. Requires `Glob '**/*.ts'` to locate.
-- **Python file (30 LOC, 1 file)**: same — `atomic/internal/signals/testdata/` is not the location (0 files shown). Likely inside one of the other `testdata/` subtrees. Requires `Glob '**/*.py'` to locate.
-- **`atomic-claude-merger` agent and `/atomic-claude-merge` command**: the spec (`docs/spec/atomic-state-and-config.md` success criterion) states these must reference the new proposed path (`~/.claude/.atomic/proposed/CLAUDE.md`). Whether the agent and command files were updated to match was not verified in this incremental run - only `atomic/internal/claudeinstall/install.go` and `atomic/internal/config/paths.go` were read.
-- **Doctor skip indices hardcoded as `[3, 8]`**: `updatedoctor.go` calls `doctor.Run(Opts{Skip: []int{3, 8}})`. The spec requires a sanity test asserting `doctor.Categories()[3].Name == "signals"` and `[8].Name == "binary"`. Whether that test was written was not confirmed in this run - the `updatedoctor_test.go` file was not read.
+**`go:embed all:bundle` requirement (bundle)**: `commands/_templates/` starts with `_` — excluded by the default embed glob. `all:bundle` overrides this. Any new underscore-prefixed directory under `embedded/bundle/` needs this same consideration.
+
+**Pipeline order is load-bearing (bundle)**: `make render` must precede `make bundle`. The pre-commit hook stages 1 and 2 enforce this order. CI runs the same two drift gates in order. Running only `make bundle` after editing a template embeds stale command outputs.
+
+**Domain partitioning basis**: domains are vertical slices by feature concern, not horizontal layers by file type. Each domain file answers: "if I'm working on X, what artifacts, what CLI code, and what docs do I need?" This replaces the prior horizontal split (artifacts / cli / docs).
+
+**Artifact additions checklist**: adding any new command/agent/skill requires updating the artifact file, `CLAUDE.md`, `CLAUDE.md`, `README.md`, relevant `docs/reference/` tables, `docs/spec/<topic>.md` if non-trivial, cross-references in other artifacts, running `make render` and `make bundle`, and `/refresh-signals`. See `claude.local.md` for the full checklist with per-row guidance.

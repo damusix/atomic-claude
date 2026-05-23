@@ -18,7 +18,7 @@ Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `signal
 - [ ] `signals.md` is written to `.claude/project/signals.md`; it is `@-ref`'d from the user's project `CLAUDE.md`; it loads in every session.
 - [ ] `signals.md` is always the output shape. No flat vs router mode split — one code path.
 - [ ] `signals.md` is a complete orientation document: framework/runtime, build/test/lint commands, language breakdown, devops/CI summary, domain route table, cross-cutting conventions.
-- [ ] Domain files (`signals/<domain>.md` or `signals/<domain>/index.md`) are written to `.claude/project/signals/` only when the router-only content would exceed ~1,000 lines / ~5k tokens. They are NOT `@-ref`'d; they are NOT eagerly loaded.
+- [ ] Domain files (`signals/<domain>.md` or `signals/<domain>/index.md`) are written to `.claude/project/signals/` as vertical slices — one per functional concern, grouping artifacts + CLI code + docs + coupling. They are NOT `@-ref`'d; they are NOT eagerly loaded.
 - [ ] `deterministic-signals.md` remains on disk at `.claude/project/deterministic-signals.md`; it is NOT `@-ref`'d; it is NOT auto-loaded.
 - [ ] Deterministic tree entries include per-path metadata from a single file read: content SHA (hex, 7-char truncated), line count, character count, byte size.
 - [ ] Bounded tree: entries at `≤ max_depth` are fully enumerated; entries at `max_depth + 1` show folder name + `(N files, M dirs)` only; entries `> max_depth + 1` are elided (appear only as a count in the parent summary).
@@ -27,8 +27,8 @@ Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `signal
 - [ ] Deterministic scan keeps prev version as `.deterministic-signals.prev.md`. Diff between prev and current surfaces changed paths (entries with different content SHAs).
 - [ ] Inference pass uses sub-agents per domain. Orchestrator dispatches one sub-agent per domain that needs writing/updating; each reads source files in its area and writes its domain file. Reviewer validates each domain file against source code. Same implement→review pattern as `/subagent-implementation`.
 - [ ] Cross-domain references (e.g. "auth talks to billing via webhooks") are wired by the orchestrator after all domain files land.
-- [ ] Domain partitioning is LLM-inferred. Structural signals (top-level dirs, workspace manifests) inform the LLM; the LLM judges. No hard precedence rules.
-- [ ] No micro-domain consolidation threshold. LLM judges when consolidation makes sense.
+- [ ] Domain partitioning is by functional concern (vertical slices). Structural signals inform the LLM; the LLM judges boundaries. Things that break together belong together.
+- [ ] No micro-domain consolidation threshold. Size is a secondary trigger, not the primary axis. A 3-file concern still gets a domain file.
 - [ ] Inferrer reads existing `signals/*.md` and `signals/*/index.md` as anchor on rescan; keeps filenames when underlying paths still match (naming continuity).
 - [ ] First migration from flat `inferred-signals.md`: backs up to `.claude/project/inferred-signals.md.bak`, writes `signals.md` + domain files (if needed), prints "Migrated to router shape. Review with `git diff`." Documented exception to axiom 3 (inferrer is non-interactive inside skill dispatch — no TTY for confirm prompt; backup + `git diff` is the mitigation).
 - [ ] `.signalsignore` at repo root: files matching its globs are scanned (appear in tree with metadata) but flagged as generated — inferrer skips them for domain file content. Not full omission. `/atomic-setup` generates a blank `.signalsignore` with commented explanation on repo bootstrap.
@@ -144,21 +144,23 @@ Domain table format:
 - Detail links are plain markdown paths, NOT `@-refs`. `@-refs` are eager and transitive; plain paths require explicit `Read`.
 - Detail column is empty when no domain files exist (small repo, everything in router).
 
-**Budget model.** The ~1,000 lines / ~5k tokens threshold triggers domain file creation, not a hard ceiling on the router. After domain files exist, the router keeps all frontloaded orientation content even if it exceeds 5k tokens. The budget is a split trigger, not a cap.
+**Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. The ~1,000 lines / ~5k tokens threshold is a secondary signal — if a single-file router grows past it, that's a hint to look for concern boundaries, not a mechanical split trigger. After domain files exist, the router keeps all frontloaded orientation content even if it exceeds 5k tokens.
 
 **Token estimation.** `~chars.replace(whitespace).length / 4` as approximation.
 
 
 ## Domain file shape
 
-Required sections:
+Required sections (vertical slice):
 
 | Section | Content |
 |---------|---------|
 | `# <domain>` | Domain name |
 | `## What it does` | 1-3 line fact description |
-| `## Where it lives` | Bullet list: `path — role` |
-| `## What it talks to` | Bullet list: external systems / sibling domains (cross-domain references) |
+| `## Artifacts` | Bullet list: `path — role`. User-facing Claude Code files (commands, agents, skills, templates) for this concern. Omit if none. |
+| `## CLI code` | Bullet list: `path — role`. Go packages that implement/manage/validate this concern. Omit if none. |
+| `## Docs` | Bullet list: `path — role`. Specs, design docs, reference pages, guides. Omit if none. |
+| `## Coupling` | Bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known bugs or stale cross-references. |
 | `## Conventions worth knowing` | Domain-local convention facts |
 
 Plain markdown paths throughout. No `@-refs`. Fact-shaped, not steering-shaped.
@@ -204,17 +206,19 @@ Content-SHA-based diff between consecutive deterministic scans. Works identicall
 
 ## Domain partitioning
 
-LLM-inferred. No hard precedence rules, no consolidation threshold.
+**Primary axis: vertical slices by functional concern.** Each domain groups all related artifacts, CLI code, docs, and tests for one cohesive workflow or feature — not by file type or directory structure.
 
-Structural signals that inform the LLM's judgment:
+The partitioning question is: "if someone is working on X, what do they need to know?" Everything coupled to X belongs in one domain file, regardless of which directory it lives in.
 
-- Top-level directories under the primary source root.
-- Manifest-declared workspaces: pnpm `packages/`, cargo workspace members, go module dirs.
-- Co-located test files as domain cohesion signal.
+Heuristic: identify commands, skills, or agents that form a cohesive unit. Find the Go packages that serve them and the docs that describe them. Things that break together belong together.
 
-The LLM judges: what counts as a domain, when to consolidate small related areas into one domain, when to split a large area into sub-domains. No mechanical rules override this judgment.
+Structural signals (top-level dirs, manifest workspaces, co-located tests) inform the grouping but do not dictate it. The LLM judges domain boundaries. No mechanical rules override this judgment.
 
-Inferrer documents the partitioning basis in the router's `## Cross-cutting` section.
+**Size is a secondary trigger.** A domain with 3 files still gets its own domain file if it's a distinct functional concern. A domain file is never created just because a flat file got long — it's created because a concern exists.
+
+Each domain file has sections for Artifacts, CLI code, Docs, and Coupling — the vertical slice. The Coupling section is the primary value: it names what changes in this domain force changes elsewhere.
+
+Inferrer documents the partitioning basis in the router's `## Cross-domain coupling` section.
 
 
 ## Inference pipeline
@@ -315,6 +319,14 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 
 
 ## Change log
+
+### 2026-05-23 — Vertical-slice domain partitioning replaces size-based splitting
+
+**What changed:** Domain partitioning axis changed from size-based (~1k lines / ~5k tokens threshold) to functional-concern-based (vertical slices). Each domain file now groups artifacts + CLI code + docs + coupling for one feature, not one layer. Domain file schema gains `## Artifacts`, `## CLI code`, `## Docs`, `## Coupling` sections replacing the old `## Where it lives` / `## What it talks to`. The `## Coupling` section — naming what changes here force changes elsewhere — is the primary value of the split. Size remains a secondary trigger but no longer drives the partitioning decision.
+
+**Why:** Dogfooding revealed the problem. Renaming `inferred-signals.md` → `signals.md` broke 26 cross-references across code, docs, specs, doctor checks, and @-refs. The size-based split produced horizontal layers (all artifacts / all Go code / all docs) that forced cross-referencing three files to understand one concern. The user had to manually specify vertical boundaries. Signals should answer "I'm working on X — what do I need to know?" which requires grouping by concern, not by file type.
+
+**Superseded:** Domain files created only when router-only content exceeds ~1k lines / ~5k tokens. Domain file sections: `What it does`, `Where it lives`, `What it talks to`, `Conventions worth knowing`. Partitioning driven by structural signals (top-level dirs, workspaces) as the primary axis.
 
 ### 2026-05-23 — Pressure-test amendments
 
