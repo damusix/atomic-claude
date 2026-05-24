@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/damusix/atomic-claude/compare/v1.5.1...v1.6.0) (2026-05-24)
+
+
+### Features
+
+* **install:** pre-install snapshot + `atomic claude uninstall` ([2c2c166](https://github.com/damusix/atomic-claude/commit/2c2c16621cfed852d4590b616a168aea2fbc3b9d))
+
 ## [1.5.1](https://github.com/damusix/atomic-claude/compare/v1.5.0...v1.5.1) (2026-05-23)
 
 
