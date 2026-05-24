@@ -34,7 +34,7 @@ Inspect the repo. Build this status table:
 | `.claude/hooks/session-start-reminders.sh` exists | `test -f .claude/hooks/session-start-reminders.sh` | exists / missing |
 | `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value contains `session-start-reminders.sh` (the absolute path written by `atomic hooks install`) | registered / missing |
 | `.claude/project/deterministic-signals.md` | `test -f .claude/project/deterministic-signals.md` | exists / missing |
-| `CLAUDE.md` references signals files | `test -f CLAUDE.md && grep -qF '@.claude/project/deterministic-signals.md' CLAUDE.md && grep -qF '@.claude/project/inferred-signals.md' CLAUDE.md` (if `test -f CLAUDE.md` fails → n/a) | yes / no / n/a |
+| `CLAUDE.md` references signals files | `test -f CLAUDE.md && grep -qF '@.claude/project/deterministic-signals.md' CLAUDE.md && grep -qF '@.claude/project/signals.md' CLAUDE.md` (if `test -f CLAUDE.md` fails → n/a) | yes / no / n/a |
 | `.signalsignore` at repo root | `test -f .signalsignore` | exists / missing |
 
 Classify the repo:
@@ -63,7 +63,7 @@ For each missing item, propose an action. Skip items already present.
 | Script + registration missing, binary present | Run `atomic hooks install`. |
 | Script + registration missing, binary missing | Write `.claude/hooks/session-start-reminders.sh` as the fallback script manually AND manually add the `SessionStart` hook entry to `.claude/settings.json`. |
 | Script present, registration missing | Run `atomic hooks install` (idempotent — rewrites script with canonical content and adds the settings entry). |
-| `deterministic-signals.md` missing but `atomic` present | Print: "Run `/initialize-signals` to generate project signals." (follow-up only; setup does not invoke it). |
+| `deterministic-signals.md` missing but `atomic` present | Print: "Run `/refresh-signals` to generate project signals." (follow-up only; setup does not invoke it). |
 | `CLAUDE.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
 | `.signalsignore` missing | Create `.signalsignore` with commented explanation (see `.signalsignore` subsection in Step 4). Never overwrite if it exists. |
 
@@ -141,7 +141,7 @@ Refuse to overwrite if file exists (audit already gated this — defensive doubl
 
 **Inputs the agent reads to form guesses** (in order, stop when enough signal):
 
-1. `.claude/project/deterministic-signals.md` and `inferred-signals.md` if present.
+1. `.claude/project/deterministic-signals.md` and `signals.md` if present.
 2. `README.md`.
 3. Top-level manifest files (`package.json`, `go.mod`, `pyproject.toml`, `Cargo.toml`, etc.) for purpose / language / domain hints.
 4. `.github/workflows/`, `Makefile`, release scripts for processes.
@@ -211,7 +211,7 @@ Accept → use as-is. Edit → user supplies replacement text. Skip (empty-guess
 
 
 @.claude/project/deterministic-signals.md
-@.claude/project/inferred-signals.md
+@.claude/project/signals.md
 ````
 
 The `## Project signals (auto-loaded)` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets).
@@ -250,13 +250,13 @@ Install the atomic binary:
 **Signals files missing (binary present)** — Print the follow-up command; do not invoke it:
 
 ```
-Run /initialize-signals to generate project signals.
+Run /refresh-signals to generate project signals.
 ```
 
 **`CLAUDE.md` missing `@-refs`** — Append to the existing `CLAUDE.md`:
 
 ```bash
-if test -f CLAUDE.md && ! { grep -qF '@.claude/project/deterministic-signals.md' CLAUDE.md && grep -qF '@.claude/project/inferred-signals.md' CLAUDE.md; }; then
+if test -f CLAUDE.md && ! { grep -qF '@.claude/project/deterministic-signals.md' CLAUDE.md && grep -qF '@.claude/project/signals.md' CLAUDE.md; }; then
   cat >> CLAUDE.md << 'EOF'
 
 
@@ -264,7 +264,7 @@ if test -f CLAUDE.md && ! { grep -qF '@.claude/project/deterministic-signals.md'
 
 
 @.claude/project/deterministic-signals.md
-@.claude/project/inferred-signals.md
+@.claude/project/signals.md
 EOF
 fi
 ```

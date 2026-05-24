@@ -24,8 +24,7 @@
 | `/undo-commit` | Soft-undo the last commit (`reset --soft HEAD~1`). Refuses if HEAD is a merge commit, the initial commit, or already pushed. |
 | `/remind-me <duration> <text>` | Schedule a reminder. Writes a reminder file and creates a one-shot cron that fires `/follow-up due <id>` at the given time. Degrades to file-only if `CronCreate` is unavailable. |
 | `/follow-up [due <id> \| review]` | Review pending reminders. Bare: indexed list + done/snooze/reschedule actions. Cron-fired: surfaces the specific reminder and waits for user response. `review`: triage stale `.claude/project/followups/` entries with per-item extend/close/promote/skip disposition. |
-| `/initialize-signals` | Bootstrap signals for a project that has never had them. Interactive, idempotent. Requires `atomic` binary. |
-| `/refresh-signals` | Deliberate on-demand refresh of existing signals. |
+| `/refresh-signals` | Scan or re-scan project signals. Initializes on first run (wires `@-refs`), refreshes on subsequent runs. Idempotent. Requires `atomic` binary. |
 | `/documentation` | Diff-scoped doc-impact pass. Invokes the `atomic-documentation` skill on the diff, walks proposed surfaces (edit / skip / continue), stages edits. Does not commit. Flags: `--print-template`, `--dry-run`. |
 | `/report-issue` | Open a GitHub issue via `gh` against the user's current repo. Auto-detects bug report vs. feature request. |
 | `/report-issue-with-atomic` | Open a GitHub issue against the **atomic-claude repo itself** (`damusix/atomic-claude`). For bugs or feature requests with the installed config, not the user's current project. |

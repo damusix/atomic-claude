@@ -78,7 +78,7 @@ If you have customized `~/.claude/CLAUDE.md` locally, `install` and `update` wil
 
 By default `atomic claude install` also registers a `SessionStart` hook in `~/.claude/settings.json` that injects any pending reminders at session open. This supplements cron-fired surfacing for missed cron fires, post-7-day cron expiry, tool unavailability, and post-restart catchup. Pass `--no-hooks` to skip; you can register the hook later with `atomic hooks install`.
 
-After the install completes, the command prints the two manual steps it can't automate: activating the **Atomic** output style via `/config` in Claude Code, and running `/initialize-signals` in each repo where you want project signals.
+After the install completes, the command prints the two manual steps it can't automate: activating the **Atomic** output style via `/config` in Claude Code, and running `/refresh-signals` in each repo where you want project signals.
 
 
 ## Manual install

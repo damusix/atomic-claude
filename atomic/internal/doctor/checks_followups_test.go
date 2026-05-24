@@ -26,18 +26,6 @@ func makeFollowupsFolder(t *testing.T, root string, entries map[string]string) {
 	}
 }
 
-// writeLegacyFile writes .claude/project/followups.md with the given content.
-func writeLegacyFile(t *testing.T, root, content string) {
-	t.Helper()
-	dir := filepath.Join(root, ".claude", "project")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdirall: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "followups.md"), []byte(content), 0o644); err != nil {
-		t.Fatalf("write followups.md: %v", err)
-	}
-}
-
 // writeIndex writes an INDEX.md file into the followups folder.
 func writeIndex(t *testing.T, root, content string) {
 	t.Helper()
@@ -61,28 +49,13 @@ func staleEntry(id, title string) string {
 	return "---\nid: " + id + "\ntitle: \"" + title + "\"\ncreated: 2026-01-01\norigin: test\nseverity: risk\nreview_by: 2026-01-02\nstatus: open\n---\n\nBody.\n"
 }
 
-// TestCheckFollowupsSkip_FolderAndLegacyAbsent verifies SKIP when neither the
-// folder nor the legacy file exist. This proves the "no followups at all"
-// state is benign and does not WARN.
-func TestCheckFollowupsSkip_FolderAndLegacyAbsent(t *testing.T) {
+// TestCheckFollowupsSkip_FolderAbsent verifies SKIP when the folder does not exist.
+// This proves the "no followups at all" state is benign and does not WARN.
+func TestCheckFollowupsSkip_FolderAbsent(t *testing.T) {
 	root := t.TempDir()
 	r := doctor.RunCheckFollowupsWith(root)
 	if r.Severity != doctor.SKIP {
 		t.Errorf("severity = %v, want SKIP (detail: %s)", r.Severity, r.Detail)
-	}
-}
-
-// TestCheckFollowupsWarn_LegacyPresent verifies WARN when the folder is absent
-// but the legacy followups.md exists. The repair hint must mention migration.
-func TestCheckFollowupsWarn_LegacyPresent(t *testing.T) {
-	root := t.TempDir()
-	writeLegacyFile(t, root, "# legacy\n")
-	r := doctor.RunCheckFollowupsWith(root)
-	if r.Severity != doctor.WARN {
-		t.Errorf("severity = %v, want WARN (detail: %s)", r.Severity, r.Detail)
-	}
-	if r.Detail == "" {
-		t.Error("Detail is empty; want migration hint")
 	}
 }
 

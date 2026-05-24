@@ -1,7 +1,7 @@
 # Signals workflow
 
 
-The signals workflow keeps Claude aware of the current shape of a project without hallucination. On first use, run `/initialize-signals` to generate two files:
+The signals workflow keeps Claude aware of the current shape of a project without hallucination. Run `/refresh-signals` to generate (or update) two files:
 
 - `.claude/project/deterministic-signals.md` — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
 - `.claude/project/signals.md` — inferred meaning: framework, build/test/lint commands, architectural style, conventions, domain index. Produced by `atomic-signals-inferrer`. On large repos, optional per-domain detail files live under `signals/`.

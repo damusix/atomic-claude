@@ -57,7 +57,7 @@ Same accuracy. Fewer tokens. Faster to scan.
 Pick your depth:
 
 1. **Just want compressed replies?** Install, activate the output style via `/config` → **Output style** → **Atomic**. Done. Everything else is optional.
-2. **Want project-state awareness?** Run `/atomic-setup` + `/initialize-signals` in your repo. Claude stops hallucinating build commands.
+2. **Want project-state awareness?** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
 3. **Want the full plan→implement→ship loop?** Keep reading.
 
 
@@ -93,7 +93,7 @@ Run `atomic claude uninstall` from inside a Claude Code session. The CLI reads t
 
 ## What a fresh repo looks like
 
-First session inside a new project — `/atomic-setup` audits conventions, then `/initialize-signals` teaches Claude the repo's shape. Abridged transcript from a fictional `acme-payments` repo (NestJS, pnpm):
+First session inside a new project — `/atomic-setup` audits conventions, then `/refresh-signals` teaches Claude the repo's shape. Abridged transcript from a fictional `acme-payments` repo (NestJS, pnpm):
 
 ```text
 ❯ /atomic-setup
@@ -123,7 +123,7 @@ First session inside a new project — `/atomic-setup` audits conventions, then 
   [2] Create docs/spec/.gitkeep + docs/design/.gitkeep
   [3] Run `atomic hooks install`
   [4] Append signals @-refs to CLAUDE.md
-  [5] Print follow-up: run /initialize-signals
+  [5] Print follow-up: run /refresh-signals
 
   Apply which actions? → All (1-5)
 
@@ -132,9 +132,9 @@ First session inside a new project — `/atomic-setup` audits conventions, then 
   ✓ atomic hooks install (scope=user)
   ✓ CLAUDE.md: appended signals @-refs
 
-  Next: /initialize-signals
+  Next: /refresh-signals
 
-❯ /initialize-signals
+❯ /refresh-signals
 
 ⏺ atomic signals scan
   ⎿  Tree · Manifests · Languages → .claude/project/deterministic-signals.md
@@ -197,7 +197,7 @@ A holistic Claude Code configuration designed as one coherent system. Grouped by
 - [`atomic doctor`](docs/spec/atomic-doctor.md) — nine integrity checks (install / hooks / signals / refs / manifest / followups / memory / binary / config). `--fix` interactive; `--json` for CI.
 - `atomic validate` — lints spec markdown, cross-reference integrity, bundle parity against the embedded manifest.
 - [`atomic config`](docs/spec/atomic-state-and-config.md) — `get | set | unset | list | path` over `~/.claude/.atomic/config.toml`. Shell-settable defaults that steer every Claude session via an `@-ref` from the bundled `CLAUDE.md`. Works with or without the session-start hook (universal file-based delivery), so enterprise environments that block hooks are still covered. Schema v1 starts with `output.intensity` only; more keys land per concrete steering need.
-- [`atomic followups`](docs/spec/follow-ups-folder.md) — `list | add | close | render | migrate | path` over `.claude/project/followups/`. Per-entry YAML frontmatter files plus a regenerated `INDEX.md` auto-loaded into every session. `add` is the deterministic entrypoint shelled out to by `/subagent-implementation` Phase 3 `defer`; `/follow-up review` triages stale entries with per-item disposition.
+- [`atomic followups`](docs/spec/follow-ups-folder.md) — `list | add | close | render | path` over `.claude/project/followups/`. Per-entry YAML frontmatter files plus a regenerated `INDEX.md` auto-loaded into every session. `add` is the deterministic entrypoint shelled out to by `/subagent-implementation` Phase 3 `defer`; `/follow-up review` triages stale entries with per-item disposition.
 
 
 ## Canonical workflow
@@ -209,7 +209,7 @@ Bootstrap a fresh repo for atomic conventions, then teach Claude what it looks l
 | Step | Verb | What it does |
 |------|------|--------------|
 | 1 | `/atomic-setup` | Audits `.gitignore` (`.worktrees/`, `.claude/.scratchpad/`, `tmp/`), proposes `docs/{spec,design,guides,reference}/` scaffold, drops starter `CLAUDE.md` if missing. Proposes only what's missing; never overwrites. |
-| 2 | `/initialize-signals` | Scans the project and writes `.claude/project/{deterministic-signals,signals}.md`. Wires `@`-refs so Claude loads your repo's shape every session. |
+| 2 | `/refresh-signals` | Scans the project and writes `.claude/project/{deterministic-signals,signals}.md`. Wires `@`-refs so Claude loads your repo's shape every session. |
 
 Now you can get to work.
 

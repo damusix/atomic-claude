@@ -60,7 +60,7 @@ Pick **one** primary recommendation from this decision table. Show it first, the
 | `review` | `/review-branch` for pre-PR pass; `atomic-reviewer` agent runs inside `/subagent-implementation` per iteration. |
 | `debug` | `atomic-debug` skill auto-fires on errors; `/subagent-diagnose ci\|bug` for orchestrated investigation. |
 | `worktree` | `/worktree-start <branch>` creates `.worktrees/<branch>/`. Cleanup via `/git-cleanup`. |
-| `signals` | `/initialize-signals` first time, `/refresh-signals` afterwards. Auto-fires on source-tree changes via `atomic-signals` skill. |
+| `signals` | `/refresh-signals` (idempotent — initializes or refreshes). Auto-fires on source-tree changes via `atomic-signals` skill. |
 | `reminders` | `/remind-me <duration> <text>` schedules; `/follow-up` reviews pending. |
 | `cleanup` | `/git-cleanup` (stale branches/worktrees), `/undo-commit` (soft-undo HEAD). |
 | `docs` | `/documentation` syncs README/CLAUDE.md/spec/design after significant change. |

@@ -24,30 +24,16 @@ func checkFollowups(_ Opts) Result {
 // Exported for testing; production callers use checkFollowups.
 //
 // Decision table:
-//   - folder absent + legacy followups.md absent → SKIP
-//   - folder absent + legacy followups.md present → WARN (migration hint)
+//   - folder absent → SKIP
 //   - folder present, invalid/missing frontmatter in any entry → WARN
 //   - folder present, one or more entries past review_by → WARN
 //   - folder present, INDEX.md missing or byte-differs from re-render → WARN
 //   - folder present, all entries fresh, INDEX in sync → PASS
 func RunCheckFollowupsWith(root string) Result {
 	folderPath := filepath.Join(root, ".claude", "project", "followups")
-	legacyPath := filepath.Join(root, ".claude", "project", "followups.md")
 
-	folderExists := dirExists(folderPath)
-	legacyExists := fileExists(legacyPath)
-
-	// SKIP: neither folder nor legacy file.
-	if !folderExists && !legacyExists {
-		return Result{Severity: SKIP, Detail: "no followups folder or legacy file"}
-	}
-
-	// WARN: legacy file present but folder not yet created — migration needed.
-	if !folderExists && legacyExists {
-		return Result{
-			Severity: WARN,
-			Detail:   "legacy followups.md present; run `atomic followups migrate` to convert to folder layout",
-		}
+	if !dirExists(folderPath) {
+		return Result{Severity: SKIP, Detail: "no followups folder"}
 	}
 
 	// Folder exists — load entries.
@@ -117,12 +103,6 @@ func RunCheckFollowupsWith(root string) Result {
 func dirExists(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.IsDir()
-}
-
-// fileExists returns true when path is a regular file (or at least stat-able and not a dir).
-func fileExists(path string) bool {
-	fi, err := os.Stat(path)
-	return err == nil && !fi.IsDir()
 }
 
 // staleEntries returns the IDs of entries past their review_by date.

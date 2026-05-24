@@ -87,7 +87,7 @@ Invoke the `Agent` tool with:
     Skip the spec-compliance pass — emit `## Spec compliance\n\n(no spec — branch review only)`.
 
     Run the code-quality pass thoroughly. Verify TDD signals as usual:
-      - typecheck (project-detected command from .claude/project/inferred-signals.md if present)
+      - typecheck (project-detected command from .claude/project/signals.md if present)
       - tests
       - build
       - lint

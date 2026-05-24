@@ -407,7 +407,7 @@ func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 		t.Errorf("deterministic-signals ref missing from CLAUDE.md")
 	}
 	if !strings.Contains(content, "@.claude/project/signals.md") {
-		t.Errorf("inferred-signals ref missing from CLAUDE.md")
+		t.Errorf("signals ref missing from CLAUDE.md")
 	}
 }
 
@@ -545,7 +545,7 @@ func TestRepair_Refs_PartialFile_AppendsOnlyMissing(t *testing.T) {
 	// The missing inferred ref must be present exactly once.
 	infCount := strings.Count(content, "@.claude/project/signals.md")
 	if infCount != 1 {
-		t.Errorf("inferred-signals ref appears %d times (want 1)", infCount)
+		t.Errorf("signals ref appears %d times (want 1)", infCount)
 	}
 
 	// The deterministic ref that was already there must still appear exactly once (no duplicate).

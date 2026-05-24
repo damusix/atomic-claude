@@ -27,7 +27,7 @@ description: Commit current changes, then push. No PR, no merge. Delegates messa
     1. `command -v atomic` succeeds? If not, skip.
     2. `atomic signals stale` exits 1 (stale)? If it exits 0 (fresh), skip.
 
-    Both pass → invoke the `atomic-signals` skill in silent mode (no report line). If signals regenerate, stage `.claude/project/deterministic-signals.md` and `.claude/project/inferred-signals.md`.
+    Both pass → invoke the `atomic-signals` skill in silent mode (no report line). If signals regenerate, stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
 
     No file-extension allowlist. `atomic signals stale` is the source of truth; it fast-fails when nothing changed and catches structural shifts (e.g. a new `commands/*.md` file) that an extension list would miss.
 7. Commit using a HEREDOC message.

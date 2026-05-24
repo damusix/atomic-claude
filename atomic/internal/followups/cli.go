@@ -48,9 +48,6 @@ func Run(args []string, repoRoot string, stdout, stderr io.Writer, clock func() 
 	case "close":
 		return runClose(rest, dir, stdout, stderr, clock())
 
-	case "migrate":
-		return runMigrate(repoRoot, stdout, stderr, clock())
-
 	default:
 		fmt.Fprintf(stderr, "atomic followups: unknown verb %q\n", verb)
 		printUsage(stderr)
@@ -193,22 +190,13 @@ func runClose(args []string, dir string, stdout, stderr io.Writer, today time.Ti
 	return 0
 }
 
-func runMigrate(repoRoot string, stdout, stderr io.Writer, today time.Time) int {
-	if err := Migrate(repoRoot, today); err != nil {
-		fmt.Fprintf(stderr, "atomic followups migrate: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "Usage: atomic followups <list|add|close|render|migrate|path> [args]")
+	fmt.Fprintln(w, "Usage: atomic followups <list|add|close|render|path> [args]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  list [--stale] [--json]           List open follow-up entries")
 	fmt.Fprintln(w, "  add --id <id> --title <t> --severity <s> --origin <o> [--file <f>] [--body -]")
 	fmt.Fprintln(w, "                                    Create a new follow-up entry")
 	fmt.Fprintln(w, "  close <id> [--reason <r>]         Close an entry; appends to CLOSED.md")
 	fmt.Fprintln(w, "  render                            Regenerate INDEX.md from open entries")
-	fmt.Fprintln(w, "  migrate                           Migrate legacy followups.md to folder layout")
 	fmt.Fprintln(w, "  path                              Print absolute path to the followups folder")
 }

@@ -57,19 +57,6 @@ Preconditions: `signals.md` does not exist, OR no prior `deterministic-signals.m
 Run the complete pipeline across all inferred domains (see Pipeline below).
 
 
-## Migration
-
-On first run when `.claude/project/inferred-signals.md` exists and `.claude/project/signals.md` does not:
-
-1. Back up `inferred-signals.md` to `inferred-signals.md.bak` (same directory).
-2. Run the full pipeline: write `signals.md` + domain files per functional concern.
-3. Remove `inferred-signals.md`.
-4. Print: `Migrated to router shape. Review with \`git diff\`.`
-5. Update the project `CLAUDE.md` `@-ref` from `inferred-signals.md` to `signals.md`.
-
-No per-item confirm. This is a documented exception to axiom 3 — the inferrer runs non-interactively inside the `atomic-signals` skill dispatch with no TTY. The backup file and `git diff` serve as the review surface.
-
-
 ## Pipeline
 
 ```
@@ -283,5 +270,4 @@ The `signals/` directory is created when the inferrer identifies multiple functi
 - Reviewer validates each domain file before the orchestrator proceeds.
 - Never write `@-refs` in domain files or the router's Detail column — plain markdown paths only.
 - Never modify files outside `.claude/project/`.
-- `inferred-signals.md.bak` is never overwritten on subsequent runs — only created during migration.
 - Errors quoted exact. No paraphrasing.

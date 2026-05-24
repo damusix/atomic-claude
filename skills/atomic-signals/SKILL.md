@@ -47,7 +47,7 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
     Print the diff and the chosen target file before writing. Confirmation rules:
 
     - Running non-interactively (e.g. inside `/commit-only`, `/merge-to-main`, `/squash-and-merge`): append without confirmation.
-    - Running from `/initialize-signals`: ask via `AskUserQuestion` before writing, naming the target file.
+    - Running from `/refresh-signals`: ask via `AskUserQuestion` before writing, naming the target file.
 
 6. **Report.** Print one-line summary: `signals refreshed. <N> sections changed. inferrer updated <M> sections.` Suppress this line when invoked from a host command that requested silent mode (e.g. `/commit-only` step 4) — those flows already produce their own report.
 
@@ -78,4 +78,4 @@ This integration is implemented in `/commit-only` (CP S-4), not here.
 
 - Never modifies files outside `.claude/project/` and whichever auto-loaded Claude instructions file the wiring step targets (`claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md`).
 - Never blocks a commit — if the scan fails, log and continue.
-- Silent in `/commit-only` context; interactive only when invoked from `/initialize-signals` or directly by the user.
+- Silent in `/commit-only` context; interactive only when invoked from `/refresh-signals` or directly by the user.

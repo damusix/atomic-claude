@@ -25,7 +25,7 @@ If missing, warn (don't stop):
 ```
 note: no signals.md found. subagent will fall back to file-tree heuristics
 (.github/, .gitlab-ci.yml, .circleci/, Jenkinsfile, etc.).
-suggest running /initialize-signals or /refresh-signals after to improve future runs.
+suggest running /refresh-signals after to improve future runs.
 ```
 
 ## Step 2 — Capture context for the brief

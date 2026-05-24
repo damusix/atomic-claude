@@ -42,7 +42,7 @@ Grouped by capability, not by where each project files it.
 | Worktree isolation | `/worktree-start` | `using-git-worktrees` skill | — |
 | Ship a branch | `/commit-only`, `/commit-and-push`, `/commit-and-pr`, `/merge-to-main`, `/squash-and-merge`, … (10 verbs) | `finishing-a-development-branch` skill | — |
 | Compress a markdown file | `/atomic-compress <file>` | — | `/caveman-compress <file>` |
-| Project signal scanning | `/initialize-signals` + `atomic` binary + `atomic-signals` skill | — | — |
+| Project signal scanning | `/refresh-signals` + `atomic` binary + `atomic-signals` skill | — | — |
 | Artifact linting | `atomic validate [spec\|config\|bundle] [paths...]` | — | — |
 | Cron-backed reminders | `/remind-me`, `/follow-up` | — | — |
 | CI observation | `/watch-ci` | — | — |

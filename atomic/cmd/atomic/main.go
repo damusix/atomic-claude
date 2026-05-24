@@ -57,7 +57,6 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  followups add --id <id> --title <t> --severity <s> --origin <o>  Create entry\n")
 		fmt.Fprintf(os.Stderr, "  followups close <id> [--reason <r>]               Close an entry\n")
 		fmt.Fprintf(os.Stderr, "  followups render                                  Regenerate INDEX.md\n")
-		fmt.Fprintf(os.Stderr, "  followups migrate                                 Migrate legacy followups.md\n")
 		fmt.Fprintf(os.Stderr, "  followups path                                    Print followups folder path\n")
 		fmt.Fprintf(os.Stderr, "  validate [flags] [spec|config|bundle] [paths...]  Lint repo artifacts\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
@@ -714,7 +713,7 @@ func printPostInstallHint(verb string) {
 	fmt.Fprintln(os.Stderr, "next steps:")
 	fmt.Fprintln(os.Stderr, "  1. open claude code and run /config → output style → Atomic")
 	fmt.Fprintln(os.Stderr, "     (claude code requires explicit user opt-in for output styles)")
-	fmt.Fprintln(os.Stderr, "  2. in each repo where you want project signals, run /initialize-signals")
+	fmt.Fprintln(os.Stderr, "  2. in each repo where you want project signals, run /refresh-signals")
 }
 
 func runClaude(args []string) {

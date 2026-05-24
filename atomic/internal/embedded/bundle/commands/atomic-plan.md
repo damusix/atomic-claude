@@ -231,7 +231,7 @@ Both lines are copy-paste runnable.
 
 ## Amending an existing spec
 
-If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite. Apply the append-mostly rule from `CLAUDE.md`: edit the body as needed AND add a dated entry to `## Change log` capturing what changed and why. If the file lacks a `## Change log` section (legacy), add one before amending.
+If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite. Apply the append-mostly rule from `CLAUDE.md`: edit the body as needed AND add a dated entry to `## Change log` capturing what changed and why. If the file lacks a `## Change log` section, add one before amending.
 
 **Refinement vs. amendment.** Revisions during the initial planning conversation (before the user has said "proceed" the first time) are *drafting*, not amendments — keep iterating, leave `## Change log` empty. Once the spec is approved and implementation has started (or the file is committed), every later edit is an amendment and must log.
 

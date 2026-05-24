@@ -48,12 +48,6 @@ func defaultFollowupsRenderRepair(out io.Writer) error {
 	return applyFollowupsRenderRepair()
 }
 
-// defaultFollowupsMigrateRepair shells out to `atomic followups migrate`.
-func defaultFollowupsMigrateRepair(out io.Writer) error {
-	fmt.Fprintln(out, "$ atomic followups migrate")
-	return applyFollowupsMigrateRepair()
-}
-
 // applyFollowupsRenderRepair runs `atomic followups render` from the git toplevel.
 func applyFollowupsRenderRepair() error {
 	cwd, err := os.Getwd()
@@ -65,21 +59,6 @@ func applyFollowupsRenderRepair() error {
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("atomic followups render: %w\n%s", err, out)
-	}
-	return nil
-}
-
-// applyFollowupsMigrateRepair runs `atomic followups migrate` from the git toplevel.
-func applyFollowupsMigrateRepair() error {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("resolve cwd: %w", err)
-	}
-	root := gitToplevel(cwd)
-	cmd := exec.Command("atomic", "followups", "migrate")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("atomic followups migrate: %w\n%s", err, out)
 	}
 	return nil
 }

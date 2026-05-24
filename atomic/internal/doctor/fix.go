@@ -50,9 +50,6 @@ var manifestRepairFn func(io.Writer) error = defaultManifestRepair
 // followupsRenderRepairFn runs `atomic followups render` to regenerate INDEX.md.
 var followupsRenderRepairFn func(io.Writer) error = defaultFollowupsRenderRepair
 
-// followupsMigrateRepairFn runs `atomic followups migrate` to convert the legacy file.
-var followupsMigrateRepairFn func(io.Writer) error = defaultFollowupsMigrateRepair
-
 // isRepoDevFn checks whether cwd is in the atomic-claude repo.
 var isRepoDevFn func() (bool, error) = defaultIsRepoDev
 
@@ -93,15 +90,6 @@ func SetFollowupsRenderRepairFn(fn func(io.Writer) error) {
 		followupsRenderRepairFn = defaultFollowupsRenderRepair
 	} else {
 		followupsRenderRepairFn = fn
-	}
-}
-
-// SetFollowupsMigrateRepairFn replaces the followups migrate repair function (testing only).
-func SetFollowupsMigrateRepairFn(fn func(io.Writer) error) {
-	if fn == nil {
-		followupsMigrateRepairFn = defaultFollowupsMigrateRepair
-	} else {
-		followupsMigrateRepairFn = fn
 	}
 }
 
@@ -262,11 +250,8 @@ func repairPlan(r Result) (plan string, fixable bool) {
 	case "manifest":
 		return "run `make -C atomic bundle` to regenerate embedded bundle", true
 	case "followups":
-		// Legacy-migration and INDEX-sync subcases are auto-fixable.
+		// INDEX-sync subcase is auto-fixable.
 		// Stale entries and invalid frontmatter are not (require user action).
-		if strings.Contains(r.Detail, "atomic followups migrate") {
-			return "run `atomic followups migrate` to convert legacy file to folder layout", true
-		}
 		if strings.Contains(r.Detail, "atomic followups render") || strings.Contains(r.Detail, "INDEX.md") {
 			return "run `atomic followups render` to regenerate INDEX.md", true
 		}
@@ -309,11 +294,8 @@ func applyRepair(r Result, p Prompter, out io.Writer) error {
 	}
 }
 
-// applyFollowupsRepair dispatches to migrate or render based on the detail string.
+// applyFollowupsRepair dispatches to render based on the detail string.
 func applyFollowupsRepair(r Result, out io.Writer) error {
-	if strings.Contains(r.Detail, "atomic followups migrate") {
-		return followupsMigrateRepairFn(out)
-	}
 	if strings.Contains(r.Detail, "atomic followups render") || strings.Contains(r.Detail, "INDEX.md") {
 		return followupsRenderRepairFn(out)
 	}

@@ -154,22 +154,6 @@ func TestCLIClose_MissingID(t *testing.T) {
 	}
 }
 
-func TestCLIMigrate_NoSource(t *testing.T) {
-	// If neither followups.md nor followups/ exists, migrate should fail.
-	root, _, _ := cliTestRepo(t)
-	// Remove the followups/ dir created by cliTestRepo.
-	if err := os.RemoveAll(filepath.Join(root, ".claude", "project", "followups")); err != nil {
-		t.Fatalf("rm: %v", err)
-	}
-
-	var out strings.Builder
-	var errOut strings.Builder
-	code := Run([]string{"migrate"}, root, &out, &errOut, nowFixed(2026, 5, 22))
-	if code == 0 {
-		t.Error("expected non-zero exit when source missing")
-	}
-}
-
 func TestCLIUnknownVerb(t *testing.T) {
 	root, _, _ := cliTestRepo(t)
 	var out strings.Builder
