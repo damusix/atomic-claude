@@ -26,11 +26,11 @@ Users can cleanly reverse `atomic claude install` — restoring their pre-atomic
 
 ## Checkpoints
 
-| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
-|---|------------|-------------|-------|------------|----------|
-| 1 | Pre-install snapshot on first install | `atomic/internal/claudeinstall/snapshot.go` (new), `atomic/internal/claudeinstall/install.go` (wire snapshot call), `atomic/internal/config/paths.go` (add `PreInstallDir`), tests | atomic-builder | ~5 | Test: first install creates `pre-install/` with manifest.json + file copies; second install skips snapshot; settings.json captured when present |
-| 2 | `atomic claude uninstall` CLI subcommand | `atomic/cmd/atomic/main.go` (add subcommand), `atomic/internal/claudeinstall/uninstall.go` (new — plan computation + prompt generation), tests | atomic-builder | ~4 | Test: outputs correct prompt given a manifest; exits 1 when no pre-install; TTY hint when interactive |
-| 3 | Cross-reference wiring | `CLAUDE.md`, `CLAUDE.md`, `README.md` (uninstall section), `docs/guides/install.md`, signals refresh | atomic-surgeon | ~4 | All surfaces reference the new subcommand |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | Pre-install snapshot on first install | `atomic/internal/claudeinstall/snapshot.go`, `install.go`, `config/paths.go`, tests | Test: first install creates `pre-install/` with manifest.json + file copies; second install skips; settings.json captured when present |
+| 2 | `atomic claude uninstall` CLI subcommand | `atomic/cmd/atomic/main.go`, `atomic/internal/claudeinstall/uninstall.go`, tests | Test: outputs correct prompt given a manifest; exits 1 when no pre-install; TTY hint when interactive |
+| 3 | Cross-reference wiring | `CLAUDE.md`, `README.md`, `docs/guides/install.md` | All surfaces reference the new subcommand |
 
 
 ## Design
