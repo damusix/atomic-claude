@@ -31,3 +31,9 @@ func BackupDir(claudeHome string) string {
 func ProposedCLAUDEMD(claudeHome string) string {
 	return filepath.Join(Dir(claudeHome), "proposed", "CLAUDE.md")
 }
+
+// PreInstallDir returns the directory where claudeinstall writes a write-once
+// snapshot of every file it will touch, captured before the first Apply() call.
+func PreInstallDir(claudeHome string) string {
+	return filepath.Join(Dir(claudeHome), "pre-install")
+}

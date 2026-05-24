@@ -95,3 +95,29 @@ git clone https://github.com/damusix/atomic-claude.git
 cd atomic-claude/atomic
 make build       # or: go build -o ../bin/atomic ./cmd/atomic
 ```
+
+
+## Uninstall
+
+
+Run `atomic claude uninstall` from inside an active Claude Code session (Claude will execute it and receive the output as a prompt). If you run it in a plain terminal instead, the CLI detects the TTY and prints a hint explaining how to proceed.
+
+**What the CLI does (deterministic):**
+
+1. Reads `~/.claude/.atomic/pre-install/manifest.json`. If the file is missing (install predates the snapshot feature, or was never written), the command exits 1 with a clear error — there is nothing to restore.
+2. Computes a restore plan from the manifest: files that existed before install are marked for restore; files that atomic introduced are marked for deletion.
+3. Identifies which files need LLM mediation: `settings.json` and `CLAUDE.md` get flagged for merge if their current content differs from the pre-install snapshot (you modified them post-install).
+4. Outputs a structured prompt to stdout that tells Claude exactly what to do.
+
+**What Claude does (LLM-mediated):**
+
+1. Shows you the full plan and waits for one confirmation before touching anything.
+2. For files flagged for merge: reads the current file and the pre-install snapshot, identifies what you added post-install (permissions, MCP servers, env vars, custom sections), writes a merged result (pre-install base + your additions, minus atomic hook/config entries), and shows you the diff before writing.
+3. Restores pre-install copies for files that existed before.
+4. Deletes files that atomic introduced and you never had.
+5. Removes `~/.claude/.atomic/`.
+6. Prints the `rm <path>` command to remove the binary — the CLI never removes the binary itself.
+
+**Pre-install snapshot.** Written during `atomic claude install` (and skipped on subsequent `install` / `update` calls if it already exists). Stored at `~/.claude/.atomic/pre-install/` alongside a `manifest.json` recording each file's path, SHA256, and whether it existed before install. Files that did not exist get `"existed": false` in the manifest; uninstall deletes them rather than trying to restore nothing.
+
+Full spec: [`../spec/uninstall.md`](../spec/uninstall.md).

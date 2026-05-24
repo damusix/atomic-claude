@@ -26,6 +26,41 @@
 > **Still evolving.** Commands, agents, and skills may shift between releases. Breaking changes are flagged in the changelog. Ship verbs are safe to interrupt; when in doubt, `git reflog`.
 
 
+## Before / after
+
+Same question, same model, default Claude Code vs. Atomic Claude:
+
+**Default Claude Code:**
+```
+Sure! I'd be happy to help you understand that. The issue you're experiencing
+is likely caused by the middleware not properly validating the token expiry
+timestamp. What's happening is that the comparison uses a strict less-than
+operator when it should be using less-than-or-equal-to, which means tokens
+that expire at exactly the current second are incorrectly rejected.
+
+I'd suggest updating the comparison on line 42 of src/auth/middleware.ts...
+```
+
+**Atomic Claude:**
+```
+Bug in auth middleware. Token expiry check at src/auth/middleware.ts:42
+uses `<` not `<=` — tokens expiring at current second get rejected.
+
+Fix: change `token.exp < now` to `token.exp <= now`.
+```
+
+Same accuracy. Fewer tokens. Faster to scan.
+
+
+## Start here
+
+Pick your depth:
+
+1. **Just want compressed replies?** Install, activate the output style via `/config` → **Output style** → **Atomic**. Done. Everything else is optional.
+2. **Want project-state awareness?** Run `/atomic-setup` + `/initialize-signals` in your repo. Claude stops hallucinating build commands.
+3. **Want the full plan→implement→ship loop?** Keep reading.
+
+
 ## Install
 
 Two commands. The first lays down the `atomic` binary; the second wires everything else up.
@@ -44,9 +79,16 @@ atomic claude install
 
 That's it. Activate the output style with `/config` → **Output style** → **Atomic** in any Claude Code session, and you're set.
 
-**On update.** Run `atomic claude update` to refresh. If you've customized `~/.claude/CLAUDE.md`, the new version lands at `~/.claude/.atomic/proposed/CLAUDE.md` — run `/atomic-claude-merge` to reconcile. All atomic-owned per-user state (backups, proposed merges, the config TOML and its rendered view) lives under `~/.claude/.atomic/`.
+**Already have a `~/.claude/CLAUDE.md`?** The installer backs up your file and writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md`. Run `/atomic-claude-merge` in any Claude session to reconcile — it keeps your instructions, deduplicates conflicts with atomic's, and only overwrites on explicit accept.
+
+**On update.** Run `atomic update` for the binary, `atomic claude update` for the artifact bundle. Same merge workflow applies. All atomic-owned per-user state (backups, proposed merges, config TOML) lives under `~/.claude/.atomic/`.
 
 Prereqs, flags, full merge contract, `atomic doctor` verification, Docker eval → [docs/guides/install.md](docs/guides/install.md).
+
+
+## Uninstall
+
+Run `atomic claude uninstall` from inside a Claude Code session. The CLI reads the pre-install snapshot written by `atomic claude install`, computes what to restore and what to delete, and outputs a structured prompt that Claude executes. Claude confirms the plan with you, LLM-merges any files you modified post-install (`settings.json`, `CLAUDE.md`), removes `~/.claude/.atomic/`, and prints the one-line `rm` command to remove the binary if you want it gone. The binary itself is never auto-removed. Full flow → [docs/guides/install.md](docs/guides/install.md).
 
 
 ## What a fresh repo looks like

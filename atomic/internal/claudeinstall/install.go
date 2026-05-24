@@ -196,6 +196,15 @@ func Update(targetDir string, dryRun bool, clock Clock) ([]FileAction, error) {
 
 func installOrUpdate(targetDir string, dryRun bool, clock Clock) ([]FileAction, error) {
 	manifest := embedded.Manifest()
+
+	// Capture pre-install state before any files are written. Write-once: if the
+	// snapshot dir already exists this is a no-op. Skip when dry-running.
+	if !dryRun {
+		if err := writePreInstallSnapshot(targetDir, manifest, clock); err != nil {
+			return nil, fmt.Errorf("pre-install snapshot: %w", err)
+		}
+	}
+
 	plan, err := Plan(targetDir, manifest)
 	if err != nil {
 		return nil, err

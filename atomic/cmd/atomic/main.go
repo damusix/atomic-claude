@@ -29,10 +29,11 @@ func main() {
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: atomic [flags] <command> [args]\n\n")
 		fmt.Fprintf(os.Stderr, "Commands:\n")
-		fmt.Fprintf(os.Stderr, "  claude install [--dry-run] [--target ~/.claude]  Install artifact bundle\n")
-		fmt.Fprintf(os.Stderr, "  claude update  [--dry-run] [--target ~/.claude]  Update artifact bundle\n")
-		fmt.Fprintf(os.Stderr, "  claude list                                       List bundled artifacts\n")
-		fmt.Fprintf(os.Stderr, "  claude diff    [--target ~/.claude]               Diff bundle vs on-disk\n")
+		fmt.Fprintf(os.Stderr, "  claude install   [--dry-run] [--target ~/.claude]  Install artifact bundle\n")
+		fmt.Fprintf(os.Stderr, "  claude update    [--dry-run] [--target ~/.claude]  Update artifact bundle\n")
+		fmt.Fprintf(os.Stderr, "  claude list                                         List bundled artifacts\n")
+		fmt.Fprintf(os.Stderr, "  claude diff      [--target ~/.claude]               Diff bundle vs on-disk\n")
+		fmt.Fprintf(os.Stderr, "  claude uninstall [--target ~/.claude]               Generate uninstall prompt\n")
 		fmt.Fprintf(os.Stderr, "  config get <key>        Print resolved config value\n")
 		fmt.Fprintf(os.Stderr, "  config set <key> <val>  Set config value; re-renders config.resolved.md\n")
 		fmt.Fprintf(os.Stderr, "  config unset <key>      Revert key to built-in default\n")
@@ -680,6 +681,28 @@ func runClaudeInstall(targetDir, verb string, dryRun, noHooks bool) (installResu
 	return result, nil
 }
 
+// runClaudeUninstall builds the uninstall plan for targetDir and returns the
+// structured markdown prompt Claude should execute. When out is a TTY the
+// caller should print a human-readable hint before the prompt. Extracted from
+// the cmd switch so it can be tested without invoking os.Exit.
+func runClaudeUninstall(targetDir string, out *os.File) (string, error) {
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	if err != nil {
+		return "", err
+	}
+
+	// TTY detection: if out is a character device, we're in an interactive
+	// terminal — print a hint so the user knows what to do with the output.
+	info, statErr := out.Stat()
+	if statErr == nil && (info.Mode()&os.ModeCharDevice != 0) {
+		fmt.Fprintln(os.Stderr, "hint: run this inside a Claude Code session, or paste the output below into Claude.")
+		fmt.Fprintln(os.Stderr, "      alternatively: ask Claude to run `atomic claude uninstall`")
+		fmt.Fprintln(os.Stderr, "")
+	}
+
+	return claudeinstall.GenerateUninstallPrompt(targetDir, plan), nil
+}
+
 // printPostInstallHint surfaces the manual steps `atomic claude install` cannot
 // automate: output style activation (Claude Code requires user opt-in) and
 // per-repo signals initialization.
@@ -696,7 +719,7 @@ func printPostInstallHint(verb string) {
 
 func runClaude(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic claude <install|update|list|diff> [flags]\n")
+		fmt.Fprintf(os.Stderr, "Usage: atomic claude <install|update|list|diff|uninstall> [flags]\n")
 		os.Exit(2)
 	}
 
@@ -771,9 +794,30 @@ func runClaude(args []string) {
 			fmt.Printf("%s\t%s\n", r.Status, r.Artifact.Target)
 		}
 
+	case "uninstall":
+		fs := flag.NewFlagSet("claude uninstall", flag.ContinueOnError)
+		var target string
+		fs.StringVar(&target, "target", "~/.claude", "target directory (default ~/.claude)")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+
+		targetDir, err := claudeinstall.ResolveTarget(target)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude uninstall: %v\n", err)
+			os.Exit(1)
+		}
+
+		prompt, err := runClaudeUninstall(targetDir, os.Stdout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude uninstall: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Print(prompt)
+
 	default:
 		fmt.Fprintf(os.Stderr, "atomic claude: unknown verb %q\n", verb)
-		fmt.Fprintf(os.Stderr, "Usage: atomic claude <install|update|list|diff> [flags]\n")
+		fmt.Fprintf(os.Stderr, "Usage: atomic claude <install|update|list|diff|uninstall> [flags]\n")
 		os.Exit(2)
 	}
 }

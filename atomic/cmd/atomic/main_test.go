@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +10,12 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
+
+// sha256HexString returns the hex-encoded SHA256 of data.
+func sha256HexString(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
 
 // TestShouldRunPostUpdateDoctor tests precedence:
 // flag (--no-doctor) > config (update.run_doctor=false) > default true.
@@ -267,5 +275,132 @@ func TestReminderSetDueErrorPaths(t *testing.T) {
 	err = reminder.SetDue(root, "", "2026-06-01T12:00:00Z")
 	if err == nil {
 		t.Fatal("expected error for empty id, got nil")
+	}
+}
+
+// TestRunClaudeUninstall_MissingManifest verifies that runClaudeUninstall returns
+// an error (and the CLI exits 1) when no pre-install snapshot exists. This is the
+// primary guard that prevents uninstall from silently doing nothing.
+func TestRunClaudeUninstall_MissingManifest(t *testing.T) {
+	targetDir := t.TempDir()
+
+	// Use /dev/null as the output so TTY detection doesn't try to stat a nil file.
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open devnull: %v", err)
+	}
+	defer devNull.Close()
+
+	_, err = runClaudeUninstall(targetDir, devNull)
+	if err == nil {
+		t.Fatal("expected error when no pre-install manifest, got nil")
+	}
+	if !strings.Contains(err.Error(), "no pre-install snapshot") {
+		t.Errorf("error %q does not mention 'no pre-install snapshot'", err.Error())
+	}
+}
+
+// TestRunClaudeUninstall_NeedsMerge verifies the end-to-end NeedsMerge path:
+// a file that existed pre-install has been modified on disk post-install, so the
+// generated prompt must flag it as "NEEDS MERGE". Encodes the WHY: three-way
+// detection must surface user modifications so uninstall doesn't silently clobber
+// post-install changes to settings.json or CLAUDE.md.
+func TestRunClaudeUninstall_NeedsMerge(t *testing.T) {
+	targetDir := t.TempDir()
+	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
+
+	if err := os.MkdirAll(preInstallDir, 0o755); err != nil {
+		t.Fatalf("mkdir pre-install: %v", err)
+	}
+
+	// settings.json is not in the embedded bundle, so embeddedSHAs["settings.json"]=="".
+	// Pre-install SHA records the original content.
+	preInstallContent := []byte(`{"theme":"light"}`)
+	preInstallSHA := sha256HexString(preInstallContent)
+
+	// Write the pre-install snapshot copy.
+	if err := os.WriteFile(filepath.Join(preInstallDir, "settings.json"), preInstallContent, 0o644); err != nil {
+		t.Fatalf("write pre-install settings.json: %v", err)
+	}
+
+	// On-disk version differs from both pre-install and embedded (none) — user modified it.
+	onDiskContent := []byte(`{"theme":"dark","fontSize":14}`)
+	if err := os.WriteFile(filepath.Join(targetDir, "settings.json"), onDiskContent, 0o644); err != nil {
+		t.Fatalf("write on-disk settings.json: %v", err)
+	}
+
+	manifestJSON := `{
+		"created": "2026-05-24T00:00:00Z",
+		"atomic_version": "1.5.1",
+		"files": [
+			{"path": "settings.json", "sha256": "` + preInstallSHA + `", "existed": true}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(preInstallDir, "manifest.json"), []byte(manifestJSON), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open devnull: %v", err)
+	}
+	defer devNull.Close()
+
+	prompt, err := runClaudeUninstall(targetDir, devNull)
+	if err != nil {
+		t.Fatalf("runClaudeUninstall: %v", err)
+	}
+	if !strings.Contains(prompt, "NEEDS MERGE") {
+		t.Errorf("expected 'NEEDS MERGE' in prompt for user-modified file; got:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "settings.json") {
+		t.Errorf("expected 'settings.json' in prompt; got:\n%s", prompt)
+	}
+}
+
+// TestRunClaudeUninstall_ProducesPrompt verifies that runClaudeUninstall returns
+// a non-empty prompt with the required structural sections when a valid manifest
+// exists.
+func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
+	targetDir := t.TempDir()
+	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
+
+	// Write a minimal manifest with one file to delete and one to restore.
+	if err := os.MkdirAll(preInstallDir, 0o755); err != nil {
+		t.Fatalf("mkdir pre-install: %v", err)
+	}
+	manifestJSON := `{
+		"created": "2026-05-24T00:00:00Z",
+		"atomic_version": "1.5.1",
+		"files": [
+			{"path": "CLAUDE.md", "sha256": "abc123", "existed": true},
+			{"path": "agents/atomic-builder.md", "sha256": "", "existed": false}
+		]
+	}`
+	if err := os.WriteFile(filepath.Join(preInstallDir, "manifest.json"), []byte(manifestJSON), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatalf("open devnull: %v", err)
+	}
+	defer devNull.Close()
+
+	prompt, err := runClaudeUninstall(targetDir, devNull)
+	if err != nil {
+		t.Fatalf("runClaudeUninstall: %v", err)
+	}
+	if prompt == "" {
+		t.Fatal("expected non-empty prompt, got empty string")
+	}
+	if !strings.Contains(prompt, "## Atomic Claude Uninstall") {
+		t.Errorf("prompt missing '## Atomic Claude Uninstall'")
+	}
+	if !strings.Contains(prompt, "atomic-builder.md") {
+		t.Errorf("prompt missing 'atomic-builder.md'")
+	}
+	if !strings.Contains(prompt, "CLAUDE.md") {
+		t.Errorf("prompt missing 'CLAUDE.md'")
 	}
 }
