@@ -164,6 +164,8 @@ Built across 4 iterations of /subagent-implementation. Commits (chronological):
 **Deferred items still open:**
 - None — all 6 follow-ups fixed in polish pass.
 
+**Squashed to `7a68621` — 2026-05-24.** Per-iteration SHAs above are historical (unreachable from any branch).
+
 
 ## Change log
 
