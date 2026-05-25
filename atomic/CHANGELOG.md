@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.0](https://github.com/damusix/atomic-claude/compare/v1.7.0...v1.8.0) (2026-05-25)
+
+
+### Features
+
+* documentation-as-maintenance system ([f3d1230](https://github.com/damusix/atomic-claude/commit/f3d1230ee37dd915cfc64be9faf603d20db42895))
+* VitePress docs site, documentation rewrite, prompting best practices ([f9ff26c](https://github.com/damusix/atomic-claude/commit/f9ff26ca4b07e749107c7317153e47bf80be0011))
+
+
+### Bug Fixes
+
+* **prose:** add "ship" to marketing jargon blocklist ([ef46546](https://github.com/damusix/atomic-claude/commit/ef46546d1e3c86ba712383426aa27a4bee5b562e))
+
 ## [1.7.0](https://github.com/damusix/atomic-claude/compare/v1.6.0...v1.7.0) (2026-05-25)
 
 
