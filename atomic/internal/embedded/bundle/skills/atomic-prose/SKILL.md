@@ -47,6 +47,7 @@ The atomic output style file (`output-styles/atomic.md`) covers TUI replies. Thi
 
     | Avoid | Use |
     |---|---|
+    | ship / ships with (as filler verb) | includes, provides, comes with, has, delivers, bundles. Reserve "ship" for literal release/deploy contexts ("ship v2.0", "ship to production"). |
     | navigate (challenges) | handle, address |
     | unpack | explain, examine |
     | lean into | accept, use |

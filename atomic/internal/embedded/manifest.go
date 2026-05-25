@@ -61,7 +61,7 @@ func Manifest() []Artifact {
 		{Kind: "skill", Source: "bundle/skills/atomic-commit/SKILL.md", Target: "skills/atomic-commit/SKILL.md", SHA256: "3272cfdb626a68034a986c7307653e686917ae4153f8cfcd074ecfbe0c2b2f0c"},
 		{Kind: "skill", Source: "bundle/skills/atomic-debug/SKILL.md", Target: "skills/atomic-debug/SKILL.md", SHA256: "4fad133de05c5938c2226278cf7ad8ca2f5b8937882feee400463fe2847c70cd"},
 		{Kind: "skill", Source: "bundle/skills/atomic-documentation/SKILL.md", Target: "skills/atomic-documentation/SKILL.md", SHA256: "22ea1a84b20dab33754fb0cd87d39f67ad832564a2d8caffa8a33b3cddafd35b"},
-		{Kind: "skill", Source: "bundle/skills/atomic-prose/SKILL.md", Target: "skills/atomic-prose/SKILL.md", SHA256: "a915e136af4858de202aa04a40e56c7bb82c1350f18be60ed06e8f95235b3a92"},
+		{Kind: "skill", Source: "bundle/skills/atomic-prose/SKILL.md", Target: "skills/atomic-prose/SKILL.md", SHA256: "e7a72d5d90077a73207bea05c33d202b9dc3bac94d055541c493a61e60cb8f78"},
 		{Kind: "skill", Source: "bundle/skills/atomic-review/SKILL.md", Target: "skills/atomic-review/SKILL.md", SHA256: "af782e3de92e97b4936d72f5a40ca17bd3fc4634e3ab49e97dce0732b8d2fc86"},
 		{Kind: "skill", Source: "bundle/skills/atomic-signals/SKILL.md", Target: "skills/atomic-signals/SKILL.md", SHA256: "527f2737a630d60667d0856c1fbd0c798a7f60cc8d20b966faeb7cbd78d2f812"},
 		{Kind: "skill", Source: "bundle/skills/atomic-tdd/SKILL.md", Target: "skills/atomic-tdd/SKILL.md", SHA256: "29c6b0aa8d907fa720992019523f4b8d236a373292d5ac8cee84ceb44d1f10a4"},
