@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.0](https://github.com/damusix/atomic-claude/compare/v1.6.0...v1.7.0) (2026-05-25)
+
+
+### Features
+
+* **signals:** steering file, dual-mode .signalsignore, docs ([c02187a](https://github.com/damusix/atomic-claude/commit/c02187a0453202b43cc7e391d42152964085c16b))
+
 ## [1.6.0](https://github.com/damusix/atomic-claude/compare/v1.5.1...v1.6.0) (2026-05-24)
 
 
