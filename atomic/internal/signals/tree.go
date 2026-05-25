@@ -190,32 +190,49 @@ func ScanTree(root string) (string, error) {
 	return ScanTreeWithOptions(root, nil)
 }
 
-// ScanTreeWithOptions is like ScanTree but reads MaxDepth and SignalsIgnoreGlobs from opts.
+// ScanTreeWithOptions is like ScanTree but reads MaxDepth, ExcludeGlobs, and
+// GeneratedGlobs from opts.
 // When opts is nil or opts.MaxDepth is 0, defaultMaxDepth (3) is used.
-// When opts is nil or opts.SignalsIgnoreGlobs is empty, .signalsignore is read from root.
+// When opts is nil and both glob slices are empty, .signalsignore is read from root.
+// ExcludeGlobs: matching files are omitted from the tree entirely (not shown).
+// GeneratedGlobs: matching files appear in the tree with a [generated] marker.
 func ScanTreeWithOptions(root string, opts *Options) (string, error) {
 	maxDepth := defaultMaxDepth
 	if opts != nil && opts.MaxDepth > 0 {
 		maxDepth = opts.MaxDepth
 	}
 
-	// Load .signalsignore globs. When opts.SignalsIgnoreGlobs is already set
+	// Load .signalsignore globs. When opts already has globs set
 	// (populated by ScanWithOptions), skip the file read to avoid double I/O.
-	var ignoreGlobs []string
-	if opts != nil && len(opts.SignalsIgnoreGlobs) > 0 {
-		ignoreGlobs = opts.SignalsIgnoreGlobs
+	var excludeGlobs, generatedGlobs []string
+	if opts != nil && (len(opts.ExcludeGlobs) > 0 || len(opts.GeneratedGlobs) > 0) {
+		excludeGlobs = opts.ExcludeGlobs
+		generatedGlobs = opts.GeneratedGlobs
 	} else {
-		globs, err := readSignalsIgnore(root)
+		excl, gen, err := readSignalsIgnore(root)
 		if err != nil {
 			return "", fmt.Errorf("tree scanner: %w", err)
 		}
-		ignoreGlobs = globs
+		excludeGlobs = excl
+		generatedGlobs = gen
 	}
 
 	files, err := enumerateFiles(root)
 	if err != nil {
 		return "", err
 	}
+
+	// Filter out files matching ExcludeGlobs before building the tree.
+	if len(excludeGlobs) > 0 {
+		kept := files[:0]
+		for _, rel := range files {
+			if !matchesSignalsIgnore(rel, excludeGlobs) {
+				kept = append(kept, rel)
+			}
+		}
+		files = kept
+	}
+
 	if len(files) == 0 {
 		return "", nil
 	}
@@ -265,9 +282,9 @@ func ScanTreeWithOptions(root string, opts *Options) (string, error) {
 	// Files are hidden only when their parent dir is depthCapped or beyond
 	// (markAllBeyond propagates the flag). A single file read computes all 4
 	// metadata fields (SHA, lines, chars, bytes) at once — no double reads.
-	// Also mark generated nodes based on .signalsignore globs.
+	// Also mark generated nodes based on GeneratedGlobs from .signalsignore.
 	for rel, node := range fileNodeByRel {
-		if len(ignoreGlobs) > 0 && matchesSignalsIgnore(rel, ignoreGlobs) {
+		if len(generatedGlobs) > 0 && matchesSignalsIgnore(rel, generatedGlobs) {
 			node.generated = true
 		}
 		if !node.beyond {

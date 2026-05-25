@@ -67,6 +67,8 @@ Orchestrator reads deterministic diff → identifies domains → dispatches sub-
 
 Read `.claude/project/deterministic-signals.md` end-to-end. On incremental runs, also read the diff output to determine the changed-paths set.
 
+Read `.claude/project/signals-steering.md` if it exists. This file contains user-provided hints that override inference: framework corrections, domain grouping overrides, build/test command overrides, paths to ignore for domain classification. Treat its content as ground truth — when steering contradicts what the deterministic scan implies, steering wins. If the file is absent, proceed with pure inference (no error).
+
 Naming continuity check: read existing `signals/*.md` and `signals/*/index.md` filenames. For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
 
 **Step 2 — Infer domain partitioning (vertical slices).**

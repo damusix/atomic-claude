@@ -104,6 +104,27 @@ Use "initialized" if Step 2 found no existing signals; "refreshed" otherwise.
 
 ---
 
+## Steering
+
+If `.claude/project/signals-steering.md` exists, the inferrer reads it as authoritative user hints. Use it to correct misdetected frameworks, override domain groupings, specify exact build/test commands, or exclude paths from domain classification. Steering wins over inference when they conflict.
+
+Example:
+
+```markdown
+## Framework
+NestJS monorepo (not plain Express)
+
+## Domains
+- src/billing/ and src/payments/ are one domain ("payments")
+- src/internal-tools/ is scratch code — not a real domain
+
+## Build
+- Build: pnpm turbo build
+- Test: pnpm test:ci (not pnpm test — that runs watch mode)
+```
+
+---
+
 ## Rules
 
 - Stop on pre-flight failure. Never continue past a missing git repo or missing binary.

@@ -45,37 +45,47 @@ type Options struct {
 	// (~/.claude/.atomic/config.toml). When empty, ScanWithOptions resolves it
 	// from os.UserHomeDir. Used by tests to inject an alternate config.
 	ConfigPath string
-	// SignalsIgnoreGlobs holds the parsed glob patterns from .signalsignore.
-	// Files matching any glob appear in the tree with a [generated] marker.
+	// ExcludeGlobs holds plain (no-prefix) glob patterns from .signalsignore.
+	// Files matching any glob are omitted from the tree entirely.
 	// Populated automatically by ScanWithOptions from the repo's .signalsignore.
 	// Callers may also set this directly for testing.
-	SignalsIgnoreGlobs []string
+	ExcludeGlobs []string
+	// GeneratedGlobs holds '+'-prefixed glob patterns from .signalsignore (prefix stripped).
+	// Files matching any glob appear in the tree with a [generated] marker but
+	// the inferrer skips them for domain content.
+	// Populated automatically by ScanWithOptions from the repo's .signalsignore.
+	// Callers may also set this directly for testing.
+	GeneratedGlobs []string
 }
 
-// readSignalsIgnore reads .signalsignore from the repo root and returns the
-// parsed glob patterns. Comment lines (# ...) and blank lines are ignored.
-// If the file is absent, an empty slice is returned without error.
-func readSignalsIgnore(root string) ([]string, error) {
+// readSignalsIgnore reads .signalsignore from the repo root and returns two
+// slices: excludeGlobs (plain lines) and generatedGlobs ('+'-prefixed lines,
+// with the '+' stripped). Comment lines (# ...) and blank lines are ignored.
+// If the file is absent, both slices are nil and no error is returned.
+func readSignalsIgnore(root string) (excludeGlobs, generatedGlobs []string, err error) {
 	path := filepath.Join(root, ".signalsignore")
-	f, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+	f, ferr := os.Open(path)
+	if ferr != nil {
+		if os.IsNotExist(ferr) {
+			return nil, nil, nil
 		}
-		return nil, fmt.Errorf("read .signalsignore: %w", err)
+		return nil, nil, fmt.Errorf("read .signalsignore: %w", ferr)
 	}
 	defer f.Close()
 
-	var globs []string
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		globs = append(globs, line)
+		if strings.HasPrefix(line, "+") {
+			generatedGlobs = append(generatedGlobs, line[1:])
+		} else {
+			excludeGlobs = append(excludeGlobs, line)
+		}
 	}
-	return globs, scanner.Err()
+	return excludeGlobs, generatedGlobs, scanner.Err()
 }
 
 func (o *Options) clock() time.Time {
@@ -123,12 +133,13 @@ func ScanWithOptions(root string, opts *Options) error {
 		// Final fallback handled inside ScanTreeWithOptions (defaultMaxDepth).
 	}
 
-	if len(opts.SignalsIgnoreGlobs) == 0 {
-		globs, err := readSignalsIgnore(root)
+	if len(opts.ExcludeGlobs) == 0 && len(opts.GeneratedGlobs) == 0 {
+		excl, gen, err := readSignalsIgnore(root)
 		if err != nil {
 			return fmt.Errorf("signals scan: %w", err)
 		}
-		opts.SignalsIgnoreGlobs = globs
+		opts.ExcludeGlobs = excl
+		opts.GeneratedGlobs = gen
 	}
 
 	body, err := assembleBody(root, opts)

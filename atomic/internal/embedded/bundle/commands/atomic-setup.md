@@ -25,6 +25,7 @@ Inspect the repo. Build this status table:
 | `.gitignore` has `tmp/` | grep `^tmp/?$` | yes / no |
 | `.gitignore` has `.claude/.scratchpad/` | grep `^\.claude/\.scratchpad/?$` | yes / no |
 | `.gitignore` has `.worktrees/` | grep `^\.worktrees/?$` | yes / no |
+| `.gitignore` has `.claude/project/.deterministic-signals.prev.md` | grep the pattern | yes / no |
 | `CLAUDE.md` at repo root | `test -f CLAUDE.md` | exists / missing |
 | `docs/` directory | `test -d docs` | exists / missing |
 | `docs/spec/` directory | `test -d docs/spec` | exists / missing |
@@ -36,6 +37,7 @@ Inspect the repo. Build this status table:
 | `.claude/project/deterministic-signals.md` | `test -f .claude/project/deterministic-signals.md` | exists / missing |
 | `CLAUDE.md` references signals files | `test -f CLAUDE.md && grep -qF '@.claude/project/deterministic-signals.md' CLAUDE.md && grep -qF '@.claude/project/signals.md' CLAUDE.md` (if `test -f CLAUDE.md` fails → n/a) | yes / no / n/a |
 | `.signalsignore` at repo root | `test -f .signalsignore` | exists / missing |
+| `.claude/project/signals-steering.md` | `test -f .claude/project/signals-steering.md` | exists / missing |
 
 Classify the repo:
 
@@ -51,10 +53,11 @@ For each missing item, propose an action. Skip items already present.
 
 | Missing item | Proposed action |
 |--------------|----------------|
-| `.gitignore` doesn't exist | Create with three lines: `tmp/`, `.claude/.scratchpad/`, `.worktrees/`. |
+| `.gitignore` doesn't exist | Create with: `tmp/`, `.claude/.scratchpad/`, `.worktrees/`, `.claude/project/.deterministic-signals.prev.md`. |
 | `.gitignore` exists but missing `tmp/` | Append `tmp/`. |
 | `.gitignore` exists but missing `.claude/.scratchpad/` | Append `.claude/.scratchpad/`. |
 | `.gitignore` exists but missing `.worktrees/` | Append `.worktrees/`. |
+| `.gitignore` exists but missing `.claude/project/.deterministic-signals.prev.md` | Append `.claude/project/.deterministic-signals.prev.md`. |
 | `CLAUDE.md` missing | Run the survey procedure (see "CLAUDE.md survey" in Step 4). Never write a blank scaffold; always seed each section with an agent guess from signals/README/code, user edits the guess. |
 | `docs/spec/` missing | Create directory + `docs/spec/.gitkeep` (so git tracks it before any content lands). |
 | `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
@@ -66,6 +69,7 @@ For each missing item, propose an action. Skip items already present.
 | `deterministic-signals.md` missing but `atomic` present | Print: "Run `/refresh-signals` to generate project signals." (follow-up only; setup does not invoke it). |
 | `CLAUDE.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
 | `.signalsignore` missing | Create `.signalsignore` with commented explanation (see `.signalsignore` subsection in Step 4). Never overwrite if it exists. |
+| `.claude/project/signals-steering.md` missing | Create `.claude/project/signals-steering.md` with commented explanation (see `signals-steering.md` subsection in Step 4). Never overwrite if it exists. |
 
 Present the proposed actions as a numbered list:
 
@@ -120,15 +124,56 @@ if ! test -f .signalsignore; then
   cat > .signalsignore << 'EOF'
 # .signalsignore
 #
-# Paths matching these globs are scanned by `atomic signals scan`
-# (they appear in the tree with full metadata) but are flagged
-# as [generated]. The signals inferrer skips [generated] entries
-# when writing domain file content.
+# Augments .gitignore for the signals scan. Gitignored paths are
+# already excluded automatically. This file is for TRACKED paths
+# you want excluded from signals or flagged as generated.
 #
-# One glob per line. Blank lines and # comments are ignored.
-# Example:
-#   build/output/**
-#   generated/**
+# Two modes:
+#   plain glob  → fully excluded from scan (not in tree at all)
+#   + prefix    → appears in tree with [generated] flag (inferrer skips)
+#
+# One glob per line. Blank lines and # comments ignored.
+#
+# Examples:
+#   third_party/**     ← committed but excluded from signals
+#   fixtures/**        ← committed but excluded from signals
+#   +dist/**           ← in tree, flagged [generated]
+#   +*.pb.go           ← in tree, flagged [generated]
+EOF
+fi
+```
+
+### `signals-steering.md`
+
+Refuse to overwrite if file exists (audit already gated this — defensive double-check).
+
+Write the file only when `.claude/project/signals-steering.md` is absent:
+
+```bash
+if ! test -f .claude/project/signals-steering.md; then
+  mkdir -p .claude/project
+  cat > .claude/project/signals-steering.md << 'EOF'
+# Signals steering
+#
+# User-provided hints for the signals inferrer. When this file exists,
+# the inferrer reads it before writing signals.md and treats its
+# content as ground truth — steering wins over detection when they
+# conflict. Delete sections you don't need.
+#
+# ## Framework
+# NestJS monorepo (not plain Express)
+#
+# ## Domains
+# - src/billing/ and src/payments/ are one domain ("payments")
+# - src/internal-tools/ is scratch code — not a real domain
+#
+# ## Build
+# - Build: pnpm turbo build
+# - Test: pnpm test:ci (not pnpm test — that runs watch mode)
+#
+# ## Ignore for domains
+# - vendor/
+# - generated/
 EOF
 fi
 ```

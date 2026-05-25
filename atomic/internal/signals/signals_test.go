@@ -1624,14 +1624,14 @@ func TestScanWithOptions_MaxDepthDefault(t *testing.T) {
 // ---- CP-2: .signalsignore read + [generated] flagging ----
 
 func TestSignalsIgnore_MatchingPathFlagged(t *testing.T) {
-	// Files matching .signalsignore globs must appear in tree with [generated] marker.
+	// Files matching '+'-prefixed .signalsignore globs must appear in tree with [generated] marker.
 	// WHY: inferrer must be able to identify generated files without omitting them from the
 	// deterministic substrate (their SHA is still needed for change detection).
 	content := "package main\n"
 	root := makeRepo(t, map[string]string{
 		"main.go":              content,
 		"generated/openapi.go": content,
-		".signalsignore":       "generated/*\n",
+		".signalsignore":       "+generated/*\n",
 	})
 	out, err := signals.ScanTree(root)
 	if err != nil {
@@ -1664,7 +1664,7 @@ func TestSignalsIgnore_ContentSHAStillComputed(t *testing.T) {
 	content := "package main\n\nfunc main() {}\n"
 	root := makeRepo(t, map[string]string{
 		"gen.go":         content,
-		".signalsignore": "gen.go\n",
+		".signalsignore": "+gen.go\n",
 	})
 	out, err := signals.ScanTree(root)
 	if err != nil {
@@ -1717,7 +1717,7 @@ func TestSignalsIgnore_CommentsAndBlankLinesIgnored(t *testing.T) {
 		"real.go": content,
 		".signalsignore": "# this is a comment\n" +
 			"\n" +
-			"gen.go\n" +
+			"+gen.go\n" +
 			"  # indented comment\n" +
 			"\n",
 	})
@@ -1725,7 +1725,7 @@ func TestSignalsIgnore_CommentsAndBlankLinesIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ScanTree: %v", err)
 	}
-	// gen.go matches the pattern — must be flagged.
+	// gen.go matches the '+' pattern — must be flagged as [generated].
 	for _, l := range strings.Split(out, "\n") {
 		if strings.Contains(l, "gen.go") {
 			if !strings.Contains(l, "[generated]") {
@@ -1738,6 +1738,76 @@ func TestSignalsIgnore_CommentsAndBlankLinesIgnored(t *testing.T) {
 		if strings.Contains(l, "real.go") && strings.Contains(l, "[generated]") {
 			t.Errorf("real.go should not be flagged: %q", l)
 		}
+	}
+}
+
+func TestSignalsIgnore_PlainGlobExcludesEntirely(t *testing.T) {
+	// Plain (no '+' prefix) .signalsignore globs exclude files from the tree entirely.
+	// WHY: the new default behavior is full exclusion; '+' prefix opts into [generated] flagging.
+	content := "package main\n"
+	root := makeRepo(t, map[string]string{
+		"main.go":              content,
+		"vendor/dep/dep.go":    content,
+		"generated/openapi.go": content,
+		".signalsignore": "vendor/**\n" +
+			"generated/**\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// main.go must appear without any flag.
+	if !strings.Contains(out, "main.go") {
+		t.Errorf("main.go must appear in tree, got:\n%s", out)
+	}
+	// vendor and generated files must be absent from the tree entirely.
+	if strings.Contains(out, "dep.go") {
+		t.Errorf("dep.go (excluded via plain glob) must not appear in tree:\n%s", out)
+	}
+	if strings.Contains(out, "openapi.go") {
+		t.Errorf("openapi.go (excluded via plain glob) must not appear in tree:\n%s", out)
+	}
+	// No [generated] flags — excluded files are gone, not flagged.
+	if strings.Contains(out, "[generated]") {
+		t.Errorf("excluded files must not produce [generated] flags:\n%s", out)
+	}
+}
+
+func TestSignalsIgnore_MixedPrefixes(t *testing.T) {
+	// A .signalsignore file may contain both plain excludes and '+' generated flags.
+	// WHY: users need both behaviors in one file.
+	content := "package main\n"
+	root := makeRepo(t, map[string]string{
+		"main.go":           content,
+		"node_modules/x.js": content,
+		"gen/pb.go":         content,
+		".signalsignore": "node_modules/**\n" +
+			"+gen/*.go\n",
+	})
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	// main.go: present, no flag.
+	if !strings.Contains(out, "main.go") {
+		t.Errorf("main.go must appear in tree:\n%s", out)
+	}
+	// x.js: plain exclude — must be absent.
+	if strings.Contains(out, "x.js") {
+		t.Errorf("x.js (plain exclude) must not appear in tree:\n%s", out)
+	}
+	// pb.go: '+' generated — must appear with [generated] flag.
+	found := false
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "pb.go") {
+			found = true
+			if !strings.Contains(l, "[generated]") {
+				t.Errorf("pb.go should have [generated] flag, got: %q", l)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("pb.go ('+' generated) must appear in tree:\n%s", out)
 	}
 }
 
