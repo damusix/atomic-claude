@@ -1,16 +1,36 @@
 # Agents
 
+Agents are specialized workers that run in a fresh context. The orchestrator dispatches them during `/subagent-implementation` and `/subagent-diagnose`, but you can also invoke them directly via the Agent tool.
 
-Agents are dispatched by the orchestrator (or directly by the user) via the Agent tool. Each runs in a fresh context.
 
-| Agent | Dispatch when | Model |
-|-------|--------------|-------|
-| `atomic-builder` | Feature-checkpoint implementation. One cohesive slice (controller + service + DTO + tests, etc.). Refuses cross-cutting or architecturally ambiguous scope. | Sonnet |
-| `atomic-surgeon` | Surgical 1-2 file edits. Typos, single-function rewrites, mechanical renames. Hard refuses 3+ file scope. | Sonnet |
-| `atomic-investigator` | Read-only code location. "Where is X defined", "what calls Y", "list uses of Z". Returns `file:line — what` table, no prose, no speculation. | Haiku |
-| `atomic-reviewer` | Diff review after each builder pass. Verifies TDD quality signals were actually run. Emits one line per finding + `VERDICT: PASS` or `CHANGES_REQUESTED`. | Sonnet |
-| `atomic-strategist` | Heavyweight reasoning over plans, specs, designs, and hard problems. Restates problem, surfaces hidden assumptions, names tradeoffs, recommends approach with explicit confidence. Read-only; does not implement, gate, or locate. | Opus |
-| `atomic-git-scout` | Read-only scanner for stale git state (worktrees, branches, optional remote tracking refs). Classifies cleanup candidates and returns indexed report. Dispatched by `/git-cleanup`. Never mutates state. | Sonnet |
-| `atomic-signals-inferrer` | Reads `deterministic-signals.md` and writes `signals.md` (the router). On large repos, dispatches sub-agents per domain to write `signals/<domain>/` files with reviewer validation. On small repos, writes everything into `signals.md` directly. Dispatched by `atomic-signals`. Scoped to `.claude/project/`. | Sonnet |
-| `atomic-haiku` | Lightweight background runner for polling, status checks, log scraping, structured reporting. Read-only by default. Used by `/watch-ci`; available for any task too lightweight for Sonnet. | Haiku |
-| `atomic-claude-merger` | Merges `~/.claude/.atomic/proposed/CLAUDE.md` into the live `~/.claude/CLAUDE.md`. Preserves user sections, replaces atomic-owned ones. Dispatched by `/atomic-claude-merge`. | Sonnet |
+## Code agents
+
+These write and review code.
+
+| Agent | What it does | Model |
+|-------|-------------|-------|
+| `atomic-builder` | Implements a feature checkpoint — one cohesive slice across however many files it touches (controller + service + DTO + tests, etc.). Writes a failing test first. Refuses cross-cutting or ambiguous scope. | Sonnet |
+| `atomic-surgeon` | Makes surgical 1-2 file edits. Typo fixes, single-function rewrites, mechanical renames. Hard refuses anything larger. | Sonnet |
+| `atomic-reviewer` | Reviews a diff after each builder pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. | Sonnet |
+
+
+## Research agents
+
+These read code but never write it.
+
+| Agent | What it does | Model |
+|-------|-------------|-------|
+| `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." Returns a file:line table with no speculation. | Haiku |
+| `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. | Opus |
+
+
+## Infrastructure agents
+
+These handle system-level tasks.
+
+| Agent | What it does | Model |
+|-------|-------------|-------|
+| `atomic-git-scout` | Scans for stale worktrees, branches, and remote tracking refs. Classifies each as safe-to-delete, needs-confirmation, or skip. Used by `/git-cleanup`. | Sonnet |
+| `atomic-signals-inferrer` | Reads the deterministic scan and writes the inferred signals file. On large repos, dispatches sub-agents per domain. | Sonnet |
+| `atomic-haiku` | Lightweight background runner for CI polling, log scraping, and status checks. Used by `/watch-ci`. | Haiku |
+| `atomic-claude-merger` | Reconciles your `CLAUDE.md` with updates from an install or upgrade. Preserves your sections, replaces atomic-owned ones. | Sonnet |

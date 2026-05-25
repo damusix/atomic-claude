@@ -1,35 +1,77 @@
 # Commands
 
+Commands are explicit actions you invoke with a slash. They never auto-fire — you reach for them on purpose.
+
+
+## Planning
 
 | Command | What it does |
 |---------|-------------|
-| `/atomic-setup` | Bootstrap the current repo for atomic conventions. Audits .gitignore, docs/ layout, CLAUDE.md; proposes only what's missing. Never overwrites. |
-| `/atomic-plan` | Triviality-gauged plan. Trivial → inline `docs/spec/<topic>.md`. Non-trivial → design doc + spec authored via subagent loop (`atomic-builder` ↔ `atomic-reviewer` in spec-mode). Optional `atomic-investigator` / `atomic-strategist` passes. Conditional `/pressure-test` handoff. |
-| `/atomic-compress <file>` | Compress a prose Markdown file into atomic style. Backs up original as `<file>.original.md`. |
-| `/pressure-test [<topic> \| @<path-to.md>]` | Socratic challenger session for design decisions. Pressure-tests assumptions, surfaces contradictions, forces fuzzy maybes into yes/no — through questions only, never producing code or artifacts. Pairs with `/atomic-plan` as a pre-approval gate. |
-| `/subagent-implementation` | Orchestrate implement → review subagent loop until task is complete. |
-| `/worktree-start <name>` | Create isolated worktree at `.worktrees/<name>/`, new branch, auto-detected project setup. |
-| `/git-cleanup [<name>]` | Scan stale git state (worktrees, branches, optional remote) via `atomic-git-scout`, present indexed report, ask before deleting. Local-only by default; asks about remote. |
-| `/commit-only` | Stage and commit. Delegates message format to `atomic-commit` skill. |
-| `/commit-and-push` | Commit then push. No PR, no merge. Trunk-based counterpart to `/commit-and-pr`. |
-| `/commit-and-pr` | Commit, push, open PR via `gh`. |
-| `/commit-and-merge` | Commit then merge to base branch. |
-| `/commit-and-squash` | Commit then squash all branch commits. |
-| `/push-only` | Push existing commits to the remote. No commit, no PR. Trunk-based counterpart to `/pr-only`. |
-| `/pr-only` | Open PR for the current branch (commits already exist). |
-| `/merge-to-main` | Merge current branch into base, no squash. |
-| `/squash-only` | Squash all branch commits into one (no merge). |
-| `/squash-and-merge` | Squash-merge into base, delete branch. |
-| `/review-branch` | Dispatch `atomic-reviewer` once on `<base>..HEAD` for a pre-PR / pre-merge branch review. No spec required, no orchestration loop. |
-| `/undo-commit` | Soft-undo the last commit (`reset --soft HEAD~1`). Refuses if HEAD is a merge commit, the initial commit, or already pushed. |
-| `/remind-me <duration> <text>` | Schedule a reminder. Writes a reminder file and creates a one-shot cron that fires `/follow-up due <id>` at the given time. Degrades to file-only if `CronCreate` is unavailable. |
-| `/follow-up [due <id> \| review]` | Review pending reminders. Bare: indexed list + done/snooze/reschedule actions. Cron-fired: surfaces the specific reminder and waits for user response. `review`: triage stale `.claude/project/followups/` entries with per-item extend/close/promote/skip disposition. |
-| `/refresh-signals` | Scan or re-scan project signals. Initializes on first run (wires `@-refs`), refreshes on subsequent runs. Idempotent. Requires `atomic` binary. |
-| `/documentation` | Diff-scoped doc-impact pass. Invokes the `atomic-documentation` skill on the diff, walks proposed surfaces (edit / skip / continue), stages edits. Does not commit. Flags: `--print-template`, `--dry-run`. |
-| `/report-issue` | Open a GitHub issue via `gh` against the user's current repo. Auto-detects bug report vs. feature request. |
-| `/report-issue-with-atomic` | Open a GitHub issue against the **atomic-claude repo itself** (`damusix/atomic-claude`). For bugs or feature requests with the installed config, not the user's current project. |
-| `/watch-ci [<target>]` | Spawn a background Haiku subagent to watch CI for the current branch/PR/run. Provider auto-detected from signals. |
-| `/atomic-claude-merge` | Merge `~/.claude/.atomic/proposed/CLAUDE.md` (produced by `atomic claude install/update`) into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent. |
-| `/atomic-help [<topic> \| <freeform intent>]` | Routing assistant for a disoriented user. Reads git state, classifies intent, recommends the single next action. Never executes. |
-| `/subagent-diagnose <ci\|bug> [args]` | Multi-agent failure-investigation orchestrator. `ci` mode seeds from a failed GitHub Actions run; `bug` mode from a freeform symptom. Same scratchpad + investigator + builder + reviewer chain as `/subagent-implementation`. |
-| `/session-report [<slug>]` | Capture what changed and why for the current branch's session. Writes a timestamped markdown file to `.claude/.scratchpad/session-reports/<branch>/`. Read by the next commit-message-generating ship verb as supplemental *why*-context, then deleted. Opt-in; does not auto-fire. |
+| `/atomic-plan` | Produce a spec for the work ahead. Small tasks get an inline checkpoint table; larger work gets a design doc and a derived spec. Nothing is implemented until you approve. |
+| `/pressure-test` | Challenge a design decision before committing to it. Asks hard questions, surfaces contradictions, and forces fuzzy maybes into yes or no. Pairs well with `/atomic-plan` as a pre-approval gate. |
+
+
+## Implementation
+
+| Command | What it does |
+|---------|-------------|
+| `/subagent-implementation` | Run the implement-then-review loop from an approved spec. Builder writes code, reviewer checks it, passing checkpoints get committed. |
+| `/subagent-diagnose` | Investigate and fix a failure. `ci` mode starts from a failed CI run; `bug` mode starts from a description. Same loop as implementation. |
+| `/worktree-start` | Create an isolated worktree at `.worktrees/<name>/` with its own branch. Detects your project setup (npm, cargo, pip, go) and runs a baseline test. |
+
+
+## Shipping
+
+All ship commands delegate commit messages to the `atomic-commit` skill.
+
+| Command | What it does |
+|---------|-------------|
+| `/commit-only` | Stage and commit. Nothing else. |
+| `/commit-and-push` | Commit, then push. No PR, no merge. |
+| `/commit-and-pr` | Commit, push, and open a PR via `gh`. |
+| `/commit-and-merge` | Commit, then merge into the base branch. |
+| `/commit-and-squash` | Commit, then squash all branch commits into one. |
+| `/push-only` | Push existing commits. No new commit, no PR. |
+| `/pr-only` | Open a PR for commits that already exist. |
+| `/squash-only` | Squash all branch commits into one. No merge. |
+| `/squash-and-merge` | Squash into one commit and merge to base. |
+| `/merge-to-main` | Merge the current branch into base. No squash. |
+| `/undo-commit` | Soft-undo the last commit. Refuses merge commits, initial commits, and already-pushed commits. |
+
+
+## Code review
+
+| Command | What it does |
+|---------|-------------|
+| `/review-branch` | One-shot code review of the current branch against base. No orchestration loop, no spec required. |
+| `/documentation` | Check what docs need updating based on the current diff. Walks you through each affected surface (edit, skip, or continue). |
+
+
+## Project setup
+
+| Command | What it does |
+|---------|-------------|
+| `/atomic-setup` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
+| `/refresh-signals` | Scan the project and generate (or update) the signals files that teach Claude your repo's shape. Idempotent. |
+| `/atomic-compress` | Compress a prose markdown file into atomic style. Backs up the original. |
+
+
+## Maintenance
+
+| Command | What it does |
+|---------|-------------|
+| `/git-cleanup` | Scan for stale worktrees, branches, and optionally remote tracking refs. Shows a report and asks before deleting anything. |
+| `/watch-ci` | Spawn a background agent to monitor CI for the current branch. Reports back when it finishes. |
+| `/remind-me` | Schedule a reminder (e.g. `/remind-me 2h check deploy`). Creates a cron-fired follow-up. |
+| `/follow-up` | Review pending reminders. Also used to triage stale project follow-ups with `/follow-up review`. |
+| `/session-report` | Capture what changed and why during this session. Read by the next ship command for commit message context, then deleted. |
+
+
+## Utilities
+
+| Command | What it does |
+|---------|-------------|
+| `/atomic-help` | When you are not sure what to do next. Reads git state, figures out where you are, and recommends one action. |
+| `/atomic-claude-merge` | Reconcile your `~/.claude/CLAUDE.md` with updates from `atomic claude install`. Keeps your instructions, deduplicates conflicts. |
+| `/report-issue` | Open a GitHub issue against your current repo. |
+| `/report-issue-with-atomic` | Open a GitHub issue against the atomic-claude repo itself. |

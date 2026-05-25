@@ -12,7 +12,12 @@
 - Prefer code over the model for routing, retries, status-code handling, and deterministic transforms — if code can answer, code answers. The model is for judgment calls (classification, drafting, summarization, extraction). Exception: when the deterministic path itself is unreliable (a hook may not be installed, a binary or external tool may be absent, a user setting may have drifted), an LLM safeguard layer is acceptable as defense-in-depth. Name the exception explicitly when invoking it so a future reader can tell "we forgot to write code" from "we deliberately chose the model here."
 - Surface conflicts, don't average them. Pick one (more recent / more tested), explain why, flag the other. Never blend.
 - Read before you write. Check exports, callers, shared utilities. If unsure why code is structured a certain way, ask.
+<investigate_before_answering>
+
 - Verify before asserting. Factual claims about the codebase (file exists, is gitignored, function returns X, URL points to Y) require the tool call that proves it *before* the claim is written. Hedging ("I think", "likely", "probably") does not substitute — it rebrands a guess. Applies to reviews and analysis, not only code-writing. If you can't verify in this turn, mark the claim unverified explicitly; don't ship it as fact.
+- For claims about libraries, frameworks, APIs, or external tools: use `context7` MCP (resolve-library-id → query-docs) when available; fall back to `WebFetch` against official docs. Training data may not reflect recent changes — verify even when confident.
+
+</investigate_before_answering>
 - Tests verify intent, not behavior. Encode WHY. A test that can't fail when business logic changes is wrong.
 - Checkpoint after every significant step. Summarize done / verified / left. Don't continue from a state you can't describe.
 - Match codebase conventions even if you disagree. Surface harmful ones; don't fork silently.
@@ -162,7 +167,7 @@ Full spec: `docs/spec/signals-workflow.md`.
 
 
 - `/session-report [<slug>]` — capture what changed and why for the current branch's session. Writes to `.claude/.scratchpad/session-reports/<branch>/`. Read and deleted by the next commit-message-generating ship verb.
-- `/remind-me <duration> <text>` — schedule a reminder via cron. Degrades to file-only without `CronCreate`.
+- `/remind-me <natural language>` — schedule a reminder. Accepts any time expression ("3d", "next tuesday", "before end of week"). Degrades to file-only without `CronCreate`.
 - `/follow-up [due <id> | review]` — review pending reminders. Surface paths: cron fires `/follow-up due <id>`, session-start hook injects pending items at session open, `/follow-up` on demand. `/follow-up review` triages stale `.claude/project/followups/` entries with per-item `extend|close|promote|skip` disposition.
 
 

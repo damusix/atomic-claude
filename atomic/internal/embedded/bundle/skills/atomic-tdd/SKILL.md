@@ -59,18 +59,13 @@ TDD doesn't apply to these cases. Each skip requires an explicit `skipped becaus
 
 Skipping silently = violation.
 
-## Red flags — STOP and start over
+## Discipline reminders
 
-Refuse these rationalizations. They all mean: delete the code, start over with TDD.
+The test always comes first. These situations tempt shortcuts — resist them:
 
-- "I'll write tests after"
-- "Too simple to need a test"
-- "I already manually tested"
-- "Deleting the code I wrote is wasteful" — sunk cost fallacy; the time is gone either way
-- "Keep the code as reference while writing tests" — you'll adapt it; that's tests-after
-- "Tests after achieve the same goals" — no: tests-first answer "what should this do?", tests-after answer "what does this do?"
-- "TDD will slow me down" — TDD is faster than debugging-after
-- "This is different because..."
+- Code already written without a test → delete it, write the test first, then reimplement. Keeping existing code as reference biases the test toward the implementation rather than the intent.
+- "Too simple to need a test" → simple code deserves a simple test. Write it.
+- Tests-after vs tests-first are fundamentally different: tests-first answer "what should this do?", tests-after answer "what does this do?"
 
 ## Good test characteristics
 

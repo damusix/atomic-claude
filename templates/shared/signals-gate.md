@@ -1,7 +1,9 @@
-{{define "signals-gate"}}**Signals pre-commit** — evaluate these gates in order; stop at the first that fails:
-    1. `command -v atomic` succeeds? If not, skip.
-    2. `atomic signals stale` exits 1 (stale)? If it exits 0 (fresh), skip.
+{{define "signals-gate"}}<signals-refresh>
+Refresh project signals so Claude's map stays current for the next session.
 
-    Both pass → invoke the `atomic-signals` skill in silent mode (no report line). If signals regenerate, stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
+1. Check `command -v atomic`. If missing, skip.
+2. Check `atomic signals stale`. If fresh (exit 0), skip.
+3. Both pass → invoke the `atomic-signals` skill in silent mode. Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
 
-    No file-extension allowlist. `atomic signals stale` is the source of truth; it fast-fails when nothing changed and catches structural shifts (e.g. a new `commands/*.md` file) that an extension list would miss.{{- end}}
+The `atomic signals stale` command is the source of truth — it fast-fails when nothing changed and catches structural shifts that a file-extension allowlist would miss.
+</signals-refresh>{{- end}}

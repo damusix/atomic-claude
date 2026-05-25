@@ -32,6 +32,8 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
     - If `claude.local.md` or `CLAUDE.local.md` exists, append the block to whichever exists (prefer `claude.local.md`). This handles repos that separate project-local refs from bundled/committed instructions (e.g. config-source repos where `CLAUDE.md` is the bundle input and must not carry project-specific paths).
     - Else, append to `CLAUDE.md` (create it only if it does not exist and the repo has `.claude/project/`).
 
+    **Placement:** position the `@-ref` block BEFORE behavioral rules/instructions in the target file. Signals are reference data (facts about the codebase), not instructions — placing them early follows the "longform data at top, instructions at end" principle for better model comprehension. If the target file has existing sections, insert after any brief orientation/context sections but before rules, conventions, or workflow sections.
+
     Block to append:
 
     ```markdown
@@ -49,7 +51,14 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
     - Running non-interactively (e.g. inside `/commit-only`, `/merge-to-main`, `/squash-and-merge`): append without confirmation.
     - Running from `/refresh-signals`: ask via `AskUserQuestion` before writing, naming the target file.
 
-6. **Report.** Print one-line summary: `signals refreshed. <N> sections changed. inferrer updated <M> sections.` Suppress this line when invoked from a host command that requested silent mode (e.g. `/commit-only` step 4) — those flows already produce their own report.
+6. **Surface concerns.** If the inferrer returned a `## Concerns` table (judgment observations found during inference), present them to the user as a numbered list. Ask via `AskUserQuestion`: "The signals scan found N potential issues. Create follow-ups for any?" with options:
+    - "All" — create follow-ups for every concern via `atomic followups add`
+    - "Pick" — print the indexed list, accept space/comma-separated indices, create only those
+    - "Skip" — discard, no follow-ups created
+
+    When running in silent mode (e.g. inside `/commit-only`), skip this step entirely — concerns are discarded silently. They'll surface on the next interactive `/refresh-signals` run.
+
+7. **Report.** Print one-line summary: `signals refreshed. <N> sections changed. inferrer updated <M> sections.` If concerns were created as follow-ups, append: `<K> follow-ups created.` Suppress this line when invoked from a host command that requested silent mode (e.g. `/commit-only` step 4) — those flows already produce their own report.
 
 ## Fallback flow (no binary)
 

@@ -60,17 +60,20 @@ Skip enrichment silently if the listing tool is unavailable or returns no match 
 
 ### Step 3 — Print the indexed list
 
+<example>
 ```
-Reminders (N)
+Reminders (3)
   [1] r-7b21 — benchmark the new query plan (created 2 days ago) [routine]
   [2] r-3f9a — fix auth race in middleware (created 5 days ago, fires in 2 days) [cron]
   [3] r-1c7e — revisit error handling in ingest (created 1 week ago) [none]
 ```
+</example>
 
 Include the `[transport]` tag so the user knows how each reminder is scheduled.
 
 ### Step 4 — Prompt for action
 
+<example>
 ```
 Type one of:
   done <indices>             — mark done (delete file + cancel schedule)
@@ -79,8 +82,11 @@ Type one of:
   show <index>               — print body
   none                       — exit
 
-Examples: done 1 3 | snooze 2 3d | reschedule 4 2026-06-01 | none
+Examples: done 1 3 | snooze 2 3d | reschedule 2 next friday | none
 ```
+</example>
+
+The `<duration>` and `<when>` accept natural language — same inference rules as `/remind-me` Step 1. "next friday", "end of week", "3 days" all work.
 
 ### Step 5 — Parse and validate selection
 
@@ -112,7 +118,7 @@ For each index in the selection:
 
 #### `snooze <index> <duration>` and `reschedule <index> <when>`
 
-Both verbs follow the same steps (snooze implies a relative duration; reschedule implies an absolute time — treat them identically in execution):
+Both verbs accept natural-language time expressions — same inference rules as `/remind-me` Step 1 ("next friday", "end of week", "3 days", "2026-06-01" all work). Both follow the same execution steps (snooze implies relative; reschedule implies absolute — treated identically):
 
 1. Look up the reminder id and current `transport` from the indexed list.
 2. **Cancel the old schedule** based on current transport (same logic as `done` step 2 above).
@@ -257,6 +263,14 @@ Disposition: extend | close | promote | skip
 ```
 
 Use `AskUserQuestion` with choices `["extend", "close", "promote", "skip"]` — binary/small-choice decision per axiom 4 guidance.
+
+**Batch shortcuts.** If the user types text instead of picking an option, accept these accelerators:
+
+- `extend all` / `extend rest` — extend this and all remaining entries without further prompting.
+- `skip all` / `skip rest` — skip this and all remaining entries.
+- `done` / `stop` — stop reviewing, skip all remaining entries.
+
+These avoid fatigue when many entries are stale. Only non-destructive verbs (`extend`, `skip`) support batch — `close` and `promote` always require per-item confirmation per axiom 3.
 
 For `close` and `promote` (destructive — axiom 3): confirm explicitly before acting:
 

@@ -4,8 +4,13 @@ description: Open a PR for the current branch via gh. Assumes commits exist. Del
 
 ## Prereqs
 
-- `command -v gh` — if missing: tell user to install (`brew install gh` / `winget install --id GitHub.cli` / https://cli.github.com/) then `gh auth login`. Stop.
-- `gh auth status` — if unauthed: tell user `gh auth login`. Stop.
+- `command -v gh` — if missing, tell the user to install and authenticate. Stop.
+- `gh auth status` — if unauthed, tell the user to run `gh auth login`. Stop.
+
+## Pre-flight
+{{ template "staleness-check" . }}
 
 ## Steps
 {{ template "pr-flow" . }}
+
+{{ template "git-safety" . }}

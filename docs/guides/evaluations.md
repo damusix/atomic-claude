@@ -1,70 +1,73 @@
 # Evaluations
 
+Try Atomic Claude in an isolated Docker container before installing it on your machine. The container builds `atomic` from source, lays the bundle into a persistent `~/.claude`, and drops you into Claude Code with a workspace that survives container removal.
 
-Try Atomic Claude in an isolated Docker container. Builds `atomic` from this repo's source, lays the bundle into a persistent `~/.claude`, drops you into Claude Code in a workspace dir that survives container removal.
-
-Prereq: Docker + docker compose v2.
-
-
-## Contributors (working in this repo)
-
-Build the image once:
-
-    make docker-build
-
-Then drop into the Claude TUI:
-
-    make docker-up
-
-To bypass the entrypoint for fast iteration (raw bash shell, no Claude TUI):
-
-    make docker-shell
+**Prerequisite:** Docker + docker compose v2.
 
 
-## End users
+## For contributors
+
+If you are working in this repo:
+
+```bash
+make docker-build    # build the image (once)
+make docker-up       # start Claude Code in the container
+```
+
+For a raw shell without the Claude TUI (useful for fast iteration):
+
+```bash
+make docker-shell
+```
 
 
-If you're not a contributor to this repo and want to evaluate atomic-claude on your own project, install atomic, then:
+## For everyone else
 
-    atomic docker init
+If you want to evaluate atomic-claude on your own project without cloning this repo:
 
-Writes `Dockerfile`, `docker-compose.yml`, `docker-entrypoint.sh`, `.dockerignore`, and a `tmp/` scaffold into `./atomic-docker/` (override with `--target some/path`). Refuses to overwrite existing files unless `--force` is passed.
+```bash
+atomic docker init
+cd atomic-docker
+docker compose build
+docker compose run --rm atomic-eval
+```
 
-From there:
-
-    cd atomic-docker
-    docker compose build
-    docker compose run --rm atomic-eval
-
-Drop your project files into `atomic-docker/tmp/workspace/` (or symlink your repo into it). Same volume layout and first-run `claude login` flow as the contributor setup above.
-
-
-## Volume layout
-
-Two directories under `tmp/` are bind-mounted into the container:
-
-- `tmp/workspace/` → `/workspace` inside the container. Your eval project lives here. Persists across `docker compose run` invocations; only `.gitkeep` is tracked in git.
-- `tmp/claude-home/` → `/home/atomic/.claude` inside the container. Holds Claude config, memory, and auth tokens. Persists `claude login` across runs. Only `.gitkeep` is tracked in git.
-
-Both are gitignored. The `.gitkeep` placeholders keep them in the repo so the bind mounts exist on a fresh clone.
+`atomic docker init` writes a self-contained Docker setup into `./atomic-docker/` (override with `--target`). Drop your project files into `atomic-docker/tmp/workspace/` or symlink your repo into it.
 
 
-## First-run auth
+## How volumes work
 
-On first `make docker-up`, Claude Code prompts you to authenticate. It emits a URL and code; open the URL in your host browser and paste the code. Auth tokens land in `tmp/claude-home/` and persist. Subsequent `make docker-up` runs skip the prompt.
+Two directories under `tmp/` are mounted into the container:
+
+| Host path | Container path | What lives here |
+|-----------|---------------|----------------|
+| `tmp/workspace/` | `/workspace` | Your project. Persists across runs. |
+| `tmp/claude-home/` | `/home/atomic/.claude` | Claude config, auth tokens, memory. Persists `claude login` across runs. |
+
+Both are gitignored. The `.gitkeep` placeholders keep them in the repo so the mounts work on a fresh clone.
+
+
+## First-run authentication
+
+On first launch, Claude Code prompts you to authenticate. It shows a URL and a code — open the URL in your host browser and paste the code. Auth tokens are saved in `tmp/claude-home/` and persist. Subsequent launches skip the prompt.
 
 
 ## Linux UID note
 
-Bind mounts use the host UID. On Linux, if `tmp/` files end up root-owned, rebuild with your UID:
+Bind mounts use the host UID. If files end up root-owned on Linux, rebuild with your UID:
 
-    make docker-build HOST_UID=$(id -u)
+```bash
+make docker-build HOST_UID=$(id -u)
+```
 
-Mac and Windows Docker Desktop handle UID mapping transparently; this step is not needed there.
+Mac and Windows Docker Desktop handle this transparently.
 
 
 ## Reset
 
-To start fresh (wipes auth and workspace):
+To wipe everything and start fresh:
 
-    rm -rf tmp/claude-home/* tmp/claude-home/.[!.]* tmp/workspace/* tmp/workspace/.[!.]* 2>/dev/null; touch tmp/claude-home/.gitkeep tmp/workspace/.gitkeep
+```bash
+rm -rf tmp/claude-home/* tmp/claude-home/.[!.]* tmp/workspace/* tmp/workspace/.[!.]*
+touch tmp/claude-home/.gitkeep tmp/workspace/.gitkeep
+```

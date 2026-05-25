@@ -1,6 +1,14 @@
-{{define "doc-impact"}}**Documentation impact check** — invoke the `atomic-documentation` skill on the staged diff (`git diff --cached`). Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, has no `surfaces` key, or `surfaces` is empty, skip this step silently. For each non-empty surface:
-    - Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
-    - Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
-    - **edit**: open the file, apply the suggested change, stage it with `git add <path>`.
-    - **skip**: ask for a typed reason; record `doc-skip: <reason>` to append to the commit trailer block (after the body's blank line, in `git interpret-trailers --parse` range). One line per skip.
-    - **continue**: treat as misclassification; no edit, no `doc-skip` line.{{- end}}
+{{define "doc-impact"}}<doc-impact>
+Check whether the staged changes affect documentation. Invoke the `atomic-documentation` skill on `git diff --cached`.
+
+Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, or has no surfaces, skip silently.
+
+For each surface found:
+- Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
+- Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
+- **edit** — open the file, apply the change, stage with `git add <path>`.
+- **skip** — ask for a typed reason; record `doc-skip: <reason>` as a commit trailer.
+- **continue** — treat as misclassification; move on.
+
+Run doc-impact before signals refresh so that new doc files get picked up by signals in one pass.
+</doc-impact>{{- end}}

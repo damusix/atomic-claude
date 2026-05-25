@@ -2,36 +2,47 @@
 description: Stage and commit current changes. Delegates message format to the atomic-commit skill. Does not push.
 ---
 
-1. Invoke the `atomic-commit` skill. Follow it for message format.
-2. `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
-3. **Read session reports for the current branch** (if any):
-    - `BRANCH=$(git branch --show-current)` (or short SHA on detached HEAD).
-    - `REPORTS_DIR=.claude/.scratchpad/session-reports/<BRANCH-sanitized>/`.
-    - If the dir exists and contains `*.md`, read all files in chronological order and pass their content to the `atomic-commit` skill as supplemental why-context for the commit message. If the dir is empty or missing, proceed normally.
-4. Stage relevant files explicitly by path. No `git add -A` / `.`. Skip secrets, build artifacts, large binaries. If staged/unstaged intent is ambiguous, ask.
-5. **Documentation impact check** — invoke the `atomic-documentation` skill on the staged diff (`git diff --cached`). Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, has no `surfaces` key, or `surfaces` is empty, skip this step silently. For each non-empty surface:
-    - Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
-    - Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
-    - **edit**: open the file, apply the suggested change, stage it with `git add <path>`.
-    - **skip**: ask for a typed reason; record `doc-skip: <reason>` to append to the commit trailer block (after the body's blank line, in `git interpret-trailers --parse` range). One line per skip.
-    - **continue**: treat as misclassification; no edit, no `doc-skip` line.
+<commit-flow>
 
-    Why doc-before-signals: new doc files staged at step 5 must be picked up by signals at step 6 in a single pass. Doc-after-signals would force a second stale-gate. One pass.
+Invoke the `atomic-commit` skill for message format.
 
-6. **Signals pre-commit** — evaluate these gates in order; stop at the first that fails:
-    1. `command -v atomic` succeeds? If not, skip.
-    2. `atomic signals stale` exits 1 (stale)? If it exits 0 (fresh), skip.
+1. Read the current state: `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
+2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir exists and has `*.md` files, read them chronologically and pass their content to `atomic-commit` as supplemental why-context.
+3. **Stage files** explicitly by path. Skip secrets, build artifacts, and large binaries. If the intent is ambiguous, ask.
+4. <doc-impact>
+Check whether the staged changes affect documentation. Invoke the `atomic-documentation` skill on `git diff --cached`.
 
-    Both pass → invoke the `atomic-signals` skill in silent mode (no report line). If signals regenerate, stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
+Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, or has no surfaces, skip silently.
 
-    No file-extension allowlist. `atomic signals stale` is the source of truth; it fast-fails when nothing changed and catches structural shifts (e.g. a new `commands/*.md` file) that an extension list would miss.
-7. Commit using a HEREDOC message.
-8. **On successful commit (exit 0): delete the branch's session-reports dir.**
-    - `rm -rf .claude/.scratchpad/session-reports/<BRANCH-sanitized>/`
-    - Silent; this is the documented contract from `docs/spec/session-report.md`. The reports were consumed by the commit message — they have served their purpose. Leaving them would pollute future commits on the same branch with stale context.
-    - If the commit failed or was aborted (pre-commit hook rejection, user interrupt): **do not delete.** Reports persist for the next attempt.
-9. `git status` to confirm.
+For each surface found:
+- Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
+- Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
+- **edit** — open the file, apply the change, stage with `git add <path>`.
+- **skip** — ask for a typed reason; record `doc-skip: <reason>` as a commit trailer.
+- **continue** — treat as misclassification; move on.
 
-On pre-commit hook failure: fix root cause, re-stage, create a NEW commit. No `--no-verify`. No `--amend`. Session-reports dir stays in place across hook-failure retries; it is only deleted after a commit that actually succeeds.
+Run doc-impact before signals refresh so that new doc files get picked up by signals in one pass.
+</doc-impact>
+5. <signals-refresh>
+Refresh project signals so Claude's map stays current for the next session.
 
-No push. No PR. One commit per invocation — if diff spans unrelated concerns, ask how to split.
+1. Check `command -v atomic`. If missing, skip.
+2. Check `atomic signals stale`. If fresh (exit 0), skip.
+3. Both pass → invoke the `atomic-signals` skill in silent mode. Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
+
+The `atomic signals stale` command is the source of truth — it fast-fails when nothing changed and catches structural shifts that a file-extension allowlist would miss.
+</signals-refresh>
+6. **Commit** using a HEREDOC message.
+7. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. The reports were consumed by the commit message. If the commit failed, leave them for the next attempt.
+8. `git status` to confirm.
+
+One commit per invocation. If the diff spans unrelated concerns, ask how to split.
+
+</commit-flow>
+
+<git-safety>
+- Use relative paths for `git add` based on the current working directory.
+- Run each `git` command as a separate Bash call.
+- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit. The hook exists for a reason.
+- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history.
+</git-safety>

@@ -1,27 +1,113 @@
 # Workflow
 
+Atomic Claude follows a lifecycle: set up the repo, plan the work, implement it, fix what breaks, and ship it.
 
-The canonical lifecycle:
 
-1. **`/atomic-plan`** — collaborative. You and Claude produce a checkpoint table written to `docs/design/<topic>.md` (brainstorm / rationale) or `docs/spec/<topic>.md` (implementation contract). Human-facing, Mermaid diagrams allowed. This is the human approval gate.
+## 0. Set up your repo
 
-2. **`/subagent-implementation`** — autonomous from the spec. The orchestrator reads `docs/spec/`, writes a thin `BRIEF.md` + `STATE.md` + `FOLLOWUPS.md` to `.claude/.scratchpad/`, then drives an implement → review loop using fresh-context subagents. Each reviewer `VERDICT: PASS` triggers a commit before the next iteration. Non-blocking findings (🟡 risks, 🔵 nits, ❓ questions) accumulate in `FOLLOWUPS.md` and get dispositioned with you at finalize — fix now, file an issue, or drop. Nothing gets silently dropped just because the iteration passed.
+Before your first session in a new project, two commands teach Claude what it is looking at:
 
-3. **`/subagent-diagnose [ci|bug]`** — when something breaks. Same scratchpad + investigator + builder + reviewer loop as `/subagent-implementation`, seeded from a failed CI run or a freeform bug symptom.
+```
+/atomic-setup
+/refresh-signals
+```
 
-4. **Ship** — pick the verb that matches your situation:
+`/atomic-setup` audits your repo for missing conventions (`.gitignore` entries, `docs/` layout, starter `CLAUDE.md`) and proposes only what is missing. `/refresh-signals` scans the project and generates the [signals files](/reference/signals-workflow) that give Claude a map of your framework, build commands, and project structure.
 
-| Command | What it does |
-|---------|-------------|
-| `/commit-only` | Stage and commit. Does not push. |
-| `/commit-and-push` | Commit, then push. No PR, no merge. Trunk-based counterpart to `/commit-and-pr`. |
-| `/commit-and-pr` | Commit, push, open PR via `gh`. |
-| `/push-only` | Push existing commits to the remote. No commit, no PR. |
-| `/pr-only` | Open PR for existing commits. |
-| `/merge-to-main` | Merge current branch into base, no squash. |
-| `/commit-and-merge` | `/commit-only` then `/merge-to-main`. |
-| `/squash-only` | Squash all branch commits into one (no merge). |
-| `/squash-and-merge` | `git merge --squash` from base, single commit, delete branch. |
-| `/commit-and-squash` | `/commit-only` then `/squash-only`. |
+You only need to do this once per repo. Signals refresh automatically after that — ship commands re-scan whenever source files change.
 
-All merge and squash commands invoke `atomic-verify` before touching the base, re-run tests on the merged tip, and prompt to delete the worktree if the branch came from `.worktrees/`.
+
+## 1. Plan
+
+```
+/atomic-plan
+```
+
+You and Claude produce a spec together. For small tasks, this is an inline checkpoint table in `docs/spec/`. For larger work, Claude writes a design doc first (`docs/design/`) and then derives the spec from it. Nothing gets implemented until you approve the plan.
+
+
+## 2. Implement
+
+```
+/subagent-implementation
+```
+
+Claude reads the approved spec and runs an autonomous implement-then-review loop. A builder agent writes code (failing test first), a reviewer agent checks it, and each passing checkpoint gets committed automatically. Non-blocking findings (risks, nits, questions) accumulate in a ledger that you review at the end — nothing gets silently dropped.
+
+
+## 3. Diagnose
+
+```
+/subagent-diagnose ci
+/subagent-diagnose bug "description of what's broken"
+```
+
+When something breaks, this command runs the same loop as implementation but seeded from a failed CI run or a bug description. It investigates, proposes a fix, reviews its own fix, and commits when green.
+
+
+## 4. Ship
+
+Pick the verb that matches where you are:
+
+| Command | Commit | Push | Squash | PR | Merge |
+|---------|:------:|:----:|:------:|:--:|:-----:|
+| `/commit-only` | ✓ | | | | |
+| `/commit-and-push` | ✓ | ✓ | | | |
+| `/commit-and-pr` | ✓ | ✓ | | ✓ | |
+| `/commit-and-merge` | ✓ | | | | ✓ |
+| `/commit-and-squash` | ✓ | | ✓ | | |
+| `/push-only` | | ✓ | | | |
+| `/pr-only` | | ✓ | | ✓ | |
+| `/squash-only` | | | ✓ | | |
+| `/squash-and-merge` | | | ✓ | | ✓ |
+| `/merge-to-main` | | | | | ✓ |
+
+All merge and squash commands run tests on the merged result and prompt to clean up the worktree if you used one.
+
+
+## 5. Track what's deferred
+
+```
+/remind-me 2h check the deploy
+/follow-up review
+```
+
+Not everything gets resolved in the same session. Reminders are time-based nudges that surface at the specified moment (or at the start of your next session if you are away). Follow-ups are non-blocking findings from implementation — risks, nits, open questions — that you parked for later. `/follow-up review` walks you through stale entries and lets you close, extend, or promote each one.
+
+Both mechanisms exist because shipping is not the end. The things you deferred during implementation should not silently rot.
+
+
+## Why custom ship commands?
+
+Claude Code already knows how to commit and push. The reason atomic-claude wraps those operations into its own commands is everything that happens around them:
+
+- **Signals refresh** — when source files changed, the command re-scans the project so Claude's map stays current
+- **Doc-impact check** — checks whether your change affects documentation and prompts you to update the relevant surfaces
+- **Commit message discipline** — messages are generated by the `atomic-commit` skill in Conventional Commits format, drawn from the diff and any session reports
+- **Verification gate** — merge commands run `atomic-verify` before touching the base branch, re-running tests on the merged tip
+
+Documentation is almost always an afterthought. These commands make it part of the flow rather than something you remember to do later.
+
+
+### Two modes
+
+The ship commands operate in one of two modes depending on whether they produce a commit:
+
+**Full mode** — commands that create a commit (`/commit-*`, `/squash-*`) run signals refresh and doc-impact checks automatically as part of the commit flow. Signals are regenerated, documentation surfaces are presented for review, and the commit message is synthesized from the diff.
+
+**Ask mode** — commands that do not create a commit (`/push-only`, `/pr-only`, `/merge-to-main`) run a staleness check before proceeding. If signals are stale or docs appear outdated, the command asks whether you want to address it first. Your answer is accepted either way — it is advisory, not a gate.
+
+| Command | Mode | Signals | Doc-impact | Commit msg | Verify |
+|---------|------|:-------:|:----------:|:----------:|:------:|
+| `/commit-only` | full | ✓ | ✓ | ✓ | |
+| `/commit-and-push` | full | ✓ | ✓ | ✓ | |
+| `/commit-and-pr` | full | ✓ | ✓ | ✓ | |
+| `/commit-and-merge` | full | ✓ | ✓ | ✓ | ✓ |
+| `/commit-and-squash` | full | ✓ | ✓ | ✓ | |
+| `/squash-only` | full | ✓ | ✓ | ✓ | |
+| `/squash-and-merge` | full | ✓ | ✓ | ✓ | ✓ |
+| `/push-only` | ask | ? | ? | | |
+| `/pr-only` | ask | ? | ? | | |
+| `/merge-to-main` | ask | ? | ? | | ✓ |
+
+✓ = runs automatically. ? = checks and asks.

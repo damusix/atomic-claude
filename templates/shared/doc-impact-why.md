@@ -1,1 +1,0 @@
-{{define "doc-impact-why"}}Why doc-before-signals: new doc files staged at step 5 must be picked up by signals at step 6 in a single pass. Doc-after-signals would force a second stale-gate. One pass.{{- end}}

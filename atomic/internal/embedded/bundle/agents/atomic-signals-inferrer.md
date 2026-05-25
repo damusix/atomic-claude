@@ -7,6 +7,17 @@ model: sonnet
 
 Signals inferrer orchestrator. Reads the deterministic project snapshot and diff, dispatches sub-agents per domain, validates via reviewer, then assembles `signals.md` (router + orientation). Never touches files outside `.claude/project/`.
 
+## What signals ARE
+
+Signals are **facts about the current state of the codebase** — not instructions, not rules, not intent, not suggestions. They accelerate navigation by telling the LLM where to look, what exists, and how things connect. The model reads signals to skip exploration, not to learn how to behave.
+
+- **Facts:** "auth uses JWT with HS256, implemented in `src/auth/token.ts`"
+- **Not instructions:** ~~"use JWT for authentication"~~
+- **Not intent:** ~~"the auth system should support 2FA in the future"~~
+- **Not rules:** ~~"always validate tokens before proceeding"~~
+
+Every sentence in a signals file must be verifiable by reading the source. If it cannot be confirmed by opening a file, it does not belong in signals.
+
 ## Scope rule
 
 Inputs depend on mode (see below). Outputs are:
@@ -92,6 +103,7 @@ Prompt: "Write signals/<domain>.md for the <domain> domain.
 Source paths in this domain: <list from deterministic tree>
 
 Instructions:
+- Signals are FACTS about current state — not instructions, rules, or intent. Every sentence must be verifiable by reading a source file.
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
@@ -108,11 +120,18 @@ Domain file schema:
 ## Docs
 <bullet list: path — role. Specs, design docs, reference pages, guides about this concern. Omit section if none.>
 ## Coupling
-<bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known bugs or stale cross-references.>
+<bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known stale cross-references as facts.>
 ## Conventions worth knowing
 <domain-local convention facts>
 
-Plain markdown paths throughout. No @-refs. Fact-shaped, not steering-shaped."
+Plain markdown paths throughout. No @-refs. Fact-shaped, not steering-shaped.
+
+If you notice issues that are judgments (bugs, risks, missing handling, dead code, stale imports), do NOT include them in the domain file. Instead, append a separate section at the end of your output:
+
+## Concerns (do not include in domain file)
+- file:line — observation (severity: risk|nit)
+
+The orchestrator collects these separately. Keep them factual and specific — cite the exact file and line."
 ```
 
 Sub-agents are bounded to their domain. They read source files in their area only.
@@ -143,6 +162,33 @@ If reviewer returns `CHANGES_REQUESTED`, dispatch the sub-agent again with the r
 **Step 5 — Wire cross-domain references.**
 
 After all domain files pass review, read each domain file and populate `## What it talks to` sections with cross-domain references (e.g. "auth talks to billing via webhooks"). The orchestrator has the full picture across domains at this point.
+
+**Step 5b — Surface concerns (judgment observations).**
+
+During steps 3-5, sub-agents and reviewers may notice issues that are judgments, not facts — things that don't belong in signals files but are worth surfacing. Examples:
+
+- Stale imports referencing deleted files
+- Contradictions between a spec and its implementation
+- Dead code paths or unreachable branches
+- Missing error handling at system boundaries
+- Config values that appear hardcoded where they should be dynamic
+- Test files that import from paths that no longer exist
+
+These are **not written into signals files** (signals = facts only). Instead, the orchestrator collects them and returns them as a `## Concerns` section in its final output. The calling skill (`atomic-signals`) surfaces these to the user and offers to create follow-ups via `atomic followups add`.
+
+Format returned by the orchestrator:
+
+```
+## Concerns
+
+| # | Domain | File:line | Observation | Severity |
+|---|--------|-----------|-------------|----------|
+| 1 | auth | src/auth/token.ts:42 | imports deleted `session-store` module | risk |
+| 2 | billing | src/billing/webhook.ts:15 | hardcoded URL, not from config | nit |
+| 3 | config | atomic/internal/config/config.go:88 | error swallowed silently | risk |
+```
+
+Sub-agents report concerns by appending a `## Concerns (do not include in domain file)` section to their output. The orchestrator strips these from domain file content and collects them into the table above.
 
 **Step 6 — Assemble signals.md.**
 

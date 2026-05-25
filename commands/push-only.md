@@ -2,18 +2,39 @@
 description: Push the current branch's commits to the remote. No commit, no PR, no merge.
 ---
 
+## Pre-flight
+
+<staleness-check>
+
+Before continuing, check whether signals or documentation may be out of date. This is advisory — ask the user and accept their answer.
+
+1. **Signals** — run `command -v atomic && atomic signals stale`. If stale (exit 1), ask: "Signals are stale — refresh before continuing?" Accept yes or no.
+2. **Documentation** — run `git diff <base>..HEAD --name-only` to get changed files. Invoke `atomic-documentation` in dry-run mode. If it identifies surfaces that may need updating, summarize them and ask: "These docs may be outdated: <list>. Update before continuing?" Accept yes or no.
+
+If the user declines, proceed without further prompting.
+
+</staleness-check>
+
 ## Steps
 
-1. `git branch --show-current`. Record the branch (pushing to base, e.g. `main`, is allowed here — this is the trunk-based counterpart to `/pr-only`).
-2. `git status --porcelain`. If working tree is dirty, stop and tell the user to run `/commit-only` or `/commit-and-push` first.
-3. `git log @{u}..HEAD --oneline 2>/dev/null` to read what's about to ship. If the branch has no upstream, the command errors — that is expected; the upstream is set in step 4.
+<push-flow>
+
+1. `git branch --show-current` — record the branch.
+2. `git status --porcelain` — if dirty, stop and tell the user to commit first.
+3. `git log @{u}..HEAD --oneline 2>/dev/null` — show what is about to ship. If the branch has no upstream, that is expected (set in step 4).
 4. Push:
     - No upstream → `git push -u origin <branch>`.
     - Upstream exists and branch is ahead → `git push`.
-    - Branch up to date with upstream → stop, print `already up to date`.
-5. Never `--force` or `--force-with-lease`. If push is rejected (non-fast-forward), stop and tell the user; do not rewrite history.
-6. Print the resulting `<old>..<new> <branch> -> <branch>` line.
+    - Already up to date → stop.
+5. Print the resulting `<old>..<new> <branch> -> <branch>` line.
 
-## Rules
+If push is rejected (non-fast-forward), stop and tell the user. Let them decide how to resolve it.
 
-No commits. No PR creation — use `/pr-only` if you want a PR. No force-push. If you need to push a fix you forgot to commit, use `/commit-and-push` instead.
+</push-flow>
+
+<git-safety>
+- Use relative paths for `git add` based on the current working directory.
+- Run each `git` command as a separate Bash call.
+- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit. The hook exists for a reason.
+- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history.
+</git-safety>

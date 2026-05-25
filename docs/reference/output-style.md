@@ -1,78 +1,52 @@
 # Output style
 
+The output style is the tone layer. It tells Claude to drop filler, use fragments, and prefer short synonyms in its replies. Technical terms and code blocks are never compressed.
 
-`output-styles/atomic.md` defines atomic style. Drop filler, articles, pleasantries, and hedging. Fragments are fine. Short synonyms preferred. Technical terms stay exact. Code blocks and error strings are never compressed. Style applies to Claude's TUI replies, not to source files or docs — those follow the codebase's own conventions.
-
-
-## What the output style actually contributes
-
-The output style is the smallest layer in atomic-claude, and the most expendable. Honest breakdown of where atomic's behavior comes from:
-
-| Source | What it provides | Active when |
-|--------|------------------|-------------|
-| `CLAUDE.md` (installed at `~/.claude/CLAUDE.md`) | Principles, axioms, bash-over-Read+Write rules, TypeScript discipline, testing philosophy, no AI bylines, etc. | Every session, every project. Default. |
-| Skills (`atomic-tdd`, `atomic-verify`, `atomic-commit`, `atomic-debug`, `atomic-review`, `atomic-signals`) | Discipline at trigger phrases ("let's implement X", "done", "this is broken") | When matching phrases appear, every session. |
-| Commands (`/atomic-plan`, `/subagent-implementation`, ship verbs) | Workflow shape and orchestration | When explicitly invoked. |
-| Subagents (`atomic-builder`, `atomic-reviewer`, etc.) | Fresh-context specialists with their own system prompts | When dispatched. |
-| **Output style** (`output-styles/atomic.md`) | **Tone-only layer**: drop articles, fragments OK, short synonyms, compressed prose | Only when user has explicitly selected it via `/config`. |
-
-The first four layers carry the load. The output style is icing — it shaves filler from Claude's TUI replies between tool calls and command invocations. If you never select it, everything else still works. If you do select it, you get tighter prose on top of what's already there.
+It is also the most optional part of atomic-claude. Everything else — the skills, commands, agents, signals — works without it. The output style just makes Claude's replies faster to scan.
 
 
-## How it works
+## Where the behavior actually comes from
 
-Claude Code's harness has a first-class concept called *output styles* — markdown files under `~/.claude/output-styles/` (or `.claude/output-styles/` for project scope). When a user selects one, the harness modifies the **main agent's system prompt** at session start. That's the only hook involved.
+| Layer | What it contributes | Always active? |
+|-------|-------------------|:---------:|
+| `CLAUDE.md` | Principles, testing philosophy, code discipline | ✓ |
+| Skills | TDD, verification, debugging, commit messages | ✓ |
+| Commands | Workflow orchestration (plan, implement, ship) | When invoked |
+| Agents | Specialized workers with their own prompts | When dispatched |
+| **Output style** | **Tone: drop articles, fragments OK, compressed prose** | **When selected** |
 
-A few consequences worth knowing:
-
-- **Subagents don't inherit the style.** Output styles attach to the main agent only. When the orchestrator dispatches `atomic-builder`, `atomic-reviewer`, etc., those subagents get their own system prompts (from `agents/*.md`) and produce their own output shape — usually terse-by-design via the agent definition, not via output style.
-- **Selection is per-user, not per-bundle.** `atomic claude install` writes the file into `~/.claude/output-styles/atomic.md` but cannot flip your active style. Claude Code requires the user to opt in.
-- **Changes take effect on the next session.** Selecting a style does not modify the running session — the system prompt is fixed at session start to keep prompt caching warm.
-- **`keep-coding-instructions: true` is set.** See below.
-
-
-## `keep-coding-instructions: true`
-
-The shipped `output-styles/atomic.md` sets this field. Per [Claude Code's upstream docs](https://code.claude.com/docs/en/output-styles):
-
-> Custom output styles leave out Claude Code's built-in software engineering instructions, such as how to scope changes, write comments, and verify work, unless `keep-coding-instructions` is set to `true`.
-
-With the field on, selecting Atomic **preserves** Claude Code's default engineering guidance (scope discipline, comment defaults, security awareness, UI verification, parallel tool calls, git safety protocol) and adds atomic's tone rules on top. Selecting it is additive.
-
-If the field were off, selecting Atomic would strip those defaults and leave only atomic's tone rules — meaning the engineering discipline would have to come entirely from `CLAUDE.md` and the skills. That's a workable design but not what we want today, since `CLAUDE.md` is principles-heavy and lighter on operational specifics than Claude Code's defaults.
+The first four layers carry the load. The output style is icing.
 
 
-## Activate it
+## How to activate it
 
-The bundle installs the file; you turn it on explicitly:
+1. Run `/config` in any Claude Code session
+2. Select **Output style**
+3. Pick **Atomic**
 
-1. Open Claude Code in the repo where you want it.
-2. Run `/config` and select **Output style**.
-3. Pick **Atomic** from the menu.
-
-`/config` writes the selection to that project's `.claude/settings.local.json`:
-
-```json
-{
-  "outputStyle": "Atomic"
-}
-```
-
-For global scope, edit `~/.claude/settings.json` directly with the same key. There is no menu option to choose global vs. project scope — `/config` always writes to the local project settings.
+This writes `"outputStyle": "Atomic"` to your project's `.claude/settings.local.json`. For global scope, add the same key to `~/.claude/settings.json` directly.
 
 Restart Claude Code (or start a new session) for the change to take effect.
-
-Verify with `/config` — `Atomic` should be marked as the active output style.
 
 
 ## Intensity levels
 
-Three settings, switchable mid-session by saying them aloud to Claude. These are runtime prompts to the model, not settings changes — the output style file is the same `atomic.md` regardless of intensity:
+Switch mid-session by saying "atomic lite", "atomic full", or "atomic ultra":
 
-- **lite** — drop filler and hedging, keep articles and full sentences. Good when readability of long technical explanations matters more than terseness.
-- **full** — drop articles, fragments OK, short synonyms. The default. Good for normal work.
-- **ultra** — abbreviate prose words (DB/auth/req/res/fn), arrows for causality (X → Y), one word when one word suffices. Good for deep iteration loops where every token saved is one less to read.
+| Level | Style | Good for |
+|-------|-------|----------|
+| **lite** | Drop filler and hedging. Keep articles and full sentences. | Long technical explanations where readability matters. |
+| **full** | Drop articles, fragments OK, short synonyms. | Normal work. This is the default. |
+| **ultra** | Abbreviate prose words (DB, auth, req, fn), arrows for causality (X → Y). | Deep iteration loops where every token counts. |
 
-Switch by saying "atomic lite", "atomic full", or "atomic ultra". The change applies immediately to subsequent replies in the session.
+Security warnings and irreversible-action confirmations always revert to full prose, regardless of intensity.
 
-Security warnings and irreversible-action confirmations revert to full prose automatically regardless of intensity.
+
+## Subagents do not inherit the style
+
+Output styles only attach to the main agent. When the orchestrator dispatches `atomic-builder`, `atomic-reviewer`, or any other subagent, those agents follow their own system prompts — they are already terse by design.
+
+
+## `keep-coding-instructions: true`
+
+The shipped output style sets this flag. With it on, selecting Atomic preserves Claude Code's default engineering guidance (scope discipline, comment defaults, security awareness) and adds atomic's tone rules on top. Selecting it is additive — it does not replace anything.

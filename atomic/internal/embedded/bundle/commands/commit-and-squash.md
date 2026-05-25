@@ -1,49 +1,55 @@
 ---
-description: Pipeline — commit pending changes, then /squash-only flow. Tidies history in one shot.
+description: Commit pending changes, then squash all branch commits into one. Does not merge or touch base.
 ---
 
-## Step 1 — Commit
+## 1. Commit
 
 
-1. Invoke the `atomic-commit` skill. Follow it for message format.
-2. `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
-3. **Read session reports for the current branch** (if any):
-    - `BRANCH=$(git branch --show-current)` (or short SHA on detached HEAD).
-    - `REPORTS_DIR=.claude/.scratchpad/session-reports/<BRANCH-sanitized>/`.
-    - If the dir exists and contains `*.md`, read all files in chronological order and pass their content to the `atomic-commit` skill as supplemental why-context for the commit message. If the dir is empty or missing, proceed normally.
-4. Stage relevant files explicitly by path. No `git add -A` / `.`. Skip secrets, build artifacts, large binaries. If staged/unstaged intent is ambiguous, ask.
-5. **Documentation impact check** — invoke the `atomic-documentation` skill on the staged diff (`git diff --cached`). Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, has no `surfaces` key, or `surfaces` is empty, skip this step silently. For each non-empty surface:
-    - Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
-    - Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
-    - **edit**: open the file, apply the suggested change, stage it with `git add <path>`.
-    - **skip**: ask for a typed reason; record `doc-skip: <reason>` to append to the commit trailer block (after the body's blank line, in `git interpret-trailers --parse` range). One line per skip.
-    - **continue**: treat as misclassification; no edit, no `doc-skip` line.
+<commit-flow>
 
-    Why doc-before-signals: new doc files staged at step 5 must be picked up by signals at step 6 in a single pass. Doc-after-signals would force a second stale-gate. One pass.
+Invoke the `atomic-commit` skill for message format.
 
-6. **Signals pre-commit** — evaluate these gates in order; stop at the first that fails:
-    1. `command -v atomic` succeeds? If not, skip.
-    2. `atomic signals stale` exits 1 (stale)? If it exits 0 (fresh), skip.
+1. Read the current state: `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
+2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir exists and has `*.md` files, read them chronologically and pass their content to `atomic-commit` as supplemental why-context.
+3. **Stage files** explicitly by path. Skip secrets, build artifacts, and large binaries. If the intent is ambiguous, ask.
+4. <doc-impact>
+Check whether the staged changes affect documentation. Invoke the `atomic-documentation` skill on `git diff --cached`.
 
-    Both pass → invoke the `atomic-signals` skill in silent mode (no report line). If signals regenerate, stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
+Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, or has no surfaces, skip silently.
 
-    No file-extension allowlist. `atomic signals stale` is the source of truth; it fast-fails when nothing changed and catches structural shifts (e.g. a new `commands/*.md` file) that an extension list would miss.
-7. Commit using a HEREDOC message.
-8. **On successful commit (exit 0): delete the branch's session-reports dir.**
-    - `rm -rf .claude/.scratchpad/session-reports/<BRANCH-sanitized>/`
-    - Silent; this is the documented contract from `docs/spec/session-report.md`. The reports were consumed by the commit message — they have served their purpose. Leaving them would pollute future commits on the same branch with stale context.
-    - If the commit failed or was aborted (pre-commit hook rejection, user interrupt): **do not delete.** Reports persist for the next attempt.
-9. `git status` to confirm.
+For each surface found:
+- Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
+- Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
+- **edit** — open the file, apply the change, stage with `git add <path>`.
+- **skip** — ask for a typed reason; record `doc-skip: <reason>` as a commit trailer.
+- **continue** — treat as misclassification; move on.
 
-On pre-commit hook failure: fix root cause, re-stage, create a NEW commit. No `--no-verify`. No `--amend`. Session-reports dir stays in place across hook-failure retries; it is only deleted after a commit that actually succeeds.
+Run doc-impact before signals refresh so that new doc files get picked up by signals in one pass.
+</doc-impact>
+5. <signals-refresh>
+Refresh project signals so Claude's map stays current for the next session.
 
-No push. No PR. One commit per invocation — if diff spans unrelated concerns, ask how to split.
+1. Check `command -v atomic`. If missing, skip.
+2. Check `atomic signals stale`. If fresh (exit 0), skip.
+3. Both pass → invoke the `atomic-signals` skill in silent mode. Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
 
-If nothing to commit → skip to step 2.
+The `atomic signals stale` command is the source of truth — it fast-fails when nothing changed and catches structural shifts that a file-extension allowlist would miss.
+</signals-refresh>
+6. **Commit** using a HEREDOC message.
+7. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. The reports were consumed by the commit message. If the commit failed, leave them for the next attempt.
+8. `git status` to confirm.
 
-## Step 2 — Squash
+One commit per invocation. If the diff spans unrelated concerns, ask how to split.
+
+</commit-flow>
+
+If nothing to commit, skip to squash.
+
+## 2. Squash
 
 
+
+<squash-preflight>
 
 1. Determine base:
    ```
@@ -51,64 +57,59 @@ If nothing to commit → skip to step 2.
      || git config init.defaultBranch \
      || echo main
    ```
-2. `git branch --show-current`. If on base: `refused: already on <base>. nothing to squash.`
-3. `git status --porcelain`. If dirty: `refused: working tree dirty. commit or stash first.`
-4. Count commits: `git rev-list --count <base>..HEAD`. If 1: `refused: only one commit on branch. nothing to squash.`
+2. `git branch --show-current` — if on base, stop: nothing to squash.
+3. `git status --porcelain` — if dirty, stop: commit or stash first.
+4. Count commits: `git rev-list --count <base>..HEAD` — if only 1, stop: nothing to squash.
 
+</squash-preflight>
+
+
+<squash-steps>
 
 1. Gather subjects (oldest-first): `SUBJECTS=$(git log <base>..HEAD --format='%s' --reverse)`.
-2. **Read session reports for the current branch** (if any):
-    - `BRANCH=$(git branch --show-current)`.
-    - `REPORTS_DIR=.claude/.scratchpad/session-reports/<BRANCH-sanitized>/`.
-    - If the dir exists and contains `*.md`, read all files in chronological order and pass their content to the `atomic-commit` skill as supplemental why-context alongside `SUBJECTS`. If the dir is empty or missing, proceed with `SUBJECTS` only.
-3. `git reset --soft $(git merge-base HEAD <base>)` — collapses all branch commits into the index.
-4. **Documentation impact check** — invoke the `atomic-documentation` skill on the staged diff (`git diff --cached`). Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, has no `surfaces` key, or `surfaces` is empty, skip this step silently. For each non-empty surface:
-    - Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
-    - Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
-    - **edit**: open the file, apply the suggested change, stage it with `git add <path>`.
-    - **skip**: ask for a typed reason; record `doc-skip: <reason>` to append to the commit trailer block (after the body's blank line, in `git interpret-trailers --parse` range). One line per skip.
-    - **continue**: treat as misclassification; no edit, no `doc-skip` line.
+2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir has `*.md` files, read them chronologically and pass as supplemental why-context alongside `SUBJECTS`.
+3. `git reset --soft $(git merge-base HEAD <base>)` — collapse all branch commits into the index.
+4. <doc-impact>
+Check whether the staged changes affect documentation. Invoke the `atomic-documentation` skill on `git diff --cached`.
 
-    Why doc-before-signals: new doc files staged at step 4 must be picked up by signals at step 8 in a single pass. Doc-after-signals would force a second stale-gate. One pass.
+Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, or has no surfaces, skip silently.
 
-5. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (+ session reports if read). Present it for user review/edit. Commit via HEREDOC once confirmed.
-6. **On successful commit: delete the branch's session-reports dir.** `rm -rf .claude/.scratchpad/session-reports/<BRANCH-sanitized>/`. Silent. If the commit failed, leave the dir.
-7. **Update implementation logs.** Find spec files in the just-squashed commit's diff that carry an `## Implementation log` section:
+For each surface found:
+- Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
+- Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
+- **edit** — open the file, apply the change, stage with `git add <path>`.
+- **skip** — ask for a typed reason; record `doc-skip: <reason>` as a commit trailer.
+- **continue** — treat as misclassification; move on.
 
+Run doc-impact before signals refresh so that new doc files get picked up by signals in one pass.
+</doc-impact>
+5. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
+6. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. If the commit failed, leave them.
+7. **Update implementation logs.** Find spec files with an `## Implementation log` section in the squashed diff:
     ```bash
     git show --name-only --pretty=format: HEAD | grep '^docs/spec/.*\.md$' | while read f; do
       grep -q '^## Implementation log' "$f" && echo "$f"
     done
     ```
+    For each match, append: `**Squashed to <new-sha> — <date>.** Per-iteration SHAs above are historical (unreachable from any branch).` Stage and commit as a follow-up. If none match, skip.
+8. **Post-squash signals refresh:**
+    <signals-refresh>
+Refresh project signals so Claude's map stays current for the next session.
 
-    For each match, append at end-of-file:
+1. Check `command -v atomic`. If missing, skip.
+2. Check `atomic signals stale`. If fresh (exit 0), skip.
+3. Both pass → invoke the `atomic-signals` skill in silent mode. Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
 
-    ```
-    **Squashed to `<new-sha>` — <YYYY-MM-DD>.** Per-iteration SHAs above are historical (unreachable from any branch).
-    ```
-
-    Stage by explicit path. Commit as a follow-up: `docs(spec): record squash SHA <new-sha>`. Never amend the squash commit. If no specs match: skip silently.
-8. **Post-squash signals refresh** (defense in depth — even if each branch commit ran `/commit-only`, manual commits or rebased history may have bypassed it):
-
-    **Signals pre-commit** — evaluate these gates in order; stop at the first that fails:
-    1. `command -v atomic` succeeds? If not, skip.
-    2. `atomic signals stale` exits 1 (stale)? If it exits 0 (fresh), skip.
-
-    Both pass → invoke the `atomic-signals` skill in silent mode (no report line). If signals regenerate, stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
-
-    No file-extension allowlist. `atomic signals stale` is the source of truth; it fast-fails when nothing changed and catches structural shifts (e.g. a new `commands/*.md` file) that an extension list would miss.
-
-    When signals regenerate: commit as a follow-up: `chore(signals): refresh after squash`. Never amend the squash commit.
+The `atomic signals stale` command is the source of truth — it fast-fails when nothing changed and catches structural shifts that a file-extension allowlist would miss.
+</signals-refresh>
+    If signals regenerate, commit as a follow-up: `chore(signals): refresh after squash`.
 9. `git status` to confirm.
 
-## Report
+</squash-steps>
 
-`committed pending change <sha-old>, squashed N commits into <sha-new>.`
-
-## Rules
-
-- No AI bylines in commit messages.
-- No `--no-verify`. On hook failure: fix root cause, re-stage, NEW commit (no `--amend`).
-- Use relative paths for `git add`. No `git -C`. No `cd && git`.
-- Separate Bash calls for each `git` command — no `&&` chaining.
-- Does NOT merge into base and does NOT delete the branch.
+<git-safety>
+- Use relative paths for `git add` based on the current working directory.
+- Run each `git` command as a separate Bash call.
+- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit. The hook exists for a reason.
+- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history.
+</git-safety>

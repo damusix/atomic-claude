@@ -1,23 +1,17 @@
 {{define "commit-flow"}}
-1. Invoke the `atomic-commit` skill. Follow it for message format.
-2. `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
-3. **Read session reports for the current branch** (if any):
-    - `BRANCH=$(git branch --show-current)` (or short SHA on detached HEAD).
-    - `REPORTS_DIR=.claude/.scratchpad/session-reports/<BRANCH-sanitized>/`.
-    - If the dir exists and contains `*.md`, read all files in chronological order and pass their content to the `atomic-commit` skill as supplemental why-context for the commit message. If the dir is empty or missing, proceed normally.
-4. Stage relevant files explicitly by path. No `git add -A` / `.`. Skip secrets, build artifacts, large binaries. If staged/unstaged intent is ambiguous, ask.
-5. {{ template "doc-impact" . }}
+<commit-flow>
 
-    {{ template "doc-impact-why" . }}
+Invoke the `atomic-commit` skill for message format.
 
-6. {{ template "signals-gate" . }}
-7. Commit using a HEREDOC message.
-8. **On successful commit (exit 0): delete the branch's session-reports dir.**
-    - `rm -rf .claude/.scratchpad/session-reports/<BRANCH-sanitized>/`
-    - Silent; this is the documented contract from `docs/spec/session-report.md`. The reports were consumed by the commit message — they have served their purpose. Leaving them would pollute future commits on the same branch with stale context.
-    - If the commit failed or was aborted (pre-commit hook rejection, user interrupt): **do not delete.** Reports persist for the next attempt.
-9. `git status` to confirm.
+1. Read the current state: `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
+2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir exists and has `*.md` files, read them chronologically and pass their content to `atomic-commit` as supplemental why-context.
+3. **Stage files** explicitly by path. Skip secrets, build artifacts, and large binaries. If the intent is ambiguous, ask.
+4. {{ template "doc-impact" . }}
+5. {{ template "signals-gate" . }}
+6. **Commit** using a HEREDOC message.
+7. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. The reports were consumed by the commit message. If the commit failed, leave them for the next attempt.
+8. `git status` to confirm.
 
-On pre-commit hook failure: fix root cause, re-stage, create a NEW commit. No `--no-verify`. No `--amend`. Session-reports dir stays in place across hook-failure retries; it is only deleted after a commit that actually succeeds.
+One commit per invocation. If the diff spans unrelated concerns, ask how to split.
 
-No push. No PR. One commit per invocation — if diff spans unrelated concerns, ask how to split.{{- end}}
+</commit-flow>{{- end}}

@@ -1,109 +1,120 @@
 ---
-description: Pipeline — commit pending changes (atomic-commit skill), then /merge-to-main flow. One change to base, in one shot. Prefers `gh pr merge --merge` when a PR is open so GitHub closes the PR cleanly.
+description: Commit pending changes, then merge into base branch. Prefers `gh pr merge --merge` when a PR is open so GitHub closes it cleanly.
 ---
 
-## Step 1 — Commit
+## 1. Commit
 
 
-1. Invoke the `atomic-commit` skill. Follow it for message format.
-2. `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
-3. **Read session reports for the current branch** (if any):
-    - `BRANCH=$(git branch --show-current)` (or short SHA on detached HEAD).
-    - `REPORTS_DIR=.claude/.scratchpad/session-reports/<BRANCH-sanitized>/`.
-    - If the dir exists and contains `*.md`, read all files in chronological order and pass their content to the `atomic-commit` skill as supplemental why-context for the commit message. If the dir is empty or missing, proceed normally.
-4. Stage relevant files explicitly by path. No `git add -A` / `.`. Skip secrets, build artifacts, large binaries. If staged/unstaged intent is ambiguous, ask.
-5. **Documentation impact check** — invoke the `atomic-documentation` skill on the staged diff (`git diff --cached`). Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, has no `surfaces` key, or `surfaces` is empty, skip this step silently. For each non-empty surface:
-    - Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
-    - Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
-    - **edit**: open the file, apply the suggested change, stage it with `git add <path>`.
-    - **skip**: ask for a typed reason; record `doc-skip: <reason>` to append to the commit trailer block (after the body's blank line, in `git interpret-trailers --parse` range). One line per skip.
-    - **continue**: treat as misclassification; no edit, no `doc-skip` line.
+<commit-flow>
 
-    Why doc-before-signals: new doc files staged at step 5 must be picked up by signals at step 6 in a single pass. Doc-after-signals would force a second stale-gate. One pass.
+Invoke the `atomic-commit` skill for message format.
 
-6. **Signals pre-commit** — evaluate these gates in order; stop at the first that fails:
-    1. `command -v atomic` succeeds? If not, skip.
-    2. `atomic signals stale` exits 1 (stale)? If it exits 0 (fresh), skip.
+1. Read the current state: `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
+2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir exists and has `*.md` files, read them chronologically and pass their content to `atomic-commit` as supplemental why-context.
+3. **Stage files** explicitly by path. Skip secrets, build artifacts, and large binaries. If the intent is ambiguous, ask.
+4. <doc-impact>
+Check whether the staged changes affect documentation. Invoke the `atomic-documentation` skill on `git diff --cached`.
 
-    Both pass → invoke the `atomic-signals` skill in silent mode (no report line). If signals regenerate, stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
+Parse the last fenced `yaml`/`yml` block per the parser contract in `skills/atomic-documentation/SKILL.md`. If the block is missing, unparseable, or has no surfaces, skip silently.
 
-    No file-extension allowlist. `atomic signals stale` is the source of truth; it fast-fails when nothing changed and catches structural shifts (e.g. a new `commands/*.md` file) that an extension list would miss.
-7. Commit using a HEREDOC message.
-8. **On successful commit (exit 0): delete the branch's session-reports dir.**
-    - `rm -rf .claude/.scratchpad/session-reports/<BRANCH-sanitized>/`
-    - Silent; this is the documented contract from `docs/spec/session-report.md`. The reports were consumed by the commit message — they have served their purpose. Leaving them would pollute future commits on the same branch with stale context.
-    - If the commit failed or was aborted (pre-commit hook rejection, user interrupt): **do not delete.** Reports persist for the next attempt.
-9. `git status` to confirm.
+For each surface found:
+- Print: `surface <N>/<total>: <path> (<voice>) — <reason>`
+- Prompt: `[e] edit  [s] skip with reason  [c] continue (misclassification)`
+- **edit** — open the file, apply the change, stage with `git add <path>`.
+- **skip** — ask for a typed reason; record `doc-skip: <reason>` as a commit trailer.
+- **continue** — treat as misclassification; move on.
 
-On pre-commit hook failure: fix root cause, re-stage, create a NEW commit. No `--no-verify`. No `--amend`. Session-reports dir stays in place across hook-failure retries; it is only deleted after a commit that actually succeeds.
+Run doc-impact before signals refresh so that new doc files get picked up by signals in one pass.
+</doc-impact>
+5. <signals-refresh>
+Refresh project signals so Claude's map stays current for the next session.
 
-No push. No PR. One commit per invocation — if diff spans unrelated concerns, ask how to split.
+1. Check `command -v atomic`. If missing, skip.
+2. Check `atomic signals stale`. If fresh (exit 0), skip.
+3. Both pass → invoke the `atomic-signals` skill in silent mode. Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
 
-If nothing to commit AND branch has commits not on base → skip to step 2.
-If nothing to commit AND branch up to date with base → stop.
+The `atomic signals stale` command is the source of truth — it fast-fails when nothing changed and catches structural shifts that a file-extension allowlist would miss.
+</signals-refresh>
+6. **Commit** using a HEREDOC message.
+7. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. The reports were consumed by the commit message. If the commit failed, leave them for the next attempt.
+8. `git status` to confirm.
 
-## Step 2 — Merge
+One commit per invocation. If the diff spans unrelated concerns, ask how to split.
+
+</commit-flow>
+
+If nothing to commit and branch has commits ahead of base, skip to merge.
+If nothing to commit and branch is up to date with base, stop.
+
+## 2. Merge
 
 
 
-1. Invoke `atomic-verify` skill — gate: no merge claim without fresh evidence.
+<merge-preflight>
+
+1. Invoke `atomic-verify` — confirm the branch is ready before merging.
 2. Determine base:
    ```
    gh repo view --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null \
      || git config init.defaultBranch \
      || echo main
    ```
-3. `git branch --show-current`. If on base: `refused: already on <base>. nothing to merge.`
-4. `git status --porcelain`. If dirty: `refused: working tree dirty. /commit-only first, then /merge-to-main.`
-5. **Detect open PR for this branch.** Decides remote vs local path:
+3. `git branch --show-current` — if on base, stop: nothing to merge.
+4. `git status --porcelain` — if dirty, stop: commit or stash first.
+5. **Detect open PR:**
    ```
    gh pr view --json number,state -q '.state' 2>/dev/null
    ```
-   - Output `OPEN` → capture PR number; use **remote path** (preferred — closes the PR cleanly).
-   - Otherwise → **local path**. A local merge of a branch that has an open PR leaves the PR open as "Not merged" because the merge commit on base carries no PR reference; prefer remote whenever a PR exists.
-   - If `gh` is missing or unauthed: fall through to local path with a one-line note.
+   - `OPEN` → use **remote path** (preferred — closes the PR cleanly via GitHub).
+   - Otherwise → **local path**.
+   - If `gh` is missing or unauthed, fall through to local path with a note.
+
+   Remote path is preferred because a local merge + push does not auto-close the PR on GitHub — it stays open as "Not merged" indefinitely. `gh pr merge` is the only way to close it cleanly.
+
+</merge-preflight>
 
 
-1. Record feature branch name and PR number (if any).
-2. **Execute merge — pick path:**
+<merge-steps>
 
-    - **Remote path** (PR open):
-        1. `gh pr merge <PR#> --merge --delete-branch`. Server-side merge (default strategy; preserves commits). Auto-closes the PR. `--delete-branch` removes the remote branch.
-        2. `git checkout <base>`.
-        3. `git pull` to fast-forward local base to the new tip.
-        4. Record SHA: `MERGE_SHA=$(git rev-parse HEAD)`.
+1. Record the feature branch name and PR number (if any).
 
-    - **Local path** (no PR):
-        1. `git checkout <base>`.
-        2. `git pull`.
-        3. `git merge <feature>` (default strategy; no `--no-ff` forced, no `--squash`).
-        4. Record SHA: `MERGE_SHA=$(git rev-parse HEAD)`. This is the merge commit if non-FF, otherwise the new HEAD (= feature tip).
+2. **Execute the merge:**
 
-3. Re-run tests. If fail:
-    - **Local path**: ask user about rolling back with `git reset --hard ORIG_HEAD`.
-    - **Remote path**: the merge SHA is already published on `origin/<base>`. `git reset --hard` is wrong (would diverge from origin). Offer `git revert -m 1 <MERGE_SHA>` (if it's a merge commit) or `git revert <MERGE_SHA>` (if FF). Never force-push the base branch.
-4. **Update implementation logs.** After tests pass, find spec files whose content changed across the merge (not just the merge commit itself — fast-forward merges have no merge commit, and non-FF merge commits don't carry file diffs):
+    **Remote path** (PR open):
+    1. `gh pr merge <PR#> --merge --delete-branch` — server-side merge, auto-closes the PR, removes remote branch.
+    2. `git checkout <base>` then `git pull` to fast-forward local base.
+    3. Record `MERGE_SHA=$(git rev-parse HEAD)`.
 
+    **Local path** (no PR):
+    1. `git checkout <base>` then `git pull`.
+    2. `git merge <feature>`.
+    3. Record `MERGE_SHA=$(git rev-parse HEAD)`.
+
+3. **Re-run tests.** If tests fail:
+    - Local path: ask about rolling back with `git reset --hard ORIG_HEAD`.
+    - Remote path: the merge SHA is already published. Offer `git revert` instead — never force-push the base branch.
+
+4. **Update implementation logs.** Find spec files with an `## Implementation log` section in the merged diff:
     ```bash
     git diff --name-only ORIG_HEAD..HEAD | grep '^docs/spec/.*\.md$' | while read f; do
       grep -q '^## Implementation log' "$f" && echo "$f"
     done
     ```
+    For each match, append: `**Merged into <base> as <MERGE_SHA> — <date>.**` Stage and commit as a follow-up. If none match, skip.
 
-    For each match, append at end-of-file:
+5. **Post-merge signals refresh:**
+    <signals-refresh>
+Refresh project signals so Claude's map stays current for the next session.
 
-    ```
-    **Merged into `<base>` as `<MERGE_SHA>` — <YYYY-MM-DD>.** Iteration commits above remain reachable in history.
-    ```
+1. Check `command -v atomic`. If missing, skip.
+2. Check `atomic signals stale`. If fresh (exit 0), skip.
+3. Both pass → invoke the `atomic-signals` skill in silent mode. Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
 
-    Stage by explicit path. Commit as a follow-up: `docs(spec): record merge SHA <MERGE_SHA>`. Push after commit on remote path. Never amend. If no specs match: skip silently.
-5. **Post-merge signals refresh.** Defense in depth — even if the branch's commits each ran `/commit-only`, a merged PR from another contributor or manual commits may have bypassed it. Evaluate in order; stop at first failure:
-    1. `command -v atomic` succeeds? If not, skip.
-    2. `atomic signals stale` exits 1 (stale)? If 0 (fresh), skip.
-    3. Stale → invoke the `atomic-signals` skill (non-interactive: append `@-refs` to `CLAUDE.md` without confirmation). Stage `.claude/project/deterministic-signals.md`, `.claude/project/signals.md`, and `CLAUDE.md` if it was wired. Commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Push after commit on remote path. Never amend.
-6. **Delete local feature branch**: `git branch -d <feature>`.
-    - **Remote path**: `gh pr merge --delete-branch` already removed the remote branch.
-    - **Local path**: no remote branch to clean up.
+The `atomic signals stale` command is the source of truth — it fast-fails when nothing changed and catches structural shifts that a file-extension allowlist would miss.
+</signals-refresh>
+    If signals regenerate, commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Push on remote path.
+
+6. **Delete local feature branch:** `git branch -d <feature>`.
 7. Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via `AskUserQuestion`:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
@@ -111,14 +122,15 @@ If nothing to commit AND branch up to date with base → stop.
 
    On Yes: find repo root via `git rev-parse --show-toplevel` on the main checkout (not the worktree). `git worktree remove <path>`. `git worktree prune`.
 
-## Report
+</merge-steps>
 
-`committed <sha>, merged <feature> into <base> as <MERGE_SHA> [via gh pr <PR#>]. branch deleted [local + remote]. worktree: <kept|removed>.`
+<constraints>
+If there is an open PR, the new commit from step 1 must be pushed before `gh pr merge` so the server-side merge includes it. Push to the PR's existing branch — do not create a new PR.
+</constraints>
 
-## Rules
-
-- No AI bylines in commit messages.
-- Use relative paths for `git add`. No `git -C`. No `cd && git`.
-- Separate Bash calls for each `git` command — no `&&` chaining.
-- **Never force-push the base branch.** Remote-path rollback = `git revert`.
-- **Remote path is preferred whenever a PR is open.** Step 1's new commit must be pushed BEFORE `gh pr merge` so the server-side merge includes it. The push goes to the PR's existing branch; no new PR is created.
+<git-safety>
+- Use relative paths for `git add` based on the current working directory.
+- Run each `git` command as a separate Bash call.
+- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit. The hook exists for a reason.
+- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history.
+</git-safety>

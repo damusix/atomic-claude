@@ -1,15 +1,35 @@
 # Skills
 
+Skills fire automatically when Claude encounters matching phrases in conversation. You do not need to invoke them — they activate on their own. You can also trigger them explicitly if you want.
 
-Skills auto-fire when Claude encounters matching phrases. They can also be invoked explicitly.
 
-| Skill | When it fires |
-|-------|--------------|
-| `atomic-commit` | "write a commit", "commit message", commit-time invocation from ship commands. |
-| `atomic-review` | "review this PR", "code review", "review the diff". |
-| `atomic-debug` | Error pastes, "broken", "doesn't work", "failing". |
-| `atomic-tdd` | "let's implement X", "add feature Y", "fix bug Z", pre-code-change phrases. |
-| `atomic-verify` | "done", "fixed", "passing", "ready to merge", "looks good" — any completion claim. |
-| `atomic-signals` | "regenerate signals", "scan the project", "refresh project context", "what's in this repo", "rescan". Also fires from `/commit-only` when staged diff touches source files. |
-| `atomic-prose` | "draft the README", "write the docs", "improve this prose", "edit the guide". Invoked by `/documentation` when editing README or `docs/guides/`. Governs voice in enduring narrative docs (clear technical narrative, no marketing language, no em dashes). Does **not** apply to `docs/spec/` or `docs/design/` — those follow the spec/design voice (tables, diagrams, terse) enforced by `/atomic-plan`. Invoked as callee by `atomic-documentation` when the target surface is human-facing prose. |
-| `atomic-documentation` | "doc this change", "what surfaces does this touch", "doc impact for this diff", "what needs documenting". Invoked by `/documentation` (full-scope mode) and by ship verbs on staged diffs (just-in-time mode, between stage and signals). Owns diff-signal → surface routing; calls `atomic-prose` as a callee when the surface is human-facing. |
+## Discipline
+
+These enforce good engineering habits without you having to ask.
+
+| Skill | Fires when you say... | What it does |
+|-------|----------------------|-------------|
+| `atomic-tdd` | "let's implement X", "add feature Y", "fix bug Z" | Writes a failing test before touching production code. |
+| `atomic-verify` | "done", "fixed", "passing", "ready to merge" | Runs verification before letting Claude claim completion. No evidence, no claim. |
+| `atomic-debug` | pastes an error, "broken", "doesn't work", "failing" | Drives hypothesis-driven debugging instead of symptom-patching. |
+
+
+## Workflow
+
+These handle the craft of committing, reviewing, and documenting.
+
+| Skill | Fires when you say... | What it does |
+|-------|----------------------|-------------|
+| `atomic-commit` | "write a commit", "commit message", or automatically from ship commands | Generates a Conventional Commits message. Subject under 50 chars, body only when the "why" is not obvious. |
+| `atomic-review` | "review this PR", "code review", "review the diff" | Produces compressed review comments. One line per finding: location, problem, fix. |
+
+
+## Awareness
+
+These keep Claude and your docs in sync with the project.
+
+| Skill | Fires when you say... | What it does |
+|-------|----------------------|-------------|
+| `atomic-signals` | "scan the project", "refresh signals", "what's in this repo" | Regenerates the signals files so Claude knows your repo's current shape. Also fires silently from ship commands when source files changed. |
+| `atomic-prose` | "draft the README", "write the docs", "edit the guide" | Applies a clear, direct voice to narrative documentation. No marketing language, no AI-tell phrases. |
+| `atomic-documentation` | "doc this change", "what surfaces does this touch" | Figures out which docs need updating based on a diff and routes each to the right voice. |

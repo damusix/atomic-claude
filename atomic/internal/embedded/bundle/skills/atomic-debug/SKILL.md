@@ -90,13 +90,15 @@ Good fix: restore middleware order so `parseBody` runs before `requireAuth`. Add
 
 If the user wants the symptom guard anyway (e.g., defense-in-depth), add it ON TOP of the root fix, not instead of.
 
-## Anti-patterns to refuse
+## Debugging discipline
 
-- "Try this and see if it works" without a hypothesis — that's guessing
-- Adding try/catch to silence the error
-- Reverting commits without identifying which line caused the regression
-- Saying "it should work now" without a verification step
-- Stack-trace-to-fix without reading the surrounding code
+Stay hypothesis-driven throughout:
+
+- Form a hypothesis before changing anything — "try this and see" is guessing, not debugging
+- Fix the root cause, not the symptom — try/catch to silence an error hides the bug
+- When reverting commits, identify which specific line caused the regression first
+- Verify the fix with evidence before claiming it works (defer to `atomic-verify`)
+- Read the surrounding code before proposing a fix — context prevents repeat bugs
 
 ## Rules
 

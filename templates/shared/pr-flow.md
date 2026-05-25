@@ -1,11 +1,20 @@
 {{define "pr-flow"}}
-1. Invoke the `atomic-review` skill. PR title and body follow that tone.
-2. `git branch --show-current`. If on base branch, stop.
-3. Determine base: `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`.
-4. `git log <base>..HEAD --oneline` + `git diff <base>...HEAD --stat` (parallel) to read what's shipping.
-5. Existing PR? `gh pr view --json url 2>/dev/null` → if yes, print URL, stop.
-6. Push if needed: no upstream → `git push -u origin <branch>`. Behind → `git push`.
-7. `gh pr create --title "<imperative, ≤70 chars>" --body` via HEREDOC. Sections: `## Summary` (1-3 bullets), `## Why` (skip if obvious), `## Test plan` (checklist).
-8. Print PR URL.
+<pr-flow>
 
-No AI bylines anywhere. No `--draft` unless user asked. No commits — if working tree dirty, stop and tell user to run `/commit-only` first.{{- end}}
+Invoke the `atomic-review` skill for PR title and body tone.
+
+1. `git branch --show-current` — if on base branch, stop.
+2. Determine base: `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`.
+3. Read what is shipping: `git log <base>..HEAD --oneline` + `git diff <base>...HEAD --stat` (parallel).
+4. Check for existing PR: `gh pr view --json url 2>/dev/null` — if one exists, print its URL and stop.
+5. Push if needed: `git push -u origin <branch>` (no upstream) or `git push` (behind).
+6. Create the PR:
+    ```
+    gh pr create --title "<imperative, ≤70 chars>" --body <HEREDOC>
+    ```
+    Body sections: `## Summary` (1-3 bullets), `## Why` (skip if obvious), `## Test plan` (checklist).
+7. Print the PR URL.
+
+If the working tree is dirty, stop and tell the user to commit first.
+
+</pr-flow>{{- end}}

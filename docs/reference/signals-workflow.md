@@ -1,37 +1,37 @@
 # Signals workflow
 
+Signals teach Claude the shape of your project so it stops guessing. Instead of hallucinating build commands or inventing framework conventions, Claude reads two files that describe what is actually in the repo.
 
-The signals workflow keeps Claude aware of the current shape of a project without hallucination. Run `/refresh-signals` to generate (or update) two files:
+Run `/refresh-signals` to generate (or update) them:
 
-- `.claude/project/deterministic-signals.md` — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
-- `.claude/project/signals.md` — inferred meaning: framework, build/test/lint commands, architectural style, conventions, domain index. Produced by `atomic-signals-inferrer`. On large repos, optional per-domain detail files live under `signals/`.
+- **`deterministic-signals.md`** — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
+- **`signals.md`** — inferred meaning: framework, build/test/lint commands, architectural style, domain index. Produced by the `atomic-signals-inferrer` agent.
 
-Both files are gitignored (project-specific, not committed) and auto-referenced in the project's `CLAUDE.md` (or `claude.local.md`) via `@`-refs so Claude loads them on every session. The `atomic-signals` skill keeps them fresh: it auto-fires on project-state-change phrases and also runs silently from `/commit-only` when the staged diff touches source files. The inferrer uses content-SHA change detection for incremental domain refresh — on subsequent runs it updates only affected domains, leaving everything else byte-identical.
+Both files live in `.claude/project/`, are gitignored, and auto-load into every Claude session via `@`-refs. The `atomic-signals` skill keeps them fresh — it fires on phrases like "scan the project" and runs silently from ship commands when source files change.
 
-Requires the `atomic` binary. Run without it for a degraded tree-only fallback. Full spec: [`../spec/signals-workflow.md`](../spec/signals-workflow.md).
+Requires the `atomic` binary. Without it, a degraded tree-only fallback runs instead.
 
 
 ## Steering the inferrer
 
+The inferrer makes its best guess from the scan, but it can get things wrong — especially with monorepos, polyglot projects, or unconventional naming.
 
-The inferrer makes its best guess from the deterministic scan, but it can get things wrong — especially for non-standard setups like monorepos with submodules, polyglot projects, or repos where naming conventions don't match the framework.
-
-Create `.claude/project/signals-steering.md` to provide explicit hints. The inferrer reads this file before writing `signals.md` and treats its content as ground truth. When steering contradicts what the scan implies, steering wins.
+Create `.claude/project/signals-steering.md` to provide explicit hints. The inferrer reads this file before writing `signals.md` and treats its content as ground truth. When steering contradicts the scan, steering wins.
 
 
 ### When to use steering
 
-- The inferrer detected the wrong framework (e.g., calls it "Express" when it's NestJS).
-- You have git submodules and want the inferrer to treat the parent as one project, not recurse into each submodule as a separate domain.
-- Two directories are one logical domain but the inferrer split them.
-- A directory looks like a domain but is actually generated code, scratch, or vendored.
-- The inferrer guessed the wrong build or test command.
-- You want to exclude paths from domain classification entirely.
+- The inferrer detected the wrong framework
+- You have git submodules and want the inferrer to treat the repo as one project
+- Two directories are one logical domain but got split
+- A directory looks like a domain but is generated code or vendored
+- The inferrer guessed the wrong build or test command
+- You want to exclude paths from domain classification
 
 
 ### Format
 
-Plain markdown. No required structure — the inferrer reads it as natural language. But headings help organize:
+Plain markdown. No required structure — the inferrer reads it as natural language. Headings help organize:
 
 ```markdown
 # Signals steering
@@ -42,13 +42,11 @@ This is a NestJS monorepo managed by Turborepo.
 ## Project structure
 This repo uses git submodules. Treat the root as one project.
 Do not recurse into submodules or create domains for them.
-The submodules are vendored dependencies, not part of this project's
-source code.
 
 ## Domains
 - src/billing/ and src/payments/ are one domain ("payments")
 - src/internal-tools/ is scratch code, not a real domain
-- packages/ contains shared libraries — one domain ("shared"), not one per package
+- packages/ contains shared libraries — one domain, not one per package
 
 ## Build
 - Build: pnpm turbo build
@@ -58,47 +56,44 @@ source code.
 ## Ignore for domains
 - vendor/
 - .git/modules/
-- submodules/
 ```
 
 
 ### How it works
 
-1. `/refresh-signals` (or the `atomic-signals` skill) runs `atomic signals scan` to produce the deterministic file.
-2. The inferrer agent reads `deterministic-signals.md` + `signals-steering.md` (if present).
-3. Steering directives override inference. If steering says "this is NestJS", the inferrer writes NestJS regardless of what `package.json` dependencies imply.
-4. The inferrer writes `signals.md` (and domain files if needed).
-5. On the next `/refresh-signals`, the inferrer re-reads steering — changes take effect immediately.
+1. `/refresh-signals` runs `atomic signals scan` to produce the deterministic file
+2. The inferrer reads `deterministic-signals.md` + `signals-steering.md` (if present)
+3. Steering directives override inference — if steering says "this is NestJS", the inferrer writes NestJS regardless of what `package.json` implies
+4. The inferrer writes `signals.md` (and domain files on large repos)
+5. On the next `/refresh-signals`, changes to steering take effect immediately
 
 
 ### Bootstrap
 
-`/atomic-setup` creates a commented blank at `.claude/project/signals-steering.md` if it doesn't exist. Uncomment and edit the sections you need. Delete sections you don't.
+`/atomic-setup` creates a commented blank at `.claude/project/signals-steering.md` if it does not exist. Uncomment and edit the sections you need. Delete sections you do not.
 
-The file is gitignored by default (lives under `.claude/project/`). If your team wants shared steering, move it to a committed location and `@`-reference it.
+The file is gitignored by default. If your team wants shared steering, move it to a committed location and `@`-reference it.
 
 
 ## .signalsignore
 
+A separate mechanism from steering. `.signalsignore` (at repo root) controls which **tracked files** are excluded from the deterministic scan.
 
-A separate mechanism from steering. `.signalsignore` (at repo root) controls which paths are excluded or flagged in the deterministic scan.
-
-The scan uses `git ls-files` as its source — anything in `.gitignore` is already excluded automatically. `.signalsignore` is for **tracked files** (committed to git) that you still want excluded from signals or flagged as generated.
+The scan uses `git ls-files` as its source, so anything in `.gitignore` is already excluded. `.signalsignore` is for committed files you still want excluded or flagged.
 
 Two modes per line:
 
-| Prefix | Behavior | Use for |
-|--------|----------|---------|
-| (none) | Fully excluded — path does not appear in tree at all | Committed vendored deps, checked-in fixtures, large data files |
-| `+` | Flagged `[generated]` — appears in tree with metadata but inferrer skips for domain content | Checked-in build output, protobuf generated code, lockfiles |
+| Prefix | What happens | Use for |
+|--------|-------------|---------|
+| _(none)_ | Fully excluded — path does not appear in tree | Vendored deps, checked-in fixtures, large data files |
+| `+` | Flagged as generated — appears in tree but inferrer skips it | Build output, protobuf generated code, lockfiles |
 
-One glob per line. Blank lines and `#` comments ignored. Same syntax as `.gitignore`.
+One glob per line. Blank lines and `#` comments are ignored. Same syntax as `.gitignore`.
 
 ```
-# Committed but excluded from signals scan
+# Committed but excluded from scan
 fixtures/large-dataset.json
 third_party/**
-docs/vendor/**
 
 # In tree but inferrer skips for domain content
 +*.pb.go
@@ -106,5 +101,6 @@ docs/vendor/**
 +dist/**
 ```
 
-Use `.signalsignore` when: tracked paths should be excluded from the scan, or should appear but not drive inference.
-Use `signals-steering.md` when: you want to tell the inferrer something it can't derive from the scan (framework, domains, commands).
+**Use `.signalsignore`** when tracked paths should be excluded from the scan or flagged as generated.
+
+**Use `signals-steering.md`** when you want to tell the inferrer something it cannot derive from the scan.

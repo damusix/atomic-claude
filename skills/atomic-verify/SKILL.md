@@ -39,25 +39,23 @@ Skip any step = lying, not verifying.
 | agent task complete | check VCS diff for actual changes |
 | regression test works | red → fix → green sequence verified |
 
-## Red flags — STOP
+## Verification discipline
 
-- "should", "probably", "seems to"
-- "Great!", "Perfect!", "Done!" without a fresh command run
-- About to commit/push/PR without verification
-- Trusting subagent success reports without checking artifacts
-- "Linter passed" → linter ≠ compiler
-- Partial verification ("ran one test out of N")
+Every completion claim needs a fresh command run in this turn. Watch for these moments:
 
-## Rationalization prevention
+- Before saying "done" or "fixed" — run the proof command first
+- Before committing or pushing — verify all signals are green
+- After a subagent reports success — check the artifacts yourself
+- Partial checks (one test out of N) are not verification — run the full suite
 
-| Excuse | Reality |
-|--------|---------|
-| "Should work" | Run the command. |
-| "I'm confident" | Confidence ≠ evidence. |
-| "Just this once" | No exceptions. |
-| "Linter passed" | Linter ≠ build. |
-| "Subagent said success" | Verify diff yourself. |
-| "Partial check is enough" | Partial proves nothing. |
+## When tempted to skip
+
+| Temptation | What to do instead |
+|-----------|-------------------|
+| "Should work" | Run the command. Evidence over confidence. |
+| "Linter passed" | Linter ≠ build ≠ tests. Run all applicable checks. |
+| "Subagent said success" | Verify the diff yourself. |
+| "Partial check is enough" | Run the full suite. Partial proves nothing about the rest. |
 
 ## Boundaries
 

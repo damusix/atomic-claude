@@ -38,6 +38,9 @@ Write commit messages terse and exact. Conventional Commits. No fluff. Why over 
 
 ## Examples
 
+<examples>
+
+<example>
 Diff: new endpoint for user profile with body explaining the why
 
 - Bad: `feat: add a new endpoint to get user profile information from the database`
@@ -51,7 +54,9 @@ Diff: new endpoint for user profile with body explaining the why
 
     Closes #128
     ```
+</example>
 
+<example>
 Diff: breaking API change
 
 - Good:
@@ -62,6 +67,9 @@ Diff: breaking API change
     BREAKING CHANGE: clients on /v1/orders must migrate to /v1/checkout
     before 2026-06-01. Old route returns 410 after that date.
     ```
+</example>
+
+</examples>
 
 ## Auto-Clarity
 
