@@ -75,6 +75,15 @@ The test always comes first. These situations tempt shortcuts — resist them:
 | Clear | Name describes the behavior | `test1`, `it works` |
 | Real | Real inputs, real outputs | Asserts on mocks (tests the mock, not the code) |
 
+## Purpose of tests
+
+Tests prove the feature works for real users. They are not the goal — they are evidence.
+
+- Passing tests are not success. Correct behavior is success. If the feature works wrong but tests pass, the tests are wrong.
+- A test that cannot fail when business logic changes is dead weight. Every test encodes an intention: "if this breaks, something the user cares about is wrong."
+- Do not write tests to satisfy coverage metrics or make CI green. Write tests that would catch a regression a user would notice.
+- Tests-first answer "what should this do?" — they encode intent before implementation exists. This is why TDD works: the test is a specification, not a verification of existing code.
+
 ## Boundaries
 
 - **Bug fix:** the failing test must reproduce the bug as reported. If you can't write a test that fails on current code, you don't understand the bug yet — switch to `atomic-debug` first.

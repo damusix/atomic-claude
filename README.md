@@ -5,15 +5,16 @@
 </p>
 
 <p align="center">
- <strong>An opinionated Claude Code configuration that trades narrative for signal — compressed replies, an idea-to-PR workflow, and a clean split between auto-firing skills and explicit slash commands.</strong>
+ <strong>An opinionated Claude Code configuration that trades narrative for signal.</strong>
 </p>
 
 <p align="center">
- <a href="docs/guides/install.md">Install</a> •
- <a href="docs/reference/workflow.md">Workflow</a> •
- <a href="docs/reference/commands.md">Commands</a> •
- <a href="docs/reference/skills.md">Skills</a> •
- <a href="docs/reference/agents.md">Agents</a> •
+ <a href="docs/guides/install.md">Install</a> &bull;
+ <a href="docs/reference/concepts.md">Concepts</a> &bull;
+ <a href="docs/reference/workflow.md">Workflow</a> &bull;
+ <a href="docs/reference/commands.md">Commands</a> &bull;
+ <a href="docs/reference/skills.md">Skills</a> &bull;
+ <a href="docs/reference/agents.md">Agents</a> &bull;
  <a href="docs/credits.md">Credits</a>
 </p>
 
@@ -23,7 +24,7 @@
  <a href="./LICENSE"><img src="https://img.shields.io/github/license/damusix/atomic-claude" alt="License" /></a>
 </p>
 
-> **Still evolving.** Commands, agents, and skills may shift between releases. Breaking changes are flagged in the changelog. Ship verbs are safe to interrupt; when in doubt, `git reflog`.
+> **Still evolving.** Commands, agents, and skills may shift between releases. Breaking changes are flagged in the changelog.
 
 
 ## Before / after
@@ -52,222 +53,121 @@ Fix: change `token.exp < now` to `token.exp <= now`.
 Same accuracy. Fewer tokens. Faster to scan.
 
 
+## What you get
+
+Atomic Claude is a coherent system of output styles, discipline skills, subagents, and workflow commands designed to compose. The pieces:
+
+**Compressed replies.** A tone layer that strips filler from Claude's responses. Three intensity levels switchable mid-session. Opt in via `/config` then Output style then Atomic. Details in [docs/reference/output-style.md](docs/reference/output-style.md).
+
+**Project-state awareness.** The `atomic` binary scans your repo and writes context files that Claude loads every session. Claude knows your framework, package manager, and build commands instead of guessing. Details in [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md).
+
+**A spec-to-PR workflow.** Plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`. Each stage uses fresh-context subagents that write TDD, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
+
+**Discipline skills that auto-fire.** Eight skills trigger on natural language: TDD enforcement, completion verification, debugging, commit messages, code review, signals refresh, prose editing, and documentation routing. No slash command needed. Details in [docs/reference/skills.md](docs/reference/skills.md).
+
+**Workflow commands for every git operation.** Ten verbs covering every combination of commit, push, squash, PR, and merge-to-base. Plus utilities for CI watching, stale branch cleanup, worktree isolation, reminders, and integrity checks. Details in [docs/reference/commands.md](docs/reference/commands.md).
+
+For a walkthrough of how the pieces fit together, see [docs/reference/concepts.md](docs/reference/concepts.md).
+
+
 ## Start here
 
 Pick your depth:
 
-1. **Just want compressed replies?** Install, activate the output style via `/config` → **Output style** → **Atomic**. Done. Everything else is optional.
-2. **Want project-state awareness?** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
-3. **Want the full plan→implement→ship loop?** Keep reading.
+1. **Compressed replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
+2. **Project-state awareness.** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
+3. **Full plan, implement, review loop.** Read the [workflow reference](docs/reference/workflow.md).
 
 
 ## Install
 
-Two commands. The first lays down the `atomic` binary; the second wires everything else up.
-
-Download the `atomic` binary (macOS / Linux / WSL2):
+Two commands. The first downloads the `atomic` binary (macOS / Linux / WSL2):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
 ```
 
-Install the artifact bundle into `~/.claude/`:
+The second wires up the artifact bundle into `~/.claude/`:
 
 ```bash
 atomic claude install
 ```
 
-That's it. Activate the output style with `/config` → **Output style** → **Atomic** in any Claude Code session, and you're set.
+Activate the output style with `/config` then Output style then Atomic, and you're set.
 
-**Already have a `~/.claude/CLAUDE.md`?** The installer backs up your file and writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md`. Run `/atomic-claude-merge` in any Claude session to reconcile — it keeps your instructions, deduplicates conflicts with atomic's, and only overwrites on explicit accept.
-
-**On update.** Run `atomic update` for the binary, `atomic claude update` for the artifact bundle. Same merge workflow applies. All atomic-owned per-user state (backups, proposed merges, config TOML) lives under `~/.claude/.atomic/`.
-
-Prereqs, flags, full merge contract, `atomic doctor` verification, Docker eval → [docs/guides/install.md](docs/guides/install.md).
-
-
-## Uninstall
-
-Run `atomic claude uninstall` from inside a Claude Code session. The CLI reads the pre-install snapshot written by `atomic claude install`, computes what to restore and what to delete, and outputs a structured prompt that Claude executes. Claude confirms the plan with you, LLM-merges any files you modified post-install (`settings.json`, `CLAUDE.md`), removes `~/.claude/.atomic/`, and prints the one-line `rm` command to remove the binary if you want it gone. The binary itself is never auto-removed. Full flow → [docs/guides/install.md](docs/guides/install.md).
+For prereqs, flags, existing `~/.claude/CLAUDE.md` handling, updates, Docker evaluation, and uninstall: [docs/guides/install.md](docs/guides/install.md).
 
 
 ## What a fresh repo looks like
 
-First session inside a new project — `/atomic-setup` audits conventions, then `/refresh-signals` teaches Claude the repo's shape. Abridged transcript from a fictional `acme-payments` repo (NestJS, pnpm):
+First session inside a new project. `/atomic-setup` audits conventions, `/refresh-signals` teaches Claude the repo's shape:
 
 ```text
 ❯ /atomic-setup
 
 ⏺ Audit
 
-  ┌─────────────────────────────────────┬────────────────────────┐
-  │             Convention              │         Status         │
-  ├─────────────────────────────────────┼────────────────────────┤
-  │ .gitignore exists                   │ ✓                      │
-  │ .gitignore has .claude/.scratchpad/ │ ✗                      │
-  │ .gitignore has .worktrees/          │ ✗                      │
-  │ CLAUDE.md exists                    │ ✓                      │
-  │ docs/spec/                          │ ✗                      │
-  │ docs/design/                        │ ✗                      │
-  │ atomic binary                       │ ✓                      │
-  │ SessionStart hook                   │ ✗ (no settings.json)   │
-  │ Signals files                       │ ✗                      │
-  │ CLAUDE.md @-refs                    │ ✗                      │
-  └─────────────────────────────────────┴────────────────────────┘
-
-  Classification: partial
+  ┌─────────────────────────────────────┬────────────────────────────────────┐
+  │             Convention              │              Status                │
+  ├─────────────────────────────────────┼────────────────────────────────────┤
+  │ .gitignore has .claude/.scratchpad/ │ ✗                                  │
+  │ .gitignore has .worktrees/          │ ✗                                  │
+  │ docs/spec/                          │ ✗                                  │
+  │ docs/design/                        │ ✗                                  │
+  │ Signals files                       │ ✗                                  │
+  │ CLAUDE.md @-refs                    │ ✗                                  │
+  └─────────────────────────────────────┴────────────────────────────────────┘
 
   Proposed actions
 
   [1] Append .claude/.scratchpad/ and .worktrees/ to .gitignore
   [2] Create docs/spec/.gitkeep + docs/design/.gitkeep
-  [3] Run `atomic hooks install`
-  [4] Append signals @-refs to CLAUDE.md
-  [5] Print follow-up: run /refresh-signals
+  [3] Append signals @-refs to CLAUDE.md
 
-  Apply which actions? → All (1-5)
+  Apply which actions? → All (1-3)
 
-  ✓ .gitignore: appended .claude/.scratchpad/ and .worktrees/
-  ✓ docs/spec/.gitkeep + docs/design/.gitkeep created
-  ✓ atomic hooks install (scope=user)
-  ✓ CLAUDE.md: appended signals @-refs
-
-  Next: /refresh-signals
+  ✓ Applied. Next: /refresh-signals
 
 ❯ /refresh-signals
 
 ⏺ atomic signals scan
   ⎿  Tree · Manifests · Languages → .claude/project/deterministic-signals.md
 
-⏺ atomic-signals-inferrer (35 tool uses · 80.9k tokens · 3m 3s)
+⏺ atomic-signals-inferrer
   ⎿  Framework: NestJS · package manager: pnpm
   ⎿  Build: pnpm build · test: pnpm test · lint: pnpm lint
   ⎿  → .claude/project/signals.md
 
   signals initialized.
-
-  Notable findings worth your attention:
-  - PaymentProcessor instantiated in src/payments/ but missing from src/index.ts public exports
-  - src/helpers/template/ appears to be placeholder scaffolding, not a real domain
 ```
 
-From here you're set: `/atomic-plan` opens the spec, `/worktree-start` isolates the branch, `/subagent-implementation` drives the loop.
-
-
-# What is Atomic Claude?
-
-A holistic Claude Code configuration designed as one coherent system. Grouped by what each piece does for you.
-
-**[Compressed TUI replies](docs/reference/output-style.md)**
-
-- Tone layer that strips narrative scaffolding from Claude's responses — drop articles, kill filler, fragments OK.
-- Three intensity levels (`atomic lite` / `atomic full` / `atomic ultra`) switchable mid-session.
-- Diagrams and tables over prose when they carry the load.
-- Opt in via `/config` → **Output style** → **Atomic**; takes effect next session.
-- The compression is the smallest piece — skipping it still leaves most of the system intact.
-
-**[Project-state awareness via signals](docs/reference/signals-workflow.md)**
-
-- The `atomic` binary scans your repo and writes `.claude/project/{deterministic-signals,signals}.md`, auto-loaded into every session via `@`-ref.
-- Claude knows your framework, package manager, and build/test/lint commands instead of guessing.
-- The `atomic-signals` skill auto-refreshes on phrases like "rescan the project" and runs silently when `/commit-only` detects source-tree changes.
-- No hallucinated `npm run` scripts, no invented `make` targets.
-
-**[Autonomous spec → implement → review loop](docs/reference/workflow.md)** that survives `/clear`
-
-- `/atomic-plan` writes an append-mostly `docs/spec/<topic>.md` with a `## Change log` of every amendment.
-- `/subagent-implementation` keeps `BRIEF.md`, `STATE.md`, `FOLLOWUPS.md` in `.claude/.scratchpad/` and dispatches fresh-context [subagents](docs/reference/agents.md): `atomic-builder` (feature slices), `atomic-surgeon` (1-2 file edits), `atomic-investigator` (read-only locator, haiku), `atomic-reviewer` (re-runs the quality signals it verifies), `atomic-strategist` (opus, heavyweight reasoning).
-- Eight [discipline skills](docs/reference/skills.md) auto-fire on natural-language phrases — `atomic-tdd` ("let's implement X"), `atomic-verify` ("looks done"), `atomic-debug` ("this is broken"), `atomic-commit`, `atomic-review`, `atomic-signals`, `atomic-prose`, `atomic-documentation` ("doc this change", "what surfaces does this touch"). Everything else is an explicit slash command.
-- Close your laptop for a week, rerun the same command, pick up where you left off.
-
-**[Ten ship verbs](docs/reference/workflow.md)** covering every combination of commit / push / squash / PR / merge-to-base
-
-- Commit messages via the `atomic-commit` skill; PR bodies via `atomic-review`.
-- Session reports consumed and deleted on successful commit.
-- Signals refreshed automatically on source-tree changes.
-- `atomic-verify` runs before touching base; worktree-delete prompt on merge/squash; `/documentation` reminder on significant changes.
-
-**Tooling for long-running and out-of-loop work**
-
-- `/watch-ci` — background Haiku watches CI, reports back.
-- `/git-cleanup` — scans stale worktrees, branches, optional remote refs; per-item confirm.
-- `/worktree-start` — isolated `.worktrees/<branch>/` with auto-detected setup + baseline test.
-- `/remind-me` + `/follow-up` — cron-fired reminders surfaced at session open or on demand.
-- `/atomic-help` — reads git state, recommends the next verb.
-- [`atomic doctor`](docs/spec/atomic-doctor.md) — nine integrity checks (install / hooks / signals / refs / manifest / followups / memory / binary / config). `--fix` interactive; `--json` for CI.
-- `atomic validate` — lints spec markdown, cross-reference integrity, bundle parity against the embedded manifest.
-- [`atomic config`](docs/spec/atomic-state-and-config.md) — `get | set | unset | list | path` over `~/.claude/.atomic/config.toml`. Shell-settable defaults that steer every Claude session via an `@-ref` from the bundled `CLAUDE.md`. Works with or without the session-start hook (universal file-based delivery), so enterprise environments that block hooks are still covered. Schema v1 starts with `output.intensity` only; more keys land per concrete steering need.
-- [`atomic followups`](docs/spec/follow-ups-folder.md) — `list | add | close | render | path` over `.claude/project/followups/`. Per-entry YAML frontmatter files plus a regenerated `INDEX.md` auto-loaded into every session. `add` is the deterministic entrypoint shelled out to by `/subagent-implementation` Phase 3 `defer`; `/follow-up review` triages stale entries with per-item disposition.
-
-
-## Canonical workflow
-
-### One-time per repo
-
-Bootstrap a fresh repo for atomic conventions, then teach Claude what it looks like.
-
-| Step | Verb | What it does |
-|------|------|--------------|
-| 1 | `/atomic-setup` | Audits `.gitignore` (`.worktrees/`, `.claude/.scratchpad/`, `tmp/`), proposes `docs/{spec,design,guides,reference}/` scaffold, drops starter `CLAUDE.md` if missing. Proposes only what's missing; never overwrites. |
-| 2 | `/refresh-signals` | Scans the project and writes `.claude/project/{deterministic-signals,signals}.md`. Wires `@`-refs so Claude loads your repo's shape every session. |
-
-Now you can get to work.
-
-### Day-to-day
-
-The loop you run every time you build something.
-
-| Step | Verb | What it does |
-|------|------|--------------|
-| 1 | `/atomic-plan` | Human approval gate. Gauges triviality: trivial → inline `docs/spec/<topic>.md`; non-trivial → `docs/design/<topic>.md` (concepts) + `docs/spec/<topic>.md` (contract) authored via subagent loop. Optional investigator / strategist passes. |
-| 2 | `/worktree-start <branch>` | Isolated `.worktrees/<branch>/` with auto-detected setup and baseline test run. |
-| 3 | `/subagent-implementation` | Autonomous implement → review loop. Builder writes failing test, implements, runs quality signals. Reviewer re-runs and gates. Commits per green checkpoint. |
-| 4 | `/subagent-diagnose [ci/bug]` | When something breaks. Same scratchpad + investigator + builder + reviewer loop as `/subagent-implementation`, but seeded from a failed CI run or a freeform bug symptom. |
-| 5 | `/commit-and-pr` | Commit pending work, push, open PR. (Or pick another row from the [ship verbs](#ship-verbs) table.) |
-
-
-## Ship verbs
-
-| Verb | Commit pending? | Push? | Squash? | PR? | Merge to base? |
-|------|-----------------|-------|---------|-----|----------------|
-| `/commit-only` | yes | | | | |
-| `/commit-and-push` | yes | yes | | | |
-| `/commit-and-pr` | yes | yes | | yes | |
-| `/commit-and-squash` | yes | | yes | | |
-| `/commit-and-merge` | yes | | | | yes |
-| `/push-only` | | yes | | | |
-| `/pr-only` | | yes | | yes | |
-| `/squash-only` | | | yes | | |
-| `/squash-and-merge` | | | yes | | yes |
-| `/merge-to-main` | | | | | yes |
+From here: `/atomic-plan` opens the spec, `/worktree-start` isolates the branch, `/subagent-implementation` drives the loop.
 
 
 ## Reference
 
-| Topic | Source path | Docs |
-|-------|-------------|------|
-| Commands | `commands/` | [docs/reference/commands.md](docs/reference/commands.md) |
-| Skills | `skills/` | [docs/reference/skills.md](docs/reference/skills.md) |
-| Agents | `agents/` | [docs/reference/agents.md](docs/reference/agents.md) |
-| Output style | `output-styles/atomic.md` | [docs/reference/output-style.md](docs/reference/output-style.md) |
-| Rules (path-scoped instructions) | `rules/` | — |
-| Global CLAUDE.md | `CLAUDE.md` (installed at `~/.claude/CLAUDE.md`) | — |
-| Lifecycle + ship verbs | — | [docs/reference/workflow.md](docs/reference/workflow.md) |
-| Signals workflow | — | [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md) |
-| Conventions | — | [docs/reference/conventions.md](docs/reference/conventions.md) |
-| Design axioms | — | [.claude/docs/axioms.md](.claude/docs/axioms.md) |
-| Install (prereqs, WSL2, manual, source) | — | [docs/guides/install.md](docs/guides/install.md) |
-| Docker evaluation environment | — | [docs/guides/evaluations.md](docs/guides/evaluations.md) |
-| Contributing | — | [docs/guides/contributing.md](docs/guides/contributing.md) |
-| Credits + comparison with caveman / superpowers | — | [docs/credits.md](docs/credits.md) |
-| Implementation specs | — | [docs/spec/](docs/spec/) |
+| Topic | Link |
+|-------|------|
+| Workflow lifecycle | [docs/reference/workflow.md](docs/reference/workflow.md) |
+| Commands | [docs/reference/commands.md](docs/reference/commands.md) |
+| Skills | [docs/reference/skills.md](docs/reference/skills.md) |
+| Agents | [docs/reference/agents.md](docs/reference/agents.md) |
+| Output style | [docs/reference/output-style.md](docs/reference/output-style.md) |
+| Signals workflow | [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md) |
+| Concepts (how it flows) | [docs/reference/concepts.md](docs/reference/concepts.md) |
+| Conventions | [docs/reference/conventions.md](docs/reference/conventions.md) |
+| Install / update / uninstall | [docs/guides/install.md](docs/guides/install.md) |
+| Docker evaluation | [docs/guides/evaluations.md](docs/guides/evaluations.md) |
+| Contributing | [docs/guides/contributing.md](docs/guides/contributing.md) |
+| Credits | [docs/credits.md](docs/credits.md) |
+| Specs | [docs/spec/](docs/spec/) |
 
 
 ## Contributing
 
-Atomic Claude dogfoods itself — the root artifacts are both the live config and the bundle source. See [docs/guides/contributing.md](docs/guides/contributing.md).
+Atomic Claude dogfoods itself. The root artifacts are both the live config and the bundle source. See [docs/guides/contributing.md](docs/guides/contributing.md).
 
 
 ## License
 
-[MIT](LICENSE). Use it in personal projects or at work. No warranty, no liability; standard MIT terms apply.
+[MIT](LICENSE)
