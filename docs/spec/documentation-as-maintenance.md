@@ -59,16 +59,16 @@ Replace the hardcoded artifact-index-updating behavior of `/documentation` and `
 
 ## Checkpoints
 
-| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
-|---|------------|-------------|-------|------------|----------|
-| 1 | `atomic docs scan` + `atomic docs stale` | `atomic/internal/docs/` (new pkg) | atomic-builder | ~4 | Tests: scan finds .md files in test fixtures, extracts headings, writes cache. Stale returns correct exit. Respects .signalsignore. |
-| 2 | CLI wiring for `docs scan` and `docs stale` | `atomic/cmd/atomic/main.go`, `main_test.go` | atomic-surgeon | ~2 | Tests: subcommands dispatch correctly. Usage text updated. |
-| 3 | Skill rewrite: generic `atomic-documentation` | `skills/atomic-documentation/SKILL.md` | atomic-surgeon | ~1 | Grep: no hardcoded routing rows remain. Two modes documented. `impact_type` in output contract. Parser rule for unknown fields added. |
-| 4 | Command rewrite: `/documentation` bootstrap + authoring | `templates/commands/documentation.md` | atomic-builder | ~1 | Grep: bootstrap flow present. `--discover` flag documented. Authoring mode walks stale/incomplete/missing with Yes/Later/Remind/Skip. Renders via `make render`. |
-| 5 | Ship verb doc-impact partial: maintenance mode | `templates/shared/doc-impact.md` | atomic-surgeon | ~1 | Grep: reads surfaces table, Yes/Later/Remind/Skip options, ignores `missing` entries. One-time hint when no table exists. Renders via `make render`. |
-| 6 | `/subagent-implementation` advisory line | `templates/commands/subagent-implementation.md` | atomic-surgeon | ~1 | Grep: Phase 3 next-steps includes `/documentation` with stale-surface count. |
-| 7 | Atomic repo migration: surfaces table to `claude.local.md` | `claude.local.md` | atomic-surgeon | ~1 | Grep: `## Documentation surfaces` table present with correct paths. |
-| 8 | CLAUDE.md + README.md + bundle regen | `CLAUDE.md`, `README.md`, `make render`, `make bundle` | atomic-builder | ~4+ | CI: render + bundle drift gates pass. CLAUDE.md documents `atomic docs scan/stale` and bootstrap. README tables updated. |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | `atomic docs scan` + `atomic docs stale` | `atomic/internal/docs/` (new pkg, ~4 files; atomic-builder) | Tests: scan finds .md files in test fixtures, extracts headings, writes cache. Stale returns correct exit. Respects .signalsignore. |
+| 2 | CLI wiring for `docs scan` and `docs stale` | `atomic/cmd/atomic/main.go`, `main_test.go` (~2 files; atomic-surgeon) | Tests: subcommands dispatch correctly. Usage text updated. |
+| 3 | Skill rewrite: generic `atomic-documentation` | `skills/atomic-documentation/SKILL.md` (atomic-surgeon) | Grep: no hardcoded routing rows remain. Two modes documented. `impact_type` in output contract. Parser rule for unknown fields added. |
+| 4 | Command rewrite: `/documentation` bootstrap + authoring | `templates/commands/documentation.md` (atomic-builder) | Grep: bootstrap flow present. `--discover` flag documented. Authoring mode walks stale/incomplete/missing with Yes/Later/Remind/Skip. Renders via `make render`. |
+| 5 | Ship verb doc-impact partial: maintenance mode | `templates/shared/doc-impact.md` (atomic-surgeon) | Grep: reads surfaces table, Yes/Later/Remind/Skip options, ignores `missing` entries. One-time hint when no table exists. Renders via `make render`. |
+| 6 | `/subagent-implementation` advisory line | `templates/commands/subagent-implementation.md` (atomic-surgeon) | Grep: Phase 3 next-steps includes `/documentation` with stale-surface count. |
+| 7 | Atomic repo migration: surfaces table to `claude.local.md` | `claude.local.md` (atomic-surgeon) | Grep: `## Documentation surfaces` table present with correct paths. |
+| 8 | CLAUDE.md + README.md + bundle regen | `CLAUDE.md`, `README.md`, `make render`, `make bundle` (atomic-builder) | CI: render + bundle drift gates pass. CLAUDE.md documents `atomic docs scan/stale` and bootstrap. README tables updated. |
 
 
 ## Checkpoint details
