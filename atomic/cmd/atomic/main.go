@@ -12,6 +12,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
+	"github.com/damusix/atomic-claude/atomic/internal/docs"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/followups"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
@@ -59,6 +60,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  followups render                                  Regenerate INDEX.md\n")
 		fmt.Fprintf(os.Stderr, "  followups path                                    Print followups folder path\n")
 		fmt.Fprintf(os.Stderr, "  validate [flags] [spec|config|bundle] [paths...]  Lint repo artifacts\n")
+		fmt.Fprintf(os.Stderr, "  docs scan                                         Scan docs and write doc-surfaces.md\n")
+		fmt.Fprintf(os.Stderr, "  docs stale                                        Exit 0 if fresh, 1 if stale\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -137,6 +140,8 @@ func main() {
 		runFollowups(args[1:], repoOverride)
 	case "validate":
 		os.Exit(validate.Run(args[1:]))
+	case "docs":
+		runDocs(args[1:], repoOverride)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
 		os.Exit(1)
@@ -819,4 +824,51 @@ func runClaude(args []string) {
 		fmt.Fprintf(os.Stderr, "Usage: atomic claude <install|update|list|diff|uninstall> [flags]\n")
 		os.Exit(2)
 	}
+}
+
+// docsAction executes the docs subcommand logic and returns an exit code.
+// Extracted from runDocs so that tests can exercise dispatch without os.Exit.
+func docsAction(args []string, root string) int {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic docs <scan|stale>\n")
+		return 1
+	}
+
+	verb := args[0]
+	switch verb {
+	case "scan":
+		if err := docs.Scan(root); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			return 1
+		}
+		return 0
+	case "stale":
+		err := docs.Stale(root)
+		if err == nil {
+			return 0 // fresh
+		}
+		if err == docs.ErrStale {
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 2
+	default:
+		fmt.Fprintf(os.Stderr, "atomic docs: unknown verb %q\n", verb)
+		return 1
+	}
+}
+
+func runDocs(args []string, repoOverride string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic docs <scan|stale>\n")
+		os.Exit(1)
+	}
+
+	root, err := repoctx.Resolve(repoOverride)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic docs: %v\n", err)
+		os.Exit(1)
+	}
+
+	os.Exit(docsAction(args, root))
 }

@@ -214,6 +214,23 @@ The whole point of the signals workflow is that Claude has a current map of the 
 - When a user says "the auth system is broken", a session with signals loaded already knows which modules, services, and use cases live where. Without the `@-refs`, the snapshot files exist but never reach context — wasted scan, wasted inference.
 
 
+## Documentation surfaces
+
+| Path | Covers | Voice |
+|------|--------|-------|
+| `README.md` | project overview, install, commands, agents, skills | atomic-prose |
+| `docs/guides/install.md` | installation, updating, uninstalling | atomic-prose |
+| `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-prose |
+| `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-prose |
+| `docs/reference/workflow.md` | plan, implement, diagnose, ship lifecycle | atomic-prose |
+| `docs/reference/commands.md` | command reference table | atomic-prose |
+| `docs/reference/agents.md` | agent reference table | atomic-prose |
+| `docs/reference/skills.md` | skills reference table | atomic-prose |
+| `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-prose |
+| `docs/reference/output-style.md` | atomic output style reference | atomic-prose |
+| `CLAUDE.md` | global contract, agent/command/skill registry | llm-reference |
+
+
 ## Naming
 
 - All custom artifacts use the `atomic-` prefix (`atomic-builder`, `atomic-tdd`, `atomic-commit`, etc.) so they're easy to spot among third-party installs.

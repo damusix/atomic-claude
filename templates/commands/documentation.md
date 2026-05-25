@@ -1,31 +1,143 @@
 ---
-description: Orchestrate a diff-scoped documentation update. Invokes the atomic-documentation skill with a git diff, parses proposed surfaces, walks per-surface accept/skip/continue prompts, applies edits, and stages. Does not commit — that is the user's choice via a ship verb.
+description: Bootstrap and maintain project documentation surfaces. Two modes: bootstrap (discover doc files, index them in CLAUDE.md) and authoring (scan for unindexed docs, match diff against indexed surfaces, walk stale/incomplete/missing items with Yes/Later/Remind/Skip).
 ---
 
-Run `/documentation` to trigger a documentation impact pass over a range of commits, then apply any proposed edits surface by surface.
+Run `/documentation` to bootstrap doc surface indexing or perform a full documentation pass.
 
 ## Flags
 
-- `--print-template` — print the `## Documentation surfaces` override-table skeleton to stdout and exit. Paste this into your `claude.local.md` to declare custom surfaces for a non-atomic repo.
-- `--dry-run` — print the skill's proposed surfaces without applying edits or staging anything.
+- `--print-template` — print the `## Documentation surfaces` table skeleton to stdout and exit. Paste into your CLAUDE.md to declare custom surfaces manually.
+- `--dry-run` — print discovered/stale surfaces without applying edits or staging anything.
+- `--discover` — re-scan and offer to update the surfaces table even when a table already exists. Use after adding new doc files.
 - `<range>` — any valid git range (`HEAD~5..HEAD`, `main..feature-branch`). If omitted, defaults to `<base>..HEAD` where `<base>` is the merge-base with `main`.
 
 ## Step 0 — Handle flags
 
-If `--print-template` is present, print the following and exit with no further steps:
+If `--print-template` is present, print the following and exit:
 
 ```markdown
 ## Documentation surfaces
 
-| Diff signal | Surface | Voice |
-|-------------|---------|-------|
-| New file in `src/api/routes/*.ts` | `docs/api.md` | atomic-prose |
-| Public function added to `pkg/*/exports.go` | `docs/reference.md` | spec-design |
+| Path | Covers | Voice |
+|------|--------|-------|
+| `docs/architecture/payments.md` | billing, webhooks, Stripe | atomic-prose |
+| `docs/models/README.md` | data model, ERD, migrations | atomic-prose |
+| `docs/api/endpoints.md` | REST API, auth, rate limits | atomic-prose |
+| `README.md` | project overview, quick start | atomic-prose |
 ```
 
-Add this section to your `claude.local.md` (or `CLAUDE.md`) and rerun `/documentation` to apply the overrides. Voice values: `atomic-prose`, `spec-design`, `llm-reference`.
+Add this section to your committed `CLAUDE.md` and fill in your project's doc files. Voice values: `atomic-prose`, `spec-design`, `llm-reference`.
 
-## Step 1 — Resolve the diff range
+## Step 1 — Detect mode
+
+Check whether a `## Documentation surfaces` table exists in the project's committed CLAUDE.md (search `CLAUDE.md` at the git root; also check `claude.local.md` / `CLAUDE.local.md`).
+
+- **Table absent OR `--discover` flag present** → run bootstrap mode (Step 2).
+- **Table present AND no `--discover` flag** → run authoring mode (Step 5).
+
+## Step 2 — Bootstrap: scan doc files
+
+Run the deterministic scan:
+
+```bash
+atomic docs scan 2>/dev/null
+```
+
+If `atomic` is absent or returns a non-zero exit, fall back to:
+
+```bash
+find docs/ doc/ documentation/ wiki/ ADR/ adr/ decisions/ -name '*.md' 2>/dev/null
+find . -maxdepth 3 -name 'README.md' 2>/dev/null | grep -v node_modules | grep -v .git
+```
+
+Read the cache file written to `.claude/project/doc-surfaces.md` (or use the find output directly if the binary is absent).
+
+If no doc files are found, print:
+
+```
+no documentation files found. Run with --discover after adding docs.
+```
+
+and exit.
+
+## Step 3 — Bootstrap: present discovered surfaces
+
+Print a numbered list (axiom 4 — plain-text indexed selection):
+
+```
+Discovered N documentation files. Index these in your CLAUDE.md?
+
+  [1] docs/architecture/payments.md — Payments / Webhook Flow / Stripe Integration
+  [2] docs/models/README.md — Data Model / Entity Relationships / Migration History
+  [3] README.md — (no headings extracted)
+  ...
+
+Type: all | 1 3 5 | none
+```
+
+Wait for user input. Accept: `all`, space-separated indices (`1 3 5`), comma-separated (`1,3,5`), ranges (`1-3`), mixed (`1-3 5`), `none`.
+
+If `none`, print `no surfaces indexed.` and exit.
+
+## Step 4 — Bootstrap: write the surfaces table
+
+For each selected surface:
+
+1. Suggest a `Covers` annotation derived from headings (H1 + first 3 H2s). Ask the user to confirm or replace:
+
+   ```
+   [1] docs/architecture/payments.md
+   Suggested covers: payments, webhook flow, Stripe integration
+   Accept or type replacement (Enter to accept):
+   ```
+
+2. After confirming all selected surfaces, locate the target CLAUDE.md:
+   - Use the committed `CLAUDE.md` at the git root if it exists.
+   - If no CLAUDE.md exists, create one.
+
+3. Append the `## Documentation surfaces` section to that file:
+
+   ```markdown
+   ## Documentation surfaces
+
+   | Path | Covers | Voice |
+   |------|--------|-------|
+   | `docs/architecture/payments.md` | payments, webhook flow, Stripe integration | atomic-prose |
+   ```
+
+4. Stage the file:
+
+   ```bash
+   git add CLAUDE.md
+   ```
+
+5. Print:
+
+   ```
+   indexed N surfaces in CLAUDE.md.
+   Run /documentation again to walk stale or missing docs.
+   ```
+
+Exit. Bootstrap complete.
+
+## Step 5 — Authoring: check for unindexed docs
+
+Run `atomic docs scan` (or the Bash fallback from Step 2). Compare the scan results against the paths already in the `## Documentation surfaces` table.
+
+If unindexed doc files are found, present them as a numbered list:
+
+```
+Found N doc files not in your surfaces table. Add them?
+
+  [1] docs/api/new-endpoints.md — API Reference / Authentication / Rate Limits
+  [2] docs/guides/getting-started.md — (no headings extracted)
+
+Type: all | 1 3 5 | none
+```
+
+For selected items, run Step 4's annotation + append loop, then continue.
+
+## Step 6 — Authoring: resolve the diff range
 
 If the user supplied a `<range>` argument, use it verbatim.
 
@@ -41,89 +153,163 @@ Then run:
 git diff <base>..HEAD
 ```
 
-If the diff is empty, print `no changes in range; nothing to document.` and exit.
+If the diff is empty, print `no changes in range; skipping stale detection.` and proceed to Step 7 (missing detection).
 
-## Step 2 — Invoke the atomic-documentation skill
+## Step 7 — Authoring: classify surfaces
 
-Pass the full diff text to the `atomic-documentation` skill. The skill analyzes the diff against the surface routing table, reads any `## Documentation surfaces` override in `claude.local.md` / `CLAUDE.md`, and emits a fenced `yaml` block as its final output.
+Read the `## Documentation surfaces` table. For each surface:
 
-## Step 3 — Parse the skill output
+- **Stale** — the diff touches paths or concepts mentioned in the `Covers` column for this surface.
+- **Incomplete** — the diff adds something (new entity, new endpoint, new step) related to the surface's covers, but the surface doesn't mention it yet.
+- **Missing** — domains identified in project signals (`signals.md`) that have 5+ source files with no corresponding doc surface within two directory levels. Only suggest new pages in authoring mode; never during commit flow.
 
-Search the skill's response for the **last** fenced code block tagged `` ```yaml `` or `` ```yml `` (both accepted).
-
-Parse rules:
-
-1. If the last fenced `yaml`/`yml` block is present, parse it as YAML.
-2. On YAML parse error, treat as no surfaces. Log: `skill output could not be parsed; treating as no doc impact.`
-3. If no fenced `yaml`/`yml` block is present, treat as no surfaces.
-4. If the parsed YAML has no `surfaces` key or `surfaces` is not a list, treat as no surfaces.
-5. Surfaces with unknown `voice` values are skipped with a note: `skipping <path>: unknown voice <value>.`
-6. Surface entries missing `path` or `voice` are skipped with a note: `skipping incomplete surface entry.`
-7. `surfaces: []` is valid and means the skill found no doc impact.
-
-If the result is empty after parsing, print `no doc impact detected.` and exit.
-
-## Step 4 — Walk surfaces (skipped in --dry-run mode)
-
-If `--dry-run` was supplied, print the parsed surfaces list and exit without applying anything:
+If `--dry-run` was supplied, print the classifications and exit:
 
 ```
-dry-run: proposed surfaces
-  1. README.md (atomic-prose) — new file commands/foo.md
-  2. CLAUDE.md (llm-reference) — new file commands/foo.md
+dry-run: classified surfaces
+
+  stale (1):
+    docs/models/README.md — migration adds refund_status column
+  incomplete (1):
+    docs/api/endpoints.md — new POST /payments/refund endpoint
+  missing (1):
+    notifications/ (8 files) — no doc surface found
+
 no edits applied.
 ```
 
-Otherwise, walk surfaces one at a time. For each surface, print:
+## Step 8 — Authoring: walk surfaces
+
+Walk surfaces one at a time. For each **stale** or **incomplete** surface, print:
 
 ```
 surface <N>/<total>: <path>
-voice:  <voice>
-reason: <reason>
-change: <suggested_change>
+status: stale | incomplete
+reason: <why it's stale or incomplete>
 
-  [e] edit   — open file, apply the suggested change, re-stage
-  [s] skip   — record a reason; no edit
-  [c] continue — treat as misclassification; no edit, no note
+  [y] Yes    — update now (skill edits the file, stages)
+  [l] Later  — create a follow-up entry
+  [r] Remind — schedule a reminder
+  [s] Skip   — no action
 ```
 
-Wait for the user to type one of `e`, `s`, or `c`.
+Wait for the user to type one of `y`, `l`, `r`, `s`.
 
-**edit** (`e`): Open `<path>` and apply the `suggested_change`. After applying, stage the file:
+For each **missing** surface, print:
+
+```
+surface <N>/<total>: <module>/ (N files)
+status: missing — no doc surface covers this module
+
+  [n] New    — generate a full page draft
+  [s] Skip   — no action
+```
+
+Wait for `n` or `s`.
+
+### Yes (`y`)
+
+Open `<path>`. Read the current content and the diff. Generate a targeted edit:
+
+- Stale ERD → add the new field to the Mermaid block and field table.
+- Stale flow → insert the new step in the diagram and update surrounding prose.
+- Incomplete API reference → add a new row for the new endpoint.
+- Preserve existing diagram style (orientation, node naming, color scheme).
+- Update any stale code examples in the file to reflect the current API.
+
+Apply the edit, then stage the file:
 
 ```bash
 git add <path>
 ```
 
-**skip** (`s`): Ask for a reason (`skip reason: `). Record the path and reason in the run summary. Do not stage anything for this surface.
+### Later (`l`)
 
-**continue** (`c`): Treat the skill's classification as a misclassification. No edit, no skip note in the summary.
+Create a follow-up entry:
 
-## Step 5 — Print summary
+```bash
+atomic followups add \
+  --id "doc-<slug>-<short-hash>" \
+  --title "update <path> — <one-line reason>" \
+  --severity nit \
+  --origin "/documentation authoring"
+```
 
-After all surfaces are walked, print a summary:
+If `atomic` is absent, print the follow-up details and ask the user to add it manually.
+
+### Remind (`r`)
+
+Prompt for timing using natural-language inference (same as `/remind-me`):
+
+```
+Remind when? (e.g. "tomorrow", "after the PR", "end of week"):
+```
+
+Run `/remind-me <timing> update <path> — <reason>`.
+
+### Skip (`s`)
+
+No action, no record.
+
+### New (`n`)
+
+Generate a full page draft for the missing module. Pick the doc type based on content:
+
+- Module with data models → domain guide with ERD (`erDiagram`), field tables, business rules.
+- Module with API routes → API reference with endpoint table, request/response examples.
+- Multi-step process → flow doc with Mermaid flowchart, step descriptions.
+- Architectural decision → ADR with context, decision, consequences.
+
+Follow `atomic-prose` voice: short intro sentence, tables for comparisons, Mermaid diagrams with one-sentence captions, plain language, no LLM-tell filler.
+
+Write the new file. Then offer to add it to the surfaces table:
+
+```
+Created docs/<module>.md.
+Add to your ## Documentation surfaces table? [y/n]
+```
+
+If yes, append a row to the table in CLAUDE.md and stage it. Note where the new page should be linked (index page, sidebar, README).
+
+Stage the new file:
+
+```bash
+git add docs/<module>.md
+```
+
+## Step 9 — Print summary
+
+After all surfaces are walked, print:
 
 ```
 documentation pass complete.
 
-  edited (staged):
-    README.md — added commands table row
-    CLAUDE.md — appended Other commands entry
+  updated (staged):
+    docs/models/README.md — added refund_status to ERD and field table
+    docs/api/endpoints.md — added POST /payments/refund endpoint
+
+  deferred:
+    docs/architecture/payments.md — follow-up created
+
+  reminded:
+    docs/onboarding.md — reminder set for end of week
 
   skipped:
-    docs/spec/foo.md — skip reason: spec already covers this
+    docs/legacy/v1.md
 
-  misclassified (continued):
-    docs/design/bar.md
+  created:
+    docs/notifications.md — added to surfaces table
 
-  total: <N> surfaces / <E> edited / <S> skipped / <C> continued
+  total: <N> surfaces / <Y> updated / <L> deferred / <R> reminded / <S> skipped / <C> created
 ```
 
 ## Rules
 
 - This command does not commit. Edits are staged; the user commits via a ship verb.
 - `--dry-run` prints the proposal and exits without touching any file.
-- `--print-template` exits immediately after printing; no diff is taken.
+- `--print-template` exits immediately after printing; no scan is performed.
+- `--discover` re-runs bootstrap surface selection even when a table already exists. Use it after adding new doc directories.
+- Missing detection (Step 7) runs only in authoring mode. Never during commit flow (ship verbs).
+- When creating or updating a file, generate full Mermaid syntax — never describe what a diagram would look like. Every Mermaid block gets a one-sentence caption.
+- The surfaces table belongs in the committed `CLAUDE.md` so the whole team shares it. Exception: repos where `CLAUDE.md` is a bundle source (like the atomic-claude repo itself) may use `claude.local.md` instead — the bootstrap step can write there if the user directs it.
 - The voice rules and surface taxonomy live in `skills/atomic-documentation/SKILL.md`. This command does not duplicate them.
-- Apply edits as described in `suggested_change`. If the change is unclear, apply the closest reasonable interpretation and note it in the summary. Do not abort the walk on an ambiguous entry.
-- Never open or apply changes to files outside the paths emitted by the skill.

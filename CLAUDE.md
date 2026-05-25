@@ -131,7 +131,7 @@ Full spec: `docs/spec/signals-workflow.md`.
     - `/squash-only` — squash branch commits into one, no merge.
     - `/squash-and-merge` — squash + merge to base in one shot.
     - `/commit-and-squash` — commit pending + squash branch history.
-4. **Sync docs** — `/documentation` runs a diff-scoped doc-impact pass via the `atomic-documentation` skill (per-surface edit / skip / continue). Ship verbs fire the same skill on the staged diff automatically.
+4. **Sync docs** — `/documentation` maintains human-facing project documentation. First run bootstraps: discovers doc files, user picks which to index in CLAUDE.md as a `## Documentation surfaces` table. Subsequent runs match diffs against indexed surfaces and offer to update stale docs (Yes/Later/Remind/Skip). Ship verbs run the same check in maintenance mode automatically during commit flow.
 
 
 ## Other commands
@@ -182,7 +182,7 @@ Full spec: `docs/spec/signals-workflow.md`.
 ## Atomic binary subcommands
 
 
-Beyond `claude install` / `signals scan` / `hooks install` / `reminder` / `update`:
+Beyond `claude install` / `signals scan` / `hooks install` / `reminder` / `update` / `docs scan`:
 
 
 - `atomic docker init [--target DIR] [--force]` — writes a Dockerfile + docker-compose.yml + entrypoint into the target dir (default `./atomic-docker/`) so users can evaluate atomic-claude on their own projects without cloning this repo. Mirror of the contributor Docker setup at the repo root (see `## Evaluations` in README.md).
@@ -190,4 +190,6 @@ Beyond `claude install` / `signals scan` / `hooks install` / `reminder` / `updat
 - `atomic validate [spec|config|bundle] [paths...]` — deterministic lints against the repo's artifacts: spec markdown structure (S0/S1/S5/S6), cross-reference integrity in CLAUDE.md / commands / agents / skills (C1/C3/C5/C7/C9), bundle parity against the embedded manifest. No args → whole-repo run. `--json` for machine output, `--suggest` for structural template hints. Exit 1 on any FAIL, 2 on internal error.
 - `atomic update [--check] [--channel <stable|prerelease>] [--no-doctor]` — self-updates the binary from GitHub Releases (SHA256-verified). After a successful binary swap, runs `doctor.Run` with `signals` and `binary` skipped, prints FAIL lines only (silent on healthy). Update success preserved unconditionally — doctor outcome (including panics) never changes exit code. Disable per-invocation with `--no-doctor` or durably via `update.run_doctor = false` in `~/.claude/.atomic/config.toml`. Precedence: flag > config > default (`true`). Spec: `docs/spec/atomic-update-doctor.md`.
 - `atomic followups <list|add|close|render|path>` — manages the per-entry follow-ups folder at `.claude/project/followups/`. `list [--stale] [--json]` enumerates open entries; `add --id <id> --title <t> --severity <s> --origin <o> [--file <f>] [--body -]` writes a new entry (deterministic frontmatter, LLM-free); `close <id> [--reason <r>]` appends to `CLOSED.md` and deletes the entry file; `render` regenerates `INDEX.md`; `path` prints the absolute folder path. Spec: `docs/spec/follow-ups-folder.md`.
+- `atomic docs scan` — deterministically walks doc directories (`docs/`, `wiki/`, `ADR/`, etc.), extracts H1 + first 3 H2s per `.md` file, writes `.claude/project/doc-surfaces.md` (gitignored cache). Respects `.signalsignore`. Used by `/documentation` bootstrap.
+- `atomic docs stale` — compares cache mtime against latest doc-file mtime. Exit 0 = fresh, exit 1 = stale. Used by ship verbs to decide whether to re-scan before doc-impact checks.
 - `atomic claude uninstall` — reverses `atomic claude install`. Reads `~/.claude/.atomic/pre-install/manifest.json` (exit 1 if missing — no snapshot, no uninstall), computes a restore plan (files to restore, files to delete, files needing LLM merge), and outputs a structured prompt to stdout. Claude receives the prompt, confirms the plan with the user, LLM-merges `settings.json` and `CLAUDE.md` if they were modified post-install, restores pre-install files, deletes atomic-only artifacts, removes `~/.claude/.atomic/`, and prints the binary removal instruction. TTY-aware: when run interactively outside a Claude session, prints a hint to run inside Claude Code instead. Binary is never removed by the CLI. Spec: `docs/spec/uninstall.md`.

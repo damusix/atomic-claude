@@ -264,6 +264,14 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 5. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.
 6. Report to the user: what shipped, which iterations + commit SHAs, what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
 
+    **Documentation advisory.** If `## Documentation surfaces` exists in CLAUDE instructions and the implemented changes touch files matching any surface's "Covers" column, append to the next-steps suggestions:
+
+    ```
+    /documentation — N doc surfaces may be stale
+    ```
+
+    One line, advisory only. Not a gate — the user decides whether to address docs now or later.
+
 Do NOT push, merge, or open a PR. The user picks the ship verb (`/pr-only`, `/merge-to-main`, `/squash-and-merge`, etc.) when ready.
 
 ## Rules
