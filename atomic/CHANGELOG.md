@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.9.0](https://github.com/damusix/atomic-claude/compare/v1.8.0...v1.9.0) (2026-05-26)
+
+
+### Features
+
+* **signals:** steering file bootstrap and inferrer pass-through ([9c94772](https://github.com/damusix/atomic-claude/commit/9c94772f5e2ccf93eca0c73676ff279eed341b8b))
+* XML structural tags, &lt;atomic&gt; ownership boundary, single @-ref ([091d4ef](https://github.com/damusix/atomic-claude/commit/091d4ef0002eebb7d443775acbd6b92539859ff6))
+
 ## [1.8.0](https://github.com/damusix/atomic-claude/compare/v1.7.0...v1.8.0) (2026-05-25)
 
 
