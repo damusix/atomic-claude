@@ -329,7 +329,7 @@ func applyManifestRepairWithGuard(out io.Writer) error {
 
 // -- refs repair --
 
-const refsBlock = "\n## Project signals (auto-loaded)\n\n@.claude/project/deterministic-signals.md\n@.claude/project/signals.md\n"
+const refsBlock = "\n## Project signals (auto-loaded)\n\n@.claude/project/signals.md\n"
 
 // applyRefsRepair appends the @-ref block to the chosen candidate file.
 // Selection rules per brief:
@@ -384,13 +384,7 @@ func applyRefsRepair(p Prompter, out io.Writer) error {
 }
 
 // appendRefsIfMissing reads the file (or treats as empty if absent) and appends
-// only the missing @-ref line(s). Idempotent.
-//
-// Cases:
-//   - Both present → no-op.
-//   - Neither present → append the full refsBlock (header + both refs).
-//   - Det present, Inf missing → append only the inferred ref line.
-//   - Inf present, Det missing → append only the deterministic ref line.
+// the signals.md @-ref if missing. Idempotent.
 func appendRefsIfMissing(path string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -398,28 +392,14 @@ func appendRefsIfMissing(path string) error {
 	}
 	content := string(raw)
 
-	hasDet := strings.Contains(content, deterministicSignalsRef)
-	hasInf := strings.Contains(content, signalsRef)
-	if hasDet && hasInf {
-		// Already wired — nothing to do.
+	if strings.Contains(content, signalsRef) {
 		return nil
 	}
 
-	// Ensure file ends with newline before appending.
 	if len(content) > 0 && !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-
-	if !hasDet && !hasInf {
-		// Neither present: append the full block with the section header.
-		content += refsBlock
-	} else if hasDet {
-		// Det already there; only the inferred ref is missing.
-		content += signalsRef + "\n"
-	} else {
-		// Inf already there; only the deterministic ref is missing.
-		content += deterministicSignalsRef + "\n"
-	}
+	content += refsBlock
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("mkdir for %s: %w", path, err)

@@ -117,8 +117,9 @@ If a survey reviewer detects any of the above in a freshly-rendered `CLAUDE.md`,
 ## Project signals (auto-loaded)
 
 
-@.claude/project/deterministic-signals.md
+<atomic-signals>
 @.claude/project/signals.md
+</atomic-signals>
 ```
 
 The trailing `## Project signals (auto-loaded)` block is appended unconditionally — even when signals have not yet been scanned, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets).
@@ -153,3 +154,11 @@ When `CLAUDE.md` already exists, the survey does not run. The audit step gates o
 **Why:** Dry-run against a fresh fixture (Makefile with `release:` + `rollback:` targets, README with Notion + Slack references) surfaced the defect: skip was offered even when the agent had real signal, letting the user accidentally discard durable findings in favor of a "No X detected" placeholder. Skip exists to handle the genuinely-empty case, not to nullify successful inference.
 
 **Superseded:** Prior contract offered `[a]ccept / [e]dit / [s]kip` unconditionally for every section.
+
+### 2026-05-26 — Single @-ref: drop deterministic-signals from scaffold
+
+**What changed:** The `## Project signals (auto-loaded)` scaffold block now emits only `@.claude/project/signals.md` (wrapped in `<atomic-signals>` tags), removing the `@.claude/project/deterministic-signals.md` line.
+
+**Why:** `deterministic-signals.md` is too large for context on big repos. The contract changed so only `signals.md` is auto-loaded; `deterministic-signals.md` is read on demand by the inferrer agent. Keeping the two-ref scaffold would cause freshly bootstrapped repos to load the oversized deterministic file on every session.
+
+**Superseded:** Prior scaffold block wrote both `@.claude/project/deterministic-signals.md` and `@.claude/project/signals.md`.

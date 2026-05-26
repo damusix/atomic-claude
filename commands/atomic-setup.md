@@ -35,7 +35,7 @@ Inspect the repo. Build this status table:
 | `.claude/hooks/session-start-reminders.sh` exists | `test -f .claude/hooks/session-start-reminders.sh` | exists / missing |
 | `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value contains `session-start-reminders.sh` (the absolute path written by `atomic hooks install`) | registered / missing |
 | `.claude/project/deterministic-signals.md` | `test -f .claude/project/deterministic-signals.md` | exists / missing |
-| `CLAUDE.md` references signals files | `test -f CLAUDE.md && grep -qF '@.claude/project/deterministic-signals.md' CLAUDE.md && grep -qF '@.claude/project/signals.md' CLAUDE.md` (if `test -f CLAUDE.md` fails → n/a) | yes / no / n/a |
+| `CLAUDE.md` references signals.md | `test -f CLAUDE.md && grep -qF '@.claude/project/signals.md' CLAUDE.md` (if `test -f CLAUDE.md` fails → n/a). Only `signals.md` is `@-ref`'d — `deterministic-signals.md` is too large for context. | yes / no / n/a |
 | `.signalsignore` at repo root | `test -f .signalsignore` | exists / missing |
 | `.claude/project/signals-steering.md` | `test -f .claude/project/signals-steering.md` | exists / missing |
 
@@ -252,14 +252,17 @@ Accept → use as-is. Edit → user supplies replacement text. Skip (empty-guess
 <§6 content>
 
 
+<atomic-signals>
+
 ## Project signals (auto-loaded)
 
 
-@.claude/project/deterministic-signals.md
 @.claude/project/signals.md
+
+</atomic-signals>
 ````
 
-The `## Project signals (auto-loaded)` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). Note: `signals-steering.md` is NOT `@-ref`'d — it is read only during inference by the `atomic-signals` skill.
+The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d — it is read only during inference by the `atomic-signals` skill.
 
 **Forbidden content in the rendered file.** Do not write any of these — they live globally already and duplicating them noise-pollutes the project file:
 
@@ -298,23 +301,25 @@ Install the atomic binary:
 Run /refresh-signals to generate project signals.
 ```
 
-**`CLAUDE.md` missing `@-refs`** — Append to the existing `CLAUDE.md`:
+**`CLAUDE.md` missing `@-ref`** — Append to the existing `CLAUDE.md`:
 
 ```bash
-if test -f CLAUDE.md && ! { grep -qF '@.claude/project/deterministic-signals.md' CLAUDE.md && grep -qF '@.claude/project/signals.md' CLAUDE.md; }; then
+if test -f CLAUDE.md && ! grep -qF '@.claude/project/signals.md' CLAUDE.md; then
   cat >> CLAUDE.md << 'EOF'
 
+<atomic-signals>
 
 ## Project signals (auto-loaded)
 
 
-@.claude/project/deterministic-signals.md
 @.claude/project/signals.md
+
+</atomic-signals>
 EOF
 fi
 ```
 
-Idempotent: only appends when `CLAUDE.md` exists AND at least one `@-ref` is missing. Refuses silently otherwise.
+Idempotent: only appends when `CLAUDE.md` exists AND `@-ref` is missing. Refuses silently otherwise.
 
 ## Step 5 — Report
 

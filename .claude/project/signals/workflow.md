@@ -1,6 +1,8 @@
 # workflow
 
-Plan → implement → ship lifecycle. The commands, agents, and skills that orchestrate feature work from spec to committed code.
+## What it does
+
+Plan → implement → ship lifecycle. Commands, agents, and skills that orchestrate feature work from spec to committed code. `/atomic-plan` produces specs; `/subagent-implementation` runs the implement→review loop; ship verbs commit/push/PR/merge with automatic signals refresh and doc-impact checks.
 
 ## Artifacts
 
@@ -9,6 +11,7 @@ Plan → implement → ship lifecycle. The commands, agents, and skills that orc
 - `commands/atomic-plan.md` — `/atomic-plan` gauges triviality. Trivial → inline spec. Non-trivial → design doc + spec via subagent loop. Optionally invokes `atomic-investigator` and `atomic-strategist`.
 - `commands/pressure-test.md` — `/pressure-test` Socratic challenger session. Questions only, no code, no agents. Pairs with `/atomic-plan` as pre-approval gate.
 - `commands/atomic-help.md` — `/atomic-help` routing assistant. Reads git state, classifies intent, recommends one next action. Never executes.
+- `commands/atomic-setup.md` — `/atomic-setup` repo bootstrap. Audits `.gitignore`, `docs/` layout, `CLAUDE.md` presence. Checks for `@.claude/project/signals.md` @-ref (not `deterministic-signals.md`). Creates `.signalsignore` and `signals-steering.md` scaffolds if missing. Proposes only what's absent — never overwrites.
 
 **Implementation loop:**
 

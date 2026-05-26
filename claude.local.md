@@ -65,7 +65,6 @@ Anthropic's official prompt engineering guide, distilled for this repo's artifac
 
 ### Project signals (auto-loaded)
 
-@.claude/project/deterministic-signals.md
 @.claude/project/signals.md
 
 
@@ -199,19 +198,18 @@ These rules exist because this repo is meant to be installed into *user reposito
 **Why these rules apply to user repos, not just this one.** Users install these artifacts and rely on the cohesion. A user's `/commit-only` that forgets to refresh signals leaves *their* Claude session with a stale project map. The bug is invisible to us but real to them. Treat every wiring rule as a contract the user has implicitly accepted by installing.
 
 
-## Signals `@-refs` must stay wired (in this repo: `claude.local.md`)
+## Signals `@-ref` must stay wired (in this repo: `claude.local.md`)
 
 
-The whole point of the signals workflow is that Claude has a current map of the project before exploring. That only works if some auto-loaded Claude instructions file `@-references` both `.claude/project/deterministic-signals.md` and `.claude/project/signals.md`.
+Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. The inferrer reads it on demand; sessions do not need it. `signals-steering.md` is also NOT `@-ref`'d — the skill reads it at dispatch time and passes it to the inferrer.
 
 
-**In this repo specifically**, the refs live in `claude.local.md` (this file) — not in `CLAUDE.md`. Reason: `CLAUDE.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for project-scoped `@`-refs.
+**In this repo specifically**, the ref lives in `claude.local.md` (this file) — not in `CLAUDE.md`. Reason: `CLAUDE.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for the project-scoped `@`-ref.
 
 
-- The `atomic-signals` skill checks for the refs in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md` / `CLAUDE.md`. If present in ANY of them, it skips wiring. The skill's search order is the contract.
-- For most repos, the refs end up in `CLAUDE.md` / `CLAUDE.md` (one file, no separation). For this repo and any other config-source repos, they live in `claude.local.md`. Both are valid.
+- The `atomic-signals` skill checks for `@.claude/project/signals.md` in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md`. If present in ANY of them, it skips wiring. The skill's search order is the contract.
+- For most repos, the ref ends up in `CLAUDE.md` (one file, no separation). For this repo and any other config-source repos, it lives in `claude.local.md`. Both are valid.
 - If you fork the layout (e.g. moving refs into a separate `@`-included file), update the skill's search order in lockstep.
-- When a user says "the auth system is broken", a session with signals loaded already knows which modules, services, and use cases live where. Without the `@-refs`, the snapshot files exist but never reach context — wasted scan, wasted inference.
 
 
 ## Documentation surfaces

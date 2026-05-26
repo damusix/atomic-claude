@@ -1,6 +1,8 @@
 # doctor
 
-Integrity check suite (`atomic doctor`) and static validation (`atomic validate`). Catches installation drift, stale signals, broken @-refs, manifest mismatches, and config errors.
+## What it does
+
+Integrity check suite (`atomic doctor`) and static validation (`atomic validate`). Runs 9 deterministic checks verifying install coherence, hooks, signals freshness, @-ref wiring, manifest parity, follow-ups, memory, binary version, and config. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`.
 
 ## Artifacts
 
@@ -34,7 +36,7 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 | 8 | binary | `checks_binary.go` | WARN |
 | 9 | config | `checks_config.go` | WARN |
 
-`checks_refs.go` has a **known bug**: looks for `@.claude/project/inferred-signals.md`, not `signals.md`. Projects migrated to the router shape fail check 4 even when correctly wired. Fix: add `signals.md` as an accepted ref target.
+`checks_refs.go` (hash `477404b`) checks for `@.claude/project/signals.md` only. The prior bug (checking for `inferred-signals.md`) is resolved. Candidate files searched in order: `claude.local.md`, `CLAUDE.local.md`, `CLAUDE.md`, `claude.md`.
 
 `checks_followups.go` — walks `.claude/project/followups/` via `followups.LoadEntriesWithErrors`. Byte-compares re-rendered INDEX against on-disk to detect drift. Two repair functions: `followupsRenderRepair` (re-renders INDEX), `followupsMigrateRepair` (runs migrate for legacy `followups.md`).
 
@@ -73,7 +75,7 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 ## Coupling
 
 - **→ bundle**: `checks_manifest.go` uses `atomic/internal/manifestcheck/` which imports `bundlespec`. Changing bundle inclusion rules (bundle domain) affects which manifest check items pass/fail.
-- **→ signals**: `checks_refs.go` reads project CLAUDE.md/claude.local.md for `@.claude/project/` refs. Known bug: only accepts `inferred-signals.md`, not `signals.md`. Fixing requires touching signals domain wiring expectations.
+- **→ signals**: `checks_refs.go` reads candidate CLAUDE files for `@.claude/project/signals.md`. The `signalsRef` const is the single source of truth — changes to the expected @-ref path require updating this const and the signals domain's wiring convention simultaneously.
 - **→ signals**: `checks_signals.go` verifies `deterministic-signals.md` exists and is not stale. Staleness logic tracks the signals domain's scan output.
 - **→ config**: `checks_config.go` imports `atomic/internal/config` directly. Config schema changes (config domain) must be reflected in `checks_config.go` validation.
 - **→ config**: `updatedoctor` skip indices `[3, 8]` are hardcoded. Adding or renumbering doctor categories requires updating `updatedoctor.go` to match.

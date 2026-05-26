@@ -78,7 +78,7 @@ Orchestrator reads deterministic diff → identifies domains → dispatches sub-
 
 Read `.claude/project/deterministic-signals.md` end-to-end. On incremental runs, also read the diff output to determine the changed-paths set.
 
-Read `.claude/project/signals-steering.md` if it exists. This file contains user-provided hints that override inference: framework corrections, domain grouping overrides, build/test command overrides, paths to ignore for domain classification. Treat its content as ground truth — when steering contradicts what the deterministic scan implies, steering wins. If the file is absent, proceed with pure inference (no error).
+Steering directives, when present, are provided by the caller in the dispatch prompt inside a `<steering>` block. If a `<steering>` block is present, treat its content as ground truth — steering wins over what the deterministic scan implies. If no `<steering>` block is in the prompt, proceed with pure inference.
 
 Naming continuity check: read existing `signals/*.md` and `signals/*/index.md` filenames. For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
 
@@ -100,16 +100,23 @@ For each domain that needs writing or updating, dispatch a sub-agent. Domain wri
 Dispatch sub-agent (general-purpose):
 Prompt: "Write signals/<domain>.md for the <domain> domain.
 
+<source_paths>
 Source paths in this domain: <list from deterministic tree>
+</source_paths>
 
-Instructions:
+<steering>
+<include steering directives here if signals-steering.md was provided by the caller>
+</steering>
+
+<instructions>
 - Signals are FACTS about current state — not instructions, rules, or intent. Every sentence must be verifiable by reading a source file.
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
 - Output only the file content. Do not summarize your process.
+</instructions>
 
-Domain file schema:
+<output_format>
 # <domain>
 ## What it does
 <1-3 fact lines>
@@ -123,15 +130,20 @@ Domain file schema:
 <bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known stale cross-references as facts.>
 ## Conventions worth knowing
 <domain-local convention facts>
+</output_format>
 
+<constraints>
 Plain markdown paths throughout. No @-refs. Fact-shaped, not steering-shaped.
+</constraints>
 
-If you notice issues that are judgments (bugs, risks, missing handling, dead code, stale imports), do NOT include them in the domain file. Instead, append a separate section at the end of your output:
+If you notice issues that are judgments (bugs, risks, missing handling, dead code, stale imports), append them separately:
 
+<concerns_format>
 ## Concerns (do not include in domain file)
 - file:line — observation (severity: risk|nit)
 
-The orchestrator collects these separately. Keep them factual and specific — cite the exact file and line."
+The orchestrator collects these separately. Keep them factual and specific — cite the exact file and line.
+</concerns_format>"
 ```
 
 Sub-agents are bounded to their domain. They read source files in their area only.

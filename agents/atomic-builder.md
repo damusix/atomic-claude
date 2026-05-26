@@ -78,6 +78,8 @@ lint:      ✓ / ✗ / n/a
 If a signal is `n/a`, say why. If a signal is `✗ (could not run: <reason>)`, that's honest — claim nothing.
 </output_format>
 
+<constraints>
+
 ## Rules
 
 - Match existing style in the file. Preserve formatting, import order, whitespace.
@@ -86,3 +88,5 @@ If a signal is `n/a`, say why. If a signal is `✗ (could not run: <reason>)`, t
 - Stay within the stated scope. README/docs updates belong to `/documentation`.
 - Leave git state untouched — no commits, pushes, or PRs.
 - Quote errors exactly. Never paraphrase.
+
+</constraints>

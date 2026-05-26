@@ -397,15 +397,11 @@ func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 	if summary.Applied != 1 {
 		t.Errorf("Applied = %d, want 1", summary.Applied)
 	}
-	// CLAUDE.md should now contain both refs.
 	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 	if err != nil {
 		t.Fatalf("CLAUDE.md not created: %v", err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "@.claude/project/deterministic-signals.md") {
-		t.Errorf("deterministic-signals ref missing from CLAUDE.md")
-	}
 	if !strings.Contains(content, "@.claude/project/signals.md") {
 		t.Errorf("signals ref missing from CLAUDE.md")
 	}
@@ -433,8 +429,8 @@ func TestRepair_Refs_OneCandidateExisting_SingleYesNo(t *testing.T) {
 		t.Errorf("Applied = %d, want 1\noutput:\n%s", summary.Applied, sb.String())
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	if !strings.Contains(string(data), "@.claude/project/deterministic-signals.md") {
-		t.Errorf("ref not appended to existing CLAUDE.md")
+	if !strings.Contains(string(data), "@.claude/project/signals.md") {
+		t.Errorf("signals ref not appended to existing CLAUDE.md")
 	}
 }
 
@@ -473,16 +469,14 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 	localData, _ := os.ReadFile(filepath.Join(dir, "claude.local.md"))
 	globalData, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 
-	localHasRefs := strings.Contains(string(localData), "@.claude/project/deterministic-signals.md") ||
-		strings.Contains(string(localData), "@.claude/project/signals.md")
-	if localHasRefs {
+	localHasRef := strings.Contains(string(localData), "@.claude/project/signals.md")
+	if localHasRef {
 		t.Errorf("claude.local.md should not have been patched (index 2 maps to CLAUDE.md); content:\n%s", string(localData))
 	}
 
-	detCount := strings.Count(string(globalData), "@.claude/project/deterministic-signals.md")
-	infCount := strings.Count(string(globalData), "@.claude/project/signals.md")
-	if detCount != 1 || infCount != 1 {
-		t.Errorf("CLAUDE.md: det=%d inf=%d (both want 1)\ncontent:\n%s", detCount, infCount, string(globalData))
+	refCount := strings.Count(string(globalData), "@.claude/project/signals.md")
+	if refCount != 1 {
+		t.Errorf("CLAUDE.md: signals ref count=%d (want 1)\ncontent:\n%s", refCount, string(globalData))
 	}
 }
 
@@ -508,16 +502,15 @@ func TestRepair_Refs_Idempotent(t *testing.T) {
 		t.Fatalf("CLAUDE.md not found: %v", err)
 	}
 	content := string(data)
-	count := strings.Count(content, "@.claude/project/deterministic-signals.md")
+	count := strings.Count(content, "@.claude/project/signals.md")
 	if count != 1 {
-		t.Errorf("deterministic-signals ref appears %d times (want 1) — idempotency broken", count)
+		t.Errorf("signals ref appears %d times (want 1) — idempotency broken", count)
 	}
 }
 
-func TestRepair_Refs_PartialFile_AppendsOnlyMissing(t *testing.T) {
+func TestRepair_Refs_ExistingContent_AppendsRef(t *testing.T) {
 	dir := t.TempDir()
-	// CLAUDE.md already has the deterministic ref but is missing the inferred ref.
-	initial := "# My project\n\n@.claude/project/deterministic-signals.md\n"
+	initial := "# My project\n\nSome existing content.\n"
 	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte(initial), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +519,7 @@ func TestRepair_Refs_PartialFile_AppendsOnlyMissing(t *testing.T) {
 	t.Cleanup(func() { doctor.SetRepoRootFn(nil) })
 
 	results := []doctor.Result{
-		makeResult(4, "refs", doctor.FAIL, "refs not present"),
+		makeResult(4, "refs", doctor.FAIL, "ref not present"),
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
@@ -542,22 +535,13 @@ func TestRepair_Refs_PartialFile_AppendsOnlyMissing(t *testing.T) {
 	}
 	content := string(data)
 
-	// The missing inferred ref must be present exactly once.
-	infCount := strings.Count(content, "@.claude/project/signals.md")
-	if infCount != 1 {
-		t.Errorf("signals ref appears %d times (want 1)", infCount)
+	refCount := strings.Count(content, "@.claude/project/signals.md")
+	if refCount != 1 {
+		t.Errorf("signals ref appears %d times (want 1)", refCount)
 	}
 
-	// The deterministic ref that was already there must still appear exactly once (no duplicate).
-	detCount := strings.Count(content, "@.claude/project/deterministic-signals.md")
-	if detCount != 1 {
-		t.Errorf("deterministic-signals ref appears %d times (want 1) — partial-append introduced duplicate", detCount)
-	}
-
-	// No duplicate ## Project signals header should have been appended.
-	headerCount := strings.Count(content, "## Project signals")
-	if headerCount > 1 {
-		t.Errorf("## Project signals header appears %d times (want ≤1) — partial-append duplicated header", headerCount)
+	if !strings.Contains(content, "Some existing content.") {
+		t.Errorf("existing content was lost")
 	}
 }
 

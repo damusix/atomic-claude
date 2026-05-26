@@ -1,6 +1,8 @@
 # bundle
 
-Artifact bundling, template rendering, and install pipeline. Everything that turns human-authored markdown into an installed Claude Code configuration in `~/.claude/`.
+## What it does
+
+Template rendering → bundle embedding → install/uninstall into `~/.claude/`. Human-authored markdown in `templates/` and `agents/`/`skills/` is rendered by `make render` (commands) and embedded by `make bundle` into the Go binary. `atomic claude install` copies the embedded bundle to `~/.claude/`.
 
 ## Artifacts
 
@@ -11,7 +13,7 @@ Artifact bundling, template rendering, and install pipeline. Everything that tur
 
 **Rendered/generated (never edit directly):**
 
-- `commands/*.md` — 32 rendered slash command files. Generated from `templates/` by `make render`. Includes `commands/_templates/implementer-prompt.md` and `commands/_templates/reviewer-prompt.md` (runtime prompt partials consumed by orchestrator commands).
+- `commands/*.md` — 31 rendered slash command files (`/initialize-signals` removed; `/refresh-signals` is now the single idempotent entry point). Generated from `templates/` by `make render`. Includes `commands/_templates/implementer-prompt.md` and `commands/_templates/reviewer-prompt.md` (runtime prompt partials consumed by orchestrator commands).
 
 **Bundle inputs (the distributed artifact set):**
 

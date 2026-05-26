@@ -66,7 +66,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 1 | `install`        | `~/.claude/{agents,commands,skills,output-styles,rules}/` exist; per-file SHA256 matches embedded bundle manifest. | WARN drift / FAIL missing |
 | 2 | `hooks`          | `~/.claude/settings.json` contains the session-start hook payload that `atomic hooks session-start` would emit. | WARN |
 | 3 | `signals`        | `.claude/project/deterministic-signals.md` exists; `atomic signals stale --threshold <days>` exits 0. Threshold defaults to 7; overridable via `--stale-days`. | WARN |
-| 4 | `refs`           | `@`-refs to both signals files present in one of `claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md` / `claude.md` (skill search order). | FAIL |
+| 4 | `refs`           | `@.claude/project/signals.md` ref present in one of `claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md` / `claude.md` (skill search order). Only `signals.md` is @-ref'd; `deterministic-signals.md` is read on demand by the inferrer. | FAIL |
 | 5 | `manifest`       | Repo-dev only (heuristic: `atomic/internal/bundlemirror/` exists). Committed `manifest.go` SHA matches what `go generate ./...` would produce — without writing. | FAIL |
 | 6 | `followups`      | If `.claude/project/followups.md` exists, every `### F-<id>` entry has an `Origin:` line and a severity bucket. | WARN |
 | 7 | `memory`         | `~/.claude/projects/<project>/memory/MEMORY.md` link targets all resolve (file exists in same dir). | WARN |
@@ -292,3 +292,12 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 
 
 **This branch (atomic-state-and-config) squashed onto `main` as `5c9d61c` — 2026-05-21.** Change log entry above amended via squash.
+
+
+### 2026-05-26 — Single @-ref: refs check simplified
+
+**What changed:** Category 4 (`refs`) now checks only for `@.claude/project/signals.md`. `deterministic-signals.md` is no longer @-ref'd — it is too large for context on big repos and is read on demand by the inferrer.
+
+**Why:** Context budget. @-ref'ing `deterministic-signals.md` loads potentially thousands of lines into every session.
+
+**Superseded:** Prior contract required both `@.claude/project/deterministic-signals.md` and `@.claude/project/signals.md` in the same candidate file.

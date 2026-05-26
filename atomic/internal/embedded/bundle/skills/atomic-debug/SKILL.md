@@ -9,7 +9,7 @@ description: >
 
 Debug by hypothesis, not by guessing. Cheapest test first. Root cause, not symptom.
 
-## When to invoke
+<trigger>
 
 Auto-trigger on:
 
@@ -18,6 +18,10 @@ Auto-trigger on:
 - Test failure output
 
 Explicit: `/atomic-debug` or "let's debug X".
+
+</trigger>
+
+<workflow>
 
 ## Five steps
 
@@ -90,6 +94,8 @@ Good fix: restore middleware order so `parseBody` runs before `requireAuth`. Add
 
 If the user wants the symptom guard anyway (e.g., defense-in-depth), add it ON TOP of the root fix, not instead of.
 
+</workflow>
+
 ## Debugging discipline
 
 Stay hypothesis-driven throughout:
@@ -100,9 +106,13 @@ Stay hypothesis-driven throughout:
 - Verify the fix with evidence before claiming it works (defer to `atomic-verify`)
 - Read the surrounding code before proposing a fix — context prevents repeat bugs
 
+<constraints>
+
 ## Rules
 
 - One symptom per debug session. If the user reports two unrelated bugs, debug separately.
-- If hypothesis #1 is confirmed in step 3, do NOT also explore #2-5 "for completeness". Stop, fix, verify.
-- If 5 hypotheses are refuted, you don't understand the system. Stop and ask for more context (logs, env, recent changes) — don't fish.
+- If hypothesis #1 is confirmed in step 3, stop. Fix and verify. Exploring remaining hypotheses "for completeness" wastes time on a solved problem.
+- If 5 hypotheses are refuted, the mental model is wrong. Stop and ask for more context (logs, env, recent changes).
 - Report cheap signals first: `git log --oneline -20`, `git diff HEAD~5`, exact env, exact reproduction command.
+
+</constraints>

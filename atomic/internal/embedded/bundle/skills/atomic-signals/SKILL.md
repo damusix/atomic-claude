@@ -20,32 +20,34 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
 
 4. **Dispatch inferrer.** Read `.claude/project/signals-steering.md` if it exists. Spawn the `atomic-signals-inferrer` subagent via the `Agent` tool. If the steering file was found, include its full contents in the dispatch prompt (e.g. "Steering directives:\n\n<contents>"). The inferrer runs `atomic signals diff` internally to identify changed sections and updates only the dependent sections of `signals.md`. See the agent definition for the section dependency mapping.
 
-5. **Ensure `@-refs` are wired somewhere Claude auto-loads.** Check, in order, for an existing pair of refs (`@.claude/project/deterministic-signals.md` AND `@.claude/project/signals.md`) in any of:
+5. **Ensure `@-ref` is wired somewhere Claude auto-loads.** Only `signals.md` is `@-ref`'d — it is the compact router that every session needs. `deterministic-signals.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. The inferrer reads it when needed; sessions do not. `signals-steering.md` is also NOT `@-ref`'d — it is read only during inference (Step 4).
+
+    Check, in order, for `@.claude/project/signals.md` in any of:
 
     - `claude.local.md` / `CLAUDE.local.md` (project-local, gitignored — preferred when present)
     - `CLAUDE.md` (committed project instructions)
 
-    If either pair is found in ANY of those files, the wiring is already done — skip this step entirely. Do not duplicate.
+    If the ref is found in ANY of those files, the wiring is already done — skip this step entirely. Do not duplicate.
 
-    If no file contains the refs:
+    If no file contains the ref:
 
     - If `claude.local.md` or `CLAUDE.local.md` exists, append the block to whichever exists (prefer `claude.local.md`). This handles repos that separate project-local refs from bundled/committed instructions (e.g. config-source repos where `CLAUDE.md` is the bundle input and must not carry project-specific paths).
     - Else, append to `CLAUDE.md` (create it only if it does not exist and the repo has `.claude/project/`).
 
     **Placement:** position the `@-ref` block BEFORE behavioral rules/instructions in the target file. Signals are reference data (facts about the codebase), not instructions — placing them early follows the "longform data at top, instructions at end" principle for better model comprehension. If the target file has existing sections, insert after any brief orientation/context sections but before rules, conventions, or workflow sections.
 
-    Note: `signals-steering.md` is NOT `@-ref`'d. It is read only during inference (Step 4 passes it to the inferrer). No need to load it into every session.
-
     Block to append:
 
     ```markdown
 
+    <atomic-signals>
 
     ## Project signals (auto-loaded)
 
 
-    @.claude/project/deterministic-signals.md
     @.claude/project/signals.md
+
+    </atomic-signals>
     ```
 
     Print the diff and the chosen target file before writing. Confirmation rules:

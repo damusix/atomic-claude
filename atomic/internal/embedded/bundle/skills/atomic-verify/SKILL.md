@@ -9,13 +9,17 @@ description: >
 
 Verify before claim. No claim without fresh evidence in this turn.
 
-## When this fires
+<trigger>
 
 - "done", "fixed", "passing", "complete", "ready to merge", "looks good"
 - "should work", "should pass", "this works"
 - "tests pass", "build green", "lint clean", "typecheck green"
 - "bug fixed", "regression resolved"
 - Any phrase implying success not preceded by verification output IN THIS TURN.
+
+</trigger>
+
+<workflow>
 
 ## The gate
 
@@ -57,8 +61,14 @@ Every completion claim needs a fresh command run in this turn. Watch for these m
 | "Subagent said success" | Verify the diff yourself. |
 | "Partial check is enough" | Run the full suite. Partial proves nothing about the rest. |
 
+</workflow>
+
+<constraints>
+
 ## Boundaries
 
 - Does NOT fire on intent statements ("I'll fix it" — future, not claim).
 - Does NOT fire on progress reports ("ran tests, 2 failures" — evidence, no claim).
 - Fires the moment Claude transitions from "doing" to "asserting".
+
+</constraints>

@@ -95,31 +95,34 @@ grep '^## ' .claude/project/deterministic-signals.md
 
 ## Step 4 — Dispatch inferrer
 
-Invoke the `atomic-signals` skill. It owns: dispatch of `atomic-signals-inferrer` for the signals router file, and verification that `CLAUDE.md` `@`-references both signals files.
+Invoke the `atomic-signals` skill. It owns: dispatch of `atomic-signals-inferrer` for the signals router file, and verification that `CLAUDE.md` `@`-references `signals.md`.
 
-If signals files are missing from `CLAUDE.md` (first-time run), the skill handles wiring — see Step 5.
+If the `@-ref` is missing from `CLAUDE.md` (first-time run), the skill handles wiring — see Step 5.
 
 ## Step 5 — CLAUDE.md wiring (first-time only)
 
-The `atomic-signals` skill checks whether `@-refs` are present in `CLAUDE.md` (or `claude.local.md` / `CLAUDE.local.md`). If already wired, nothing happens. If missing, the skill wires them.
+The `atomic-signals` skill checks whether `@.claude/project/signals.md` is present in `CLAUDE.md` (or `claude.local.md` / `CLAUDE.local.md`). If already wired, nothing happens. If missing, the skill wires it.
 
-Note: `signals-steering.md` is NOT `@-ref`'d. It is read only during inference (the skill's Step 4 passes it to the inferrer). No need to load it into every session.
+Only `signals.md` is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. The inferrer reads it when needed; sessions do not. `signals-steering.md` is also NOT `@-ref`'d — it is read only during inference.
 
 If no `CLAUDE.md` exists at all, ask via `AskUserQuestion`:
 
 ```
-No CLAUDE.md found. Create a starter with signals @-refs?
-- Yes (writes minimal starter with @-refs)
+No CLAUDE.md found. Create a starter with signals @-ref?
+- Yes (writes minimal starter with @-ref)
 - No, skip
 ```
 
 On "Yes": write a minimal `CLAUDE.md` at repo root containing only:
 
 ```markdown
+<atomic-signals>
+
 ## Project signals (auto-loaded)
 
-@.claude/project/deterministic-signals.md
 @.claude/project/signals.md
+
+</atomic-signals>
 ```
 
 On "No, skip": continue without creating.

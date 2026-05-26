@@ -9,6 +9,8 @@ description: >
 
 Write code review comments terse and actionable. One line per finding. Location, problem, fix. No throat-clearing.
 
+<output_format>
+
 ## Format
 
 `path:line: <emoji> <severity>: <problem>. <fix>.`
@@ -63,6 +65,12 @@ Drop terse mode for:
 - Architectural disagreements — need rationale, not a one-liner.
 - Onboarding contexts where the author is new and needs the "why".
 
+</output_format>
+
+<constraints>
+
 ## Boundaries
 
 Reviews only. Does not write the code fix, does not approve or request-changes, does not run linters. Output the comments ready to paste into the PR.
+
+</constraints>

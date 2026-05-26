@@ -1,46 +1,70 @@
 # CLAUDE.md
 
+<atomic>
+
 @~/.claude/.atomic/config.resolved.md
 
 ## Principles
 
 
-- Think before coding. State assumptions. Ask, don't guess. Push back on complexity. Stop when confused.
-- Simplicity first. Minimum code. No speculation. No abstractions for single-use code.
-- Surgical changes. Touch only what's needed. Don't improve adjacent code. Match existing style.
-- Goal-driven. Define success criteria up front. Loop until verified. Strong success criteria let Claude loop independently.
+<principles>
+
+- Think before coding. State assumptions. Ask when uncertain. Push back on complexity. Stop when confused. **Why:** rushed code creates more work than pausing to clarify scope.
+- Simplicity first. Minimum code. One abstraction per actual reuse. **Why:** speculative abstractions add maintenance cost without proven benefit.
+- Surgical changes. Touch only what the task requires. Match existing style. **Why:** incidental cleanups obscure the intent of a diff and introduce untested changes.
+- Goal-driven. Define success criteria up front. Loop until verified. Strong success criteria let Claude loop independently. **Why:** without a target, work expands or drifts.
 - Prefer code over the model for routing, retries, status-code handling, and deterministic transforms — if code can answer, code answers. The model is for judgment calls (classification, drafting, summarization, extraction). Exception: when the deterministic path itself is unreliable (a hook may not be installed, a binary or external tool may be absent, a user setting may have drifted), an LLM safeguard layer is acceptable as defense-in-depth. Name the exception explicitly when invoking it so a future reader can tell "we forgot to write code" from "we deliberately chose the model here."
-- Surface conflicts, don't average them. Pick one (more recent / more tested), explain why, flag the other. Never blend.
-- Read before you write. Check exports, callers, shared utilities. If unsure why code is structured a certain way, ask.
+- Surface conflicts openly. Pick one (more recent / more tested), explain why, flag the other. Blending hides the decision. **Why:** averaged answers satisfy nobody and leave the conflict unresolved.
+- Read before you write. Check exports, callers, shared utilities. Ask why code is structured a certain way before changing it. **Why:** code structure often encodes constraints that aren't visible from the call site.
+
+</principles>
+
 <investigate_before_answering>
 
-- Verify before asserting. Factual claims about the codebase (file exists, is gitignored, function returns X, URL points to Y) require the tool call that proves it *before* the claim is written. Hedging ("I think", "likely", "probably") does not substitute — it rebrands a guess. Applies to reviews and analysis, not only code-writing. If you can't verify in this turn, mark the claim unverified explicitly; don't ship it as fact.
+- Verify before asserting. Factual claims about the codebase (file exists, is gitignored, function returns X, URL points to Y) require the tool call that proves it *before* the claim is written. Hedging ("I think", "likely", "probably") does not substitute — it rebrands a guess. Applies to reviews and analysis, not only code-writing. If you can't verify in this turn, mark the claim unverified explicitly.
 - For claims about libraries, frameworks, APIs, or external tools: use `context7` MCP (resolve-library-id → query-docs) when available; fall back to `WebFetch` against official docs. Training data may not reflect recent changes — verify even when confident.
 
 </investigate_before_answering>
-- Tests verify intent, not behavior. Encode WHY. A test that can't fail when business logic changes is wrong.
-- Checkpoint after every significant step. Summarize done / verified / left. Don't continue from a state you can't describe.
-- Match codebase conventions even if you disagree. Surface harmful ones; don't fork silently.
-- Fail loud. "Completed" is wrong if anything was skipped. "Tests pass" is wrong if any were skipped. Surface uncertainty, don't hide it.
+
+<quality_gates>
+
+- Tests verify intent, not behavior. Encode WHY. A test that passes when business logic is wrong is a liability. **Why:** behavior-mirroring tests create false confidence.
+- Checkpoint after every significant step. Summarize done / verified / left. **Why:** continuing from an undescribed state leads to silent drift.
+- Match codebase conventions even when you disagree. Surface harmful ones explicitly; change them in a dedicated PR, not as a side effect. **Why:** silent forks create two conventions where there should be one.
+- Fail loud. "Completed" means nothing was skipped. "Tests pass" means all tests ran. Surface uncertainty instead of hiding it. **Why:** hidden gaps compound — the next person trusts the claim.
+
+</quality_gates>
 
 
 ## Bash over Read+Write
 
 
-When retaining bulk of a file's content, shell tools beat Read+Write tool churn. Fewer tokens, less drift, fewer transcription errors.
+When retaining bulk of a file's content, shell tools beat Read+Write tool churn. Fewer tokens, less drift, fewer transcription errors. **Why:** Read+Write rewrites the entire file through the LLM — any line can mutate by accident.
 
 
-- **Move/rename a file**: `mv` via Bash. Never Read + Write to new path + delete old.
-- **Duplicate a file as starting point**: `cp` via Bash, then Edit the copy. Never Read source + Write target.
-- **Mass mechanical replacement** (rename symbol across file, swap a constant, regex transform): `sed -i ''` via Bash. Never Read + Write the whole file for a find/replace.
+- **Move/rename a file**: `mv` via Bash.
+- **Duplicate a file as starting point**: `cp` via Bash, then Edit the copy.
+- **Mass mechanical replacement** (rename symbol across file, swap a constant, regex transform): `sed -i ''` via Bash.
 - **Column or field extraction / structured text rewrites**: `awk` via Bash.
-- **Rewrite a file based on another file**: `cp` or `mv` first to seed the bulk, then Edit the differences. Never Read source + Write target from scratch.
+- **Rewrite a file based on another file**: `cp` or `mv` first to seed the bulk, then Edit the differences.
 
 
-When Read+Write is correct: brand-new file with no source, or genuine full rewrite where <20% of content survives.
+Use Read+Write for brand-new files with no source, or genuine full rewrites where <20% of content survives.
 
 
 macOS sed: `sed -i '' 's/old/new/g' file` (empty string after `-i`). Verify with `git diff` after — sed is silent on no-match.
+
+
+## ast-grep over regex grep
+
+
+When searching for a syntactic construct (function call, import, class field, assignment, type annotation), use `sg run` / `sg scan` instead of `grep` or `sed`. AST-based matching ignores whitespace, comments, and formatting — regex cannot. **Why:** regex matches inside strings and comments produce false positives; AST queries match only real code.
+
+- **Find all calls to a function**: `sg run -p 'fetchData($$$)' -l typescript` — not `grep -rn 'fetchData('`.
+- **Find a pattern with constraints**: YAML rule with `has`, `inside`, `not` — not a multi-line regex that breaks on reformatting.
+- **Structural rewrite across a codebase**: `sg run -p 'OLD($$$ARGS)' -r 'NEW($$$ARGS)' -U` — not `sed` which can't distinguish code from comments/strings.
+
+Use regex when searching for literal strings, log messages, comments, config values, or anything that is text-not-syntax.
 
 
 ## Where things live
@@ -71,7 +95,7 @@ Diff-signal → surface routing lives in the `atomic-documentation` skill. Invok
 ## Spec files are append-mostly
 
 
-`docs/spec/<topic>.md` is a contract. Editing it in place destroys the original intent and the reason it was written. Treat specs as **append-mostly** so the audit trail survives.
+`docs/spec/<topic>.md` is a contract. Editing it in place destroys the original intent and the reason it was written. Treat specs as **append-mostly** so the audit trail survives. **Why:** a spec rewritten without trace looks identical to one that was always this way — future readers can't tell what shifted or why.
 
 
 - Every spec ends with a `## Change log` section. New entry per amendment: `### YYYY-MM-DD — <title>` + **What changed** + **Why** + (if behavior changed) **Superseded:** one-line summary of prior contract.
@@ -96,9 +120,9 @@ Dispatch via the `Agent` tool with the corresponding `subagent_type`. Fall back 
 - **`atomic-investigator`** (haiku, read-only) — code locator. Returns `file:line — what` tables. Refuses to write code, suggest fixes, or design. Dispatched as the first pass in `/subagent-implementation` Phase 0 to scope the surface area before Sonnet builder/reviewer turns.
 - **`atomic-strategist`** (opus, tools: Read/Grep/Glob/Bash) — heavyweight reasoning agent for revising plans, auditing specs/designs, and reasoning through hard problems. Read-only. Surfaces hidden assumptions, names tradeoffs, recommends approaches with explicit confidence. Does not implement, does not gate diffs, does not locate code. Dispatch when the question is "is this the right approach?" not "is this code correct?".
 - **`atomic-reviewer`** (sonnet, tools: Read/Grep/Bash) — diff reviewer. Verifies TDD signals were actually run (re-runs typecheck/tests itself, spot-checks new tests). Emits `## Spec compliance` + `## Code quality` subsections plus the signals block, ending with exactly one of `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
-- **`atomic-git-scout`** (sonnet, tools: Read/Grep/Glob/Bash) — read-only scanner for stale git state (worktrees, branches, optional remote tracking refs). Classifies cleanup candidates (`remove` / `delete` / `prune` / `ask` / `flag` / `skip`) and returns an indexed report for `/git-cleanup`. Never mutates state.
-- **`atomic-signals-inferrer`** (sonnet, tools: Read/Write/Edit/Grep/Glob/Agent) — reads `.claude/project/deterministic-signals.md` and writes `signals.md` (the router). On large repos, dispatches sub-agents per domain to write `signals/<domain>/` files, runs reviewer per domain file, wires cross-domain refs. On small repos, writes everything directly into `signals.md`. Dispatched by the `atomic-signals` skill; never modifies files outside `.claude/project/`.
-- **`atomic-claude-merger`** (sonnet, tools: Read/Edit/Write/Bash) — merges `~/.claude/.atomic/proposed/CLAUDE.md` into the live `~/.claude/CLAUDE.md`. Preserves user-authored sections, replaces atomic-owned ones, backs up the prior file. Dispatched by `/atomic-claude-merge`.
+- **`atomic-git-scout`** (sonnet, tools: Read/Grep/Glob/Bash) — read-only scanner for stale git state (worktrees, branches, optional remote tracking refs). Classifies cleanup candidates (`remove` / `delete` / `prune` / `ask` / `flag` / `skip`) and returns an indexed report for `/git-cleanup`. Reads only.
+- **`atomic-signals-inferrer`** (sonnet, tools: Read/Write/Edit/Grep/Glob/Agent) — reads `.claude/project/deterministic-signals.md` and writes `signals.md` (the router). On large repos, dispatches sub-agents per domain to write `signals/<domain>/` files, runs reviewer per domain file, wires cross-domain refs. On small repos, writes everything directly into `signals.md`. Dispatched by the `atomic-signals` skill; scoped to `.claude/project/`.
+- **`atomic-claude-merger`** (sonnet, tools: Read/Edit/Write/Bash) — merges `~/.claude/.atomic/proposed/CLAUDE.md` into the live `~/.claude/CLAUDE.md`. Preserves user-authored sections (content outside `<atomic>` tags), replaces atomic-owned content (inside `<atomic>` tags), backs up the prior file. Dispatched by `/atomic-claude-merge`.
 - **`atomic-haiku`** (haiku, tools: Read/Grep/Glob/Bash) — generic background runner for polling, status checks, log scraping, structured reporting. Read-only by default. Used by `/watch-ci`; available for any task too lightweight for Sonnet.
 
 
@@ -108,9 +132,9 @@ Dispatch via the `Agent` tool with the corresponding `subagent_type`. Fall back 
 The signals workflow keeps Claude aware of the current shape of a project without hallucination. Three artifacts compose it:
 
 
-- **`atomic-signals`** (skill) — auto-fires on "regenerate signals", "scan the project", "refresh project context", "what's in this repo", "rescan". Runs `atomic signals scan` to write `.claude/project/deterministic-signals.md`, dispatches `atomic-signals-inferrer` to write `signals.md`, then ensures both files are `@`-referenced in the project's `CLAUDE.md`. Falls back to a tree-only markdown scan if the binary is absent.
-- **`atomic-signals-inferrer`** (agent) — reads `deterministic-signals.md` and writes `signals.md` (the router). On large repos, dispatches sub-agents per domain to write domain files, runs reviewer per domain file, wires cross-domain refs. On small repos, writes everything into `signals.md` directly. Never modifies files outside `.claude/project/`.
-- **`/refresh-signals`** (command) — scan or re-scan project signals on demand. Initializes on first run (wires `@-refs`), refreshes on subsequent runs. Idempotent. Delegates to the `atomic-signals` skill.
+- **`atomic-signals`** (skill) — auto-fires on "regenerate signals", "scan the project", "refresh project context", "what's in this repo", "rescan". Runs `atomic signals scan` to write `.claude/project/deterministic-signals.md`, dispatches `atomic-signals-inferrer` to write `signals.md`, then ensures `signals.md` is `@`-referenced in the project's `CLAUDE.md`. Only `signals.md` is `@-ref`'d — `deterministic-signals.md` is too large for context on big repos. Falls back to a tree-only markdown scan if the binary is absent.
+- **`atomic-signals-inferrer`** (agent) — reads `deterministic-signals.md` and writes `signals.md` (the router). On large repos, dispatches sub-agents per domain to write domain files, runs reviewer per domain file, wires cross-domain refs. On small repos, writes everything into `signals.md` directly. Scoped to `.claude/project/`.
+- **`/refresh-signals`** (command) — scan or re-scan project signals on demand. Initializes on first run (wires `@-ref`), refreshes on subsequent runs. Idempotent. Delegates to the `atomic-signals` skill.
 
 Full spec: `docs/spec/signals-workflow.md`.
 
@@ -159,7 +183,7 @@ Full spec: `docs/spec/signals-workflow.md`.
 
 - `/git-cleanup [<name>]` — scan stale git state (worktrees, branches, optional remote) via `atomic-git-scout`. Confirm before deleting anything.
 - `/undo-commit` — soft-undo the last commit. Refuses if HEAD is a merge commit, the initial commit, or already pushed.
-- `/atomic-claude-merge` — merge `~/.claude/.atomic/proposed/CLAUDE.md` produced by `atomic claude install/update` into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent. Preserves user sections, replaces atomic-owned ones, backs up prior `CLAUDE.md` under `~/.claude/.atomic/backups/<ts>/`.
+- `/atomic-claude-merge` — merge `~/.claude/.atomic/proposed/CLAUDE.md` produced by `atomic claude install/update` into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent. Preserves user sections (outside `<atomic>`), replaces atomic-owned content (inside `<atomic>`), backs up prior `CLAUDE.md` under `~/.claude/.atomic/backups/<ts>/`.
 - `/atomic-compress <file>` — compress prose file into atomic style.
 
 
@@ -188,8 +212,10 @@ Beyond `claude install` / `signals scan` / `hooks install` / `reminder` / `updat
 - `atomic docker init [--target DIR] [--force]` — writes a Dockerfile + docker-compose.yml + entrypoint into the target dir (default `./atomic-docker/`) so users can evaluate atomic-claude on their own projects without cloning this repo. Mirror of the contributor Docker setup at the repo root (see `## Evaluations` in README.md).
 - `atomic doctor [--fix] [--json] [--only <cat[,...]>] [--skip <cat[,...]>] [--stale-days N] [--verbose]` — runs nine indexed integrity checks (install, hooks, signals, refs, manifest, followups, memory, binary, config) against `~/.claude/` and the current project. Exits 0 (PASS or only WARN/SKIP), 1 (any FAIL), 2 (usage error). `--fix` prompts per item to apply repairs. Spec: `docs/spec/atomic-doctor.md`.
 - `atomic validate [spec|config|bundle] [paths...]` — deterministic lints against the repo's artifacts: spec markdown structure (S0/S1/S5/S6), cross-reference integrity in CLAUDE.md / commands / agents / skills (C1/C3/C5/C7/C9), bundle parity against the embedded manifest. No args → whole-repo run. `--json` for machine output, `--suggest` for structural template hints. Exit 1 on any FAIL, 2 on internal error.
-- `atomic update [--check] [--channel <stable|prerelease>] [--no-doctor]` — self-updates the binary from GitHub Releases (SHA256-verified). After a successful binary swap, runs `doctor.Run` with `signals` and `binary` skipped, prints FAIL lines only (silent on healthy). Update success preserved unconditionally — doctor outcome (including panics) never changes exit code. Disable per-invocation with `--no-doctor` or durably via `update.run_doctor = false` in `~/.claude/.atomic/config.toml`. Precedence: flag > config > default (`true`). Spec: `docs/spec/atomic-update-doctor.md`.
+- `atomic update [--check] [--channel <stable|prerelease>] [--no-doctor]` — self-updates the binary from GitHub Releases (SHA256-verified). After a successful binary swap, runs `doctor.Run` with `signals` and `binary` skipped, prints FAIL lines only (silent on healthy). Update success preserved unconditionally — doctor outcome (including panics) does not change exit code. Disable per-invocation with `--no-doctor` or durably via `update.run_doctor = false` in `~/.claude/.atomic/config.toml`. Precedence: flag > config > default (`true`). Spec: `docs/spec/atomic-update-doctor.md`.
 - `atomic followups <list|add|close|render|path>` — manages the per-entry follow-ups folder at `.claude/project/followups/`. `list [--stale] [--json]` enumerates open entries; `add --id <id> --title <t> --severity <s> --origin <o> [--file <f>] [--body -]` writes a new entry (deterministic frontmatter, LLM-free); `close <id> [--reason <r>]` appends to `CLOSED.md` and deletes the entry file; `render` regenerates `INDEX.md`; `path` prints the absolute folder path. Spec: `docs/spec/follow-ups-folder.md`.
 - `atomic docs scan` — deterministically walks doc directories (`docs/`, `wiki/`, `ADR/`, etc.), extracts H1 + first 3 H2s per `.md` file, writes `.claude/project/doc-surfaces.md` (gitignored cache). Respects `.signalsignore`. Used by `/documentation` bootstrap.
 - `atomic docs stale` — compares cache mtime against latest doc-file mtime. Exit 0 = fresh, exit 1 = stale. Used by ship verbs to decide whether to re-scan before doc-impact checks.
 - `atomic claude uninstall` — reverses `atomic claude install`. Reads `~/.claude/.atomic/pre-install/manifest.json` (exit 1 if missing — no snapshot, no uninstall), computes a restore plan (files to restore, files to delete, files needing LLM merge), and outputs a structured prompt to stdout. Claude receives the prompt, confirms the plan with the user, LLM-merges `settings.json` and `CLAUDE.md` if they were modified post-install, restores pre-install files, deletes atomic-only artifacts, removes `~/.claude/.atomic/`, and prints the binary removal instruction. TTY-aware: when run interactively outside a Claude session, prints a hint to run inside Claude Code instead. Binary is never removed by the CLI. Spec: `docs/spec/uninstall.md`.
+
+</atomic>

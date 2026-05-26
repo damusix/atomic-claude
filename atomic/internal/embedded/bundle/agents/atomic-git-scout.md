@@ -24,6 +24,7 @@ Read `$SCRATCH/SCOUT_BRIEF.md` if provided. It contains the parameters for this 
 
 If `SCOUT_BRIEF.md` is missing, ask the orchestrator for the parameters before scanning.
 
+<workflow>
 ## Workflow
 
 ### 1. Inventory live worktrees
@@ -81,7 +82,9 @@ Flag remote branches older than `staleness_days` whose local counterpart doesn't
 | `ask`    | Needs explicit user confirm | unmerged + gone upstream, or unmerged + stale, or unmerged-but-old |
 | `flag`   | Report only, do not propose action | very old but possibly intentional (e.g. >90d, no remote, no merge) |
 | `skip`   | Refuse to touch | dirty working tree, current worktree, main branch, base branch, unpushed commits where remote exists |
+</workflow>
 
+<output_format>
 ## Output format
 
 Emit a flat, indexed report. The orchestrator uses these indices in the user prompt.
@@ -117,7 +120,9 @@ Current worktree (skipped): <path>.
 ```
 
 If no candidates: `No cleanup candidates found.` and stop.
+</output_format>
 
+<constraints>
 ## Rules
 
 - READ-ONLY. Never run `git worktree remove`, `git branch -d`, `git branch -D`, `git worktree prune`, or any mutation. The orchestrator owns destructive actions.
@@ -126,3 +131,4 @@ If no candidates: `No cleanup candidates found.` and stop.
 - Be conservative on the `ask` vs `remove` boundary. If in doubt, downgrade to `ask`. The user can always override; surprise deletions are unrecoverable.
 - Atomic output. No prose explanation beyond the `reason=` field. No editorializing.
 - Indices are 1-based, contiguous, in the order rendered. The orchestrator maps `N → action + target`.
+</constraints>

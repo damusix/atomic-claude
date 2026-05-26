@@ -1,13 +1,15 @@
 # docs-meta
 
-The documentation system itself: four-voice taxonomy, surface routing, prose drafting, output style, and the axiom set that governs design decisions.
+## What it does
+
+Four-voice documentation taxonomy, surface routing, and the design axiom set. `atomic-documentation` classifies diffs against indexed surfaces and emits a structured YAML handoff. `atomic-prose` drafts human-readable docs. `/documentation` is the user-facing orchestrator (two modes: bootstrap and authoring). `output-styles/atomic.md` governs Claude's TUI reply style.
 
 ## Artifacts
 
 - `output-styles/atomic.md` — governs Claude's TUI reply style. Terse, telegraphic, fragments OK. Applied to main agent only (subagents do not receive output style sections).
-- `skills/atomic-documentation/SKILL.md` — diff-driven surface taxonomy classifier. Auto-fires on "doc this change", "doc impact for this diff", "what surfaces does this touch". Classifies changed entities against the four-voice routing table. Emits a fenced `yaml` block as structured handoff for callers. Reads `## Documentation surfaces` override section from `claude.local.md` / `CLAUDE.md` for non-atomic repos. Invoked by `/documentation` and by ship verbs (staged-diff mode). Boundary: surface routing only — prose drafting delegated to `atomic-prose`.
+- `skills/atomic-documentation/SKILL.md` — diff-driven surface classifier and content generator. Two modes: **maintenance** (fires during ship verbs — flags stale/incomplete surfaces, never suggests new pages) and **authoring** (invoked by `/documentation` — full discovery, gap detection, content generation). Auto-fires on "doc this change", "what surfaces does this touch", "doc impact for this diff". Reads `## Documentation surfaces` table from project's Claude instructions (search order: `claude.local.md`/`CLAUDE.local.md` → `CLAUDE.md`). Emits a fenced `yaml` block as structured handoff for callers. Per stale surface prompts: Yes (edit now) / Later (create follow-up) / Remind me (schedule reminder) / Skip. For new pages in authoring mode: generates full draft (ERD, flowchart, API table as appropriate). Emits `doc-skip:` trailers via `atomic-commit` when user skips with reason.
 - `skills/atomic-prose/SKILL.md` — voice and tone rules for human-readable developer documentation written to files. Governs `README.md`, `docs/guides/`, CHANGELOG narrative. Invoked when `atomic-documentation` routes to `atomic-prose` voice. Also auto-fires on documentation-editing phrases. Does not overlap with `atomic-documentation` (which classifies; this drafts).
-- `commands/documentation.md` — `/documentation [--dry-run] [--print-template] [<range>]` thin orchestrator. Resolves git diff range (default `merge-base(HEAD, main)..HEAD`), invokes `atomic-documentation` skill, parses fenced YAML output, walks surfaces one at a time with `[e]dit / [s]kip / [c]ontinue` prompts. `--dry-run` prints proposed surface list and exits. `--print-template` prints override-table skeleton for non-atomic repos.
+- `commands/documentation.md` — `/documentation` two-mode orchestrator. **Bootstrap mode** (no `## Documentation surfaces` table in CLAUDE.md): runs `atomic docs scan`, presents discovered markdown files as numbered list, user picks which to index, writes `## Documentation surfaces` table to committed CLAUDE.md. **Maintenance/authoring mode** (table present): compares diff against indexed surfaces, classifies each as stale/incomplete/missing, walks user through each with Yes/Later/Remind/Skip prompts. Ship verbs run the same check in maintenance mode automatically (between stage and signals). `atomic docs scan` runs discovery; `atomic docs stale` checks cache freshness.
 - `commands/atomic-compress.md` — `/atomic-compress <file>` compresses prose file into atomic style.
 
 ## CLI code
@@ -20,6 +22,10 @@ None. The docs-meta domain is entirely Claude Code artifacts. No Go packages imp
 - `.claude/docs/agent-config.md` — Claude Code agent configuration reference: frontmatter schema, tool restriction, subagent context isolation, memory system, output style mechanics.
 - `.claude/docs/claude-code-references.md` — URL index for official Claude Code documentation. Fetch via WebFetch when verifying semantics — these are upstream sources of truth.
 - `docs/spec/documentation-skill-split.md` — contract for `atomic-documentation` + `/documentation` split. Boundary: skill classifies and routes; command orchestrates interactively.
+- `docs/spec/documentation-as-maintenance.md` — spec for the two-mode `/documentation` system: `atomic docs scan` + `atomic docs stale` binary subcommands, bootstrap flow, authoring mode, maintenance mode (ship verb integration), surface classification criteria.
+- `docs/design/documentation-as-maintenance.md` — design doc: goals, non-goals, success criteria for replacing hardcoded surface-index updates with discovery-based doc maintenance.
+- `docs/reference/concepts.md` — key concepts and full-session walkthrough. Covers signals, plan→implement→ship flow, TDD, reminders, follow-ups. Updated with documentation maintenance workflow.
+- `docs/reference/commands.md` — command roster reference table. Updated to include `/documentation` description.
 - `docs/reference/output-style.md` — output style reference.
 - `docs/reference/conventions.md` — naming and structural conventions.
 

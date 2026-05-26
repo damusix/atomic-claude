@@ -62,7 +62,7 @@ Also fires implicitly when `/commit-only` runs and the staged diff includes sour
 2. **Staleness check (binary path)**. Run `atomic signals stale`. Exit 0 → no work. Exit 1 → regenerate.
 3. **Regenerate deterministic**. Run `atomic signals scan`. Writes `.claude/project/deterministic-signals.md` and copies the prior content to `.claude/project/.deterministic-signals.prev.md` (gitignored) so `atomic signals diff` works regardless of git state.
 4. **Dispatch inferrer**. Spawn `atomic-signals-inferrer` subagent via `Agent` tool. The inferrer runs `atomic signals diff` to learn what changed and updates only the dependent sections of `signals.md`. See agent spec below for details.
-5. **Ensure `@-refs` in project `CLAUDE.md`**. If `CLAUDE.md` exists at repo root and does not already contain `@.claude/project/deterministic-signals.md` and `@.claude/project/signals.md`, append a section:
+5. **Ensure `@-ref` in project `CLAUDE.md`**. If `CLAUDE.md` exists at repo root and does not already contain `@.claude/project/signals.md`, append a section:
 
     ```markdown
 
@@ -70,8 +70,9 @@ Also fires implicitly when `/commit-only` runs and the staged diff includes sour
     ## Project signals (auto-loaded)
 
 
-    @.claude/project/deterministic-signals.md
+    <atomic-signals>
     @.claude/project/signals.md
+    </atomic-signals>
     ```
 
     Print the diff first. If running non-interactively (e.g. inside `/commit-only`), append without confirmation. If running from `/initialize-signals`, ask via `AskUserQuestion` before writing.
@@ -220,7 +221,7 @@ One-shot bootstrap for a project that has never had signals generated. Verbose, 
 
 - No git repo → stop.
 - No `atomic` binary → stop with install instructions.
-- Existing `CLAUDE.md` already has both `@-refs` → confirm, take no action.
+- Existing `CLAUDE.md` already has `@.claude/project/signals.md` → confirm, take no action.
 
 
 ## Integration with `/commit-only`
@@ -258,7 +259,7 @@ Edit `/atomic-setup` audit table to include:
 |-----------|-------|
 | `atomic` binary on PATH | `command -v atomic` |
 | `.claude/project/deterministic-signals.md` | `test -f` |
-| `CLAUDE.md` references signals files | grep for `@.claude/project/deterministic-signals.md` |
+| `CLAUDE.md` references signals file | grep for `@.claude/project/signals.md` |
 
 
 Proposed actions:
@@ -280,8 +281,8 @@ Proposed actions:
 ## Success criteria
 
 
-- A fresh project can run `/initialize-signals` and end with both signals files written, `CLAUDE.md` updated, and both files referenced via `@`.
-- Re-running `/initialize-signals` is a no-op (the skill detects fresh state).
+- A fresh project can run `/refresh-signals` and end with both signals files written, `CLAUDE.md` updated, and `signals.md` referenced via `@`.
+- Re-running `/refresh-signals` is a no-op (the skill detects fresh state).
 - A `/commit-only` that touches `src/foo.ts` regenerates signals and stages the updated docs alongside the commit.
 - A `/commit-only` that only touches `README.md` does NOT regenerate signals.
 - A `/commit-only` that touches `package.json` (or any other manifest on the trigger list) regenerates signals and stages the updated docs alongside the commit.
@@ -381,3 +382,12 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Why:** Flat file scales poorly — ~7-8k tokens on small repos, unbounded on large ones. Router shape bounds auto-loaded tokens (~2-3k typical, ~7k extreme) while preserving the "Claude already knows where things live" property. Content-SHA change detection enables incremental domain refresh.
 
 **Superseded:** `inferred-signals.md` as the single LLM-authored signals output. `@.claude/project/inferred-signals.md` as the auto-load target. Single-agent inferrer that rewrites the entire file.
+
+
+### 2026-05-26 — Single @-ref: drop deterministic-signals from auto-load contract
+
+**What changed:** The skill's step 5 and the `/initialize-signals` refusal now reference only `@.claude/project/signals.md`. The `@.claude/project/deterministic-signals.md` line is removed from the appended scaffold block and from the presence check. The `/atomic-setup` integration table grep target updated to match. The scaffold block now wraps the single ref in `<atomic-signals>` tags.
+
+**Why:** `deterministic-signals.md` is too large for context on big repos and is read on demand by the inferrer, not pre-loaded into every session. Auto-loading it pollutes context unnecessarily. Only `signals.md` (the router-shaped inferred file) belongs in the auto-loaded `@-ref`.
+
+**Superseded:** Prior step 5 checked for both `@.claude/project/deterministic-signals.md` and `@.claude/project/signals.md`, appended both lines, and the `/initialize-signals` refusal matched on "both `@-refs` present". The `/atomic-setup` audit table grepped for `deterministic-signals.md`.

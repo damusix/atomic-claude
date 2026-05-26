@@ -14,6 +14,14 @@ description: >
   This skill owns diff-driven surface impact and content generation for stale/incomplete docs.
 ---
 
+<trigger>
+
+Auto-fires on: "doc this change", "what surfaces does this touch", "doc impact for this diff", "what needs documenting".
+
+Also invoked by `/documentation` (authoring mode) and by ship verbs (maintenance mode, between stage and signals).
+
+</trigger>
+
 This skill reads the project's indexed documentation surfaces, matches a diff against them, and either flags stale/incomplete docs (maintenance mode) or runs the full discovery + generation pipeline (authoring mode). It emits a structured YAML block listing affected surfaces. When the user picks "Yes", it opens the file and makes the edit.
 
 ## Four voices, four surfaces
@@ -45,6 +53,8 @@ The `Covers` column is the matching key. The skill compares diff file paths and 
 
 ## Two modes
 
+<maintenance_mode>
+
 ### Maintenance mode (commit flow — invoked by ship verbs)
 
 Fires automatically during ship verbs after staging, between stage and signals refresh. Reads the indexed surfaces table, matches the staged diff against it, flags affected surfaces. **Never emits `impact_type: missing`** — suggesting new pages during a commit is outside the user's mental context.
@@ -70,6 +80,10 @@ action: update orders entity in ERD, add field to orders table
 
 **Skip** → no action, no record.
 
+</maintenance_mode>
+
+<authoring_mode>
+
 ### Authoring mode (invoked by `/documentation`)
 
 Full pipeline. User opted in to spending time on docs.
@@ -83,6 +97,8 @@ Full pipeline. User opted in to spending time on docs.
    - **Missing** → `[n] New` generates a full page draft (ERDs, flowcharts, prose, tables as appropriate), writes the file, offers to add it to the surfaces table in CLAUDE.md, notes where to link it (index, sidebar, README).
 6. Stage edited/created files.
 7. Emit summary: edited / deferred / skipped / created.
+
+</authoring_mode>
 
 ## Content generation
 
@@ -139,6 +155,8 @@ Anti-patterns to avoid:
 - Orphan docs: note where generated pages should be linked so they're discoverable.
 - Stale examples: when updating a doc because the API changed, update all examples too.
 
+<output_format>
+
 ## Output contract
 
 After completing analysis, emit as the **final block** of the response a fenced `yaml` block in the shape below. Callers (ship verbs and `/documentation`) parse the **last** `yaml` or `yml` fenced block in the model output. If no yaml block is present, callers treat the response as "no surfaces affected."
@@ -175,8 +193,14 @@ Parser contract (caller side):
 7. Surface entries with unknown fields (e.g. `impact_type`, `reason`, `suggested_change`) are accepted — only `path` and `voice` are required.
 8. Empty `surfaces: []` is valid and means "explicitly nothing to update."
 
+</output_format>
+
+<constraints>
+
 ## Why structured handoff here
 
 This is the only skill in the atomic system that emits a fenced YAML block for callers to parse. Other skills (`atomic-signals`, `atomic-commit`) emit free text that callers act on conversationally. The structured handoff here is justified by one concrete need: per-surface accept/reject prompts in ship verbs require a clear item list — the caller cannot reliably extract a structured list from free-text output. The YAML block provides that list without ambiguity.
 
 Do not apply this pattern to other skills without a similarly concrete need for machine-readable per-item output. When in doubt, emit free text and let the caller act conversationally.
+
+</constraints>

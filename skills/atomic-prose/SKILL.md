@@ -13,11 +13,30 @@ description: >
   "draft the README", "write the docs", "improve this prose", "edit the guide".
 ---
 
+<trigger>
+
+Auto-fires when:
+
+- The user asks to draft, edit, or improve `README.md`, files under `docs/guides/`, or other narrative human-facing markdown.
+- `/documentation` is updating README or a guide.
+- The user pastes a draft and says "clean this up", "tighten this", "edit for tone" — and the target is narrative prose, not a spec/design table.
+
+Does *not* fire when:
+
+- Claude is replying to the user in the TUI (atomic output style governs that).
+- Editing `docs/spec/` or `docs/design/` — those follow the spec/design voice in `commands/atomic-plan.md` (tables, diagrams, terse).
+- Editing pure structure (tables, frontmatter, code blocks).
+- Editing files in `.claude/`, `agents/`, `commands/`, `skills/`, `output-styles/` — those have their own voice rules (atomic style for replies, descriptive technical prose for instructions, neither marketing nor essay).
+
+</trigger>
+
 Enduring narrative documentation has its own voice. It is neither the terse atomic style we use in TUI replies, nor the table-and-diagram brevity we use in specs and design docs, nor the cadenced essay voice common in AI-generated prose. It is plain, specific, technical narrative. Paragraphs that move, sentences that name things, no rhetorical scaffolding.
 
 Run these rules when writing or editing prose in `README.md`, guides under `docs/guides/`, CHANGELOG narrative entries, or any other long-form human-facing markdown that ships in the repo.
 
 **Do NOT apply this skill to `docs/spec/` or `docs/design/`.** Those files follow a separate convention enforced by `/atomic-plan`: table-first, diagrams allowed, prose kept terse and to the point. Specs and design docs are read often by both humans and agents, and brevity is the dominant cost there. Atomic-prose narrative would inflate them without adding value. See `commands/atomic-plan.md` for the spec/design voice.
+
+<voice_rules>
 
 ## What this skill is, and what it is not
 
@@ -114,6 +133,10 @@ The atomic output style file (`output-styles/atomic.md`) covers TUI replies. Thi
 > Before: *What if you could ship a feature without ever leaving the terminal — and have it reviewed automatically?*
 > After: *The `/subagent-implementation` command runs an implement-review loop without leaving the terminal. A reviewer agent gates each iteration.*
 
+</voice_rules>
+
+<constraints>
+
 ## Boundaries
 
 - **Tables and code blocks pass through unchanged.** This skill governs prose. Frontmatter, fenced code, command examples, file paths, identifier names, error strings: never reformat or rephrase.
@@ -121,17 +144,4 @@ The atomic output style file (`output-styles/atomic.md`) covers TUI replies. Thi
 - **CHANGELOG entries follow the project's existing tone.** This skill nudges new entries toward plainness but does not rewrite older entries on sight.
 - **Comments in source code follow the global comment rules in `CLAUDE.md`, not this skill.** This skill is for documentation files, not inline code comments.
 
-## When to invoke
-
-Auto-fires when:
-
-- The user asks to draft, edit, or improve `README.md`, files under `docs/guides/`, or other narrative human-facing markdown.
-- `/documentation` is updating README or a guide.
-- The user pastes a draft and says "clean this up", "tighten this", "edit for tone" — and the target is narrative prose, not a spec/design table.
-
-Does *not* fire when:
-
-- Claude is replying to the user in the TUI (atomic output style governs that).
-- Editing `docs/spec/` or `docs/design/` — those follow the spec/design voice in `commands/atomic-plan.md` (tables, diagrams, terse).
-- Editing pure structure (tables, frontmatter, code blocks).
-- Editing files in `.claude/`, `agents/`, `commands/`, `skills/`, `output-styles/` — those have their own voice rules (atomic style for replies, descriptive technical prose for instructions, neither marketing nor essay).
+</constraints>

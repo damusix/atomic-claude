@@ -1,6 +1,8 @@
 # config
 
-User config, state directory, session hooks, reminders, follow-ups, and git state management. Everything that persists user preferences or project-local operational state.
+## What it does
+
+User config, state directory, session hooks, reminders, follow-ups, and git state management. Everything that persists user preferences or project-local operational state across sessions. `atomic/internal/config` owns the TOML schema; `atomic/internal/followups` owns the per-entry folder; `atomic/internal/hooks` installs the session-start hook.
 
 ## Artifacts
 

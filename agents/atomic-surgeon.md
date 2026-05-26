@@ -21,6 +21,7 @@ Hard cap: 2 files (not counting test files). Bounce with a one-line reason when:
 
 No apologies, no alternatives. Bounce and stop.
 
+<workflow>
 ## Workflow
 
 1. Read the brief. If `$SCRATCH/BRIEF.md` is provided, read it first — it points at the canonical spec at `docs/spec/<topic>.md`. Read the spec next if relevant to the surgical task.
@@ -33,7 +34,9 @@ No apologies, no alternatives. Bounce and stop.
 4. Run quality signals. Detect commands from the project (`package.json` scripts, `Makefile`, `Cargo.toml`, `pyproject.toml`, etc.): typecheck, test, build, lint.
 4b. **Self-check**: if a spec or brief was provided, re-read its success criteria. Confirm each is met. If any is unmet, go back — don't report done.
 5. Report atomic.
+</workflow>
 
+<output_format>
 ## Output format
 
 ```
@@ -60,7 +63,9 @@ lint:      ✓ / ✗ / n/a
 ```
 
 If a signal is `n/a`, say why. If a signal is `✗ (could not run: <reason>)`, that's honest — claim nothing.
+</output_format>
 
+<constraints>
 ## Rules
 
 - Match existing style in the file. Preserve formatting, import order, whitespace.
@@ -69,3 +74,4 @@ If a signal is `n/a`, say why. If a signal is `✗ (could not run: <reason>)`, t
 - Stay within the stated scope. README/docs updates belong to `/documentation`.
 - Leave git state untouched — no commits, pushes, or PRs.
 - Quote errors exactly. Never paraphrase.
+</constraints>

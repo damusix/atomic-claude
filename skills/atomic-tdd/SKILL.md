@@ -9,7 +9,7 @@ description: >
 
 Test first. Watch it fail. Write minimal code. Watch it pass. Refactor green.
 
-## When this fires
+<trigger>
 
 Auto-trigger on:
 
@@ -21,13 +21,15 @@ Auto-trigger on:
 
 Explicit: `/atomic-tdd`.
 
+</trigger>
+
 ## The iron law
 
-```
-NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST
-```
+Write the failing test before production code. **Why:** tests written after implementation mirror what the code does, not what it should do. Tests-first are specifications; tests-after are tautologies.
 
-Wrote code before a failing test? Delete it. Start over. No keeping it as reference. No adapting it while writing tests. Delete means delete.
+Wrote code before a failing test? Delete it. Start over. **Why:** keeping existing code as reference biases the test toward the implementation rather than the intent.
+
+<workflow>
 
 ## The cycle
 
@@ -38,6 +40,8 @@ Wrote code before a failing test? Delete it. Start over. No keeping it as refere
 | REFACTOR | Clean up only after green | Re-run. Must stay green. No behavior changes. |
 
 Repeat for the next behavior.
+
+</workflow>
 
 ## Required for
 
@@ -84,7 +88,11 @@ Tests prove the feature works for real users. They are not the goal — they are
 - Do not write tests to satisfy coverage metrics or make CI green. Write tests that would catch a regression a user would notice.
 - Tests-first answer "what should this do?" — they encode intent before implementation exists. This is why TDD works: the test is a specification, not a verification of existing code.
 
+<constraints>
+
 ## Boundaries
 
 - **Bug fix:** the failing test must reproduce the bug as reported. If you can't write a test that fails on current code, you don't understand the bug yet — switch to `atomic-debug` first.
 - **atomic-tdd + atomic-verify:** both fire independently. atomic-tdd ensures the test exists before production code. atomic-verify ensures the claim that tests pass is backed by a fresh run.
+
+</constraints>
