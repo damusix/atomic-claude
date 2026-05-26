@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.9.1](https://github.com/damusix/atomic-claude/compare/v1.9.0...v1.9.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* **version:** clarify default sentinel values in package doc ([27b323d](https://github.com/damusix/atomic-claude/commit/27b323d82f24b513a448db3f3c352bffb5d50db1))
+
 ## [1.9.0](https://github.com/damusix/atomic-claude/compare/v1.8.0...v1.9.0) (2026-05-26)
 
 
