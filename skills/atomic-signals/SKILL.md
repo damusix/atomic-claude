@@ -18,7 +18,7 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
 
 3. **Regenerate deterministic.** Run `atomic signals scan`. This writes `.claude/project/deterministic-signals.md` and copies the prior content to `.claude/project/.deterministic-signals.prev.md` (gitignored) so `atomic signals diff` works regardless of git state.
 
-4. **Dispatch inferrer.** Spawn the `atomic-signals-inferrer` subagent via the `Agent` tool. The inferrer runs `atomic signals diff` internally to identify changed sections and updates only the dependent sections of `signals.md`. See the agent definition for the section dependency mapping.
+4. **Dispatch inferrer.** Read `.claude/project/signals-steering.md` if it exists. Spawn the `atomic-signals-inferrer` subagent via the `Agent` tool. If the steering file was found, include its full contents in the dispatch prompt (e.g. "Steering directives:\n\n<contents>"). The inferrer runs `atomic signals diff` internally to identify changed sections and updates only the dependent sections of `signals.md`. See the agent definition for the section dependency mapping.
 
 5. **Ensure `@-refs` are wired somewhere Claude auto-loads.** Check, in order, for an existing pair of refs (`@.claude/project/deterministic-signals.md` AND `@.claude/project/signals.md`) in any of:
 
@@ -33,6 +33,8 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
     - Else, append to `CLAUDE.md` (create it only if it does not exist and the repo has `.claude/project/`).
 
     **Placement:** position the `@-ref` block BEFORE behavioral rules/instructions in the target file. Signals are reference data (facts about the codebase), not instructions — placing them early follows the "longform data at top, instructions at end" principle for better model comprehension. If the target file has existing sections, insert after any brief orientation/context sections but before rules, conventions, or workflow sections.
+
+    Note: `signals-steering.md` is NOT `@-ref`'d. It is read only during inference (Step 4 passes it to the inferrer). No need to load it into every session.
 
     Block to append:
 

@@ -95,6 +95,21 @@ Two mechanisms for things you want to deal with later.
 Deferred follow-ups persist until you explicitly close them via `/follow-up review`. The difference: reminders are alarms with a time. Follow-ups are decisions you parked.
 
 
+## Documentation maintenance
+
+Code changes break docs. An endpoint gets renamed, a config field disappears, an architecture diagram shows a component that no longer exists. The drift is silent — nothing fails, nothing warns. Months later someone reads the docs and acts on information that is wrong.
+
+`/documentation` treats docs the same way signals treats project context: scan, track, and prompt when something drifts.
+
+**Bootstrap.** The first time you run `/documentation`, it scans your repo for markdown files and presents what it found. You pick which surfaces to track — architecture docs, API references, ERDs, guides. Those go into a `## Documentation surfaces` table in your CLAUDE.md. This is the index that everything else reads from.
+
+**Authoring mode.** Run `/documentation` explicitly when you want to check what needs updating. It compares your recent changes against tracked surfaces, classifies each as stale or incomplete, and walks you through them one at a time: edit the doc, skip it, defer it as a follow-up, or set a reminder. For domains with no docs at all, it suggests creating a new surface.
+
+**Maintenance mode.** Ship commands that produce a commit run the same check automatically — but scoped to just the staged diff, and only for stale or incomplete surfaces (never suggesting new pages during commit flow). If nothing is stale, it passes silently. If something is, you get the same edit/skip/later/remind prompt before the commit lands.
+
+The `atomic-documentation` skill is the engine that classifies surfaces. The `/documentation` command is the interface you interact with. The `atomic docs scan` and `atomic docs stale` binary subcommands handle the deterministic scanning underneath.
+
+
 ## Why compressed output?
 
 Claude is verbose by default. It opens with "Sure! I'd be happy to help." It hedges with "perhaps" and "it seems like." It explains what it is about to do, does it, then summarizes what it just did. For a single question, this is fine. Across a working session with dozens of exchanges, the filler adds up — it costs tokens, slows you down, and buries the answer.

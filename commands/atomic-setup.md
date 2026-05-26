@@ -259,7 +259,7 @@ Accept → use as-is. Edit → user supplies replacement text. Skip (empty-guess
 @.claude/project/signals.md
 ````
 
-The `## Project signals (auto-loaded)` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets).
+The `## Project signals (auto-loaded)` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). Note: `signals-steering.md` is NOT `@-ref`'d — it is read only during inference by the `atomic-signals` skill.
 
 **Forbidden content in the rendered file.** Do not write any of these — they live globally already and duplicating them noise-pollutes the project file:
 

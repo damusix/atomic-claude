@@ -44,7 +44,7 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 | Command | What it does |
 |---------|-------------|
 | `/review-branch` | One-shot code review of the current branch against base. No orchestration loop, no spec required. |
-| `/documentation` | Check what docs need updating based on the current diff. Walks you through each affected surface (edit, skip, or continue). |
+| `/documentation` | Keep project docs in sync with code changes. First run bootstraps: scans for markdown files, you pick which to track as indexed surfaces. Subsequent runs match diffs against tracked surfaces and walk you through each (edit, skip, later, remind). Ship verbs run the same check automatically during commit flow. |
 
 
 ## Project setup

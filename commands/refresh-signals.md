@@ -40,6 +40,45 @@ no existing signals found. initializing from scratch.
 
 Continue to Step 3 (scan) — do not stop.
 
+## Step 2b — Steering file check
+
+```bash
+test -f .claude/project/signals-steering.md
+```
+
+If the file does not exist, create it with the default scaffold:
+
+```bash
+mkdir -p .claude/project
+cat > .claude/project/signals-steering.md << 'EOF'
+# Signals steering
+#
+# User-provided hints for the signals inferrer. When this file exists,
+# the inferrer reads it before writing signals.md and treats its
+# content as ground truth — steering wins over detection when they
+# conflict. Delete sections you don't need.
+#
+# ## Framework
+# NestJS monorepo (not plain Express)
+#
+# ## Domains
+# - src/billing/ and src/payments/ are one domain ("payments")
+# - src/internal-tools/ is scratch code — not a real domain
+#
+# ## Build
+# - Build: pnpm turbo build
+# - Test: pnpm test:ci (not pnpm test — that runs watch mode)
+#
+# ## Ignore for domains
+# - vendor/
+# - generated/
+EOF
+```
+
+Print: `created .claude/project/signals-steering.md (edit to steer the inferrer).`
+
+If the file already exists, skip silently.
+
 ## Step 3 — Scan
 
 Run:
@@ -63,6 +102,8 @@ If signals files are missing from `CLAUDE.md` (first-time run), the skill handle
 ## Step 5 — CLAUDE.md wiring (first-time only)
 
 The `atomic-signals` skill checks whether `@-refs` are present in `CLAUDE.md` (or `claude.local.md` / `CLAUDE.local.md`). If already wired, nothing happens. If missing, the skill wires them.
+
+Note: `signals-steering.md` is NOT `@-ref`'d. It is read only during inference (the skill's Step 4 passes it to the inferrer). No need to load it into every session.
 
 If no `CLAUDE.md` exists at all, ask via `AskUserQuestion`:
 
