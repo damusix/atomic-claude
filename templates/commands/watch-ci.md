@@ -2,6 +2,8 @@
 description: Spawn a Haiku subagent in the background to watch CI for the current branch (or specified target). Provider-agnostic — the subagent inspects project signals to identify the CI system (GitHub Actions, GitLab CI, CircleCI, etc.) and picks the right CLI. Returns immediately; reports back when CI reaches a terminal state.
 ---
 
+<workflow>
+
 ## Step 1 — Pre-flight
 
 ```bash
@@ -117,7 +119,9 @@ Print one line confirming the dispatch:
 
 When the agent completes, pass-through summarize its report in 1-3 lines.
 
----
+</workflow>
+
+<constraints>
 
 ## Rules
 
@@ -129,3 +133,5 @@ When the agent completes, pass-through summarize its report in 1-3 lines.
 - Dispatched agent is `atomic-haiku` — generic Haiku runner. Model is set in the agent's frontmatter; never pass `model:` as a per-call Agent parameter (it's silently ignored).
 - Cap the wait at 10 minutes. CI that exceeds that needs human investigation, not infinite polling.
 - Do not poll the background-agent's output file from the foreground. The harness notifies on completion.
+
+</constraints>

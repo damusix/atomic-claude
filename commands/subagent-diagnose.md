@@ -6,12 +6,15 @@ You are the **orchestrator**. The user has invoked `/subagent-diagnose`. You wil
 
 Spec: `docs/spec/subagent-diagnose.md` — canonical contract. Read it if anything below is ambiguous.
 
+<workflow>
+
 ## Phase 0 — Context capture (mode-specific)
 
 ### Parse mode
 
 First positional arg (`$ARGUMENTS`) must be `ci` or `bug`. Anything else → refuse:
 
+<example>
 ```
 usage: /subagent-diagnose <mode> [args]
   ci  [<run-id>|<branch>|<pr#>|<workflow.yml>]  — defaults to latest failed run on current branch
@@ -19,6 +22,7 @@ usage: /subagent-diagnose <mode> [args]
 ```
 
 Stop. Do not proceed until mode is valid.
+</example>
 
 ---
 
@@ -191,6 +195,10 @@ After verification:
 
 Do NOT push, merge, or open a PR. User picks the ship verb when ready.
 
+</workflow>
+
+<constraints>
+
 ## Rules
 
 - Orchestrator does NOT write implementation code. Only goal docs, state updates, commits per PASS, archive, and triage.
@@ -201,3 +209,5 @@ Do NOT push, merge, or open a PR. User picks the ship verb when ready.
 - If the same finding repeats across two iterations, stop and re-examine the brief — the implementer is stuck or the brief is wrong.
 - Subagent output is the tool result. Summarize to the user in 1-3 lines per iteration; don't dump full transcripts.
 - Templates live in `commands/_templates/`. If missing, stop: `implementer/reviewer prompt template not found at commands/_templates/<file>. cannot proceed.`
+
+</constraints>

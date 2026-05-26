@@ -5,6 +5,8 @@ description: Soft-undo the last commit. Restores its changes as staged, leaves w
 Reverses one commit without losing the work. Equivalent to `git reset --soft HEAD~1` with safety guards.
 
 
+<workflow>
+
 ## Pre-flight
 
 
@@ -111,6 +113,9 @@ to re-commit: /commit-only
 to discard: git restore --staged <paths> then git restore <paths>
 ```
 
+</workflow>
+
+<constraints>
 
 ## Rules
 
@@ -121,3 +126,5 @@ to discard: git restore --staged <paths> then git restore <paths>
 - Print every git command before running it.
 - Do not stage, do not commit, do not push. After `git reset --soft`, control returns to the user.
 - This is the only command that mutates history. Treat it as destructive (axiom 3) — never act without the per-item Yes.
+
+</constraints>

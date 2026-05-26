@@ -2,6 +2,8 @@
 description: Compress a prose Markdown / text file into atomic style. Preserves code, URLs, file paths, technical terms, and structure. Backs up original as <file>.original.md.
 ---
 
+<workflow>
+
 1. Verify `$ARGUMENTS` is a non-empty path to an existing file. If missing or empty: `usage: /atomic-compress <path>`. Stop.
 
 2. Refuse if extension is one of `.py .js .ts .tsx .jsx .json .yaml .yml .toml .env .lock .css .scss .html .xml .sql .sh .bash .zsh .rb .go .rs .java .kt .swift .c .cpp .h .hpp`. Message: `refused: code file. compress prose only.` Stop.
@@ -14,7 +16,7 @@ description: Compress a prose Markdown / text file into atomic style. Preserves 
 
 6. Compress the prose. Apply rules:
 
-   **Preserve EXACTLY — do not touch:**
+   **Read-only regions** (preserve verbatim):
    - Fenced code blocks (between ` ``` ` markers). Read-only regions.
    - Inline code (backtick spans). Never modify content inside backticks.
    - URLs and Markdown links.
@@ -52,8 +54,14 @@ description: Compress a prose Markdown / text file into atomic style. Preserves 
 
 8. Report: lines before / lines after / percent reduction. Path to backup.
 
+</workflow>
+
+<constraints>
+
 ## Rules
 
 - One file per invocation. Multiple paths or globs: ask which to compress.
 - `CLAUDE.md` or `README.md`: ask for confirmation before compressing — these are load-bearing.
 - Never compress a file that is pure code blocks. State and stop.
+
+</constraints>

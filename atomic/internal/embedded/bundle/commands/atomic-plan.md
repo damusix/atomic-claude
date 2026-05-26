@@ -6,6 +6,8 @@ Plan before coding. Output is a spec — a checkpoint-table contract, not prose.
 
 `/atomic-plan` is one command with one internal phase boundary. Lightweight tasks get an inline spec. Non-trivial tasks get a full design + spec-authoring loop with subagents. The LLM gauges triviality; the user confirms when uncertain.
 
+<workflow>
+
 ## Phases
 
 ### Classify triviality
@@ -229,6 +231,8 @@ When not triggered, just print the proceed line:
 
 Both lines are copy-paste runnable.
 
+</workflow>
+
 ## Amending an existing spec
 
 If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite. Apply the append-mostly rule from `CLAUDE.md`: edit the body as needed AND add a dated entry to `## Change log` capturing what changed and why. If the file lacks a `## Change log` section, add one before amending.
@@ -253,12 +257,12 @@ A spec SHOULD say:
 - The slices — checkpoints, cohesion units the implementer can dispatch as one builder pass.
 - The evidence behind decisions — Approaches + Recommendation with file:line or signals-derived facts.
 
-A spec should NOT say:
+Implementation details belong in code, not specs:
 
-- Exact function signatures.
-- Specific variable names.
-- "Implement using `Array.reduce`."
-- Step-by-step pseudocode.
+- Exact function signatures — the implementer picks these.
+- Specific variable names — the implementer picks these.
+- Specific algorithms ("use `Array.reduce`") — the implementer decides how.
+- Step-by-step pseudocode — write success criteria instead.
 
 The implementer (builder / surgeon) is allowed to correct course on anything that doesn't break success criteria. **Success criteria are the contract; everything else is a sketch the implementer can adapt.** Deviations that would break a success criterion require spec amendment, not silent drift.
 
@@ -285,6 +289,8 @@ The `Agent` column hints at dispatch:
 
 **Do NOT invoke the `atomic-prose` skill here.** That skill is for enduring narrative docs (README, guides) where some narrative carries value; specs and design pay token cost on every read and stay terse.
 
+<constraints>
+
 ## Rules
 
 - Spec is a table, not an essay. If a section runs >5 bullets, split into checkpoints.
@@ -294,3 +300,5 @@ The `Agent` column hints at dispatch:
 - One round of clarifying questions max. After that, write with stated assumptions and let the user correct.
 - Skip planning entirely for *trivial* work — write the spec inline (or offer to implement directly if the user prefers).
 - Promoted files are curated: no TODOs, no "tbd". Unresolved items go in `## Open questions` and get flagged in the handoff summary.
+
+</constraints>

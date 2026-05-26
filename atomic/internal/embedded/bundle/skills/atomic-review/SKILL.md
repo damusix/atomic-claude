@@ -7,6 +7,14 @@ description: >
   Auto-triggers when reviewing pull requests.
 ---
 
+<trigger>
+
+- "review this PR", "code review", "review the diff", "check this PR"
+- "review this change", "review my changes"
+- Reviewing pull requests or diffs
+
+</trigger>
+
 Write code review comments terse and actionable. One line per finding. Location, problem, fix. No throat-clearing.
 
 <output_format>

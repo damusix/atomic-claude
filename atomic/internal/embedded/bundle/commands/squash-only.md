@@ -81,7 +81,7 @@ Wait for the user's response per surface before continuing to the next.
 
 - **Skip** — no action, no record.
 
-Run doc-impact before signals refresh so new or updated doc files are picked up by signals in the same pass.
+Run doc-impact before signals refresh. **Why:** new or updated doc files appear in the signals scan only if they're staged before the scan runs.
 </doc-impact>
 5. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
 6. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. If the commit failed, leave them.
@@ -112,8 +112,9 @@ The `atomic signals stale` command is the source of truth — it fast-fails when
 `squashed N commits into <new-sha>. branch still <branch>.`
 
 <git-safety>
-- Use relative paths for `git add` based on the current working directory.
-- Run each `git` command as a separate Bash call.
-- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit. The hook exists for a reason.
-- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history.
+- Stage explicitly by name (`git add <path>`), never `git add -A`. **Why:** `-A` can accidentally include secrets or untracked binaries.
+- Use relative paths for `git add` based on the current working directory. **Why:** absolute paths and `git -C` can silently stage files outside the intended scope.
+- Run each `git` command as a separate Bash call. **Why:** chaining with `&&` makes it impossible to inspect intermediate state and hides partial failures.
+- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit — never `--amend`. **Why:** amending after a hook failure modifies the PREVIOUS commit, which may destroy unrelated work.
+- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history. **Why:** force-pushing rewrites shared history, breaking every collaborator's checkout.
 </git-safety>

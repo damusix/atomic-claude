@@ -36,7 +36,7 @@ CI gates: (1) `make render && git diff --exit-code` — stale `commands/` fails.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Markdown | 30424 | 236 | 49% |
+| Markdown | 31058 | 236 | 49% |
 | Go | 27985 | 126 | 45% |
 | JSON | 2278 | 5 | 3% |
 | CSS | 402 | 1 | 0% |

@@ -4,6 +4,8 @@ description: Bootstrap the current repo for atomic-claude use. Audits .gitignore
 
 You set up the repo for atomic-claude conventions. Detect first, propose second, apply only what the user confirms.
 
+<workflow>
+
 ## Pre-flight
 
 1. Verify inside a git repo: `git rev-parse --is-inside-work-tree 2>/dev/null`.
@@ -58,7 +60,7 @@ For each missing item, propose an action. Skip items already present.
 | `.gitignore` exists but missing `.claude/.scratchpad/` | Append `.claude/.scratchpad/`. |
 | `.gitignore` exists but missing `.worktrees/` | Append `.worktrees/`. |
 | `.gitignore` exists but missing `.claude/project/.deterministic-signals.prev.md` | Append `.claude/project/.deterministic-signals.prev.md`. |
-| `CLAUDE.md` missing | Run the survey procedure (see "CLAUDE.md survey" in Step 4). Never write a blank scaffold; always seed each section with an agent guess from signals/README/code, user edits the guess. |
+| `CLAUDE.md` missing | Run the survey procedure (see "CLAUDE.md survey" in Step 4). Seed every section with an agent guess from signals/README/code; user edits the guess. |
 | `docs/spec/` missing | Create directory + `docs/spec/.gitkeep` (so git tracks it before any content lands). |
 | `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
 | `README.md` missing | Offer to scaffold a minimal starter. If user declines, skip — don't push it. |
@@ -106,7 +108,7 @@ For each confirmed action, in order:
 ### `.gitignore`
 
 - If file missing: write a fresh one with the three lines.
-- If file exists: read it. For each missing entry, append a new line (preserve trailing newline). NEVER modify existing entries. NEVER reorder.
+- If file exists: read it. For each missing entry, append a new line (preserve trailing newline). Append only — preserve existing entries and their order.
 
 ```bash
 # Example append (one entry, idempotent):
@@ -182,7 +184,7 @@ fi
 
 Refuse to overwrite if file exists (audit already gated this — defensive double-check).
 
-**Never write a blank scaffold.** Every section is seeded with an agent guess; the user edits the guess. The point of project `CLAUDE.md` is durable intent, scope, tribal knowledge, rules, processes, and external references — content global `~/.claude/CLAUDE.md` cannot carry and project signals cannot infer. Do not duplicate global principles, "where things live", or the canonical workflow. Those load globally.
+**Seed every section with content from the original.** Every section is seeded with an agent guess; the user edits the guess. The point of project `CLAUDE.md` is durable intent, scope, tribal knowledge, rules, processes, and external references — content global `~/.claude/CLAUDE.md` cannot carry and project signals cannot infer. Do not duplicate global principles, "where things live", or the canonical workflow. Those load globally.
 
 **Inputs the agent reads to form guesses** (in order, stop when enough signal):
 
@@ -264,7 +266,7 @@ Accept → use as-is. Edit → user supplies replacement text. Skip (empty-guess
 
 The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d — it is read only during inference by the `atomic-signals` skill.
 
-**Forbidden content in the rendered file.** Do not write any of these — they live globally already and duplicating them noise-pollutes the project file:
+**Content that belongs in the global file, not the project file:** These live globally already — duplicating them noise-pollutes the project file:
 
 - Principles ("Think before coding", "Simplicity first", etc.)
 - "Where things live" (scratchpad / docs/design / docs/spec / worktrees)
@@ -342,6 +344,10 @@ Next steps:
 
 Delete no scratch (this command writes no scratchpad).
 
+</workflow>
+
+<constraints>
+
 ## Rules
 
 - Never overwrite an existing file. The audit + the apply step both gate this.
@@ -349,3 +355,5 @@ Delete no scratch (this command writes no scratchpad).
 - Never `git add` or commit. The user owns when to commit setup changes.
 - Idempotent — running the command twice on a fresh-then-bootstrapped repo should report "already complete" the second time.
 - If a step fails partway through (e.g. permission denied on `mkdir`), report which step failed and stop. Don't continue silently.
+
+</constraints>

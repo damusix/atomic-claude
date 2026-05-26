@@ -8,6 +8,8 @@ Long-running branch spanning multiple Claude Code sessions. The eventual commit 
 
 Opt-in only. Does not auto-fire.
 
+<workflow>
+
 ## Refuse to run if
 
 - Working tree clean AND no unstaged changes since last commit → `refused: no changes since last commit — nothing to report.`
@@ -52,6 +54,10 @@ Opt-in only. Does not auto-fire.
 
 5. **Report path** to the user: `wrote .claude/.scratchpad/session-reports/<branch>/<file>.md`.
 
+</workflow>
+
+<output_format>
+
 ## Voice
 
 Working-memory voice — bullets + short paragraphs. Not the atomic TUI fragment style (that's TUI replies). Not `atomic-prose` (that's enduring narrative docs). Internal context that the commit-message synthesis will read.
@@ -69,8 +75,14 @@ If a branch is abandoned without a commit, the reports stay in `.claude/.scratch
 - **Exempt verbs** (no commit-message generation): `/pr-only`, `/push-only`, `/merge-to-main`. These ship existing commits unchanged.
 - **Full spec:** `docs/spec/session-report.md`.
 
+</output_format>
+
+<constraints>
+
 ## Rules
 
 - Never stage the report file. `.claude/.scratchpad/` is gitignored — staging would be a no-op and pollutes intent.
 - One report per invocation. If the user wants two slices of the same session captured separately, they call `/session-report` twice with different slug arguments.
 - No follow-up commits. The session report is consumed by the next commit on the branch; do not generate one of your own.
+
+</constraints>

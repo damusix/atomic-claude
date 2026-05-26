@@ -15,6 +15,8 @@ Hardcoded target: `damusix/atomic-claude`. Do **not** infer the target from `gh 
 
 ## Steps
 
+<workflow>
+
 1. Read user's description. Classify: **bug** vs **feature/enhancement** vs **question**. If ambiguous, ask once.
 2. Confirm target with one sentence: "Filing against `damusix/atomic-claude` (not your current repo)." Proceed unless user objects.
 3. Capture installed version: run `atomic --version` if the binary is on PATH. Include in body. If missing, note "atomic binary not found on PATH".
@@ -25,6 +27,8 @@ Hardcoded target: `damusix/atomic-claude`. Do **not** infer the target from `gh 
 8. Map classification → label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify the label exists on the target repo first: `gh label list --repo damusix/atomic-claude --search <name>`. Skip the label if it doesn't exist (don't auto-create). User-specified labels stack on top.
 9. `gh issue create --repo damusix/atomic-claude --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`.
 10. Print issue URL.
+
+</workflow>
 
 ## Body shapes
 
@@ -94,8 +98,12 @@ Hardcoded target: `damusix/atomic-claude`. Do **not** infer the target from `gh 
 
 ## Rules
 
+<constraints>
+
 - Hardcoded `--repo damusix/atomic-claude` on every `gh` call. Never omit.
 - No AI bylines. No "I think" / "maybe" / "perhaps". State facts.
 - Code blocks for exact errors and commands.
 - One issue per invocation — if user describes multiple unrelated problems, ask which to file or split.
 - If the user's description sounds like a problem with their *current project* (build error, test failure in their code, their PR not merging), redirect them to `/report-issue` instead.
+
+</constraints>

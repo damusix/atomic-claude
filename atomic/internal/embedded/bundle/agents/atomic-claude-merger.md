@@ -67,16 +67,15 @@ One-time conversion for files written before the tag boundary was introduced.
 
 </workflow>
 
+<constraints>
 ## Rules
 
-<constraints>
-
-- Never modify `~/.claude/CLAUDE.md` directly. All output goes to `~/.claude/CLAUDE.md.atomic-merged`.
-- Preserve the exact whitespace and code-block formatting of user-owned content. Do not reflow or reformat.
-- Frontmatter (if any) follows the proposed version.
-- Output is plain markdown. No prose hedging. No "I merged this for you" preambles in the file itself.
-- The `<atomic>` tags are literal strings in the output — they are boundary markers, not rendered XML.
-- Atomic always wins on content within its boundary. User edits inside a prior `<atomic>` block are overwritten and flagged, not preserved.
+- Never modify `~/.claude/CLAUDE.md` directly. All output goes to `~/.claude/CLAUDE.md.atomic-merged`. **Why:** the orchestrator confirms the merge before applying it — writing directly removes that safety gate.
+- Preserve the exact whitespace and code-block formatting of user-owned content. Do not reflow or reformat. **Why:** invisible formatting changes show as diff noise and erode trust that user content was truly preserved verbatim.
+- Frontmatter (if any) follows the proposed version. **Why:** frontmatter is atomic-owned configuration; user edits there are unsafe to preserve since the installer depends on its structure.
+- Output is plain markdown. No prose hedging. No "I merged this for you" preambles in the file itself. **Why:** the output file is the merged `CLAUDE.md`, not a chat response — any prose injected there becomes part of Claude's global instructions.
+- The `<atomic>` tags are literal strings in the output — they are boundary markers, not rendered XML. **Why:** Claude Code loads the file as text; the tags must survive round-trips unchanged or the ownership boundary parser breaks on next install.
+- Atomic always wins on content within its boundary. User edits inside a prior `<atomic>` block are overwritten and flagged, not preserved. **Why:** atomic-owned content is a versioned contract — silently preserving divergent user edits inside it would cause the user to unknowingly run a patched version they can't diff against upstream.
 
 </constraints>
 

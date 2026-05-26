@@ -64,6 +64,7 @@ and exit.
 
 Print a numbered list (axiom 4 — plain-text indexed selection):
 
+<example>
 ```
 Discovered N documentation files. Index these in your CLAUDE.md?
 
@@ -74,6 +75,7 @@ Discovered N documentation files. Index these in your CLAUDE.md?
 
 Type: all | 1 3 5 | none
 ```
+</example>
 
 Wait for user input. Accept: `all`, space-separated indices (`1 3 5`), comma-separated (`1,3,5`), ranges (`1-3`), mixed (`1-3 5`), `none`.
 
@@ -182,6 +184,7 @@ no edits applied.
 
 Walk surfaces one at a time. For each **stale** or **incomplete** surface, print:
 
+<example>
 ```
 surface <N>/<total>: <path>
 status: stale | incomplete
@@ -192,11 +195,13 @@ reason: <why it's stale or incomplete>
   [r] Remind — schedule a reminder
   [s] Skip   — no action
 ```
+</example>
 
 Wait for the user to type one of `y`, `l`, `r`, `s`.
 
 For each **missing** surface, print:
 
+<example>
 ```
 surface <N>/<total>: <module>/ (N files)
 status: missing — no doc surface covers this module
@@ -204,6 +209,7 @@ status: missing — no doc surface covers this module
   [n] New    — generate a full page draft
   [s] Skip   — no action
 ```
+</example>
 
 Wait for `n` or `s`.
 
@@ -281,6 +287,7 @@ git add docs/<module>.md
 
 After all surfaces are walked, print:
 
+<example>
 ```
 documentation pass complete.
 
@@ -302,14 +309,19 @@ documentation pass complete.
 
   total: <N> surfaces / <Y> updated / <L> deferred / <R> reminded / <S> skipped / <C> created
 ```
+</example>
 
 ## Rules
 
-- This command does not commit. Edits are staged; the user commits via a ship verb.
-- `--dry-run` prints the proposal and exits without touching any file.
-- `--print-template` exits immediately after printing; no scan is performed.
-- `--discover` re-runs bootstrap surface selection even when a table already exists. Use it after adding new doc directories.
-- Missing detection (Step 7) runs only in authoring mode. Never during commit flow (ship verbs).
-- When creating or updating a file, generate full Mermaid syntax — never describe what a diagram would look like. Every Mermaid block gets a one-sentence caption.
-- The surfaces table belongs in the committed `CLAUDE.md` so the whole team shares it. Exception: repos where `CLAUDE.md` is a bundle source (like the atomic-claude repo itself) may use `claude.local.md` instead — the bootstrap step can write there if the user directs it.
-- The voice rules and surface taxonomy live in `skills/atomic-documentation/SKILL.md`. This command does not duplicate them.
+<constraints>
+
+- This command does not commit. Edits are staged; the user commits via a ship verb. **Why:** commit is an explicit, user-initiated act — staging is reversible, committing is not.
+- `--dry-run` prints the proposal and exits without touching any file. **Why:** lets users audit what would change before trusting the skill to edit docs.
+- `--print-template` exits immediately after printing; no scan is performed. **Why:** template output is a side-channel tool, not a doc pass — mixing the two would be surprising.
+- `--discover` re-runs bootstrap surface selection even when a table already exists. Use it after adding new doc directories. **Why:** surfaces grow; the table needs an explicit opt-in path to add new entries without wiping the old ones.
+- Missing detection (Step 7) runs only in authoring mode. Never during commit flow (ship verbs). **Why:** commit flow is fast-path — proposing new doc pages mid-commit breaks the user's flow and slows every commit.
+- When creating or updating a file, generate full Mermaid syntax — never describe what a diagram would look like. Every Mermaid block gets a one-sentence caption. **Why:** prose descriptions of diagrams are useless to readers and cannot be rendered; captions anchor the diagram's purpose without making the reader decode the graph first.
+- The surfaces table belongs in the committed `CLAUDE.md` so the whole team shares it. Exception: repos where `CLAUDE.md` is a bundle source (like the atomic-claude repo itself) may use `claude.local.md` instead — the bootstrap step can write there if the user directs it. **Why:** a table only one person sees provides no coordination value; the exception handles repos where `CLAUDE.md` is installed globally and must stay project-neutral.
+- The voice rules and surface taxonomy live in `skills/atomic-documentation/SKILL.md`. This command does not duplicate them. **Why:** single source of truth — duplication drifts silently.
+
+</constraints>

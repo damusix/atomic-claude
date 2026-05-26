@@ -6,11 +6,13 @@ Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Techn
 
 ## Step 1 — Read brief
 
-Read these files in order:
+Read these files in parallel (no dependencies between them):
 
-1. `{SCRATCH_PATH}/BRIEF.md` — canonical brief for this iteration. This is your primary directive.
+1. `{SCRATCH_PATH}/BRIEF.md` — canonical brief for this iteration. Primary directive.
 2. `{SPEC_PATH}` — full spec. Read if present; skip if file doesn't exist.
 3. `{SCRATCH_PATH}/STATE.md` — prior iteration history. Skim for context; don't dwell.
+
+After reading, reflect on what the brief requires before proceeding. Identify the key acceptance criteria you must satisfy.
 
 ## Step 2 — Clarify blockers only
 
@@ -93,6 +95,8 @@ DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
 ```
 
 Use `DONE_WITH_CONCERNS` if work is complete but you have doubts about correctness. Use `BLOCKED` if you cannot complete the task. Use `NEEDS_CONTEXT` if required information wasn't provided.
+
+Before reporting DONE, re-read the success criteria from BRIEF.md and confirm each is met. If any criterion is unverified, mark DONE_WITH_CONCERNS and name the gap.
 
 </output_format>
 

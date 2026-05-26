@@ -67,8 +67,8 @@ Every completion claim needs a fresh command run in this turn. Watch for these m
 
 ## Boundaries
 
-- Does NOT fire on intent statements ("I'll fix it" — future, not claim).
-- Does NOT fire on progress reports ("ran tests, 2 failures" — evidence, no claim).
-- Fires the moment Claude transitions from "doing" to "asserting".
+- Fires only when Claude transitions from "doing" to "asserting done."
+- Intent statements ("I'll fix it") are future — no gate needed yet.
+- Progress reports ("ran tests, 2 failures") are evidence without a completion claim — no gate needed.
 
 </constraints>

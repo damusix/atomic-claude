@@ -2,6 +2,8 @@
 description: Create isolated worktree at .worktrees/<branch>/ with new branch. Auto-detects setup (npm/cargo/pip/go), verifies baseline tests, reports ready. Skips if already in a worktree.
 ---
 
+<workflow>
+
 ## 1. Parse arguments
 
 `$ARGUMENTS` can be any combination of:
@@ -168,7 +170,11 @@ If a spec or brief was passed, note that the user likely wants to continue with 
 
 If step 5 committed a carry-forward spec or design, also report the new commit SHA on the source branch so the user can see what was preserved.
 
+</workflow>
+
 ---
+
+<constraints>
 
 ## Rules
 
@@ -178,3 +184,5 @@ If step 5 committed a carry-forward spec or design, also report the new commit S
 - Step 5 only touches files under `docs/spec/` and `docs/design/`. Other uncommitted changes are out of scope.
 - Do not create worktrees at global or home-directory paths — always `.worktrees/` inside the project root.
 - Do not run setup commands that require network access if sandboxed — detect via first failure and report.
+
+</constraints>

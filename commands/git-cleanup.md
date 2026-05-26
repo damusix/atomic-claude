@@ -4,6 +4,8 @@ description: Scan and clean up stale git state — worktrees, local branches, op
 
 You orchestrate git cleanup. The `atomic-git-scout` subagent scans (read-only). You present the report. The user picks. You execute.
 
+<workflow>
+
 ## Pre-flight
 
 1. Verify inside a git repo: `git rev-parse --is-inside-work-tree`. If not: refuse with `not in a git repo.` and stop.
@@ -59,6 +61,7 @@ current_worktree_path: <absolute path>
 ```
 
 Dispatch via the `Agent` tool with `subagent_type: "atomic-git-scout"`. Prompt: "Read `$SCRATCH/SCOUT_BRIEF.md` and scan per your skill. Return the indexed report. Read-only."
+
 
 ## Step 5 — Present report to the user
 
@@ -143,6 +146,10 @@ git worktree prune
 
 Same as the corresponding `remove` / `delete` — use `-D` instead of `-d` for branch deletion to force.
 
+</workflow>
+
+<output_format>
+
 ## Step 9 — Report
 
 ```
@@ -162,18 +169,24 @@ Not selected:
 
 Delete `$SCRATCH` once done.
 
+</output_format>
+
+<constraints>
+
 ## Rules
 
-- Never delete the current worktree, the base branch, or the main worktree. Scout already excludes these; double-check before executing.
-- Never use `-D` (force-delete branch) without an explicit Yes from step 7.
-- Never run `git push --delete` against remote branches. Remote cleanup is out of scope for this command.
-- Always `cd` to the main repo root before `git worktree remove` — running it from inside the worktree being removed fails silently.
-- Print every git command before running it. Atomic style — no narration.
-- If any execution step errors, stop, report which item failed and why. Do not continue with remaining items until user says to.
-- No commits during this command. No PRs. Just cleanup.
+- Never delete the current worktree, the base branch, or the main worktree. Scout already excludes these; double-check before executing. **Why:** deleting the branch you're on or the base branch destroys in-flight work and corrupts the repo state in ways that are hard to undo.
+- Never use `-D` (force-delete branch) without an explicit Yes from step 7. **Why:** `-D` discards commits that haven't been merged — data loss without an explicit user decision violates the destructive-ops confirm axiom.
+- Never run `git push --delete` against remote branches. Remote cleanup is out of scope for this command. **Why:** remote deletions affect the whole team and can't be undone locally; they belong to a separate, intentional workflow.
+- Always `cd` to the main repo root before `git worktree remove` — running it from inside the worktree being removed fails silently. **Why:** git refuses (or silently no-ops) worktree removal when the cwd is inside the target; the error surfaces only if you inspect the exit code, making the bug invisible.
+- Print every git command before running it. Atomic style — no narration. **Why:** destructive ops must be auditable; the user needs to see exactly what ran and in what order before trusting the result.
+- If any execution step errors, stop, report which item failed and why. Do not continue with remaining items until user says to. **Why:** partial cleanup can leave repo state inconsistent (e.g. worktree removed but branch still present); stopping on first failure keeps the remaining items predictable.
+- No commits during this command. No PRs. Just cleanup. **Why:** scope creep — cleanup is already destructive enough; mixing in commit or PR actions makes the command's effect surface unpredictable and harder to audit.
 
 ## Open behaviors
 
 - Staleness threshold lives in memory, not config. Default 30 days. Override by telling Claude to remember a different value.
 - Remote scope is asked per-run when `$ARGUMENTS` is empty. Single-target runs skip the question.
 - `git worktree prune` is self-healing — running it as part of any cleanup pass also cleans up unrelated stale registrations. That's fine.
+
+</constraints>

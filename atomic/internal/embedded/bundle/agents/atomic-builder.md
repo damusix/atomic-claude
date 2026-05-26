@@ -82,11 +82,11 @@ If a signal is `n/a`, say why. If a signal is `✗ (could not run: <reason>)`, t
 
 ## Rules
 
-- Match existing style in the file. Preserve formatting, import order, whitespace.
-- Keep scope minimal. One logical slice, no abstractions, no future-proofing.
-- Comments only when WHY is non-obvious.
-- Stay within the stated scope. README/docs updates belong to `/documentation`.
-- Leave git state untouched — no commits, pushes, or PRs.
-- Quote errors exactly. Never paraphrase.
+- Match existing style in the file. Preserve formatting, import order, whitespace. **Why:** style inconsistency within a file is a louder signal than inconsistency across the repo — reviewers flag it, and "fix style while here" cleanups obscure the real diff.
+- Keep scope minimal. One logical slice, no abstractions, no future-proofing. **Why:** speculative abstractions add maintenance cost before a second use case proves they're needed; premature generalization is the builder's most common failure mode.
+- Comments only when WHY is non-obvious. **Why:** comments that restate what the code says rot silently — the code drifts, the comment doesn't, and future readers trust the wrong one.
+- Stay within the stated scope. README/docs updates belong to `/documentation`. **Why:** cross-surface edits in a single diff hide intent, inflate review surface, and violate the cohesion boundary the builder is designed to enforce.
+- Leave git state untouched — no commits, pushes, or PRs. **Why:** the orchestrator owns the commit/ship lifecycle; builder commits would bypass message conventions, bundle-regen hooks, and the pre-commit drift gates.
+- Quote errors exactly. Never paraphrase. **Why:** paraphrased errors drop the tokens the caller needs to grep for the root cause; exact quotes make failures reproducible.
 
 </constraints>

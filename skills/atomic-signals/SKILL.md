@@ -8,7 +8,17 @@ description: >
   source-tree changes in the staged diff (silent mode — no confirmation prompt).
 ---
 
+<trigger>
+
+- "regenerate signals", "scan the project", "refresh project context"
+- "what's in this repo", "rescan"
+- `/commit-only` detecting source-tree changes in staged diff (silent mode)
+
+</trigger>
+
 Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure auto-load refs.
+
+<workflow>
 
 ## Primary flow (atomic binary present)
 
@@ -64,6 +74,8 @@ Keep the project snapshot current. Run the scan, dispatch the inferrer, ensure a
 
 7. **Report.** Print one-line summary: `signals refreshed. <N> sections changed. inferrer updated <M> sections.` If concerns were created as follow-ups, append: `<K> follow-ups created.` Suppress this line when invoked from a host command that requested silent mode (e.g. `/commit-only` step 4) — those flows already produce their own report.
 
+</workflow>
+
 ## Fallback flow (no binary)
 
 When `atomic` is absent:
@@ -87,8 +99,12 @@ When `/commit-only` runs and `atomic signals stale` reports stale, it invokes th
 
 This integration is implemented in `/commit-only` (CP S-4), not here.
 
+<constraints>
+
 ## Boundaries
 
 - Never modifies files outside `.claude/project/` and whichever auto-loaded Claude instructions file the wiring step targets (`claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md`).
 - Never blocks a commit — if the scan fails, log and continue.
 - Silent in `/commit-only` context; interactive only when invoked from `/refresh-signals` or directly by the user.
+
+</constraints>

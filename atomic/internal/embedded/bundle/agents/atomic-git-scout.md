@@ -125,10 +125,10 @@ If no candidates: `No cleanup candidates found.` and stop.
 <constraints>
 ## Rules
 
-- READ-ONLY. Never run `git worktree remove`, `git branch -d`, `git branch -D`, `git worktree prune`, or any mutation. The orchestrator owns destructive actions.
-- Never include the current worktree or the base branch in candidates.
-- Never propose deletion of branches with unpushed commits when a remote exists for that branch — flag with `action=skip reason="N unpushed commits"`.
-- Be conservative on the `ask` vs `remove` boundary. If in doubt, downgrade to `ask`. The user can always override; surprise deletions are unrecoverable.
-- Atomic output. No prose explanation beyond the `reason=` field. No editorializing.
-- Indices are 1-based, contiguous, in the order rendered. The orchestrator maps `N → action + target`.
+- READ-ONLY. Never run `git worktree remove`, `git branch -d`, `git branch -D`, `git worktree prune`, or any mutation. The orchestrator owns destructive actions. **Why:** mutations during scan corrupt the report the orchestrator relies on — the user confirms deletions on the report's data, not on state that shifted mid-scan.
+- Never include the current worktree or the base branch in candidates. **Why:** deleting the active workspace or the base branch is irrecoverable and would destroy the session the orchestrator is running in.
+- Never propose deletion of branches with unpushed commits when a remote exists for that branch — flag with `action=skip reason="N unpushed commits"`. **Why:** unpushed work exists nowhere else; a silent delete loses it permanently with no recovery path.
+- Be conservative on the `ask` vs `remove` boundary. If in doubt, downgrade to `ask`. The user can always override; surprise deletions are unrecoverable. **Why:** the orchestrator can always escalate a conservative classification at the user's request, but it cannot undo an over-aggressive one.
+- Atomic output. No prose explanation beyond the `reason=` field. No editorializing. **Why:** the orchestrator parses the indexed report programmatically; extra prose breaks the expected format and forces the caller to filter noise.
+- Indices are 1-based, contiguous, in the order rendered. The orchestrator maps `N → action + target`. **Why:** stable indices let the user type `1 3 5` and have the orchestrator resolve them unambiguously — gaps or reordering silently mismatch selections to wrong targets.
 </constraints>

@@ -43,6 +43,8 @@ Spec: `docs/spec/cron-workflow.md § /remind-me <prose>`
 
 Canonical storage units: `<n>s`, `<n>m`, `<n>h`, `<n>d`, `<n>w`, `<n>months`, or ISO date `YYYY-MM-DD`. Convert all natural-language time references to one of these silently. Today's date is always available in context for computing relative dates.
 
+<workflow>
+
 ## Steps
 
 ### Step 1 — Parse arguments
@@ -166,6 +168,10 @@ Example:
 reminder scheduled. id: r-7b21ef. fires: Thu 29 May 09:00 local. transport: routine.
 ```
 
+</workflow>
+
+<constraints>
+
 ## Rules
 
 - The reminder file is always written before scheduling is attempted. A failed or unavailable transport never loses the reminder body.
@@ -174,3 +180,5 @@ reminder scheduled. id: r-7b21ef. fires: Thu 29 May 09:00 local. transport: rout
 - The transport-specific schedule id (cron id, routine id) is **not** stored in the file. Claude finds it at action time by matching the prompt content (`/follow-up due <id>`) via `CronList` or routine listing.
 - Reminder storage is project-scoped (`.claude/.scratchpad/reminders/`). Gitignored. Persists across sessions on the same machine.
 - The slug in the filename is cosmetic. The `id` field in frontmatter is the canonical key.
+
+</constraints>

@@ -6,7 +6,7 @@ description: Push the current branch's commits to the remote. No commit, no PR, 
 
 <staleness-check>
 
-Before continuing, check whether signals or documentation may be out of date. This is advisory — ask the user and accept their answer.
+Before continuing, check whether signals or documentation may be out of date. This is advisory — ask the user and accept their answer. **Why:** the next session benefits from a fresh project snapshot; stale signals cause hallucinated file references.
 
 1. **Signals** — run `command -v atomic && atomic signals stale`. If stale (exit 1), ask: "Signals are stale — refresh before continuing?" Accept yes or no.
 2. **Documentation** — run `git diff <base>..HEAD --name-only` to get changed files. Invoke `atomic-documentation` in dry-run mode. If it identifies surfaces that may need updating, summarize them and ask: "These docs may be outdated: <list>. Update before continuing?" Accept yes or no.
@@ -33,8 +33,9 @@ If push is rejected (non-fast-forward), stop and tell the user. Let them decide 
 </push-flow>
 
 <git-safety>
-- Use relative paths for `git add` based on the current working directory.
-- Run each `git` command as a separate Bash call.
-- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit. The hook exists for a reason.
-- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history.
+- Stage explicitly by name (`git add <path>`), never `git add -A`. **Why:** `-A` can accidentally include secrets or untracked binaries.
+- Use relative paths for `git add` based on the current working directory. **Why:** absolute paths and `git -C` can silently stage files outside the intended scope.
+- Run each `git` command as a separate Bash call. **Why:** chaining with `&&` makes it impossible to inspect intermediate state and hides partial failures.
+- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit — never `--amend`. **Why:** amending after a hook failure modifies the PREVIOUS commit, which may destroy unrelated work.
+- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history. **Why:** force-pushing rewrites shared history, breaking every collaborator's checkout.
 </git-safety>

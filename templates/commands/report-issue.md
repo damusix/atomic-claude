@@ -9,6 +9,8 @@ description: Open a atomic GitHub issue via gh. Bug report or feature request �
 
 ## Steps
 
+<workflow>
+
 1. Read user's description. Classify: **bug** vs **feature/enhancement** vs **question**. If ambiguous, ask once.
 2. Check repo: `gh repo view --json nameWithOwner,hasIssuesEnabled`. If issues disabled, stop.
 3. List existing issue templates: `gh issue create --help` notes `--template`. Check `.github/ISSUE_TEMPLATE/` — if templates exist, prefer `--template <file>` and let user fill in via editor. Otherwise build body inline.
@@ -18,6 +20,8 @@ description: Open a atomic GitHub issue via gh. Bug report or feature request �
 7. Map classification → label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify the label exists on the repo first: `gh label list --search <name>`. Skip the label if it doesn't exist (don't auto-create). User-specified labels stack on top.
 8. `gh issue create --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`.
 9. Print issue URL.
+
+</workflow>
 
 ## Body shapes
 
@@ -87,4 +91,8 @@ Atomic-review skill not invoked — issue bodies are not finding lists. Tone com
 
 ## Rules
 
+<constraints>
+
 No AI bylines. No "I think" / "maybe" / "perhaps". State facts. Code blocks for exact errors and commands. One issue per invocation — if user describes multiple unrelated problems, ask which to file or split.
+
+</constraints>

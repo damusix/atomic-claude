@@ -110,9 +110,9 @@ Stay hypothesis-driven throughout:
 
 ## Rules
 
-- One symptom per debug session. If the user reports two unrelated bugs, debug separately.
-- If hypothesis #1 is confirmed in step 3, stop. Fix and verify. Exploring remaining hypotheses "for completeness" wastes time on a solved problem.
-- If 5 hypotheses are refuted, the mental model is wrong. Stop and ask for more context (logs, env, recent changes).
-- Report cheap signals first: `git log --oneline -20`, `git diff HEAD~5`, exact env, exact reproduction command.
+- One symptom per debug session. If the user reports two unrelated bugs, debug separately. **Why:** mixing symptoms conflates evidence trails — a clue that explains bug A can appear to confirm a hypothesis about bug B, producing a false root cause for both.
+- If hypothesis #1 is confirmed in step 3, stop. Fix and verify. Exploring remaining hypotheses "for completeness" wastes time on a solved problem. **Why:** continuing past a confirmed root cause risks introducing unrelated changes and inflates the diff without a corresponding bug to fix.
+- If 5 hypotheses are refuted, the mental model is wrong. Stop and ask for more context (logs, env, recent changes). **Why:** diminishing returns past five refutations signal that the framing is wrong, not the tests — more hypotheses from the same mental model just burn time; fresh context or fresh eyes reset the frame.
+- Report cheap signals first: `git log --oneline -20`, `git diff HEAD~5`, exact env, exact reproduction command. **Why:** expensive tests (isolated DB run, full rebuild, bisect) are only worth running once cheap signals have narrowed the search space — running them first wastes time and may dirty the environment before the cheap tests run.
 
 </constraints>

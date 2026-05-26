@@ -20,8 +20,8 @@ User config, state directory, session hooks, reminders, follow-ups, and git stat
 
 **CLAUDE.md merge:**
 
-- `commands/atomic-claude-merge.md` — `/atomic-claude-merge` merges `~/.claude/.atomic/proposed/CLAUDE.md` into live `~/.claude/CLAUDE.md`. Preserves user sections, replaces atomic-owned ones.
-- `agents/atomic-claude-merger.md` — the merge agent. Backs up prior `CLAUDE.md` to `~/.claude/.atomic/backups/<ts>/` before writing.
+- `commands/atomic-claude-merge.md` — `/atomic-claude-merge` merges `~/.claude/.atomic/proposed/CLAUDE.md` into live `~/.claude/CLAUDE.md`. Preserves content outside `<atomic>` tags (user-owned); replaces content inside `<atomic>...</atomic>` tags (atomic-owned).
+- `agents/atomic-claude-merger.md` — the merge agent. Reads ownership boundary via `<atomic>...</atomic>` tags. Backs up prior `CLAUDE.md` to `~/.claude/.atomic/backups/<ts>/` before writing. Writes `~/.claude/CLAUDE.md.atomic-merged` (never modifies live `~/.claude/CLAUDE.md` directly).
 
 ## CLI code
 

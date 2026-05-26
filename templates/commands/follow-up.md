@@ -16,6 +16,8 @@ Inspect `$ARGUMENTS`:
 
 ---
 
+<workflow>
+
 ## Bare flow
 
 ### Step 1 — Build the indexed reminder list
@@ -347,6 +349,8 @@ Review complete.
 
 ---
 
+</workflow>
+
 ## Degraded mode
 
 If scheduling tools (`CronList`, `CronDelete`, `CronCreate`, or the `schedule` skill) are unavailable for a given step:
@@ -361,6 +365,8 @@ If scheduling tools (`CronList`, `CronDelete`, `CronCreate`, or the `schedule` s
 
 ---
 
+<constraints>
+
 ## Rules
 
 - Never delete a reminder file without the user explicitly selecting `done` or acknowledging in the cron-fired flow.
@@ -370,3 +376,5 @@ If scheduling tools (`CronList`, `CronDelete`, `CronCreate`, or the `schedule` s
 - `atomic reminder set-due <id> <iso>` is the canonical way to rewrite `due:`. Bash `sed` is the fallback when the binary is absent.
 - Reminder storage is project-scoped (`.claude/.scratchpad/reminders/`). Gitignored.
 - The `id` frontmatter field is the canonical key. Filenames are cosmetic.
+
+</constraints>

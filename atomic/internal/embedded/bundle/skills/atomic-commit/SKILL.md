@@ -7,6 +7,14 @@ description: >
   "generate commit", or invokes /atomic-commit. Auto-triggers when staging changes.
 ---
 
+<trigger>
+
+- "write a commit", "commit message", "generate commit"
+- Staging changes for commit
+- Ship verbs delegating message format
+
+</trigger>
+
 Write commit messages terse and exact. Conventional Commits. No fluff. Why over what.
 
 ## Rules
@@ -28,10 +36,10 @@ Write commit messages terse and exact. Conventional Commits. No fluff. Why over 
 - Bullets with `-`, not `*`
 - Reference issues/PRs at end: `Closes #42`, `Refs #17`
 
-**What NEVER goes in:**
+**Omit from commit messages:**
 
 - "This commit does X", "I", "we", "now", "currently" — the diff says what
-- "As requested by..." — use `Co-authored-by:` trailer
+- "As requested by..." — use `Co-authored-by:` trailer instead
 - "Generated with Claude Code" or any AI attribution
 - Emoji (unless project convention requires)
 - Restating the file name when scope already says it

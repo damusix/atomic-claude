@@ -30,7 +30,7 @@ This skill reads the project's indexed documentation surfaces, matches a diff ag
 |-------|---------|----------|-------------|
 | **Atomic TUI** | Claude's chat replies | The human at the terminal, right now | Terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. Never appears in files. |
 | **Atomic-prose** | `README.md`, `docs/guides/*`, CHANGELOG narrative | Humans skimming for what + why + how | Clear, specific, active-voice technical prose. No em dashes, no marketing, no AI-tell. Skill `atomic-prose` enforces. |
-| **Spec/design** | `docs/spec/*`, `docs/design/*` | Future implementers + agents | Tables, Mermaid, terse bullets. Prose only where a contract needs sentences. Token-cost-aware. Append-mostly for specs. **Never** invokes `atomic-prose`. |
+| **Spec/design** | `docs/spec/*`, `docs/design/*` | Future implementers + agents | Tables, Mermaid, terse bullets. Prose only where a contract needs sentences. Token-cost-aware. Append-mostly for specs. Spec/design voice is self-contained — `atomic-prose` does not apply. |
 | **LLM-reference** | `CLAUDE.md`, `.claude/project/*-signals.md`, `claude.local.md` | Future Claude sessions | Technical-imperative. Conventions, paths, dispatch contracts. No restating code, no tutorial, no narrative. Lean: every line earns its slot. |
 
 ## How surface routing works
@@ -148,12 +148,12 @@ Generated docs are for humans navigating a codebase. Apply these standards:
 - **Plain language** — "this handles saving and loading user data from the database," not "provides an abstraction layer over the persistence subsystem."
 - **Code blocks only for things the user types or sees** — CLI commands, config snippets, API calls. Not for describing behavior.
 
-Anti-patterns to avoid:
-- Restating the code. Document *why*, not *what*.
-- Wall of prose without a heading, table, diagram, or code block every ~15 lines.
-- LLM-tell: "This comprehensive guide provides an in-depth overview of..." Write direct and specific.
-- Orphan docs: note where generated pages should be linked so they're discoverable.
-- Stale examples: when updating a doc because the API changed, update all examples too.
+Quality checks:
+- Document *why*, not *what* — restating the code adds no value.
+- Break prose with a heading, table, diagram, or code block every ~15 lines.
+- Write direct and specific — "This comprehensive guide provides an in-depth overview of..." is LLM-tell.
+- Note where generated pages should be linked so they're discoverable.
+- When updating a doc because the API changed, update all examples too.
 
 <output_format>
 

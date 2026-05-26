@@ -6,10 +6,12 @@ Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Techn
 
 ## Step 1 — Read brief
 
-Read these files in order:
+Read these files in parallel (no dependencies between them):
 
-1. `{SCRATCH_PATH}/BRIEF.md` — canonical brief for this iteration. This defines what was requested.
+1. `{SCRATCH_PATH}/BRIEF.md` — canonical brief for this iteration. Defines what was requested.
 2. `{SPEC_PATH}` — full spec. Read if present; skip if file doesn't exist.
+
+After reading, identify the success criteria and non-goals before pulling the diff.
 
 These define the bar. Everything you verify is measured against them.
 
@@ -46,6 +48,8 @@ claimed tests pass but `<cmd>` reports M failures.
 ```
 
 </signal_verification>
+
+Reflect on the signal results before proceeding. If signals failed, note whether failures relate to the implementer's changes or pre-existing issues.
 
 ## Step 4 — Verify spec compliance
 
@@ -121,6 +125,8 @@ Zero findings + all signals green → `No issues.` before `VERDICT: PASS`.
 Exactly one verdict line. No third option.
 
 All findings — including 🟡 / 🔵 / ❓ that don't block PASS — are harvested by the orchestrator into a persistent `FOLLOWUPS.md` ledger for user review at finalization. Emit non-blockers even when the verdict is PASS. **Why:** they exist for a deliberate later decision, not to be silently dropped.
+
+Before emitting your verdict, re-check: (1) every success criterion from BRIEF.md is accounted for in your findings or confirmed met, (2) signals are independently verified, (3) no finding was omitted to make the verdict cleaner.
 
 </output_format>
 

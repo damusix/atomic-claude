@@ -4,6 +4,8 @@ description: Orchestrate implement→review subagent loop until task complete. R
 
 You are the **orchestrator**. The user has given you a task. You will NOT implement it yourself. You drive a loop of fresh-context subagents until the task is done, then update documentation.
 
+<workflow>
+
 ## Phase 0 — Understand
 
 1. Read the user's task. If anything is genuinely ambiguous and would block work, ask consolidated questions. Otherwise proceed.
@@ -274,6 +276,10 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 
 Do NOT push, merge, or open a PR. The user picks the ship verb (`/pr-only`, `/merge-to-main`, `/squash-and-merge`, etc.) when ready.
 
+</workflow>
+
+<constraints>
+
 ## Rules
 
 - Parent orchestrator does NOT write implementation code. Only goal docs, state updates, commits per PASS, final docs, final verification.
@@ -282,3 +288,5 @@ Do NOT push, merge, or open a PR. The user picks the ship verb (`/pr-only`, `/me
 - If the same finding repeats across two iterations, stop and re-examine the brief/spec — the implementer is stuck or the spec is wrong.
 - Subagent output is the tool result. Summarize it to the user in 1-3 lines per iteration; don't dump full transcripts.
 - Templates live in `commands/_templates/`. If they're missing, the loop can't start — surface that error rather than inlining prompts.
+
+</constraints>

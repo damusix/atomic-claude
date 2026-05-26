@@ -8,7 +8,7 @@ Invoke the `atomic-commit` skill for message format.
 
 1. Read the current state: `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
 2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir exists and has `*.md` files, read them chronologically and pass their content to `atomic-commit` as supplemental why-context.
-3. **Stage files** explicitly by path. Skip secrets, build artifacts, and large binaries. If the intent is ambiguous, ask.
+3. **Stage files** explicitly by path. Skip secrets, build artifacts, and large binaries. **Why:** secrets in git history are irrecoverable even after rewrite; binaries bloat the repo permanently. If the intent is ambiguous, ask.
 4. <doc-impact>
 Check whether the staged changes affect any indexed documentation surfaces.
 
@@ -66,7 +66,7 @@ Wait for the user's response per surface before continuing to the next.
 
 - **Skip** — no action, no record.
 
-Run doc-impact before signals refresh so new or updated doc files are picked up by signals in the same pass.
+Run doc-impact before signals refresh. **Why:** new or updated doc files appear in the signals scan only if they're staged before the scan runs.
 </doc-impact>
 5. <signals-refresh>
 Refresh project signals so Claude's map stays current for the next session.
@@ -86,8 +86,9 @@ One commit per invocation. If the diff spans unrelated concerns, ask how to spli
 </commit-flow>
 
 <git-safety>
-- Use relative paths for `git add` based on the current working directory.
-- Run each `git` command as a separate Bash call.
-- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit. The hook exists for a reason.
-- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history.
+- Stage explicitly by name (`git add <path>`), never `git add -A`. **Why:** `-A` can accidentally include secrets or untracked binaries.
+- Use relative paths for `git add` based on the current working directory. **Why:** absolute paths and `git -C` can silently stage files outside the intended scope.
+- Run each `git` command as a separate Bash call. **Why:** chaining with `&&` makes it impossible to inspect intermediate state and hides partial failures.
+- On pre-commit hook failure: fix the root cause, re-stage, and create a new commit — never `--amend`. **Why:** amending after a hook failure modifies the PREVIOUS commit, which may destroy unrelated work.
+- Keep force-push off the base branch. If a rollback is needed, use `git revert` so the bad SHA stays in history. **Why:** force-pushing rewrites shared history, breaking every collaborator's checkout.
 </git-safety>

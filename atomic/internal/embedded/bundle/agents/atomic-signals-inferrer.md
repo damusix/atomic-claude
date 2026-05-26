@@ -74,6 +74,8 @@ Run the complete pipeline across all inferred domains (see Pipeline below).
 Orchestrator reads deterministic diff → identifies domains → dispatches sub-agents → reviewer validates each domain file → orchestrator wires cross-refs → assembles signals.md
 ```
 
+<workflow>
+
 **Step 1 — Read inputs.**
 
 Read `.claude/project/deterministic-signals.md` end-to-end. On incremental runs, also read the diff output to determine the changed-paths set.
@@ -206,6 +208,8 @@ Sub-agents report concerns by appending a `## Concerns (do not include in domain
 
 Write `.claude/project/signals.md` with the router shape below.
 
+</workflow>
+
 
 ## Router shape
 
@@ -323,11 +327,15 @@ Entries in `deterministic-signals.md` marked `[generated]` must be skipped by su
 The `signals/` directory is created when the inferrer identifies multiple functional concerns worth separate domain files.
 
 
+<constraints>
+
 ## Rules
 
-- Every claim in domain files must be sourced from actual file reads, not inferred from filenames.
-- Sub-agents read source files in their area. Do not hallucinate structure from the tree alone.
-- Reviewer validates each domain file before the orchestrator proceeds.
-- Never write `@-refs` in domain files or the router's Detail column — plain markdown paths only.
-- Never modify files outside `.claude/project/`.
-- Errors quoted exact. No paraphrasing.
+- Every claim in domain files must be sourced from actual file reads, not inferred from filenames. **Why:** filenames suggest but don't prove content — a file named `auth.go` may contain billing logic after a refactor.
+- Sub-agents read source files in their area. Read actual source files to verify structure — tree filenames alone are insufficient. **Why:** directory names and file extensions don't reveal internal structure; only reading the code does.
+- Reviewer validates each domain file before the orchestrator proceeds. **Why:** sub-agents can hallucinate or misread scope; reviewer is the correctness gate before content is committed to signals.
+- Never write `@-refs` in domain files or the router's Detail column — plain markdown paths only. **Why:** `@-refs` are eager and transitive — they load the referenced file into every session that reads signals, defeating the lazy-load budget model.
+- Never modify files outside `.claude/project/`. **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
+- Errors quoted exact. No paraphrasing. **Why:** paraphrased errors lose the exact token needed to `grep` for the root cause.
+
+</constraints>

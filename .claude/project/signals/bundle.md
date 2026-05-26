@@ -21,7 +21,7 @@ Template rendering → bundle embedding → install/uninstall into `~/.claude/`.
 - `skills/` — 8 skill directories (`atomic-*/SKILL.md`). Full directory subtree bundled per `atomic-` prefix dir.
 - `output-styles/` — 1 output style (`atomic.md`).
 - `rules/` — 2 path-scoped topic rules (`python/style.md`, `typescript/style.md`).
-- `CLAUDE.md` — global instructions bundled directly. Installed to `~/.claude/CLAUDE.md`.
+- `CLAUDE.md` — global instructions bundled directly. Installed to `~/.claude/CLAUDE.md`. Atomic-owned content is bounded by `<atomic>...</atomic>` tags; everything outside those tags is user-owned. `atomic-claude-merger` uses this boundary during merge.
 
 ## CLI code
 

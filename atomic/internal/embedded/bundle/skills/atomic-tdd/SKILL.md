@@ -92,7 +92,7 @@ Tests prove the feature works for real users. They are not the goal — they are
 
 ## Boundaries
 
-- **Bug fix:** the failing test must reproduce the bug as reported. If you can't write a test that fails on current code, you don't understand the bug yet — switch to `atomic-debug` first.
+- **Bug fix:** the failing test must reproduce the bug as reported. If you can't write a test that fails on current code, you don't understand the bug yet — switch to `atomic-debug` first. **Why:** a test that doesn't match the reported symptom may pass after the fix while the real bug persists.
 - **atomic-tdd + atomic-verify:** both fire independently. atomic-tdd ensures the test exists before production code. atomic-verify ensures the claim that tests pass is backed by a fresh run.
 
 </constraints>

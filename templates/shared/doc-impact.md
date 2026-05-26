@@ -55,5 +55,5 @@ Wait for the user's response per surface before continuing to the next.
 
 - **Skip** — no action, no record.
 
-Run doc-impact before signals refresh so new or updated doc files are picked up by signals in the same pass.
+Run doc-impact before signals refresh. **Why:** new or updated doc files appear in the signals scan only if they're staged before the scan runs.
 </doc-impact>{{- end}}

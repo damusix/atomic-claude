@@ -4,6 +4,8 @@ description: Merge ~/.claude/.atomic/proposed/CLAUDE.md into ~/.claude/CLAUDE.md
 
 You orchestrate the CLAUDE.md merge. The `atomic-claude-merger` subagent does the merge work. You present the diff. The user decides. You execute only on Accept.
 
+<workflow>
+
 ## Pre-flight
 
 **Check 1 — proposed file exists:**
@@ -160,6 +162,10 @@ Done.
   removed:   ~/.claude/.atomic/proposed/CLAUDE.md
 ```
 
+</workflow>
+
+<constraints>
+
 ## Rules
 
 - Print every shell command before running it.
@@ -167,3 +173,5 @@ Done.
 - The backup timestamp is generated at accept time — not earlier. The install may have run days ago.
 - If `$EDITOR` is unset, fall back to `vi`.
 - No commits. No git operations. Local files only.
+
+</constraints>

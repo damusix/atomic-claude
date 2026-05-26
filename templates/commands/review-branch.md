@@ -5,6 +5,8 @@ description: Review the current branch's diff against base by dispatching atomic
 Thin wrapper. Runs `atomic-reviewer` once on `<base>..HEAD`, returns its standard `## Spec compliance` + `## Code quality` + signals block + `VERDICT:` output.
 
 
+<workflow>
+
 ## Pre-flight
 
 
@@ -111,12 +113,17 @@ suggested next step (on PASS):
   /merge-to-main → merge into <base>
 ```
 
+</workflow>
+
+<constraints>
 
 ## Rules
 
 
-- One reviewer dispatch per invocation. No loop, no fix-and-retry. The user picks what to do with the findings.
-- Never invoke the implementer or write code. Reviewer reports; user (or `/subagent-implementation`) fixes.
-- Do not commit, push, or merge. This command is pure read-only inspection.
-- If the reviewer returns `CHANGES_REQUESTED`, do not advise the user to "address them" — the findings speak for themselves.
-- Spec-compliance pass is skipped intentionally. Use `/subagent-implementation` for the orchestrated implement→review loop with a spec.
+- One reviewer dispatch per invocation. No loop, no fix-and-retry. The user picks what to do with the findings. **Why:** auto-retrying hides the true diff state and conflates review with implementation — the user must own the fix decision.
+- Never invoke the implementer or write code. Reviewer reports; user (or `/subagent-implementation`) fixes. **Why:** mixing reviewer and implementer roles in one command collapses the review signal — findings lose their independent authority.
+- Do not commit, push, or merge. This command is pure read-only inspection. **Why:** a review command that mutates state is a footgun; the user must explicitly choose the next ship verb after seeing the verdict.
+- If the reviewer returns `CHANGES_REQUESTED`, do not advise the user to "address them" — the findings speak for themselves. **Why:** adding a nag comment after the reviewer output is redundant noise and implies Claude is narrating rather than the reviewer speaking directly.
+- Spec-compliance pass is skipped intentionally. Use `/subagent-implementation` for the orchestrated implement→review loop with a spec. **Why:** without a spec there is no contract to measure against; emitting a compliance section would be fabricated and misleading.
+
+</constraints>

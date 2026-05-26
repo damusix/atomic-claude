@@ -15,18 +15,10 @@ description: >
 
 <trigger>
 
-Auto-fires when:
-
-- The user asks to draft, edit, or improve `README.md`, files under `docs/guides/`, or other narrative human-facing markdown.
-- `/documentation` is updating README or a guide.
-- The user pastes a draft and says "clean this up", "tighten this", "edit for tone" — and the target is narrative prose, not a spec/design table.
-
-Does *not* fire when:
-
-- Claude is replying to the user in the TUI (atomic output style governs that).
-- Editing `docs/spec/` or `docs/design/` — those follow the spec/design voice in `commands/atomic-plan.md` (tables, diagrams, terse).
-- Editing pure structure (tables, frontmatter, code blocks).
-- Editing files in `.claude/`, `agents/`, `commands/`, `skills/`, `output-styles/` — those have their own voice rules (atomic style for replies, descriptive technical prose for instructions, neither marketing nor essay).
+- "draft the README", "write the docs", "improve this prose", "edit the guide"
+- "clean this up", "tighten this", "edit for tone" — when target is narrative prose
+- `/documentation` updating README or a guide
+- User asks to draft, edit, or improve `README.md`, `docs/guides/`, or other narrative human-facing markdown
 
 </trigger>
 
@@ -58,11 +50,11 @@ The atomic output style file (`output-styles/atomic.md`) covers TUI replies. Thi
 
 2. **Be specific. Name the thing.** No vague declaratives ("the implications are significant", "the reasons are structural"). Name the implication. Name the reason. If you cannot, the sentence has no content.
 
-3. **No throat-clearing openers.** Cut "Here's the thing:", "Here's what X", "It turns out", "The truth is", "Let me be clear", "I'll be honest". State the point.
+3. **Start with the point.** Cut "Here's the thing:", "Here's what X", "It turns out", "The truth is", "Let me be clear", "I'll be honest". State the point directly.
 
-4. **No emphasis crutches.** Delete "Full stop.", "Period.", "Let that sink in.", "Make no mistake.", "This matters because". Either show why it matters by demonstrating it, or accept that the reader can judge importance.
+4. **Show importance through content.** Delete "Full stop.", "Period.", "Let that sink in.", "Make no mistake.", "This matters because". Demonstrate why it matters, or let the reader judge.
 
-5. **No marketing jargon.** Replace business clichés with plain words:
+5. **Use plain words over business clichés.** Replace:
 
     | Avoid | Use |
     |---|---|
@@ -77,19 +69,19 @@ The atomic output style file (`output-styles/atomic.md`) covers TUI replies. Thi
     | at its core | (delete) |
     | in today's X | (delete) |
 
-6. **No em dashes.** Use commas, periods, or parentheses. Em dashes are an AI tell, and the comma or period is almost always clearer anyway.
+6. **Use commas, periods, or parentheses.** Em dashes are an AI tell, and the comma or period is almost always clearer.
 
-7. **No adverbs.** Cut `really`, `just`, `literally`, `genuinely`, `honestly`, `simply`, `actually`, `truly`, `deeply`, `fundamentally`, `inherently`, `inevitably`, `interestingly`, `importantly`, `crucially`. Cut every `-ly` word unless it carries technical meaning (`asynchronously`, `recursively`).
+7. **Cut filler adverbs.** Remove `really`, `just`, `literally`, `genuinely`, `honestly`, `simply`, `actually`, `truly`, `deeply`, `fundamentally`, `inherently`, `inevitably`, `interestingly`, `importantly`, `crucially`. Keep `-ly` words only when they carry technical meaning (`asynchronously`, `recursively`).
 
-8. **No binary-contrast rhetoric.** Avoid "Not because X. Because Y.", "X isn't the problem. Y is.", "The question isn't X. It's Y.", "It's not X, it's Y." State Y directly.
+8. **State the answer directly.** Skip "Not because X. Because Y.", "X isn't the problem. Y is.", "The question isn't X. It's Y." State Y without the dramatic setup.
 
-9. **No negative listing.** Skip "Not a foo. Not a bar. A baz." Start with what it is.
+9. **Lead with what it is.** Skip "Not a foo. Not a bar. A baz." — define the thing, then contrast if needed.
 
-10. **No rhetorical setups.** Drop "What if X?", "Think about it.", "Here's what I mean:", "Picture this." Make the point.
+10. **Make the point directly.** Drop "What if X?", "Think about it.", "Here's what I mean:", "Picture this." — state the conclusion.
 
-11. **No lazy extremes.** `every`, `always`, `never`, `everyone`, `nobody`, `all` — when used as authority crutches. Replace with the specific case or quantify ("most production setups", "every command in this family").
+11. **Quantify or name the specific case.** Replace `every`, `always`, `never`, `everyone`, `nobody`, `all` (when used as authority crutches) with the actual scope ("most production setups", "every command in this family").
 
-12. **No meta-commentary about the doc itself.** Skip "The rest of this section explains…", "Let me walk you through…", "As we will see…". Section headings already tell the reader what is ahead.
+12. **Let headings orient the reader.** Cut "The rest of this section explains…", "Let me walk you through…", "As we will see…" — section headings already signal what is ahead.
 
 13. **Trust the reader.** A developer reading these docs already knows code. Skip the hand-holding, the disclaimers, the "this might sound complex but". State the technical fact.
 
@@ -139,6 +131,7 @@ The atomic output style file (`output-styles/atomic.md`) covers TUI replies. Thi
 
 ## Boundaries
 
+- **Scope: narrative docs only.** TUI replies follow atomic output style, not this skill. `docs/spec/` and `docs/design/` follow the spec/design voice in `commands/atomic-plan.md`. Files in `.claude/`, `agents/`, `commands/`, `skills/`, `output-styles/` follow their own conventions. Pure structure (tables, frontmatter, code blocks) passes through unchanged.
 - **Tables and code blocks pass through unchanged.** This skill governs prose. Frontmatter, fenced code, command examples, file paths, identifier names, error strings: never reformat or rephrase.
 - **Spec checkpoint tables and design alternative tables pass through unchanged.** Their structure is the contract. Only the surrounding prose (Goal, Problem, Rationale) is in scope.
 - **CHANGELOG entries follow the project's existing tone.** This skill nudges new entries toward plainness but does not rewrite older entries on sight.
