@@ -8,6 +8,7 @@
  <strong>An opinionated Claude Code configuration that trades narrative for signal.</strong>
 </p>
 
+
 <p align="center">
  <a href="docs/guides/install.md">Install</a> &bull;
  <a href="docs/reference/concepts.md">Concepts</a> &bull;
