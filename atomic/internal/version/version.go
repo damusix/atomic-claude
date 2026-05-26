@@ -1,6 +1,6 @@
 // Package version exposes the binary version and commit SHA.
-// Both values default to sentinel strings and can be overridden at build time
-// via -ldflags:
+// Both default to "dev" / "unknown" and are overridden at build time via
+// -ldflags:
 //
 //	go build -ldflags "-X github.com/damusix/atomic-claude/atomic/internal/version.Version=v0.1.0 \
 //	                   -X github.com/damusix/atomic-claude/atomic/internal/version.Commit=abc1234" \
