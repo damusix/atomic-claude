@@ -1,5 +1,23 @@
 # Changelog
 
+## [2.0.0](https://github.com/damusix/atomic-claude/compare/v1.9.1...v2.0.0) (2026-05-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* consolidate signals skill into agent; remove /atomic-compress; collapse voices; rewrite axiom 2
+
+### Features
+
+* add /atomic-improve, /gather-evidence; overhaul /atomic-help ([b21803d](https://github.com/damusix/atomic-claude/commit/b21803dc14361dae29ed8297283f2eec638cfffa))
+* **profile:** implement global user-profile feature ([7945184](https://github.com/damusix/atomic-claude/commit/79451848c8c89d3cd1d6e7befd1624f5a6c70ebb))
+
+
+### Bug Fixes
+
+* consolidate signals skill into agent; remove /atomic-compress; collapse voices; rewrite axiom 2 ([0f3ca7d](https://github.com/damusix/atomic-claude/commit/0f3ca7dc723d916ce35a2a2fa2f273e00b6fbca1))
+* **subagent-implementation:** auto-invoke /worktree-start on Yes ([b55e1e8](https://github.com/damusix/atomic-claude/commit/b55e1e8c5d4062e218aa112eab108c564dbf8a29))
+
 ## [1.9.1](https://github.com/damusix/atomic-claude/compare/v1.9.0...v1.9.1) (2026-05-26)
 
 
