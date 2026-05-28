@@ -1,6 +1,6 @@
 # Workflow
 
-Atomic Claude follows a lifecycle: set up the repo, plan the work, implement it, fix what breaks, and ship it.
+Atomic Claude follows a lifecycle: set up the repo, plan the work, implement it, fix what breaks, ship it, and learn from the session.
 
 
 ## 0. Set up your repo
@@ -88,6 +88,27 @@ All merge and squash commands run tests on the merged result and prompt to clean
 Not everything gets resolved in the same session. Reminders are time-based nudges that surface at the specified moment (or at the start of your next session if you are away). Follow-ups are non-blocking findings from implementation — risks, nits, open questions — that you parked for later. `/follow-up review` walks you through stale entries and lets you close, extend, or promote each one.
 
 Both mechanisms exist because shipping is not the end. The things you deferred during implementation should not silently rot.
+
+
+## 6. Improve
+
+```
+/atomic-improve
+```
+
+After a long session or a run of friction, `/atomic-improve` looks back. It mines your session history and the current conversation for corrections, repeated requests, and places where Claude misbehaved, then cross-references those signals against your installed artifacts (commands, skills, agents, CLAUDE.md). It walks proposed improvements one at a time; you accept, modify, or skip each. A run log persists to `~/.claude/.atomic/improve-runs/`, so a later run can tell whether a past accept actually landed or quietly drifted back.
+
+This is the stage that closes the loop. Shipping a feature teaches you something about how you and Claude work together, and `/atomic-improve` is where that lesson becomes a durable config change instead of a frustration you re-hit next week.
+
+
+## Lost? Start with the router
+
+```
+/atomic-help
+/atomic-help tour
+```
+
+`/atomic-help` reads your git state, works out where you are in the lifecycle, and recommends one next command. It routes; it never executes. `/atomic-help tour` runs a four-stage guided walkthrough of the whole system (surfaces, lifecycle, state files, maintenance), and a bare `/atomic-help` offers the tour automatically the first time you run it in a fresh repo.
 
 
 ## Why custom ship commands?

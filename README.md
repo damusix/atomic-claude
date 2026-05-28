@@ -63,7 +63,7 @@ Atomic Claude is a coherent system of output styles, discipline skills, subagent
 
 **User profile.** Install creates `~/.claude/.atomic/profile.md`, a plain-markdown file with six sections (Identity, Work, Active projects, Interests, People mentioned, Environment). Claude reads it every session and appends new facts as they surface naturally. Facts that hold across all projects go here; project-specific preferences stay in that project's auto memory. Run `/atomic-improve` to review and accept or discard drift. Details in [docs/reference/concepts.md](docs/reference/concepts.md).
 
-**A spec-to-PR workflow.** Verify a hunch with `/gather-evidence`, plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`. Each stage uses fresh-context subagents that write TDD, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
+**A spec-to-PR workflow.** Verify a hunch with `/gather-evidence`, plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`, then close the loop with `/atomic-improve` to turn session friction into durable config changes. Each stage uses fresh-context subagents that write TDD, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
 
 **Discipline skills that auto-fire.** Eight skills trigger on natural language: TDD enforcement, completion verification, debugging, commit messages, code review, signals refresh, prose editing, and documentation routing. No slash command needed. Details in [docs/reference/skills.md](docs/reference/skills.md).
 
@@ -74,7 +74,9 @@ For a walkthrough of how the pieces fit together, see [docs/reference/concepts.m
 
 ## Start here
 
-Pick your depth:
+Not sure where to begin? Run `/atomic-help` in any repo. It reads your git state and recommends one next command, or run `/atomic-help tour` for a four-stage guided walkthrough of the whole system.
+
+Otherwise, pick your depth:
 
 1. **Compressed replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
 2. **Project-state awareness.** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
