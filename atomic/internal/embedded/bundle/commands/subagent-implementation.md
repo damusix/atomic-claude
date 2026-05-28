@@ -44,7 +44,7 @@ GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
     - No, work in place
     ```
 
-- On `Yes`: instruct user to run `/worktree-start <branch>` and resume `/subagent-implementation` after. Stop.
+- On `Yes`: invoke `/worktree-start <derived-name>` directly via the Skill tool. When it returns, continue with Phase 1 in the new worktree — do not stop and wait for the user to re-invoke `/subagent-implementation`.
 - On `No`: proceed in place.
 
 For tasks classified as obviously small in Phase 0.5, skip the worktree question.

@@ -52,7 +52,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/squash-and-merge.md", Target: "commands/squash-and-merge.md", SHA256: "788c38323df6b70f0a49a54f726fef41a9683e2daaeab50e1d45e4692de5c9c7"},
 		{Kind: "command", Source: "bundle/commands/squash-only.md", Target: "commands/squash-only.md", SHA256: "256d7b724e0512e258093f7f2a7172911527a40622c8d15f24734e1dbc8d89dc"},
 		{Kind: "command", Source: "bundle/commands/subagent-diagnose.md", Target: "commands/subagent-diagnose.md", SHA256: "23287a7fe9140accb9da1e3e491d8fbe8d61b40b6ac2e16c23f19e5cb819a464"},
-		{Kind: "command", Source: "bundle/commands/subagent-implementation.md", Target: "commands/subagent-implementation.md", SHA256: "b7e873f706fa6b06412f3225633feb3e2256fd9c4a7972efb025e5fa382d1ff4"},
+		{Kind: "command", Source: "bundle/commands/subagent-implementation.md", Target: "commands/subagent-implementation.md", SHA256: "a71819fe0c25ad3a3982d2b1e847c9f40fcbe407488a5b4054288c30af17bb89"},
 		{Kind: "command", Source: "bundle/commands/undo-commit.md", Target: "commands/undo-commit.md", SHA256: "7def686f1a31f3b90fdd537806e2953cc6f1d85abca630eb97089aaf148655f7"},
 		{Kind: "command", Source: "bundle/commands/watch-ci.md", Target: "commands/watch-ci.md", SHA256: "5039f000385227026cdc52e85a4863b8bc064e79d8681e65e6520a5ab71a66fa"},
 		{Kind: "command", Source: "bundle/commands/worktree-start.md", Target: "commands/worktree-start.md", SHA256: "6a5d800f4696c73572ffac6e198d100ed4885f7d6cd0bf664f307f8896eb2aa9"},
