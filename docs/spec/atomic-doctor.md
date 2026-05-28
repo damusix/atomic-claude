@@ -80,7 +80,7 @@ Category short-names are stable: editing/removing one is a spec amendment (`Remo
 ## Stale-signals threshold
 
 
-Default: 7 days. Overridable per-invocation via `--stale-days N`. No persistent configuration — axiom 2 (memory > config) does not apply: doctor is a deterministic Go CLI with no LLM in the loop, so memory is unreadable from its perspective. A real config file would be parsed-markdown-cosplay; a flag is honest.
+Default: 7 days. Overridable per-invocation via `--stale-days N`. No persistent configuration — axiom 2 (memory-first) does not apply: doctor is a deterministic Go CLI with no LLM in the loop, so memory is unreadable from its perspective. A real config file would be parsed-markdown-cosplay; a flag is honest.
 
 
 ## Repo-dev detection
@@ -217,7 +217,7 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 - Design: `docs/design/atomic-doctor.md`.
 - Implementation home: `atomic/internal/doctor/` (new package).
 - Shared substrate: `atomic/internal/manifestcheck/` (new package; consumed by future `atomic validate`).
-- Axioms: 3 (destructive ops explicit confirm — `--fix`), 4 (plain-text indexed selection — multi-candidate ref patch). Axiom 2 (memory > config) deliberately N/A — see "Stale-signals threshold" rationale.
+- Axioms: 3 (destructive ops explicit confirm — `--fix`), 4 (plain-text indexed selection — multi-candidate ref patch). Axiom 2 (memory-first) deliberately N/A — see "Stale-signals threshold" rationale.
 - Surfaces to update on landing (per `claude.local.md` checklist): `CLAUDE.md`, `CLAUDE.md`, `README.md` (commands or "atomic binary" table), bundle regen.
 
 

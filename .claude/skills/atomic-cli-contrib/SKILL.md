@@ -80,7 +80,7 @@ When adding a verb, flag, or repair:
 | Axiom | What it means for CLI work |
 |-------|----------------------------|
 | 1 — cohesion-bounded scope | A new subcommand can touch many files in one slice (cmd dispatch + internal package + tests + spec). Don't artificially split. |
-| 2 — memory over config | New tunable defaults (thresholds, intensity, sizes) go to user auto-memory. No `.atomicrc`, no env vars for tunables. Argument-level vars stay on the flag set. |
+| 2 — memory-first | New tunable defaults (thresholds, intensity, sizes) go to user auto-memory. No `.atomicrc`, no env vars for tunables. Argument-level vars stay on the flag set. |
 | 3 — destructive ops require explicit per-item confirm | Any new repair, mutation, or delete prompts. The doctor `Repair` loop already prompts uniformly; do not add a per-check bypass. `--yes` is *explicit user consent* (different from non-interactive — see §1). |
 | 4 — plain-text indexed selection over multi-select UI | Lists of 4+ items use a printed numbered list + typed input syntax (`1 3 5`, `1-3`, `all`, `none`). `huh.MultiSelect` is for fixed small choice sets only. |
 | 5 — skills auto-fire; commands explicit | Doesn't apply to atomic CLI verbs directly — they're explicit binary subcommands by nature. But if adding a Claude Code skill that wraps a CLI verb, the skill's description must describe natural-language triggers, not negate them. |

@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// candidateFiles is the search order for @-refs per the atomic-signals skill.
+// candidateFiles is the search order for @-refs per the atomic-signals-inferrer agent.
 // Checked in order; first file containing the ref wins.
 var candidateFiles = []string{
 	"claude.local.md",

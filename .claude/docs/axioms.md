@@ -31,38 +31,36 @@ Each axiom: what it is, why it exists, where it applies, what it forbids.
 ---
 
 
-## 2. Memory over config
+## 2. Prefer memory when durable state is not yet necessary
 
 
-**Rule.** Variable thresholds, user preferences, and tunable defaults live in the auto-memory system, not in config files (no `.atomicrc`, no `atomic.config.json`, no env vars for tunables).
+**Rule.** Three persistence primitives: memory, config, code. Start with memory. Graduate to config or code only when the need for durable state is proven.
 
 
-**Why.** Memory is conversational — the user says "remember 60 days" and the system updates. Config requires a file edit, knowing the schema, and re-reading it on every run. For preferences that change rarely and are user-scoped (not project-scoped), the conversational interface wins.
+**Why.** Persistence costs accrete: config files need schemas, validation, migration; code constants need tests and reviews; both leave footprints in git. Memory is cheap, conversational, and decays naturally. Starting with memory surfaces which preferences actually deserve permanence — the ones the user re-states across sessions, the ones that need to survive shell invocations, the ones that fail loudly if forgotten. Everything else stays in memory and quietly fades.
 
 
-**Where it applies.** Anywhere a command needs a tunable value: staleness thresholds (`/git-cleanup`), retention windows, intensity defaults, batch sizes. Future tunables default here unless there's a concrete reason to externalize.
+**Graduation triggers:**
 
 
-**What it forbids.** Adding `.atomicrc` / `atomic.config.json` / similar. Hardcoding a value with a `// TODO: make configurable` comment. Asking the user the same question every run when memory could persist their answer.
+- **Stay in memory** when the value is a conversational nudge ("use atomic ultra for this session"), a per-task override, or a soft preference that's fine to lose. Memory is conversational — the user says "remember 60 days" and the system updates. No schema, no migration.
+- **Graduate to config** (`~/.claude/.atomic/config.toml`) when the value must be shell-settable (CI scripts, `atomic config set`, dotfile-managed setup), or memory's per-user/per-conversation scope is too narrow. Memory cannot be written non-interactively. Example: `output.intensity = "lite"` (config, durable) vs "use atomic ultra for this session" (memory, scoped).
+- **Graduate to code** when the value is a hard contract (test thresholds, security gates, version pins, CI exit codes), scope-bleeds badly across projects, or must be reviewable in a diff. Memory drift on a hard contract = silent regression. Memory's per-user scope corrupts other projects when recalled in the wrong context. Memory edits are invisible to git review.
 
 
-**Default-and-override pattern.** Command logic: "default is X. Read user memory for an override. If found, use that. If not, use X." Saving a new value happens conversationally: user says "remember N", agent saves a feedback-type memory.
+**Where it applies.** Every new tunable, threshold, retention window, intensity default, batch size. Default to memory. Justify each promotion.
 
 
-**What still belongs in code, not memory.** Things that vary per-project (build commands, lint setup) live in the project's own conventions or `CLAUDE.md`. Things that vary per-user (preference, thresholds) live in memory. Things that vary per-invocation (which branch to cleanup) come from arguments.
-
-**Carve-out for shell-settable defaults.** Tunables that must be writable from a shell (CI scripts, `atomic config set`, dotfile-managed setup) live in `~/.claude/.atomic/config.toml`, not memory. Memory cannot be written non-interactively. Config is the durable floor; memory is a per-conversation nudge on top, intended to decay with the conversation. Memory entries overriding config should be scoped ("for this session", "for this task"), never "remember forever" — a stale memory must not silently outlive a recent `atomic config set`. Example: `output.intensity = "lite"` (config, durable) vs "use atomic ultra for this session" (memory, scoped). See `docs/spec/atomic-state-and-config.md` for the full contract.
+**What it forbids.** Adding `.atomicrc` / `atomic.config.json` / env vars without first checking whether memory fits. Hardcoding values with `// TODO: make configurable`. Promoting to config "in case we need it later" — wait until the need is real. Asking the user the same question every run when memory could persist their answer.
 
 
-**When memory is the wrong primitive.** Memory is conversational and eventually consistent. Beyond the shell-settable carve-out above, several other failure modes push values out of memory and into code or committed config:
+**Default-and-override pattern.** Command logic: "default is X. Read user memory for an override. If found, use that. If not, use X." Saving happens conversationally: user says "remember N", agent saves a feedback-type memory.
 
 
-- **Hard contracts** (test thresholds, security gates, version pins, CI exit codes) — memory drift = silent regression.
-- **Values that scope-bleed badly** (project-specific settings that would corrupt other projects if recalled in the wrong context) — memory's per-user scope is too broad. Use project config.
-- **Values the user must see and review in a diff** (anything safety-related) — memory edits are invisible to git. Use a tracked file.
+**Override precedence when both exist.** Config is the durable floor. Memory is a per-conversation nudge on top, scoped ("for this session", "for this task"), never "remember forever." Stale memory must not silently outlive a recent `atomic config set`. See `docs/spec/atomic-state-and-config.md` for the full contract.
 
 
-When you go against the "memory over config" default, document the choice in the same place the value lives (comment in the config file, change-log entry in the spec). This axiom remains the default; the exception is what gets called out.
+When you promote a value out of memory, document the choice in the same place the value lives (comment in the config file, change-log entry in the spec).
 
 
 ---
@@ -160,7 +158,7 @@ When you go against the "memory over config" default, document the choice in the
 
 
 - Adding a new agent? Check axiom 1 (cohesion).
-- Considering a config file? Check axiom 2 (memory).
+- Considering a config file or code constant for a new tunable? Check axiom 2 (memory first).
 - Writing a destructive operation? Check axiom 3 (explicit confirm).
 - Designing a selection flow? Check axiom 4 (plain-text indexed).
 - Skill or command? Check axiom 5 (auto-fire vs explicit).

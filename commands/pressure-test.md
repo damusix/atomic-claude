@@ -165,5 +165,6 @@ When the user is clearly done challenging and ready to commit decisions to writi
 
 - New design or spec → suggest `/atomic-plan` and let it classify into `docs/design/` (rationale, alternatives) or `docs/spec/` (implementation contract).
 - Amending an existing spec/design you were pressure-testing → suggest `/atomic-plan` and pass the existing file; the spec-amendment rule lives in the bundled `CLAUDE.md` "Spec files are append-mostly" section and `/atomic-plan` follows it.
+- When the pressure-test surfaces an open question that's **factual, not philosophical** ("does library X support Y?", "is our codebase already doing Z?") → suggest `/gather-evidence` to settle the fact before planning continues. Don't try to settle it inside pressure-test — that's a different mode.
 
 Surface as a one-line hint, not a directive. The user chooses.

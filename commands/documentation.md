@@ -26,7 +26,7 @@ If `--print-template` is present, print the following and exit:
 | `README.md` | project overview, quick start | atomic-prose |
 ```
 
-Add this section to your committed `CLAUDE.md` and fill in your project's doc files. Voice values: `atomic-prose`, `spec-design`, `llm-reference`.
+Add this section to your committed `CLAUDE.md` and fill in your project's doc files. Voice values: `atomic-prose`, `terse-technical`.
 
 ## Step 1 — Detect mode
 

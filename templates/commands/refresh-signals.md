@@ -1,6 +1,8 @@
 ---
-description: Refresh project signals on demand (initializes on first run). Re-runs atomic signals scan and dispatches the inferrer to update both deterministic and inferred signals files. Use when you want a deliberate refresh rather than waiting for the atomic-signals skill to auto-fire on natural language.
+description: Refresh project signals on demand (initializes on first run). Dispatches the atomic-signals-inferrer agent to scan, infer, and wire signals files.
 ---
+
+<workflow>
 
 ## Step 1 — Pre-flight
 
@@ -38,9 +40,9 @@ If the file does not exist, this is a first-time initialization. Print:
 no existing signals found. initializing from scratch.
 ```
 
-Continue to Step 3 (scan) — do not stop.
+Set `first_run=true`. Continue to Step 3.
 
-## Step 2b — Steering file check
+## Step 3 — Steering file check
 
 ```bash
 test -f .claude/project/signals-steering.md
@@ -77,35 +79,34 @@ EOF
 
 Print: `created .claude/project/signals-steering.md (edit to steer the inferrer).`
 
-If the file already exists, skip silently.
+If the file already exists, read its contents for the dispatch prompt.
 
-## Step 3 — Scan
+## Step 4 — Dispatch agent
 
-Run:
+Dispatch the `atomic-signals-inferrer` agent via the `Agent` tool. Build the prompt:
 
-```bash
-atomic signals scan
+```
+mode: interactive
+first_run: <true if Step 2 found no existing signals, false otherwise>
+
+<steering>
+<contents of signals-steering.md, if it exists and is not all comments>
+</steering>
 ```
 
-This writes `.claude/project/deterministic-signals.md`. On completion, print the section headers:
+Wait for the agent to complete.
 
-```bash
-grep '^## ' .claude/project/deterministic-signals.md
-```
+## Step 5 — Surface concerns
 
-## Step 4 — Dispatch inferrer
+If the agent returned a `## Concerns` table (judgment observations found during inference), present them to the user as a numbered list. Ask via `AskUserQuestion`: "The signals scan found N potential issues. Create follow-ups for any?" with options:
 
-Invoke the `atomic-signals` skill. It owns: dispatch of `atomic-signals-inferrer` for the signals router file, and verification that `CLAUDE.md` `@`-references `signals.md`.
+- "All" — create follow-ups for every concern via `atomic followups add`
+- "Pick" — print the indexed list, accept space/comma-separated indices, create only those
+- "Skip" — discard, no follow-ups created
 
-If the `@-ref` is missing from `CLAUDE.md` (first-time run), the skill handles wiring — see Step 5.
+## Step 6 — No CLAUDE.md at all
 
-## Step 5 — CLAUDE.md wiring (first-time only)
-
-The `atomic-signals` skill checks whether `@.claude/project/signals.md` is present in `CLAUDE.md` (or `claude.local.md` / `CLAUDE.local.md`). If already wired, nothing happens. If missing, the skill wires it.
-
-Only `signals.md` is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. The inferrer reads it when needed; sessions do not. `signals-steering.md` is also NOT `@-ref`'d — it is read only during inference.
-
-If no `CLAUDE.md` exists at all, ask via `AskUserQuestion`:
+If no `CLAUDE.md` exists after the agent runs (the agent could not wire the `@-ref`), ask via `AskUserQuestion`:
 
 ```
 No CLAUDE.md found. Create a starter with signals @-ref?
@@ -127,7 +128,7 @@ On "Yes": write a minimal `CLAUDE.md` at repo root containing only:
 
 On "No, skip": continue without creating.
 
-## Step 6 — Report
+## Step 7 — Report
 
 Print final state:
 
@@ -145,6 +146,18 @@ suggested next step:
 ```
 
 Use "initialized" if Step 2 found no existing signals; "refreshed" otherwise.
+
+</workflow>
+
+<constraints>
+
+## Rules
+
+- Stop on pre-flight failure. Never continue past a missing git repo or missing binary. **Why:** the agent depends on both — proceeding produces broken output.
+- Idempotent. Safe to run repeatedly — first run initializes, subsequent runs refresh.
+- Never commit. The user stages and commits the regenerated files. **Why:** signals refresh is a side effect of the user's work — they decide when to commit.
+
+</constraints>
 
 ---
 
@@ -166,13 +179,3 @@ NestJS monorepo (not plain Express)
 - Build: pnpm turbo build
 - Test: pnpm test:ci (not pnpm test — that runs watch mode)
 ```
-
----
-
-## Rules
-
-- Stop on pre-flight failure. Never continue past a missing git repo or missing binary.
-- Idempotent. Safe to run repeatedly — first run initializes, subsequent runs refresh.
-- Never modify `CLAUDE.md` without confirmation when creating it from scratch. Appending `@-refs` to an existing `CLAUDE.md` is handled by the skill without prompting (it's non-destructive).
-- Never commit. The user stages and commits the regenerated files.
-- The skill keeps `@-refs` to signals present in `CLAUDE.md` so future sessions auto-load them. That wiring is part of refresh, not a separate concern.

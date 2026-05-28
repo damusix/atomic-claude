@@ -4,11 +4,10 @@ description: >
   Voice and tone rules for *enduring narrative documentation* — README.md, docs/guides/,
   CHANGELOG narrative entries, and any other long-form human-facing markdown that ships
   in the repo. Clear, direct, technical narrative. No marketing language, no AI-tell
-  phrases, no em dashes, no throat-clearing. Three styles, three surfaces, never confused:
-  atomic output style governs Claude's TUI replies (terse, fragments); atomic-prose
-  governs enduring narrative docs (this skill); specs and design docs use a separate
-  terse-structured convention (tables, diagrams, brevity-first — they live and die by
-  token cost). Invoked by /documentation when editing README or guides. Invoked as callee
+  phrases, no em dashes, no throat-clearing. Two voices: Claude's TUI replies use atomic
+  output style (terse, fragments); file contents split by surface — narrative docs use
+  this skill, everything else (specs, design docs, CLAUDE.md, signals files) uses terse
+  technical prose. Invoked by /documentation when editing README or guides. Invoked as callee
   by `atomic-documentation` when surface is human-facing prose. Auto-fires on
   "draft the README", "write the docs", "improve this prose", "edit the guide".
 ---
@@ -22,19 +21,19 @@ description: >
 
 </trigger>
 
-Enduring narrative documentation has its own voice. It is neither the terse atomic style we use in TUI replies, nor the table-and-diagram brevity we use in specs and design docs, nor the cadenced essay voice common in AI-generated prose. It is plain, specific, technical narrative. Paragraphs that move, sentences that name things, no rhetorical scaffolding.
+Enduring narrative documentation has its own voice. This skill governs it. Claude's TUI replies use a different style (atomic output style, terse, fragments). All other files — specs, design docs, `CLAUDE.md`, signals files — use terse technical prose. This skill covers the middle ground: plain, specific, technical narrative. Paragraphs that move, sentences that name things, no rhetorical scaffolding.
 
 Run these rules when writing or editing prose in `README.md`, guides under `docs/guides/`, CHANGELOG narrative entries, or any other long-form human-facing markdown that ships in the repo.
 
-**Do NOT apply this skill to `docs/spec/` or `docs/design/`.** Those files follow a separate convention enforced by `/atomic-plan`: table-first, diagrams allowed, prose kept terse and to the point. Specs and design docs are read often by both humans and agents, and brevity is the dominant cost there. Atomic-prose narrative would inflate them without adding value. See `commands/atomic-plan.md` for the spec/design voice.
+**Do NOT apply this skill to `docs/spec/` or `docs/design/`.** Those files use terse technical prose: table-first, diagrams allowed, prose kept terse and to the point. Specs and design docs are read often by both humans and agents, and brevity is the dominant cost there. Atomic-prose narrative would inflate them without adding value.
 
 <voice_rules>
 
 ## What this skill is, and what it is not
 
-| | Atomic (TUI style) | Atomic-prose (this skill) | Spec / design voice | Marketing slop (avoid) |
+| | Atomic (TUI style) | Atomic-prose (this skill) | Terse technical | Marketing slop (avoid) |
 |---|---|---|---|---|
-| **Where** | Claude's TUI replies to the user | README, docs/guides/, CHANGELOG narrative | `docs/spec/`, `docs/design/` | Anywhere |
+| **Where** | Claude's TUI replies to the user | README, docs/guides/, CHANGELOG narrative | `docs/spec/`, `docs/design/`, `CLAUDE.md`, signals files | Anywhere |
 | **Form** | Fragments OK, drop articles, terse | Full sentences, paragraphs that flow | Tables, diagrams, terse bullets | Punchy taglines, hero copy |
 | **Length** | Shortest viable | As long as needed; no shorter | Shortest that carries the contract | Whatever sounds dramatic |
 | **Voice** | Imperative, telegraphic | Active, specific, technical | Imperative, declarative | Aspirational, promissory |
@@ -42,7 +41,7 @@ Run these rules when writing or editing prose in `README.md`, guides under `docs
 | **Adverbs** | Cut | Cut | Cut | Loaded |
 | **Reader** | The user, mid-task, watching the terminal | A developer reading docs to understand or use the system | A human or agent who will implement, follow, or audit a contract | An imagined "audience" being sold to |
 
-The atomic output style file (`output-styles/atomic.md`) covers TUI replies. This skill covers the *file contents* Claude writes when those files are enduring narrative docs. The spec/design voice is enforced by `/atomic-plan` and lives in `commands/atomic-plan.md`. The three styles do not contradict; they apply to different surfaces.
+Two voices. The atomic output style (`output-styles/atomic.md`) covers Claude's TUI replies. This skill covers file contents when those files are enduring narrative docs. Everything else (specs, design docs, `CLAUDE.md`, signals files) uses terse technical prose. The two voices do not contradict; they apply to different surfaces.
 
 ## Core rules
 
@@ -131,7 +130,7 @@ The atomic output style file (`output-styles/atomic.md`) covers TUI replies. Thi
 
 ## Boundaries
 
-- **Scope: narrative docs only.** TUI replies follow atomic output style, not this skill. `docs/spec/` and `docs/design/` follow the spec/design voice in `commands/atomic-plan.md`. Files in `.claude/`, `agents/`, `commands/`, `skills/`, `output-styles/` follow their own conventions. Pure structure (tables, frontmatter, code blocks) passes through unchanged.
+- **Scope: narrative docs only.** TUI replies follow atomic output style. `docs/spec/`, `docs/design/`, `CLAUDE.md`, and signals files use terse technical prose, not this skill. Files in `.claude/`, `agents/`, `commands/`, `skills/`, `output-styles/` follow their own conventions. Pure structure (tables, frontmatter, code blocks) passes through unchanged.
 - **Tables and code blocks pass through unchanged.** This skill governs prose. Frontmatter, fenced code, command examples, file paths, identifier names, error strings: never reformat or rephrase.
 - **Spec checkpoint tables and design alternative tables pass through unchanged.** Their structure is the contract. Only the surrounding prose (Goal, Problem, Rationale) is in scope.
 - **CHANGELOG entries follow the project's existing tone.** This skill nudges new entries toward plainness but does not rewrite older entries on sight.

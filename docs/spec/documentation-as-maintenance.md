@@ -99,7 +99,7 @@ Add `docs` to the top-level verb dispatch switch in `main.go` (same pattern as `
 
 ### CP 3 — Skill rewrite
 
-Remove the entire `## Surface routing` table (the hardcoded diff-signal → surface mapping). Keep the `## Four voices, four surfaces` taxonomy table — that's voice guidance, not routing. Replace with:
+Remove the entire `## Surface routing` table (the hardcoded diff-signal → surface mapping). Keep the `## Two voices` taxonomy table — that's voice guidance, not routing. Replace with:
 
 - Read `## Documentation surfaces` table from CLAUDE instructions (search order: `claude.local.md` / `CLAUDE.local.md` → `CLAUDE.md`). If no table found → return empty surfaces (clean degradation).
 - Two modes section: maintenance (stale/incomplete only, commit flow) vs authoring (full pipeline, explicit `/documentation`). Maintenance mode never emits surface entries with `impact_type: missing`.
@@ -186,13 +186,13 @@ Add to `claude.local.md`:
 | `docs/reference/skills.md` | skills reference table | atomic-prose |
 | `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-prose |
 | `docs/reference/output-style.md` | atomic output style reference | atomic-prose |
-| `CLAUDE.md` | global contract, agent/command/skill registry | llm-reference |
+| `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
 ```
 
 
 ### CP 8 — Cross-references and bundle
 
-- `CLAUDE.md`: add `atomic docs scan` and `atomic docs stale` to "Atomic binary subcommands". Update `/documentation` description to mention bootstrap flow. Update "Four doc voices" to reference the surfaces table mechanism.
+- `CLAUDE.md`: add `atomic docs scan` and `atomic docs stale` to "Atomic binary subcommands". Update `/documentation` description to mention bootstrap flow. Update "Two voices" to reference the surfaces table mechanism.
 - `README.md`: update `/documentation` row in commands table. Add note about bootstrap behavior.
 - `make render` + `make bundle`.
 - `/refresh-signals`.

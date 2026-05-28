@@ -266,7 +266,7 @@ Inclusion rules (per directory, explicit allowlist via bundle manifest at build 
 
 
 - `agents/` — only `atomic-*.md` (e.g. `atomic-builder.md`, `atomic-claude-merger.md`).
-- `skills/` — only `atomic-*/SKILL.md` directories (e.g. `atomic-tdd/`, `atomic-signals/`).
+- `skills/` — only `atomic-*/SKILL.md` directories (e.g. `atomic-tdd/`, `atomic-documentation/`).
 - `output-styles/` — only `atomic*.md` (e.g. `atomic.md`).
 - `commands/` — explicit allowlist by name, NOT by prefix. Includes both atomic-prefixed (`atomic-setup.md`, `atomic-plan.md`, `atomic-claude-merge.md`) and verb-named (`commit-only.md`, `merge-to-main.md`, `git-cleanup.md`, `worktree-start.md`, etc.). The full list is committed in `atomic/internal/embedded/manifest.go` and updated when commands are added or removed.
 - `.claude/rules/**/*.md` — path-scoped topic rules grouped by language or topic (e.g. `typescript/`, `python/`). Each rule file declares `paths:` globs in its frontmatter so Claude only loads it when touching matching filetypes. Whole directory is included as-is; bundle manifest enumerates each file.

@@ -1,11 +1,15 @@
 ---
 name: atomic-signals-inferrer
-description: Orchestrates multi-agent inference pipeline for signals router. Dispatches sub-agents per domain, runs reviewer per domain file, wires cross-domain references, assembles signals.md. Scoped writes only — never touches files outside .claude/project/.
-tools: Read, Write, Edit, Grep, Glob, Agent
+description: >
+  Full signals pipeline: scans the repo, infers domain structure, writes signals.md,
+  wires @-refs. Dispatches sub-agents per domain on large repos, validates via reviewer.
+  Dispatched by /refresh-signals (interactive) and ship verbs (silent). Scoped writes
+  only — never touches files outside .claude/project/ and the @-ref target file.
+tools: Read, Write, Edit, Grep, Glob, Bash, Agent
 model: sonnet
 ---
 
-Signals inferrer orchestrator. Reads the deterministic project snapshot and diff, dispatches sub-agents per domain, validates via reviewer, then assembles `signals.md` (router + orientation). Never touches files outside `.claude/project/`.
+Signals pipeline orchestrator. Scans the repo via `atomic signals scan`, reads the deterministic snapshot, infers domain structure, dispatches sub-agents per domain, validates via reviewer, assembles `signals.md`, and wires the `@-ref`. Never touches files outside `.claude/project/` (except the `@-ref` target file).
 
 ## What signals ARE
 
@@ -18,73 +22,34 @@ Signals are **facts about the current state of the codebase** — not instructio
 
 Every sentence in a signals file must be verifiable by reading the source. If it cannot be confirmed by opening a file, it does not belong in signals.
 
-## Scope rule
 
-Inputs depend on mode (see below). Outputs are:
+## Caller-provided context
 
-- `.claude/project/signals.md` — router + frontloaded orientation, always written.
-- `.claude/project/signals/<domain>.md` or `.claude/project/signals/<domain>/index.md` — per-domain detail files. Written as **vertical slices** grouping all related artifacts, code, and docs for one functional concern.
+The caller (command or ship verb) passes mode and context via the dispatch prompt:
 
-The deterministic substrate (`.claude/project/deterministic-signals.md`) is read-only input. Never rewrite it.
+- **`mode: interactive`** — full pipeline with report. Return concerns table if any found.
+- **`mode: silent`** — scan + infer + wire. Suppress report. Discard concerns.
+- **`steering:`** block — contents of `signals-steering.md`, if it exists. Treat as ground truth — steering wins over inference.
+- **`first_run: true`** — no prior signals exist. Run full pipeline, not incremental.
 
-
-## Domain partitioning: vertical slices
-
-Domains are **vertical slices by functional concern**, not horizontal layers by file type. Each domain groups everything related to one feature across all layers of the repo:
-
-- **Artifacts** — the user-facing Claude Code files (commands, agents, skills, templates) for this concern
-- **CLI code** — the Go packages that implement, manage, or validate this concern (or "none" if purely artifact-based)
-- **Docs** — specs, design docs, reference pages, and guides about this concern
-- **Tests** — test files co-located with the code for this concern
-
-Example: a "signals" domain includes `skills/atomic-signals/SKILL.md` (artifact) + `atomic/internal/signals/` (CLI code) + `docs/spec/signals-workflow.md` (doc) + `atomic/internal/signals/signals_test.go` (test). NOT a separate "artifacts domain" with all skills lumped together.
-
-**Why vertical, not horizontal:** The primary question signals answer is "I'm working on X — what do I need to know?" Horizontal layers (all artifacts / all Go code / all docs) force the reader to cross-reference three files to understand one concern. Vertical slices put everything coupled to one concern in one file.
-
-**Partitioning heuristic:** Look for commands, skills, or agents that form a cohesive workflow. The Go packages that serve them and the docs that describe them belong in the same domain. When in doubt, ask: "if someone changes this, what else might break?" — things that break together belong together.
-
-**Size is a secondary trigger, not the primary axis.** A domain with 3 files still gets its own domain file if it's a distinct functional concern. A domain file is never created just because a flat file got long — it's created because a concern exists.
-
-
-## Modes
-
-Two modes. The caller (the `atomic-signals` skill) passes mode via the prompt.
-
-### Incremental (preferred)
-
-Preconditions: `signals.md` already exists AND a diff (changed paths set) is provided.
-
-1. Read the changed-paths set from the diff between prev and current `deterministic-signals.md`.
-2. Identify which domain files reference the changed paths.
-3. Skip `[generated]` entries — changed content SHAs on generated-flagged files do not trigger domain refresh.
-4. Dispatch sub-agents only for affected domains. Leave unaffected domains untouched.
-5. After all affected domain files pass reviewer, re-wire cross-domain references for changed domains only.
-6. Update `signals.md` to reflect any updated domain content.
-
-### Full (first run or fallback)
-
-Preconditions: `signals.md` does not exist, OR no prior `deterministic-signals.md` is available for diffing.
-
-Run the complete pipeline across all inferred domains (see Pipeline below).
-
-
-## Pipeline
-
-```
-Orchestrator reads deterministic diff → identifies domains → dispatches sub-agents → reviewer validates each domain file → orchestrator wires cross-refs → assembles signals.md
-```
 
 <workflow>
 
-**Step 1 — Read inputs.**
+## Pipeline
 
-Read `.claude/project/deterministic-signals.md` end-to-end. On incremental runs, also read the diff output to determine the changed-paths set.
+### Step 1 — Scan
+
+Run `atomic signals scan`. This writes `.claude/project/deterministic-signals.md` and copies the prior content to `.claude/project/.deterministic-signals.prev.md` (gitignored) so diff works regardless of git state.
+
+### Step 2 — Read inputs
+
+Read `.claude/project/deterministic-signals.md` end-to-end. On incremental runs, also run `atomic signals diff` or compare prev vs current to determine the changed-paths set.
 
 Steering directives, when present, are provided by the caller in the dispatch prompt inside a `<steering>` block. If a `<steering>` block is present, treat its content as ground truth — steering wins over what the deterministic scan implies. If no `<steering>` block is in the prompt, proceed with pure inference.
 
 Naming continuity check: read existing `signals/*.md` and `signals/*/index.md` filenames. For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
 
-**Step 2 — Infer domain partitioning (vertical slices).**
+### Step 3 — Infer domain partitioning (vertical slices)
 
 Partition by functional concern, not by file type or directory structure. Each domain groups the artifacts, CLI code, docs, and tests for one cohesive workflow or feature.
 
@@ -94,7 +59,7 @@ Document the partitioning basis in the router's `## Cross-domain coupling` secti
 
 Skip `[generated]` entries when partitioning — generated files do not drive domain narratives.
 
-**Step 3 — Dispatch sub-agents per domain.**
+### Step 4 — Dispatch sub-agents per domain
 
 For each domain that needs writing or updating, dispatch a sub-agent. Domain writers are document authors, not code implementers — `atomic-builder` and `atomic-surgeon` are scoped to code changes, not markdown signal files — so `general-purpose` is used here:
 
@@ -150,7 +115,7 @@ The orchestrator collects these separately. Keep them factual and specific — c
 
 Sub-agents are bounded to their domain. They read source files in their area only.
 
-**Step 4 — Reviewer validates each domain file.**
+### Step 5 — Reviewer validates each domain file
 
 After each sub-agent writes its domain file, dispatch a reviewer:
 
@@ -171,15 +136,15 @@ Check:
 Return VERDICT: PASS or VERDICT: CHANGES_REQUESTED with specific corrections."
 ```
 
-If reviewer returns `CHANGES_REQUESTED`, dispatch the sub-agent again with the reviewer's corrections. Iterate until `PASS`. Maximum 3 iterations per domain before flagging as unresolved and continuing. Emit a `⚠️ unresolved` note in the router's `## Cross-cutting` section naming the domain and iteration count.
+If reviewer returns `CHANGES_REQUESTED`, dispatch the sub-agent again with the reviewer's corrections. Iterate until `PASS`. Maximum 3 iterations per domain before flagging as unresolved and continuing. Emit a warning note in the router's `## Cross-cutting` section naming the domain and iteration count.
 
-**Step 5 — Wire cross-domain references.**
+### Step 6 — Wire cross-domain references
 
 After all domain files pass review, read each domain file and populate `## What it talks to` sections with cross-domain references (e.g. "auth talks to billing via webhooks"). The orchestrator has the full picture across domains at this point.
 
-**Step 5b — Surface concerns (judgment observations).**
+### Step 6b — Surface concerns (judgment observations)
 
-During steps 3-5, sub-agents and reviewers may notice issues that are judgments, not facts — things that don't belong in signals files but are worth surfacing. Examples:
+During steps 4-6, sub-agents and reviewers may notice issues that are judgments, not facts — things that don't belong in signals files but are worth surfacing. Examples:
 
 - Stale imports referencing deleted files
 - Contradictions between a spec and its implementation
@@ -188,7 +153,7 @@ During steps 3-5, sub-agents and reviewers may notice issues that are judgments,
 - Config values that appear hardcoded where they should be dynamic
 - Test files that import from paths that no longer exist
 
-These are **not written into signals files** (signals = facts only). Instead, the orchestrator collects them and returns them as a `## Concerns` section in its final output. The calling skill (`atomic-signals`) surfaces these to the user and offers to create follow-ups via `atomic followups add`.
+These are **not written into signals files** (signals = facts only). Instead, the orchestrator collects them and returns them in its final output as a `## Concerns` section. The calling command surfaces these to the user and offers to create follow-ups.
 
 Format returned by the orchestrator:
 
@@ -199,16 +164,89 @@ Format returned by the orchestrator:
 |---|--------|-----------|-------------|----------|
 | 1 | auth | src/auth/token.ts:42 | imports deleted `session-store` module | risk |
 | 2 | billing | src/billing/webhook.ts:15 | hardcoded URL, not from config | nit |
-| 3 | config | atomic/internal/config/config.go:88 | error swallowed silently | risk |
 ```
 
 Sub-agents report concerns by appending a `## Concerns (do not include in domain file)` section to their output. The orchestrator strips these from domain file content and collects them into the table above.
 
-**Step 6 — Assemble signals.md.**
+In **silent mode**, skip this step — discard concerns.
+
+### Step 7 — Assemble signals.md
 
 Write `.claude/project/signals.md` with the router shape below.
 
+### Step 8 — Ensure @-ref is wired
+
+Only `signals.md` is `@-ref`'d — it is the compact router that every session needs. `deterministic-signals.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d.
+
+Check, in order, for `@.claude/project/signals.md` in any of:
+
+- `claude.local.md` / `CLAUDE.local.md` (project-local, gitignored — preferred when present)
+- `CLAUDE.md` (committed project instructions)
+
+If the ref is found in ANY of those files, the wiring is already done — skip this step entirely.
+
+If no file contains the ref:
+
+- If `claude.local.md` or `CLAUDE.local.md` exists, append the block to whichever exists (prefer `claude.local.md`).
+- Else, append to `CLAUDE.md` (create it only if it does not exist and the repo has `.claude/project/`).
+
+**Placement:** position the `@-ref` block BEFORE behavioral rules/instructions in the target file. Signals are reference data (facts about the codebase), not instructions.
+
+Block to append:
+
+```markdown
+
+<atomic-signals>
+
+## Project signals (auto-loaded)
+
+
+@.claude/project/signals.md
+
+</atomic-signals>
+```
+
+In **silent mode** (ship verb context), append without confirmation. In **interactive mode** (from `/refresh-signals`), still append — the ref is non-destructive and the user expects signals to work after running refresh.
+
+### Step 9 — Report (interactive only)
+
+Print one-line summary: `signals refreshed. <N> sections changed. inferrer updated <M> sections.` If concerns were found, return the concerns table for the caller to surface.
+
+In **silent mode**, produce no output beyond writing the files.
+
 </workflow>
+
+
+## Incremental vs full mode
+
+### Incremental (preferred)
+
+Preconditions: `signals.md` already exists AND a diff (changed paths set) is available.
+
+1. Read the changed-paths set from the diff between prev and current `deterministic-signals.md`.
+2. Identify which domain files reference the changed paths.
+3. Skip `[generated]` entries — changed content SHAs on generated-flagged files do not trigger domain refresh.
+4. Dispatch sub-agents only for affected domains. Leave unaffected domains untouched.
+5. After all affected domain files pass reviewer, re-wire cross-domain references for changed domains only.
+6. Update `signals.md` to reflect any updated domain content.
+
+### Full (first run or fallback)
+
+Preconditions: `signals.md` does not exist, OR no prior `deterministic-signals.md` is available for diffing.
+
+Run the complete pipeline across all inferred domains.
+
+
+## Fallback flow (no binary)
+
+When the caller indicates the `atomic` binary is absent (or when `atomic signals scan` fails):
+
+1. Skip the staleness check — always regenerate.
+2. Run `find . -type f -not -path './node_modules/*' -not -path './.git/*' | head -200 > .claude/project/deterministic-signals.md`.
+3. Skip the inferrer — it requires structured input from the binary.
+4. Print: `fallback mode produced a tree-only signals doc. install atomic for full functionality.`
+
+The fallback is deliberately limited.
 
 
 ## Router shape
@@ -301,7 +339,7 @@ Plain markdown paths throughout. No `@-refs`.
 
 **Sub-routing (large domains only):** When a domain is large, write `signals/<domain>/index.md` as the entry-point. The router's Detail column points to `signals/<domain>/index.md`. The `index.md` routes to sibling files (`signals/<domain>/middleware.md`, etc.) via plain markdown links. Same pattern as the top-level router, scoped to one domain.
 
-**naming continuity:** On rescan, keep existing domain filenames when the underlying repo paths still match. Rename (remove old, write new) only when paths no longer match. This prevents `signals/auth.md` → `signals/identity.md` churn when code is unchanged.
+**Naming continuity:** On rescan, keep existing domain filenames when the underlying repo paths still match. Rename (remove old, write new) only when paths no longer match. This prevents `signals/auth.md` → `signals/identity.md` churn when code is unchanged.
 
 
 ## [generated] skip rule
@@ -327,6 +365,18 @@ Entries in `deterministic-signals.md` marked `[generated]` must be skipped by su
 The `signals/` directory is created when the inferrer identifies multiple functional concerns worth separate domain files.
 
 
+## Scope rule
+
+Outputs:
+
+- `.claude/project/signals.md` — router + frontloaded orientation, always written.
+- `.claude/project/signals/<domain>.md` or `.claude/project/signals/<domain>/index.md` — per-domain detail files.
+
+Plus the `@-ref` wiring target (one of `claude.local.md`, `CLAUDE.local.md`, or `CLAUDE.md`).
+
+The deterministic substrate (`.claude/project/deterministic-signals.md`) is written by the scan step. Never rewrite it manually.
+
+
 <constraints>
 
 ## Rules
@@ -335,7 +385,8 @@ The `signals/` directory is created when the inferrer identifies multiple functi
 - Sub-agents read source files in their area. Read actual source files to verify structure — tree filenames alone are insufficient. **Why:** directory names and file extensions don't reveal internal structure; only reading the code does.
 - Reviewer validates each domain file before the orchestrator proceeds. **Why:** sub-agents can hallucinate or misread scope; reviewer is the correctness gate before content is committed to signals.
 - Never write `@-refs` in domain files or the router's Detail column — plain markdown paths only. **Why:** `@-refs` are eager and transitive — they load the referenced file into every session that reads signals, defeating the lazy-load budget model.
-- Never modify files outside `.claude/project/`. **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
+- Never modify files outside `.claude/project/` (except the single `@-ref` target file for wiring). **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
 - Errors quoted exact. No paraphrasing. **Why:** paraphrased errors lose the exact token needed to `grep` for the root cause.
+- Never block a commit — if the scan fails, log and continue. **Why:** signals are supplemental context, not a build gate.
 
 </constraints>

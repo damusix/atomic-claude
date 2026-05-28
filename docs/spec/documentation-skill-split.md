@@ -8,7 +8,7 @@ Split `/documentation` into two artifacts: a new `atomic-documentation` skill th
 
 - Removing `/documentation` as a user-visible verb. The command stays; users invoke it for explicit full-repo doc sync passes.
 - Replacing `atomic-prose`. That skill keeps its narrow role (voice/tone for enduring narrative docs); `atomic-documentation` calls it as a callee when the surface is human-facing prose.
-- Changing spec/design voice rules. The terse "tables-first, brevity-dominant" convention for `docs/spec/` and `docs/design/` is preserved verbatim and codified inside the new skill.
+- Changing terse technical prose rules. The terse "tables-first, brevity-dominant" convention for `docs/spec/` and `docs/design/` is preserved verbatim and codified inside the new skill.
 - Auto-applying doc edits during commit synthesis. The skill proposes; the user accepts/rejects/skips per surface.
 - Extending doc surfaces beyond README, CLAUDE.md, guides, specs, designs, signals/inferred, and project-local refs. Other surfaces (CHANGELOG, agents/skills/commands prose, etc.) follow the closest matching rule.
 
@@ -17,9 +17,9 @@ Split `/documentation` into two artifacts: a new `atomic-documentation` skill th
 - [ ] `skills/atomic-documentation/SKILL.md` exists with a description that auto-fires on **narrow, diff-impact phrases** ("doc this change", "what surfaces does this touch", "doc impact for this diff", "what needs documenting") and explicitly states it is invoked by `/documentation` and by ship verbs. Description must NOT include generic phrases like "update the docs" or "write the docs" — those route to `atomic-prose`.
 - [ ] Skill description encodes the boundary against `atomic-prose`: "For raw prose drafting (README intro, guide narrative), `atomic-prose` owns. This skill owns diff-driven surface impact only." `atomic-prose` description gets a reciprocal one-line edit pointing back.
 - [ ] Skill encodes the surface taxonomy (README, CLAUDE.md, guides, specs, designs, signals refs) with one row per surface: audience, voice, when-to-update, when-NOT-to-update.
-- [ ] Skill encodes the four-voice distinction (atomic TUI / atomic-prose / spec-design / LLM-reference) and routes each surface to the right voice.
+- [ ] Skill encodes the two-voice distinction (atomic TUI / everything written in files) and routes each surface to the right voice: narrative docs → `atomic-prose`, all others (specs, designs, CLAUDE.md, signals) → terse technical prose.
 - [ ] `/documentation` command is rewritten to be a thin orchestrator: scope detection → invoke skill → walk proposed surfaces → apply edits → stage. Voice rules and surface taxonomy are deleted from the command and live only in the skill.
-- [ ] Ship verbs (`/commit-only`, `/commit-and-push`, `/commit-and-pr`, `/commit-and-merge`, `/commit-and-squash`, `/squash-only`, `/squash-and-merge`) invoke `atomic-documentation` between `atomic-signals` (existing) and `atomic-commit` (existing).
+- [ ] Ship verbs (`/commit-only`, `/commit-and-push`, `/commit-and-pr`, `/commit-and-merge`, `/commit-and-squash`, `/squash-only`, `/squash-and-merge`) invoke `atomic-documentation` between `atomic-signals-inferrer` (existing) and `atomic-commit` (existing).
 - [ ] Ship-verb invocation is scoped to the staged diff (just-in-time mode), not the whole branch.
 - [ ] `/documentation` invocation is scoped to a user-supplied range (`HEAD~5..HEAD`, `main..HEAD`, etc.) or defaults to `<base>..HEAD` (full mode).
 - [ ] When the skill returns "no surfaces affected", ship verbs proceed silently — no extra prompt.
@@ -40,16 +40,16 @@ Split `/documentation` into two artifacts: a new `atomic-documentation` skill th
 
 Matches the existing `atomic-commit` skill (rules) ↔ ship verbs (flow) split. Single pattern reused.
 
-## Four voices, four surfaces (skill-owned)
+## Two voices (skill-owned)
 
-The skill is the canonical home for this table. Today it lives partially in `CLAUDE.md` § "Three doc voices, three surfaces", partially in `commands/documentation.md`. After this spec lands, the skill is authoritative; CLAUDE.md references the skill by name.
+The skill is the canonical home for this table. Today it lives partially in `CLAUDE.md` § "Two doc voices, two surfaces", partially in `commands/documentation.md`. After this spec lands, the skill is authoritative; CLAUDE.md references the skill by name.
 
 | Voice | Surface | Audience | Style rules |
 |-------|---------|----------|-------------|
 | **Atomic TUI** | Claude's chat replies | The human at the terminal, right now | Terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. Never appears in files. |
 | **Atomic-prose** | `README.md`, `docs/guides/*`, CHANGELOG narrative | Humans skimming for what + why + how | Clear, specific, active-voice technical prose. No em dashes, no marketing, no AI-tell. Skill `atomic-prose` enforces. |
-| **Spec/design** | `docs/spec/*`, `docs/design/*` | Future implementers + agents | Tables, Mermaid, terse bullets. Prose only where a contract needs sentences. Token-cost-aware. Append-mostly for specs. **Never** invokes `atomic-prose`. |
-| **LLM-reference** | `CLAUDE.md`, `CLAUDE.md`, `.claude/project/*-signals.md`, `claude.local.md` | Future Claude sessions | Technical-imperative. Conventions, paths, dispatch contracts. No restating code, no tutorial, no narrative. Lean: every line earns its slot. |
+| **Terse technical prose** | `docs/spec/*`, `docs/design/*` | Future implementers + agents | Tables, Mermaid, terse bullets. Prose only where a contract needs sentences. Token-cost-aware. Append-mostly for specs. **Never** invokes `atomic-prose`. |
+| **Terse technical prose** | `CLAUDE.md`, `CLAUDE.md`, `.claude/project/*-signals.md`, `claude.local.md` | Future Claude sessions | Technical-imperative. Conventions, paths, dispatch contracts. No restating code, no tutorial, no narrative. Lean: every line earns its slot. |
 
 ## Surface routing (skill-owned)
 
@@ -60,10 +60,10 @@ When the skill receives a diff, it classifies each changed entity against this r
 | New file in `commands/<name>.md` | `README.md` commands table + `CLAUDE.md` "Other commands" line + `CLAUDE.md` mirror | atomic-prose (README) + LLM-reference (CLAUDE.md) |
 | New file in `agents/atomic-*.md` | `README.md` agents table + `CLAUDE.md` "Subagents available" entry | atomic-prose + LLM-reference |
 | New file in `skills/atomic-*/SKILL.md` | `README.md` skills table + commands that invoke it | atomic-prose + LLM-reference |
-| Public-API change in `atomic/cmd/atomic/main.go` (new top-level flag, new subcommand) | `docs/reference/commands.md` + matching `docs/spec/<topic>.md` change-log | spec/design |
-| New key in `atomic/internal/config/config.go` | `docs/spec/atomic-state-and-config.md` change-log + `config.resolved.md` (auto-rendered, no manual edit) | spec/design |
-| New check in `atomic/internal/doctor/checks_*.go` | `docs/spec/atomic-doctor.md` change-log | spec/design |
-| Behavior-changing edit to existing `docs/spec/<topic>.md` body | Same file's `## Change log` section | spec/design |
+| Public-API change in `atomic/cmd/atomic/main.go` (new top-level flag, new subcommand) | `docs/reference/commands.md` + matching `docs/spec/<topic>.md` change-log | terse-technical |
+| New key in `atomic/internal/config/config.go` | `docs/spec/atomic-state-and-config.md` change-log + `config.resolved.md` (auto-rendered, no manual edit) | terse-technical |
+| New check in `atomic/internal/doctor/checks_*.go` | `docs/spec/atomic-doctor.md` change-log | terse-technical |
+| Behavior-changing edit to existing `docs/spec/<topic>.md` body | Same file's `## Change log` section | terse-technical |
 | Surface listed in user's `claude.local.md` "documentation surfaces" override | Surface as listed | as declared |
 | Pure refactor / internal rename with no public surface change | (no surface) | n/a — skill returns "no doc impact" |
 
@@ -71,7 +71,7 @@ For non-atomic repos, the routing table is overridden via the calling project's 
 
 ## Override format for other repos
 
-A repo may declare custom surfaces. Search order matches `atomic-signals` precedent verbatim: `claude.local.md` / `CLAUDE.local.md` first (treated as a pair — whichever exists on this filesystem), then `claude.md` / `CLAUDE.md` (same pair semantics). First file containing a `## Documentation surfaces` heading wins; remaining files ignored. The pair phrasing accommodates case-sensitive filesystems (Linux ext4) and case-insensitive ones (macOS APFS default) without forcing a choice.
+A repo may declare custom surfaces. Search order matches `atomic-signals-inferrer` precedent verbatim: `claude.local.md` / `CLAUDE.local.md` first (treated as a pair — whichever exists on this filesystem), then `claude.md` / `CLAUDE.md` (same pair semantics). First file containing a `## Documentation surfaces` heading wins; remaining files ignored. The pair phrasing accommodates case-sensitive filesystems (Linux ext4) and case-insensitive ones (macOS APFS default) without forcing a choice.
 
 ```markdown
 ## Documentation surfaces
@@ -79,7 +79,7 @@ A repo may declare custom surfaces. Search order matches `atomic-signals` preced
 | Diff signal | Surface | Voice |
 |-------------|---------|-------|
 | New file in `src/api/routes/*.ts` | `docs/api.md` | atomic-prose |
-| Public function added to `pkg/*/exports.go` | `docs/reference.md` | spec-design |
+| Public function added to `pkg/*/exports.go` | `docs/reference.md` | terse-technical |
 ```
 
 Skill reads this section if present; merges with built-in defaults; user overrides win on collision. If no override section exists in any of the searched files, skill emits atomic-defaults-only (which return empty surfaces on foreign repos — clean degradation).
@@ -154,7 +154,7 @@ surfaces:
       Append to "Other commands" line: `/foo` (<one-line behavior>)
 ```
 
-Voice values: `atomic-prose | spec-design | llm-reference`.
+Voice values: `atomic-prose | terse-technical | llm-reference`.
 
 **Parser contract (caller side)**:
 
@@ -166,15 +166,15 @@ Voice values: `atomic-prose | spec-design | llm-reference`.
 6. Surface entries missing required fields (`path`, `voice`) are logged + skipped; do not abort.
 7. Empty `surfaces: []` list is valid and means "explicitly nothing to update".
 
-This is a new pattern in the codebase. Existing skills (`atomic-signals`, `atomic-commit`) emit free text the caller acts on conversationally; `atomic-documentation` introduces structured handoff because per-surface accept/reject prompts need a clear item list. **The skill body must include a "Why structured handoff here" note** explaining this is the only skill using fenced-yaml handoff so future authors don't apply the pattern accidentally elsewhere.
+This is a new pattern in the codebase. Existing skills (`atomic-commit`) emit free text the caller acts on conversationally; `atomic-documentation` introduces structured handoff because per-surface accept/reject prompts need a clear item list. **The skill body must include a "Why structured handoff here" note** explaining this is the only skill using fenced-yaml handoff so future authors don't apply the pattern accidentally elsewhere.
 
 ## CLAUDE.md edits
 
 `CLAUDE.md` is always loaded; skills are not. The voice-surface mapping (which surface uses which voice) is load-bearing context and must stay in CLAUDE.md. Only the **routing table** (diff signal → surface) moves to the skill.
 
-CLAUDE.md today has three bullets (atomic TUI / atomic-prose / spec-design). This edit **expands to four bullets, adding LLM-reference** (CLAUDE.md + signals files + `claude.local.md`), and compresses each to a one-line header without rationale prose. Net effect: +1 voice (LLM-reference is new explicit context), -N lines of rationale (which moves to the skill). Final form ends with: "Diff-signal → surface routing lives in the `atomic-documentation` skill. Invoke `/documentation` to apply, or let ship verbs fire it automatically on staged diffs."
+CLAUDE.md today has two bullets (atomic TUI / atomic-prose). This edit **collapses to two voices**: (1) how Claude talks — atomic output style; (2) how files are written — narrative docs use `atomic-prose`, everything else (specs, designs, CLAUDE.md, signals) uses terse technical prose. Net effect: unified file-writing voice replaces the old spec-design / LLM-reference split; rationale prose moves to the skill. Final form ends with: "Diff-signal → surface routing lives in the `atomic-documentation` skill. Invoke `/documentation` to apply, or let ship verbs fire it automatically on staged diffs."
 
-The section name updates from "Three doc voices, three surfaces" to "Four doc voices, four surfaces" to match the new bullet count.
+The section name updates from "Four doc voices, four surfaces" to "Two doc voices, two surfaces" to match the simplified model.
 
 `CLAUDE.md` (project mirror) gets the same edit.
 
@@ -183,14 +183,14 @@ The section name updates from "Three doc voices, three surfaces" to "Four doc vo
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
 | 1 | Create skill scaffold with frontmatter + description | `skills/atomic-documentation/SKILL.md` | Description triggers auto-fire phrases; lists ship-verb invocation. Skill body includes a "Why structured handoff here" note explaining that fenced-yaml emission is unique to this skill (per-surface accept/reject needs a clear item list) and not a general pattern |
-| 2 | Move voice taxonomy + routing table from command to skill | `skills/atomic-documentation/SKILL.md` (body) | All four voices and surface-routing table present; matches CLAUDE.md vocabulary |
+| 2 | Move voice taxonomy + routing table from command to skill | `skills/atomic-documentation/SKILL.md` (body) | Both voices and surface-routing table present; matches CLAUDE.md vocabulary |
 | 3 | Document override format for non-atomic repos | `skills/atomic-documentation/SKILL.md` | Override section with example markdown table |
 | 4 | Rewrite `/documentation` as orchestrator only | `commands/documentation.md` | Voice rules gone from command; command invokes skill; flow steps preserved |
 | 5 | Audit ship-verb inheritance vs inline pipelines | `commands/commit-only.md`, `commit-and-{push,pr,merge,squash}.md`, `squash-only.md`, `squash-and-merge.md` | One-line note per verb: "delegates to /commit-only" or "inlines steps"; only inlined ones need edits |
 | 6 | Wire ship-verb invocation in `/commit-only` (and any inliners found in CP5) | files identified in CP5 | Skill invoked at step 5 (after stage, before signals); doc-skip plumbing wired to commit trailer |
 | 7 | Add `atomic-prose` callee declaration | `skills/atomic-prose/SKILL.md` | Description line states "Invoked as callee by `atomic-documentation` when surface is human-facing prose" |
 | 8 | Add doc-skip preservation instruction to `atomic-commit` | `skills/atomic-commit/SKILL.md` § "Supplemental input" | Additive: "Preserve `doc-skip: <reason>` trailer lines verbatim when present" (no existing strip rule to amend; net-new instruction) |
-| 9 | Adjust CLAUDE.md voice section: keep 4-bullet surface map, move routing taxonomy to skill | `CLAUDE.md` + `CLAUDE.md` | Both files in sync; surface map remains always-loaded; routing pointer added |
+| 9 | Adjust CLAUDE.md voice section: keep 2-bullet surface map, move routing taxonomy to skill | `CLAUDE.md` + `CLAUDE.md` | Both files in sync; surface map remains always-loaded; routing pointer added |
 | 10 | Update `docs/reference/skills.md` | `docs/reference/skills.md` | New row for atomic-documentation; matches existing format |
 | 11 | Update README.md skills table | `README.md` | New row for atomic-documentation; one-line description |
 | 12 | Bundle regeneration — final parity check | `make -C atomic bundle`; verify `git diff --exit-code atomic/internal/embedded/` | Final bundle parity. **Per-checkpoint regen is handled automatically by `.githooks/pre-commit` when installed** (any commit touching `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or root `CLAUDE.md` triggers regen and re-stages bundle outputs). If the hook is absent, prior checkpoints touching source artifacts (CP1, CP4, CP6, CP7, CP8) must each regen-and-stage in their own commit. CP12 is the final exit check, not the only regen point |
@@ -209,7 +209,7 @@ Rejected: `atomic-doc-impact`, `atomic-docs`, `atomic-doc-review`. The skill is 
 | Existing skill | Relationship |
 |---------------|--------------|
 | `atomic-prose` | Callee. `atomic-documentation` invokes it whenever the target surface is README, guides, or CHANGELOG narrative. |
-| `atomic-signals` | Sibling. Both fire in ship-verb flows; signals fires first (refreshes project map), documentation fires second (consumes the up-to-date map). |
+| `atomic-signals-inferrer` | Sibling. Both run in ship-verb flows; signals agent dispatched first (refreshes project map), documentation fires second (consumes the up-to-date map). |
 | `atomic-commit` | Sibling. Documentation fires before commit message synthesis. Doc-skip lines flow through to body. |
 | `atomic-tdd`, `atomic-verify`, `atomic-debug` | No direct relationship. Documentation is a doc-surface skill, not a code-quality skill. |
 | `atomic-review` | Indirect. `atomic-review` rules cover PR comment compression; if PR body needs doc references, `atomic-documentation` may surface them but does not generate review comments. |
@@ -234,6 +234,14 @@ Rejected: `atomic-doc-impact`, `atomic-docs`, `atomic-doc-review`. The skill is 
 - Should `/documentation` gain a `--dry-run` flag that prints the skill's proposal without applying? Probably yes; defer to checkpoint 4 author's discretion since it's a small addition.
 
 ## Change log
+
+### 2026-05-27 — Simplify to two-voice model
+
+**What changed:** Four-voice taxonomy (atomic TUI / atomic-prose / spec-design / LLM-reference) collapsed to two voices: (1) how Claude talks (atomic TUI), (2) how files are written (narrative → `atomic-prose`; everything else → terse technical prose). Body sections updated: success criteria line 20, section header and table at "Four voices, four surfaces", CLAUDE.md edits paragraph, section-name update sentence, checkpoint rows 2 and 9.
+
+**Why:** The spec-design and LLM-reference voices were stylistically identical (both terse technical prose). Treating them as four distinct voices added friction without a meaningful routing difference. Two voices is the honest description.
+
+**Superseded:** Four-voice model with explicit "LLM-reference" as a fourth named voice distinct from "spec/design".
 
 ### 2026-05-22 — v1 shipped
 

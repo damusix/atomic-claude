@@ -8,6 +8,7 @@ Commands are explicit actions you invoke with a slash. They never auto-fire — 
 | Command | What it does |
 |---------|-------------|
 | `/atomic-plan` | Produce a spec for the work ahead. Small tasks get an inline checkpoint table; larger work gets a design doc and a derived spec. Nothing is implemented until you approve. |
+| `/gather-evidence` | Chase a hunch through primary sources before sinking a planning session into it. Pulls evidence from context7, official docs, source code, ast-grep, and run-it experiments. Returns `SUPPORTED` / `UNSUPPORTED` / `MIXED` / `INCONCLUSIVE` with cited evidence trail. Hearsay (blog posts, forum opinions) cannot produce `SUPPORTED`. |
 | `/pressure-test` | Challenge a design decision before committing to it. Asks hard questions, surfaces contradictions, and forces fuzzy maybes into yes or no. Pairs well with `/atomic-plan` as a pre-approval gate. |
 
 
@@ -53,7 +54,6 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 |---------|-------------|
 | `/atomic-setup` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
 | `/refresh-signals` | Scan the project and generate (or update) the signals files that teach Claude your repo's shape. Idempotent. |
-| `/atomic-compress` | Compress a prose markdown file into atomic style. Backs up the original. |
 
 
 ## Maintenance
@@ -65,13 +65,14 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 | `/remind-me` | Schedule a reminder (e.g. `/remind-me 2h check deploy`). Creates a cron-fired follow-up. |
 | `/follow-up` | Review pending reminders. Also used to triage stale project follow-ups with `/follow-up review`. |
 | `/session-report` | Capture what changed and why during this session. Read by the next ship command for commit message context, then deleted. |
+| `/atomic-improve` | Session retrospective. Mines session history and the current conversation for friction signals, cross-references against installed artifacts, and walks proposed improvements one at a time. Persists a run log so later runs detect drift on past accepts. |
 
 
 ## Utilities
 
 | Command | What it does |
 |---------|-------------|
-| `/atomic-help` | When you are not sure what to do next. Reads git state, figures out where you are, and recommends one action. |
+| `/atomic-help` | When you are not sure what to do next. Reads git state, figures out where you are, and recommends one action. `/atomic-help tour` runs a four-stage guided walkthrough of the whole system; bare invocation offers the tour automatically on fresh repos. |
 | `/atomic-claude-merge` | Reconcile your `~/.claude/CLAUDE.md` with updates from `atomic claude install`. Keeps your instructions, deduplicates conflicts. |
 | `/report-issue` | Open a GitHub issue against your current repo. |
 | `/report-issue-with-atomic` | Open a GitHub issue against the atomic-claude repo itself. |

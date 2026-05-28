@@ -61,7 +61,7 @@ Atomic Claude is a coherent system of output styles, discipline skills, subagent
 
 **Project-state awareness.** The `atomic` binary scans your repo and writes context files that Claude loads every session. Claude knows your framework, package manager, and build commands instead of guessing. Details in [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md).
 
-**A spec-to-PR workflow.** Plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`. Each stage uses fresh-context subagents that write TDD, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
+**A spec-to-PR workflow.** Verify a hunch with `/gather-evidence`, plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`. Each stage uses fresh-context subagents that write TDD, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
 
 **Discipline skills that auto-fire.** Eight skills trigger on natural language: TDD enforcement, completion verification, debugging, commit messages, code review, signals refresh, prose editing, and documentation routing. No slash command needed. Details in [docs/reference/skills.md](docs/reference/skills.md).
 

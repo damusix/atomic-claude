@@ -19,9 +19,8 @@ Target macOS and Linux only. Drop Windows-specific review findings, Windows-only
 
 | File | Role | Destination |
 |------|------|-------------|
-| `CLAUDE.md` | Global instructions. Gets copied to `~/.claude/CLAUDE.md`. Affects every workspace, not just this repo. | `~/.claude/CLAUDE.md` |
-| `claude.local.md` | This file. Project-local context for editing this repo. Gitignored. | Stays here, cwd-scoped. |
-| `CLAUDE.md` | The committed project instructions for anyone working in this repo. Mirrors `CLAUDE.md` content because this repo *is* the config source. | Repo root, committed. |
+| `CLAUDE.md` | Single source of truth. Two roles in one file: (a) the global contract that ships as every user's `~/.claude/CLAUDE.md` on install, and (b) this repo's own committed project instructions when working *on* atomic-claude. Both load when cwd is this repo. | Repo root, committed → `~/.claude/CLAUDE.md` on install |
+| `CLAUDE.local.md` | Project-local overlay for this repo *only*. Build pipeline rules, doc reference paths, mandatory checklist, design axioms. Loads alongside `CLAUDE.md` when cwd is this repo. Gitignored. Do NOT duplicate `CLAUDE.md` content here — both files load into context, duplication = wasted tokens. | Stays here, cwd-scoped, gitignored. |
 | `README.md` | Human-facing overview of what the config does and how to install it. | Repo root, committed. |
 | `commands/*.md` | **Rendered** slash command definitions. Edit `templates/commands/<verb>.md` (and `templates/shared/<flow>.md` for cross-verb partials); `make render` regenerates these. Copied to `~/.claude/commands/` by `atomic claude install`. | `~/.claude/commands/` |
 | `templates/commands/<verb>.md` | Source of truth for command files. Either a single `{{ template "<flow>" . }}` directive plus verb-specific orchestration, or a self-contained body if no partial applies. | Renders to `commands/<verb>.md`. |
@@ -39,7 +38,7 @@ Target macOS and Linux only. Drop Windows-specific review findings, Windows-only
 
 @.claude/docs/axioms.md
 
-Decisions that emerged from this work and shouldn't be re-litigated each session: cohesion-bounded scope, memory > config, destructive-ops explicit confirm, plain-text indexed selection, skills auto-fire vs commands explicit. Read before adding new commands, skills, or agents.
+Decisions that emerged from this work and shouldn't be re-litigated each session: cohesion-bounded scope, memory-first persistence, destructive-ops explicit confirm, plain-text indexed selection, skills auto-fire vs commands explicit. Read before adding new commands, skills, or agents.
 
 
 ### Agent configuration reference
@@ -95,14 +94,14 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 | # | Surface | When to update | What to write |
 |---|---------|----------------|---------------|
 | 1 | The artifact file itself | Always | `agents/atomic-*.md`, `templates/commands/<verb>.md` (NEVER `commands/<verb>.md` directly — that's rendered), `skills/<name>/SKILL.md`, `output-styles/atomic-*.md`, or `rules/<lang>/*.md`. Use `atomic-` prefix for custom artifacts. For new commands, also run `make render` to materialize `commands/<verb>.md`. |
-| 2 | `CLAUDE.md` | Always — this is the global contract bundled into every install | Add to the relevant section: "Subagents available for dispatch" (agents), "Workflow" + "Other commands" (commands), "Project signals" or similar (skills), naming conventions (output styles/rules). |
-| 3 | `CLAUDE.md` | Always — it mirrors `CLAUDE.md` for this repo's committed instructions | Same edit as `CLAUDE.md`. These two files must stay synchronized. |
-| 4 | `README.md` | Always — public-facing index | Add to the matching table (commands table, agents table, skills table). Keep one-line descriptions. |
+| 2 | `CLAUDE.md` | Always — single source of truth | This is both (a) the global contract that ships as every user's `~/.claude/CLAUDE.md` on install, and (b) the committed project instructions when working *on* atomic-claude. One file, both roles. Add to the relevant section: "Subagents available for dispatch" (agents), "Workflow" + "Other commands" (commands), "Project signals" or similar (skills), naming conventions (output styles/rules). |
+| 3 | `CLAUDE.local.md` | Only when the new artifact changes *project-local* conventions for this repo specifically (e.g. new bundle path, new build step, new file role) | Edit the relevant section. This file is gitignored and stays in this repo. Do NOT duplicate the global registration here — `CLAUDE.local.md` is for repo-specific overlays only, not for mirroring `CLAUDE.md`. Both files load into context when cwd is this repo, so duplication = wasted tokens. |
+| 4 | `README.md` | Always — public-facing index | Add to the matching table in `docs/reference/commands.md` (or agents/skills equivalent). Keep one-line descriptions. |
 | 5 | `docs/spec/<topic>.md` | If the artifact has non-trivial behavior or cross-references | Write or extend the spec. Required for anything dispatched by another artifact or that mutates state. **Amending an existing spec: see "Spec amendment rule" below — never silently overwrite the original.** |
 | 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit-only` requires editing the command to call it AND the skill to declare itself as called from there. |
-| 7 | Bundle inclusion (`atomic/internal/bundlemirror/mirror.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the inclusion rule. Existing kinds (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`) auto-include matching files. |
-| 8 | Signals refresh | After adding the file | Run `/refresh-signals` (or let `/commit-only` auto-fire `atomic-signals`) so `.claude/project/deterministic-signals.md` and `signals.md` reflect the new file. |
-| 9 | `claude.local.md` (this file) | Only if the artifact changes project-local conventions (e.g. new `@-ref` location, new bundle rule) | Edit the relevant section. |
+| 7 | **`/atomic-help` topic table + tour** ⚠ | **Always** — every artifact a user might type, install, or run. Non-negotiable. | Edit `templates/commands/atomic-help.md`. Add / remove / rename the row in the right category sub-table (Lifecycle / Ship matrix / State & context / Maintenance & utilities / Reference). Material lifecycle or maintenance change → also update the matching tour stage (Stage 2 lifecycle / Stage 3 state files / Stage 4 maintenance). **Read the full contract in `<help_router_contract>` below before skipping any sub-rule.** |
+| 8 | Bundle inclusion (`atomic/internal/bundlemirror/mirror.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the inclusion rule. Existing kinds (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`) auto-include matching files. |
+| 9 | Signals refresh | After adding the file | Run `/refresh-signals` (or let ship verbs dispatch `atomic-signals-inferrer` in silent mode) so `.claude/project/deterministic-signals.md` and `signals.md` reflect the new file. |
 
 </mandatory_checklist>
 
@@ -187,7 +186,7 @@ Specs are the canonical contract for a feature. Editing one in place destroys th
 These rules exist because this repo is meant to be installed into *user repositories* — not just dogfooded here. Cohesion is the product. When a user runs `/commit-only` in their own repo, they expect signals to refresh and docs to stay current without typing five commands.
 
 
-- **Ship verbs must trigger signals refresh on source-tree changes.** The commit/squash/merge/PR family (`/commit-only`, `/commit-and-pr`, `/commit-and-merge`, `/commit-and-squash`, `/merge-to-main`, `/squash-only`, `/squash-and-merge`, `/pr-only`) must invoke the `atomic-signals` skill (silent mode) whenever the staged diff touches source files. If a ship verb does not do this, the user's project signals go stale — invisible drift.
+- **Ship verbs must trigger signals refresh on source-tree changes.** The commit/squash/merge/PR family (`/commit-only`, `/commit-and-pr`, `/commit-and-merge`, `/commit-and-squash`, `/merge-to-main`, `/squash-only`, `/squash-and-merge`, `/pr-only`) must dispatch the `atomic-signals-inferrer` agent (silent mode via signals-gate partial) whenever the staged diff touches source files. If a ship verb does not do this, the user's project signals go stale — invisible drift.
 - **Ship verbs must remind the user to run `/documentation` after significant changes.** "Significant" = new file, removed file, public-API change, dependency change. Surface a one-line prompt at the end of the verb. The skill is interactive and user-driven (axiom 3: destructive ops explicit confirm; doc rewrites are close enough).
 - **Symmetry within a command family.** The commit/squash/merge family must agree on shared concerns: message format (all delegate to `atomic-commit` skill), worktree detection (all detect on merge/squash and prompt to delete), signals refresh trigger (above). If you change one verb's behavior on a shared concern, change all of them.
 - **Skills that are invoked by commands must declare it.** A skill's description should mention "invoked by /foo, /bar" so the trigger surface is inspectable. Reverse holds: a command that invokes a skill must name it in the command file. No silent dependencies.
@@ -196,6 +195,52 @@ These rules exist because this repo is meant to be installed into *user reposito
 
 
 **Why these rules apply to user repos, not just this one.** Users install these artifacts and rely on the cohesion. A user's `/commit-only` that forgets to refresh signals leaves *their* Claude session with a stale project map. The bug is invisible to us but real to them. Treat every wiring rule as a contract the user has implicitly accepted by installing.
+
+
+## ⚠ Help router coverage rule (`/atomic-help`) — CRITICAL
+
+
+<help_router_contract>
+
+**Hard rule. Non-negotiable. Failing this rule ships invisible features.**
+
+**Why this is critical:** `/atomic-help` is the canonical onboarding map and the only discoverability surface for new users. It is a routing layer — not duplicated docs — so nothing automated detects drift. A command that exists but is unmentioned in help may as well not exist; users typing `/atomic-help` or `/atomic-help tour` will never find it. Every artifact add / remove / rename has a corresponding help update, and that update is part of the same change, not a follow-up.
+
+**Triggering events.** Every one of these requires a `templates/commands/atomic-help.md` edit before commit:
+
+- Adding any command, agent, skill, output-style, or rule.
+- Removing any of the above.
+- Renaming any of the above.
+- Adding a new user-runnable `atomic <verb>` binary subcommand.
+- Changing what an existing surface does, in a way that would alter its one-line description.
+- Reshaping the canonical lifecycle, state-file layout, or maintenance surface (touches the tour stages).
+
+**Sub-rules (all hard, no exceptions):**
+
+- **Every committed slash command must appear in at least one `/atomic-help` topic row.** Primary verb for its own topic, or named alternative in another topic's output. A command not discoverable through help is invisible to new users.
+- **Every committed agent and skill must be reachable through a topic.** Agents → topic `agents`. Skills → topic `skills`. Surfacing the roster suffices — individual agents/skills do not each need their own topic, but the roster must stay accurate.
+- **Tour stages mirror the documented surface.** Stage 1 (surfaces) names the five composing layers (output style, skills, commands, agents, binary). Stage 2 (lifecycle) lists the canonical plan → implement → ship → docs verbs. Stage 3 (state files) enumerates where things live (signals, scratchpad, session reports, follow-ups, worktrees, design/spec). Stage 4 (maintenance) covers doctor / validate / update / cleanup / ci / report. Adding a new artifact in one of those zones means updating the matching stage in `templates/commands/atomic-help.md` alongside the topic table.
+- **Renames update both the topic row and every freeform-intent example.** Run `grep -n '/<old-verb>' templates/commands/atomic-help.md` after a rename — must return zero matches.
+- **Removals delete the topic row, any freeform-intent example, and any tour-stage mention.** No dangling pointers.
+- **Binary subcommands surfaced to users count as commands for this rule.** New `atomic <verb>` that a user runs directly → mention it under the `binary` / `cli` topic (or whichever maintenance / setup topic fits). Internal subcommands invoked only by other artifacts do not.
+- **Final pass before commit (mandatory).** Open `templates/commands/atomic-help.md`, scan every category table and all four tour stages, ask: *"Would a new user typing `/atomic-help` discover the change I just made?"* If no, fix the template, re-run `make render` + `make -C atomic bundle`, stage everything. This is the gate — do not commit without it.
+
+**Reshape-don't-cram clause.** If the topic taxonomy becomes the wrong shape (categories overflow, a stage gets bloated past ~15 lines, a topic table grows past one screen), reshape it. The point of the router is discoverability, not exhaustiveness; a help command nobody can scan is worse than one missing one verb. When in doubt, split a category or promote a sub-topic into its own row.
+
+**Verification command (run before committing any artifact change):**
+
+```bash
+# Every committed slash command should have at least one mention in atomic-help.
+for cmd in commands/*.md; do
+  verb=$(basename "$cmd" .md)
+  [ "$verb" = "atomic-help" ] && continue
+  grep -q "/$verb" templates/commands/atomic-help.md || echo "MISSING: /$verb"
+done
+```
+
+Zero `MISSING:` lines = pass. Any output = blocker.
+
+</help_router_contract>
 
 
 ## Signals `@-ref` must stay wired (in this repo: `claude.local.md`)
@@ -207,9 +252,9 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 **In this repo specifically**, the ref lives in `claude.local.md` (this file) — not in `CLAUDE.md`. Reason: `CLAUDE.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for the project-scoped `@`-ref.
 
 
-- The `atomic-signals` skill checks for `@.claude/project/signals.md` in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md`. If present in ANY of them, it skips wiring. The skill's search order is the contract.
+- The `atomic-signals-inferrer` agent checks for `@.claude/project/signals.md` in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md`. If present in ANY of them, it skips wiring. The agent's search order is the contract.
 - For most repos, the ref ends up in `CLAUDE.md` (one file, no separation). For this repo and any other config-source repos, it lives in `claude.local.md`. Both are valid.
-- If you fork the layout (e.g. moving refs into a separate `@`-included file), update the skill's search order in lockstep.
+- If you fork the layout (e.g. moving refs into a separate `@`-included file), update the agent's search order in lockstep.
 
 
 ## Documentation surfaces
@@ -226,7 +271,7 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `docs/reference/skills.md` | skills reference table | atomic-prose |
 | `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-prose |
 | `docs/reference/output-style.md` | atomic output style reference | atomic-prose |
-| `CLAUDE.md` | global contract, agent/command/skill registry | llm-reference |
+| `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
 
 
 ## Naming

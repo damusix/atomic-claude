@@ -12,6 +12,14 @@ you:    /refresh-signals
         → Claude scans the repo, learns it's a NestJS app with
           Prisma, Jest, and a docs/ folder
 
+you:    /gather-evidence does the Stripe Node SDK expose
+        a built-in webhook signature verifier?
+        → Claude pulls context7 docs for stripe-node, finds
+          `Stripe.webhooks.constructEvent`, confirms tolerance
+          window and replay-protection behavior. VERDICT:
+          SUPPORTED. Now you know the hunch holds — no need
+          to design HMAC-by-hand.
+
 you:    /atomic-plan I need a POST /api/webhooks endpoint that
         validates Stripe signatures and queues events
         → Claude writes a spec: controller, service, DTO,
@@ -52,7 +60,7 @@ you:    /follow-up review
           to a GitHub issue.
 ```
 
-Every concept below plays a role in that flow. Signals gave Claude the project map. The spec kept implementation on track. TDD fired during each builder checkpoint. Session reports preserved the why. Ship commands handled signals, docs, and the commit message. Follow-ups caught what was deferred.
+Every concept below plays a role in that flow. Signals gave Claude the project map. Evidence-gathering settled an assumption before planning around it. The spec kept implementation on track. TDD fired during each builder checkpoint. Session reports preserved the why. Ship commands handled signals, docs, and the commit message. Follow-ups caught what was deferred.
 
 
 ## Signals

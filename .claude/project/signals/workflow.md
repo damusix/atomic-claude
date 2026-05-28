@@ -8,6 +8,7 @@ Plan → implement → ship lifecycle. Commands, agents, and skills that orchest
 
 **Planning:**
 
+- `commands/gather-evidence.md` — `/gather-evidence [<hypothesis> | @<path>]` pre-design evidence gathering. Chases a hunch through primary sources (context7, official docs, source code, ast-grep, run-it experiments) before any spec is written. Returns `SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE` with cited evidence trail. Sits before `/pressure-test` in the hunch → plan pipeline.
 - `commands/atomic-plan.md` — `/atomic-plan` gauges triviality. Trivial → inline spec. Non-trivial → design doc + spec via subagent loop. Optionally invokes `atomic-investigator` and `atomic-strategist`.
 - `commands/pressure-test.md` — `/pressure-test` Socratic challenger session. Questions only, no code, no agents. Pairs with `/atomic-plan` as pre-approval gate.
 - `commands/atomic-help.md` — `/atomic-help` routing assistant. Reads git state, classifies intent, recommends one next action. Never executes.
@@ -38,6 +39,7 @@ Plan → implement → ship lifecycle. Commands, agents, and skills that orchest
 - `commands/session-report.md` — `/session-report` writes timestamped note to `.claude/.scratchpad/session-reports/<branch>/`. Ship verbs read all branch reports before commit-message synthesis, delete after successful commit.
 - `commands/report-issue.md` — `/report-issue` opens GitHub issue against user's current repo.
 - `commands/report-issue-with-atomic.md` — `/report-issue-with-atomic` opens GitHub issue against `damusix/atomic-claude` specifically.
+- `commands/atomic-improve.md` — `/atomic-improve [$ARGUMENTS]` session retrospective audit. Mines `.jsonl` session history and current conversation for corrections, friction, and atomic-meta misbehavior. Cross-references installed artifacts via `atomic doctor --json` and `atomic validate --json`. Presents up to 15 indexed findings across 13 priority tiers (drifted > re-surface > atomic-meta > targeted > critical > promotion > content placement > improvement > technique > maintenance > reinforcement > new skill > user coaching). Persists run logs to `~/.claude/.atomic/improve-runs/<ts>.json` and learnings to `~/.claude/.atomic/improve-learnings.md`. Never auto-commits — suggests `/commit-only` at the end.
 
 **Agents dispatched by workflow commands:**
 

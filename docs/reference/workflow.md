@@ -17,6 +17,17 @@ Before your first session in a new project, two commands teach Claude what it is
 You only need to do this once per repo. Signals refresh automatically after that — ship commands re-scan whenever source files change.
 
 
+## 0.5. Verify hunches (optional)
+
+```
+/gather-evidence "<hypothesis>"
+```
+
+When the work ahead rests on a factual hunch ("library X supports Y", "our codebase already has a Z pattern", "approach A is faster than B"), `/gather-evidence` chases the claim through primary sources before any spec is written. It pulls from context7, official docs, source code, ast-grep, and run-it experiments — citing every piece of evidence with its source tier. Hearsay from blogs or forums cannot produce a `SUPPORTED` verdict.
+
+Returns one of `SUPPORTED`, `UNSUPPORTED`, `MIXED`, or `INCONCLUSIVE` with a clear recommendation: proceed to `/atomic-plan`, abandon, refine the hypothesis, or dig deeper. Skip this step when the work is grounded in code you've already read — but reach for it the moment you catch yourself assuming.
+
+
 ## 1. Plan
 
 ```
@@ -24,6 +35,8 @@ You only need to do this once per repo. Signals refresh automatically after that
 ```
 
 You and Claude produce a spec together. For small tasks, this is an inline checkpoint table in `docs/spec/`. For larger work, Claude writes a design doc first (`docs/design/`) and then derives the spec from it. Nothing gets implemented until you approve the plan.
+
+If the plan rests on an unverified hunch, `/atomic-plan` will suggest `/gather-evidence` before continuing — you decide whether to gather first or proceed at risk.
 
 
 ## 2. Implement

@@ -30,6 +30,5 @@ These keep Claude and your docs in sync with the project.
 
 | Skill | Fires when you say... | What it does |
 |-------|----------------------|-------------|
-| `atomic-signals` | "scan the project", "refresh signals", "what's in this repo" | Regenerates the signals files so Claude knows your repo's current shape. Also fires silently from ship commands when source files changed. |
 | `atomic-prose` | "draft the README", "write the docs", "edit the guide" | Applies a clear, direct voice to narrative documentation. No marketing language, no AI-tell phrases. |
 | `atomic-documentation` | "doc this change", "what surfaces does this touch" | Figures out which docs need updating based on a diff and routes each to the right voice. |

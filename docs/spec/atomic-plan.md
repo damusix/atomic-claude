@@ -41,7 +41,7 @@
 - Matches the existing cohesion of the system — users learn one verb per workflow step (`/atomic-plan` → `/subagent-implementation` → ship).
 - Triviality gauge means we don't pay subagent cost on trivial work (one-endpoint adds, single-column migrations).
 - The internal phase boundary is documented in the command file; readers can follow it without learning a second command.
-- Cost: the command file grows. Mitigated by the spec/design voice rules (table-first, terse). Acceptable trade.
+- Cost: the command file grows. Mitigated by terse technical prose rules (table-first, terse). Acceptable trade.
 
 Evidence: existing `/subagent-implementation` and `/subagent-diagnose` already use the same orchestrator-in-one-command pattern. Cohesion with that pattern outweighs the "command does too much" concern.
 
@@ -52,7 +52,7 @@ Evidence: existing `/subagent-implementation` and `/subagent-diagnose` already u
 | 1 | Redesign `commands/atomic-plan.md` with phase-based flow, triviality tiers, spec loop description (atomic-surgeon, ~1 file) | `commands/atomic-plan.md` | command reads top-to-bottom with the new flow; no contradictions with `CLAUDE.md` |
 | 2 | Update workflow blurbs and command-table descriptions across `CLAUDE.md`, `README.md`, `docs/reference/commands.md` (atomic-surgeon, ~3 files) | `CLAUDE.md`, `README.md`, `docs/reference/commands.md` | grep `atomic-plan` shows consistent descriptions referencing triviality + spec loop |
 | 3 | Extend `atomic-reviewer` agent with spec-mode branch (atomic-surgeon, ~1 file) | `agents/atomic-reviewer.md` | agent file has Modes table, separate workflow + output sections, brief-driven mode selection |
-| 4 | Write `docs/spec/atomic-plan.md` capturing the canonical contract (atomic-builder, ~1 file) | `docs/spec/atomic-plan.md` | spec exists, follows the spec/design voice, has `## Change log` empty |
+| 4 | Write `docs/spec/atomic-plan.md` capturing the canonical contract (atomic-builder, ~1 file) | `docs/spec/atomic-plan.md` | spec exists, follows terse technical prose conventions, has `## Change log` empty |
 | 5 | Regenerate embedded bundle (atomic-surgeon, ~3 files) | `atomic/internal/embedded/bundle/**`, `atomic/internal/embedded/manifest.go` | `make -C atomic bundle && git diff --exit-code` clean |
 
 ## Risks

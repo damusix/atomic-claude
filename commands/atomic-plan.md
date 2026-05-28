@@ -52,6 +52,8 @@ Skip Ground for trivial — the file count is small enough to read directly.
 
 Skip Ground when the surface area is already in your context from the current session.
 
+**Upstream gate — `/gather-evidence`.** If the task rests on an unverified factual hunch ("library X supports Y", "our codebase already has pattern Z", "approach A is faster than B"), surface a one-line hint before starting Ground: *"this plan depends on `<hunch>` — want to run `/gather-evidence` first to confirm before we spec it?"* Do not auto-invoke. The user decides whether to gather evidence first or proceed at risk.
+
 ### Diverge (non-trivial only)
 
 Brainstorm 3-5 approaches. Capture in a table:

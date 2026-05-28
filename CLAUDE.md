@@ -23,6 +23,7 @@
 
 - Verify before asserting. Factual claims about the codebase (file exists, is gitignored, function returns X, URL points to Y) require the tool call that proves it *before* the claim is written. Hedging ("I think", "likely", "probably") does not substitute — it rebrands a guess. Applies to reviews and analysis, not only code-writing. If you can't verify in this turn, mark the claim unverified explicitly.
 - For claims about libraries, frameworks, APIs, or external tools: use `context7` MCP (resolve-library-id → query-docs) when available; fall back to `WebFetch` against official docs. Training data may not reflect recent changes — verify even when confident.
+- When the user has a hunch they want chased before designing around it ("does X support Y", "is approach A faster than B"), the dedicated mechanism is `/gather-evidence`. This principle is the posture; that command is the explicit gate.
 
 </investigate_before_answering>
 
@@ -81,15 +82,11 @@ Use regex when searching for literal strings, log messages, comments, config val
 - **Atomic-owned state** (per-user, never committed): `~/.claude/.atomic/` — holds `config.toml` (shell-settable defaults via `atomic config`), `config.resolved.md` (auto-loaded into every session), `backups/<ts>/` (`atomic claude update` backups), and `proposed/CLAUDE.md` (divergence merge target).
 
 
-## Four doc voices, four surfaces
+## Two voices
 
 
-- **Atomic style** — Claude's TUI replies. Governed by `output-styles/atomic.md`.
-- **`atomic-prose` skill** — enduring narrative docs: `README.md`, `docs/guides/`, CHANGELOG narrative entries.
-- **Spec/design voice** — `docs/spec/*`, `docs/design/*`. Tables, diagrams, terse bullets. Append-mostly for specs.
-- **LLM-reference voice** — `CLAUDE.md`, `claude.local.md`, `.claude/project/*-signals.md`. Technical-imperative, conventions and dispatch contracts only, never tutorial or narrative.
-
-Diff-signal → surface routing lives in the `atomic-documentation` skill. Invoke `/documentation` to apply, or let ship verbs fire it automatically on staged diffs.
+- **How Claude talks** — atomic output style. Terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`.
+- **How files are written** — narrative docs (`README.md`, `docs/guides/`) use the `atomic-prose` skill. Everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose: tables, bullets, imperative. The `atomic-documentation` skill routes diffs to the right surface.
 
 
 ## Spec files are append-mostly
@@ -121,20 +118,19 @@ Dispatch via the `Agent` tool with the corresponding `subagent_type`. Fall back 
 - **`atomic-strategist`** (opus, tools: Read/Grep/Glob/Bash) — heavyweight reasoning agent for revising plans, auditing specs/designs, and reasoning through hard problems. Read-only. Surfaces hidden assumptions, names tradeoffs, recommends approaches with explicit confidence. Does not implement, does not gate diffs, does not locate code. Dispatch when the question is "is this the right approach?" not "is this code correct?".
 - **`atomic-reviewer`** (sonnet, tools: Read/Grep/Bash) — diff reviewer. Verifies TDD signals were actually run (re-runs typecheck/tests itself, spot-checks new tests). Emits `## Spec compliance` + `## Code quality` subsections plus the signals block, ending with exactly one of `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
 - **`atomic-git-scout`** (sonnet, tools: Read/Grep/Glob/Bash) — read-only scanner for stale git state (worktrees, branches, optional remote tracking refs). Classifies cleanup candidates (`remove` / `delete` / `prune` / `ask` / `flag` / `skip`) and returns an indexed report for `/git-cleanup`. Reads only.
-- **`atomic-signals-inferrer`** (sonnet, tools: Read/Write/Edit/Grep/Glob/Agent) — reads `.claude/project/deterministic-signals.md` and writes `signals.md` (the router). On large repos, dispatches sub-agents per domain to write `signals/<domain>/` files, runs reviewer per domain file, wires cross-domain refs. On small repos, writes everything directly into `signals.md`. Dispatched by the `atomic-signals` skill; scoped to `.claude/project/`.
+- **`atomic-signals-inferrer`** (sonnet, tools: Read/Write/Edit/Grep/Glob/Bash/Agent) — full signals pipeline: scans the repo via `atomic signals scan`, infers domain structure, dispatches sub-agents per domain, validates via reviewer, writes `signals.md`, and wires `@-refs`. Dispatched by `/refresh-signals` (interactive) and ship verbs (silent mode via signals-gate partial). Scoped to `.claude/project/` plus the `@-ref` target file.
 - **`atomic-claude-merger`** (sonnet, tools: Read/Edit/Write/Bash) — merges `~/.claude/.atomic/proposed/CLAUDE.md` into the live `~/.claude/CLAUDE.md`. Preserves user-authored sections (content outside `<atomic>` tags), replaces atomic-owned content (inside `<atomic>` tags), backs up the prior file. Dispatched by `/atomic-claude-merge`.
 - **`atomic-haiku`** (haiku, tools: Read/Grep/Glob/Bash) — generic background runner for polling, status checks, log scraping, structured reporting. Read-only by default. Used by `/watch-ci`; available for any task too lightweight for Sonnet.
 
 
-## Project signals (skill + agent + command)
+## Project signals (agent + command)
 
 
-The signals workflow keeps Claude aware of the current shape of a project without hallucination. Three artifacts compose it:
+The signals workflow keeps Claude aware of the current shape of a project without hallucination. Two artifacts compose it:
 
 
-- **`atomic-signals`** (skill) — auto-fires on "regenerate signals", "scan the project", "refresh project context", "what's in this repo", "rescan". Runs `atomic signals scan` to write `.claude/project/deterministic-signals.md`, dispatches `atomic-signals-inferrer` to write `signals.md`, then ensures `signals.md` is `@`-referenced in the project's `CLAUDE.md`. Only `signals.md` is `@-ref`'d — `deterministic-signals.md` is too large for context on big repos. Falls back to a tree-only markdown scan if the binary is absent.
-- **`atomic-signals-inferrer`** (agent) — reads `deterministic-signals.md` and writes `signals.md` (the router). On large repos, dispatches sub-agents per domain to write domain files, runs reviewer per domain file, wires cross-domain refs. On small repos, writes everything into `signals.md` directly. Scoped to `.claude/project/`.
-- **`/refresh-signals`** (command) — scan or re-scan project signals on demand. Initializes on first run (wires `@-ref`), refreshes on subsequent runs. Idempotent. Delegates to the `atomic-signals` skill.
+- **`atomic-signals-inferrer`** (agent) — full signals pipeline: scans the repo, infers domain structure, writes `signals.md` (the router), and wires `@-refs`. On large repos, dispatches sub-agents per domain to write domain files, runs reviewer per domain file, wires cross-domain refs. On small repos, writes everything directly into `signals.md`. Only `signals.md` is `@-ref`'d — `deterministic-signals.md` is too large for context on big repos. Falls back to a tree-only markdown scan if the binary is absent. Scoped to `.claude/project/`.
+- **`/refresh-signals`** (command) — scan or re-scan project signals on demand. Initializes on first run (wires `@-ref`), refreshes on subsequent runs. Idempotent. Dispatches `atomic-signals-inferrer` agent. Ship verbs also dispatch the agent in silent mode via the signals-gate partial when `atomic signals stale` reports stale.
 
 Full spec: `docs/spec/signals-workflow.md`.
 
@@ -164,7 +160,8 @@ Full spec: `docs/spec/signals-workflow.md`.
 **Routing / planning**
 
 
-- `/atomic-help [<topic> | <freeform intent>]` — routing assistant for a lost user. Reads git state, classifies intent, recommends one next verb. No menus, never executes.
+- `/atomic-help [<topic> | <freeform intent> | tour]` — routing assistant for a lost user. Reads git state, classifies intent, recommends one next verb. Bare invocation offers a guided tour when the repo is fresh. `tour` arg runs a four-stage walkthrough (surfaces → lifecycle → state files → maintenance). No menus in routing mode, never executes verbs.
+- `/gather-evidence [<hypothesis> | @<path>]` — pre-design evidence gathering. Chases a hunch through primary sources (context7, official docs, source code, ast-grep, run-it experiments) before any spec is written. Returns SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE with cited evidence. Source-tier rule: hearsay (Tier 3-4) cannot produce SUPPORTED. First gate in the pre-design pipeline, precedes `/pressure-test` and `/atomic-plan`.
 - `/pressure-test [<topic> | @<path-to.md>]` — Socratic challenger session. Pressure-tests assumptions, surfaces contradictions, forces fuzzy maybes into yes/no through questions only. No artifacts. Pairs with `/atomic-plan` as a pre-approval gate.
 - `/review-branch` — dispatches `atomic-reviewer` once on `<base>..HEAD` for a pre-PR / pre-merge branch review. No orchestration loop, no spec required.
 - `/subagent-diagnose <ci|bug> [args]` — multi-agent failure-investigation orchestrator. `ci` mode pulls a failed CI run's logs and drives a fix loop; `bug` mode starts from a freeform symptom. Same scratchpad + investigator + builder/surgeon + reviewer loop as `/subagent-implementation`.
@@ -184,7 +181,7 @@ Full spec: `docs/spec/signals-workflow.md`.
 - `/git-cleanup [<name>]` — scan stale git state (worktrees, branches, optional remote) via `atomic-git-scout`. Confirm before deleting anything.
 - `/undo-commit` — soft-undo the last commit. Refuses if HEAD is a merge commit, the initial commit, or already pushed.
 - `/atomic-claude-merge` — merge `~/.claude/.atomic/proposed/CLAUDE.md` produced by `atomic claude install/update` into the live `~/.claude/CLAUDE.md` via the `atomic-claude-merger` agent. Preserves user sections (outside `<atomic>`), replaces atomic-owned content (inside `<atomic>`), backs up prior `CLAUDE.md` under `~/.claude/.atomic/backups/<ts>/`.
-- `/atomic-compress <file>` — compress prose file into atomic style.
+- `/atomic-improve [<targeted feedback>]` — session retrospective. Mines `.jsonl` session history and current conversation for corrections, friction, and atomic-meta misbehavior; cross-references against installed artifacts; walks findings one at a time (Accept / Modify / Skip, or Open-issue / Skip for atomic-meta tier). Persists `~/.claude/.atomic/improve-runs/<ts>.json` so later runs detect whether past accepts actually landed. Delegates deterministic audits to `atomic doctor` / `atomic validate`. Cap of 15 findings per run; surplus suppressed and re-surfaces on recurrence.
 
 
 **Session memory / reminders**

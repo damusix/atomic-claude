@@ -17,7 +17,7 @@ Atomic-owned state currently scatters across `~/.claude/`:
 Three separate names, three separate cleanup targets, no single place for `atomic doctor` to inspect. Adds friction every time a new piece of state is needed (config, version-check cache, last-run timestamps).
 
 
-Parallel problem: atomic has no shell-settable defaults. User can't run `atomic config set output.intensity lite` and have Claude pick it up in the next session. Memory (axiom 2) is conversational-only; you can't write to it from a shell script or CI. Tunables that need to survive across sessions *and* be CLI-writable land in no-man's-land.
+Parallel problem: atomic has no shell-settable defaults. User can't run `atomic config set output.intensity lite` and have Claude pick it up in the next session. Memory is conversational-only (axiom 2: memory-first); you can't write to it from a shell script or CI. Tunables that need to survive across sessions *and* be CLI-writable land in no-man's-land.
 
 
 ## Goals

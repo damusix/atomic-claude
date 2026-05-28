@@ -50,7 +50,7 @@ Required sections:
 - **Why** — short paragraphs explaining the reasoning. What problem was being solved, what alternatives were rejected, what the user clarified. Not exhaustive; aim for a future-reader who needs enough to write the commit message.
 - **Open threads** (optional) — unresolved questions or follow-ups deferred to a later session.
 
-Voice: spec/design terse-structured. Not `atomic-prose` (that's for enduring narrative docs). Not atomic TUI style (that's for replies). This is internal working-memory voice — bullets + short paragraphs, no fluff.
+Voice: terse technical prose — bullets, short paragraphs. Not `atomic-prose` (that's narrative docs). Not atomic output style (that's Claude's replies).
 
 ## Ship-verb integration
 

@@ -162,7 +162,7 @@ Rationale: each dispatch is a fresh context. Tokens spent on a verbose brief are
 
 
 - **Default hard stop:** N = 5 iterations of Phase 2→3.
-- **User override (axiom 2 — memory over config):** orchestrator reads user memory key `diagnose iteration cap` at Phase 1. Falls back to 5 if absent. User says "remember diagnose cap is 3" → orchestrator saves a `feedback`-type memory; future runs honor it.
+- **User override (axiom 2 — memory-first):** orchestrator reads user memory key `diagnose iteration cap` at Phase 1. Falls back to 5 if absent. User says "remember diagnose cap is 3" → orchestrator saves a `feedback`-type memory; future runs honor it.
 - **Same-failure early bail:** if three consecutive iterations report the same *normalized* top-level error, bail before N. The loop is stuck on one symptom.
 - **Bail behavior:** retain scratchpad in place (not archived), print summary of iterations tried + the final reviewer verdict, recommend user-driven next steps. Do **not** auto-open a PR comment or post anywhere.
 

@@ -134,7 +134,7 @@ Reviewer emits `## Spec compliance` + `## Code quality` + signals block + exactl
 ## Iteration cap + bail-out
 
 - **Default hard stop:** 5 iterations of Phase 2→3.
-- **User override (axiom 2 — memory over config):** read user memory key `diagnose iteration cap` at Phase 1. Falls back to 5 if absent. Cap is `min(memory-override, 5)`.
+- **User override (axiom 2 — memory-first):** read user memory key `diagnose iteration cap` at Phase 1. Falls back to 5 if absent. Cap is `min(memory-override, 5)`.
 - **Same-failure early bail:** if three consecutive iterations produce the same normalized top-level error → bail before the hard stop.
 - **Bail behavior:** retain `$SCRATCH` in place (do not archive). Print summary of iterations tried + final reviewer verdict. Recommend user-driven next steps. Do NOT auto-open a PR comment or post anywhere.
 

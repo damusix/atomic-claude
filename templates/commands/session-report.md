@@ -60,7 +60,7 @@ Opt-in only. Does not auto-fire.
 
 ## Voice
 
-Working-memory voice — bullets + short paragraphs. Not the atomic TUI fragment style (that's TUI replies). Not `atomic-prose` (that's enduring narrative docs). Internal context that the commit-message synthesis will read.
+Working-memory voice — bullets + short paragraphs. Not atomic output style (that's Claude's replies). Not `atomic-prose` (that's narrative docs like README and guides). Internal context that the commit-message synthesis will read.
 
 ## Lifecycle
 

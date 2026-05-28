@@ -24,75 +24,22 @@ Both files are gitignored (project-specific, regenerated on demand). They are au
 
 | Artifact | Type | Path |
 |----------|------|------|
-| `atomic-signals` | skill | `skills/atomic-signals/SKILL.md` |
-| `atomic-signals-inferrer` | agent | `agents/atomic-signals-inferrer.md` |
-| `/initialize-signals` | command | `commands/initialize-signals.md` |
-| `/commit-only` (edit) | command | `commands/commit-only.md` — invoke skill pre-commit when source changed |
-| `/atomic-setup` (edit) | command | `commands/atomic-setup.md` — propose binary install + `/initialize-signals` |
+| ~~`atomic-signals`~~ | ~~skill~~ | ~~`skills/atomic-signals/SKILL.md`~~ — **removed 2026-05-27**, absorbed into agent |
+| `atomic-signals-inferrer` | agent | `agents/atomic-signals-inferrer.md` — now handles full pipeline (scan + infer + wire) |
+| ~~`/initialize-signals`~~ | ~~command~~ | ~~`commands/initialize-signals.md`~~ — **removed**, replaced by `/refresh-signals` |
+| `/refresh-signals` | command | `commands/refresh-signals.md` — dispatches `atomic-signals-inferrer` agent |
+| `/commit-only` (edit) | command | `commands/commit-only.md` — dispatches agent pre-commit when source changed |
+| `/atomic-setup` (edit) | command | `commands/atomic-setup.md` — propose binary install + `/refresh-signals` |
 | `CLAUDE.md` (edit) | bundled global | this repo's root `CLAUDE.md` (the one that ships as `~/.claude/CLAUDE.md` via the embed bundle) gets a section mentioning the signals workflow so users know it exists |
 
 
-Distinct from the bundled-global `CLAUDE.md` above, the per-project `CLAUDE.md` at each user's repo root is mutated at runtime by the skill (step 5 below) to add the `@-refs` to the project's signals files. Two different files, both named `CLAUDE.md`.
+Distinct from the bundled-global `CLAUDE.md` above, the per-project `CLAUDE.md` at each user's repo root is mutated at runtime by the agent (step 8 in the agent definition) to add the `@-refs` to the project's signals files. Two different files, both named `CLAUDE.md`.
 
 
-## Skill: `atomic-signals`
+## ~~Skill: `atomic-signals`~~ (removed 2026-05-27)
 
 
-### Trigger phrases
-
-
-Auto-fires on natural language that implies "the project state changed and Claude needs to know":
-
-
-- "regenerate signals"
-- "scan the project"
-- "refresh project context"
-- "what's in this repo"
-- "rescan"
-- Plus explicit invocation: `Skill skill=atomic-signals`.
-
-
-Also fires implicitly when `/commit-only` runs and the staged diff includes source-tree changes (see [Integration with `/commit-only`](#integration-with-commit-only)).
-
-
-### Flow
-
-
-1. **Detect binary**. `command -v atomic`. If missing: print "atomic binary not installed. install via [link]. falling back to markdown-only mode." and continue with the fallback flow.
-2. **Staleness check (binary path)**. Run `atomic signals stale`. Exit 0 → no work. Exit 1 → regenerate.
-3. **Regenerate deterministic**. Run `atomic signals scan`. Writes `.claude/project/deterministic-signals.md` and copies the prior content to `.claude/project/.deterministic-signals.prev.md` (gitignored) so `atomic signals diff` works regardless of git state.
-4. **Dispatch inferrer**. Spawn `atomic-signals-inferrer` subagent via `Agent` tool. The inferrer runs `atomic signals diff` to learn what changed and updates only the dependent sections of `signals.md`. See agent spec below for details.
-5. **Ensure `@-ref` in project `CLAUDE.md`**. If `CLAUDE.md` exists at repo root and does not already contain `@.claude/project/signals.md`, append a section:
-
-    ```markdown
-
-
-    ## Project signals (auto-loaded)
-
-
-    <atomic-signals>
-    @.claude/project/signals.md
-    </atomic-signals>
-    ```
-
-    Print the diff first. If running non-interactively (e.g. inside `/commit-only`), append without confirmation. If running from `/initialize-signals`, ask via `AskUserQuestion` before writing.
-
-6. **Report**. Print one-line summary: `signals refreshed. <N> sections changed. inferrer updated <M> sections.`
-
-
-### Fallback (no binary)
-
-
-When `atomic` is absent:
-
-
-1. Skip staleness check (always regenerate).
-2. Run `find . -type f -not -path './node_modules/*' -not -path './.git/*' | head -200 > .claude/project/deterministic-signals.md` (very crude).
-3. Skip the inferrer (it needs structured input).
-4. Print: "fallback mode produced a tree-only signals doc. install atomic for full functionality."
-
-
-The fallback is deliberately limited — users hit it once and install the binary.
+**Removed.** The skill's responsibilities (scan, staleness check, dispatch inferrer, wire `@-refs`, fallback flow, concerns surfacing) were absorbed into the `atomic-signals-inferrer` agent. See the agent definition at `agents/atomic-signals-inferrer.md` for the current pipeline. See [changelog entry](#2026-05-27--remove-atomic-signals-skill-agent-absorbs-full-pipeline) for rationale.
 
 
 ## Agent: `atomic-signals-inferrer`
@@ -192,48 +139,22 @@ source: .claude/project/deterministic-signals.md
 - Always preserve untouched sections byte-identical. The only frontmatter field that updates without a corresponding section change is `generated_at`.
 
 
-## Command: `/initialize-signals`
+## ~~Command: `/initialize-signals`~~ (removed)
 
 
-### Purpose
-
-
-One-shot bootstrap for a project that has never had signals generated. Verbose, interactive, idempotent on second run.
-
-
-### Flow
-
-
-1. Pre-flight: verify inside a git repo. Verify `atomic` binary is on `$PATH`; if not, print install instructions and stop.
-2. Check if `.claude/project/deterministic-signals.md` already exists.
-   - Yes → print "signals already initialized. running refresh instead." and delegate to the `atomic-signals` skill.
-   - No → continue.
-3. Run `atomic signals scan`. Print the resulting file's section headers (not full content).
-4. Dispatch `atomic-signals-inferrer`. Wait for completion.
-5. Detect project `CLAUDE.md`:
-   - Exists → print the proposed `## Project signals (auto-loaded)` section diff. Ask via `AskUserQuestion`: "Append the auto-load section to CLAUDE.md? Yes / Show me the diff again / No, skip".
-   - Missing → ask via `AskUserQuestion`: "No CLAUDE.md found. Create a starter? Yes (uses /atomic-setup template) / No, skip".
-6. Report final state. Suggest committing the new files.
-
-
-### Refusals
-
-
-- No git repo → stop.
-- No `atomic` binary → stop with install instructions.
-- Existing `CLAUDE.md` already has `@.claude/project/signals.md` → confirm, take no action.
+**Removed.** `/initialize-signals` was merged into `/refresh-signals`, which handles both first-run initialization and subsequent refreshes. See `templates/commands/refresh-signals.md` for the current contract.
 
 
 ## Integration with `/commit-only`
 
 
-Edit `/commit-only` to invoke the `atomic-signals` skill *before* the commit, gated on `atomic` being installed and signals being stale:
+Ship verbs dispatch the `atomic-signals-inferrer` agent in silent mode before the commit, gated on `atomic` being installed and signals being stale:
 
 
 ```
 1. Stage check (existing).
 2. If atomic is installed AND atomic signals stale exits 1:
-   - Invoke atomic-signals skill silently.
+   - Dispatch atomic-signals-inferrer agent in silent mode.
    - If signals regenerated, stage the resulting deterministic-signals.md + signals.md.
 3. Continue with existing commit flow.
 ```
@@ -282,12 +203,12 @@ Proposed actions:
 
 
 - A fresh project can run `/refresh-signals` and end with both signals files written, `CLAUDE.md` updated, and `signals.md` referenced via `@`.
-- Re-running `/refresh-signals` is a no-op (the skill detects fresh state).
+- Re-running `/refresh-signals` is a no-op (the agent detects fresh state via `atomic signals stale`).
 - A `/commit-only` that touches `src/foo.ts` regenerates signals and stages the updated docs alongside the commit.
 - A `/commit-only` that only touches `README.md` does NOT regenerate signals.
 - A `/commit-only` that touches `package.json` (or any other manifest on the trigger list) regenerates signals and stages the updated docs alongside the commit.
-- Removing the binary and re-running the skill produces the fallback message and a degraded-but-non-empty signals file.
-- When `package.json` changes its `scripts.test` value, the skill's incremental path: (a) `atomic signals diff` returns the `Manifests` hunk after `atomic signals scan`, (b) the inferrer reads only that diff + the cited manifests, and (c) `signals.md` updates only `Build / test / lint commands`. Other sections of `signals.md` are byte-identical to the previous run.
+- Removing the binary and re-running produces the fallback message and a degraded-but-non-empty signals file.
+- When `package.json` changes its `scripts.test` value, the agent's incremental path: (a) `atomic signals diff` returns the `Manifests` hunk after `atomic signals scan`, (b) the inferrer reads only that diff + the cited manifests, and (c) `signals.md` updates only `Build / test / lint commands`. Other sections of `signals.md` are byte-identical to the previous run.
 
 
 ## Checkpoints
@@ -296,9 +217,9 @@ Proposed actions:
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
 | S-1 | `atomic-signals-inferrer` agent | `agents/atomic-signals-inferrer.md` | |
-| S-2 | `atomic-signals` skill | `skills/atomic-signals/SKILL.md` | |
-| S-3 | `/initialize-signals` command | `commands/initialize-signals.md` | |
-| S-4 | Edit `/commit-only` to invoke skill pre-commit | `commands/commit-only.md` | |
+| S-2 | ~~`atomic-signals` skill~~ | ~~`skills/atomic-signals/SKILL.md`~~ | **removed 2026-05-27** — absorbed into agent |
+| S-3 | ~~`/initialize-signals` command~~ | ~~`commands/initialize-signals.md`~~ | **removed** — replaced by `/refresh-signals` |
+| S-4 | Edit `/commit-only` to dispatch agent pre-commit | `commands/commit-only.md` | |
 | S-5 | Edit `/atomic-setup` audit + propose flow | `commands/atomic-setup.md` | |
 | S-6 | Update `CLAUDE.md` + `README.md` tables to document signals | `CLAUDE.md`, `README.md` | |
 
@@ -391,3 +312,12 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Why:** `deterministic-signals.md` is too large for context on big repos and is read on demand by the inferrer, not pre-loaded into every session. Auto-loading it pollutes context unnecessarily. Only `signals.md` (the router-shaped inferred file) belongs in the auto-loaded `@-ref`.
 
 **Superseded:** Prior step 5 checked for both `@.claude/project/deterministic-signals.md` and `@.claude/project/signals.md`, appended both lines, and the `/initialize-signals` refusal matched on "both `@-refs` present". The `/atomic-setup` audit table grepped for `deterministic-signals.md`.
+
+
+### 2026-05-27 — Remove atomic-signals skill; agent absorbs full pipeline
+
+**What changed:** The `atomic-signals` skill (`skills/atomic-signals/SKILL.md`) is deleted. Its responsibilities — running `atomic signals scan`, dispatching the inferrer, wiring `@-refs`, staleness checks, fallback flow, and concerns surfacing — are absorbed into the `atomic-signals-inferrer` agent (`agents/atomic-signals-inferrer.md`). The agent gains the `Bash` tool to run scan commands. `/refresh-signals` now dispatches the agent directly instead of delegating to the skill. The `signals-gate` shared partial (used by ship verbs) dispatches the agent in silent mode instead of invoking the skill.
+
+**Why:** The skill was an unnecessary indirection layer. Everything the skill did could be put into the agent definition, with the command just dispatching the agent. Commands auto-fire in practice (Claude picks up on descriptions), so the skill's auto-trigger surface is not lost. Simplifies the architecture from three artifacts (skill + agent + command) to two (agent + command).
+
+**Removed:** `skills/atomic-signals/SKILL.md` — skill definition. All references across `CLAUDE.md`, `claude.local.md`, `docs/reference/skills.md`, `docs/reference/signals-workflow.md`, ship verb templates, and `templates/commands/atomic-setup.md` updated to reference the agent directly.

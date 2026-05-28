@@ -98,7 +98,7 @@ Why: each subagent dispatch starts fresh. Tokens spent on a verbose brief are to
 ### Iteration cap + bail-out
 
 
-- **Hard stop.** Default N = 5 iterations of Phase 2→3 before bailing. **Per axiom 2 (memory > config)**: orchestrator reads user memory key `diagnose iteration cap` for override; falls back to 5. User says "remember diagnose cap is 3" → memory updated, future runs honor it.
+- **Hard stop.** Default N = 5 iterations of Phase 2→3 before bailing. **Per axiom 2 (memory-first)**: orchestrator reads user memory key `diagnose iteration cap` for override; falls back to 5. User says "remember diagnose cap is 3" → memory updated, future runs honor it.
 - **Same-failure detection.** Compare *normalized* top-level error string across iterations. Normalization (applied before compare): strip `:\d+:\d+` line/col suffixes, absolute paths (replace with basename), ISO timestamps, hex addresses (`0x[0-9a-f]+`), test-runner durations (`\d+(\.\d+)?(ms|s)`). If three consecutive iterations report the same normalized error, bail early (the loop is stuck on the same symptom).
 - **Bail behavior.** Retain scratchpad in place (not archived), print summary of what was tried, recommend user-driven next steps. Do not auto-open a PR comment or post anywhere.
 

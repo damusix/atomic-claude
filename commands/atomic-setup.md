@@ -264,7 +264,7 @@ Accept → use as-is. Edit → user supplies replacement text. Skip (empty-guess
 </atomic-signals>
 ````
 
-The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d — it is read only during inference by the `atomic-signals` skill.
+The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d — it is read only during inference by the `atomic-signals-inferrer` agent.
 
 **Content that belongs in the global file, not the project file:** These live globally already — duplicating them noise-pollutes the project file:
 

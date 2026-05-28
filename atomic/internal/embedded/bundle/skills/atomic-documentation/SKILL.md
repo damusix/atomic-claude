@@ -24,14 +24,12 @@ Also invoked by `/documentation` (authoring mode) and by ship verbs (maintenance
 
 This skill reads the project's indexed documentation surfaces, matches a diff against them, and either flags stale/incomplete docs (maintenance mode) or runs the full discovery + generation pipeline (authoring mode). It emits a structured YAML block listing affected surfaces. When the user picks "Yes", it opens the file and makes the edit.
 
-## Four voices, four surfaces
+## Two voices
 
-| Voice | Surface | Audience | Style rules |
-|-------|---------|----------|-------------|
-| **Atomic TUI** | Claude's chat replies | The human at the terminal, right now | Terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. Never appears in files. |
-| **Atomic-prose** | `README.md`, `docs/guides/*`, CHANGELOG narrative | Humans skimming for what + why + how | Clear, specific, active-voice technical prose. No em dashes, no marketing, no AI-tell. Skill `atomic-prose` enforces. |
-| **Spec/design** | `docs/spec/*`, `docs/design/*` | Future implementers + agents | Tables, Mermaid, terse bullets. Prose only where a contract needs sentences. Token-cost-aware. Append-mostly for specs. Spec/design voice is self-contained — `atomic-prose` does not apply. |
-| **LLM-reference** | `CLAUDE.md`, `.claude/project/*-signals.md`, `claude.local.md` | Future Claude sessions | Technical-imperative. Conventions, paths, dispatch contracts. No restating code, no tutorial, no narrative. Lean: every line earns its slot. |
+| Voice | Where | Style |
+|-------|-------|-------|
+| **How Claude talks** | TUI replies | Atomic output style: terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. |
+| **How files are written** | All file content | Narrative docs (`README.md`, `docs/guides/`) use `atomic-prose` skill. Everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose: tables, bullets, imperative. |
 
 ## How surface routing works
 
@@ -178,7 +176,7 @@ surfaces:
       Add row to payments endpoint table with method, path, auth, request/response.
 ```
 
-Voice values: `atomic-prose | spec-design | llm-reference`.
+Voice values: `atomic-prose | terse-technical`. Use `atomic-prose` for narrative docs (`README.md`, `docs/guides/`); `terse-technical` for everything else (specs, designs, `CLAUDE.md`, signals, agents, commands).
 
 `impact_type` values: `stale | incomplete | missing`. Maintenance mode never emits `missing`.
 
@@ -199,7 +197,7 @@ Parser contract (caller side):
 
 ## Why structured handoff here
 
-This is the only skill in the atomic system that emits a fenced YAML block for callers to parse. Other skills (`atomic-signals`, `atomic-commit`) emit free text that callers act on conversationally. The structured handoff here is justified by one concrete need: per-surface accept/reject prompts in ship verbs require a clear item list — the caller cannot reliably extract a structured list from free-text output. The YAML block provides that list without ambiguity.
+This is the only skill in the atomic system that emits a fenced YAML block for callers to parse. Other skills (`atomic-commit`) emit free text that callers act on conversationally. The structured handoff here is justified by one concrete need: per-surface accept/reject prompts in ship verbs require a clear item list — the caller cannot reliably extract a structured list from free-text output. The YAML block provides that list without ambiguity.
 
 Do not apply this pattern to other skills without a similarly concrete need for machine-readable per-item output. When in doubt, emit free text and let the caller act conversationally.
 

@@ -7,7 +7,7 @@ Run `/refresh-signals` to generate (or update) them:
 - **`deterministic-signals.md`** — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
 - **`signals.md`** — inferred meaning: framework, build/test/lint commands, architectural style, domain index. Produced by the `atomic-signals-inferrer` agent.
 
-Both files live in `.claude/project/`, are gitignored, and auto-load into every Claude session via `@`-refs. The `atomic-signals` skill keeps them fresh — it fires on phrases like "scan the project" and runs silently from ship commands when source files change.
+Both files live in `.claude/project/`, are gitignored, and auto-load into every Claude session via `@`-refs. The `atomic-signals-inferrer` agent keeps them fresh — `/refresh-signals` dispatches it on demand, and ship commands dispatch it silently when source files change.
 
 Requires the `atomic` binary. Without it, a degraded tree-only fallback runs instead.
 
@@ -61,8 +61,8 @@ Do not recurse into submodules or create domains for them.
 
 ### How it works
 
-1. `/refresh-signals` runs `atomic signals scan` to produce the deterministic file
-2. The inferrer reads `deterministic-signals.md` + `signals-steering.md` (if present)
+1. `/refresh-signals` dispatches the `atomic-signals-inferrer` agent
+2. The agent runs `atomic signals scan` to produce the deterministic file, then reads it + `signals-steering.md` (if present)
 3. Steering directives override inference — if steering says "this is NestJS", the inferrer writes NestJS regardless of what `package.json` implies
 4. The inferrer writes `signals.md` (and domain files on large repos)
 5. On the next `/refresh-signals`, changes to steering take effect immediately
