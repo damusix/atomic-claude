@@ -65,7 +65,7 @@ Atomic Claude is a coherent system of output styles, discipline skills, subagent
 
 **A spec-to-PR workflow.** Verify a hunch with `/gather-evidence`, plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`, then close the loop with `/atomic-improve` to turn session friction into durable config changes. Each stage uses fresh-context subagents that write TDD, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
 
-**Discipline skills that auto-fire.** Eight skills trigger on natural language: TDD enforcement, completion verification, debugging, commit messages, code review, signals refresh, prose editing, and documentation routing. No slash command needed. Details in [docs/reference/skills.md](docs/reference/skills.md).
+**Discipline skills that auto-fire.** Seven skills trigger on natural language: TDD enforcement, completion verification, debugging, commit messages, code review, prose editing, and documentation routing. No slash command needed. Details in [docs/reference/skills.md](docs/reference/skills.md).
 
 **Workflow commands for every git operation.** Ten verbs covering every combination of commit, push, squash, PR, and merge-to-base. Plus utilities for CI watching, stale branch cleanup, worktree isolation, reminders, and integrity checks. Details in [docs/reference/commands.md](docs/reference/commands.md).
 

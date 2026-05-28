@@ -187,7 +187,7 @@ You could do all of this manually. The ship verbs make it the default so nothing
 
 - **Signals scanning** — reads the filesystem and produces the deterministic signals file. Intentionally done by code so the output is reproducible and fast.
 - **Self-update** — fetches the latest release, verifies its checksum, replaces the binary.
-- **Health checks** — `atomic doctor` runs nine integrity checks against your install. `atomic validate` lints specs and cross-references.
+- **Health checks** — `atomic doctor` runs ten integrity checks against your install. `atomic validate` lints specs and cross-references.
 - **Config/state** — manages `~/.claude/.atomic/config.toml`, follow-ups, install/uninstall.
 
 The binary exists because some operations need to be deterministic, fast, and runnable outside a Claude session. Scanning a repo's tree structure, computing SHA checksums, and managing scheduled jobs are all better done by code than by asking a model.
