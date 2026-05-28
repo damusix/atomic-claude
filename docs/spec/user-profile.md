@@ -229,9 +229,202 @@ Checkpoints 2, 3, 4, 5 each depend only on checkpoint 1. They are independent of
 | User treats profile.md as CLAUDE.md substitute and hand-edits instructions into it | Low | Both files load; the behavior is odd but not broken. The routing paragraph distinguishes the two surfaces. No enforcement needed. |
 
 
+## v2 — Deterministic environment refresh + dev-tooling fingerprint
+
+
+### v2 Non-goal clarification
+
+v1 §Non-goals states *"Not time-tracked. No `last_observed` fields, no staleness clock, no expiry."* That non-goal stands **for conversation-observed sections** (Identity, Work, Active projects, Interests, People mentioned). v2 adds a refresh clock **only to the `<deterministic>` block**, which v1 already excludes from drift detection. The two do not conflict: observed facts remain un-clocked and are never auto-rewritten; the `## Environment` section gains a refresh cadence because it mirrors machine state, not conversation.
+
+
+### v2 Detection registry
+
+A static registry of ~50 known tools, implemented in deterministic Go. The registry is the **sole** source of truth for what gets detected — no LLM discovery, no runtime discovery, no `config.toml` nomination. The registry is extended only by editing the Go source.
+
+| Category | Representative entries |
+|----------|----------------------|
+| Language runtimes | node, python/python3, go, rustc, ruby, java, elixir, deno, bun, php, gcc/clang |
+| Package/build managers | npm, pnpm, yarn, pip, cargo, bundler, mix, maven, gradle, make, bazel |
+| Version managers | nvm, pyenv, rbenv, asdf, mise, rustup, volta, fnm, sdkman |
+| Containers/orchestration | docker, docker-compose, podman, kubectl, helm, k9s, minikube, kind |
+| Monorepo/build | nx, turbo |
+| CLI tools | jq, yq, rg, ast-grep/sg, fd, fzf, gh, git, curl |
+| Cloud | aws, gcloud, az, terraform, pulumi |
+
+Each registry entry specifies: candidate binary name(s), version command, and detection strategy (binary, directory, or both — see §Version-manager detection).
+
+macOS and Linux only. No Windows detection paths.
+
+
+### v2 Version-manager detection
+
+Several version managers (`nvm`, `sdkman`, and others) are **shell functions, not PATH binaries**. `exec.LookPath` returns "not found" even when they are installed. Each registry entry declares its detection strategy:
+
+| Strategy | Mechanism |
+|----------|-----------|
+| `binary` | `exec.LookPath` on the binary name |
+| `directory` | existence check on a known install directory (`~/.nvm`, `~/.pyenv`, `~/.rbenv`, `~/.asdf` or `$ASDF_DIR`, `~/.sdkman`, `~/.volta`, `~/.local/share/mise`) |
+| `both` | binary first; fall back to directory check |
+
+The strategy field is mandatory in the registry. Absence = a detection bug, not a graceful skip.
+
+
+### v2 Provenance
+
+For each detected runtime, record:
+
+1. **Active binary** — the binary that resolves when the tool is invoked in the user's default environment.
+2. **Version** — trimmed first line of the version command output, verbatim. No semver parsing. If the binary exists but the version command errors, record presence with version `unknown`.
+3. **Source class** — classification of the active binary's resolved path:
+
+| Source class | Path signal |
+|---|---|
+| `version-manager` | path under `~/.pyenv/shims`, `~/.asdf/shims`, `~/.nvm/versions`, `~/.rbenv/shims`, volta/fnm dirs |
+| `homebrew` | path under `/opt/homebrew` or `/usr/local` (macOS), or linuxbrew |
+| `system` | `/usr/bin`, `/bin`, `/usr/local/bin` (non-Homebrew) |
+| `other` | anything else; record raw path |
+
+**No version enumeration.** A version-manager user may have many installed pythons; only the active one is recorded. Separately, a presence flag is recorded per installed version manager.
+
+Output shape in the `## Environment` block: `python: 3.12 (pyenv)` for the active runtime; `pyenv: installed` as a standalone entry in the version-managers list.
+
+
+### v2 Shell enumeration
+
+Detected deterministically (filesystem + env reads):
+
+- **Login shell** — value of `$SHELL`.
+- **Shell framework** — `~/.oh-my-zsh` → oh-my-zsh; `~/.zprezto` → prezto; `starship` binary presence → starship. Additional frameworks detectable by known paths.
+- **oh-my-zsh custom plugins and themes** — enumerate files/dirs under `~/.oh-my-zsh/custom/plugins/` and `~/.oh-my-zsh/custom/themes/`.
+
+
+### v2 `<deterministic>` tag attribute
+
+The `<deterministic>` tag gains a `lastcheck` attribute set to the ISO date of the last successful refresh:
+
+```
+<deterministic lastcheck=YYYY-MM-DD>
+```
+
+The attribute is absent in files created by v1 install (before v2 lands). A missing `lastcheck` is treated as infinitely stale by the `--if-stale` gate and by the doctor staleness check.
+
+
+### v2 `atomic profile refresh` subcommand
+
+New user-facing subcommand. Not present in v1.
+
+| Invocation | Behavior |
+|-----------|----------|
+| `atomic profile refresh` | Unconditional: re-detect all registry entries + shell enumeration, rewrite the `## Environment` section wholesale, stamp `lastcheck` with today's date. Exit 0. |
+| `atomic profile refresh --if-stale <dur>` | Self-gating: parse `lastcheck` from the current `## Environment` block; if within the window → no-op, exit 0; else run the unconditional refresh. Duration format: `7d`, `30d`. |
+
+The `--if-stale` gate is deterministic Go. No LLM in the loop.
+
+
+### v2 In-place `## Environment` rewrite
+
+The binary owns the **entire `## Environment` section** — from the `## Environment` heading to the next `##` heading (or EOF) — and rewrites it wholesale on every refresh. Rewrite and recreate are the same operation.
+
+| Case | Behavior |
+|------|----------|
+| Section present (clean) | Replace heading → next-`##` span wholesale |
+| Section present but malformed (half-block, tags stripped) | Same wholesale replace — the anchor is the heading, not the tags; cannot produce duplicates |
+| Section absent (not in the file) | Append a fresh `## Environment` section at EOF |
+| File absent | Recreate the whole file from the stub, then populate |
+
+User-authored sections (Identity, Work, Active projects, Interests, People mentioned) are outside the `## Environment` span and are **never touched** by any refresh operation.
+
+
+### v2 Session-start hook wiring
+
+The existing session-start handler (`cmd/atomic/main.go`, `case "session-start"` → `hooks.SessionStart`) is extended to also invoke `atomic profile refresh --if-stale 7d`. This fires on every Claude Code session open; the `--if-stale` gate makes it a no-op when the env block is fresh.
+
+Tradeoff accepted: a user who never opens a session for >7 days gets a stale block until their next session. Acceptable — the data is only consumed inside a session.
+
+
+### v2 Doctor staleness extension
+
+The existing doctor category 10 (`profile` check in `atomic/internal/doctor/checks_profile.go`) is extended with a third sub-check:
+
+| Sub-check | Condition | Severity |
+|-----------|-----------|----------|
+| File exists | `~/.claude/.atomic/profile.md` absent | WARN |
+| @-ref wired | Ref absent from all three candidate files | WARN |
+| `lastcheck` freshness | `lastcheck` absent or older than 30 days | WARN |
+
+The staleness window (30 days) is a constant in the check, not a config value. If the `lastcheck` attribute is absent (v1-format file), the sub-check always fires as WARN with a message directing the user to run `atomic profile refresh`.
+
+The 30-day doctor-WARN threshold and the 7-day session-start `--if-stale` gate are intentionally different: the session-start gate keeps the env block fresh during active use; the doctor threshold is a longer safety net that fires only when the user hasn't opened a session in a month or more. Implementers must not unify these two constants.
+
+
+### v2 Success criteria
+
+- [ ] `atomic profile refresh` (no flags) re-detects all registry tools, rewrites `## Environment` wholesale, stamps `lastcheck=YYYY-MM-DD`. Exit 0.
+- [ ] `atomic profile refresh --if-stale 7d` is a no-op (exit 0, no file write) when `lastcheck` is within 7 days.
+- [ ] `atomic profile refresh --if-stale 7d` runs a full refresh when `lastcheck` is absent or older than 7 days.
+- [ ] Registry covers all 7 categories (≥ 45 entries). Registry is the sole detection source — no LLM, no config.
+- [ ] Version-manager detection finds nvm/sdkman/etc. via directory check when `exec.LookPath` fails.
+- [ ] Each detected runtime records: version string (trimmed first line), source class (system/version-manager/homebrew/other).
+- [ ] `$SHELL`, shell framework (oh-my-zsh/prezto/starship), and oh-my-zsh custom plugins/themes appear in the refreshed `## Environment` block.
+- [ ] Malformed `## Environment` block (tags stripped, truncated) self-heals on next refresh — no duplicate sections.
+- [ ] File-absent case: refresh recreates the stub file, then populates `## Environment`.
+- [ ] Section-absent case: refresh appends `## Environment` at EOF without touching other sections.
+- [ ] Session-start hook fires `atomic profile refresh --if-stale 7d`; verified by unit test on the hook handler.
+- [ ] Doctor category 10 reports WARN when `lastcheck` is absent; WARN when `lastcheck` is older than 30 days; PASS when fresh.
+- [ ] `atomic profile refresh` appears in CLAUDE.md `## Atomic binary subcommands`, `/atomic-help` topic table + tour, README, `docs/reference/` tables.
+- [ ] `make render && git diff --exit-code` clean after checkpoint 6.
+- [ ] `make -C atomic bundle && git diff --exit-code` clean after checkpoint 6.
+- [ ] `go test ./...` (from `atomic/`) passes after all checkpoints.
+
+
+### v2 Checkpoints
+
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
+|---|-----------|-------------|-------|-----------|---------|
+| 1 | Detection registry + detectors + tests | `atomic/internal/profile/` (extend package): registry definition, binary/directory/both detection, version capture, source-class classification, shell enumeration | `atomic-builder` | 3–5 | `go test ./atomic/internal/profile/...`: registry ≥ 45 entries; nvm found via `~/.nvm`; active python source class correct; trimmed first-line version capture; shell/framework detected |
+| 2 | Render + in-place `## Environment` rewrite + tests | `atomic/internal/profile/` (rewrite engine): heading-anchored wholesale replace, 4-case table (clean / malformed / section-absent / file-absent), `lastcheck` stamp | `atomic-builder` | 2–4 | `go test ./atomic/internal/profile/...`: clean rewrite; malformed self-heals; section-absent appends; file-absent recreates; `lastcheck` attribute written |
+| 3 | `atomic profile refresh` subcommand + `--if-stale` gate + tests | `atomic/cmd/atomic/main.go` (subcommand dispatch), `atomic/internal/profile/` (refresh entry point + stale gate) | `atomic-builder` | 3–5 | `go test ./...`: bare refresh triggers full rewrite; `--if-stale 7d` no-ops within window; `--if-stale` refreshes on stale/absent `lastcheck`; exit codes correct |
+| 4 | Session-start hook wiring + test | `atomic/internal/hooks/hooks.go` (extend `SessionStart`), `atomic/internal/hooks/hooks_test.go` | `atomic-surgeon` | 2 | `go test ./atomic/internal/hooks/...`: `SessionStart` invokes `atomic profile refresh --if-stale 7d`; test mocks the invocation and asserts it fires |
+| 5 | Doctor `lastcheck`-staleness extension + test | `atomic/internal/doctor/checks_profile.go`, `_test.go` | `atomic-surgeon` | 2 | `go test ./atomic/internal/doctor/...`: WARN when `lastcheck` absent; WARN when older than 30 days; PASS when fresh; existing file-exists and @-ref sub-checks still pass |
+| 6 | Mandatory-checklist surfaces | `CLAUDE.md` (binary subcommands section), `templates/commands/atomic-help.md` (topic table + tour), `README.md`, `docs/reference/commands.md` or applicable table; then `make render` + `make -C atomic bundle` + `/refresh-signals` | `atomic-surgeon` | 4–6 | `grep -n 'atomic profile refresh' CLAUDE.md` returns match; same grep in `commands/atomic-help.md` returns match; `grep -n 'atomic profile refresh' docs/reference/commands.md` returns match; `atomic signals stale` exits 0 (signals fresh after `/refresh-signals`); `make render && git diff --exit-code` clean; `make -C atomic bundle && git diff --exit-code` clean |
+
+Checkpoints 1 and 2 are sequential (rewrite engine depends on the detector). Checkpoint 3 depends on 1 and 2. Checkpoints 4 and 5 depend on 3. Checkpoint 6 is last.
+
+
+### v2 Risks
+
+| Risk | Likelihood | Mitigation |
+|------|-----------|------------|
+| Version-manager directory paths drift across OS versions or manager updates | Medium | Registry directory constants are listed explicitly; tests run against tempdir stubs so false-positive coverage is visible. Flag as a known maintenance item. |
+| Wholesale heading-anchored rewrite truncates a user section if the heading parser misidentifies the span boundary | Low | Checkpoint 2 tests include a multi-section fixture; the parser must stop at the next `##` token, not at `EOF` when a next section exists. |
+| `--if-stale` duration parsing is lenient and accepts unexpected formats silently | Low | Accept only `<N>d` format; return an explicit parse error for anything else. |
+| Session-start hook adds latency on every session open (even when no-op) | Low | The `--if-stale` path reads only the `lastcheck` attribute from the file header; no detection runs. Fast file read only. |
+| Registry grows unbounded; detection on slower machines takes perceptible time | Low | Parallelise detections (all LookPath + Stat calls concurrent). Cap at 60 entries initially; revisit at next registry expansion. |
+| Doctor `lastcheck` WARN fires immediately after install (v1-format files have no `lastcheck`) | Medium | WARN message must direct user to `atomic profile refresh`, not imply a broken install. Wording is load-bearing. |
+| `atomic profile refresh` subcommand added without completing mandatory checklist | Medium | Checkpoint 6 is the dedicated checklist checkpoint; reviewer gate is required before closing. |
+
+
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. -->
+### 2026-05-28 — v2 deterministic env refresh + dev-tooling fingerprint
+
+**What changed:** Added v2 contract sections: detection registry (7 categories, ~50 tools, registry-is-sole-source), version-manager shell-function detection (binary/directory/both strategy), provenance model (active runtime + source class + per-manager presence flag), version capture (trimmed first line, no parsing), shell enumeration (`$SHELL` + framework + oh-my-zsh custom), `<deterministic lastcheck=YYYY-MM-DD>` attribute, `atomic profile refresh [--if-stale <dur>]` subcommand semantics, in-place `## Environment` heading-anchored wholesale rewrite (4-case table), session-start hook wiring, doctor `lastcheck`-staleness extension. Added v2 success criteria, checkpoints (6), and risks.
+
+**Why:** v1 env capture was install-only and covered only 5 static fields (git user, OS, arch, CPU). Users need a periodically-refreshed dev-tooling fingerprint so Claude can steer correctly (version managers in play, active runtime vs. system-installed, shell framework, containers/cloud tooling). All v2 decisions were locked via `/gather-evidence` + `/pressure-test` on 2026-05-28.
+
+**Superseded:** v1 §Non-goals "Not time-tracked" is narrowed — the non-goal now applies only to conversation-observed sections (Identity, Work, Active projects, Interests, People). The `<deterministic>` block gains a refresh clock. The v2 non-goal clarification section above makes this explicit so the two do not read as contradictions.
+
+
+### 2026-05-28 — v2 spec reviewer fixes (CP6 Verifies + threshold intent)
+
+**What changed:** Three amendments to the v2 section only.
+1. v2 CP6 Verifies column now asserts `grep -n 'atomic profile refresh' docs/reference/commands.md` returns a match (was missing).
+2. v2 CP6 Verifies column now asserts `atomic signals stale` exits 0 after `/refresh-signals` (signals-refresh step was unverifiable as written).
+3. Added one sentence after the doctor staleness window paragraph making the intentional split between the 7d session-start gate and the 30d doctor-WARN threshold explicit, so an implementer does not unify them.
+
+**Why:** Reviewer VERDICT: CHANGES_REQUESTED — missing doc-update assertion in CP6, missing signals-refresh verifiability, and implicit threshold distinction that an implementer could reasonably collapse.
+
+**Superseded:** CP6 Verifies cell prior text (no doc-reference grep, no signals-stale assertion).
 
 
 ## Implementation log
