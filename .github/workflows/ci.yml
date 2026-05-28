@@ -2,7 +2,13 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
+    # Run push-CI on every human branch, but NOT release-please's bot branch.
+    # That branch is `old-main + release-commit`; its tip in isolation is never
+    # a meaningful state and goes stale-red whenever a fix lands on main after
+    # the release PR was cut. The pull_request trigger below still gates it on
+    # the merge-into-main result, which always reflects current main.
+    branches-ignore:
+      - "release-please--branches--**"
   pull_request:
     branches: [main]
 
