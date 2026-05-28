@@ -274,6 +274,34 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
 
 
+## Release-please conventional commit types — hard rules
+
+
+This repo uses [release-please](https://github.com/googleapis/release-please) to generate the changelog and tag releases. Its default `changelog-sections` config **filters out** several conventional-commit types. Anything filtered ships invisibly — it lands in `git log` but never appears in the release notes for `CHANGELOG.md` or the GitHub release body.
+
+
+**Visible in changelog:** `feat:`, `fix:`, `perf:`. The `!` marker on any of these (e.g. `feat!:`, `fix!:`) also triggers a major version bump and adds a `BREAKING CHANGES` section.
+
+
+**Filtered (invisible by default):** `refactor:`, `chore:`, `docs:`, `test:`, `style:`, `build:`, `ci:`, `revert:`. release-please drops these from the rendered changelog even though they still contribute to the diff between versions.
+
+
+**Implication: choose the commit type by user-visible impact, not by code-shape.**
+
+
+- New behavior, new commands, new artifacts → `feat:`
+- Bug fix → `fix:`
+- Breaking change of any kind (removed command, renamed flag, schema migration, behavior incompatibility) → `fix!:` (preferred) or `feat!:`. The `!` is what makes it visible AND bumps semver to major.
+- Pure code restructure that ships zero user-visible delta → `refactor:` is honest but accept it will not appear in the release log
+- Non-user-visible cleanup (lint, formatting, doc-only updates that don't ship) → `chore:` / `style:` / `docs:` as appropriate, accept invisibility
+
+
+**When bundling many concerns into one commit, the type applies to the whole commit.** A single commit that adds a feature AND breaks a contract AND does cleanup must be labeled by the highest-impact concern. Default: if the commit removes/renames anything user-touchable, use `fix!:`. If it adds new behavior without breaking anything, use `feat:`. Never `refactor:` for a commit that ships new commands, new agents, or new skills — that work disappears from the changelog.
+
+
+**Real example from this repo.** Commit `55d98a7 refactor: collapse signals/voice/axiom-2 architecture, add /atomic-improve and /gather-evidence` shipped 94 files including two new commands, one removed command (`/atomic-compress`), a removed skill (`atomic-signals` → consumed by an agent), and a renamed verb (`/initialize-signals` → `/refresh-signals`). All of it was invisible in v1.10.0's changelog because the `refactor:` prefix was filtered. The fix required a history rewrite to relabel the commits. Avoid this by labeling at commit-write time.
+
+
 ## Naming
 
 - All custom artifacts use the `atomic-` prefix (`atomic-builder`, `atomic-tdd`, `atomic-commit`, etc.) so they're easy to spot among third-party installs.
