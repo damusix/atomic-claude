@@ -31,6 +31,6 @@ These handle system-level tasks.
 | Agent | What it does | Model |
 |-------|-------------|-------|
 | `atomic-git-scout` | Scans for stale worktrees, branches, and remote tracking refs. Classifies each as safe-to-delete, needs-confirmation, or skip. Used by `/git-cleanup`. | Sonnet |
-| `atomic-signals-inferrer` | Reads the deterministic scan and writes the inferred signals file. On large repos, dispatches sub-agents per domain. | Sonnet |
+| `atomic-signals-inferrer` | Owns the full signals pipeline: scans the repo via `atomic signals scan`, infers domain structure, writes `signals.md` (and per-domain files on large repos), wires the `@-ref` into `CLAUDE.md`. Dispatched by `/refresh-signals` and silently by ship verbs. | Sonnet |
 | `atomic-haiku` | Lightweight background runner for CI polling, log scraping, and status checks. Used by `/watch-ci`. | Haiku |
 | `atomic-claude-merger` | Reconciles your `CLAUDE.md` with updates from an install or upgrade. Preserves your sections, replaces atomic-owned ones. | Sonnet |

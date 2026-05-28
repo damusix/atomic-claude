@@ -77,6 +77,6 @@ None. The workflow domain is purely Claude Code artifacts — commands, agents, 
 - **→ bundle**: all ship verb commands are rendered from `templates/commands/` + `templates/shared/` partials. Ship verb changes require editing template sources, running `make render`, then `make bundle`. The `commands/_templates/` prompt partials ship in the bundle and are consumed at runtime.
 - **→ bundle**: all workflow agents (`atomic-builder`, `atomic-surgeon`, etc.) ship in the bundle via `agents/atomic-*.md` bundlespec rule. Renaming or adding an agent requires `make bundle`.
 - **→ bundle**: all workflow skills ship in the bundle via `skills/atomic-*/` bundlespec rule. Adding a new skill directory requires `make bundle`.
-- **→ signals**: ship verbs invoke the `atomic-signals` skill after staged changes touch source files. This is a cross-cutting wiring rule — all ship verbs must fire signals refresh on source-tree changes.
+- **→ signals**: ship verbs dispatch `atomic-signals-inferrer` in silent mode (via signals-gate partial) after staged changes touch source files. This is a cross-cutting wiring rule — all ship verbs must fire signals refresh on source-tree changes.
 - **→ config**: `/subagent-implementation` Phase 3 `defer` block shells out to `atomic followups add`. Follow-up schema changes (config domain) affect what the defer block produces.
 - **→ docs-meta**: ship verbs trigger `atomic-documentation` on staged diffs. If the documentation skill's output contract changes, ship verb templates must be updated.

@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-26T15:10:14Z
+generated_at: 2026-05-28T13:38:28Z
 source: .claude/project/deterministic-signals.md
 ---
 
@@ -57,12 +57,12 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 
 | Domain | Repo paths | One-liner | Detail |
 |--------|------------|-----------|--------|
-| signals | `skills/atomic-signals/`, `agents/atomic-signals-inferrer.md`, `commands/refresh-signals.md`, `atomic/internal/signals/`, `atomic/internal/doctor/checks_signals.go`, `atomic/internal/doctor/checks_refs.go`, `docs/spec/signals-*.md` | Scan → infer → wire: project context generation pipeline | .claude/project/signals/signals.md |
+| signals | `agents/atomic-signals-inferrer.md`, `commands/refresh-signals.md`, `atomic/internal/signals/`, `atomic/internal/doctor/checks_signals.go`, `atomic/internal/doctor/checks_refs.go`, `docs/spec/signals-*.md` | Scan → infer → wire: project context generation pipeline | .claude/project/signals/signals.md |
 | bundle | `templates/`, `commands/`, `agents/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`, `atomic/internal/bundlespec/`, `atomic/internal/bundlemirror/`, `atomic/internal/embedded/`, `atomic/internal/templaterender/`, `atomic/internal/claudeinstall/` (install + snapshot + uninstall), `atomic/cmd/bundle-mirror/`, `atomic/cmd/render-templates/`, `docs/spec/uninstall.md`, `docs/design/uninstall.md` | Template render → bundle embed → install/uninstall into ~/.claude | .claude/project/signals/bundle.md |
 | doctor | `atomic/internal/doctor/`, `atomic/internal/validate/`, `atomic/internal/manifestcheck/`, `atomic/internal/updatedoctor/`, `docs/spec/atomic-doctor.md`, `docs/spec/atomic-validate.md`, `docs/spec/atomic-update-doctor.md` | 9-check integrity suite + static validation + post-update auto-fire | .claude/project/signals/doctor.md |
-| workflow | `commands/atomic-plan.md`, `commands/subagent-implementation.md`, `commands/subagent-diagnose.md`, `commands/atomic-setup.md`, `commands/atomic-improve.md`, ship verbs (`commands/commit-*.md`, `commands/push-only.md`, etc.), `commands/_templates/`, `agents/atomic-builder.md`, `agents/atomic-surgeon.md`, `agents/atomic-reviewer.md`, `agents/atomic-investigator.md`, `agents/atomic-strategist.md`, `skills/atomic-tdd/`, `skills/atomic-verify/`, `skills/atomic-commit/`, `skills/atomic-review/`, `skills/atomic-debug/` | Plan → implement → review → ship → retrospective lifecycle | .claude/project/signals/workflow.md |
+| workflow | `commands/atomic-plan.md`, `commands/gather-evidence.md`, `commands/subagent-implementation.md`, `commands/subagent-diagnose.md`, `commands/atomic-setup.md`, `commands/atomic-improve.md`, ship verbs (`commands/commit-*.md`, `commands/push-only.md`, etc.), `commands/_templates/`, `agents/atomic-builder.md`, `agents/atomic-surgeon.md`, `agents/atomic-reviewer.md`, `agents/atomic-investigator.md`, `agents/atomic-strategist.md`, `skills/atomic-tdd/`, `skills/atomic-verify/`, `skills/atomic-commit/`, `skills/atomic-review/`, `skills/atomic-debug/` | Plan → gather-evidence → implement → review → ship → retrospective lifecycle | .claude/project/signals/workflow.md |
 | config | `commands/follow-up.md`, `commands/remind-me.md`, `commands/git-cleanup.md`, `commands/watch-ci.md`, `commands/atomic-claude-merge.md`, `agents/atomic-git-scout.md`, `agents/atomic-haiku.md`, `agents/atomic-claude-merger.md`, `atomic/internal/config/`, `atomic/internal/hooks/`, `atomic/internal/reminder/`, `atomic/internal/followups/`, `atomic/internal/prompt/`, `atomic/internal/selfupdate/` | User config, state dir, session hooks, reminders, follow-ups, self-update | .claude/project/signals/config.md |
-| docs-meta | `output-styles/atomic.md`, `skills/atomic-documentation/`, `skills/atomic-prose/`, `commands/documentation.md`, `commands/atomic-compress.md`, `.claude/docs/axioms.md`, `.claude/docs/agent-config.md`, `docs/spec/documentation-skill-split.md`, `docs/spec/documentation-as-maintenance.md` | Four-voice taxonomy, diff-driven surface routing, prose style, design axioms | .claude/project/signals/docs-meta.md |
+| docs-meta | `output-styles/atomic.md`, `skills/atomic-documentation/`, `skills/atomic-prose/`, `commands/documentation.md`, `.claude/docs/axioms.md`, `.claude/docs/agent-config.md`, `docs/spec/documentation-skill-split.md`, `docs/spec/documentation-as-maintenance.md` | Two-voice taxonomy, diff-driven surface routing, prose style, design axioms | .claude/project/signals/docs-meta.md |
 
 ## Cross-cutting
 
@@ -80,7 +80,7 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 
 **Artifact additions checklist**: adding any new command/agent/skill requires updating the artifact file, `CLAUDE.md`, `CLAUDE.md`, `README.md`, relevant `docs/reference/` tables, `docs/spec/<topic>.md` if non-trivial, cross-references in other artifacts, running `make render` and `make bundle`, and `/refresh-signals`. See `claude.local.md` for the full checklist with per-row guidance.
 
-**`/refresh-signals` is the single idempotent entry point**: `/initialize-signals` was removed. `/refresh-signals` handles both first-run init and subsequent refreshes.
+**`/refresh-signals` is the single idempotent entry point**: `/initialize-signals` was removed (commit 4011b30). `/refresh-signals` handles both first-run init and subsequent refreshes. The `atomic-signals` skill was removed and absorbed into `atomic-signals-inferrer` — the agent now owns the full pipeline (scan + infer + wire).
 
 **Uninstall feature**: `atomic/internal/claudeinstall/` contains `snapshot.go`, `snapshot_internal_test.go`, `snapshot_test.go`, `uninstall.go`, `uninstall_test.go`. Spec at `docs/spec/uninstall.md`, design at `docs/design/uninstall.md`. Implements `atomic claude uninstall` — reads pre-install snapshot, computes restore plan, LLM-merges modified files.
 

@@ -1,3 +1,8 @@
 {
-  "outputStyle": "Atomic"
+  "outputStyle": "Atomic",
+  "permissions": {
+    "allow": [
+      "Bash(go *)"
+    ]
+  }
 }
