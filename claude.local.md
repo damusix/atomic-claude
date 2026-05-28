@@ -302,6 +302,21 @@ This repo uses [release-please](https://github.com/googleapis/release-please) to
 **Real example from this repo.** Commit `55d98a7 refactor: collapse signals/voice/axiom-2 architecture, add /atomic-improve and /gather-evidence` shipped 94 files including two new commands, one removed command (`/atomic-compress`), a removed skill (`atomic-signals` → consumed by an agent), and a renamed verb (`/initialize-signals` → `/refresh-signals`). All of it was invisible in v1.10.0's changelog because the `refactor:` prefix was filtered. The fix required a history rewrite to relabel the commits. Avoid this by labeling at commit-write time.
 
 
+When the release-please **branch or PR CI** breaks (stale-based branch re-failing things already fixed on main, missing changelog work, drift gates), use the `atomic-release-ci` skill — it encodes the diagnosis and the per-cause fix. See "Contributor-only skills" below.
+
+
+## Contributor-only skills
+
+
+These live under `.claude/skills/`, auto-load for sessions in this repo, and are **never bundled or installed** (`atomic/internal/bundlemirror/mirror.go` ships only `skills/atomic-*/` at the repo root). Each needs an explicit negation pair in `.gitignore` (the `.claude/skills/*` line ignores the dir by default).
+
+
+| Skill | Fires on | Purpose |
+|-------|----------|---------|
+| `atomic-cli-contrib` | "add a CLI subcommand", "add a doctor check", "render templates", "edit commands/" | Conventions for editing the `atomic` Go CLI and command artifacts (prompt layer, testable seams, render/bundle pipeline). |
+| `atomic-release-ci` | "release-please CI is failing", "release branch is out of date", "release PR is red", "fix the release CI" | Diagnose + fix broken release-please branch/PR CI. Cross-references the release-please commit-type rules above (cause 3 = commit-type mislabel). |
+
+
 ## Naming
 
 - All custom artifacts use the `atomic-` prefix (`atomic-builder`, `atomic-tdd`, `atomic-commit`, etc.) so they're easy to spot among third-party installs.
