@@ -1,6 +1,7 @@
 package claudeinstall_test
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
@@ -497,6 +498,100 @@ func TestApply_PreserveExistingResolvedConfig(t *testing.T) {
 	}
 	if string(after) != string(existingContent) {
 		t.Errorf("Apply overwrote config.resolved.md: got %q, want %q", after, existingContent)
+	}
+}
+
+// TestInstall_CreatesProfileStub: Install creates profile.md under .atomic/ on first install.
+// The file must exist and contain all six schema sections.
+func TestInstall_CreatesProfileStub(t *testing.T) {
+	target := t.TempDir()
+
+	if _, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	profilePath := filepath.Join(target, ".atomic", "profile.md")
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatalf("profile.md not created: %v", err)
+	}
+
+	for _, section := range []string{"## Identity", "## Work", "## Active projects", "## Interests", "## People mentioned", "## Environment"} {
+		if !strings.Contains(string(data), section) {
+			t.Errorf("profile.md missing section %q", section)
+		}
+	}
+}
+
+// TestInstall_ProfileStubIdempotent: Install must not overwrite profile.md when it already exists.
+// This ensures user edits are preserved across subsequent installs / updates.
+func TestInstall_ProfileStubIdempotent(t *testing.T) {
+	target := t.TempDir()
+
+	// Pre-create profile.md with custom user content.
+	atomicDir := filepath.Join(target, ".atomic")
+	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	profilePath := filepath.Join(atomicDir, "profile.md")
+	userContent := []byte("# My custom profile\n\nPersonal facts.\n")
+	if err := os.WriteFile(profilePath, userContent, 0o644); err != nil {
+		t.Fatalf("write existing profile.md: %v", err)
+	}
+
+	if _, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	after, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatalf("read profile.md: %v", err)
+	}
+	if !bytes.Equal(after, userContent) {
+		t.Errorf("Install overwrote profile.md: got %q, want %q", after, userContent)
+	}
+}
+
+// TestInstall_PrintsNudgeOnFirstCreate: Install prints the full bootstrap nudge to stdout
+// when profile.md is created for the first time. The exact text is the spec-mandated
+// verbatim string from claudeinstall.ProfileNudge — no paraphrasing allowed.
+func TestInstall_PrintsNudgeOnFirstCreate(t *testing.T) {
+	target := t.TempDir()
+
+	var buf bytes.Buffer
+	_, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &buf)
+	if err != nil {
+		t.Fatalf("InstallWithOutput: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), claudeinstall.ProfileNudge) {
+		t.Errorf("stdout nudge not printed on first install\ngot:  %q\nwant: %q", buf.String(), claudeinstall.ProfileNudge)
+	}
+}
+
+// TestInstall_SuppressesNudgeWhenAlreadyExists: Install must not print the nudge
+// when profile.md already exists (idempotent no-op path).
+func TestInstall_SuppressesNudgeWhenAlreadyExists(t *testing.T) {
+	target := t.TempDir()
+
+	// Pre-create profile.md so ensureProfileStub is a no-op.
+	atomicDir := filepath.Join(target, ".atomic")
+	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(atomicDir, "profile.md"), []byte("existing\n"), 0o644); err != nil {
+		t.Fatalf("write existing: %v", err)
+	}
+
+	var buf bytes.Buffer
+	_, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &buf)
+	if err != nil {
+		t.Fatalf("InstallWithOutput: %v", err)
+	}
+
+	const nudge = "Profile created at"
+	if strings.Contains(buf.String(), nudge) {
+		t.Errorf("nudge must not print when profile.md already exists\nstdout: %q", buf.String())
 	}
 }
 

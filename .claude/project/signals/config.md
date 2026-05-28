@@ -27,7 +27,7 @@ User config, state directory, session hooks, reminders, follow-ups, and git stat
 
 - `atomic/internal/config/config.go` — TOML-backed user config. Load/validate/persist. v1 schema: `output.intensity` (`lite|full|ultra`, default `full`), `output.signals.max_depth` (int, default 3), `update.run_doctor` (bool, default `true`). Atomic write via `os.Rename`. Levenshtein typo-suggestion on unknown key names. Raw-map presence check distinguishes absent `update.run_doctor` (default `true`) from explicit `false`.
 - `atomic/internal/config/cli.go` — `atomic config get|set|unset|list|path` subcommand dispatch.
-- `atomic/internal/config/paths.go` — canonical path functions: `TOMLPath`, `ResolvedPath`, `BackupDir`, `ProposedCLAUDEMD`. Single source of truth for all `~/.claude/.atomic/` path derivation.
+- `atomic/internal/config/paths.go` — canonical path functions: `TOMLPath`, `ResolvedPath`, `BackupDir`, `ProposedCLAUDEMD`, `ProfilePath`, `ProfileRelPath`. Single source of truth for all `~/.claude/.atomic/` path derivation. `ProfilePath(claudeHome)` returns the disk path to `~/.claude/.atomic/profile.md`; `ProfileRelPath()` returns the claudeHome-relative constant `.atomic/profile.md`.
 - `atomic/internal/config/render.go` — renders resolved config values to `~/.claude/.atomic/config.resolved.md` (the markdown snapshot `@`-ref'd from bundled `CLAUDE.md`).
 - `atomic/internal/hooks/hooks.go` + `hooks_hujson.go` — session-start hook payload generation and install/uninstall. `hooks_hujson.go` uses `github.com/tailscale/hujson` for lenient JSON parsing of `settings.json`.
 - `atomic/internal/reminder/reminder.go` — file-based reminder CRUD. Stored in repo root. `atomic reminder add|list|show|rm`.
@@ -43,6 +43,7 @@ User config, state directory, session hooks, reminders, follow-ups, and git stat
 | `config.resolved.md` | Rendered markdown snapshot, `@`-ref'd from bundled `CLAUDE.md` |
 | `backups/<ts>/` | Files replaced during `atomic claude install/update` |
 | `proposed/CLAUDE.md` | Proposed merge target when installed `CLAUDE.md` diverges |
+| `profile.md` | User profile stub written at install time by `atomic/internal/profile.RenderStub`. Sections: Identity (`<stable>`), Work (`<volatile>`), Active projects (`<volatile>`), Interests (`<stable>`), People mentioned (`<volatile>`), Environment (`<deterministic>`). |
 
 **Follow-ups folder (`.claude/project/followups/`):**
 

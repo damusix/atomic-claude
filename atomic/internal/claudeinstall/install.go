@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
+	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
 
 // Clock allows injecting a fixed time in tests.
@@ -130,6 +132,32 @@ func ensureResolvedConfigStub(targetDir string) error {
 	return os.WriteFile(resolvedPath, []byte{}, 0o644)
 }
 
+// ProfileNudge is the bootstrap message printed to stdout when profile.md is
+// created for the first time. Tests reference this constant to avoid duplicating
+// the verbatim string.
+const ProfileNudge = "Profile created at ~/.claude/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /atomic-improve to review drift."
+
+// ensureProfileStub creates <targetDir>/.atomic/profile.md with the initial schema
+// template if it does not already exist. Idempotent: leaves any existing content untouched.
+// When the file is created, it prints a bootstrap nudge to out.
+// Returns (true, nil) when the file was created, (false, nil) when it already existed.
+func ensureProfileStub(targetDir string, out io.Writer) (bool, error) {
+	profilePath := config.ProfilePath(targetDir)
+	if _, err := os.Stat(profilePath); err == nil {
+		return false, nil // already exists — leave it alone
+	}
+	if err := os.MkdirAll(filepath.Dir(profilePath), 0o755); err != nil {
+		return false, fmt.Errorf("mkdir for profile.md: %w", err)
+	}
+	e := profile.CaptureEnv()
+	content := profile.RenderStub(e)
+	if err := os.WriteFile(profilePath, []byte(content), 0o644); err != nil {
+		return false, fmt.Errorf("write profile.md: %w", err)
+	}
+	fmt.Fprintln(out, ProfileNudge)
+	return true, nil
+}
+
 func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp string) error {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(fa.Artifact.Target))
 
@@ -185,16 +213,23 @@ func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp 
 }
 
 // Install computes and applies the install plan. Equivalent to Update — same semantics.
+// Profile nudge goes to os.Stdout.
 func Install(targetDir string, dryRun bool, clock Clock) ([]FileAction, error) {
-	return installOrUpdate(targetDir, dryRun, clock)
+	return installWithOutput(targetDir, dryRun, clock, os.Stdout)
+}
+
+// installWithOutput is Install with a configurable writer for the profile bootstrap nudge.
+// Unexported — exported via export_test.go for test use only.
+func installWithOutput(targetDir string, dryRun bool, clock Clock, out io.Writer) ([]FileAction, error) {
+	return installOrUpdate(targetDir, dryRun, clock, out)
 }
 
 // Update is the same flow as Install.
 func Update(targetDir string, dryRun bool, clock Clock) ([]FileAction, error) {
-	return installOrUpdate(targetDir, dryRun, clock)
+	return installOrUpdate(targetDir, dryRun, clock, os.Stdout)
 }
 
-func installOrUpdate(targetDir string, dryRun bool, clock Clock) ([]FileAction, error) {
+func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) ([]FileAction, error) {
 	manifest := embedded.Manifest()
 
 	// Capture pre-install state before any files are written. Write-once: if the
@@ -211,6 +246,16 @@ func installOrUpdate(targetDir string, dryRun bool, clock Clock) ([]FileAction, 
 	}
 	if err := Apply(targetDir, plan, dryRun, clock); err != nil {
 		return nil, err
+	}
+	if !dryRun {
+		// ensureProfileStub is intentionally called here (install/update level),
+		// NOT inside Apply. Apply handles bundle artifacts; profile.md is user-data
+		// that should never be overwritten by a plain Apply call (e.g. a dry-run
+		// caller or a future Apply-only code path). Keeping it here ensures the file
+		// is only created when a real install/update is requested.
+		if _, err := ensureProfileStub(targetDir, out); err != nil {
+			return nil, err
+		}
 	}
 	return plan, nil
 }

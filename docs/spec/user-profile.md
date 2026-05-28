@@ -232,3 +232,42 @@ Checkpoints 2, 3, 4, 5 each depend only on checkpoint 1. They are independent of
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. -->
+
+
+## Implementation log
+
+
+### v1.0 — 2026-05-28
+
+
+Built across 8 iterations of `/subagent-implementation` (6 checkpoints, 2 polish batches).
+
+Commits on `feat/user-profile` (chronological):
+
+- `1459eb4` — CP1: install stub + env capture (`config.ProfilePath`, new `atomic/internal/profile` package, `ensureProfileStub` in install flow, stdout nudge on first create).
+- `d11b249` — CP2: CLAUDE.md @-ref + routing paragraph inside the `<atomic>` block. Bundle regenerated.
+- `0ce69c1` — CP3: `/atomic-improve` template additions (discovery brief catalog, history brief profile-drift detection, Phase 6 walk branch with 4-option set).
+- `b74e36a` — CP4: uninstall preservation guard in `BuildUninstallPlan` + change-log entry on `docs/spec/uninstall.md`.
+- `fb5623f` — CP5: doctor `profile` check (category 10, severity WARN), CLAUDE.md count update, `atomic-doctor` spec amendment, `--fix` deferral.
+- `ec289f1` — CP6: docs surfaces (README "What you get", `docs/guides/install.md` after-install note, `docs/reference/concepts.md` reference section).
+- `14228f2` — Polish A: Go follow-ups (F-1, F-2, F-3, F-4, F-8, F-9, F-10).
+- `424da39` — Polish B: docs follow-ups (F-5, F-6, F-7, F-11).
+
+**Out-of-scope work performed during this build:**
+
+- None. Every iteration stayed within its checkpoint scope; cross-cutting changes (e.g. CLAUDE.md "ten checks" descriptor in CP5) were intentional and surfaced by the reviewer at the correct iteration.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- CP3 reviewer caught a contract gap missed during spec authoring: the Phase 6 walk needed a profile-drift branch with the 4-option set (`Accept new / Modify / Keep both / Skip`); the iter-1 implementer only wired data capture, not the user-facing prompt. Fixed in CP3 iter 2 without spec amendment (the spec already mandated the 4-option set; the implementation simply hadn't carried it through).
+- CP5 reviewer found three documentation gaps the brief missed: CLAUDE.md doctor subcommand descriptor (nine → ten), `docs/spec/atomic-doctor.md` table row + change-log, and a misleading "unknown category" message in `fix.go`'s `repairPlan` default branch for `--fix profile`. All three closed in CP5 iter 2.
+
+**`--fix` for the doctor profile check is deferred:**
+
+- `repairPlan` returns `fixable=false` with a user-actionable message ("run `atomic claude install`"). `applyRepair` has a companion `case "profile"` returning a not-yet-implemented error as a defensive coupling. Auto-repair of the @-ref leg is intentionally out of scope because `~/.claude/CLAUDE.md` is bundle-source-driven; inserting at the installed copy diverges from the bundle on next install/update.
+
+**Deferred items still open:**
+
+- None. All 11 follow-ups from the 8 CP iterations were dispositioned `fix-now` and landed in Polish A (commit `14228f2`) and Polish B (commit `424da39`). No items promoted to `.claude/project/followups/` and no GitHub issues filed for this feature.
+
+**Merged into main as `69b6ce9` — 2026-05-28.**

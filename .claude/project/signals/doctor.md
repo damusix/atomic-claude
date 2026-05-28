@@ -2,7 +2,7 @@
 
 ## What it does
 
-Integrity check suite (`atomic doctor`) and static validation (`atomic validate`). Runs 9 deterministic checks verifying install coherence, hooks, signals freshness, @-ref wiring, manifest parity, follow-ups, memory, binary version, and config. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`.
+Integrity check suite (`atomic doctor`) and static validation (`atomic validate`). Runs 10 deterministic checks verifying install coherence, hooks, signals freshness, @-ref wiring, manifest parity, follow-ups, memory, binary version, config, and user profile wiring. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`.
 
 ## Artifacts
 
@@ -35,6 +35,9 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 | 7 | memory | `checks_memory.go` | WARN |
 | 8 | binary | `checks_binary.go` | WARN |
 | 9 | config | `checks_config.go` | WARN |
+| 10 | profile | `checks_profile.go` | WARN |
+
+`checks_profile.go` (category 10) checks two conditions: (1) `~/.claude/.atomic/profile.md` exists on disk; (2) `@~/.claude/.atomic/profile.md` appears in one of the candidate CLAUDE files (same `candidateFiles` search order as `checkRefs`, but rooted at `claudeHome`). Returns WARN (not FAIL) — profile absence is degraded experience, not a broken install. `ProfileRef` const is exported for test use. `RunCheckProfileWith(claudeHome)` is the injectable seam used by tests. `config.ProfilePath` / `config.ProfileRelPath` derive the disk path.
 
 `checks_refs.go` (hash `477404b`) checks for `@.claude/project/signals.md` only. The prior bug (checking for `inferred-signals.md`) is resolved. Candidate files searched in order: `claude.local.md`, `CLAUDE.local.md`, `CLAUDE.md`, `claude.md`.
 
@@ -71,6 +74,8 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 - `docs/spec/atomic-update-doctor.md` — post-update doctor auto-fire contract. Specifies skip indices `[3, 8]`, panic recovery, exit code preservation.
 - `docs/design/atomic-doctor.md` — design rationale for the 9-check architecture.
 - `docs/design/atomic-validate.md` — design rationale for the validate subcommand.
+- `docs/spec/user-profile.md` — contract for the user profile feature: schema, sections, `<stable>`/`<volatile>`/`<deterministic>` tag semantics, install-time stub generation.
+- `docs/design/user-profile.md` — design rationale for user profile capture and stub rendering.
 
 ## Coupling
 
@@ -81,3 +86,5 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 - **→ config**: `updatedoctor` skip indices `[3, 8]` are hardcoded. Adding or renumbering doctor categories requires updating `updatedoctor.go` to match.
 - **→ workflow**: `checks_followups.go` imports `atomic/internal/followups`. Follow-up schema changes (config domain) affect what doctor accepts as valid.
 - **→ docs-meta**: `format.FormatResultLine` is a shared output primitive. Changing it affects both `FormatHuman` (full doctor) and `updatedoctor` (post-update FAIL-only).
+- **→ config**: `checks_profile.go` calls `config.ProfilePath` and `config.ProfileRelPath`. Adding new profile-related paths to `atomic/internal/config/paths.go` (config domain) requires checking whether `checkProfile` needs updating.
+- **→ bundle**: `atomic/internal/profile/` is called by `atomic/internal/claudeinstall/install.go` at install time to generate the profile stub. Changes to `RenderStub` or `CaptureEnv` (profile package) affect what gets written to `~/.claude/.atomic/profile.md` on fresh install.

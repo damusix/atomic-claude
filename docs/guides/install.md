@@ -50,6 +50,10 @@ The installer prints two manual steps it cannot automate:
 1. **Activate the output style** — run `/config` in Claude Code, select **Output style**, pick **Atomic**
 2. **Scan your project** — run `/refresh-signals` in each repo where you want project-state awareness
 
+On first install, the binary also creates `~/.claude/.atomic/profile.md` and prints a one-line nudge. The file starts with your git name, email, OS, architecture, and CPU count filled in from the environment. The remaining sections are empty; Claude fills them in as facts surface naturally in conversation. You do not need to edit the file by hand.
+
+`atomic claude uninstall` preserves `profile.md`. It is user data with no pre-install counterpart, so the uninstall plan never touches it. After uninstall, the file stays on disk; the `@`-ref that loads it into sessions is removed along with the rest of the atomic-owned block in `~/.claude/CLAUDE.md`.
+
 From here, you are ready to work. See the [workflow guide](/reference/workflow) for what comes next.
 
 

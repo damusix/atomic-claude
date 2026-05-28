@@ -331,6 +331,101 @@ func TestGenerateUninstallPrompt_KeyStructure(t *testing.T) {
 	}
 }
 
+// TestBuildUninstallPlan_ProfileMdExcluded verifies that .atomic/profile.md is
+// excluded from both the Restore and Delete lists even when a synthetic manifest
+// includes it with Existed=false. Profile is user-data written post-install by
+// ensureProfileStub; uninstall must never delete it.
+func TestBuildUninstallPlan_ProfileMdExcluded(t *testing.T) {
+	targetDir := t.TempDir()
+	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
+
+	// Synthetic manifest that includes profile.md (Existed=false → would normally Delete).
+	// Also include a normal atomic artifact so we can verify Delete still works for others.
+	writeTestManifest(t, preInstallDir, []map[string]interface{}{
+		{"path": ".atomic/profile.md", "sha256": "", "existed": false},
+		{"path": "agents/atomic-builder.md", "sha256": "", "existed": false},
+	})
+
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	if err != nil {
+		t.Fatalf("BuildUninstallPlan: %v", err)
+	}
+
+	// profile.md must not appear in Delete.
+	for _, p := range plan.Delete {
+		if p == ".atomic/profile.md" {
+			t.Errorf("Delete list contains .atomic/profile.md — must be excluded to preserve user data")
+		}
+	}
+
+	// profile.md must not appear in Restore either.
+	for _, r := range plan.Restore {
+		if r.RelPath == ".atomic/profile.md" {
+			t.Errorf("Restore list contains .atomic/profile.md — must be excluded to preserve user data")
+		}
+	}
+
+	// Normal atomic artifact should still be in Delete.
+	found := false
+	for _, p := range plan.Delete {
+		if p == "agents/atomic-builder.md" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Delete list missing agents/atomic-builder.md — non-profile entries should still be deleted")
+	}
+}
+
+// TestBuildUninstallPlan_ProfileMdExcluded_ExistedTrue verifies that .atomic/profile.md
+// is excluded from both Restore and Delete even when the manifest entry has Existed=true
+// with a populated SHA. The guard fires before the Existed branch, so both paths are
+// covered: this test locks the Existed=true coverage; TestBuildUninstallPlan_ProfileMdExcluded
+// covers Existed=false.
+func TestBuildUninstallPlan_ProfileMdExcluded_ExistedTrue(t *testing.T) {
+	targetDir := t.TempDir()
+	preInstallDir := filepath.Join(targetDir, ".atomic", "pre-install")
+
+	// Synthetic manifest: profile.md with Existed=true and a real SHA.
+	// Without the guard this would land in Restore (existed=true path).
+	writeTestManifest(t, preInstallDir, []map[string]interface{}{
+		{"path": ".atomic/profile.md", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "existed": true},
+		{"path": "agents/atomic-builder.md", "sha256": "", "existed": false},
+	})
+
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	if err != nil {
+		t.Fatalf("BuildUninstallPlan: %v", err)
+	}
+
+	// profile.md must not appear in Restore.
+	for _, r := range plan.Restore {
+		if r.RelPath == ".atomic/profile.md" {
+			t.Errorf("Restore list contains .atomic/profile.md (Existed=true) — guard must fire before Existed branch")
+		}
+	}
+
+	// profile.md must not appear in Delete.
+	for _, p := range plan.Delete {
+		if p == ".atomic/profile.md" {
+			t.Errorf("Delete list contains .atomic/profile.md (Existed=true) — guard must fire before Existed branch")
+		}
+	}
+
+	// Other entries are unaffected.
+	found := false
+	for _, p := range plan.Delete {
+		if p == "agents/atomic-builder.md" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Delete list missing agents/atomic-builder.md — non-profile entries should still be deleted")
+	}
+}
+
 // TestGenerateUninstallPrompt_NeedsMergeLabel verifies the NEEDS MERGE label
 // appears in the prompt for files where on-disk SHA differs from pre-install.
 func TestGenerateUninstallPrompt_NeedsMergeLabel(t *testing.T) {

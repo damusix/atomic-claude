@@ -193,6 +193,74 @@ You could do all of this manually. The ship verbs make it the default so nothing
 The binary exists because some operations need to be deterministic, fast, and runnable outside a Claude session. Scanning a repo's tree structure, computing SHA checksums, and managing scheduled jobs are all better done by code than by asking a model.
 
 
+## User profile
+
+Claude reads `~/.claude/.atomic/profile.md` at the start of every session, alongside `config.resolved.md`. The file records personal facts about you: name, role, employer, active projects, interests, and people you work with. These are organized into six fixed sections.
+
+Install creates the file and fills in the `## Environment` section from your local env (git name and email, OS, architecture, CPU count). The other sections start empty. Claude appends new facts to the matching section as they come up naturally in conversation: you mention a coworker, Claude notes it; you say you switched jobs, Claude appends the new role below the old one.
+
+The schema:
+
+```
+# User profile
+
+## Identity
+<stable>
+- Name: ...
+- Location: ...
+- Native language: ...
+</stable>
+
+## Work
+<volatile>
+- Employer: ...
+- Role: ...
+- Team: ...
+</volatile>
+
+## Active projects
+<volatile>
+- ...
+</volatile>
+
+## Interests
+<stable>
+- ...
+- Communication style: ...
+</stable>
+
+## People mentioned
+<volatile>
+- Alice (coworker) — owns billing service
+</volatile>
+
+## Environment
+<deterministic>
+- Git user.name: ...
+- Git user.email: ...
+- OS: ...
+- Arch: ...
+- CPU count: ...
+</deterministic>
+```
+
+XML volatility tags tell Claude how to treat contradictions:
+
+| Tag | Meaning | When drift surfaces |
+|-----|---------|---------------------|
+| `<stable>` | Rarely changes — Identity, Interests | Only on strong signal |
+| `<volatile>` | Changes routinely — Work, Projects, People | Early, on any contradiction |
+| `<deterministic>` | Captured from env at install | Never flagged for drift |
+
+**Routing rule.** Facts that would still be true in a different repo go in the profile. Facts specific to one repo's conventions go to that project's auto memory instead. Communication style preferences (terse, verbose, no emoji) are personal facts and belong in `## Interests` under `<stable>`.
+
+**Drift review.** Claude appends new facts but never removes old ones; both the old and new line are retained. Contradictions are resolved through `/atomic-improve`, which surfaces a profile drift finding category during its history scan. You accept, modify, or skip each finding. The `<deterministic>` section is excluded from drift detection entirely.
+
+**Doctor check.** `atomic doctor` reports WARN when `@~/.claude/.atomic/profile.md` is absent from all three candidate files (`~/.claude/CLAUDE.md`, `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md`), or when the file itself does not exist on disk. `atomic doctor --fix` prompts to create the stub or insert the ref, per-item.
+
+**Uninstall.** `atomic claude uninstall` preserves the file. It is user data generated after install and has no pre-install counterpart.
+
+
 ## Skills vs commands
 
 Both are instructions that shape Claude's behavior, but they trigger differently:

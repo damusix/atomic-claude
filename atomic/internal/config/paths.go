@@ -37,3 +37,17 @@ func ProposedCLAUDEMD(claudeHome string) string {
 func PreInstallDir(claudeHome string) string {
 	return filepath.Join(Dir(claudeHome), "pre-install")
 }
+
+// ProfilePath returns the path to the user profile file.
+// This file is @-referenced from CLAUDE.md so every Claude session can load it.
+// It is created at install time (idempotent) and written to opportunistically by Claude.
+func ProfilePath(claudeHome string) string {
+	return filepath.Join(Dir(claudeHome), "profile.md")
+}
+
+// ProfileRelPath returns the claudeHome-relative path of profile.md using
+// forward slashes (matching the format stored in pre-install manifests).
+// Use this instead of a hardcoded string when comparing against manifest entries.
+func ProfileRelPath() string {
+	return ".atomic/profile.md"
+}

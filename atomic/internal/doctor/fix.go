@@ -264,6 +264,9 @@ func repairPlan(r Result) (plan string, fixable bool) {
 		// Parse errors and invalid values cannot be auto-fixed; user must edit.
 		// Only drift (WARN) is fixable.
 		return "re-render config.resolved.md from current config.toml", r.Severity == WARN
+	case "profile":
+		// Profile file and @-ref are created/updated by install/update; cannot auto-fix here.
+		return "run `atomic claude install` to create the profile stub; @-ref insertion is bundle-source-driven and updates with `atomic claude install/update`", false
 	default:
 		return "cannot auto-fix — unknown category", false
 	}
@@ -289,6 +292,11 @@ func applyRepair(r Result, p Prompter, out io.Writer) error {
 		return applyConfigRepair(out)
 	case "followups":
 		return applyFollowupsRepair(r, out)
+	case "profile":
+		// Belt-and-suspenders: repairPlan returns fixable=false for profile, so this
+		// branch should never be reached. If a future change sets fixable=true without
+		// adding real implementation here, return an explicit error rather than silently no-op.
+		return fmt.Errorf("profile repair not yet implemented — run 'atomic claude install' instead")
 	default:
 		return fmt.Errorf("no repair for %q", r.Name)
 	}

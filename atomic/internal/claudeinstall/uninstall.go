@@ -71,6 +71,14 @@ func BuildUninstallPlanWithManifest(targetDir string, embeddedSHAs map[string]st
 	var plan UninstallPlan
 
 	for _, f := range m.Files {
+		// Defensive guard: profile.md is user-data written post-install by
+		// ensureProfileStub. It has no pre-install counterpart and must never
+		// be deleted or restored by uninstall, even if a future manifest change
+		// accidentally includes it.
+		if f.Path == config.ProfileRelPath() {
+			continue
+		}
+
 		if !f.Existed {
 			plan.Delete = append(plan.Delete, f.Path)
 			continue

@@ -72,6 +72,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 7 | `memory`         | `~/.claude/projects/<project>/memory/MEMORY.md` link targets all resolve (file exists in same dir). | WARN |
 | 8 | `binary`         | `atomic update --check` succeeds without performing update. | WARN |
 | 9 | `config`         | `~/.claude/.atomic/config.toml` parses + validates; `~/.claude/.atomic/config.resolved.md` matches render of TOML (byte-stable). Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN; drifted/missing resolved.md → WARN. | WARN by default; FAIL for parse error or invalid value |
+| 10 | `profile`       | `~/.claude/.atomic/profile.md` exists; `@~/.claude/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`). Missing file or missing `@-ref` → WARN. | WARN |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -301,3 +302,11 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Why:** Context budget. @-ref'ing `deterministic-signals.md` loads potentially thousands of lines into every session.
 
 **Superseded:** Prior contract required both `@.claude/project/deterministic-signals.md` and `@.claude/project/signals.md` in the same candidate file.
+
+### 2026-05-28 — add `profile` check (category 10)
+
+**What changed:** Added category 10 `profile` (severity WARN) verifying the existence of `~/.claude/.atomic/profile.md` and the presence of `@~/.claude/.atomic/profile.md` in one of the installed CLAUDE.md candidate files (CLAUDE.md / claude.local.md / CLAUDE.local.md / claude.md, same search order as `refs`).
+
+**Why:** `docs/spec/user-profile.md` introduces a global user-profile file. Doctor needs a check to flag drift when the file is missing or unreferenced. Severity is WARN — absence is degraded experience, not broken installation.
+
+**Superseded:** Prior spec listed nine indexed checks (1-9). Now ten (1-10).
