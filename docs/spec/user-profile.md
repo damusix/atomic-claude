@@ -503,3 +503,5 @@ Commits (chronological):
 **`atomic validate` note:** the freshly-built worktree binary reported `0/0/0` checks (repo-detection quirk under a git worktree); render+bundle parity was instead confirmed by the CP6 reviewer's `make render && git diff --exit-code` + `make -C atomic bundle && git diff --exit-code` (both clean) and the pre-commit hook on `d4927c7`. CI runs the same drift gates.
 
 **Squashed to `2e359ca` — 2026-05-28.** Per-iteration SHAs above (`e6ac3d6`..`c40c3dc`) are historical and unreachable from any branch.
+
+**Merged into main as `8ffb1a6` — 2026-05-28.** (Fast-forward; squashed feature `2e359ca` + post-squash docs/signals follow-ups.)
