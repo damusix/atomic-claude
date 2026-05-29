@@ -501,3 +501,5 @@ Commits (chronological):
 - None blocking. All 17 harvested follow-ups (F-1..F-18) dispositioned `fix-now` (user chose full polish A+B+C) and closed across the build + 3 polish batches. Residual test-strength observations from the Polish-1 review (concurrent-order stress test; corepack zero-exit-prompt unit test; exact-spacing assertion on the rewrite splice) were **accepted as residual** — the implementations are reviewer-confirmed correct by code-read and `go test -race`-clean; adding the extra assertions crosses into over-testing. Recorded here for traceability, not promoted to project follow-ups.
 
 **`atomic validate` note:** the freshly-built worktree binary reported `0/0/0` checks (repo-detection quirk under a git worktree); render+bundle parity was instead confirmed by the CP6 reviewer's `make render && git diff --exit-code` + `make -C atomic bundle && git diff --exit-code` (both clean) and the pre-commit hook on `d4927c7`. CI runs the same drift gates.
+
+**Squashed to `2e359ca` — 2026-05-28.** Per-iteration SHAs above (`e6ac3d6`..`c40c3dc`) are historical and unreachable from any branch.
