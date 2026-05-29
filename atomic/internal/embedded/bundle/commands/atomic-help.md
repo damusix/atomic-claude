@@ -124,7 +124,7 @@ One-line pointer per topic. Group by category for scannability.
 | `skills` | 7 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` / `intensity` | atomic output style — three levels: `lite`, `full` (default), `ultra`. Switch mid-session by saying "atomic ultra" / "atomic lite". |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
-| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`. |
+| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`. |
 
 ### C. Freeform intent — classify and route
 
@@ -202,9 +202,10 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 **Stage 4 — Maintenance and utilities.**
 
 ```
-atomic doctor [--fix]       9 integrity checks (install, hooks, signals, refs, ...)
+atomic doctor [--fix]       10 integrity checks (install, hooks, signals, refs, ..., profile)
 atomic validate             lint spec / config / bundle parity
 atomic update [--check]     self-update binary, runs doctor after
+atomic profile refresh      re-detect dev tooling + shell, rewrite ## Environment block
 /atomic-claude-merge        merge proposed CLAUDE.md after install/update
 /git-cleanup                stale worktrees / branches (scout reports, you confirm)
 /undo-commit                soft-undo HEAD (refuses if pushed)

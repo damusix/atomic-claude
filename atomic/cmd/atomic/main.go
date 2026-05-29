@@ -16,6 +16,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/followups"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
@@ -62,6 +63,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  validate [flags] [spec|config|bundle] [paths...]  Lint repo artifacts\n")
 		fmt.Fprintf(os.Stderr, "  docs scan                                         Scan docs and write doc-surfaces.md\n")
 		fmt.Fprintf(os.Stderr, "  docs stale                                        Exit 0 if fresh, 1 if stale\n")
+		fmt.Fprintf(os.Stderr, "  profile refresh [--if-stale <dur>]               Refresh ## Environment in profile.md\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -142,6 +144,8 @@ func main() {
 		os.Exit(validate.Run(args[1:]))
 	case "docs":
 		runDocs(args[1:], repoOverride)
+	case "profile":
+		runProfile(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
 		os.Exit(1)
@@ -871,4 +875,68 @@ func runDocs(args []string, repoOverride string) {
 	}
 
 	os.Exit(docsAction(args, root))
+}
+
+// profileAction executes the profile subcommand logic and returns an exit code.
+// Extracted from runProfile so tests can exercise dispatch without os.Exit.
+// claudeHome is the ~/.claude directory; today is YYYY-MM-DD (injected, never time.Now here).
+func profileAction(args []string, claudeHome, today string) int {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic profile <refresh> [flags]\n")
+		return 2
+	}
+
+	verb := args[0]
+	switch verb {
+	case "refresh":
+		fs := flag.NewFlagSet("profile-refresh", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		var ifStale string
+		fs.StringVar(&ifStale, "if-stale", "", "skip refresh when lastcheck is within this window (e.g. 7d, 30d)")
+		if err := fs.Parse(args[1:]); err != nil {
+			return 2
+		}
+
+		if ifStale != "" {
+			days, err := profile.ParseDuration(ifStale)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "atomic profile refresh: %v\n", err)
+				return 1
+			}
+			wrote, err := profile.RefreshIfStale(claudeHome, today, days)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "atomic profile refresh: %v\n", err)
+				return 1
+			}
+			if wrote {
+				fmt.Fprintf(os.Stderr, "profile refreshed: %s\n", config.ProfilePath(claudeHome))
+			}
+			return 0
+		}
+
+		// Unconditional refresh.
+		_, err := profile.Refresh(claudeHome, today)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic profile refresh: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "profile refreshed: %s\n", config.ProfilePath(claudeHome))
+		return 0
+
+	default:
+		fmt.Fprintf(os.Stderr, "atomic profile: unknown verb %q\n", verb)
+		fmt.Fprintf(os.Stderr, "Usage: atomic profile <refresh> [flags]\n")
+		return 2
+	}
+}
+
+func runProfile(args []string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic profile: resolve home dir: %v\n", err)
+		os.Exit(2)
+	}
+	claudeHome := filepath.Join(home, ".claude")
+	today := time.Now().UTC().Format("2006-01-02")
+	os.Exit(profileAction(args, claudeHome, today))
 }

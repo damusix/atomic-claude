@@ -256,7 +256,11 @@ XML volatility tags tell Claude how to treat contradictions:
 
 **Drift review.** Claude appends new facts but never removes old ones; both the old and new line are retained. Contradictions are resolved through `/atomic-improve`, which surfaces a profile drift finding category during its history scan. You accept, modify, or skip each finding. The `<deterministic>` section is excluded from drift detection entirely.
 
-**Doctor check.** `atomic doctor` reports WARN when `@~/.claude/.atomic/profile.md` is absent from all three candidate files (`~/.claude/CLAUDE.md`, `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md`), or when the file itself does not exist on disk. `atomic doctor --fix` prompts to create the stub or insert the ref, per-item.
+**Environment refresh.** The `## Environment` section is owned by `atomic profile refresh`, which re-detects your dev tooling on demand and rewrites the block wholesale. The registry covers ~50 known tools across seven categories: language runtimes (node, python, go, rust, …), package managers (npm, pip, cargo, …), version managers (nvm, pyenv, asdf, …), containers (docker, kubectl, …), monorepo tools (nx, turbo), CLI tools (jq, gh, rg, …), and cloud CLIs (aws, gcloud, az, …). Each entry records the active binary version and its source class (system, homebrew, version-manager, or other). Shell info (`$SHELL`, oh-my-zsh/prezto/starship) is also captured. The `<deterministic>` tag gains a `lastcheck=YYYY-MM-DD` attribute stamped on every refresh.
+
+`atomic profile refresh` — unconditional refresh. `atomic profile refresh --if-stale 7d` — no-op if `lastcheck` is within 7 days, full refresh otherwise. The session-start hook fires `--if-stale 7d` automatically on every Claude Code session open so the env stays current during active use. `atomic doctor` warns when `lastcheck` is absent or older than 30 days.
+
+**Doctor check.** `atomic doctor` reports WARN when `@~/.claude/.atomic/profile.md` is absent from all three candidate files (`~/.claude/CLAUDE.md`, `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md`), when the file itself does not exist on disk, or when `lastcheck` is absent or older than 30 days. `atomic doctor --fix` prompts to create the stub or insert the ref, per-item.
 
 **Uninstall.** `atomic claude uninstall` preserves the file. It is user data generated after install and has no pre-install counterpart.
 

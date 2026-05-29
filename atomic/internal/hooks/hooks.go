@@ -10,8 +10,30 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
+
+// DefaultProfileRefresh is the real implementation used in production.
+// Exposed so tests can restore the original after overriding ProfileRefresh.
+var DefaultProfileRefresh = profile.RefreshIfStale
+
+// ProfileRefresh is an injectable seam for tests: swap it with a spy to
+// capture calls without real detection, home-dir resolution, or disk writes.
+// Production code always calls DefaultProfileRefresh; only tests override this.
+var ProfileRefresh = profile.RefreshIfStale
+
+// refreshProfile performs a best-effort profile refresh. Errors are swallowed —
+// the hook's primary job is reminder context; refresh is a ride-along.
+func refreshProfile(now time.Time) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	claudeHome := filepath.Join(home, ".claude")
+	today := now.Format("2006-01-02")
+	_, _ = ProfileRefresh(claudeHome, today, 7)
+}
 
 const (
 	scriptName      = "session-start-reminders.sh"
@@ -26,6 +48,8 @@ const (
 // If no reminders are pending, it returns an empty string (no-op for Claude).
 // now is the reference time used for relative date formatting (allows testing).
 func SessionStart(repoRoot string, now time.Time) (string, error) {
+	refreshProfile(now)
+
 	// Call reminder.List once and filter to past-due immediately so both the
 	// body builder and the systemMessage count use the same surfaced set.
 	rows, err := reminder.List(repoRoot)
@@ -88,6 +112,8 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 // SessionStartText returns the plain-markdown version of the session-start
 // context (no JSON envelope). Returns empty string when no reminders exist.
 func SessionStartText(repoRoot string, now time.Time) (string, error) {
+	refreshProfile(now)
+
 	rows, err := reminder.List(repoRoot)
 	if err != nil {
 		return "", fmt.Errorf("hooks session-start: list reminders: %w", err)

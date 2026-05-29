@@ -72,7 +72,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 7 | `memory`         | `~/.claude/projects/<project>/memory/MEMORY.md` link targets all resolve (file exists in same dir). | WARN |
 | 8 | `binary`         | `atomic update --check` succeeds without performing update. | WARN |
 | 9 | `config`         | `~/.claude/.atomic/config.toml` parses + validates; `~/.claude/.atomic/config.resolved.md` matches render of TOML (byte-stable). Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN; drifted/missing resolved.md → WARN. | WARN by default; FAIL for parse error or invalid value |
-| 10 | `profile`       | `~/.claude/.atomic/profile.md` exists; `@~/.claude/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`). Missing file or missing `@-ref` → WARN. | WARN |
+| 10 | `profile`       | `~/.claude/.atomic/profile.md` exists; `@~/.claude/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`); `<deterministic lastcheck=YYYY-MM-DD>` attribute is present and within the last 30 days. Missing file → WARN; missing @-ref → WARN; missing or stale lastcheck → WARN. | WARN |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -310,3 +310,11 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Why:** `docs/spec/user-profile.md` introduces a global user-profile file. Doctor needs a check to flag drift when the file is missing or unreferenced. Severity is WARN — absence is degraded experience, not broken installation.
 
 **Superseded:** Prior spec listed nine indexed checks (1-9). Now ten (1-10).
+
+### 2026-05-28 — profile check extended with lastcheck-staleness leg (CP5 v2)
+
+**What changed:** Category 10 (`profile`) gains a third sub-check after the existing file-exists and @-ref legs: the `<deterministic lastcheck=YYYY-MM-DD>` attribute on the `## Environment` block is validated for presence and freshness. A missing attribute (v1-format file, no `atomic profile refresh` ever run) emits WARN directing the user to run `atomic profile refresh`. An attribute older than 30 days also emits WARN. A fresh attribute contributes no warning; both previous legs must also pass for the result to be PASS. The 30-day threshold is a constant in `checks_profile.go` (`profileStaleDays`) and is intentionally distinct from the 7-day `--if-stale` gate used by the session-start hook (see `docs/spec/user-profile.md §v2 Doctor staleness extension`).
+
+**Why:** v2 of the user-profile spec introduces a `lastcheck` attribute stamped on every `atomic profile refresh` run. Without a doctor check, users on v1-format files or who haven't run a session in >30 days would have a stale environment block with no visible signal. The WARN wording is carefully non-alarmist ("run `atomic profile refresh`") to avoid implying a broken install — profile staleness is a degraded-experience condition, not a fatal one.
+
+**Superseded:** Prior category 10 description checked two conditions (file-exists, @-ref). Now checks three (file-exists, @-ref, lastcheck freshness).

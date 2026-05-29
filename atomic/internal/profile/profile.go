@@ -45,40 +45,13 @@ func gitConfigGlobal(key string) string {
 // RenderStub builds the initial profile.md content from the schema contract.
 // The <deterministic> Environment block is populated from e; all other sections
 // contain skeletal placeholder bullets matching the spec schema.
+//
+// The five non-Environment sections are written by writeStubSections (render.go)
+// so both RenderStub and renderStubWithoutEnv share a single schema definition.
 func RenderStub(e Env) string {
 	var sb strings.Builder
 
-	sb.WriteString("# User profile\n")
-
-	sb.WriteString("\n## Identity\n")
-	sb.WriteString("<stable>\n")
-	sb.WriteString("- Name: ...\n")
-	sb.WriteString("- Location: ...\n")
-	sb.WriteString("- Native language: ...\n")
-	sb.WriteString("</stable>\n")
-
-	sb.WriteString("\n## Work\n")
-	sb.WriteString("<volatile>\n")
-	sb.WriteString("- Employer: ...\n")
-	sb.WriteString("- Role: ...\n")
-	sb.WriteString("- Team: ...\n")
-	sb.WriteString("</volatile>\n")
-
-	sb.WriteString("\n## Active projects\n")
-	sb.WriteString("<volatile>\n")
-	sb.WriteString("- ...\n")
-	sb.WriteString("</volatile>\n")
-
-	sb.WriteString("\n## Interests\n")
-	sb.WriteString("<stable>\n")
-	sb.WriteString("- ...\n")
-	sb.WriteString("- Communication style: ...\n")
-	sb.WriteString("</stable>\n")
-
-	sb.WriteString("\n## People mentioned\n")
-	sb.WriteString("<volatile>\n")
-	sb.WriteString("- Alice (coworker) — owns billing service\n")
-	sb.WriteString("</volatile>\n")
+	writeStubSections(&sb)
 
 	sb.WriteString("\n## Environment\n")
 	sb.WriteString("<deterministic>\n")

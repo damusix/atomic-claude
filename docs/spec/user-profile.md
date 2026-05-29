@@ -386,7 +386,7 @@ The 30-day doctor-WARN threshold and the 7-day session-start `--if-stale` gate a
 | 3 | `atomic profile refresh` subcommand + `--if-stale` gate + tests | `atomic/cmd/atomic/main.go` (subcommand dispatch), `atomic/internal/profile/` (refresh entry point + stale gate) | `atomic-builder` | 3–5 | `go test ./...`: bare refresh triggers full rewrite; `--if-stale 7d` no-ops within window; `--if-stale` refreshes on stale/absent `lastcheck`; exit codes correct |
 | 4 | Session-start hook wiring + test | `atomic/internal/hooks/hooks.go` (extend `SessionStart`), `atomic/internal/hooks/hooks_test.go` | `atomic-surgeon` | 2 | `go test ./atomic/internal/hooks/...`: `SessionStart` invokes `atomic profile refresh --if-stale 7d`; test mocks the invocation and asserts it fires |
 | 5 | Doctor `lastcheck`-staleness extension + test | `atomic/internal/doctor/checks_profile.go`, `_test.go` | `atomic-surgeon` | 2 | `go test ./atomic/internal/doctor/...`: WARN when `lastcheck` absent; WARN when older than 30 days; PASS when fresh; existing file-exists and @-ref sub-checks still pass |
-| 6 | Mandatory-checklist surfaces | `CLAUDE.md` (binary subcommands section), `templates/commands/atomic-help.md` (topic table + tour), `README.md`, `docs/reference/commands.md` or applicable table; then `make render` + `make -C atomic bundle` + `/refresh-signals` | `atomic-surgeon` | 4–6 | `grep -n 'atomic profile refresh' CLAUDE.md` returns match; same grep in `commands/atomic-help.md` returns match; `grep -n 'atomic profile refresh' docs/reference/commands.md` returns match; `atomic signals stale` exits 0 (signals fresh after `/refresh-signals`); `make render && git diff --exit-code` clean; `make -C atomic bundle && git diff --exit-code` clean |
+| 6 | Mandatory-checklist surfaces | `CLAUDE.md` (binary subcommands section), `templates/commands/atomic-help.md` (topic table + tour), `README.md`, `docs/reference/concepts.md` (binary subcommands + profile section); then `make render` + `make -C atomic bundle` + `/refresh-signals` | `atomic-surgeon` | 4–6 | `grep -n 'atomic profile refresh' CLAUDE.md` returns match; same grep in `commands/atomic-help.md` returns match; `grep -n 'atomic profile refresh' docs/reference/concepts.md` returns match; `atomic signals stale` exits 0 (signals fresh after `/refresh-signals`); `make render && git diff --exit-code` clean; `make -C atomic bundle && git diff --exit-code` clean |
 
 Checkpoints 1 and 2 are sequential (rewrite engine depends on the detector). Checkpoint 3 depends on 1 and 2. Checkpoints 4 and 5 depend on 3. Checkpoint 6 is last.
 
@@ -427,6 +427,11 @@ Checkpoints 1 and 2 are sequential (rewrite engine depends on the detector). Che
 **Superseded:** CP6 Verifies cell prior text (no doc-reference grep, no signals-stale assertion).
 
 
+### 2026-05-28 — CP6 Verifies doc-file correction
+
+**Correction:** CP6 Verifies cell referenced `docs/reference/commands.md` as the doc surface for `atomic profile refresh`. Binary subcommands are documented in `docs/reference/concepts.md`, not in `commands.md` (which covers slash commands only). Corrected the Verifies cell and the Files/areas column to point at `concepts.md`. How we know: CP6 implementation found no `atomic profile refresh` entry in `commands.md` because that file does not cover binary subcommands; convention is `concepts.md` for binary CLI features.
+
+
 ## Implementation log
 
 
@@ -464,3 +469,35 @@ Commits on `feat/user-profile` (chronological):
 - None. All 11 follow-ups from the 8 CP iterations were dispositioned `fix-now` and landed in Polish A (commit `14228f2`) and Polish B (commit `424da39`). No items promoted to `.claude/project/followups/` and no GitHub issues filed for this feature.
 
 **Merged into main as `69b6ce9` — 2026-05-28.**
+
+
+### v2.0 — 2026-05-28
+
+
+Deterministic env refresh + dev-tooling fingerprint. Built across 6 checkpoints + 3 polish batches of `/subagent-implementation` on branch `feat/user-profile-v2` (from base `fc51ee8`).
+
+Commits (chronological):
+
+- `e6ac3d6` — CP1: detection registry (~55 tools, 7 categories), presence via LookPath + install-dir fallback for shell-function managers, source-class classification, shell enumeration.
+- `9728633` — CP2: render `## Environment` section (injected date, `lastcheck` attr) + heading-anchored wholesale in-place rewrite (4 cases). Folded F-1 (shell-framework LookPath seam).
+- `4956bea` — CP3: `atomic profile refresh [--if-stale <Nd>]` subcommand + staleness gate (Nd-only parse, exit 1 bad-duration / 2 unknown-verb).
+- `27d89c4` — CP4: session-start hook fires best-effort in-process `RefreshIfStale(..., 7)`; failures swallowed, never block reminder injection.
+- `8e91aee` — CP5: doctor category-10 third leg — WARN when `lastcheck` absent or >30d; doctor spec amended.
+- `d4927c7` — CP6: discoverability — CLAUDE.md binary subcommands, `/atomic-help` topic + tour, README, `docs/reference/concepts.md`; `make render` + `make bundle` regenerated.
+- `b0263eb` — Polish 1: version-capture quality (F-3 non-zero-exit→`unknown`, F-16 elixir/mix presence-only, F-17 kubectl `--client`, F-18 corepack skip) + bounded-concurrency detection (F-2) + cleanups (F-4..F-8).
+- `6267a25` — Polish 2+3: hooks (F-9 seam doc, F-10 dead `//nolint`, F-11 exact-path assert) + doctor (F-12 doc, F-13 unreadable≠absent, F-14 stale-detail assert).
+
+**Out-of-scope work performed during this build:**
+
+- F-1 (shell-framework LookPath test seam) was folded into CP2 rather than its own iteration — same package, tightened the layer CP2 renders from.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- End-to-end smoke at finalize (running the built binary, not stubbed unit tests) revealed version capture was recording **error text and corepack prompts as version strings** — `rustc`/`cargo` (rustup, no default toolchain), `kubectl` (removed `--short` flag), `pnpm`/`yarn` (corepack). Stubbed unit tests passed because they fed clean output. Since profile.md is `@`-ref'd into every session, this was misleading-context-every-session, not a cosmetic nit. Confirmed harvested-finding F-3 as real and elevated it to fix-now; added F-16/F-17/F-18. Fixed in Polish 1. Lesson: detection-from-real-environment must be smoke-tested against the real binary, not only stubbed.
+- Scheduling mechanism: the original "cron/routines" instinct was disqualified by `/gather-evidence` (Routines run cloud-side with no local file access; CronCreate expires at 7d). Resolved pre-implementation to the session-start hook. No implementation surprise — caught at design time.
+
+**Deferred items still open:**
+
+- None blocking. All 17 harvested follow-ups (F-1..F-18) dispositioned `fix-now` (user chose full polish A+B+C) and closed across the build + 3 polish batches. Residual test-strength observations from the Polish-1 review (concurrent-order stress test; corepack zero-exit-prompt unit test; exact-spacing assertion on the rewrite splice) were **accepted as residual** — the implementations are reviewer-confirmed correct by code-read and `go test -race`-clean; adding the extra assertions crosses into over-testing. Recorded here for traceability, not promoted to project follow-ups.
+
+**`atomic validate` note:** the freshly-built worktree binary reported `0/0/0` checks (repo-detection quirk under a git worktree); render+bundle parity was instead confirmed by the CP6 reviewer's `make render && git diff --exit-code` + `make -C atomic bundle && git diff --exit-code` (both clean) and the pre-commit hook on `d4927c7`. CI runs the same drift gates.

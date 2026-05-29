@@ -2,6 +2,7 @@ package hooks_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1062,6 +1063,95 @@ func TestInstall_WritesExactExpectedScriptContent(t *testing.T) {
 	}
 	if drifted {
 		t.Errorf("drifted=true immediately after fresh Install — Install wrote %q but IsInstalled expected different content", string(raw))
+	}
+}
+
+// --- Profile refresh seam tests ---
+
+// TestSessionStart_ProfileRefreshCalled verifies that SessionStart invokes the
+// profileRefresh seam with days==7 and today==now.Format("2006-01-02").
+// WHY: the refresh is a ride-along; proving the seam fires with correct args
+// ensures the wiring is correct without real disk I/O.
+func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+
+	var gotClaudeHome, gotToday string
+	var gotDays int
+	hooks.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
+		gotClaudeHome = claudeHome
+		gotToday = today
+		gotDays = days
+		return false, nil
+	}
+	t.Cleanup(func() { hooks.ProfileRefresh = hooks.DefaultProfileRefresh })
+
+	_, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+
+	if gotDays != 7 {
+		t.Errorf("profileRefresh called with days=%d, want 7", gotDays)
+	}
+	wantToday := now.Format("2006-01-02")
+	if gotToday != wantToday {
+		t.Errorf("profileRefresh called with today=%q, want %q", gotToday, wantToday)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("os.UserHomeDir: %v", err)
+	}
+	wantClaudeHome := filepath.Join(home, ".claude")
+	if gotClaudeHome != wantClaudeHome {
+		t.Errorf("profileRefresh called with claudeHome=%q, want %q", gotClaudeHome, wantClaudeHome)
+	}
+}
+
+// TestSessionStartText_ProfileRefreshCalled verifies SessionStartText also fires the seam.
+func TestSessionStartText_ProfileRefreshCalled(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+
+	called := false
+	hooks.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
+		called = true
+		return false, nil
+	}
+	t.Cleanup(func() { hooks.ProfileRefresh = hooks.DefaultProfileRefresh })
+
+	_, err := hooks.SessionStartText(root, now)
+	if err != nil {
+		t.Fatalf("SessionStartText: %v", err)
+	}
+	if !called {
+		t.Error("profileRefresh seam was not called by SessionStartText")
+	}
+}
+
+// TestSessionStart_ProfileRefreshError_NeverBlocks verifies that when the
+// profileRefresh seam returns an error, SessionStart still returns its normal
+// reminder output (or empty string) with NO error.
+// WHY: the refresh is best-effort; a disk failure must not break reminder injection.
+func TestSessionStart_ProfileRefreshError_NeverBlocks(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	addReminderWithDate(t, root, "must still surface despite refresh error", 0)
+
+	hooks.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
+		return false, fmt.Errorf("simulated refresh failure")
+	}
+	t.Cleanup(func() { hooks.ProfileRefresh = hooks.DefaultProfileRefresh })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart returned error despite best-effort refresh: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected reminder output even when refresh fails")
+	}
+	if !strings.Contains(out, "must still surface despite refresh error") {
+		t.Errorf("reminder text missing from output: %q", out)
 	}
 }
 
