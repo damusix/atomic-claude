@@ -68,6 +68,7 @@ func TestRenderEnvSection_BaseEnvFields(t *testing.T) {
 
 // TestRenderEnvSection_ToolProvenance verifies detected tools appear with
 // "name: version (source)" format for runtimes with a resolved path.
+// v2.1: source labels are the manager name, "brew", or "sys".
 func TestRenderEnvSection_ToolProvenance(t *testing.T) {
 	tools := []profile.ToolResult{
 		{
@@ -76,7 +77,7 @@ func TestRenderEnvSection_ToolProvenance(t *testing.T) {
 			Installed:    true,
 			Version:      "Python 3.12.0",
 			ResolvedPath: "/home/user/.pyenv/shims/python",
-			SourceClass:  profile.SourceVersionManager,
+			SourceClass:  "pyenv",
 		},
 		{
 			Name:         "go",
@@ -84,18 +85,29 @@ func TestRenderEnvSection_ToolProvenance(t *testing.T) {
 			Installed:    true,
 			Version:      "go version go1.23 darwin/arm64",
 			ResolvedPath: "/opt/homebrew/bin/go",
-			SourceClass:  profile.SourceHomebrew,
+			SourceClass:  profile.SourceBrew,
+		},
+		{
+			Name:         "git",
+			Category:     profile.CategoryCLI,
+			Installed:    true,
+			Version:      "git version 2.39.0",
+			ResolvedPath: "/usr/bin/git",
+			SourceClass:  profile.SourceSys,
 		},
 	}
 	e := profile.Env{GOOS: "darwin", GOARCH: "arm64", NumCPU: 10}
 	section := profile.RenderEnvironmentSection(e, tools, profile.ShellResult{}, "2026-05-28")
 
 	// Runtime provenance: "name: version (source)"
-	if !strings.Contains(section, "python: Python 3.12.0 (version-manager)") {
+	if !strings.Contains(section, "python: Python 3.12.0 (pyenv)") {
 		t.Errorf("section missing python provenance line\ngot:\n%s", section)
 	}
-	if !strings.Contains(section, "go: go version go1.23 darwin/arm64 (homebrew)") {
+	if !strings.Contains(section, "go: go version go1.23 darwin/arm64 (brew)") {
 		t.Errorf("section missing go provenance line\ngot:\n%s", section)
+	}
+	if !strings.Contains(section, "git: git version 2.39.0 (sys)") {
+		t.Errorf("section missing git provenance line\ngot:\n%s", section)
 	}
 }
 
@@ -115,7 +127,7 @@ func TestRenderEnvSection_VersionManagerPresenceFlag(t *testing.T) {
 			Installed:    true,
 			Version:      "pyenv 2.3.0",
 			ResolvedPath: "/home/user/.pyenv/bin/pyenv",
-			SourceClass:  profile.SourceVersionManager,
+			SourceClass:  "pyenv",
 		},
 	}
 	e := profile.Env{GOOS: "linux", GOARCH: "amd64", NumCPU: 4}
@@ -125,8 +137,8 @@ func TestRenderEnvSection_VersionManagerPresenceFlag(t *testing.T) {
 	if !strings.Contains(section, "nvm: installed") {
 		t.Errorf("section missing 'nvm: installed'\ngot:\n%s", section)
 	}
-	// pyenv has a resolved path → provenance line.
-	if !strings.Contains(section, "pyenv: pyenv 2.3.0 (version-manager)") {
+	// pyenv has a resolved path → provenance line with manager name.
+	if !strings.Contains(section, "pyenv: pyenv 2.3.0 (pyenv)") {
 		t.Errorf("section missing pyenv provenance\ngot:\n%s", section)
 	}
 }
@@ -153,6 +165,38 @@ func TestRenderEnvSection_ShellInfo(t *testing.T) {
 	}
 }
 
+// TestRenderEnvSection_CustomScripts verifies oh-my-zsh custom scripts render
+// as a "custom scripts" line (only when non-empty).
+func TestRenderEnvSection_CustomScripts(t *testing.T) {
+	e := profile.Env{GOOS: "darwin", GOARCH: "arm64", NumCPU: 10}
+	shell := profile.ShellResult{
+		LoginShell:    "/bin/zsh",
+		Framework:     "oh-my-zsh",
+		CustomScripts: []string{"aliases.zsh", "functions.zsh"},
+	}
+	section := profile.RenderEnvironmentSection(e, nil, shell, "2026-05-28")
+
+	if !strings.Contains(section, "custom scripts: aliases.zsh, functions.zsh") {
+		t.Errorf("section missing custom scripts line\ngot:\n%s", section)
+	}
+}
+
+// TestRenderEnvSection_CustomScriptsOmittedWhenEmpty verifies that when
+// CustomScripts is empty, no "custom scripts" line is emitted.
+func TestRenderEnvSection_CustomScriptsOmittedWhenEmpty(t *testing.T) {
+	e := profile.Env{GOOS: "darwin", GOARCH: "arm64", NumCPU: 10}
+	shell := profile.ShellResult{
+		LoginShell:    "/bin/zsh",
+		Framework:     "oh-my-zsh",
+		CustomScripts: nil,
+	}
+	section := profile.RenderEnvironmentSection(e, nil, shell, "2026-05-28")
+
+	if strings.Contains(section, "custom scripts") {
+		t.Errorf("section should not contain 'custom scripts' when none present\ngot:\n%s", section)
+	}
+}
+
 // TestRenderEnvSection_ClosingTag verifies the section ends with </deterministic>.
 func TestRenderEnvSection_ClosingTag(t *testing.T) {
 	e := profile.Env{GOOS: "darwin", GOARCH: "arm64", NumCPU: 10}
@@ -166,7 +210,7 @@ func TestRenderEnvSection_ClosingTag(t *testing.T) {
 // TestRenderEnvSection_OnlyInstalledTools verifies non-installed tools are omitted.
 func TestRenderEnvSection_OnlyInstalledTools(t *testing.T) {
 	tools := []profile.ToolResult{
-		{Name: "docker", Category: profile.CategoryContainer, Installed: true, Version: "Docker 24.0.0", ResolvedPath: "/usr/local/bin/docker", SourceClass: profile.SourceSystem},
+		{Name: "docker", Category: profile.CategoryContainer, Installed: true, Version: "Docker 24.0.0", ResolvedPath: "/usr/local/bin/docker", SourceClass: profile.SourceSys},
 		{Name: "podman", Category: profile.CategoryContainer, Installed: false},
 	}
 	e := profile.Env{GOOS: "linux", GOARCH: "amd64", NumCPU: 4}

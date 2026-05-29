@@ -199,25 +199,35 @@ func TestDetectAll_OrderDeterministic(t *testing.T) {
 
 // --- Source-class classification ---
 
-// TestClassifySource_VersionManager verifies shim paths yield "version-manager".
-func TestClassifySource_VersionManager(t *testing.T) {
+// TestClassifySource_VersionManagerNamed verifies that paths under known version-manager
+// dirs return the manager's name, not the generic "version-manager" label.
+func TestClassifySource_VersionManagerNamed(t *testing.T) {
 	cases := []struct {
 		path string
+		want profile.SourceClass
 	}{
-		{"/home/user/.pyenv/shims/python"},
-		{"/home/user/.asdf/shims/node"},
-		{"/home/user/.nvm/versions/node/v20.0.0/bin/node"},
-		{"/home/user/.rbenv/shims/ruby"},
+		{"/home/user/.pyenv/shims/python", "pyenv"},
+		{"/home/user/.pyenv/versions/3.12/bin/python", "pyenv"},
+		{"/home/user/.asdf/shims/node", "asdf"},
+		{"/home/user/.asdf/installs/nodejs/20/bin/node", "asdf"},
+		{"/home/user/.nvm/versions/node/v20.0.0/bin/node", "nvm"},
+		{"/home/user/.rbenv/shims/ruby", "rbenv"},
+		{"/home/user/.rbenv/versions/3.2.0/bin/ruby", "rbenv"},
+		{"/home/user/.volta/bin/node", "volta"},
+		{"/home/user/.volta/tools/image/node/20/bin/node", "volta"},
+		{"/home/user/.fnm/node-versions/v20/bin/node", "fnm"},
+		{"/home/user/.local/share/mise/installs/python/3.12/bin/python", "mise"},
+		{"/home/user/.rustup/toolchains/stable/bin/rustc", "rustup"},
 	}
 	for _, c := range cases {
 		got := profile.ClassifySource(c.path)
-		if got != profile.SourceVersionManager {
-			t.Errorf("ClassifySource(%q) = %q, want %q", c.path, got, profile.SourceVersionManager)
+		if got != c.want {
+			t.Errorf("ClassifySource(%q) = %q, want %q", c.path, got, c.want)
 		}
 	}
 }
 
-// TestClassifySource_Homebrew verifies Homebrew paths are classified correctly.
+// TestClassifySource_Homebrew verifies Homebrew paths are classified as "brew".
 func TestClassifySource_Homebrew(t *testing.T) {
 	cases := []string{
 		"/opt/homebrew/bin/python3",
@@ -227,13 +237,13 @@ func TestClassifySource_Homebrew(t *testing.T) {
 	}
 	for _, p := range cases {
 		got := profile.ClassifySource(p)
-		if got != profile.SourceHomebrew {
-			t.Errorf("ClassifySource(%q) = %q, want %q", p, got, profile.SourceHomebrew)
+		if got != profile.SourceBrew {
+			t.Errorf("ClassifySource(%q) = %q, want %q", p, got, profile.SourceBrew)
 		}
 	}
 }
 
-// TestClassifySource_System verifies system paths are classified correctly.
+// TestClassifySource_System verifies system paths are classified as "sys".
 func TestClassifySource_System(t *testing.T) {
 	cases := []string{
 		"/usr/bin/python3",
@@ -243,8 +253,8 @@ func TestClassifySource_System(t *testing.T) {
 	}
 	for _, p := range cases {
 		got := profile.ClassifySource(p)
-		if got != profile.SourceSystem {
-			t.Errorf("ClassifySource(%q) = %q, want %q", p, got, profile.SourceSystem)
+		if got != profile.SourceSys {
+			t.Errorf("ClassifySource(%q) = %q, want %q", p, got, profile.SourceSys)
 		}
 	}
 }
@@ -254,6 +264,121 @@ func TestClassifySource_Other(t *testing.T) {
 	got := profile.ClassifySource("/home/user/.cargo/bin/rustc")
 	if got != profile.SourceOther {
 		t.Errorf("ClassifySource(%q) = %q, want %q", "/home/user/.cargo/bin/rustc", got, profile.SourceOther)
+	}
+}
+
+// --- Version-line prefix ---
+
+// TestCaptureVersion_ElixirPrefix verifies that when elixir-style output (Erlang
+// banner first, then "Elixir 1.18.3 ...") is fed through a fake binary, the
+// captured version is the Elixir line, not the banner.
+//
+// We simulate this by using "sh -c" to echo the multi-line output. The real
+// elixir binary is not required.
+func TestCaptureVersion_ElixirStylePrefix(t *testing.T) {
+	// Simulate elixir --version: Erlang banner, blank line, Elixir version line.
+	script := `echo 'Erlang/OTP 27 [erts-15.0] [source] [64-bit] [smp:10:10]'
+echo ''
+echo 'Elixir 1.18.3 (compiled with Erlang/OTP 27)'`
+	v := profile.CaptureVersionWithPrefix("sh", []string{"-c", script}, "Elixir")
+	if v != "Elixir 1.18.3 (compiled with Erlang/OTP 27)" {
+		t.Errorf("CaptureVersionWithPrefix: got %q, want Elixir 1.18.3 line", v)
+	}
+}
+
+func TestCaptureVersion_MixStylePrefix(t *testing.T) {
+	script := `echo 'Erlang/OTP 27 [erts-15.0] [source] [64-bit]'
+echo ''
+echo 'Mix 1.18.3 (compiled with Erlang/OTP 27)'`
+	v := profile.CaptureVersionWithPrefix("sh", []string{"-c", script}, "Mix")
+	if v != "Mix 1.18.3 (compiled with Erlang/OTP 27)" {
+		t.Errorf("CaptureVersionWithPrefix: got %q, want Mix 1.18.3 line", v)
+	}
+}
+
+// TestCaptureVersion_PrefixFallsBackToUnknown verifies that when no line matches
+// the prefix, "unknown" is returned rather than the banner or empty string.
+func TestCaptureVersion_PrefixNoMatch(t *testing.T) {
+	script := `echo 'Erlang/OTP 27 [erts-15.0]'`
+	v := profile.CaptureVersionWithPrefix("sh", []string{"-c", script}, "Elixir")
+	if v != "unknown" {
+		t.Errorf("CaptureVersionWithPrefix no-match: got %q, want \"unknown\"", v)
+	}
+}
+
+// TestDetectEntry_ElixirUsesPrefix verifies that the elixir registry entry now
+// has a VersionLinePrefix and that its VersionArgs are non-nil.
+func TestDetectEntry_ElixirAndMixHavePrefix(t *testing.T) {
+	reg := profile.DefaultRegistry()
+	for _, e := range reg {
+		switch e.Name {
+		case "elixir":
+			if e.VersionArgs == nil {
+				t.Error("elixir: VersionArgs should be non-nil after v2.1 reversal")
+			}
+			if e.VersionLinePrefix == "" {
+				t.Error("elixir: VersionLinePrefix should be set to 'Elixir'")
+			}
+		case "mix":
+			if e.VersionArgs == nil {
+				t.Error("mix: VersionArgs should be non-nil after v2.1 reversal")
+			}
+			if e.VersionLinePrefix == "" {
+				t.Error("mix: VersionLinePrefix should be set to 'Mix'")
+			}
+		}
+	}
+}
+
+// --- oh-my-zsh custom scripts ---
+
+// TestShellEnumeration_OhMyZshCustomScripts verifies that top-level *.zsh files
+// under ~/.oh-my-zsh/custom/ are enumerated in CustomScripts.
+func TestShellEnumeration_OhMyZshCustomScripts(t *testing.T) {
+	home := t.TempDir()
+	customDir := filepath.Join(home, ".oh-my-zsh", "custom")
+	if err := os.MkdirAll(customDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Create two .zsh files and one non-.zsh file (should be ignored).
+	for _, name := range []string{"aliases.zsh", "functions.zsh", "README.md"} {
+		if err := os.WriteFile(filepath.Join(customDir, name), []byte{}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	opts := profile.ShellEnvOptions{Shell: "/bin/zsh", Home: home}
+	result := profile.DetectShell(opts)
+
+	scriptSet := map[string]bool{}
+	for _, s := range result.CustomScripts {
+		scriptSet[s] = true
+	}
+	if !scriptSet["aliases.zsh"] {
+		t.Errorf("CustomScripts missing 'aliases.zsh'; got: %v", result.CustomScripts)
+	}
+	if !scriptSet["functions.zsh"] {
+		t.Errorf("CustomScripts missing 'functions.zsh'; got: %v", result.CustomScripts)
+	}
+	if scriptSet["README.md"] {
+		t.Errorf("CustomScripts should not include non-.zsh file 'README.md'; got: %v", result.CustomScripts)
+	}
+}
+
+// TestShellEnumeration_NoCustomScriptsWhenAbsent verifies CustomScripts is nil/empty
+// when custom/*.zsh files are absent.
+func TestShellEnumeration_NoCustomScriptsWhenAbsent(t *testing.T) {
+	home := t.TempDir()
+	// Only the .oh-my-zsh dir, no custom/*.zsh files.
+	if err := os.MkdirAll(filepath.Join(home, ".oh-my-zsh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := profile.ShellEnvOptions{Shell: "/bin/zsh", Home: home}
+	result := profile.DetectShell(opts)
+
+	if len(result.CustomScripts) != 0 {
+		t.Errorf("expected 0 CustomScripts, got %v", result.CustomScripts)
 	}
 }
 

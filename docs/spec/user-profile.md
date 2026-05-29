@@ -274,19 +274,19 @@ The strategy field is mandatory in the registry. Absence = a detection bug, not 
 For each detected runtime, record:
 
 1. **Active binary** — the binary that resolves when the tool is invoked in the user's default environment.
-2. **Version** — trimmed first line of the version command output, verbatim. No semver parsing. If the binary exists but the version command errors, record presence with version `unknown`.
-3. **Source class** — classification of the active binary's resolved path:
+2. **Version** — trimmed first line of the version command output, verbatim. No semver parsing. **Exception (v2.1):** a registry entry may declare a *version-line prefix* (e.g. `Elixir`, `Mix`); when set, the first output line starting with that prefix is captured instead of line 1 — needed for tools whose `--version` leads with an unrelated banner (elixir/mix print the Erlang/OTP banner first). If the binary exists but the version command exits non-zero, record `unknown`.
+3. **Source** — classification of the active binary's resolved path. **When the path is under a known version manager, the source is that manager's name** (v2.1); otherwise one of the fixed labels:
 
-| Source class | Path signal |
+| Source | Path signal |
 |---|---|
-| `version-manager` | path under `~/.pyenv/shims`, `~/.asdf/shims`, `~/.nvm/versions`, `~/.rbenv/shims`, volta/fnm dirs |
-| `homebrew` | path under `/opt/homebrew` or `/usr/local` (macOS), or linuxbrew |
-| `system` | `/usr/bin`, `/bin`, `/usr/local/bin` (non-Homebrew) |
+| `pyenv` / `nvm` / `asdf` / `rbenv` / `volta` / `fnm` / `mise` / `rustup` | resolved path under that manager's dir (`~/.pyenv`, `~/.nvm`, `~/.asdf`, `~/.rbenv`, volta/fnm/mise dirs) |
+| `brew` | path under `/opt/homebrew` or `/usr/local` (macOS), or linuxbrew |
+| `sys` | `/usr/bin`, `/bin`, `/usr/local/bin` (non-Homebrew) |
 | `other` | anything else; record raw path |
 
 **No version enumeration.** A version-manager user may have many installed pythons; only the active one is recorded. Separately, a presence flag is recorded per installed version manager.
 
-Output shape in the `## Environment` block: `python: 3.12 (pyenv)` for the active runtime; `pyenv: installed` as a standalone entry in the version-managers list.
+Output shape in the `## Environment` block: `python: 3.12 (pyenv)`, `node: v24 (nvm)`, `go: 1.25 (sys)` for the active runtime; `pyenv: installed` as a standalone entry in the version-managers list.
 
 
 ### v2 Shell enumeration
@@ -296,6 +296,7 @@ Detected deterministically (filesystem + env reads):
 - **Login shell** — value of `$SHELL`.
 - **Shell framework** — `~/.oh-my-zsh` → oh-my-zsh; `~/.zprezto` → prezto; `starship` binary presence → starship. Additional frameworks detectable by known paths.
 - **oh-my-zsh custom plugins and themes** — enumerate files/dirs under `~/.oh-my-zsh/custom/plugins/` and `~/.oh-my-zsh/custom/themes/`.
+- **oh-my-zsh custom scripts (v2.1)** — enumerate top-level `~/.oh-my-zsh/custom/*.zsh` files (oh-my-zsh auto-sources these). Rendered as a `custom scripts` line.
 
 
 ### v2 `<deterministic>` tag attribute
@@ -430,6 +431,15 @@ Checkpoints 1 and 2 are sequential (rewrite engine depends on the detector). Che
 ### 2026-05-28 — CP6 Verifies doc-file correction
 
 **Correction:** CP6 Verifies cell referenced `docs/reference/commands.md` as the doc surface for `atomic profile refresh`. Binary subcommands are documented in `docs/reference/concepts.md`, not in `commands.md` (which covers slash commands only). Corrected the Verifies cell and the Files/areas column to point at `concepts.md`. How we know: CP6 implementation found no `atomic profile refresh` entry in `commands.md` because that file does not cover binary subcommands; convention is `concepts.md` for binary CLI features.
+
+
+### 2026-05-28 — v2.1 detection refinements
+
+**What changed:** Four refinements after dogfooding the merged v2 on a real machine: (1) **Provenance names the version manager** — a runtime resolved under a manager's dir now reports that manager (`python: 3.12 (pyenv)`, `node: v24 (nvm)`) instead of the generic `version-manager`. (2) **Source labels shortened** — `system`→`sys`, `homebrew`→`brew`. (3) **Per-tool version-line prefix** — registry entries may declare a prefix (`Elixir`, `Mix`) so the captured version is the matching line, not the leading Erlang/OTP banner. (4) **oh-my-zsh `custom/*.zsh`** top-level scripts are now enumerated alongside custom plugins/themes.
+
+**Why:** User feedback after running `atomic profile refresh` live — the generic `version-manager` label lost information we already had, `elixir`/`mix` showed `unknown`, the long labels added noise, and omz custom scripts (a real omz extension point) were missed.
+
+**Superseded:** v2 §Provenance fixed source-class enum (`version-manager`/`homebrew`/`system`/`other`) → now manager-name-or-`brew`/`sys`/`other`. v2 Polish-1 decision F-16 (elixir/mix presence-only, render `unknown`) → reversed: elixir/mix capture their real version via the version-line prefix. v2 shell enumeration (plugins + themes only) → also custom scripts.
 
 
 ## Implementation log

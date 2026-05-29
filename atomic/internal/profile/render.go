@@ -80,6 +80,9 @@ func RenderEnvironmentSection(e Env, tools []ToolResult, shell ShellResult, date
 		if len(shell.OhMyZshThemes) > 0 {
 			fmt.Fprintf(&sb, "- oh-my-zsh custom themes: %s\n", strings.Join(shell.OhMyZshThemes, ", "))
 		}
+		if len(shell.CustomScripts) > 0 {
+			fmt.Fprintf(&sb, "- custom scripts: %s\n", strings.Join(shell.CustomScripts, ", "))
+		}
 	}
 
 	sb.WriteString("</deterministic>\n")

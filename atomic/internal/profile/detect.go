@@ -41,6 +41,11 @@ type RegistryEntry struct {
 	Binaries []string
 	// VersionArgs are the arguments passed to the binary to retrieve its version.
 	VersionArgs []string
+	// VersionLinePrefix, when non-empty, causes CaptureVersion to capture the first
+	// output line that starts with this prefix rather than the literal first line.
+	// This handles tools (e.g. elixir, mix) whose --version output leads with an
+	// unrelated banner (Erlang/OTP) before the relevant version line.
+	VersionLinePrefix string
 	// Category groups the tool by concern.
 	Category ToolCategory
 	// Strategy controls how presence is detected.
@@ -69,13 +74,18 @@ type ToolResult struct {
 }
 
 // SourceClass classifies where a binary comes from.
+// When the resolved path is under a known version-manager directory, the value
+// is that manager's name (e.g. "pyenv", "nvm", "asdf"). Otherwise one of the
+// fixed labels below.
 type SourceClass string
 
 const (
-	SourceVersionManager SourceClass = "version-manager"
-	SourceHomebrew       SourceClass = "homebrew"
-	SourceSystem         SourceClass = "system"
-	SourceOther          SourceClass = "other"
+	// SourceBrew is the fixed label for Homebrew-managed binaries.
+	SourceBrew SourceClass = "brew"
+	// SourceSys is the fixed label for system-installed binaries (/usr/bin, /bin, etc.).
+	SourceSys SourceClass = "sys"
+	// SourceOther is the fallback when no known prefix matches.
+	SourceOther SourceClass = "other"
 )
 
 // DetectOptions configures a DetectAll call. The Home field overrides the user's
@@ -107,6 +117,9 @@ type ShellResult struct {
 	OhMyZshPlugins []string
 	// OhMyZshThemes enumerates entries under ~/.oh-my-zsh/custom/themes/.
 	OhMyZshThemes []string
+	// CustomScripts enumerates top-level *.zsh files under ~/.oh-my-zsh/custom/.
+	// oh-my-zsh auto-sources these on shell startup.
+	CustomScripts []string
 }
 
 // DefaultRegistry returns the static detection registry.
@@ -140,11 +153,11 @@ func DefaultRegistry() []RegistryEntry {
 			Category: CategoryLanguageRuntime, Strategy: StrategyBinary,
 		},
 		{
-			// elixir --version emits the Erlang/OTP banner as its first line, not the
-			// Elixir version. No single-line clean version command exists without eval;
-			// record presence-only (no VersionArgs) rather than capturing the banner.
-			Name: "elixir", Binaries: []string{"elixir"}, VersionArgs: nil,
-			Category: CategoryLanguageRuntime, Strategy: StrategyBinary,
+			// elixir --version emits the Erlang/OTP banner first, then the Elixir version
+			// line. VersionLinePrefix "Elixir" captures the right line (v2.1 reversal of F-16).
+			Name: "elixir", Binaries: []string{"elixir"}, VersionArgs: []string{"--version"},
+			VersionLinePrefix: "Elixir",
+			Category:          CategoryLanguageRuntime, Strategy: StrategyBinary,
 		},
 		{
 			Name: "deno", Binaries: []string{"deno"}, VersionArgs: []string{"--version"},
@@ -193,10 +206,11 @@ func DefaultRegistry() []RegistryEntry {
 			Category: CategoryPackageManager, Strategy: StrategyBinary,
 		},
 		{
-			// mix --version emits the Erlang/OTP banner as its first line, not the Mix
-			// version. Presence-only for the same reason as elixir above.
-			Name: "mix", Binaries: []string{"mix"}, VersionArgs: nil,
-			Category: CategoryPackageManager, Strategy: StrategyBinary,
+			// mix --version emits the Erlang/OTP banner first, then the Mix version line.
+			// VersionLinePrefix "Mix" captures the right line (v2.1 reversal of F-16).
+			Name: "mix", Binaries: []string{"mix"}, VersionArgs: []string{"--version"},
+			VersionLinePrefix: "Mix",
+			Category:          CategoryPackageManager, Strategy: StrategyBinary,
 		},
 		{
 			Name: "maven", Binaries: []string{"mvn"}, VersionArgs: []string{"--version"},
@@ -436,7 +450,7 @@ func detectEntry(e RegistryEntry, home string) ToolResult {
 		result.SourceClass = ClassifySource(resolvedPath)
 		// Only capture version when args are provided; nil/empty means presence-only.
 		if len(e.VersionArgs) > 0 {
-			result.Version = CaptureVersion(resolvedPath, e.VersionArgs)
+			result.Version = CaptureVersionWithPrefix(resolvedPath, e.VersionArgs, e.VersionLinePrefix)
 		}
 		return result
 	}
@@ -505,6 +519,15 @@ func DetectAll(opts DetectOptions) []ToolResult {
 // Lines starting with "!" are skipped before taking the first line; this
 // handles corepack-intercepted pnpm/yarn which prefix a download prompt with "!".
 func CaptureVersion(binary string, args []string) string {
+	return CaptureVersionWithPrefix(binary, args, "")
+}
+
+// CaptureVersionWithPrefix is like CaptureVersion but when prefix is non-empty,
+// returns the first output line that starts with prefix (trimmed) instead of the
+// literal first line. Returns "unknown" if no matching line is found.
+// This handles tools like elixir and mix whose --version output leads with an
+// unrelated Erlang/OTP banner before the relevant version line.
+func CaptureVersionWithPrefix(binary string, args []string, prefix string) string {
 	cmd := exec.Command(binary, args...) //nolint:gosec // binary comes from the registry, not user input
 	// Capture combined output (some tools write version to stderr, e.g. java).
 	out, err := cmd.CombinedOutput()
@@ -513,37 +536,58 @@ func CaptureVersion(binary string, args []string) string {
 	if err != nil {
 		return "unknown"
 	}
-	// Find the first non-empty, non-prompt line.
-	// Lines starting with "!" are corepack download prompts; skip them.
+
 	for _, raw := range strings.Split(string(out), "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "!") {
 			continue
 		}
+		if prefix != "" {
+			// Prefix mode: return the first line that starts with the given prefix.
+			if strings.HasPrefix(line, prefix) {
+				return line
+			}
+			// Keep scanning for a matching line.
+			continue
+		}
+		// No-prefix mode: return the first non-empty, non-prompt line.
 		return line
 	}
+	// Either no line matched the prefix, or the output was entirely empty/skipped.
 	return "unknown"
 }
 
+// vmPathRules maps a path substring to the version-manager name it signals.
+// Checked in declaration order; first match wins. Entries are ordered so that
+// more-specific substrings appear before less-specific ones to avoid false
+// positives (e.g. "/.volta/tools/" before "/.volta/").
+var vmPathRules = []struct {
+	substr  string
+	manager SourceClass
+}{
+	{"/.pyenv/shims/", "pyenv"},
+	{"/.pyenv/versions/", "pyenv"},
+	{"/.asdf/shims/", "asdf"},
+	{"/.asdf/installs/", "asdf"},
+	{"/.nvm/versions/", "nvm"},
+	{"/.rbenv/shims/", "rbenv"},
+	{"/.rbenv/versions/", "rbenv"},
+	{"/.volta/tools/", "volta"},
+	{"/.volta/bin/", "volta"},
+	{"/.fnm/", "fnm"},
+	{"/.local/share/mise/", "mise"},
+	{"/.rustup/toolchains/", "rustup"},
+}
+
 // ClassifySource determines where a binary came from based on its resolved path.
+// When the path is under a known version-manager directory, the manager's name is
+// returned (e.g. "pyenv", "nvm"). Otherwise one of the fixed labels: "brew", "sys",
+// or "other".
 func ClassifySource(path string) SourceClass {
-	// Version-manager shim/version directories.
-	vmPrefixes := []string{
-		"/.pyenv/shims/",
-		"/.pyenv/versions/",
-		"/.asdf/shims/",
-		"/.asdf/installs/",
-		"/.nvm/versions/",
-		"/.rbenv/shims/",
-		"/.rbenv/versions/",
-		"/.volta/bin/",
-		"/.volta/tools/",
-		"/.fnm/",
-		"/.local/share/mise/",
-	}
-	for _, prefix := range vmPrefixes {
-		if strings.Contains(path, prefix) {
-			return SourceVersionManager
+	// Version-manager paths — checked first; return manager name directly.
+	for _, rule := range vmPathRules {
+		if strings.Contains(path, rule.substr) {
+			return rule.manager
 		}
 	}
 
@@ -560,7 +604,7 @@ func ClassifySource(path string) SourceClass {
 	}
 	for _, prefix := range homebrewPrefixes {
 		if strings.HasPrefix(path, prefix) {
-			return SourceHomebrew
+			return SourceBrew
 		}
 	}
 
@@ -574,7 +618,7 @@ func ClassifySource(path string) SourceClass {
 	}
 	for _, prefix := range systemPrefixes {
 		if strings.HasPrefix(path, prefix) {
-			return SourceSystem
+			return SourceSys
 		}
 	}
 
@@ -608,6 +652,7 @@ func DetectShell(opts ShellEnvOptions) ShellResult {
 		result.Framework = "oh-my-zsh"
 		result.OhMyZshPlugins = enumerateDir(filepath.Join(home, ".oh-my-zsh", "custom", "plugins"))
 		result.OhMyZshThemes = enumerateDir(filepath.Join(home, ".oh-my-zsh", "custom", "themes"))
+		result.CustomScripts = enumerateZshFiles(filepath.Join(home, ".oh-my-zsh", "custom"))
 	case dirExists(filepath.Join(home, ".zprezto")):
 		result.Framework = "prezto"
 	default:
@@ -618,6 +663,26 @@ func DetectShell(opts ShellEnvOptions) ShellResult {
 	}
 
 	return result
+}
+
+// enumerateZshFiles returns the names of top-level *.zsh files in dir.
+// Subdirectories and non-.zsh files are excluded.
+// Returns nil if the directory does not exist or cannot be read.
+func enumerateZshFiles(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), ".zsh") {
+			names = append(names, e.Name())
+		}
+	}
+	return names
 }
 
 // enumerateDir returns the names of all top-level entries in dir.
