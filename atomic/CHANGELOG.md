@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.1.0](https://github.com/damusix/atomic-claude/compare/v2.0.0...v2.1.0) (2026-05-29)
+
+
+### Features
+
+* **profile:** add no-hooks refresh fallback to CLAUDE.md preamble ([3e7af16](https://github.com/damusix/atomic-claude/commit/3e7af16ccde4bb2c7ba2824971398793fa277ed1))
+* **profile:** bound per-tool version detection with a ~3s timeout ([b3ce841](https://github.com/damusix/atomic-claude/commit/b3ce8417a47d1ae0780da51357a514413f58c715))
+* **profile:** name version managers, real elixir/mix versions, omz scripts ([61f8736](https://github.com/damusix/atomic-claude/commit/61f87369a0eebdfe86395747669a61a91c0c6055))
+* **profile:** populate the env fingerprint at install/update ([4370114](https://github.com/damusix/atomic-claude/commit/437011480af1eb1248082f02355248be3da3fed6))
+* **profile:** refresh dev-tooling env block in profile.md ([2e359ca](https://github.com/damusix/atomic-claude/commit/2e359ca5511b2e0d4a7fa3ec724fe3d608311242))
+
+
+### Bug Fixes
+
+* trim CLAUDE.md catalog bloat + internal refs ([bac3b33](https://github.com/damusix/atomic-claude/commit/bac3b3302c68a43a0a788ad3b803e7b09beab991))
+
 ## [2.0.0](https://github.com/damusix/atomic-claude/compare/v1.9.1...v2.0.0) (2026-05-28)
 
 
