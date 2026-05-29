@@ -1,11 +1,13 @@
 package profile
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ToolCategory identifies which group a registry entry belongs to.
@@ -93,6 +95,8 @@ const (
 type DetectOptions struct {
 	// Home overrides os.UserHomeDir(). If empty, os.UserHomeDir() is used.
 	Home string
+	// Registry overrides DefaultRegistry() when non-nil; for tests.
+	Registry []RegistryEntry
 }
 
 // ShellEnvOptions controls DetectShell. All fields are injectable so tests
@@ -485,7 +489,10 @@ func DetectAll(opts DetectOptions) []ToolResult {
 		home = os.Getenv("HOME")
 	}
 
-	reg := DefaultRegistry()
+	reg := opts.Registry
+	if reg == nil {
+		reg = DefaultRegistry()
+	}
 	results := make([]ToolResult, len(reg))
 
 	// Semaphore limits active subprocesses to detectConcurrency at a time.
@@ -522,17 +529,37 @@ func CaptureVersion(binary string, args []string) string {
 	return CaptureVersionWithPrefix(binary, args, "")
 }
 
+// versionCmdTimeout is the per-tool timeout for version commands. One hung
+// --version must not stall the entire detection batch (and therefore not block
+// install, session-start, or manual refresh). Distinct from the refresh-window
+// constant W — this bounds a single subprocess, not the staleness window.
+const versionCmdTimeout = 3 * time.Second
+
+// versionCmdWaitDelay is the additional grace period given after context
+// cancellation for the subprocess's I/O pipes to drain. Some tools (e.g.
+// "sh -c 'sleep N'") spawn child processes that hold the pipe open after the
+// parent is killed; WaitDelay forces Wait to return once this window expires.
+// Keep this well below versionCmdTimeout (currently ~1/6 of it) so the total
+// worst-case wait per entry stays under 2× versionCmdTimeout.
+const versionCmdWaitDelay = 500 * time.Millisecond
+
 // CaptureVersionWithPrefix is like CaptureVersion but when prefix is non-empty,
 // returns the first output line that starts with prefix (trimmed) instead of the
 // literal first line. Returns "unknown" if no matching line is found.
 // This handles tools like elixir and mix whose --version output leads with an
 // unrelated Erlang/OTP banner before the relevant version line.
 func CaptureVersionWithPrefix(binary string, args []string, prefix string) string {
-	cmd := exec.Command(binary, args...) //nolint:gosec // binary comes from the registry, not user input
+	ctx, cancel := context.WithTimeout(context.Background(), versionCmdTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, args...) //nolint:gosec // binary comes from the registry, not user input
+	// WaitDelay ensures CombinedOutput returns promptly after context cancellation
+	// even when child processes hold the I/O pipe open after the parent is killed.
+	cmd.WaitDelay = versionCmdWaitDelay
 	// Capture combined output (some tools write version to stderr, e.g. java).
 	out, err := cmd.CombinedOutput()
-	// Non-zero exit → unknown, regardless of any output the command produced.
-	// This prevents error messages from being recorded as the version string.
+	// Non-zero exit or context timeout → unknown, regardless of any output.
+	// This prevents error messages (and timed-out partial output) from being
+	// recorded as the version string.
 	if err != nil {
 		return "unknown"
 	}

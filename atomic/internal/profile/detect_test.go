@@ -3,8 +3,10 @@ package profile_test
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
@@ -533,4 +535,106 @@ func TestDetect_AsdfDirectory(t *testing.T) {
 		}
 	}
 	t.Error("asdf not found in DetectAll results")
+}
+
+// --- Per-tool detection timeout ---
+
+// TestCaptureVersion_TimeoutYieldsUnknown verifies that a version command that hangs
+// longer than the per-tool timeout yields "unknown" and returns well within 2× the
+// timeout (~6s), not the full sleep duration.
+//
+// Why: one hung --version must not stall install, session-start, or manual refresh.
+func TestCaptureVersion_TimeoutYieldsUnknown(t *testing.T) {
+	start := time.Now()
+	// Sleep 10s — far beyond the ~3s per-tool timeout.
+	v := profile.CaptureVersion("sh", []string{"-c", "sleep 10; echo X"})
+	elapsed := time.Since(start)
+
+	if v != "unknown" {
+		t.Errorf("CaptureVersion (hung): got %q, want %q", v, "unknown")
+	}
+	// Must return in <= 2× versionCmdTimeout (~6s), not the full 10s sleep.
+	// 2× gives headroom for WaitDelay and OS scheduling; 1× would be too tight.
+	const maxElapsed = 6 * time.Second // = 2 × versionCmdTimeout (3s)
+	if elapsed > maxElapsed {
+		t.Errorf("CaptureVersion (hung): took %v, want <= %v (2× per-tool timeout)", elapsed, maxElapsed)
+	}
+}
+
+// TestCaptureVersion_FastToolUnaffectedByTimeout verifies that a fast version command
+// still returns its output correctly (timeout does not break normal operation).
+func TestCaptureVersion_FastToolUnaffectedByTimeout(t *testing.T) {
+	v := profile.CaptureVersion("sh", []string{"-c", "echo fastversion"})
+	if v != "fastversion" {
+		t.Errorf("CaptureVersion (fast): got %q, want %q", v, "fastversion")
+	}
+}
+
+// TestDetectBatch_SlowEntryDoesNotBlockFastEntry verifies that DetectAll runs entries
+// concurrently via its real goroutine pool. The injected registry has 3 SLOW entries
+// (sleep 10 — beyond the 3s per-tool timeout) plus 1 FAST entry (echo). If DetectAll
+// serialised, total would be ≥ 3×3.5s ≈ 10.5s; with true concurrency all 3 slow entries
+// run in parallel → total ≈ 3.5s. The 6s ceiling catches serialisation without being
+// flaky on slow CI.
+//
+// This test drives the production DetectAll path (not test-local goroutines) so any
+// regression in the goroutine pool or semaphore is caught.
+func TestDetectBatch_SlowEntryDoesNotBlockFastEntry(t *testing.T) {
+	// sh is required on every supported platform (macOS, Linux).
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not on PATH")
+	}
+
+	slowEntry := func(name string) profile.RegistryEntry {
+		return profile.RegistryEntry{
+			Name:        name,
+			Binaries:    []string{"sh"},
+			VersionArgs: []string{"-c", "sleep 10"},
+			Strategy:    profile.StrategyBinary,
+			Category:    profile.CategoryCLI,
+		}
+	}
+
+	reg := []profile.RegistryEntry{
+		slowEntry("slow1"),
+		slowEntry("slow2"),
+		slowEntry("slow3"),
+		{
+			Name:        "fast",
+			Binaries:    []string{"sh"},
+			VersionArgs: []string{"-c", "echo 1.2.3"},
+			Strategy:    profile.StrategyBinary,
+			Category:    profile.CategoryCLI,
+		},
+	}
+
+	start := time.Now()
+	results := profile.DetectAll(profile.DetectOptions{Registry: reg})
+	totalElapsed := time.Since(start)
+
+	// Build a name→version map for assertions.
+	byName := make(map[string]string, len(results))
+	for _, r := range results {
+		byName[r.Name] = r.Version
+	}
+
+	// (a) Fast entry must resolve to its real version — not "unknown".
+	if byName["fast"] != "1.2.3" {
+		t.Errorf("fast entry: got %q, want %q", byName["fast"], "1.2.3")
+	}
+
+	// (b) Each slow entry must yield "unknown" (timed out).
+	for _, name := range []string{"slow1", "slow2", "slow3"} {
+		if byName[name] != "unknown" {
+			t.Errorf("slow entry %q: got %q, want %q (should have timed out)", name, byName[name], "unknown")
+		}
+	}
+
+	// (c) Whole batch must complete within 6s.
+	// Serial execution would be ≥ 3×3.5s ≈ 10.5s — far above the ceiling.
+	// Parallel execution: all 3 slow entries run concurrently → ~3.5s total.
+	const batchMax = 6 * time.Second
+	if totalElapsed > batchMax {
+		t.Errorf("batch: total elapsed %v, want <= %v; DetectAll likely serialised", totalElapsed, batchMax)
+	}
 }
