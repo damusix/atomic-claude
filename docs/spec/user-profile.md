@@ -609,3 +609,31 @@ Commits (chronological):
 **Squashed to `2e359ca` — 2026-05-28.** Per-iteration SHAs above (`e6ac3d6`..`c40c3dc`) are historical and unreachable from any branch.
 
 **Merged into main as `8ffb1a6` — 2026-05-28.** (Fast-forward; squashed feature `2e359ca` + post-squash docs/signals follow-ups.)
+
+
+### v2.2 — 2026-05-29
+
+
+Install-time population + no-hooks fallback. Built across 3 checkpoints + 1 polish of `/subagent-implementation` directly on `main` (from base `cffb02f`).
+
+Commits (chronological):
+
+- `b3ce841` — CP1: per-tool ~3s detection timeout (`exec.CommandContext` + `WaitDelay` for orphaned children); expiry → `unknown`. Added `DetectOptions.Registry` seam so the batch path is testable with crafted slow/fast entries.
+- `4370114` — CP2: shared `profile.DefaultRefreshDays = 1` (24h) used by install/update/hook (hook no longer hardcodes 7); install/update call `RefreshIfStale` after `ensureProfileStub`, best-effort (error + panic swallowed) behind a `ProfileRefresh` seam, date from `Apply`'s clock; `ProfileNudge` retargeted off "Claude will fill it in".
+- `3e7af16` — CP3: verbatim no-hooks LLM-fallback line in the `CLAUDE.md` profile preamble + bundle regen.
+- `646b7ec` — Polish: dropped a dead `//nolint:errcheck` directive on the best-effort recover (F-1).
+
+**Out-of-scope work performed during this build:**
+
+- None. The `DetectOptions.Registry` seam (CP1) was added to make the batch-isolation test exercise the real `DetectAll` — in-scope testability, surfaced by the reviewer.
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- CP1 batch-isolation test took 3 reviewer rounds. First attempt had no batch test; second reimplemented parallelism with test-local goroutines (proved nothing about the production path — would pass even if `DetectAll` serialized). Fixed by adding the `DetectOptions.Registry` seam and driving the real `DetectAll` with 3 slow + 1 fast entries, so serial execution (~10.5s) exceeds the ~6s bound — the test now genuinely catches a serialization regression.
+- `exec.CommandContext` alone didn't bound wall-time: a killed `sh` leaves orphaned `sleep` children holding the output pipe, so `CombinedOutput` blocked. `cmd.WaitDelay` (500ms) was needed to force return after the kill.
+
+**Deferred items still open:**
+
+- None. F-1 (dead `//nolint` comment) was dispositioned `fix-now` and landed in `646b7ec`.
+
+**On `main`, unpushed as of 2026-05-29.** `main` carries v2 + v2.1 + the CLAUDE.md trim + v2.2; not yet pushed to `origin`.
