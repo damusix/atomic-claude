@@ -172,7 +172,7 @@ func ensureProfileStub(targetDir string, out io.Writer) (bool, error) {
 // install/update never fails due to a detection error.
 // today is derived from clock so tests can inject a fixed date.
 func populateProfile(targetDir string, clock Clock) {
-	defer func() { recover() }() //nolint:errcheck // best-effort: panic recovery intentional
+	defer func() { recover() }() // best-effort: swallows any panic from detection so install never fails
 	today := clock().Format("2006-01-02")
 	_, _ = ProfileRefresh(targetDir, today, profile.DefaultRefreshDays)
 }
