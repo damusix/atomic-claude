@@ -405,6 +405,91 @@ Checkpoints 1 and 2 are sequential (rewrite engine depends on the detector). Che
 | `atomic profile refresh` subcommand added without completing mandatory checklist | Medium | Checkpoint 6 is the dedicated checklist checkpoint; reviewer gate is required before closing. |
 
 
+## v2.2 — Install-time population + no-hooks fallback
+
+
+### v2.2 Goal
+
+Install and update leave a **complete** env fingerprint, not the v1 five-field stub. The same `RefreshIfStale` entry point serves install, update, the session-start hook, and an LLM fallback for hook-less environments. Detection is bounded against hung tools. A force-refresh path always exists.
+
+### v2.2 Refresh window
+
+- Single cadence knob `W`, **default 24h**, as a code constant. Config-settable (`profile.refresh_window`) is a deliberate future amendment, NOT built now (axiom 2: default in code, promote on demand).
+- `RefreshIfStale(claudeHome, today, W)` early-exits when `lastcheck` is within `W`; else full refresh.
+- Install, update, and the session-start hook all pass the same `W`. **Supersedes** v2's hook-hardcoded `7d`.
+- Doctor's 30-day staleness WARN is separate and unchanged.
+
+### v2.2 Install/update population
+
+- After `ensureProfileStub` in the install/update flow, call `RefreshIfStale(claudeHome, today, W)`.
+- Fresh install: stub has no `lastcheck` → stale → full detect → complete profile day one.
+- Re-install / update: refreshes only if older than `W`; no-op otherwise.
+- **Best-effort (mandatory):** the call is wrapped so any error or panic is swallowed and install/update still completes with at least the stub present. Install MUST NOT fail because detection failed. Mirrors the session-start hook's swallow behavior.
+- Order: stub → populate → CLAUDE.md `@-ref` wiring.
+
+### v2.2 Per-tool detection timeout
+
+- Each tool's version command runs under a context timeout, **≈3s**. On expiry: record `unknown`, continue (same outcome as the non-zero-exit guard).
+- One hung `--version` cannot stall install, session-start, or manual refresh.
+- Distinct from `W`: the timeout bounds a single subprocess; `W` bounds staleness of the whole block.
+
+### v2.2 Force-refresh path
+
+- Bare `atomic profile refresh` (no flag) is **always** an unconditional refresh — independent of `W`, hooks, or staleness. Shipped in v2; v2.2 documents it as the guaranteed manual override. `--if-stale W` is the gated variant used by install/update/hook.
+
+### v2.2 No-hooks LLM fallback
+
+Some environments disallow hooks (enterprise policy, `CLAUDE_CODE_DISABLE_*`, `--bare`); the session-start hook never fires there. **Named `prefer-code-over-model` exception** (the deterministic trigger is unreliable → an LLM safeguard is acceptable as defense-in-depth).
+
+- Ship an LLM-fallback instruction in the `CLAUDE.md` profile preamble (the routing block, always `@`-loaded). **Verbatim text (the contract — emit exactly, like §Routing contract):**
+
+```
+`profile.md`'s `## Environment` block is refreshed automatically by the session-start hook. If hooks are disabled in your environment and its `<deterministic lastcheck=...>` date is more than a day old, run `atomic profile refresh --if-stale 1d` once, silently, to update the detected tooling.
+```
+
+  CP3's grep asserts a stable substring of this (e.g. `refreshed automatically by the session-start hook`).
+- Shipped **unconditionally** — no hook-presence detection. Hook present → it refreshes first, the LLM sees fresh `lastcheck` → no-op. Hook absent → the LLM is the trigger. The `--if-stale` gate dedupes.
+- Text lives in the repo-root `CLAUDE.md` (bundle source), emitted into `~/.claude/CLAUDE.md` on install. Deterministic path stays primary; LLM is strictly backup; doctor's 30d WARN is the backstop.
+- Honesty: probabilistic (model may skip it); requires Bash permission for the refresh; in maximally-locked envs the profile stays at install-time state until manually refreshed.
+
+### v2.2 Nudge copy
+
+- Retarget the first-install stdout nudge away from "Claude will fill it in" (the env block is now populated at install) toward the conversational sections (Identity/Work/projects) the user fills over time.
+
+### v2.2 Success criteria
+
+- [ ] `atomic claude install` with no pre-existing profile yields a `## Environment` block containing detected tooling (not just the five v1 fields) plus a `lastcheck` stamp.
+- [ ] Install/update population is best-effort: an injected detection failure leaves install exit 0 with the stub present.
+- [ ] Re-install/update with a fresh `lastcheck` does NOT rewrite the block (no-op).
+- [ ] Each tool's version command is bounded by a ~3s timeout; a deliberately-hung command yields `unknown` and does not block the batch.
+- [ ] The shared refresh-window constant equals 1 day (24h); install, update, AND the session-start hook all pass this constant — the hook no longer passes a literal `7`.
+- [ ] Config key `profile.refresh_window` is NOT introduced this iteration (the window stays a code constant — axiom 2, promote later).
+- [ ] Bare `atomic profile refresh` performs an unconditional refresh regardless of `lastcheck` (regression-assert).
+- [ ] `CLAUDE.md` profile preamble contains the no-hooks LLM-fallback instruction; present in both source and the embedded bundle; `make -C atomic bundle && git diff --exit-code` clean.
+- [ ] First-install nudge copy no longer claims Claude fills the env block.
+- [ ] `go test ./...` green.
+
+### v2.2 Checkpoints
+
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
+|---|-----------|-------------|-------|-----------|----------|
+| 1 | Per-tool detection timeout | `atomic/internal/profile/detect.go` + test | `atomic-surgeon` | 2 | `go test ./internal/profile/...`: a version command that sleeps well past the timeout (e.g. `sleep 10`) yields `unknown` and the detect call returns in ≤ ~2× the per-tool timeout (≤ ~6s, not ~10s); other detections in the batch unaffected; existing detection behavior unchanged |
+| 2 | Shared `W` const + install/update population (best-effort) + hook window + nudge retarget | `atomic/internal/profile/` (W const), `atomic/internal/claudeinstall/install.go`, `atomic/internal/hooks/hooks.go` + tests | `atomic-builder` | 4–6 | `go test ./...`: fresh install populates fingerprint + `lastcheck`; existing+fresh = no-op; injected detection failure → install exit 0 with stub; hook + install both pass the shared 1-day constant (no literal `7` in the hook); `ProfileNudge` no longer contains `Claude will fill it in` |
+| 3 | No-hooks LLM-fallback line in `CLAUDE.md` preamble + bundle regen | `CLAUDE.md` (profile preamble); then `make -C atomic bundle` | `atomic-surgeon` | 2–3 | `grep -F 'refreshed automatically by the session-start hook' CLAUDE.md` AND the same in `atomic/internal/embedded/bundle/CLAUDE.md` both match; `make -C atomic bundle && git diff --exit-code` clean; `go test ./...` green |
+
+CP1 → CP2 (population relies on bounded detection). CP3 is independent (preamble/doc + bundle).
+
+### v2.2 Risks
+
+| Risk | Likelihood | Mitigation |
+|------|-----------|------------|
+| Install latency from synchronous detection (~1s; longer on slow machines) | Medium | Per-tool ~3s timeout caps worst case; bounded-parallel; runs once per install/update, gated on later runs |
+| Best-effort swallow masks a real detection regression | Low | Detection correctness is asserted by its own unit tests; the swallow only guards install/update from aborting |
+| LLM fallback never fires (model skips it) in a no-hooks env | Medium | Defense-in-depth, not the mechanism; doctor's 30d WARN backstops; bare `atomic profile refresh` is the manual override |
+| LLM fallback fires redundantly when the hook is present | Low | `--if-stale` gate → no-op; harmless |
+| Window change `7d`→`24h` raises hook-triggered refresh frequency | Low | No-op is a cheap `lastcheck` read; only an actual refresh costs ~1s, at most once per `W` per active session |
+
+
 ## Change log
 
 ### 2026-05-28 — v2 deterministic env refresh + dev-tooling fingerprint
@@ -440,6 +525,15 @@ Checkpoints 1 and 2 are sequential (rewrite engine depends on the detector). Che
 **Why:** User feedback after running `atomic profile refresh` live — the generic `version-manager` label lost information we already had, `elixir`/`mix` showed `unknown`, the long labels added noise, and omz custom scripts (a real omz extension point) were missed.
 
 **Superseded:** v2 §Provenance fixed source-class enum (`version-manager`/`homebrew`/`system`/`other`) → now manager-name-or-`brew`/`sys`/`other`. v2 Polish-1 decision F-16 (elixir/mix presence-only, render `unknown`) → reversed: elixir/mix capture their real version via the version-line prefix. v2 shell enumeration (plugins + themes only) → also custom scripts.
+
+
+### 2026-05-29 — v2.2 install-time population + no-hooks fallback
+
+**What changed:** Added §"v2.2 — Install-time population + no-hooks fallback": install/update now call `RefreshIfStale(W)` after `ensureProfileStub` (best-effort) so a fresh install yields a complete fingerprint, not the five-field stub; a single refresh window `W` (default 24h, code constant) is shared by install/update/hook; each tool's version command gets a ~3s timeout; an unconditional LLM-fallback instruction is added to the `CLAUDE.md` profile preamble for hook-less environments; the first-install nudge copy is retargeted. Added v2.2 goal, success criteria, 3 checkpoints, risks.
+
+**Why:** Dogfooding v2/v2.1 showed install leaves a half-populated profile (rich detection only ran on the first hooked session). Surfaced the trigger-model gap, the hook dependency (enterprises may disallow hooks), and the need for a guaranteed force-refresh path. Design captured in `docs/design/user-profile.md` §v2.2 (gather/pressure-test-style decisions made inline this session).
+
+**Superseded:** v2 §Bootstrap (install = "create stub + 5 env fields") → install also populates the full fingerprint. v2 §Scheduling hook window `7d` → shared `W` default `24h`. Adds the no-hooks LLM-fallback path (new behavior, defense-in-depth).
 
 
 ## Implementation log
