@@ -32,7 +32,7 @@ func refreshProfile(now time.Time) {
 	}
 	claudeHome := filepath.Join(home, ".claude")
 	today := now.Format("2006-01-02")
-	_, _ = ProfileRefresh(claudeHome, today, 7)
+	_, _ = ProfileRefresh(claudeHome, today, profile.DefaultRefreshDays)
 }
 
 const (

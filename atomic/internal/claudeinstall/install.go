@@ -25,6 +25,15 @@ type Clock func() time.Time
 // RealClock returns time.Now().UTC().
 func RealClock() time.Time { return time.Now().UTC() }
 
+// DefaultProfileRefresh is the real implementation used in production.
+// Exposed so tests can restore the original after overriding ProfileRefresh.
+var DefaultProfileRefresh = profile.RefreshIfStale
+
+// ProfileRefresh is an injectable seam for tests: swap it with a spy to capture
+// calls without real detection, home-dir resolution, or disk writes. Production
+// code always calls DefaultProfileRefresh; only tests override this.
+var ProfileRefresh = profile.RefreshIfStale
+
 // ActionKind classifies what install/update will do to a file.
 type ActionKind string
 
@@ -135,7 +144,7 @@ func ensureResolvedConfigStub(targetDir string) error {
 // ProfileNudge is the bootstrap message printed to stdout when profile.md is
 // created for the first time. Tests reference this constant to avoid duplicating
 // the verbatim string.
-const ProfileNudge = "Profile created at ~/.claude/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /atomic-improve to review drift."
+const ProfileNudge = "Profile created at ~/.claude/.atomic/profile.md. Mention your role, projects, and preferences in conversation and Claude will record them. Run /atomic-improve to review drift."
 
 // ensureProfileStub creates <targetDir>/.atomic/profile.md with the initial schema
 // template if it does not already exist. Idempotent: leaves any existing content untouched.
@@ -156,6 +165,16 @@ func ensureProfileStub(targetDir string, out io.Writer) (bool, error) {
 	}
 	fmt.Fprintln(out, ProfileNudge)
 	return true, nil
+}
+
+// populateProfile calls the profileRefresh seam in a best-effort manner.
+// Any error returned by the seam and any panic are silently swallowed so
+// install/update never fails due to a detection error.
+// today is derived from clock so tests can inject a fixed date.
+func populateProfile(targetDir string, clock Clock) {
+	defer func() { recover() }() //nolint:errcheck // best-effort: panic recovery intentional
+	today := clock().Format("2006-01-02")
+	_, _ = ProfileRefresh(targetDir, today, profile.DefaultRefreshDays)
 }
 
 func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp string) error {
@@ -256,6 +275,13 @@ func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) 
 		if _, err := ensureProfileStub(targetDir, out); err != nil {
 			return nil, err
 		}
+		// After the stub exists, populate the ## Environment fingerprint.
+		// Called unconditionally: RefreshIfStale self-gates on lastcheck.
+		// Fresh install: stub has no lastcheck → stale → full detect.
+		// Re-install/update with fresh lastcheck: no-op.
+		// Best-effort: any error or panic is swallowed — install must not fail
+		// because detection failed (mirrors the session-start hook's swallow behavior).
+		populateProfile(targetDir, clock)
 	}
 	return plan, nil
 }

@@ -12,6 +12,12 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
+// DefaultRefreshDays is the shared refresh-window constant: 1 day (24h).
+// Install, update, and the session-start hook all pass this constant to RefreshIfStale.
+// A config-settable override is a deliberate future amendment (axiom 2 — code constant
+// for now, promote to config only when demand is proven).
+const DefaultRefreshDays = 1
+
 // ParseDuration parses a duration string in the form "<N>d" (e.g. "7d", "30d").
 // Only days are accepted; any other unit or format returns an error.
 // N must be a positive integer (> 0).

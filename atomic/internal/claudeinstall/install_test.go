@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
+	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
 
 // fixedClock returns a deterministic timestamp for tests.
@@ -523,10 +525,19 @@ func TestInstall_CreatesProfileStub(t *testing.T) {
 	}
 }
 
-// TestInstall_ProfileStubIdempotent: Install must not overwrite profile.md when it already exists.
-// This ensures user edits are preserved across subsequent installs / updates.
+// TestInstall_ProfileStubIdempotent: ensureProfileStub must not overwrite profile.md
+// when it already exists. User-authored content (Identity, Work, etc.) is preserved.
+// The profileRefresh seam is no-op'd here to isolate the stub-idempotency concern
+// from the env-section rewrite introduced in v2.2 — refresh behaviour is tested
+// separately in TestInstall_ProfileRefreshCalledAfterStub.
 func TestInstall_ProfileStubIdempotent(t *testing.T) {
 	target := t.TempDir()
+
+	// No-op the refresh seam so only ensureProfileStub behaviour is under test.
+	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
+		return false, nil
+	}
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
 
 	// Pre-create profile.md with custom user content.
 	atomicDir := filepath.Join(target, ".atomic")
@@ -548,7 +559,7 @@ func TestInstall_ProfileStubIdempotent(t *testing.T) {
 		t.Fatalf("read profile.md: %v", err)
 	}
 	if !bytes.Equal(after, userContent) {
-		t.Errorf("Install overwrote profile.md: got %q, want %q", after, userContent)
+		t.Errorf("ensureProfileStub overwrote profile.md: got %q, want %q", after, userContent)
 	}
 }
 
@@ -574,6 +585,12 @@ func TestInstall_PrintsNudgeOnFirstCreate(t *testing.T) {
 func TestInstall_SuppressesNudgeWhenAlreadyExists(t *testing.T) {
 	target := t.TempDir()
 
+	// No-op the refresh seam — this test is only about the nudge suppression, not refresh.
+	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
+		return false, nil
+	}
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+
 	// Pre-create profile.md so ensureProfileStub is a no-op.
 	atomicDir := filepath.Join(target, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
@@ -592,6 +609,100 @@ func TestInstall_SuppressesNudgeWhenAlreadyExists(t *testing.T) {
 	const nudge = "Profile created at"
 	if strings.Contains(buf.String(), nudge) {
 		t.Errorf("nudge must not print when profile.md already exists\nstdout: %q", buf.String())
+	}
+}
+
+// TestInstall_ProfileRefreshCalledAfterStub verifies that installOrUpdate invokes the
+// profileRefresh seam after ensureProfileStub with the shared refresh-window constant.
+// WHY: install must populate the env fingerprint on first install; the seam allows
+// testing the wiring without real detection or disk writes.
+func TestInstall_ProfileRefreshCalledAfterStub(t *testing.T) {
+	target := t.TempDir()
+
+	now := time.Date(2026, 5, 29, 9, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
+
+	var gotClaudeHome, gotToday string
+	var gotDays int
+	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
+		gotClaudeHome = claudeHome
+		gotToday = today
+		gotDays = days
+		return false, nil
+	}
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+
+	var buf bytes.Buffer
+	if _, err := claudeinstall.InstallWithOutput(target, false, clock, &buf); err != nil {
+		t.Fatalf("InstallWithOutput: %v", err)
+	}
+
+	if gotDays != profile.DefaultRefreshDays {
+		t.Errorf("profileRefresh called with days=%d, want profile.DefaultRefreshDays=%d", gotDays, profile.DefaultRefreshDays)
+	}
+	wantToday := now.Format("2006-01-02")
+	if gotToday != wantToday {
+		t.Errorf("profileRefresh called with today=%q, want %q", gotToday, wantToday)
+	}
+	if gotClaudeHome != target {
+		t.Errorf("profileRefresh called with claudeHome=%q, want %q", gotClaudeHome, target)
+	}
+}
+
+// TestInstall_ProfileRefreshError_BestEffort verifies that when the profileRefresh
+// seam returns an error, installOrUpdate still returns nil (best-effort).
+// WHY: install MUST NOT fail because detection failed; the stub must still be present.
+func TestInstall_ProfileRefreshError_BestEffort(t *testing.T) {
+	target := t.TempDir()
+
+	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
+		return false, fmt.Errorf("simulated detection failure")
+	}
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+
+	var buf bytes.Buffer
+	_, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &buf)
+	if err != nil {
+		t.Fatalf("Install returned error despite best-effort refresh: %v", err)
+	}
+
+	// Profile stub must still be present.
+	profilePath := filepath.Join(target, ".atomic", "profile.md")
+	if _, statErr := os.Stat(profilePath); statErr != nil {
+		t.Errorf("profile.md not present after best-effort error: %v", statErr)
+	}
+}
+
+// TestInstall_ProfileRefreshPanic_BestEffort verifies that when the profileRefresh
+// seam panics, installOrUpdate recovers and still returns nil.
+// WHY: install must not crash even if detection panics; the stub must still be present.
+func TestInstall_ProfileRefreshPanic_BestEffort(t *testing.T) {
+	target := t.TempDir()
+
+	claudeinstall.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
+		panic("simulated detection panic")
+	}
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+
+	var buf bytes.Buffer
+	_, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &buf)
+	if err != nil {
+		t.Fatalf("Install returned error despite panic recovery: %v", err)
+	}
+
+	// Profile stub must still be present.
+	profilePath := filepath.Join(target, ".atomic", "profile.md")
+	if _, statErr := os.Stat(profilePath); statErr != nil {
+		t.Errorf("profile.md not present after panic recovery: %v", statErr)
+	}
+}
+
+// TestInstall_NudgeNoLongerClaimsClaudeFillsIt verifies that ProfileNudge does not
+// contain the stale "Claude will fill it in" copy (retargeted in v2.2).
+// WHY: the env block is now populated at install time, so the old copy is misleading.
+func TestInstall_NudgeNoLongerClaimsClaudeFillsIt(t *testing.T) {
+	if strings.Contains(claudeinstall.ProfileNudge, "Claude will fill it in") {
+		t.Errorf("ProfileNudge still contains 'Claude will fill it in': %q", claudeinstall.ProfileNudge)
 	}
 }
 

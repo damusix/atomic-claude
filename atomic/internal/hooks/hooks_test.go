@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
 
@@ -1091,8 +1092,8 @@ func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
 		t.Fatalf("SessionStart: %v", err)
 	}
 
-	if gotDays != 7 {
-		t.Errorf("profileRefresh called with days=%d, want 7", gotDays)
+	if gotDays != profile.DefaultRefreshDays {
+		t.Errorf("profileRefresh called with days=%d, want profile.DefaultRefreshDays=%d", gotDays, profile.DefaultRefreshDays)
 	}
 	wantToday := now.Format("2006-01-02")
 	if gotToday != wantToday {
