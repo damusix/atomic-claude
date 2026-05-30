@@ -133,6 +133,73 @@ func TestOrphanDetection(t *testing.T) {
 	}
 }
 
+// TestAgentKindRender verifies that templates/agents/<name>.md renders to
+// agents/<name>.md, sharing the same shared-partial pool as commands.
+func TestAgentKindRender(t *testing.T) {
+	root := t.TempDir()
+	outDir := t.TempDir()
+
+	// A shared partial usable by both kinds.
+	mkdirWrite(t, filepath.Join(root, "templates", "shared"), "agent-rule.md",
+		`{{- define "agent-rule" -}}Quote errors exactly.{{- end -}}`)
+
+	// An agent template that pulls the shared partial.
+	mkdirWrite(t, filepath.Join(root, "templates", "agents"), "atomic-builder.md",
+		"---\nname: atomic-builder\n---\n\n## Rules\n\n- {{ template \"agent-rule\" . }}\n")
+
+	// A command template alongside it, proving both kinds render in one pass.
+	mkdirWrite(t, filepath.Join(root, "templates", "commands"), "foo.md", "# foo\n")
+
+	if err := templaterender.Run(root, outDir); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(outDir, "agents", "atomic-builder.md"))
+	if err != nil {
+		t.Fatalf("read agent output: %v", err)
+	}
+	want := "---\nname: atomic-builder\n---\n\n## Rules\n\n- Quote errors exactly.\n"
+	if string(got) != want {
+		t.Errorf("agent render mismatch\ngot:  %q\nwant: %q", string(got), want)
+	}
+
+	// The command kind must still render in the same pass.
+	if _, err := os.ReadFile(filepath.Join(outDir, "commands", "foo.md")); err != nil {
+		t.Errorf("command kind did not render alongside agents: %v", err)
+	}
+}
+
+// TestAgentOrphanDetection verifies the orphan rule applies to the agents kind:
+// an agents/<name>.md with no matching template halts with an error naming the
+// agent-specific remediation paths.
+func TestAgentOrphanDetection(t *testing.T) {
+	root := t.TempDir()
+	outDir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(root, "templates", "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "templates", "shared"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Output agent with no corresponding template.
+	mkdirWrite(t, filepath.Join(outDir, "agents"), "ghost.md", "---\nname: ghost\n---\n")
+
+	err := templaterender.Run(root, outDir)
+	if err == nil {
+		t.Fatal("expected error for orphan agent output, got nil")
+	}
+
+	msg := err.Error()
+	if !strings.Contains(msg, "templates/agents/ghost.md") {
+		t.Errorf("error missing create-template remediation (templates/agents/ghost.md): %s", msg)
+	}
+	if !strings.Contains(msg, "agents/ghost.md") {
+		t.Errorf("error missing orphan output path (agents/ghost.md): %s", msg)
+	}
+}
+
 // TestDeterministicOutput verifies that Run produces the same result on repeated
 // calls (no timestamps, env reads, or ordering non-determinism).
 func TestDeterministicOutput(t *testing.T) {

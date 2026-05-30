@@ -1,10 +1,12 @@
 // Package templaterender implements the template rendering logic used by
 // cmd/render-templates. It loads shared partials from <repoRoot>/templates/shared/,
-// walks <repoRoot>/templates/commands/, renders each via text/template, and writes
-// the output to <outDir>/commands/<name>.md.
+// then for each rendered kind (commands, agents) walks <repoRoot>/templates/<kind>/,
+// renders each file via text/template, and writes the output to <outDir>/<kind>/<name>.md.
+// All kinds share one shared-partial pool, so a partial defined once is callable
+// from any command or agent template.
 //
-// The orphan rule halts with a non-zero exit when any <outDir>/commands/<name>.md
-// lacks a corresponding <repoRoot>/templates/commands/<name>.md.
+// The orphan rule halts with a non-zero exit when any <outDir>/<kind>/<name>.md
+// lacks a corresponding <repoRoot>/templates/<kind>/<name>.md.
 package templaterender
 
 import (
@@ -18,29 +20,47 @@ import (
 	"text/template"
 )
 
+// renderedKinds are the artifact kinds rendered from templates/<kind>/ into
+// <outDir>/<kind>/. Each kind shares the same shared-partial pool. The slice
+// order is the render order; it must stay deterministic.
+var renderedKinds = []string{"commands", "agents"}
+
 // Run is the main entry point. repoRoot is the path to the repository root
 // (parent of atomic/); outDir is the directory where rendered outputs are
-// written (commands/ subdirectory will be created inside it).
+// written (a <kind>/ subdirectory is created inside it per rendered kind).
 func Run(repoRoot, outDir string) error {
 	templatesDir := filepath.Join(repoRoot, "templates")
 	sharedDir := filepath.Join(templatesDir, "shared")
-	commandsTemplDir := filepath.Join(templatesDir, "commands")
-	commandsOutDir := filepath.Join(outDir, "commands")
 
-	// Load all shared partials.
+	// Load all shared partials once; every kind clones from this pool.
 	sharedTmpl, err := loadSharedPartials(sharedDir)
 	if err != nil {
 		return fmt.Errorf("load shared partials: %w", err)
 	}
 
+	for _, kind := range renderedKinds {
+		if err := renderKind(sharedTmpl, kind, templatesDir, outDir); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// renderKind renders one artifact kind: templates/<kind>/**/*.md → <outDir>/<kind>/**/*.md.
+// It enforces the orphan rule for that kind before rendering.
+func renderKind(sharedTmpl *template.Template, kind, templatesDir, outDir string) error {
+	kindTemplDir := filepath.Join(templatesDir, kind)
+	kindOutDir := filepath.Join(outDir, kind)
+
 	// Enumerate source templates (recursive — includes subdirs like _templates/).
-	srcTemplates, err := listMDFilesRecursive(commandsTemplDir)
+	srcTemplates, err := listMDFilesRecursive(kindTemplDir)
 	if err != nil {
-		return fmt.Errorf("list templates/commands: %w", err)
+		return fmt.Errorf("list templates/%s: %w", kind, err)
 	}
 
 	// Orphan detection: enumerate existing output files, check each has a template.
-	if err := checkOrphans(commandsOutDir, commandsTemplDir, srcTemplates); err != nil {
+	if err := checkOrphans(kind, kindOutDir, srcTemplates); err != nil {
 		return err
 	}
 
@@ -49,13 +69,13 @@ func Run(repoRoot, outDir string) error {
 	}
 
 	for _, relPath := range srcTemplates {
-		src := filepath.Join(commandsTemplDir, relPath)
-		dst := filepath.Join(commandsOutDir, relPath)
+		src := filepath.Join(kindTemplDir, relPath)
+		dst := filepath.Join(kindOutDir, relPath)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return fmt.Errorf("create output dir for %s: %w", relPath, err)
+			return fmt.Errorf("create output dir for %s/%s: %w", kind, relPath, err)
 		}
 		if err := renderFile(sharedTmpl, src, dst); err != nil {
-			return fmt.Errorf("render %s: %w", relPath, err)
+			return fmt.Errorf("render %s/%s: %w", kind, relPath, err)
 		}
 	}
 
@@ -150,13 +170,13 @@ func listMDFilesRecursive(dir string) ([]string, error) {
 	return paths, nil
 }
 
-// checkOrphans enumerates outDir/commands/**/*.md and returns an error for any
+// checkOrphans enumerates outDir/<kind>/**/*.md and returns an error for any
 // file that has no corresponding source template. The error message names both
 // remediation paths: create the template OR rm the output file.
-func checkOrphans(commandsOutDir, commandsTemplDir string, srcTemplates []string) error {
-	existing, err := listMDFilesRecursive(commandsOutDir)
+func checkOrphans(kind, kindOutDir string, srcTemplates []string) error {
+	existing, err := listMDFilesRecursive(kindOutDir)
 	if err != nil {
-		return fmt.Errorf("list output commands: %w", err)
+		return fmt.Errorf("list output %s: %w", kind, err)
 	}
 
 	// Build a set of template paths for O(1) lookup.
@@ -179,14 +199,14 @@ func checkOrphans(commandsOutDir, commandsTemplDir string, srcTemplates []string
 	// Build a multi-orphan error message naming both remediation paths.
 	var sb strings.Builder
 	sb.WriteString("render-templates: orphan output file(s) found — ")
-	sb.WriteString("every commands/ file must have a matching template.\n")
+	sb.WriteString(fmt.Sprintf("every %s/ file must have a matching template.\n", kind))
 	sb.WriteString("Remediation: for each orphan, either\n")
 	sb.WriteString("  (a) create the missing template, or\n")
 	sb.WriteString("  (b) rm the orphan output file.\n\n")
 	for _, name := range orphans {
-		sb.WriteString(fmt.Sprintf("  orphan: commands/%s\n", name))
-		sb.WriteString(fmt.Sprintf("    create: templates/commands/%s\n", name))
-		sb.WriteString(fmt.Sprintf("    rm:     commands/%s\n", name))
+		sb.WriteString(fmt.Sprintf("  orphan: %s/%s\n", kind, name))
+		sb.WriteString(fmt.Sprintf("    create: templates/%s/%s\n", kind, name))
+		sb.WriteString(fmt.Sprintf("    rm:     %s/%s\n", kind, name))
 	}
 
 	return errors.New(strings.TrimRight(sb.String(), "\n"))

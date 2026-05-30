@@ -36,12 +36,12 @@ CI gates: (1) `make render && git diff --exit-code` — stale `commands/` fails.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Markdown | 31058 | 236 | 49% |
-| Go | 27985 | 126 | 45% |
-| JSON | 2278 | 5 | 3% |
+| Markdown | 36129 | 251 | 50% |
+| Go | 31772 | 137 | 44% |
+| JSON | 2283 | 5 | 3% |
 | CSS | 402 | 1 | 0% |
 | Shell | 269 | 3 | 0% |
-| YAML | 212 | 6 | 0% |
+| YAML | 218 | 6 | 0% |
 | TypeScript | 104 | 2 | 0% |
 | Python | 30 | 1 | 0% |
 
@@ -58,7 +58,7 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 | Domain | Repo paths | One-liner | Detail |
 |--------|------------|-----------|--------|
 | signals | `agents/atomic-signals-inferrer.md`, `commands/refresh-signals.md`, `atomic/internal/signals/`, `atomic/internal/doctor/checks_signals.go`, `atomic/internal/doctor/checks_refs.go`, `docs/spec/signals-*.md` | Scan → infer → wire: project context generation pipeline | .claude/project/signals/signals.md |
-| bundle | `templates/`, `commands/`, `agents/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`, `atomic/internal/bundlespec/`, `atomic/internal/bundlemirror/`, `atomic/internal/embedded/`, `atomic/internal/templaterender/`, `atomic/internal/claudeinstall/` (install + snapshot + uninstall), `atomic/cmd/bundle-mirror/`, `atomic/cmd/render-templates/`, `docs/spec/uninstall.md`, `docs/design/uninstall.md` | Template render → bundle embed → install/uninstall into ~/.claude | .claude/project/signals/bundle.md |
+| bundle | `templates/commands/`, `templates/agents/`, `templates/shared/`, `commands/`, `agents/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`, `atomic/internal/bundlespec/`, `atomic/internal/bundlemirror/`, `atomic/internal/embedded/`, `atomic/internal/templaterender/`, `atomic/internal/claudeinstall/` (install + snapshot + uninstall), `atomic/cmd/bundle-mirror/`, `atomic/cmd/render-templates/`, `docs/spec/uninstall.md`, `docs/design/uninstall.md` | Template render (commands + agents) → bundle embed → install/uninstall into ~/.claude | .claude/project/signals/bundle.md |
 | doctor | `atomic/internal/doctor/`, `atomic/internal/validate/`, `atomic/internal/manifestcheck/`, `atomic/internal/updatedoctor/`, `atomic/internal/profile/`, `docs/spec/atomic-doctor.md`, `docs/spec/atomic-validate.md`, `docs/spec/atomic-update-doctor.md`, `docs/spec/user-profile.md`, `docs/design/user-profile.md` | 10-check integrity suite + static validation + post-update auto-fire + user profile | .claude/project/signals/doctor.md |
 | workflow | `commands/atomic-plan.md`, `commands/gather-evidence.md`, `commands/subagent-implementation.md`, `commands/subagent-diagnose.md`, `commands/atomic-setup.md`, `commands/atomic-improve.md`, ship verbs (`commands/commit-*.md`, `commands/push-only.md`, etc.), `commands/_templates/`, `agents/atomic-builder.md`, `agents/atomic-surgeon.md`, `agents/atomic-reviewer.md`, `agents/atomic-investigator.md`, `agents/atomic-strategist.md`, `skills/atomic-tdd/`, `skills/atomic-verify/`, `skills/atomic-commit/`, `skills/atomic-review/`, `skills/atomic-debug/` | Plan → gather-evidence → implement → review → ship → retrospective lifecycle | .claude/project/signals/workflow.md |
 | config | `commands/follow-up.md`, `commands/remind-me.md`, `commands/git-cleanup.md`, `commands/watch-ci.md`, `commands/atomic-claude-merge.md`, `agents/atomic-git-scout.md`, `agents/atomic-haiku.md`, `agents/atomic-claude-merger.md`, `atomic/internal/config/`, `atomic/internal/hooks/`, `atomic/internal/reminder/`, `atomic/internal/followups/`, `atomic/internal/prompt/`, `atomic/internal/selfupdate/` | User config, state dir (profile.md, config.toml), session hooks, reminders, follow-ups, self-update | .claude/project/signals/config.md |
@@ -74,7 +74,9 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 
 **`go:embed all:bundle` requirement (bundle)**: `commands/_templates/` starts with `_` — excluded by the default embed glob. `all:bundle` overrides this. Any new underscore-prefixed directory under `embedded/bundle/` needs this same consideration.
 
-**Pipeline order is load-bearing (bundle)**: `make render` must precede `make bundle`. The pre-commit hook stages 1 and 2 enforce this order. CI runs the same two drift gates in order. Running only `make bundle` after editing a template embeds stale command outputs.
+**Pipeline order is load-bearing (bundle)**: `make render` must precede `make bundle`. The pre-commit hook stages 1 and 2 enforce this order; stage 1 re-stages both `commands/` and `agents/` after render. CI runs the same two drift gates in order. Running only `make bundle` after editing a template embeds stale command or agent outputs.
+
+**Agent template partial pipeline**: `templates/agents/` now mirrors `templates/commands/` — agent source files are rendered, not directly edited. Three agent-specific partials live in `templates/shared/`: `agent-tdd-signals` (TDD + quality signals workflow steps), `agent-signals-output` (output block format), `agent-shared-rules` (style/git/error-quoting constraints). `atomic-builder.md` and `atomic-surgeon.md` compose all three. `make render` produces `agents/*.md`; `make bundle` embeds them. Editing `agents/*.md` directly is overwritten on next render — edit `templates/agents/*.md` instead.
 
 **Domain partitioning basis**: domains are vertical slices by feature concern, not horizontal layers by file type. Each domain file answers: "if I'm working on X, what artifacts, what CLI code, and what docs do I need?"
 

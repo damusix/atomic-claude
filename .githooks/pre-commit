@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Pre-commit hook:
 #   Stage 1 — render templates when a staged change touches templates/.
-#              Re-stages commands/ outputs so they ride along with this commit.
-#              The bundle stage below will then pick up the re-staged commands/.
+#              Re-stages commands/ and agents/ outputs so they ride along with
+#              this commit. The bundle stage below then picks up the re-staged
+#              rendered outputs.
 #   Stage 2 — regenerate the embedded bundle when a staged change touches a
 #              source artifact (agents/, commands/, skills/, output-styles/,
 #              rules/, CLAUDE.md). Without this, CI fails the "Verify bundle
@@ -34,7 +35,7 @@ if [ "$needs_render" -eq 1 ]; then
     echo "pre-commit: templates changed — running make render"
     make -C "$repo_root" render >/dev/null
     # Re-stage rendered outputs so they ride along with this commit.
-    git add "$repo_root/commands"
+    git add "$repo_root/commands" "$repo_root/agents"
     echo "pre-commit: rendered outputs re-staged"
 fi
 

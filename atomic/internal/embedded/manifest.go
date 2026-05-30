@@ -13,7 +13,7 @@ type Artifact struct {
 // Generated at build time by cmd/bundle-mirror; commit the result.
 func Manifest() []Artifact {
 	return []Artifact{
-		{Kind: "agent", Source: "bundle/agents/atomic-builder.md", Target: "agents/atomic-builder.md", SHA256: "7867fa5f864dd24d7920291e1abf18cda5306a8729759e54ef7e63fe5855c9f7"},
+		{Kind: "agent", Source: "bundle/agents/atomic-builder.md", Target: "agents/atomic-builder.md", SHA256: "2c07493eb305dc2b128c2919afa93ace876376bfe82e5bdec4ec620e1a66eceb"},
 		{Kind: "agent", Source: "bundle/agents/atomic-claude-merger.md", Target: "agents/atomic-claude-merger.md", SHA256: "facd0dd8347328685f0dbcbda633941cccfd20f1f3b63fe81f225d15997c92a9"},
 		{Kind: "agent", Source: "bundle/agents/atomic-git-scout.md", Target: "agents/atomic-git-scout.md", SHA256: "ee4429ed42f44236dcaa02e441adeb015517b58518680833a6d14f6361ff2760"},
 		{Kind: "agent", Source: "bundle/agents/atomic-haiku.md", Target: "agents/atomic-haiku.md", SHA256: "184ed9cf10dd12d45c576296467868f970080828132ee4ab20afe17bf2008f21"},
@@ -21,7 +21,7 @@ func Manifest() []Artifact {
 		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "d0dbb3256f89c79df8404ff51ffb62a59871a810fe9845b678debc43be7e0d56"},
 		{Kind: "agent", Source: "bundle/agents/atomic-signals-inferrer.md", Target: "agents/atomic-signals-inferrer.md", SHA256: "fc1c88094e4c5eb735fb3a2e3c43dd0941e44f3a0f295293ba197040ec09673c"},
 		{Kind: "agent", Source: "bundle/agents/atomic-strategist.md", Target: "agents/atomic-strategist.md", SHA256: "604dca251bcab74bbd0d93755b6c95766913e9841f77d80c5813768ab011da2b"},
-		{Kind: "agent", Source: "bundle/agents/atomic-surgeon.md", Target: "agents/atomic-surgeon.md", SHA256: "699cfbd357f6ab7f481e7b8b6d9956551753b41f93d2df67cbd84d123fc93d80"},
+		{Kind: "agent", Source: "bundle/agents/atomic-surgeon.md", Target: "agents/atomic-surgeon.md", SHA256: "21cd069d42834cb569ccfe1755b80a80bbbed7d58663bba7a3ab533a135f86f4"},
 		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "9cbed81f04ff262f5768167fb2a8234a69b5e9ecbe6e4f79f7e1e43172240e6f"},
 		{Kind: "command", Source: "bundle/commands/_templates/implementer-prompt.md", Target: "commands/_templates/implementer-prompt.md", SHA256: "88821c30f61b773218b90332f2060eec09979515545aaddfcb10081f1e8ce14f"},
 		{Kind: "command", Source: "bundle/commands/_templates/reviewer-prompt.md", Target: "commands/_templates/reviewer-prompt.md", SHA256: "e7d281b3a951a5381b91d8f2e25d0e7b5581ddaf17a05a7bb7532297bf526997"},

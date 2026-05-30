@@ -1,6 +1,6 @@
 ---
 name: atomic-cli-contrib
-description: Conventions for editing the atomic CLI and command artifacts in this repo. Auto-fires on phrases like "add a CLI subcommand", "wire a new flag", "prompt the user", "add a doctor check", "add a doctor repair", "edit cmd/atomic/main.go", "extend claudeinstall", "add an internal package", "use huh", "add a command", "create a new verb", "add a partial", "render templates", "edit a command", "edit commands/", or "create a new command". Contributor-only — never bundled, never installed.
+description: Conventions for editing the atomic CLI and command artifacts in this repo. Auto-fires on phrases like "add a CLI subcommand", "wire a new flag", "prompt the user", "add a doctor check", "add a doctor repair", "edit cmd/atomic/main.go", "extend claudeinstall", "add an internal package", "use huh", "add a command", "create a new verb", "add a partial", "render templates", "edit a command", "edit commands/", "create a new command", "edit an agent", "edit agents/", or "add an agent". Contributor-only — never bundled, never installed.
 user-invocable: false
 ---
 
@@ -125,45 +125,47 @@ When adding a verb, flag, or repair:
 - The bundle regenerator runs on every commit that touches a source artifact (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`). Pure `atomic/` changes do NOT trigger a regen. See `.githooks/pre-commit`.
 
 
-## 10. Command artifact templates — `templates/` is the only edit path
+## 10. Command & agent artifact templates — `templates/` is the only edit path
 
 
-`commands/` is **fully generated** from `templates/commands/` via `make render`. Never edit `commands/<name>.md` directly — the change will be overwritten on the next render.
+Both `commands/` AND `agents/` are **fully generated** from `templates/` via `make render`. Never edit `commands/<name>.md` or `agents/<name>.md` directly — the change is overwritten on the next render. The rendered kinds and their order are defined in `templaterender.renderedKinds` (`["commands", "agents"]`).
 
 
 **Source of truth:**
 
 - `templates/commands/<name>.md` — verb-specific orchestration for that command.
-- `templates/shared/<name>.md` — reusable partials included via `{{ template "<name>" . }}`.
+- `templates/agents/<name>.md` — agent body. Most are self-contained; builder + surgeon pull verbatim-shared blocks via `{{ template "agent-*" . }}`.
+- `templates/shared/<name>.md` — reusable partials included via `{{ template "<name>" . }}`. One shared pool for both kinds.
 
 
-**Two-level partial taxonomy:**
+**Partial taxonomy:**
 
 | Kind | Examples | Description |
 |------|---------|-------------|
-| Big partials | `commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow` | Entire flow bodies consumed by one or more command templates |
-| Small partials | `doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt` | Fragments embedded inside big partials |
+| Command big partials | `commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow` | Entire flow bodies consumed by one or more command templates |
+| Command small partials | `doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety` | Fragments embedded inside big partials |
+| Agent partials (`agent-` prefix) | `agent-tdd-signals`, `agent-signals-output`, `agent-shared-rules` | Blocks shared verbatim across builder + surgeon (TDD workflow steps 3-4, signal output format, discipline rules) |
 
 
-**Adding a new command:** drop `templates/commands/<name>.md`, run `make render`. Never create `commands/<name>.md` directly.
+**Adding a new command or agent:** drop `templates/commands/<name>.md` or `templates/agents/<name>.md`, run `make render`. Never create the output file directly.
 
 
-**Removing a command:** delete BOTH `templates/commands/<name>.md` AND `commands/<name>.md`. An orphan `commands/<name>.md` without a matching template causes `make render` to halt with a non-zero exit.
+**Removing a command or agent:** delete BOTH the template AND the rendered output. An orphan output file without a matching template causes `make render` to halt with a non-zero, kind-aware error.
 
 
 **Partial design rules:**
 
-- Pure fragments only. No `dict` function, no `{{ if }}` conditionals, no variant flags inside partials.
+- Pure fragments only. No `dict` function, no `{{ if }}` conditionals, no variant flags inside partials. When two consumers diverge by one word (e.g. builder/surgeon git-state rule), generalize the wording so the partial stays verbatim-shared, or keep that bullet inline per-agent.
 - Optional sub-fragments are their own micro-partials (e.g. `doc-impact-why` is separate from `doc-impact` so callers can include one without the other).
-- To verify: `make render && git diff --exit-code commands/` must exit 0 after any template edit.
+- To verify: `make render && git diff --exit-code commands/ agents/` must exit 0 after any template edit.
 
 
 **Render workflow:**
 
-    make render                        # regenerate commands/ from templates/
-    git diff --exit-code commands/     # assert no stale output
+    make render                                # regenerate commands/ and agents/ from templates/
+    git diff --exit-code commands/ agents/     # assert no stale output
 
-The pre-commit hook auto-runs `make render` and re-stages `commands/` whenever any `templates/` file is staged.
+The pre-commit hook auto-runs `make render` and re-stages `commands/` and `agents/` whenever any `templates/` file is staged.
 
 
 ## 11. Manual exercisers in `tmp/`

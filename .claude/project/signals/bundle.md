@@ -2,22 +2,24 @@
 
 ## What it does
 
-Template rendering → bundle embedding → install/uninstall into `~/.claude/`. Human-authored markdown in `templates/` and `agents/`/`skills/` is rendered by `make render` (commands) and embedded by `make bundle` into the Go binary. `atomic claude install` copies the embedded bundle to `~/.claude/`.
+Template rendering → bundle embedding → install/uninstall into `~/.claude/`. Human-authored markdown in `templates/commands/` and `templates/agents/` is rendered by `make render` into `commands/` and `agents/`; `make bundle` embeds the outputs plus `skills/`, `output-styles/`, `rules/`, and `CLAUDE.md` into the Go binary. `atomic claude install` copies the embedded bundle to `~/.claude/`.
 
 ## Artifacts
 
 **Source (human edit surface — never generate these directly):**
 
 - `templates/commands/*.md` — 31 per-verb command source files. Edit surface for slash commands.
-- `templates/shared/*.md` — 10 reusable partials composed via `{{ template "<name>" . }}`. Big partials: `commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`. Small partials: `doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`.
+- `templates/agents/*.md` — 9 agent source files. Edit surface for subagent definitions. Mirrors the commands template pattern.
+- `templates/shared/*.md` — 14 reusable partials composed via `{{ template "<name>" . }}`. Big command partials: `commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`. Small command partials: `doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety`, `staleness-check`. Agent partials: `agent-tdd-signals` (TDD + quality-signals steps), `agent-signals-output` (output block format), `agent-shared-rules` (style/git/error-quoting constraints).
 
 **Rendered/generated (never edit directly):**
 
-- `commands/*.md` — 31 rendered slash command files (`/initialize-signals` removed; `/refresh-signals` is now the single idempotent entry point). Generated from `templates/` by `make render`. Includes `commands/_templates/implementer-prompt.md` and `commands/_templates/reviewer-prompt.md` (runtime prompt partials consumed by orchestrator commands).
+- `commands/*.md` — 31 rendered slash command files. Generated from `templates/commands/` + `templates/shared/` by `make render`.  Includes `commands/_templates/implementer-prompt.md` and `commands/_templates/reviewer-prompt.md` (runtime prompt partials consumed by orchestrator commands).
+- `agents/*.md` — 9 rendered subagent definition files. Generated from `templates/agents/` + `templates/shared/` by `make render`. Partial-composing agents (`atomic-builder.md`, `atomic-surgeon.md`) use `{{ template "agent-tdd-signals" . }}`, `{{ template "agent-signals-output" . }}`, and `{{ template "agent-shared-rules" . }}`.
 
 **Bundle inputs (the distributed artifact set):**
 
-- `agents/` — 9 subagent definitions (`atomic-*.md`). All ship via `agents/atomic-*.md` bundlespec rule.
+- `agents/` — 9 subagent definitions (`atomic-*.md`), now rendered outputs. All ship via `agents/atomic-*.md` bundlespec rule.
 - `skills/` — 8 skill directories (`atomic-*/SKILL.md`). Full directory subtree bundled per `atomic-` prefix dir.
 - `output-styles/` — 1 output style (`atomic.md`).
 - `rules/` — 2 path-scoped topic rules (`python/style.md`, `typescript/style.md`).
@@ -29,7 +31,7 @@ Template rendering → bundle embedding → install/uninstall into `~/.claude/`.
 - `atomic/internal/bundlemirror/mirror.go` — build-time walker. Reads repo root, calls `bundlespec` predicates, copies matching artifacts into `atomic/internal/embedded/bundle/`, writes `manifest.go`. Commands walk is `filepath.WalkDir` (recursive) so `commands/_templates/` is included. Called by `atomic/cmd/bundle-mirror/main.go` via `go generate`.
 - `atomic/internal/embedded/` — holds `//go:embed all:bundle` FS (`bundle.go`) and generated `Manifest()` slice (`manifest.go`). `all:` prefix required — without it, `commands/_templates/` (underscore prefix) would be silently absent. Never edit `bundle/` or `manifest.go` by hand.
 - `atomic/cmd/bundle-mirror/main.go` — build-time entrypoint for `bundlemirror.Run`. Called by `go generate ./...`.
-- `atomic/internal/templaterender/` — Go `text/template` renderer. Reads `templates/commands/*.md` (per-verb) and `templates/shared/*.md` (partials). Writes `commands/*.md`. Orphan guard: any `commands/<verb>.md` without a matching `templates/commands/<verb>.md` halts render with non-zero exit.
+- `atomic/internal/templaterender/` — Go `text/template` renderer. Iterates `renderedKinds = ["commands", "agents"]`; for each kind renders `templates/<kind>/*.md` (using shared partials from `templates/shared/`) into `<outDir>/<kind>/*.md`. Single shared-partial pool is cloned per file, so all partials (command and agent) are available to any template. Orphan guard: any `<kind>/<name>.md` without a matching `templates/<kind>/<name>.md` halts render with non-zero exit naming both remediation paths (create template OR `rm` output).
 - `atomic/cmd/render-templates/main.go` — build-time entrypoint for `templaterender.Render`. Called by `make render`.
 - `atomic/internal/claudeinstall/install.go` — install/update/diff/list verbs. SHA256-based idempotency. Backs up changed files to `~/.claude/.atomic/backups/<ts>/`. Writes proposed merge to `~/.claude/.atomic/proposed/CLAUDE.md` when installed `CLAUDE.md` diverges. Pre-creates `config.resolved.md` on every `Apply`. Calls `profile.CaptureEnv` + `profile.RenderStub` to write `~/.claude/.atomic/profile.md` on first install (skips if file already exists). Special-cases `CLAUDE.md` as merge-required (never silently overwrites user customizations).
 - `atomic/internal/profile/profile.go` — `CaptureEnv()` reads `git config --global user.name/user.email` + `runtime.GOOS/GOARCH/NumCPU`. `RenderStub(Env)` returns the initial `profile.md` content with six sections tagged `<stable>`, `<volatile>`, or `<deterministic>`. Called by `claudeinstall` at install time and by `atomic/internal/claudeinstall/uninstall.go` (uninstall removes profile.md). Git failures produce empty strings — install is not aborted.
@@ -46,7 +48,7 @@ Template rendering → bundle embedding → install/uninstall into `~/.claude/`.
 
 **Pre-commit hook (`.githooks/pre-commit`)** — three-stage pipeline:
 
-1. If `templates/` files staged → `make render`, re-stages `commands/`.
+1. If `templates/` files staged → `make render`, re-stages `commands/` **and** `agents/` outputs.
 2. If any source artifact staged (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`) → `make bundle`, re-stages `atomic/internal/embedded/bundle/` and `manifest.go`.
 3. If `.claude/project/followups/` files staged (excluding INDEX.md) → `atomic followups render`, re-stages INDEX.md.
 
