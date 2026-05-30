@@ -53,11 +53,11 @@ ship) — `/autopilot` codifies it.
 
 ## Checkpoints
 
-| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
-|---|------------|-------------|-------|------------|----------|
-| 1 | Author `templates/commands/autopilot.md` (phases + five behaviors + safety rationale + ship gate) | `templates/commands/autopilot.md` | atomic-builder | 1 | Renders; body covers every success-criterion bullet about behavior |
-| 2 | Discovery wiring: `CLAUDE.md` Workflow, `/atomic-help` topic + tour, `docs/reference/commands.md`, cross-refs | `CLAUDE.md`, `templates/commands/atomic-help.md`, `docs/reference/commands.md` | atomic-builder | ~3 | `make render` clean; `/atomic-help` MISSING-scan zero; cross-ref grep |
-| 3 | Render + bundle + signals refresh | `commands/`, `atomic/internal/embedded/**`, `.claude/project/signals*` | atomic-surgeon | ~few | `make bundle` parity clean; `atomic doctor` no new WARN/FAIL |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | Author `templates/commands/autopilot.md` (phases + five behaviors + safety rationale + ship gate) — atomic-builder, ~1 file | `templates/commands/autopilot.md` | Renders; body covers every success-criterion bullet about behavior |
+| 2 | Discovery wiring: `CLAUDE.md` Workflow, `/atomic-help` topic + tour, `docs/reference/commands.md`, cross-refs — atomic-builder, ~3 files | `CLAUDE.md`, `templates/commands/atomic-help.md`, `docs/reference/commands.md` | `make render` clean; `/atomic-help` MISSING-scan zero; cross-ref grep |
+| 3 | Render + bundle + signals refresh — atomic-surgeon | `commands/`, `atomic/internal/embedded/**`, `.claude/project/signals*` | `make bundle` parity clean; `atomic doctor` no new WARN/FAIL |
 
 ## Risks
 

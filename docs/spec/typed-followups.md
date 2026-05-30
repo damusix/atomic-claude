@@ -52,12 +52,12 @@ sole writer `atomic/internal/followups/add.go`; schema `entry.go`; severity enum
 
 ## Checkpoints
 
-| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
-|---|------------|-------------|-------|------------|----------|
-| 1 | `kind` schema (default `finding` on read), `--kind` flag (`--severity` optional for plan, invalid kind → exit 1), `📋 plans` render section, `kind` in `list --json` | `atomic/internal/followups/{entry,add,cli,render,list}.go` + tests | atomic-builder | ~6 | missing-kind→finding; `add --kind plan` frontmatter; invalid-kind exit 1; render places plan in plans section with link; existing entries render unchanged; `--json` shows kind |
-| 2 | Exempt `kind: plan` from staleness at the `isStale` seam | `atomic/internal/followups/{render,list}.go` + `templates/commands/follow-up.md` + tests | atomic-builder | ~3 | plan past `review_by` not stale; finding staleness unchanged |
-| 3 | Charter `CLAUDE.md` follow-ups entry (two kinds + manual capture); register nothing skill-related | `CLAUDE.md` | atomic-surgeon | 1 | bullet names both kinds + `--kind plan` capture |
-| 4 | Regenerate render + bundle + refresh signals | `commands/`, `atomic/internal/embedded/**`, `.claude/project/signals*` | atomic-surgeon | ~few | render + bundle parity clean; `atomic doctor` no new WARN/FAIL |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | `kind` schema (default `finding` on read), `--kind` flag (`--severity` optional for plan, invalid kind → exit 1), `📋 plans` render section, `kind` in `list --json` — atomic-builder, ~6 files | `atomic/internal/followups/{entry,add,cli,render,list}.go` + tests | missing-kind→finding; `add --kind plan` frontmatter; invalid-kind exit 1; render places plan in plans section with link; existing entries render unchanged; `--json` shows kind |
+| 2 | Exempt `kind: plan` from staleness at the `isStale` seam — atomic-builder, ~3 files | `atomic/internal/followups/{render,list}.go` + `templates/commands/follow-up.md` + tests | plan past `review_by` not stale; finding staleness unchanged |
+| 3 | Charter `CLAUDE.md` follow-ups entry (two kinds + manual capture); register nothing skill-related — atomic-surgeon, 1 file | `CLAUDE.md` | bullet names both kinds + `--kind plan` capture |
+| 4 | Regenerate render + bundle + refresh signals — atomic-surgeon | `commands/`, `atomic/internal/embedded/**`, `.claude/project/signals*` | render + bundle parity clean; `atomic doctor` no new WARN/FAIL |
 
 ## Risks
 
