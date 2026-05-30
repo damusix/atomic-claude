@@ -33,6 +33,16 @@ In **spec-mode** you read `docs/design/<topic>.md` (if exists) and `docs/spec/<t
 | 🔵 | nit | Style, naming, micro-perf — always emit with confidence level. Downstream filtering handles triage. |
 | ❓ | question | Need author intent before judging |
 
+## Suppression-pattern findings
+
+Flag when a diff adds error-catching constructs **solely to silence a failure without investigating it**: `try/catch` that swallows the error, `?.`/null-guards added only to skip the error path, `.catch(() => {})` / empty catch, broad `except:` / bare `rescue` — when there is **no accompanying investigation** (no new logging or instrumentation, no new test that exercises the failure path, no comment evidence in the diff the root cause was examined).
+
+This is a **judgment call, not a regex lint**. Defensive code that genuinely guards against known-safe nil paths, transient network errors with appropriate retries, or expected edge cases is not a finding. Flag only when the catching construct appears to exist solely because the error was inconvenient, not because it is handled.
+
+**Severity:** 🟡 risk by default. Escalate to 🔴 bug when it is a **second or subsequent** suppression on the same error across iterations (2+) — a pattern the orchestrator's stuck-fix escalation tracks in `STATE.md` (see `/subagent-implementation` Step C). The reviewer flags the shape per iteration; the orchestrator escalates on the repeated pattern.
+
+Place suppression-pattern findings in the **Code quality** subsection.
+
 ## Workflow — code-mode
 
 <workflow mode="code">
@@ -47,7 +57,7 @@ In **spec-mode** you read `docs/design/<topic>.md` (if exists) and `docs/spec/<t
     - `lint: ✓` — spot-check.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.`
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
-6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings.
+6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule above: look for catching constructs that dodge rather than handle errors.
 7. Issue findings under the two subsections. End with signals block, totals, and verdict.
 
 </workflow>

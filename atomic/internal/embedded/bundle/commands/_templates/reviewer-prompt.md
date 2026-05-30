@@ -64,7 +64,21 @@ Also check for unrequested work: did the implementer build things not in scope? 
 
 </spec_criteria>
 
-## Step 5 — Emit findings
+## Step 5 — Check for suppression patterns
+
+<suppression_check>
+
+Scan the diff for error-catching constructs added **solely to silence a failure without investigating it**: `try/catch` that swallows the error body, `.catch(() => {})` / empty catch, `?.`/null-guards added only to avoid an error path, broad `except:` / bare `rescue` — when there is no accompanying investigation (no new logging or instrumentation, no new test exercising the failure path, no evidence the root cause was examined).
+
+This is a **judgment call, not a line-lint**. Legitimate defensive code (known-safe nil guards, transient-error retries with logging, expected edge-case handling) is not a finding. Flag only when the construct appears to exist because the error was inconvenient, not because it is handled.
+
+**Severity:** 🟡 risk by default. Escalate to 🔴 bug when this is a **second or subsequent** suppression on the same error across iterations (2+) — the orchestrator's stuck-fix escalation (`/subagent-implementation` Step C) tracks the repeated pattern in `STATE.md`. Emit the finding; the orchestrator escalates on the pattern.
+
+Place suppression-pattern findings in the **Code quality** subsection.
+
+</suppression_check>
+
+## Step 6 — Emit findings
 
 One line per finding. Format:
 
@@ -85,7 +99,7 @@ File order, ascending line numbers within each file.
 
 <output_format>
 
-## Step 6 — Structured response
+## Step 7 — Structured response
 
 Your entire response must follow this structure:
 

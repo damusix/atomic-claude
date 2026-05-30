@@ -136,7 +136,30 @@ Reviewer emits `## Spec compliance` + `## Code quality` + signals block + exactl
 - **Default hard stop:** 5 iterations of Phase 2→3.
 - **User override (axiom 2 — memory-first):** read user memory key `diagnose iteration cap` at Phase 1. Falls back to 5 if absent. Cap is `min(memory-override, 5)`.
 - **Same-failure early bail:** if three consecutive iterations produce the same normalized top-level error → bail before the hard stop.
-- **Bail behavior:** retain `$SCRATCH` in place (do not archive). Print summary of iterations tried + final reviewer verdict. Recommend user-driven next steps. Do NOT auto-open a PR comment or post anywhere.
+- **Bail behavior:** retain `$SCRATCH` in place (do not archive). Print a summary of iterations tried + final reviewer verdict. Then surface the Stuck-fix escalation block defined in this section and wait for user input — do NOT auto-open a PR comment or post anywhere.
+
+**Stuck-fix escalation block (surfaced on bail, never auto-invoked).**
+
+When the same-failure bail fires, print this block (substituting the actual error slug and topic):
+
+```
+BAIL: 3 consecutive iterations hit the same failure ("<normalized-error-slug>"). The loop cannot make forward progress.
+
+Before abandoning or retrying from scratch, consider:
+
+Option A — pressure-test the approach:
+  /pressure-test @$SCRATCH/CONTEXT.md   (primary — the captured failure context is the input)
+  or, if a spec exists for the affected area: /pressure-test @docs/spec/<topic>.md
+
+Option B — dispatch atomic-strategist (opus, read-only) for cross-cutting RCA:
+  "Dispatch atomic-strategist: review $SCRATCH/CONTEXT.md, $SCRATCH/STATE.md, and
+   the last three reviewer verdicts. Identify whether the failure has a root cause
+   the current approach cannot reach, and recommend a revised approach."
+
+Option C — abort and retain scratchpad for manual inspection.
+```
+
+Then `AskUserQuestion` with three choices: `dispatch atomic-strategist`, `run /pressure-test`, `abort`. Never auto-dispatch either option — the user opts in (axiom 3: opus is expensive; `/pressure-test` may mutate the spec).
 
 ### Same-failure normalization
 
@@ -206,7 +229,7 @@ Do NOT push, merge, or open a PR. User picks the ship verb when ready.
 - Reviewer and implementer are separate agents. Never the same. Never combined.
 - Mode subcommand is required. Never proceed without a valid `ci` or `bug` mode.
 - Never auto-relaunch on CI re-watch failure (ci-mode step 4.4). Hard rule — prevents infinite loops on flaky infra.
-- If the same finding repeats across two iterations, stop and re-examine the brief — the implementer is stuck or the brief is wrong.
+- If the same normalized top-level error repeats across three consecutive iterations, the same-failure bail fires and surfaces the stuck-fix escalation block (see § Iteration cap + bail-out) — do not silently loop past the bail.
 - Subagent output is the tool result. Summarize to the user in 1-3 lines per iteration; don't dump full transcripts.
 - Templates live in `commands/_templates/`. If missing, stop: `implementer/reviewer prompt template not found at commands/_templates/<file>. cannot proceed.`
 

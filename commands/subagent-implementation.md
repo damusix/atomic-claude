@@ -138,7 +138,10 @@ That's it. No GOAL.md, no CONTEXT.md, no PLAN.md — the spec at `docs/spec/<top
 
 ## Phase 2 — Implement → Review → Commit loop
 
-Repeat until reviewer signs off or hard stop (default: 6 iterations — ask user before exceeding).
+Repeat until reviewer signs off or a stop condition fires. Two stop conditions:
+
+- **Stuck-fix escalation** (Step C): after 2 consecutive `CHANGES_REQUESTED` rounds on the same blocking signal → surface `/pressure-test` and `atomic-strategist` RCA options; wait for user choice before looping.
+- **6-iteration soft-stop**: at 6 iterations regardless of signal state → ask user before continuing.
 
 ### Step A — Dispatch implementer (fresh context)
 
@@ -178,9 +181,45 @@ Build the reviewer prompt from `commands/_templates/reviewer-prompt.md`, substit
 - Parse reviewer's verdict line: `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
 - Update `STATE.md` with iteration number, implementer summary, reviewer findings, next-iteration focus.
 - **Harvest non-blocking findings** (🟡 / 🔵 / ❓ that the reviewer let through to PASS, or anything in CHANGES_REQUESTED's set that the next iteration is NOT going to address) into `FOLLOWUPS.md` as new `F-N` entries. Cite `path:line`, severity emoji, problem, suggested fix, origin iteration. Don't drop them; they exist for a reason and the user reviews the ledger before ship.
-- If `CHANGES_REQUESTED` → loop back to Step A with the blocking findings (🔴, plus any 🟡 the orchestrator chooses to address now) as the implementer's focus. Anything not addressed in the next iteration stays in `FOLLOWUPS.md`.
 - If implementer reported `BLOCKED` or `NEEDS_CONTEXT` → stop loop and surface to user.
 - If `PASS` → continue to Step D.
+- If `CHANGES_REQUESTED` → run the stuck-fix check below before looping.
+
+**Stuck-fix escalation (loop default — fires automatically when the condition is met).**
+
+After each `CHANGES_REQUESTED`, compare the current iteration's blocking signal (the primary 🔴 finding or the dominant failing criterion) against the prior iteration's blocking signal recorded in `STATE.md`. A signal is "unchanged" when the same criterion, test, or finding category appears in both `STATE.md` entries — it does not need to be a verbatim string match. What matters is the underlying root cause, not the surface wording: if the same root failure persists across rounds even when the reviewer leads with a different 🔴 or phrases it differently, treat the signal as unchanged. If two consecutive `CHANGES_REQUESTED` rounds carry the same unchanged blocking signal on the same checkpoint:
+
+1. **Surface the escalation block** to the user before looping again. Print exactly this block (substituting the topic slug):
+
+    ```
+    STUCK: 2 rounds on the same failing signal without progress.
+
+    Before another wrap-and-retry iteration, consider escalating to root-cause analysis:
+
+    Option A — pressure-test the spec:
+      /pressure-test @docs/spec/<topic>.md
+
+    Option B — dispatch atomic-strategist (opus, read-only) for cross-cutting RCA:
+      "Dispatch atomic-strategist: review STATE.md and the last two reviewer verdicts.
+       Identify why the same signal keeps failing and whether the spec or approach needs revision."
+
+    Option C — continue the loop anyway:
+      Type "continue" to run another iteration without escalating.
+
+    These are offers, not gates.
+    ```
+
+2. **Wait for user input** via `AskUserQuestion` with three choices: `continue loop`, `run /pressure-test`, `dispatch atomic-strategist`.
+3. **Never auto-dispatch** `atomic-strategist` or auto-invoke `/pressure-test` — both are user-driven (axiom 3: expensive/opus; the user opts in). The orchestrator surfaces the block and waits.
+4. After user chooses, record the choice in `STATE.md` under the current iteration's `Decisions:` line.
+5. If the user chooses `continue loop` → loop back to Step A as normal.
+6. If the user chooses `dispatch atomic-strategist` → dispatch `atomic-strategist` (read-only) with a prompt summarizing the task context, the repeated signal, and the last two iteration findings from `STATE.md`. Incorporate any strategic recommendation into the next `BRIEF.md` before looping. The strategist dispatch does NOT consume a loop iteration — it is a diagnosis step.
+
+This check is **reset** when the blocking signal changes (a different finding category blocks, or the checkpoint advances). It fires again only if the new signal stalls for two rounds.
+
+**6-iteration soft-stop.** When the iteration count reaches 6 (regardless of stuck status), pause and ask the user before continuing — use the same `AskUserQuestion` mechanic. The stuck escalation and the 6-iteration soft-stop are complementary: stuck fires early on repeated signals; the soft-stop is the outer bound. If the stuck escalation has already fired and the user chose to continue, that counts toward the 6-iteration total.
+
+After the stuck check (or if the signal changed and no escalation fires), loop back to Step A with the blocking findings (🔴, plus any 🟡 the orchestrator chooses to address now) as the implementer's focus. Anything not addressed next iteration stays in `FOLLOWUPS.md`.
 
 ### Step D — Commit the green iteration
 
@@ -287,7 +326,7 @@ Do NOT push, merge, or open a PR. The user picks the ship verb (`/pr-only`, `/me
 - Parent orchestrator does NOT write implementation code. Only goal docs, state updates, commits per PASS, final docs, final verification.
 - Every subagent invocation is fresh context. The scratchpad brief is the only handoff. If the brief is bad, the loop is bad — invest in it.
 - Reviewer and implementer are separate agents. Never the same one. Never combine roles.
-- If the same finding repeats across two iterations, stop and re-examine the brief/spec — the implementer is stuck or the spec is wrong.
+- If the same blocking signal repeats across two consecutive `CHANGES_REQUESTED` rounds, the stuck-fix escalation in Step C fires automatically — surface `/pressure-test` and `atomic-strategist` RCA options to the user. Do not silently loop again without surfacing this.
 - Subagent output is the tool result. Summarize it to the user in 1-3 lines per iteration; don't dump full transcripts.
 - Templates live in `commands/_templates/`. If they're missing, the loop can't start — surface that error rather than inlining prompts.
 
