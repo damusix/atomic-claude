@@ -75,7 +75,8 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `lifecycle` / `workflow` | Four stages: `/atomic-plan` → `/subagent-implementation` → ship verb → `/documentation`. Each stage uses fresh-context subagents. |
+| `lifecycle` / `workflow` | Four stages: `/atomic-plan` → `/subagent-implementation` → ship verb → `/documentation`. Each stage uses fresh-context subagents. Or run all four hands-off with `/autopilot`. |
+| `autopilot` / `auto` | `/autopilot <task \| issue#> [merge-verb]` — the whole lifecycle, hands-off, with one decision: how to merge. Always uses the `/subagent-implementation` loop, fixes every reviewer finding in-iteration, auto-dispatches `atomic-strategist` (read-only) when stuck, keeps the spec currency-clean. For work you trust the system to drive. |
 | `plan` | `/atomic-plan` writes design (`docs/design/`) + spec (`docs/spec/`). Pair with `/gather-evidence` (chase the hunch) and `/pressure-test` (challenge the design) before approving. |
 | `gather-evidence` / `evidence` | `/gather-evidence [<hypothesis> \| @<path>]` — pre-design hunch verification. Primary-source evidence with cited tier. Returns SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE. |
 | `pressure-test` | `/pressure-test [<topic> \| @<path>]` — Socratic challenger, no artifacts. Pre-approval gate. |
@@ -155,7 +156,7 @@ atomic-claude — opinionated Claude Code config. Five surfaces compose:
 
   output style    terse TUI replies (atomic — drop filler, fragments OK)
   skills          7 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose)
-  commands        29 explicit verbs (/atomic-plan, /commit-and-pr, /refresh-signals, ...)
+  commands        30 explicit verbs (/autopilot, /atomic-plan, /commit-and-pr, ...)
   agents          9 dispatchable subagents (builder, surgeon, reviewer, investigator, ...)
   binary          atomic CLI — signals scan, doctor, validate, update, install
 
@@ -176,6 +177,7 @@ Prompt: continue to lifecycle / show me the surfaces in detail / exit tour.
 
 Branch isolation: /worktree-start <branch> creates .worktrees/<branch>/.
 Diagnose failures: /subagent-diagnose ci|bug runs the same loop from a failure seed.
+Hands-off:        /autopilot <task|issue#> runs stages 1-3 autonomously; asks only how to merge.
 ```
 
 Prompt: continue to state files / dive into a stage / exit tour.

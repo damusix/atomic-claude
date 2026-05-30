@@ -16,6 +16,7 @@ Commands are explicit actions you invoke with a slash. They never auto-fire — 
 
 | Command | What it does |
 |---------|-------------|
+| `/autopilot` | Run the whole lifecycle hands-off: plan, the implement-then-review loop, and ship, from a task description or an issue number. Fixes every reviewer finding as it goes, dispatches a read-only strategist for root-cause analysis when stuck, and asks just one thing — how to merge. Pass a merge verb (e.g. `/autopilot 29 squash-and-merge`) to skip even that. |
 | `/subagent-implementation` | Run the implement-then-review loop from an approved spec. Builder writes code, reviewer checks it, passing checkpoints get committed. |
 | `/subagent-diagnose` | Investigate and fix a failure. `ci` mode starts from a failed CI run; `bug` mode starts from a description. Same loop as implementation. |
 | `/worktree-start` | Create an isolated worktree at `.worktrees/<name>/` with its own branch. Detects your project setup (npm, cargo, pip, go) and runs a baseline test. |

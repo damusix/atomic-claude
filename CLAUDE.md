@@ -146,6 +146,9 @@ Dispatch via the `Agent` tool (`subagent_type`). Names + when-to-use only here �
 4. **Sync docs** — `/documentation` maintains human-facing surfaces (bootstrap indexes a `## Documentation surfaces` table; subsequent runs match diffs against it). Ship verbs run it in maintenance mode automatically.
 
 
+**Autonomous shortcut.** `/autopilot <task | issue#> [merge-verb]` runs the whole lifecycle hands-off — plan → the `/subagent-implementation` loop → ship — with one human decision: how to merge. It always uses the subagent loop, addresses every reviewer finding in-iteration (nothing deferred), may auto-dispatch `atomic-strategist` for read-only root-cause analysis when stuck, and keeps the spec currency-clean so subagents can't be diverted. For work you trust the system to drive end to end; reach for the interactive verbs above when you want approval gates.
+
+
 **Discovery.** Every command self-describes in the slash listing the harness injects each session, and every skill via its trigger description. For "which verb for my situation?", invoke `/atomic-help [<topic> | <intent> | tour]` — the router. This file carries only the *lifecycle ordering and cross-artifact contracts*, not a per-command catalog.
 
 
