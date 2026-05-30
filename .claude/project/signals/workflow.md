@@ -16,10 +16,10 @@ Plan → implement → ship lifecycle. Commands, agents, and skills that orchest
 
 **Implementation loop:**
 
-- `commands/subagent-implementation.md` — `/subagent-implementation` reads spec, runs implement→review loop, commits per green iteration. Uses scratchpad at `.claude/.scratchpad/<date>-<desc>/` (BRIEF.md, STATE.md, FOLLOWUPS.md).
-- `commands/subagent-diagnose.md` — `/subagent-diagnose <ci|bug>` failure-investigation orchestrator. `ci` mode seeds from failed GitHub Actions run; `bug` mode seeds from freeform symptom. Same scratchpad + investigator + builder/surgeon + reviewer chain. Hard bail at 5 iterations (user-memory-configurable) or 3 consecutive same-failure iterations.
+- `commands/subagent-implementation.md` — `/subagent-implementation` reads spec, runs implement→review loop, commits per green iteration. Uses scratchpad at `.claude/.scratchpad/<date>-<desc>/` (BRIEF.md, STATE.md, FOLLOWUPS.md). Phase 2 / Step C carries a **stuck-fix escalation** default: after 2 consecutive `CHANGES_REQUESTED` rounds on the same blocking signal (same root failure, not verbatim match), surfaces a copyable `/pressure-test @<spec>` line + offer to dispatch `atomic-strategist` for RCA — surfaced, never auto-invoked (axiom 3). Separate 6-iteration soft-stop remains the outer bound.
+- `commands/subagent-diagnose.md` — `/subagent-diagnose <ci|bug>` failure-investigation orchestrator. `ci` mode seeds from failed GitHub Actions run; `bug` mode seeds from freeform symptom. Same scratchpad + investigator + builder/surgeon + reviewer chain. Hard bail at 5 iterations (user-memory-configurable) or 3 consecutive same-failure iterations. On same-failure bail, surfaces the same stuck-fix escalation block (`/pressure-test` + `atomic-strategist` RCA options, never auto-dispatched).
 - `commands/_templates/implementer-prompt.md` — runtime prompt partial for the implementer turn. Consumed by both `/subagent-implementation` and `/subagent-diagnose`.
-- `commands/_templates/reviewer-prompt.md` — runtime prompt partial for the reviewer turn. Same consumers.
+- `commands/_templates/reviewer-prompt.md` — runtime prompt partial for the reviewer turn. Same consumers. Step 5 adds a **suppression-pattern check**: flags error-catching constructs (try/catch, `.catch(() => {})`, null-guards) added solely to silence a failure without investigation (no new logging, no test exercising the failure path). Severity 🟡 by default; 🔴 when same suppression appears on the same error across 2+ iterations. Judgment call — legitimate defensive code is not flagged.
 
 **Ship verbs:**
 
@@ -46,7 +46,7 @@ Plan → implement → ship lifecycle. Commands, agents, and skills that orchest
 - `agents/atomic-builder.md` — feature-checkpoint builder. Cohesion-bounded (one logical slice, any file count). Writes TDD: failing test first, then implementation.
 - `agents/atomic-surgeon.md` — surgical 1-2 file edits. Hard refuses 3+ file scope.
 - `agents/atomic-investigator.md` — code locator (haiku). Returns `file:line — what` tables. Read-only.
-- `agents/atomic-reviewer.md` — diff reviewer. Re-runs typecheck/tests, emits `## Spec compliance` + `## Code quality`, ends with `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
+- `agents/atomic-reviewer.md` — diff reviewer. Re-runs typecheck/tests, emits `## Spec compliance` + `## Code quality` (includes suppression-pattern findings from Step 5), ends with `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
 - `agents/atomic-strategist.md` — heavyweight reasoning (opus). Read-only. "Is this the right approach?" not "Is this code correct?".
 
 **Skills auto-fired during workflow:**
@@ -66,8 +66,10 @@ None. The workflow domain is purely Claude Code artifacts — commands, agents, 
 - `docs/spec/atomic-plan.md` — `/atomic-plan` behavior contract.
 - `docs/spec/session-report.md` — `/session-report` + ship verb integration contract. Ship verbs read `.claude/.scratchpad/session-reports/<branch>/*.md` chronologically, pass to `atomic-commit` as supplemental why-context, delete after successful commit. Exempt verbs: `/pr-only`, `/push-only`, `/merge-to-main`.
 - `docs/spec/subagent-diagnose.md` — `/subagent-diagnose` orchestrator contract. Scratchpad layout, investigator → builder/surgeon → reviewer chain, iteration bail conditions.
+- `docs/spec/stuck-fix-escalation.md` — spec for stuck-fix escalator + suppression-pattern awareness. Defines the 2-round threshold, surfaced-never-auto-invoked rule, suppression-pattern severity tiers, and `/subagent-diagnose` bail enrichment. Closes GitHub issue #29.
+- `docs/design/stuck-fix-escalation.md` — design rationale: approach A (escalator in orchestrator + suppression flag in reviewer) selected over a new skill (axiom 2) or verbatim port of the diagnose detector.
 - `docs/design/diagnose-orchestrators.md` — design rationale for the diagnose orchestrator approach.
-- `docs/reference/workflow.md` — canonical lifecycle reference (plan → implement → ship).
+- `docs/reference/workflow.md` — canonical lifecycle reference (plan → implement → ship). Updated to note stuck-fix escalation as a loop default.
 - `docs/reference/commands.md` — command roster reference.
 - `docs/reference/skills.md` — skill roster reference.
 - `docs/reference/agents.md` — agent roster reference.
