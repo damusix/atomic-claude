@@ -1,6 +1,6 @@
 # Doc surfaces
 
-last-scanned: 2026-05-28T13:50:34Z
+last-scanned: 2026-05-30T20:38:49Z
 
 - README.md [Before / after, What you get, Start here]
 - docs/credits.md — Credits [Inspirations, caveman, superpowers]
@@ -8,9 +8,12 @@ last-scanned: 2026-05-28T13:50:34Z
 - docs/design/atomic-doctor.md — atomic doctor (design) [Problem, Goals, Non-goals]
 - docs/design/atomic-state-and-config.md — atomic state directory + config (design) [Problem, Goals, Non-goals]
 - docs/design/atomic-validate.md — atomic validate (design) [Problem, Goals, Non-goals]
+- docs/design/autopilot.md — /autopilot — autonomous feature delivery [Problem, Goals / Non-goals, Why the autonomous overrides are safe]
 - docs/design/diagnose-orchestrators.md — Diagnose orchestrator (/subagent-diagnose) [Problem, Goals / Non-goals, Shared substrate]
 - docs/design/documentation-as-maintenance.md — Documentation as maintenance, not bookkeeping [Problem, Vision, What users actually want from project docs]
 - docs/design/signals-router.md — Signals as router, not dump [Problem, Three surfaces, three jobs, Goals / Non-goals]
+- docs/design/stuck-fix-escalation.md — Stuck-fix escalation + suppression awareness [Problem, Goals / Non-goals, Approaches]
+- docs/design/typed-followups.md — Typed follow-ups: findings vs plans [Problem, Goals / Non-goals, Why an "epic manager" is not needed]
 - docs/design/uninstall.md — Uninstall workflow [Problem, Goals / Non-goals, Current state]
 - docs/design/user-profile.md — User profile [Problem, Goals, Non-goals]
 - docs/guides/contributing.md — Contributing [Setup, Day-to-day workflow, Git hooks]
@@ -33,6 +36,7 @@ last-scanned: 2026-05-28T13:50:34Z
 - docs/spec/atomic-state-and-config.md — atomic state directory + config [Goal, Non-goals, Success criteria]
 - docs/spec/atomic-update-doctor.md — atomic update post-apply doctor [Goal, Non-goals, Success criteria]
 - docs/spec/atomic-validate.md — atomic validate [Goal, Non-goals, v1.1 deferrals (not in v1)]
+- docs/spec/autopilot.md — /autopilot — autonomous feature delivery [Goal, Non-goals, The five codified behaviors]
 - docs/spec/cron-workflow.md — Spec: cron workflow (reminders) [Model, Storage, Commands]
 - docs/spec/docker-eval-environment.md — Docker eval environment [Goal, Non-goals, Success criteria]
 - docs/spec/documentation-as-maintenance.md — Documentation as maintenance [Goal, Non-goals, Success criteria]
@@ -43,6 +47,8 @@ last-scanned: 2026-05-28T13:50:34Z
 - docs/spec/signals-project-detection.md — Spec: project detection in atomic signals [Goal, Non-goals, Success criteria]
 - docs/spec/signals-router.md — Signals router [Goal, Non-goals, Success criteria]
 - docs/spec/signals-workflow.md — Spec: signals workflow [Files produced, Artifacts to build, ~~Skill: atomic-signals~~ (removed 2026-05-27)]
+- docs/spec/stuck-fix-escalation.md — Stuck-fix escalation + suppression awareness [Goal, Non-goals, Success criteria]
 - docs/spec/subagent-diagnose.md — /subagent-diagnose [Goal, Non-goals, Success criteria]
+- docs/spec/typed-followups.md — Typed follow-ups: findings vs plans [Goal, Non-goals, Success criteria]
 - docs/spec/uninstall.md — Uninstall workflow [Goal, Non-goals, Success criteria]
 - docs/spec/user-profile.md — User profile [Goal, Non-goals, Success criteria]
