@@ -170,7 +170,7 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
 ```
 
-The `## Change log` section ships **empty** on creation. Drafting and refinement turns before approval are not amendments — the spec is being born. The first real entry happens later, when an *approved* spec is changed. See "Spec files are append-mostly" in `CLAUDE.md`.
+The `## Change log` section ships **empty** on creation. Drafting and refinement turns before approval are not amendments — the spec is being born. The first real entry happens later, when an *approved* spec is changed. See "Specs: the body is current truth, the change log is history" in `CLAUDE.md`.
 
 ### Spec loop (non-trivial only)
 
@@ -237,7 +237,9 @@ Both lines are copy-paste runnable.
 
 ## Amending an existing spec
 
-If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite. Apply the append-mostly rule from `CLAUDE.md`: edit the body as needed AND add a dated entry to `## Change log` capturing what changed and why. If the file lacks a `## Change log` section, add one before amending.
+If `docs/spec/<topic>.md` already exists *and was previously approved* (committed, or the user has moved past the initial planning round), do not silently overwrite — but do **keep the body current**. Apply the rule from `CLAUDE.md` ("Specs: the body is current truth, the change log is history"): **rewrite every affected body section to the new decision** AND add a dated `## Change log` entry recording what changed and why (with a `Superseded:` line for the prior contract). If the file lacks a `## Change log` section, add one before amending.
+
+**This matters because the spec is read verbatim by fresh-context subagents in `/subagent-implementation`.** Superseded content left in the body — an old checkpoint, a dropped success criterion, a cut feature still described as in-scope — gets handed to a subagent that builds it. When a decision supersedes part of the plan, the whole affected part of the spec changes; the change log records *that* it changed, it does not excuse leaving the stale text in place. Rejected approaches move to the design doc, never a lingering spec section. The test before handing a spec to the loop: could a subagent reading only the body build something the latest decision already cut? If yes, the body isn't done.
 
 **Refinement vs. amendment.** Revisions during the initial planning conversation (before the user has said "proceed" the first time) are *drafting*, not amendments — keep iterating, leave `## Change log` empty. Once the spec is approved and implementation has started (or the file is committed), every later edit is an amendment and must log.
 

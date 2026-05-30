@@ -148,15 +148,15 @@ Both `commands/` AND `agents/` are fully generated from `templates/` via `make r
 ## Spec amendment rule (`docs/spec/<topic>.md`)
 
 
-Specs are the canonical contract for a feature. Editing one in place destroys the original intent and the reason it was written that way — future readers (human or agent) can't tell what shifted or why. Treat specs as **append-mostly**.
+Specs are the canonical contract for a feature, **read verbatim by fresh-context subagents in `/subagent-implementation`**. The body must always describe the *current* decision — a subagent builds what the body says, so any superseded content left in the body makes it build the wrong thing. Two separate jobs: **the body** states what is true now; **the change log** records how it got there. Never conflate them — leaving old behavior in the body "for history" is what causes subagent hallucination.
 
 
-**Every spec file must have a `## Change log` section at the bottom.** When amending, append a new dated entry; do not delete prior entries. The log is the audit trail.
+**Every spec file must have a `## Change log` section at the bottom.** When amending, append a new dated entry; do not delete prior entries. The log is the audit trail — but it never substitutes for keeping the body current.
 
 
 - **Adding behavior.** Add a new section to the spec body describing the new behavior. Append a change-log entry: `### YYYY-MM-DD — <short title>` with a one-paragraph **What changed** + **Why** (the trigger: bug, user feedback, axiom shift, downstream artifact requirement).
-- **Changing behavior.** Edit the spec body to reflect the new behavior. In the change-log entry, include a **Superseded** line quoting (or summarizing) the prior contract so the old intent isn't lost. Format: `Superseded: <one-line summary of what the spec used to say>`.
-- **Removing behavior.** Delete the section from the body. In the change-log entry, include a **Removed** line with what was removed and why. If the removal is reversible (feature parked, not killed), say so.
+- **Changing / superseding behavior.** **Rewrite every affected body section to the new behavior** — do not leave the old behavior described anywhere in the body, not even annotated. In the change-log entry, include a **Superseded** line summarizing the prior contract so the old intent survives *in the log*. Format: `Superseded: <one-line summary of what the spec used to say>`. The test: after the edit, could a fresh subagent reading only the body build the superseded scope? If yes, the body isn't done.
+- **Removing behavior.** Delete the section from the body. In the change-log entry, include a **Removed** line with what was removed and why. If the removal is reversible (feature parked, not killed), say so. A rejected or dropped *approach* belongs in the design doc's rejected-approaches section — never as a lingering spec body section.
 - **Correcting a factually wrong spec.** Edit the body in place. Append a change-log entry with `**Correction:**` prefix explaining what was wrong, how you know it was wrong (test failure, prod incident, code already diverged), and what the truth is. Corrections are the *only* case where the body changes without an additive section — and even then the log records the delta.
 - **Renaming or splitting a spec file.** The old file gets a final change-log entry pointing to the new location: `Moved to: docs/spec/<new>.md` or `Split into: docs/spec/<a>.md + docs/spec/<b>.md`. Keep the old file one commit longer so grep finds both.
 
@@ -178,7 +178,7 @@ Specs are the canonical contract for a feature. Editing one in place destroys th
 </example>
 
 
-**When in doubt, append.** A spec with a 10-entry change log is healthier than a spec that was rewritten 10 times with no trace. The log is cheap; the lost context is not.
+**When in doubt, make the body match the current decision, then log what changed.** A long change log is healthy; a body that still describes a superseded decision is a defect — it will be handed to a fresh subagent that reads it as ground truth. The log is cheap; a subagent building the wrong scope is not. **Nothing that could mislead a fresh subagent may survive in the body.**
 
 
 ## Cross-artifact wiring rules (mandatory for cohesion)

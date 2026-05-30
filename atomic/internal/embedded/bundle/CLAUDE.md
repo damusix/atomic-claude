@@ -97,21 +97,21 @@ Use regex when searching for literal strings, log messages, comments, config val
 - **How files are written** — narrative docs (`README.md`, `docs/guides/`) use the `atomic-prose` skill. Everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose: tables, bullets, imperative. The `atomic-documentation` skill routes diffs to the right surface.
 
 
-## Spec files are append-mostly
+## Specs: the body is current truth, the change log is history
 
 
-`docs/spec/<topic>.md` is a contract. Editing it in place destroys the original intent and the reason it was written. Treat specs as **append-mostly** so the audit trail survives. **Why:** a spec rewritten without trace looks identical to one that was always this way — future readers can't tell what shifted or why.
+`docs/spec/<topic>.md` is a contract read by fresh-context subagents as ground truth. **The body must always describe the *current* decision — never superseded content.** A subagent reads the body verbatim and builds what it says; if the body still describes work a later decision cut or changed, the subagent builds the wrong thing. Preventing that is the entire point of this rule. **Why:** the body and the change log have different jobs. The body says what is true *now*. The log says *how it got here*. Conflating them — leaving old behavior in the body "for the record" — turns the contract into a hallucination source.
 
 
-- Every spec ends with a `## Change log` section. New entry per amendment: `### YYYY-MM-DD — <title>` + **What changed** + **Why** + (if behavior changed) **Superseded:** one-line summary of prior contract.
+- Every spec ends with a `## Change log` section. New entry per amendment: `### YYYY-MM-DD — <title>` + **What changed** + **Why** + (if behavior changed) **Superseded:** one-line summary of the prior contract.
 - **Adding behavior** → new body section + log entry.
-- **Changing behavior** → edit body + log entry with `Superseded:` line preserving prior contract.
-- **Removing behavior** → delete from body + log entry with `Removed:` line and reason.
-- **Spec was wrong** → correct body in place + log entry prefixed `**Correction:**` with how you know (test failure, prod incident, code diverged) and what the truth is. Only case where the body mutates without an additive section.
+- **Changing / superseding behavior** → **rewrite the affected body sections to the new truth**, then log it with a `Superseded:` line summarizing the prior contract. Do not leave the old behavior described in the body — the log preserves it; the body must not contradict the current decision.
+- **Removing behavior** → delete it from the body + log entry with a `Removed:` line and reason. A rejected *approach* moves to the design doc's rejected-approaches section, not a lingering spec body.
+- **Spec was wrong** → correct the body in place + log entry prefixed `**Correction:**` with how you know (test failure, prod incident, code diverged) and what the truth is.
 - **Renaming / splitting** → final log entry on the old file pointing to the new location. Keep the old file one commit longer so grep finds both.
 
 
-When in doubt, append. A spec with a 10-entry change log is healthier than one rewritten 10 times with no trace.
+When in doubt, make the body match the current decision and log what changed. A long change log is healthy; a body that contradicts the latest decision is not — the log is cheap, a subagent building superseded scope is not. **Nothing that could mislead a fresh subagent may survive in the body.**
 
 
 ## Subagents available for dispatch

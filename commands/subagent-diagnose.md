@@ -205,7 +205,7 @@ Do NOT push, merge, or open a PR. User picks the ship verb when ready.
 - Every subagent dispatch is fresh context. The scratchpad brief is the only handoff. Invest in it — a verbose brief is cheaper than a misaimed iteration.
 - Reviewer and implementer are separate agents. Never the same. Never combined.
 - Mode subcommand is required. Never proceed without a valid `ci` or `bug` mode.
-- Never auto-relaunch on CI re-watch failure (Phase 4.4). Hard rule — prevents infinite loops on flaky infra.
+- Never auto-relaunch on CI re-watch failure (ci-mode step 4.4). Hard rule — prevents infinite loops on flaky infra.
 - If the same finding repeats across two iterations, stop and re-examine the brief — the implementer is stuck or the brief is wrong.
 - Subagent output is the tool result. Summarize to the user in 1-3 lines per iteration; don't dump full transcripts.
 - Templates live in `commands/_templates/`. If missing, stop: `implementer/reviewer prompt template not found at commands/_templates/<file>. cannot proceed.`

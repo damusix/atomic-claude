@@ -157,7 +157,7 @@ Atomic Claude writes two kinds of durable documents during planning:
 
 **Specs** (`docs/spec/`) are the contract. Checkpoints, success criteria, the implementation plan the subagents will follow. This is what `/subagent-implementation` reads to know what to build.
 
-Specs are append-only. When the contract changes, you add a dated change log entry that records what changed, why, and what the spec used to say. The original intent survives so future readers can trace how the design evolved. Editing a spec in place destroys that history — the same way force-pushing destroys commit history.
+A spec has two parts with two jobs. The body states what is true now, the contract a subagent reads as ground truth and builds from. The change log records how the contract got there. When a decision changes the spec, you rewrite the affected body to the new truth and add a dated change log entry that records what changed, why, and what the spec used to say. The body always reflects the current decision, never superseded scope, because a subagent that reads stale body text builds the wrong thing. The change log carries the history so the original intent is never lost, but it never excuses leaving the body out of date.
 
 
 ## The scratchpad

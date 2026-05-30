@@ -1,1 +1,2 @@
 - 2026-05-22 nits-design-and-decide-on-f-2 — "Design and decide on `atomic doctor` CLI subcommand" — *(closed 2026-05-17 — dbe2a53)*
+- 2026-05-30 renumber-decimal-sections — "Remove decimal section numbering in skills and commands" — *(closed 2026-05-30)*

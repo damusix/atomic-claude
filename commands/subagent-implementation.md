@@ -14,19 +14,21 @@ You are the **orchestrator**. The user has given you a task. You will NOT implem
 
 Skip the investigator only when the task names exact files and there's nothing to locate (e.g. "fix the typo in README.md line 42"). When in doubt, dispatch it — its cost is trivial compared to a misaimed builder.
 
-## Phase 0.5 — Spec gate
+## Spec gate
 
 Derive the topic slug from the task: short kebab-case (e.g. `oauth-refresh`, `user-search-perf`).
 
 Check for `docs/spec/<topic>.md`:
 
-- **Spec exists** → use it as the canonical brief source. Skip to Phase 0.6.
-- **No spec, task is <30 min of obvious work** → proceed inline. State the assumption: `no spec; proceeding inline because task is small/obvious.` Skip to Phase 0.6.
+- **Spec exists** → use it as the canonical brief source. Skip to the Worktree gate.
+- **No spec, task is <30 min of obvious work** → proceed inline. State the assumption: `no spec; proceeding inline because task is small/obvious.` Skip to the Worktree gate.
 - **No spec, task is non-trivial** → refuse. Tell user: `Run /atomic-plan first. I need an approved spec at docs/spec/<topic>.md before launching the implementation loop.` Stop.
 
 Bar for "non-trivial": touches ≥3 files, introduces new architectural patterns, or has any ambiguity about success criteria. When in doubt, require the spec.
 
-## Phase 0.6 — Worktree gate
+**Currency gate — the spec body must reflect the current decision before any dispatch.** Subagents read the spec body verbatim as ground truth (the `BRIEF.md` points them straight at it), so stale content makes them build the wrong thing. If a decision in this conversation has superseded any part of the spec — a cut feature, a changed checkpoint, a dropped success criterion — **update the spec body first** (rewrite the affected sections, log the change per the `CLAUDE.md` spec rule), then build the brief from the corrected spec. Never paper over a superseded spec section with brief wording; fix the source. Test before dispatching: could a fresh subagent reading only the spec body build something a later decision already cut? If yes, fix the spec, not the brief.
+
+## Worktree gate
 
 Detect existing isolation:
 
@@ -47,7 +49,7 @@ GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
 - On `Yes`: invoke `/worktree-start <derived-name>` directly via the Skill tool. When it returns, continue with Phase 1 in the new worktree — do not stop and wait for the user to re-invoke `/subagent-implementation`.
 - On `No`: proceed in place.
 
-For tasks classified as obviously small in Phase 0.5, skip the worktree question.
+For tasks classified as obviously small in the Spec gate, skip the worktree question.
 
 ## Phase 1 — Write brief to `$SCRATCH`
 

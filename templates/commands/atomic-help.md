@@ -192,7 +192,7 @@ If user picks "dive in", ask which stage (1–4), then dump that stage's verb de
 .claude/project/followups/            committed follow-up entries with INDEX.md
 .worktrees/<branch>/                  isolated branches (gitignored)
 docs/design/<topic>.md                conceptual workspace (committed)
-docs/spec/<topic>.md                  implementation contract (committed, append-mostly)
+docs/spec/<topic>.md                  implementation contract (committed; body kept current, changes logged)
 
 Refresh project map any time: /refresh-signals
 ```
