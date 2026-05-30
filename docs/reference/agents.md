@@ -11,7 +11,7 @@ These write and review code.
 |-------|-------------|-------|
 | `atomic-builder` | Implements a feature checkpoint — one cohesive slice across however many files it touches (controller + service + DTO + tests, etc.). Writes a failing test first. Refuses cross-cutting or ambiguous scope. | Sonnet |
 | `atomic-surgeon` | Makes surgical 1-2 file edits. Typo fixes, single-function rewrites, mechanical renames. Hard refuses anything larger. | Sonnet |
-| `atomic-reviewer` | Reviews a diff after each builder pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. | Sonnet |
+| `atomic-reviewer` | Reviews a diff after each builder pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. | Sonnet |
 
 
 ## Research agents
@@ -21,7 +21,7 @@ These read code but never write it.
 | Agent | What it does | Model |
 |-------|-------------|-------|
 | `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." Returns a file:line table with no speculation. | Haiku |
-| `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. | Opus |
+| `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. Dispatched for root-cause analysis when the implement→review loop gets stuck on the same failure. | Opus |
 
 
 ## Infrastructure agents

@@ -48,6 +48,15 @@ If the plan rests on an unverified hunch, `/atomic-plan` will suggest `/gather-e
 Claude reads the approved spec and runs an autonomous implement-then-review loop. A builder agent writes code (failing test first), a reviewer agent checks it, and each passing checkpoint gets committed automatically. Non-blocking findings (risks, nits, questions) accumulate in a ledger that you review at the end — nothing gets silently dropped. When the loop gets stuck — the same failure surviving two rounds of fixes, or the reviewer flagging error-swallowing patches that dodge the bug instead of fixing it — it stops grinding and surfaces a root-cause path: a pressure-test prompt or a read-only strategist analysis you can run, rather than piling on more suppression.
 
 
+## Hands-off: /autopilot
+
+```
+/autopilot <task | issue#> [merge-verb]
+```
+
+When you trust the system to drive, `/autopilot` runs the whole lifecycle — plan, the implement-then-review loop, and ship — from a task description or a GitHub issue number, with one decision left to you: how to merge. It always uses the same subagent loop, but with three autonomous defaults. Every reviewer finding is fixed as it goes rather than deferred. When the loop gets stuck, it dispatches the read-only strategist for root-cause analysis on its own instead of waiting for you. And it keeps the spec current the whole way, so a fresh subagent never reads stale scope. The only prompt is the merge method at the end — pass a merge verb (`/autopilot 29 squash-and-merge`) to skip even that. Reach for the interactive verbs above when you want approval gates; reach for this when you don't.
+
+
 ## 3. Diagnose
 
 ```
