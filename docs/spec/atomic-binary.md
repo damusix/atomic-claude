@@ -96,11 +96,11 @@ Storage only. The binary creates, lists, shows, and removes reminder files. Sche
 | Verb | Description |
 |------|-------------|
 | `session-start` | Print a session-start summary block to stdout. Lists all pending reminders (capped at 10). Format: see [Hook output](#hook-output). |
-| `install [--scope user\|project]` | (a) Write the session-start hook script to `<scope>/.claude/hooks/session-start-reminders.sh`, AND (b) register it in `<scope>/.claude/settings.json` under the `hooks.SessionStart` event so Claude Code actually fires it. Default scope is `user` (`~/.claude/`). Idempotent — running twice does not duplicate the registration. |
-| `uninstall [--scope user\|project]` | Remove the script AND the settings.json registration. |
+| `install [--scope user\|project]` | Register the inline command `atomic hooks session-start` in `<scope>/.claude/settings.json` under the `hooks.SessionStart` event so Claude Code fires it. Default scope is `user` (`~/.claude/`). Idempotent — running twice does not duplicate the registration. Migrates a pre-inline install: removes any legacy `session-start-reminders.sh` wrapper-script registration and deletes the stale script file. |
+| `uninstall [--scope user\|project]` | Remove the settings.json registration (inline command and any legacy wrapper-script entry) and delete a lingering wrapper script. |
 
 
-Hook registration matters because writing a script alone does nothing — Claude Code only fires hooks listed in `settings.json`. The `install` verb edits the JSON minimally (adds one entry under `hooks.SessionStart`) and preserves any other user-managed hooks already present. On any settings.json parse error, it refuses to write and prints instructions for manual registration.
+Hook registration matters because Claude Code only fires hooks listed in `settings.json`. The `install` verb edits the JSON minimally (adds one entry under `hooks.SessionStart`, whose `command` is `atomic hooks session-start`) and preserves any other user-managed hooks already present. Claude Code runs hook commands through a shell, so the multi-word command resolves `atomic` on `PATH` and execs it directly — no wrapper script is needed. On any settings.json parse error, it refuses to write and prints instructions for manual registration.
 
 
 ### `atomic claude`
@@ -476,7 +476,7 @@ Default form is JSON. Emit to stdout:
 - When no reminders are pending, emit nothing (exit 0 with empty stdout). Claude treats this as a no-op.
 
 
-Flag: `atomic hooks session-start --format=text` falls back to plain markdown text on stdout (no JSON envelope). Used by the shell-fallback path when the binary is invoked from a hook script that, for whatever reason, can't trust JSON parsing on its consumer's side. Default is JSON.
+Flag: `atomic hooks session-start --format=text` falls back to plain markdown text on stdout (no JSON envelope). Used by any shell-fallback consumer that, for whatever reason, can't trust JSON parsing on its side. Default is JSON.
 
 
 ## Git workflow
@@ -681,6 +681,15 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 
 
 ## Change log
+
+
+### 2026-05-30 — hooks install inlines the command, drops the wrapper script
+
+**What changed:** `atomic hooks install` no longer writes a `session-start-reminders.sh` wrapper script. It registers the command `atomic hooks session-start` directly in `settings.json` under `hooks.SessionStart`. Install migrates older installs (removes the legacy script-path registration and deletes the stale script file); uninstall removes both the inline and legacy registrations and any lingering script. `IsInstalled` reports `drifted=true` when only the legacy wrapper-script registration is present (functional but stale), replacing the old "script content differs" drift meaning. Doctor's hooks check (category 2) had a scope bug — it passed `~/.claude` where `IsInstalled` expects `$HOME`, doubling the segment to `~/.claude/.claude/settings.json` and reporting a correctly-installed hook as missing; now fixed to resolve `$HOME`.
+
+**Why:** The wrapper was a pure passthrough (`exec atomic hooks session-start`) with identical PATH semantics to the inline command, so it bought nothing while adding a file, a `expectedScriptContent` constant, and a content-drift code path. Claude Code runs hook commands through a shell, so the multi-word command execs directly. The doctor scope bug shipped because the test seam (`RunCheckHooksWith`) bypassed the production resolver.
+
+**Superseded:** `install` previously wrote the hook script to `<scope>/.claude/hooks/session-start-reminders.sh` and registered that path as the hook `command`; `uninstall` removed that script; doctor reported `drifted` when the script content differed from the canonical wrapper text.
 
 
 ### 2026-05-23 — Correction: stale paths updated to ~/.claude/.atomic/

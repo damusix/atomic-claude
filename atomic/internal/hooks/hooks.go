@@ -36,8 +36,18 @@ func refreshProfile(now time.Time) {
 }
 
 const (
-	scriptName      = "session-start-reminders.sh"
-	hooksSubdir     = ".claude/hooks"
+	// sessionStartCommand is the command registered directly in settings.json's
+	// SessionStart hook. Claude Code runs hook commands through a shell, so the
+	// multi-word command resolves `atomic` on PATH and execs it — no wrapper
+	// script needed.
+	sessionStartCommand = "atomic hooks session-start"
+
+	// legacyScriptName / legacyHooksSubdir locate the pre-inline wrapper script
+	// that older installs registered. Retained only so Install can migrate it
+	// away and Uninstall can clean it up.
+	legacyScriptName  = "session-start-reminders.sh"
+	legacyHooksSubdir = ".claude/hooks"
+
 	settingsRelPath = ".claude/settings.json"
 	maxReminders    = 10
 	previewMaxLen   = 80
@@ -243,9 +253,10 @@ func truncate(s string, maxLen int) string {
 	return string(runes[:maxLen]) + "…"
 }
 
-// scriptPath returns the absolute path for the hook script under scopeRoot.
-func scriptPath(scopeRoot string) string {
-	return filepath.Join(scopeRoot, hooksSubdir, scriptName)
+// legacyScriptPath returns the absolute path for the pre-inline wrapper script
+// under scopeRoot. Used only for migration and cleanup.
+func legacyScriptPath(scopeRoot string) string {
+	return filepath.Join(scopeRoot, legacyHooksSubdir, legacyScriptName)
 }
 
 // settingsPath returns the absolute path for settings.json under scopeRoot.
@@ -253,43 +264,62 @@ func settingsPath(scopeRoot string) string {
 	return filepath.Join(scopeRoot, settingsRelPath)
 }
 
-// Install writes the session-start hook script and registers it in settings.json
-// under scopeRoot. repoRoot is unused at this layer (scopeRoot determines paths).
+// Install registers the inline session-start command in settings.json under
+// scopeRoot. repoRoot is unused at this layer (scopeRoot determines paths).
+//
+// Migration: any registration left by an older install — a wrapper-script path
+// instead of the inline command — is removed first so the hook does not
+// double-fire, and the stale script file is deleted.
 func Install(repoRoot, scopeRoot string) error {
-	sp := scriptPath(scopeRoot)
+	sfPath := settingsPath(scopeRoot)
 
-	// 1. Write the script.
-	if err := os.MkdirAll(filepath.Dir(sp), 0o755); err != nil {
-		return fmt.Errorf("hooks install: mkdir hooks dir: %w", err)
-	}
-	if err := os.WriteFile(sp, []byte(expectedScriptContent), 0o755); err != nil {
-		return fmt.Errorf("hooks install: write script: %w", err)
+	// 1. Migrate away the legacy wrapper-script registration + file.
+	if err := migrateLegacy(sfPath, scopeRoot); err != nil {
+		return err
 	}
 
-	// 2. Register in settings.json.
-	return registerInSettings(settingsPath(scopeRoot), sp)
+	// 2. Register the inline command (idempotent).
+	return registerInSettings(sfPath, sessionStartCommand)
 }
 
-// Uninstall removes the hook script and its registration from settings.json.
+// Uninstall removes the session-start hook registration from settings.json and
+// deletes any lingering legacy wrapper script.
 func Uninstall(repoRoot, scopeRoot string) error {
-	sp := scriptPath(scopeRoot)
-
-	// 1. Remove the script (no-op if absent).
-	if err := os.Remove(sp); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("hooks uninstall: remove script: %w", err)
+	// 1. Remove the legacy script file (no-op if absent).
+	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("hooks uninstall: remove legacy script: %w", err)
 	}
 
-	// 2. Remove registration from settings.json.
 	sfPath := settingsPath(scopeRoot)
 	if _, err := os.Stat(sfPath); os.IsNotExist(err) {
 		return nil
 	}
-	return unregisterFromSettings(sfPath, sp)
+
+	// 2. Remove the inline registration, then any legacy script-path registration.
+	if err := unregisterFromSettings(sfPath, sessionStartCommand); err != nil {
+		return err
+	}
+	return unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot))
+}
+
+// migrateLegacy removes a pre-inline wrapper-script registration from
+// settings.json and deletes the stale script file. No-op when neither exists.
+// A malformed settings.json surfaces as an error so Install refuses to proceed.
+func migrateLegacy(sfPath, scopeRoot string) error {
+	if _, err := os.Stat(sfPath); err == nil {
+		if err := unregisterFromSettings(sfPath, legacyScriptPath(scopeRoot)); err != nil {
+			return err
+		}
+	}
+	if err := os.Remove(legacyScriptPath(scopeRoot)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("hooks install: remove legacy script: %w", err)
+	}
+	return nil
 }
 
 // hasRegistration returns true if settings already has a SessionStart entry
-// whose inner hooks[].command equals scriptPath.
-func hasRegistration(settings map[string]any, scriptAbsPath string) bool {
+// whose inner hooks[].command equals command.
+func hasRegistration(settings map[string]any, command string) bool {
 	hooksMap, ok := settings["hooks"].(map[string]any)
 	if !ok {
 		return false
@@ -312,7 +342,7 @@ func hasRegistration(settings map[string]any, scriptAbsPath string) bool {
 			if !ok {
 				continue
 			}
-			if hm["command"] == scriptAbsPath {
+			if hm["command"] == command {
 				return true
 			}
 		}
@@ -320,16 +350,17 @@ func hasRegistration(settings map[string]any, scriptAbsPath string) bool {
 	return false
 }
 
-// expectedScriptContent is the exact content Install writes to the hook script.
-const expectedScriptContent = "#!/usr/bin/env bash\nexec atomic hooks session-start\n"
-
 // IsInstalled reports whether the session-start hook is registered in
-// scopeRoot/.claude/settings.json and the hook script matches expected content.
+// scopeRoot/.claude/settings.json.
+//
+// "drifted" means the hook is registered in the legacy wrapper-script form
+// (an older install) rather than the inline command — functional, but it
+// should be migrated by re-running `atomic hooks install`.
 //
 // Returns:
-//   - installed=true, drifted=false, err=nil  → hook registered and script matches
+//   - installed=true, drifted=false, err=nil   → inline command registered
+//   - installed=true, drifted=true, err=nil    → legacy wrapper-script registration present
 //   - installed=false, drifted=false, err=nil  → hook not registered (settings missing or no entry)
-//   - installed=true, drifted=true, err=nil   → hook registered but script content differs
 //   - installed=false, drifted=false, err!=nil → settings.json unreadable / malformed
 func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
 	sfPath := settingsPath(scopeRoot)
@@ -339,27 +370,28 @@ func IsInstalled(scopeRoot string) (installed bool, drifted bool, err error) {
 		return false, false, readErr
 	}
 
-	sp := scriptPath(scopeRoot)
-	if !hasRegistration(settings, sp) {
+	inline := hasRegistration(settings, sessionStartCommand)
+	legacy := hasRegistration(settings, legacyScriptPath(scopeRoot))
+
+	switch {
+	case inline && !legacy:
+		return true, false, nil
+	case inline && legacy:
+		// Both present (partial migration) — still needs cleanup.
+		return true, true, nil
+	case legacy:
+		// Legacy-only: the wrapper still execs atomic, so the hook fires, but
+		// the registration is stale.
+		return true, true, nil
+	default:
 		return false, false, nil
 	}
-
-	// Hook is registered. Now verify script content.
-	raw, err := os.ReadFile(sp)
-	if err != nil {
-		// Script file missing — registered but drifted.
-		return true, true, nil
-	}
-	if string(raw) != expectedScriptContent {
-		return true, true, nil
-	}
-	return true, false, nil
 }
 
-// malformedErrorWithScript returns an error for a malformed settings.json,
-// including the manual-registration snippet with the actual resolved script path
-// so the user can copy-paste it without manual substitution.
-func malformedErrorWithScript(sfPath, scriptAbsPath string) error {
+// malformedSettingsError returns an error for a malformed settings.json,
+// including the manual-registration snippet with the actual command so the
+// user can copy-paste it without manual substitution.
+func malformedSettingsError(sfPath, command string) error {
 	snippet := fmt.Sprintf(`{
   "hooks": {
     "SessionStart": [
@@ -371,7 +403,7 @@ func malformedErrorWithScript(sfPath, scriptAbsPath string) error {
       }
     ]
   }
-}`, scriptAbsPath)
+}`, command)
 	return fmt.Errorf(
 		"hooks: %s contains malformed JSON; refusing to write.\n"+
 			"Add the following manually under the \"hooks\" key:\n%s",

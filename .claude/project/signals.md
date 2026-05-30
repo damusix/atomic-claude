@@ -36,8 +36,8 @@ CI gates: (1) `make render && git diff --exit-code` — stale `commands/` fails.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Markdown | 36129 | 251 | 50% |
-| Go | 31772 | 137 | 44% |
+| Markdown | 36140 | 251 | 50% |
+| Go | 31856 | 138 | 44% |
 | JSON | 2283 | 5 | 3% |
 | CSS | 402 | 1 | 0% |
 | Shell | 269 | 3 | 0% |
@@ -71,6 +71,10 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 **@-ref wiring**: for this repo, `@.claude/project/signals.md` lives in `claude.local.md` (not `CLAUDE.md` — `CLAUDE.md` is the bundle source and must not carry project-specific paths). Only `signals.md` is `@-ref`'d. `deterministic-signals.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. The inferrer reads it when needed; sessions do not.
 
 **Doctor refs check updated**: `atomic/internal/doctor/checks_refs.go` (hash `477404b`) now checks only for `@.claude/project/signals.md`. Prior contract (requiring both `deterministic-signals.md` and `signals.md`) is superseded per spec change 2026-05-26.
+
+**Doctor hooks scope bug fixed**: `checks_hooks.go` `checkHooks` now passes `$HOME` as scopeRoot to `RunCheckHooksWith` — not `~/.claude`. Passing `~/.claude` caused `hooks.IsInstalled` to look for `~/.claude/.claude/settings.json` (double `.claude` segment). `RunCheckHooksWith(scopeRoot)` is exported for tests; `checks_hooks_internal_test.go` added for package-internal test coverage.
+
+**Hooks inline-command migration**: `atomic/internal/hooks/hooks.go` `Install` now registers the literal string `atomic hooks session-start` directly in `settings.json`'s `SessionStart` hook array — no wrapper script written. Legacy installs that registered `~/.claude/hooks/session-start-reminders.sh` are detected via `IsInstalled` `drifted=true` return and migrated away by `migrateLegacy` on the next `Install` call. `legacyScriptName` / `legacyHooksSubdir` constants retained solely for this migration path.
 
 **`go:embed all:bundle` requirement (bundle)**: `commands/_templates/` starts with `_` — excluded by the default embed glob. `all:bundle` overrides this. Any new underscore-prefixed directory under `embedded/bundle/` needs this same consideration.
 

@@ -631,31 +631,33 @@ func TestSessionStart_SystemMessage_Pluralization(t *testing.T) {
 
 // --- Install tests ---
 
-func TestInstall_EmptyDir_CreatesScriptAndSettings(t *testing.T) {
+func TestInstall_EmptyDir_RegistersInlineCommand(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
 	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
+	// No wrapper script is written — the command is inlined into settings.json.
 	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
-	info, err := os.Stat(scriptPath)
-	if err != nil {
-		t.Fatalf("script not found: %v", err)
-	}
-	if info.Mode()&0o111 == 0 {
-		t.Errorf("script not executable: %v", info.Mode())
-	}
-	raw, _ := os.ReadFile(scriptPath)
-	if !strings.Contains(string(raw), "atomic hooks session-start") {
-		t.Errorf("script content wrong: %q", string(raw))
+	if _, err := os.Stat(scriptPath); err == nil {
+		t.Errorf("wrapper script should not be created, but %s exists", scriptPath)
 	}
 
 	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
-	raw, err = os.ReadFile(settingsPath)
+	raw, err := os.ReadFile(settingsPath)
 	if err != nil {
 		t.Fatalf("settings.json not found: %v", err)
 	}
+	if cmd := sessionStartCommandIn(t, raw); cmd != "atomic hooks session-start" {
+		t.Errorf("registered command = %q, want %q", cmd, "atomic hooks session-start")
+	}
+}
+
+// sessionStartCommandIn returns the command string of the first SessionStart
+// hook entry in settings.json bytes, failing the test if the structure is absent.
+func sessionStartCommandIn(t *testing.T, raw []byte) string {
+	t.Helper()
 	var settings map[string]any
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		t.Fatalf("settings.json invalid JSON: %v", err)
@@ -668,6 +670,14 @@ func TestInstall_EmptyDir_CreatesScriptAndSettings(t *testing.T) {
 	if !ok || len(ss) == 0 {
 		t.Fatalf("SessionStart missing: %v", hooks_)
 	}
+	entry, _ := ss[0].(map[string]any)
+	inner, _ := entry["hooks"].([]any)
+	if len(inner) == 0 {
+		t.Fatalf("inner hooks missing: %v", entry)
+	}
+	h, _ := inner[0].(map[string]any)
+	cmd, _ := h["command"].(string)
+	return cmd
 }
 
 func TestInstall_ExistingUnrelatedKeys_Preserved(t *testing.T) {
@@ -701,7 +711,7 @@ func TestInstall_ExistingUnrelatedKeys_Preserved(t *testing.T) {
 	}
 }
 
-func TestInstall_Idempotent_SameScript(t *testing.T) {
+func TestInstall_Idempotent(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
 	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
@@ -772,9 +782,13 @@ func TestInstall_ScopeProject_WritesUnderClaudeDir(t *testing.T) {
 	if err := hooks.Install(projectRoot, projectRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
-	scriptPath := filepath.Join(projectRoot, ".claude", "hooks", "session-start-reminders.sh")
-	if _, err := os.Stat(scriptPath); err != nil {
-		t.Fatalf("script not found under project root: %v", err)
+	settingsPath := filepath.Join(projectRoot, ".claude", "settings.json")
+	raw, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("settings.json not found under project root: %v", err)
+	}
+	if cmd := sessionStartCommandIn(t, raw); cmd != "atomic hooks session-start" {
+		t.Errorf("registered command = %q, want inline command", cmd)
 	}
 }
 
@@ -841,25 +855,45 @@ func TestInstall_JWCCSettingsPreservesCommentsAndTrailingCommas(t *testing.T) {
 
 // --- Uninstall tests ---
 
-func TestUninstall_RemovesScriptAndRegistration(t *testing.T) {
+func TestUninstall_RemovesRegistration(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
 	hooks.Install(repoRoot, scopeRoot)
 
-	// Add a sibling script to verify siblings are preserved.
-	siblingPath := filepath.Join(scopeRoot, ".claude", "hooks", "other.sh")
+	if err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+
+	installed, _, err := hooks.IsInstalled(scopeRoot)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if installed {
+		t.Error("hook still registered after uninstall")
+	}
+}
+
+// TestUninstall_RemovesLegacyScriptFile verifies Uninstall cleans up a wrapper
+// script left by an older install, while preserving unrelated sibling scripts.
+func TestUninstall_RemovesLegacyScriptFile(t *testing.T) {
+	scopeRoot := t.TempDir()
+	repoRoot := t.TempDir()
+	hooks.Install(repoRoot, scopeRoot)
+
+	hooksDir := filepath.Join(scopeRoot, ".claude", "hooks")
+	os.MkdirAll(hooksDir, 0o755)
+	legacyPath := filepath.Join(hooksDir, "session-start-reminders.sh")
+	os.WriteFile(legacyPath, []byte("#!/usr/bin/env bash\nexec atomic hooks session-start\n"), 0o755)
+	siblingPath := filepath.Join(hooksDir, "other.sh")
 	os.WriteFile(siblingPath, []byte("#!/bin/bash\necho other\n"), 0o755)
 
 	if err := hooks.Uninstall(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Uninstall: %v", err)
 	}
 
-	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
-	if _, err := os.Stat(scriptPath); err == nil {
-		t.Error("script still exists after uninstall")
+	if _, err := os.Stat(legacyPath); err == nil {
+		t.Error("legacy wrapper script still exists after uninstall")
 	}
-
-	// Sibling must still exist.
 	if _, err := os.Stat(siblingPath); err != nil {
 		t.Errorf("sibling hook removed: %v", err)
 	}
@@ -983,47 +1017,34 @@ func TestIsInstalled_NoHookEntry_NotInstalled(t *testing.T) {
 	}
 }
 
-func TestIsInstalled_ScriptContentDrifted_InstalledAndDrifted(t *testing.T) {
-	scopeRoot := t.TempDir()
-	repoRoot := t.TempDir()
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
-		t.Fatalf("Install: %v", err)
+// seedLegacyRegistration writes a settings.json containing a SessionStart entry
+// whose command is the absolute path of the old wrapper script (pre-inline form).
+func seedLegacyRegistration(t *testing.T, scopeRoot string) {
+	t.Helper()
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	// Corrupt the script content.
-	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
-	os.WriteFile(scriptPath, []byte("#!/bin/bash\necho corrupted\n"), 0o755)
-
-	installed, drifted, err := hooks.IsInstalled(scopeRoot)
-	if err != nil {
-		t.Fatalf("IsInstalled: %v", err)
-	}
-	if !installed {
-		t.Error("installed = false, want true (registration still present)")
-	}
-	if !drifted {
-		t.Error("drifted = false, want true (content differs)")
+	legacyCmd := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
+	content := `{"hooks": {"SessionStart": [{"matcher": ".*", "hooks": [{"type": "command", "command": "` + legacyCmd + `"}]}]}}`
+	if err := os.WriteFile(settingsPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestIsInstalled_ScriptMissing_InstalledAndDrifted(t *testing.T) {
+func TestIsInstalled_LegacyRegistration_InstalledAndDrifted(t *testing.T) {
 	scopeRoot := t.TempDir()
-	repoRoot := t.TempDir()
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
-		t.Fatalf("Install: %v", err)
-	}
-	// Remove the script after install.
-	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
-	os.Remove(scriptPath)
+	seedLegacyRegistration(t, scopeRoot)
 
 	installed, drifted, err := hooks.IsInstalled(scopeRoot)
 	if err != nil {
 		t.Fatalf("IsInstalled: %v", err)
 	}
 	if !installed {
-		t.Error("installed = false, want true (registration still present)")
+		t.Error("installed = false, want true (legacy registration still fires)")
 	}
 	if !drifted {
-		t.Error("drifted = false, want true (script missing)")
+		t.Error("drifted = false, want true (legacy wrapper-script form)")
 	}
 }
 
@@ -1039,31 +1060,50 @@ func TestIsInstalled_MalformedSettings_Error(t *testing.T) {
 	}
 }
 
-// TestInstall_WritesExactExpectedScriptContent verifies Install uses the same
-// literal as expectedScriptContent (single source of truth). A drift between
-// the two would cause IsInstalled to report drifted=true immediately after a
-// fresh install.
-func TestInstall_WritesExactExpectedScriptContent(t *testing.T) {
+// TestInstall_MigratesLegacyRegistration verifies that running Install over an
+// older wrapper-script install replaces the legacy registration with the inline
+// command, deletes the stale script file, and leaves exactly one entry (no
+// double-fire).
+func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()
+
+	// Seed a legacy install: script-path registration + the script file.
+	seedLegacyRegistration(t, scopeRoot)
+	legacyPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
+	os.MkdirAll(filepath.Dir(legacyPath), 0o755)
+	os.WriteFile(legacyPath, []byte("#!/usr/bin/env bash\nexec atomic hooks session-start\n"), 0o755)
+
 	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
-	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
-	raw, err := os.ReadFile(scriptPath)
-	if err != nil {
-		t.Fatalf("read script: %v", err)
+	// Legacy script file removed.
+	if _, err := os.Stat(legacyPath); err == nil {
+		t.Error("legacy wrapper script not removed by migration")
 	}
 
-	// IsInstalled must report not-drifted: this proves Install and IsInstalled
-	// share a single source of truth for the script content.
-	_, drifted, err := hooks.IsInstalled(scopeRoot)
+	// Exactly one entry, and it is the inline command.
+	settingsPath := filepath.Join(scopeRoot, ".claude", "settings.json")
+	raw, _ := os.ReadFile(settingsPath)
+	var settings map[string]any
+	json.Unmarshal(raw, &settings)
+	hooks_, _ := settings["hooks"].(map[string]any)
+	ss, _ := hooks_["SessionStart"].([]any)
+	if len(ss) != 1 {
+		t.Fatalf("expected 1 SessionStart entry after migration, got %d", len(ss))
+	}
+	if cmd := sessionStartCommandIn(t, raw); cmd != "atomic hooks session-start" {
+		t.Errorf("post-migration command = %q, want inline command", cmd)
+	}
+
+	// IsInstalled reports clean (not drifted).
+	installed, drifted, err := hooks.IsInstalled(scopeRoot)
 	if err != nil {
 		t.Fatalf("IsInstalled: %v", err)
 	}
-	if drifted {
-		t.Errorf("drifted=true immediately after fresh Install — Install wrote %q but IsInstalled expected different content", string(raw))
+	if !installed || drifted {
+		t.Errorf("post-migration IsInstalled = (installed=%v, drifted=%v), want (true, false)", installed, drifted)
 	}
 }
 

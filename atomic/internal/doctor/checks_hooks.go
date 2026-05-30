@@ -2,21 +2,22 @@ package doctor
 
 import (
 	"fmt"
+	"os"
 
-	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 )
 
 // checkHooks implements category 2: session-start hook installed.
 //
-// Resolves ~/.claude/ as the scope root (where settings.json lives), then
-// delegates to RunCheckHooksWith.
+// The scope root is $HOME — hooks.IsInstalled appends ".claude/settings.json"
+// to it. Passing ~/.claude here would double the segment (~/.claude/.claude),
+// which is the bug this resolves. Mirrors resolveScopeRoot("user") in main.go.
 func checkHooks(_ Opts) Result {
-	target, err := claudeinstall.ResolveTarget("~/.claude")
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve target: %v", err)}
+		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home: %v", err)}
 	}
-	return RunCheckHooksWith(target)
+	return RunCheckHooksWith(home)
 }
 
 // RunCheckHooksWith runs the hooks check against an explicit scopeRoot.
@@ -31,7 +32,7 @@ func RunCheckHooksWith(scopeRoot string) Result {
 	case !installed:
 		return Result{Severity: WARN, Detail: "session-start hook missing"}
 	case drifted:
-		return Result{Severity: WARN, Detail: "session-start hook content drifted"}
+		return Result{Severity: WARN, Detail: "session-start hook uses legacy wrapper script — run `atomic hooks install` to migrate"}
 	default:
 		return Result{Severity: PASS, Detail: "session-start hook installed"}
 	}

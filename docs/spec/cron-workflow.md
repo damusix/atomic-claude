@@ -172,10 +172,7 @@ When ignored, the reminder is durable but no longer scheduled. It still shows up
 ### Session-start hook
 
 
-Path: `.claude/hooks/session-start-reminders.sh`.
-
-
-`atomic hooks install` does two things: (a) writes the script at the path above, and (b) registers it in `.claude/settings.json` under `hooks.SessionStart` so Claude Code actually fires it. Without the settings.json registration the script is dead — see [`atomic-binary.md`](./atomic-binary.md) for details. Manual fallback users must also edit `settings.json` themselves.
+`atomic hooks install` registers the command `atomic hooks session-start` in `.claude/settings.json` under `hooks.SessionStart` so Claude Code fires it. There is no wrapper script — Claude Code runs hook commands through a shell, so the multi-word command resolves `atomic` on `PATH` and execs it directly. See [`atomic-binary.md`](./atomic-binary.md) for details. Manual fallback users add the same entry to `settings.json` themselves.
 
 
 ```bash
@@ -265,8 +262,7 @@ Add to the audit table (the "binary on PATH" row may already be present from the
 | Convention | Check |
 |-----------|-------|
 | `atomic` binary on PATH | `command -v atomic` |
-| `.claude/hooks/session-start-reminders.sh` exists | `test -f` |
-| `SessionStart` hook registered in `.claude/settings.json` | grep / parse for the registration |
+| `SessionStart` hook registered in `.claude/settings.json` (command `atomic hooks session-start`) | grep / parse for the registration |
 
 
 Proposed actions when missing:
@@ -315,7 +311,7 @@ Proposed actions when missing:
 |---|------------|-------------|----------|
 | C-1 | `/remind-me` command (binary + fallback + `CronCreate`) | `commands/remind-me.md`, `atomic/internal/reminder/` | |
 | C-2 | `/follow-up` command (binary + fallback + `CronCreate`/`CronDelete`/`CronList`) | `commands/follow-up.md` | |
-| C-3 | Session-start hook script installable via `atomic hooks install`; manual fallback documented | `atomic/internal/hooks/` | |
+| C-3 | Session-start hook (inline command) installable via `atomic hooks install`; manual fallback documented | `atomic/internal/hooks/` | |
 | C-4 | `/atomic-setup` audit + propose flow updated | `commands/atomic-setup.md` | |
 | C-5 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to document cron workflow | `CLAUDE.md`, `README.md` | |
 
@@ -397,6 +393,15 @@ Ship verb to choose at handoff (`/squash-and-merge`, `/merge-to-main`, `/pr-only
 
 
 ## Change log
+
+
+### 2026-05-30 — Session-start hook inlined (no wrapper script)
+
+**What changed:** The session-start hook is now registered as the inline command `atomic hooks session-start` in `.claude/settings.json`; the `.claude/hooks/session-start-reminders.sh` wrapper script no longer exists. Updated the "Session-start hook" section, the `/atomic-setup` audit convention table (dropped the `test -f` script check), and checkpoint C-3. Full contract: [`atomic-binary.md`](./atomic-binary.md).
+
+**Why:** The wrapper was a pure passthrough with identical PATH semantics to the inline command. See the atomic-binary.md change log entry of the same date.
+
+**Superseded:** The hook was previously a script at `.claude/hooks/session-start-reminders.sh` registered by path in `settings.json`; `/atomic-setup` verified the script existed via `test -f`.
 
 
 ### 2026-05-17 — Hybrid transport (cron + Routines), `due:` field, missing-duration default

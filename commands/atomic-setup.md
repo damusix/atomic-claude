@@ -34,8 +34,7 @@ Inspect the repo. Build this status table:
 | `docs/design/` directory | `test -d docs/design` | exists / missing |
 | `README.md` at repo root | `test -f README.md` | exists / missing |
 | `atomic` binary on PATH | `command -v atomic` | found / missing |
-| `.claude/hooks/session-start-reminders.sh` exists | `test -f .claude/hooks/session-start-reminders.sh` | exists / missing |
-| `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value contains `session-start-reminders.sh` (the absolute path written by `atomic hooks install`) | registered / missing |
+| `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value is `atomic hooks session-start` (the inline command written by `atomic hooks install`) | registered / missing |
 | `.claude/project/deterministic-signals.md` | `test -f .claude/project/deterministic-signals.md` | exists / missing |
 | `CLAUDE.md` references signals.md | `test -f CLAUDE.md && grep -qF '@.claude/project/signals.md' CLAUDE.md` (if `test -f CLAUDE.md` fails → n/a). Only `signals.md` is `@-ref`'d — `deterministic-signals.md` is too large for context. | yes / no / n/a |
 | `.signalsignore` at repo root | `test -f .signalsignore` | exists / missing |
@@ -65,9 +64,9 @@ For each missing item, propose an action. Skip items already present.
 | `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
 | `README.md` missing | Offer to scaffold a minimal starter. If user declines, skip — don't push it. |
 | `atomic` binary missing | Print: `curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh \| bash`. Setup does not run the install — user runs the curl. |
-| Script + registration missing, binary present | Run `atomic hooks install`. |
-| Script + registration missing, binary missing | Write `.claude/hooks/session-start-reminders.sh` as the fallback script manually AND manually add the `SessionStart` hook entry to `.claude/settings.json`. |
-| Script present, registration missing | Run `atomic hooks install` (idempotent — rewrites script with canonical content and adds the settings entry). |
+| Registration missing, binary present | Run `atomic hooks install`. |
+| Registration missing, binary missing | Manually add a `SessionStart` entry to `.claude/settings.json` whose `hooks[].command` is `atomic hooks session-start`. |
+| Legacy wrapper-script registration present | Run `atomic hooks install` (migrates to the inline command and deletes the stale `session-start-reminders.sh` script). |
 | `deterministic-signals.md` missing but `atomic` present | Print: "Run `/refresh-signals` to generate project signals." (follow-up only; setup does not invoke it). |
 | `CLAUDE.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
 | `.signalsignore` missing | Create `.signalsignore` with commented explanation (see `.signalsignore` subsection in Step 4). Never overwrite if it exists. |

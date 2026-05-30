@@ -21,14 +21,14 @@ import (
 
 // registerInSettings adds the hook entry to settings.json if not already present.
 // Uses hujson to preserve comments and trailing commas in the existing file.
-func registerInSettings(sfPath, scriptAbsPath string) error {
+func registerInSettings(sfPath, command string) error {
 	settings, ast, _, err := readSettingsHujson(sfPath)
 	if err != nil {
-		return malformedErrorWithScript(sfPath, scriptAbsPath)
+		return malformedSettingsError(sfPath, command)
 	}
 
 	// Check idempotency: look for existing entry with the same command.
-	if hasRegistration(settings, scriptAbsPath) {
+	if hasRegistration(settings, command) {
 		return nil
 	}
 
@@ -40,19 +40,19 @@ func registerInSettings(sfPath, scriptAbsPath string) error {
 		}
 	}
 
-	if err := astRegisterSessionStart(&ast, scriptAbsPath); err != nil {
+	if err := astRegisterSessionStart(&ast, command); err != nil {
 		return err
 	}
 
 	return writeSettingsHujson(sfPath, ast)
 }
 
-// unregisterFromSettings removes the entry matching scriptAbsPath from settings.json.
+// unregisterFromSettings removes the entry matching command from settings.json.
 // Uses hujson to preserve comments and trailing commas.
-func unregisterFromSettings(sfPath, scriptAbsPath string) error {
+func unregisterFromSettings(sfPath, command string) error {
 	settings, ast, _, err := readSettingsHujson(sfPath)
 	if err != nil {
-		return malformedErrorWithScript(sfPath, scriptAbsPath)
+		return malformedSettingsError(sfPath, command)
 	}
 	if ast.Value == nil {
 		return nil
@@ -67,7 +67,7 @@ func unregisterFromSettings(sfPath, scriptAbsPath string) error {
 		return nil
 	}
 
-	if err := astUnregisterSessionStart(&ast, scriptAbsPath); err != nil {
+	if err := astUnregisterSessionStart(&ast, command); err != nil {
 		return err
 	}
 
@@ -131,8 +131,8 @@ func writeSettingsHujson(sfPath string, ast hujson.Value) error {
 
 // astRegisterSessionStart appends a new SessionStart entry to the hujson AST.
 // It creates the hooks key and SessionStart array if they don't exist.
-func astRegisterSessionStart(ast *hujson.Value, scriptAbsPath string) error {
-	entryBytes, err := buildEntryJSON(scriptAbsPath)
+func astRegisterSessionStart(ast *hujson.Value, command string) error {
+	entryBytes, err := buildEntryJSON(command)
 	if err != nil {
 		return fmt.Errorf("hooks: build entry JSON: %w", err)
 	}
@@ -176,9 +176,9 @@ func astRegisterSessionStart(ast *hujson.Value, scriptAbsPath string) error {
 }
 
 // astUnregisterSessionStart removes the SessionStart entry whose inner
-// hooks[].command equals scriptAbsPath. Drops SessionStart if empty;
+// hooks[].command equals command. Drops SessionStart if empty;
 // drops hooks if empty.
-func astUnregisterSessionStart(ast *hujson.Value, scriptAbsPath string) error {
+func astUnregisterSessionStart(ast *hujson.Value, command string) error {
 	topObj, ok := ast.Value.(*hujson.Object)
 	if !ok {
 		return nil
@@ -201,10 +201,10 @@ func astUnregisterSessionStart(ast *hujson.Value, scriptAbsPath string) error {
 		return nil
 	}
 
-	// Filter out entries that reference scriptAbsPath.
+	// Filter out entries that reference command.
 	filtered := arr.Elements[:0]
 	for _, elem := range arr.Elements {
-		if !sessionStartEntryMatchesScript(elem, scriptAbsPath) {
+		if !sessionStartEntryMatchesCommand(elem, command) {
 			filtered = append(filtered, elem)
 		}
 	}
@@ -224,22 +224,22 @@ func astUnregisterSessionStart(ast *hujson.Value, scriptAbsPath string) error {
 }
 
 // buildEntryJSON returns the JSON bytes for a new SessionStart hook entry.
-func buildEntryJSON(scriptAbsPath string) ([]byte, error) {
+func buildEntryJSON(command string) ([]byte, error) {
 	entry := map[string]any{
 		"matcher": ".*",
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": scriptAbsPath,
+				"command": command,
 			},
 		},
 	}
 	return json.MarshalIndent(entry, "", "  ")
 }
 
-// sessionStartEntryMatchesScript returns true if the hujson element represents
-// a SessionStart entry whose hooks[].command matches scriptAbsPath.
-func sessionStartEntryMatchesScript(elem hujson.Value, scriptAbsPath string) bool {
+// sessionStartEntryMatchesCommand returns true if the hujson element represents
+// a SessionStart entry whose hooks[].command matches command.
+func sessionStartEntryMatchesCommand(elem hujson.Value, command string) bool {
 	std, err := hujson.Standardize(elem.Pack())
 	if err != nil {
 		return false
@@ -257,7 +257,7 @@ func sessionStartEntryMatchesScript(elem hujson.Value, scriptAbsPath string) boo
 		if !ok {
 			continue
 		}
-		if hm["command"] == scriptAbsPath {
+		if hm["command"] == command {
 			return true
 		}
 	}

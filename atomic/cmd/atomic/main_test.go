@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
+	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
 
@@ -107,10 +108,6 @@ func TestScanNoUpdateCheck(t *testing.T) {
 	}
 }
 
-// hookScriptName mirrors hooks.scriptName for assertions.
-// If the constant moves, this test fails loudly — that's intended.
-const hookScriptName = "session-start-reminders.sh"
-
 // TestRunClaudeInstallWiresHooks proves that `atomic claude install` lays the
 // bundle AND registers the session-start hook in one shot. Encodes the WHY:
 // the previous flow required users to chain `atomic hooks install` separately,
@@ -130,9 +127,12 @@ func TestRunClaudeInstallWiresHooks(t *testing.T) {
 		t.Errorf("expected HooksInstalled=true, got false; hookError=%v", result.HooksError)
 	}
 
-	scriptPath := filepath.Join(scope, ".claude", "hooks", hookScriptName)
-	if _, err := os.Stat(scriptPath); err != nil {
-		t.Errorf("expected hook script at %s: %v", scriptPath, err)
+	installed, drifted, err := hooks.IsInstalled(scope)
+	if err != nil {
+		t.Fatalf("IsInstalled: %v", err)
+	}
+	if !installed || drifted {
+		t.Errorf("IsInstalled = (installed=%v, drifted=%v), want (true, false)", installed, drifted)
 	}
 
 	settingsPath := filepath.Join(scope, ".claude", "settings.json")
@@ -156,9 +156,9 @@ func TestRunClaudeInstallNoHooksFlag(t *testing.T) {
 		t.Error("expected HooksInstalled=false when noHooks=true")
 	}
 
-	scriptPath := filepath.Join(scope, ".claude", "hooks", hookScriptName)
-	if _, err := os.Stat(scriptPath); !os.IsNotExist(err) {
-		t.Errorf("expected no hook script at %s, got err=%v", scriptPath, err)
+	installed, _, _ := hooks.IsInstalled(scope)
+	if installed {
+		t.Error("expected hook not registered when noHooks=true")
 	}
 }
 
@@ -176,9 +176,9 @@ func TestRunClaudeInstallDryRunSkipsHooks(t *testing.T) {
 		t.Error("expected HooksInstalled=false under dry-run")
 	}
 
-	scriptPath := filepath.Join(scope, ".claude", "hooks", hookScriptName)
-	if _, err := os.Stat(scriptPath); !os.IsNotExist(err) {
-		t.Errorf("expected no hook script under dry-run, got err=%v", err)
+	installed, _, _ := hooks.IsInstalled(scope)
+	if installed {
+		t.Error("expected hook not registered under dry-run")
 	}
 }
 

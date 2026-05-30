@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
@@ -85,17 +86,18 @@ func TestCheckHooks_MalformedSettings_Warn(t *testing.T) {
 	}
 }
 
-func TestCheckHooks_PayloadDrifted_Warn(t *testing.T) {
+// TestCheckHooks_LegacyRegistration_Warn covers a pre-inline install: the hook
+// is registered via the old wrapper-script path. The check warns and points the
+// user at the migration command.
+func TestCheckHooks_LegacyRegistration_Warn(t *testing.T) {
 	scopeRoot := t.TempDir()
-	// Install first, then corrupt the script content.
-	repoRoot := t.TempDir()
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
-		t.Fatalf("Install: %v", err)
+	settingsDir := filepath.Join(scopeRoot, ".claude")
+	if err := os.MkdirAll(settingsDir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-
-	// Overwrite the script with different content.
-	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
-	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho drifted\n"), 0o755); err != nil {
+	legacyCmd := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
+	content := `{"hooks": {"SessionStart": [{"matcher": ".*", "hooks": [{"type": "command", "command": "` + legacyCmd + `"}]}]}}`
+	if err := os.WriteFile(filepath.Join(settingsDir, "settings.json"), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,29 +105,8 @@ func TestCheckHooks_PayloadDrifted_Warn(t *testing.T) {
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
 	}
-	if r.Detail == "" {
-		t.Error("expected non-empty detail")
-	}
-}
-
-// TestCheckHooks_RegistrationPresent_ScriptMissing tests when settings.json has
-// the hook registered but the script file itself is gone — treat as drifted.
-func TestCheckHooks_RegistrationPresent_ScriptMissing_Warn(t *testing.T) {
-	scopeRoot := t.TempDir()
-	repoRoot := t.TempDir()
-	if err := hooks.Install(repoRoot, scopeRoot); err != nil {
-		t.Fatalf("Install: %v", err)
-	}
-
-	// Remove the script file after install.
-	scriptPath := filepath.Join(scopeRoot, ".claude", "hooks", "session-start-reminders.sh")
-	if err := os.Remove(scriptPath); err != nil {
-		t.Fatal(err)
-	}
-
-	r := RunCheckHooksWith(scopeRoot)
-	if r.Severity != doctor.WARN {
-		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
+	if !strings.Contains(r.Detail, "atomic hooks install") {
+		t.Errorf("detail should name the migration command; got %q", r.Detail)
 	}
 }
 

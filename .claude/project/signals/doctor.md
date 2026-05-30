@@ -10,7 +10,7 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 
 ## CLI code
 
-**Core doctor suite (`atomic/internal/doctor/` — 36 files):**
+**Core doctor suite (`atomic/internal/doctor/` — 38 files):**
 
 - `doctor.go` — orchestrator. Runs all 9 checks in index order, applies `--only` / `--skip` filters, collects results, returns exit code (0 = PASS/WARN/SKIP, 1 = FAIL, 2 = usage error).
 - `flags.go` — CLI flag parsing for `atomic doctor [--fix] [--json] [--only] [--skip] [--stale-days] [--verbose]`.
@@ -38,6 +38,8 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 | 10 | profile | `checks_profile.go` | WARN |
 
 `checks_profile.go` (category 10) checks three conditions: (1) `~/.claude/.atomic/profile.md` exists on disk and is readable; (2) `@~/.claude/.atomic/profile.md` appears in one of the candidate CLAUDE files; (3) the `<deterministic lastcheck=YYYY-MM-DD>` stamp in the file is within the last 30 days (`profileStaleDays = 30`). All legs return WARN (not FAIL). A v1-format file with no `lastcheck` attribute triggers WARN ("run `atomic profile refresh`"). `ProfileRef` const is exported for test use. `RunCheckProfileWith(claudeHome)` is the injectable seam. `config.ProfilePath` / `config.ProfileRelPath` derive the disk path.
+
+`checks_hooks.go` (category 2) scope bug fixed: `checkHooks` passes `$HOME` to `RunCheckHooksWith` — not `~/.claude`. The prior bug passed `~/.claude` as scopeRoot, causing `hooks.IsInstalled` to look for `~/.claude/.claude/settings.json` (double `.claude` segment). `RunCheckHooksWith(scopeRoot string)` is exported for tests; `checks_hooks_internal_test.go` holds internal package tests. `drifted=true` response from `hooks.IsInstalled` produces WARN "session-start hook uses legacy wrapper script — run `atomic hooks install` to migrate".
 
 `checks_refs.go` (hash `477404b`) checks for `@.claude/project/signals.md` only. The prior bug (checking for `inferred-signals.md`) is resolved. Candidate files searched in order: `claude.local.md`, `CLAUDE.local.md`, `CLAUDE.md`, `claude.md`.
 
