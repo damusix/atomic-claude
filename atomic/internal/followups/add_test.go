@@ -123,6 +123,187 @@ func TestAdd_WithFile(t *testing.T) {
 	}
 }
 
+func TestAdd_KindPlan_SeverityOptional(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
+
+	path, err := Add(dir, AddOpts{
+		ID:     "spec-plan-001",
+		Title:  "Write spec for X",
+		Kind:   "plan",
+		Origin: "Deferred during review.",
+		Today:  today,
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	// File must parse cleanly.
+	e, err := ParseEntry(string(raw))
+	if err != nil {
+		t.Fatalf("ParseEntry: %v", err)
+	}
+	if e.Kind != KindPlan {
+		t.Errorf("kind=%q, want %q", e.Kind, KindPlan)
+	}
+	// Frontmatter must contain kind: plan.
+	if !strings.Contains(string(raw), "kind: plan") {
+		t.Errorf("expected 'kind: plan' in frontmatter:\n%s", raw)
+	}
+	// Severity must not be set.
+	if e.Severity != "" {
+		t.Errorf("severity=%q, want empty for plan", e.Severity)
+	}
+}
+
+func TestAdd_KindPlan_WithFile(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
+
+	path, err := Add(dir, AddOpts{
+		ID:     "spec-plan-002",
+		Title:  "Write spec for Y",
+		Kind:   "plan",
+		Origin: "Deferred during review.",
+		File:   "docs/spec/y.md",
+		Today:  today,
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	e, err := ParseEntry(string(raw))
+	if err != nil {
+		t.Fatalf("ParseEntry: %v", err)
+	}
+	if e.File != "docs/spec/y.md" {
+		t.Errorf("file=%q, want %q", e.File, "docs/spec/y.md")
+	}
+}
+
+func TestAdd_KindFinding_SeverityRequired(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
+
+	// Omit severity with kind=finding → must fail.
+	_, err := Add(dir, AddOpts{
+		ID:     "finding-no-sev",
+		Title:  "missing severity",
+		Kind:   "finding",
+		Origin: "o",
+		Today:  today,
+	})
+	if err == nil {
+		t.Error("expected error when severity omitted for finding, got nil")
+	}
+}
+
+func TestAdd_InvalidKind(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
+
+	_, err := Add(dir, AddOpts{
+		ID:       "bad-kind",
+		Title:    "t",
+		Kind:     "invalid",
+		Severity: "risk",
+		Origin:   "o",
+		Today:    today,
+	})
+	if err == nil {
+		t.Error("expected error for invalid kind, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "kind") {
+		t.Errorf("error=%q, want it to mention 'kind'", err.Error())
+	}
+}
+
+func TestAdd_DefaultKindIsFinding(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, ".claude", "project", "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
+
+	// Omit Kind field → should default to finding.
+	path, err := Add(dir, AddOpts{
+		ID:       "default-kind-001",
+		Title:    "default kind test",
+		Severity: "nit",
+		Origin:   "o",
+		Today:    today,
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	e, err := ParseEntry(string(raw))
+	if err != nil {
+		t.Fatalf("ParseEntry: %v", err)
+	}
+	if e.Kind != KindFinding {
+		t.Errorf("kind=%q, want %q (default)", e.Kind, KindFinding)
+	}
+}
+
+// CP2 F-1: missing severity error must not double-wrap.
+func TestAdd_MissingSeverityErrorSingleWrapped(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
+
+	_, err := Add(dir, AddOpts{
+		ID:     "finding-no-sev-f1",
+		Title:  "t",
+		Kind:   "finding",
+		Origin: "o",
+		Today:  today,
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	msg := err.Error()
+	// Must not contain the double-prefix "followups add: followups: missing".
+	if strings.Contains(msg, "followups add: followups:") {
+		t.Errorf("error is double-wrapped: %q", msg)
+	}
+	// Must still say something about severity.
+	if !strings.Contains(strings.ToLower(msg), "severity") {
+		t.Errorf("error should mention severity: %q", msg)
+	}
+}
+
 func TestAdd_ValidationErrors(t *testing.T) {
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, ".claude", "project", "followups")

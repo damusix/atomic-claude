@@ -91,6 +91,126 @@ func TestCLIAdd_ValidationFails(t *testing.T) {
 	}
 }
 
+func TestCLIAdd_KindPlan(t *testing.T) {
+	root, dir, _ := cliTestRepo(t)
+	var out strings.Builder
+	var errOut strings.Builder
+	code := Run([]string{
+		"add",
+		"--id", "plan-entry",
+		"--title", "A deferred plan",
+		"--kind", "plan",
+		"--origin", "Deferred during review",
+	}, root, &out, &errOut, nowFixed(2026, 5, 22))
+	if code != 0 {
+		t.Errorf("exit code=%d, want 0; stderr=%s", code, errOut.String())
+	}
+
+	// Entry file must exist and parse cleanly.
+	raw, err := os.ReadFile(filepath.Join(dir, "plan-entry.md"))
+	if err != nil {
+		t.Fatalf("read entry: %v", err)
+	}
+	e, err := ParseEntry(string(raw))
+	if err != nil {
+		t.Fatalf("ParseEntry: %v", err)
+	}
+	if e.Kind != KindPlan {
+		t.Errorf("kind=%q, want %q", e.Kind, KindPlan)
+	}
+	// severity must be absent.
+	if e.Severity != "" {
+		t.Errorf("severity=%q, want empty for plan", e.Severity)
+	}
+	// frontmatter must include kind: plan.
+	if !strings.Contains(string(raw), "kind: plan") {
+		t.Errorf("expected 'kind: plan' in frontmatter:\n%s", raw)
+	}
+}
+
+func TestCLIAdd_KindPlan_SeverityStillOptional(t *testing.T) {
+	// Providing --severity with --kind plan must also succeed.
+	root, _, _ := cliTestRepo(t)
+	var out strings.Builder
+	var errOut strings.Builder
+	code := Run([]string{
+		"add",
+		"--id", "plan-with-sev",
+		"--title", "plan with severity",
+		"--kind", "plan",
+		"--severity", "nit",
+		"--origin", "o",
+	}, root, &out, &errOut, nowFixed(2026, 5, 22))
+	if code != 0 {
+		t.Errorf("exit code=%d, want 0; stderr=%s", code, errOut.String())
+	}
+}
+
+func TestCLIAdd_InvalidKind(t *testing.T) {
+	root, _, _ := cliTestRepo(t)
+	var out strings.Builder
+	var errOut strings.Builder
+	code := Run([]string{
+		"add",
+		"--id", "bad-kind-entry",
+		"--title", "t",
+		"--kind", "badvalue",
+		"--severity", "nit",
+		"--origin", "o",
+	}, root, &out, &errOut, nowFixed(2026, 5, 22))
+	if code != 1 {
+		t.Errorf("exit code=%d, want 1", code)
+	}
+	if !strings.Contains(strings.ToLower(errOut.String()), "kind") {
+		t.Errorf("stderr=%q, expected mention of 'kind'", errOut.String())
+	}
+}
+
+// CP2 F-2: --kind foo without --severity must show invalid-kind error, not missing-severity.
+func TestCLIAdd_InvalidKindWithoutSeverity(t *testing.T) {
+	root, _, _ := cliTestRepo(t)
+	var out strings.Builder
+	var errOut strings.Builder
+	code := Run([]string{
+		"add",
+		"--id", "bad-kind-no-sev",
+		"--title", "t",
+		"--kind", "badvalue",
+		"--origin", "o",
+		// no --severity
+	}, root, &out, &errOut, nowFixed(2026, 5, 22))
+	if code != 1 {
+		t.Errorf("exit code=%d, want 1", code)
+	}
+	stderr := errOut.String()
+	// Must mention 'kind'.
+	if !strings.Contains(strings.ToLower(stderr), "kind") {
+		t.Errorf("stderr=%q, expected mention of 'kind'", stderr)
+	}
+	// Must NOT report missing --severity as the primary error — kind validation
+	// fires first. This would regress if the validation order were swapped.
+	if strings.Contains(stderr, "missing required flag --severity") {
+		t.Errorf("stderr reports missing-severity instead of invalid-kind: %q", stderr)
+	}
+}
+
+func TestCLIAdd_FindingStillRequiresSeverity(t *testing.T) {
+	// --kind finding without --severity must fail.
+	root, _, _ := cliTestRepo(t)
+	var out strings.Builder
+	var errOut strings.Builder
+	code := Run([]string{
+		"add",
+		"--id", "finding-no-sev",
+		"--title", "t",
+		"--kind", "finding",
+		"--origin", "o",
+	}, root, &out, &errOut, nowFixed(2026, 5, 22))
+	if code != 1 {
+		t.Errorf("exit code=%d, want 1 (severity required for finding)", code)
+	}
+}
+
 func TestCLIList(t *testing.T) {
 	root, dir, today := cliTestRepo(t)
 	if _, err := Add(dir, AddOpts{ID: "list-r", Title: "List risk", Severity: "risk", Origin: "o", Today: today}); err != nil {

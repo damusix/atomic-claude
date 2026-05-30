@@ -36,8 +36,8 @@ CI gates: (1) `make render && git diff --exit-code` — stale `commands/` fails.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Markdown | 36140 | 251 | 50% |
-| Go | 31856 | 138 | 44% |
+| Markdown | 36606 | 255 | 50% |
+| Go | 32551 | 138 | 44% |
 | JSON | 2283 | 5 | 3% |
 | CSS | 402 | 1 | 0% |
 | Shell | 269 | 3 | 0% |
@@ -91,6 +91,8 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 **Uninstall feature**: `atomic/internal/claudeinstall/` contains `snapshot.go`, `snapshot_internal_test.go`, `snapshot_test.go`, `uninstall.go`, `uninstall_test.go`. Spec at `docs/spec/uninstall.md`, design at `docs/design/uninstall.md`. Implements `atomic claude uninstall` — reads pre-install snapshot, computes restore plan, LLM-merges modified files.
 
 **VitePress docs site**: not part of the Go build or embedded bundle. `package.json` / `.vitepress/config.mts` are purely for the public docs site. `docs.yml` workflow deploys it.
+
+**Typed follow-ups (config domain)**: `atomic/internal/followups/entry.go` defines `Kind` type (`KindFinding`/`KindPlan`). Missing `kind` parses as `KindFinding` (back-compat — existing 19 entries unchanged). `--severity` optional when `--kind plan`. `Render` places `## 📋 plans` first; plans are exempt from staleness. Plans are filed via `atomic followups add --kind plan`. Spec: `docs/spec/typed-followups.md`.
 
 **`atomic-documentation` skill is two-mode**: maintenance mode (fires during ship verbs — flags stale/incomplete only) and authoring mode (`/documentation` — full discovery, gap detection, content generation). `atomic docs scan` / `atomic docs stale` are binary subcommands that support it.
 

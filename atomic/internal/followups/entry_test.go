@@ -423,3 +423,116 @@ func TestLoadEntriesWithErrors_MissingDir(t *testing.T) {
 		t.Error("expected top-level error for missing dir")
 	}
 }
+
+// Kind field tests
+
+func TestParseEntry_MissingKindDefaultsFinding(t *testing.T) {
+	// Existing entries with no kind field must parse as KindFinding.
+	content := `---
+id: test-F-1
+title: "test"
+created: 2026-05-17
+origin: some origin
+severity: risk
+review_by: 2026-07-16
+status: open
+---
+body
+`
+	e, err := ParseEntry(content)
+	if err != nil {
+		t.Fatalf("ParseEntry: %v", err)
+	}
+	if e.Kind != KindFinding {
+		t.Errorf("kind=%q, want %q", e.Kind, KindFinding)
+	}
+}
+
+func TestParseEntry_ExplicitFinding(t *testing.T) {
+	content := `---
+id: test-F-1
+title: "test"
+created: 2026-05-17
+origin: some origin
+kind: finding
+severity: risk
+review_by: 2026-07-16
+status: open
+---
+body
+`
+	e, err := ParseEntry(content)
+	if err != nil {
+		t.Fatalf("ParseEntry: %v", err)
+	}
+	if e.Kind != KindFinding {
+		t.Errorf("kind=%q, want %q", e.Kind, KindFinding)
+	}
+}
+
+func TestParseEntry_KindPlan_SeverityOptional(t *testing.T) {
+	// Plans must parse without a severity field.
+	content := `---
+id: plan-p-1
+title: "a plan"
+created: 2026-05-17
+origin: some origin
+kind: plan
+review_by: 2026-07-16
+status: open
+---
+`
+	e, err := ParseEntry(content)
+	if err != nil {
+		t.Fatalf("ParseEntry: %v", err)
+	}
+	if e.Kind != KindPlan {
+		t.Errorf("kind=%q, want %q", e.Kind, KindPlan)
+	}
+	if e.Severity != "" {
+		t.Errorf("severity=%q, want empty", e.Severity)
+	}
+}
+
+func TestParseEntry_KindPlan_WithFile(t *testing.T) {
+	content := `---
+id: plan-p-2
+title: "spec a thing"
+created: 2026-05-17
+origin: deferred
+kind: plan
+review_by: 2026-07-16
+status: open
+file: docs/spec/something.md
+---
+`
+	e, err := ParseEntry(content)
+	if err != nil {
+		t.Fatalf("ParseEntry: %v", err)
+	}
+	if e.File != "docs/spec/something.md" {
+		t.Errorf("file=%q, want %q", e.File, "docs/spec/something.md")
+	}
+}
+
+func TestParseEntry_InvalidKind(t *testing.T) {
+	content := `---
+id: test-F-1
+title: "test"
+created: 2026-05-17
+origin: some origin
+kind: bogus
+severity: risk
+review_by: 2026-07-16
+status: open
+---
+body
+`
+	_, err := ParseEntry(content)
+	if err == nil {
+		t.Error("expected error for invalid kind, got nil")
+	}
+	if !strings.Contains(err.Error(), "kind") {
+		t.Errorf("error=%q, want it to mention 'kind'", err.Error())
+	}
+}

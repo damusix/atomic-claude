@@ -114,6 +114,7 @@ func FormatListHuman(entries []ListEntry, today time.Time) string {
 type jsonEntry struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
+	Kind      string `json:"kind"`
 	Severity  string `json:"severity"`
 	Created   string `json:"created"`
 	ReviewBy  string `json:"review_by"`
@@ -130,6 +131,7 @@ func FormatListJSON(entries []ListEntry) (string, error) {
 		out = append(out, jsonEntry{
 			ID:        e.ID,
 			Title:     e.Title,
+			Kind:      string(e.Kind),
 			Severity:  string(e.Severity),
 			Created:   e.Created,
 			ReviewBy:  e.ReviewBy,

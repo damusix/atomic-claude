@@ -18,7 +18,8 @@ var kebabCaseRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`)
 type AddOpts struct {
 	ID       string
 	Title    string
-	Severity string // "risk", "nit", or "question"
+	Kind     string // "finding" (default) or "plan"
+	Severity string // "risk", "nit", or "question"; optional when Kind=="plan"
 	Origin   string
 	File     string // optional path[:lines]
 	Body     string // optional body content; empty = no body
@@ -45,9 +46,19 @@ func Add(dir string, opts AddOpts) (string, error) {
 		return "", fmt.Errorf("followups add: title must not be empty")
 	}
 
-	// Validate severity.
-	if _, err := parseSeverity(opts.Severity); err != nil {
+	// Validate and default kind.
+	knd, err := parseKind(opts.Kind)
+	if err != nil {
 		return "", fmt.Errorf("followups add: %w", err)
+	}
+
+	// Validate severity: required for findings, optional for plans.
+	if opts.Severity != "" {
+		if _, err := parseSeverity(opts.Severity); err != nil {
+			return "", fmt.Errorf("followups add: %w", err)
+		}
+	} else if knd != KindPlan {
+		return "", fmt.Errorf("followups add: missing required field 'severity'")
 	}
 
 	// Validate origin.
@@ -75,7 +86,8 @@ func Add(dir string, opts AddOpts) (string, error) {
 		Title    string `yaml:"title"`
 		Created  string `yaml:"created"`
 		Origin   string `yaml:"origin"`
-		Severity string `yaml:"severity"`
+		Kind     string `yaml:"kind"`
+		Severity string `yaml:"severity,omitempty"`
 		ReviewBy string `yaml:"review_by"`
 		Status   string `yaml:"status"`
 		File     string `yaml:"file,omitempty"`
@@ -86,6 +98,7 @@ func Add(dir string, opts AddOpts) (string, error) {
 		Title:    opts.Title,
 		Created:  created,
 		Origin:   opts.Origin + "\n",
+		Kind:     string(knd),
 		Severity: opts.Severity,
 		ReviewBy: reviewBy,
 		Status:   string(StatusOpen),

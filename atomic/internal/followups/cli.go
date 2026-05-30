@@ -108,9 +108,10 @@ func runList(args []string, dir string, stdout, stderr io.Writer, today time.Tim
 func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today time.Time) int {
 	fs := flag.NewFlagSet("followups-add", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	var id, title, severity, origin, file, body string
+	var id, title, kind, severity, origin, file, body string
 	fs.StringVar(&id, "id", "", "entry id (kebab-case)")
 	fs.StringVar(&title, "title", "", "entry title")
+	fs.StringVar(&kind, "kind", "", "kind: finding (default) or plan")
 	fs.StringVar(&severity, "severity", "", "severity: risk, nit, or question")
 	fs.StringVar(&origin, "origin", "", "origin text")
 	fs.StringVar(&file, "file", "", "optional file:lines reference")
@@ -119,16 +120,26 @@ func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today
 		return 2
 	}
 
-	// Validate required flags.
+	// Validate --kind before required-flag checks so an invalid kind surfaces its
+	// own error rather than a misleading "missing --severity".
+	if kind != "" {
+		if _, err := parseKind(kind); err != nil {
+			fmt.Fprintf(stderr, "atomic followups add: %v\n", err)
+			return 1
+		}
+	}
+
+	// Validate required flags. --severity is required for findings, optional for plans.
 	var missing []string
 	if title == "" {
 		missing = append(missing, "--title")
 	}
-	if severity == "" {
-		missing = append(missing, "--severity")
-	}
 	if origin == "" {
 		missing = append(missing, "--origin")
+	}
+	// Severity is required unless kind is plan.
+	if severity == "" && kind != string(KindPlan) {
+		missing = append(missing, "--severity")
 	}
 	if len(missing) > 0 {
 		for _, m := range missing {
@@ -150,6 +161,7 @@ func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today
 	path, err := Add(dir, AddOpts{
 		ID:       id,
 		Title:    title,
+		Kind:     kind,
 		Severity: severity,
 		Origin:   origin,
 		File:     file,

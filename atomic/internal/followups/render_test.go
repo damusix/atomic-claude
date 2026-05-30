@@ -125,6 +125,92 @@ func TestRender_UnparseableCreatedRendersAsQuestionMark(t *testing.T) {
 	}
 }
 
+func TestRender_PlansSectionFirst(t *testing.T) {
+	entries := []Entry{
+		{ID: "r-1", Title: "A risk", Created: "2026-05-17", Kind: KindFinding, Severity: SeverityRisk, ReviewBy: "2026-07-16", Status: StatusOpen},
+		{ID: "p-1", Title: "A plan", Created: "2026-05-17", Kind: KindPlan, ReviewBy: "2026-07-16", Status: StatusOpen},
+	}
+	out := Render(entries, testToday)
+
+	plansIdx := strings.Index(out, "📋 plans")
+	riskIdx := strings.Index(out, "🟡 risks")
+
+	if plansIdx < 0 {
+		t.Fatalf("plans section missing:\n%s", out)
+	}
+	if riskIdx < 0 {
+		t.Fatalf("risks section missing:\n%s", out)
+	}
+	if plansIdx >= riskIdx {
+		t.Errorf("plans section should come before risks; plans=%d risks=%d", plansIdx, riskIdx)
+	}
+}
+
+func TestRender_PlanExcludedFromSeverityBuckets(t *testing.T) {
+	entries := []Entry{
+		{ID: "p-1", Title: "A plan entry", Created: "2026-05-17", Kind: KindPlan, ReviewBy: "2026-07-16", Status: StatusOpen},
+	}
+	out := Render(entries, testToday)
+
+	// Plans section must show it.
+	if !strings.Contains(out, "📋 plans (1)") {
+		t.Errorf("expected plans section count 1:\n%s", out)
+	}
+	// Severity buckets must all be empty.
+	if !strings.Contains(out, "🟡 risks (0)") {
+		t.Errorf("expected risks bucket empty:\n%s", out)
+	}
+	if !strings.Contains(out, "🔵 nits (0)") {
+		t.Errorf("expected nits bucket empty:\n%s", out)
+	}
+	if !strings.Contains(out, "❓ questions (0)") {
+		t.Errorf("expected questions bucket empty:\n%s", out)
+	}
+}
+
+func TestRender_PlanWithFileShowsLink(t *testing.T) {
+	entries := []Entry{
+		{ID: "spec-p-1", Title: "Write spec for X", Created: "2026-05-17", Kind: KindPlan,
+			File: "docs/spec/x.md", ReviewBy: "2026-07-16", Status: StatusOpen},
+	}
+	out := Render(entries, testToday)
+
+	if !strings.Contains(out, "→ docs/spec/x.md") {
+		t.Errorf("expected file link in plan row:\n%s", out)
+	}
+}
+
+func TestRender_PlanWithoutFileNoArrow(t *testing.T) {
+	entries := []Entry{
+		{ID: "nofile-p-1", Title: "No file plan", Created: "2026-05-17", Kind: KindPlan,
+			ReviewBy: "2026-07-16", Status: StatusOpen},
+	}
+	out := Render(entries, testToday)
+
+	if strings.Contains(out, "→") {
+		t.Errorf("expected no arrow for plan without file:\n%s", out)
+	}
+	if !strings.Contains(out, "No file plan") {
+		t.Errorf("expected title in plan row:\n%s", out)
+	}
+}
+
+func TestRender_FindingEntriesUnchanged(t *testing.T) {
+	// Explicitly-typed finding entries must render in severity buckets unchanged.
+	entries := []Entry{
+		{ID: "r-1", Title: "A risk finding", Created: "2026-05-17", Kind: KindFinding,
+			Severity: SeverityRisk, ReviewBy: "2026-07-16", Status: StatusOpen},
+	}
+	out := Render(entries, testToday)
+
+	if !strings.Contains(out, "🟡 risks (1)") {
+		t.Errorf("expected finding in risks bucket:\n%s", out)
+	}
+	if strings.Contains(out, "📋 plans (1)") {
+		t.Errorf("finding should not appear in plans bucket:\n%s", out)
+	}
+}
+
 func TestRender_EmptyBuckets(t *testing.T) {
 	entries := []Entry{
 		{ID: "r-1", Title: "Only a risk", Created: "2026-05-17", Severity: SeverityRisk,
@@ -158,5 +244,40 @@ func TestRender_HeaderCounts(t *testing.T) {
 	}
 	if !strings.Contains(out, "Stale: 1") {
 		t.Errorf("expected Stale: 1 in header:\n%s", out)
+	}
+}
+
+// CP2: plan staleness exemption tests.
+
+func TestIsStale_PlanNeverStale(t *testing.T) {
+	// A plan entry with review_by far in the past must not be stale.
+	yesterday := testToday.AddDate(0, 0, -30).Format("2006-01-02")
+	e := Entry{ID: "p-1", Kind: KindPlan, ReviewBy: yesterday}
+	if isStale(e, testToday) {
+		t.Errorf("plan entry with old review_by should not be stale")
+	}
+}
+
+func TestIsStale_FindingStillStale(t *testing.T) {
+	// A finding entry with review_by in the past must still be stale.
+	yesterday := testToday.AddDate(0, 0, -1).Format("2006-01-02")
+	e := Entry{ID: "f-1", Kind: KindFinding, Severity: SeverityRisk, ReviewBy: yesterday}
+	if !isStale(e, testToday) {
+		t.Errorf("finding entry with old review_by should be stale")
+	}
+}
+
+func TestRender_PlanNotCountedAsStale(t *testing.T) {
+	// A plan with an old review_by must NOT add to the stale-count in the header.
+	yesterday := testToday.AddDate(0, 0, -1).Format("2006-01-02")
+	entries := []Entry{
+		{ID: "p-1", Title: "Old plan", Created: "2026-05-17", Kind: KindPlan,
+			ReviewBy: yesterday, Status: StatusOpen},
+		{ID: "f-1", Title: "Fresh risk", Created: "2026-05-17", Kind: KindFinding,
+			Severity: SeverityRisk, ReviewBy: "2026-12-01", Status: StatusOpen},
+	}
+	out := Render(entries, testToday)
+	if !strings.Contains(out, "Stale: 0") {
+		t.Errorf("plan with old review_by should not count as stale; output:\n%s", out)
 	}
 }

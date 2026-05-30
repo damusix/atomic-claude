@@ -234,7 +234,7 @@ After surfacing the body, wait. Detect intent from what the user types or does n
 
 ## Review flow (`/follow-up review`)
 
-Reviews stale project follow-up entries (past `review_by`) with per-item disposition.
+Reviews stale project follow-up entries (past `review_by`) with per-item disposition. `kind: plan` entries are excluded from staleness review — plans are a backlog, not findings going cold; they surface via INDEX, not via the stale nag.
 
 ### Step R1 — Fetch stale entries
 

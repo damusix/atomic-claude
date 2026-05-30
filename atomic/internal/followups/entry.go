@@ -13,6 +13,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Kind classifies the follow-up entry type.
+type Kind string
+
+const (
+	KindFinding Kind = "finding"
+	KindPlan    Kind = "plan"
+)
+
 // Severity is one of the three severity tiers.
 type Severity string
 
@@ -37,6 +45,7 @@ type Entry struct {
 	Title    string
 	Created  string // YYYY-MM-DD
 	Origin   string // free-form, may be multi-line from block scalar
+	Kind     Kind
 	Severity Severity
 	ReviewBy string // YYYY-MM-DD
 	Status   Status
@@ -54,6 +63,7 @@ type entryFrontmatter struct {
 	Title    string `yaml:"title"`
 	Created  string `yaml:"created"`
 	Origin   string `yaml:"origin"`
+	Kind     string `yaml:"kind"`
 	Severity string `yaml:"severity"`
 	ReviewBy string `yaml:"review_by"`
 	Status   string `yaml:"status"`
@@ -101,7 +111,14 @@ func ParseEntry(raw string) (Entry, error) {
 	if fm.Origin == "" {
 		return Entry{}, fmt.Errorf("followups: missing required field 'origin'")
 	}
-	if fm.Severity == "" {
+	// Parse kind first; default missing/empty to "finding" for back-compat.
+	knd, err := parseKind(fm.Kind)
+	if err != nil {
+		return Entry{}, err
+	}
+
+	// Severity is required for findings, optional for plans.
+	if fm.Severity == "" && knd != KindPlan {
 		return Entry{}, fmt.Errorf("followups: missing required field 'severity'")
 	}
 	if fm.ReviewBy == "" {
@@ -115,9 +132,12 @@ func ParseEntry(raw string) (Entry, error) {
 	}
 
 	// Validate enum fields.
-	sev, err := parseSeverity(fm.Severity)
-	if err != nil {
-		return Entry{}, err
+	var sev Severity
+	if fm.Severity != "" {
+		sev, err = parseSeverity(fm.Severity)
+		if err != nil {
+			return Entry{}, err
+		}
 	}
 	st, err := parseStatus(fm.Status)
 	if err != nil {
@@ -132,6 +152,7 @@ func ParseEntry(raw string) (Entry, error) {
 		Title:    fm.Title,
 		Created:  fm.Created,
 		Origin:   origin,
+		Kind:     knd,
 		Severity: sev,
 		ReviewBy: fm.ReviewBy,
 		Status:   st,
@@ -154,6 +175,18 @@ func parseSeverity(s string) (Severity, error) {
 		return Severity(s), nil
 	default:
 		return "", fmt.Errorf("followups: invalid severity %q: must be risk, nit, or question", s)
+	}
+}
+
+func parseKind(s string) (Kind, error) {
+	if s == "" {
+		return KindFinding, nil
+	}
+	switch Kind(s) {
+	case KindFinding, KindPlan:
+		return Kind(s), nil
+	default:
+		return "", fmt.Errorf("followups: invalid kind %q: must be finding or plan", s)
 	}
 }
 

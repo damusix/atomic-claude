@@ -111,6 +111,64 @@ func TestFormatListHuman(t *testing.T) {
 	}
 }
 
+// CP2: plan entries must not appear in --stale output even when review_by is past.
+func TestListEntries_PlanNotInStale(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
+
+	// Write a plan entry with review_by far in the past.
+	stalePlan := `---
+id: old-plan
+title: Old plan
+created: 2026-01-01
+origin: |
+  origin
+kind: plan
+review_by: 2026-03-01
+status: open
+---
+
+Body.
+`
+	if err := os.WriteFile(filepath.Join(dir, "old-plan.md"), []byte(stalePlan), 0o644); err != nil {
+		t.Fatalf("write old-plan: %v", err)
+	}
+
+	// Write a stale finding for contrast.
+	staleFinding := `---
+id: stale-finding
+title: Stale finding
+created: 2026-01-01
+origin: |
+  origin
+severity: risk
+review_by: 2026-03-01
+status: open
+---
+
+Body.
+`
+	if err := os.WriteFile(filepath.Join(dir, "stale-finding.md"), []byte(staleFinding), 0o644); err != nil {
+		t.Fatalf("write stale-finding: %v", err)
+	}
+
+	entries, err := ListEntries(dir, ListOpts{StaleOnly: true, Today: today})
+	if err != nil {
+		t.Fatalf("ListEntries: %v", err)
+	}
+	// Only the finding should appear; plan must be excluded.
+	if len(entries) != 1 {
+		t.Errorf("expected 1 stale entry (the finding), got %d", len(entries))
+	}
+	if len(entries) == 1 && entries[0].ID != "stale-finding" {
+		t.Errorf("stale entry id=%q, want 'stale-finding'", entries[0].ID)
+	}
+}
+
 func TestFormatListJSON(t *testing.T) {
 	dir, today := setupListDir(t)
 	entries, _ := ListEntries(dir, ListOpts{Today: today})
@@ -132,5 +190,79 @@ func TestFormatListJSON(t *testing.T) {
 		if _, ok := m["id"]; !ok {
 			t.Errorf("JSON entry missing 'id' field: %v", m)
 		}
+	}
+}
+
+// F-4: list --json must include a "kind" field for each entry.
+func TestFormatListJSON_KindField(t *testing.T) {
+	tmp := t.TempDir()
+	dir := filepath.Join(tmp, "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	today := time.Date(2026, 5, 22, 0, 0, 0, 0, time.UTC)
+
+	// Add a finding entry (severity required).
+	if _, err := Add(dir, AddOpts{
+		ID: "f-001", Title: "Finding entry", Severity: "risk", Origin: "o", Today: today,
+	}); err != nil {
+		t.Fatalf("Add finding: %v", err)
+	}
+
+	// Add a plan entry (no severity).
+	planEntry := `---
+id: p-001
+title: Plan entry
+created: 2026-05-22
+origin: |
+  o
+kind: plan
+review_by: 2026-12-31
+status: open
+---
+
+Body.
+`
+	if err := os.WriteFile(filepath.Join(dir, "p-001.md"), []byte(planEntry), 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+
+	entries, err := ListEntries(dir, ListOpts{Today: today})
+	if err != nil {
+		t.Fatalf("ListEntries: %v", err)
+	}
+
+	out, err := FormatListJSON(entries)
+	if err != nil {
+		t.Fatalf("FormatListJSON: %v", err)
+	}
+
+	var parsed []map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("invalid JSON: %v\nraw: %s", err, out)
+	}
+
+	byID := make(map[string]map[string]interface{}, len(parsed))
+	for _, m := range parsed {
+		id, _ := m["id"].(string)
+		byID[id] = m
+	}
+
+	// finding must have kind "finding".
+	finding, ok := byID["f-001"]
+	if !ok {
+		t.Fatal("f-001 not found in JSON output")
+	}
+	if kind, _ := finding["kind"].(string); kind != "finding" {
+		t.Errorf("f-001 kind=%q, want %q", kind, "finding")
+	}
+
+	// plan must have kind "plan".
+	plan, ok := byID["p-001"]
+	if !ok {
+		t.Fatal("p-001 not found in JSON output")
+	}
+	if kind, _ := plan["kind"].(string); kind != "plan" {
+		t.Errorf("p-001 kind=%q, want %q", kind, "plan")
 	}
 }

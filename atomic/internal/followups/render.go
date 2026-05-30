@@ -8,22 +8,28 @@ import (
 )
 
 // Render produces the INDEX.md content from entries and a reference date (today).
-// Severity bucket order: 🟡 risks → 🔵 nits → ❓ questions.
+// Section order: 📋 plans → 🟡 risks → 🔵 nits → ❓ questions.
 // Age is always in days. Stale = today > review_by.
+// Plans are excluded from severity buckets.
 func Render(entries []Entry, today time.Time) string {
-	// Bucket entries by severity.
-	risks := filterBySeverity(entries, SeverityRisk)
-	nits := filterBySeverity(entries, SeverityNit)
-	questions := filterBySeverity(entries, SeverityQuestion)
+	// Split by kind: plans go to their own section; findings go to severity buckets.
+	plans := filterByKind(entries, KindPlan)
+	findings := filterByKind(entries, KindFinding)
+
+	// Bucket findings by severity.
+	risks := filterBySeverity(findings, SeverityRisk)
+	nits := filterBySeverity(findings, SeverityNit)
+	questions := filterBySeverity(findings, SeverityQuestion)
 
 	// Sort each bucket by id for deterministic output.
+	sortEntries(plans)
 	sortEntries(risks)
 	sortEntries(nits)
 	sortEntries(questions)
 
-	// Compute stale count across all entries.
+	// Compute stale count across all finding entries only (plans are exempt).
 	staleCount := 0
-	for _, e := range entries {
+	for _, e := range findings {
 		if isStale(e, today) {
 			staleCount++
 		}
@@ -40,6 +46,8 @@ func Render(entries []Entry, today time.Time) string {
 	sb.WriteString(fmt.Sprintf("Open: %d  •  Stale: %d  •  Last rendered: %s\n", totalOpen, staleCount, lastRendered))
 	sb.WriteString("\n")
 
+	writePlansBucket(&sb, plans)
+	sb.WriteString("\n")
 	writeBucket(&sb, "🟡 risks", risks, today)
 	sb.WriteString("\n")
 	writeBucket(&sb, "🔵 nits", nits, today)
@@ -79,6 +87,38 @@ func filterBySeverity(entries []Entry, sev Severity) []Entry {
 	return out
 }
 
+func filterByKind(entries []Entry, knd Kind) []Entry {
+	var out []Entry
+	for _, e := range entries {
+		// Entries with an empty Kind are treated as KindFinding for back-compat
+		// (direct struct construction in tests, pre-existing entries via ParseEntry).
+		effective := e.Kind
+		if effective == "" {
+			effective = KindFinding
+		}
+		if effective == knd {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func writePlansBucket(sb *strings.Builder, entries []Entry) {
+	sb.WriteString(fmt.Sprintf("## 📋 plans (%d)\n", len(entries)))
+	sb.WriteString("\n")
+	if len(entries) == 0 {
+		sb.WriteString("(none)\n")
+		return
+	}
+	for _, e := range entries {
+		if e.File != "" {
+			sb.WriteString(fmt.Sprintf("- [%s](%s.md) — %s → %s\n", e.ID, e.ID, e.Title, e.File))
+		} else {
+			sb.WriteString(fmt.Sprintf("- [%s](%s.md) — %s\n", e.ID, e.ID, e.Title))
+		}
+	}
+}
+
 func sortEntries(entries []Entry) {
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].ID < entries[j].ID
@@ -87,6 +127,10 @@ func sortEntries(entries []Entry) {
 
 // isStale returns true when today is strictly after review_by.
 func isStale(e Entry, today time.Time) bool {
+	// Plans are a backlog, not findings going cold — never stale.
+	if e.Kind == KindPlan {
+		return false
+	}
 	if e.ReviewBy == "" {
 		return false
 	}
