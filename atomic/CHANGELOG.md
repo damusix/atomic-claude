@@ -1,5 +1,24 @@
 # Changelog
 
+## [3.0.0](https://github.com/damusix/atomic-claude/compare/v2.1.0...v3.0.0) (2026-05-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* `atomic hooks install` no longer creates .claude/hooks/session-start-reminders.sh. Existing installs migrate to the inline command on the next install/uninstall.
+
+### Features
+
+* **autopilot:** hands-off end-to-end delivery command ([7c6f836](https://github.com/damusix/atomic-claude/commit/7c6f8368e06c9141d3bbac6f7e2793206ee65452))
+* **followups:** typed follow-up ledger (finding|plan) ([0ef7e15](https://github.com/damusix/atomic-claude/commit/0ef7e1537541fc4d11464ab3fa756c1b4f7629f5))
+* **subagent-loop:** stuck-fix escalation + suppression awareness ([839895b](https://github.com/damusix/atomic-claude/commit/839895bec98297a19e87ee3437d1cae4d8449cec))
+
+
+### Bug Fixes
+
+* inline session-start hook, fix doctor scope ([3a48ede](https://github.com/damusix/atomic-claude/commit/3a48ede901a54f293d1748b2bec77a5e4f5992ad))
+* **planning:** specs keep the body current, name the phase-gates ([5427e28](https://github.com/damusix/atomic-claude/commit/5427e281db998fa4cdcda400eff8b69acb4c8a2f))
+
 ## [2.1.0](https://github.com/damusix/atomic-claude/compare/v2.0.0...v2.1.0) (2026-05-29)
 
 
