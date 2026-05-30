@@ -39,6 +39,35 @@ The recurring "release branch CI is red" symptom was fixed at the root in `.gith
 The branch will still show "N commits behind main" in the GitHub UI. That is cosmetic — release-please keeps the release commit stable on purpose to preserve PR review state, and the merge-result check is what gates the merge. Do not try to "sync" the branch to silence the cosmetic notice; that fights release-please and churns the PR.
 
 
+## "Pushing to main doesn't update the version branch" — tip-lag vs content (verified 2026-05-30)
+
+
+**The recurring confusion.** You push commits to main, the release PR still says "N commits behind main," and it looks like release-please isn't picking up your work. It is — you're conflating two different kinds of "current":
+
+
+- **PR content (changelog + version) — always current.** release-please runs on *every* push to main (`release-please.yml`, `on: push: branches: [main]`) and regenerates the release commit: the changelog, the version bump, the PR body. A push of new `feat:`/`fix:`/`fix!:` work shows up in the PR body within ~60s. Verify with `gh pr view <PR#> --json body`. (A push of only filtered types — `docs:`/`chore:`/`refactor:` — correctly produces *no* visible PR change; that is not a bug.)
+- **Branch git tip (parent commit) — lags by design.** release-please updates the release commit **in place** and keeps its original parent. It does **not** re-parent the branch when main advances. So the branch tip stays at `old-main + release-commit`, missing every commit that landed after the branch was last created. `git merge-base --is-ancestor origin/main origin/release-please--branches--main` returns false; the lag is `K  1` where K = commits on main since branch creation.
+
+
+**Why the lagging tip is still safe to merge.** The PR's `pull_request` check tests the merge *into current main*, which always reflects current main. Whatever ship-merge style you use (merge / squash / rebase), the released main ends up containing all of main's commits plus the release commit. The release is correct even with a lagging tip.
+
+
+**When to actually re-sync the tip.** Only when you want the branch to *literally contain* the latest main commit — review hygiene, or a final tidy right before merging the PR. The reliable resync is **delete-and-recreate** (below): delete the branch (closes the PR), push an **empty commit** to main, release-please recreates the branch from current main HEAD and opens a fresh PR (new number, identical version).
+
+
+**Critical caveat — the resync is not permanent.** The next push to main re-lags the tip immediately (same in-place-update behavior). So delete-and-recreate is a **one-time, pre-merge step**, never a standing state. If you are still actively pushing, do **not** keep recreating — just merge the PR when ready; the merge-result is correct regardless. (This reconciles the "do not sync the cosmetic notice" rule above: don't chase the notice repeatedly, but one deliberate pre-merge resync is legitimate.)
+
+
+**Verification after a resync (all must hold):**
+
+```bash
+git fetch origin
+git merge-base --is-ancestor origin/main origin/release-please--branches--main && echo "branch includes current main"
+git rev-list --left-right --count origin/main...origin/release-please--branches--main   # expect: 0<TAB>1
+gh pr list --state open --json number,title -q '.[] | "#\(.number) \(.title)"'          # fresh PR, same version
+```
+
+
 ## Diagnosis (run these first, always)
 
 
