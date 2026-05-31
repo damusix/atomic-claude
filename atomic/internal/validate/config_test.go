@@ -117,7 +117,7 @@ func TestRunConfigRules_C3_CodeBlockNegative(t *testing.T) {
 	}
 }
 
-// --- C5: @-refs in CLAUDE.md / claude.local.md resolve ---
+// --- C5: @-refs in CLAUDE.md resolve ---
 
 // TestRunConfigRules_C5_Pass proves that @-refs pointing to existing files
 // produce no C5 finding. WHY: C5 ensures signals and other context files are
@@ -149,11 +149,11 @@ func TestRunConfigRules_C5_Fail(t *testing.T) {
 }
 
 // TestRunConfigRules_C5_CodeBlockNegative proves that @-refs inside a fenced
-// code block in claude.local.md do NOT trigger C5. WHY: documentation and
-// example files commonly embed @-ref syntax in code blocks; those are never
+// code block in CLAUDE.md do NOT trigger C5. WHY: documentation and example
+// files commonly embed @-ref syntax in code blocks; those are never
 // auto-loaded by Claude Code and must not generate false positives.
 func TestRunConfigRules_C5_CodeBlockNegative(t *testing.T) {
-	// pass/C5 has claude.local.md with @.claude/project/missing.md only in a
+	// pass/C5 has CLAUDE.md with @.claude/project/missing.md only in a
 	// fenced code block — must produce zero C5 findings.
 	root := configFixtureDir(t, "pass/C5")
 	findings, err := validate.RunConfigRules(root)
@@ -164,6 +164,24 @@ func TestRunConfigRules_C5_CodeBlockNegative(t *testing.T) {
 		if f.Rule == "C5" {
 			t.Errorf("C5 triggered on fenced-block-only @-ref: %+v", f)
 		}
+	}
+}
+
+// TestRunConfigRules_C5_IgnoresLocalOverlay proves that a broken @-ref in
+// claude.local.md does NOT trigger C5. WHY: claude.local.md is a user-owned
+// project-local overlay that may contain backtick spans resembling @-refs
+// (e.g. npm package paths like @fortawesome/...). C5 polices only CLAUDE.md —
+// the shipped contract — not author overlays.
+func TestRunConfigRules_C5_IgnoresLocalOverlay(t *testing.T) {
+	// Fixture: claude.local.md has a broken @-ref in prose; CLAUDE.md is clean.
+	// C5 must produce zero findings — the overlay is not scanned.
+	root := configFixtureDir(t, "pass/C5-local-ignored")
+	findings, err := validate.RunConfigRules(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasRule(findings, "C5") {
+		t.Errorf("C5 must not fire on claude.local.md; findings: %+v", findings)
 	}
 }
 

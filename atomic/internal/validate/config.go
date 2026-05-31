@@ -211,13 +211,13 @@ func runC3(repoRoot string) ([]Finding, error) {
 	return findings, nil
 }
 
-// runC5 checks that every @-ref in CLAUDE.md, claude.local.md, and
-// CLAUDE.local.md resolves to an existing file (case-sensitive).
+// runC5 checks that every @-ref in CLAUDE.md resolves to an existing file
+// (case-sensitive). Project-local overlays (claude.local.md, CLAUDE.local.md)
+// are intentionally NOT scanned: they are user-owned and may contain backtick
+// spans resembling @-refs (e.g. npm package paths like @fortawesome/...).
 func runC5(repoRoot string) ([]Finding, error) {
 	candidates := []string{
 		filepath.Join(repoRoot, "CLAUDE.md"),
-		filepath.Join(repoRoot, "claude.local.md"),
-		filepath.Join(repoRoot, "CLAUDE.local.md"),
 	}
 
 	var findings []Finding
