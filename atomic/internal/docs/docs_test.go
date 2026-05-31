@@ -170,6 +170,45 @@ func TestScan_NoDocs(t *testing.T) {
 	}
 }
 
+// TestScan_GoldenFixtures runs a full scan against the committed on-disk
+// fixtures under testdata/, copied into a temp workspace so the scan's cache
+// write never touches the committed tree. Unlike the inline-string tests, this
+// exercises the real file pipeline end-to-end: a root README plus a docs/ tree,
+// with .signalsignore exclusion applied to a real file on disk.
+func TestScan_GoldenFixtures(t *testing.T) {
+	root := t.TempDir()
+	if err := os.CopyFS(root, os.DirFS("testdata")); err != nil {
+		t.Fatalf("copy fixtures: %v", err)
+	}
+
+	if err := docs.Scan(root); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, ".claude/project/doc-surfaces.md"))
+	if err != nil {
+		t.Fatalf("read cache: %v", err)
+	}
+	out := string(data)
+
+	// Included surfaces — root README + docs/ tree — by H1 title.
+	for _, want := range []string{"Project README", "Getting Started", "API Reference"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected title %q in scan output:\n%s", want, out)
+		}
+	}
+	// A representative H2 from each included file.
+	for _, want := range []string{"Overview", "Installation", "Authentication"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected H2 %q in scan output:\n%s", want, out)
+		}
+	}
+	// .signalsignore must keep the excluded doc out of the output.
+	if strings.Contains(out, "Excluded Doc") {
+		t.Errorf("excluded.md should be filtered by .signalsignore:\n%s", out)
+	}
+}
+
 // TestStale_FreshCache verifies that Stale returns nil when the cache is newer
 // than all doc files.
 func TestStale_FreshCache(t *testing.T) {
@@ -217,6 +256,44 @@ Install here.
 
 	if err := docs.Stale(root); err == nil {
 		t.Error("expected Stale to return error after doc file was touched")
+	} else if err != docs.ErrStale {
+		t.Errorf("expected ErrStale, got: %v", err)
+	}
+}
+
+// TestStale_StaleAfterDocDeleted verifies that Stale returns ErrStale after a
+// doc file recorded in the cache is deleted from disk. Deletion bumps no
+// surviving file's mtime, so an mtime-only check would miss it — the cache
+// still lists a file that no longer exists.
+func TestStale_StaleAfterDocDeleted(t *testing.T) {
+	root := makeDocRepo(t, map[string]string{
+		"docs/keep.md": `# Keep
+
+## Setup
+
+Stays.
+`,
+		"docs/remove.md": `# Remove
+
+## Setup
+
+Goes away.
+`,
+	})
+
+	if err := docs.Scan(root); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	// Delete one of the cached docs. No surviving file's mtime changes, and
+	// the cache (written last by Scan) remains the newest mtime — so the
+	// mtime check alone reports "fresh".
+	if err := os.Remove(filepath.Join(root, "docs/remove.md")); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+
+	if err := docs.Stale(root); err == nil {
+		t.Error("expected Stale to return error after a cached doc was deleted")
 	} else if err != docs.ErrStale {
 		t.Errorf("expected ErrStale, got: %v", err)
 	}

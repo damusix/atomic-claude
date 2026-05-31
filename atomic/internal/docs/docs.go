@@ -95,6 +95,28 @@ type surface struct {
 // README.md files at repo root, parses headings, and returns one surface per
 // file (excluding signalsignore matches).
 func collectSurfaces(root string, opts *Options) ([]surface, error) {
+	paths, err := docPaths(root, opts.ExcludeGlobs)
+	if err != nil {
+		return nil, err
+	}
+
+	var surfaces []surface
+	for _, rel := range paths {
+		s, err := parseSurface(root, rel)
+		if err != nil {
+			// Skip unreadable files; don't abort the whole scan.
+			continue
+		}
+		surfaces = append(surfaces, s)
+	}
+	return surfaces, nil
+}
+
+// docPaths returns the repo-relative paths of all doc files (root README.md
+// plus *.md under the configured doc directories), excluding signalsignore
+// matches. It is the single source of truth for "which doc files exist",
+// shared by collectSurfaces (scan) and Stale (delete detection).
+func docPaths(root string, excludeGlobs []string) ([]string, error) {
 	var paths []string
 
 	// README.md at repo root.
@@ -131,19 +153,14 @@ func collectSurfaces(root string, opts *Options) ([]surface, error) {
 		}
 	}
 
-	var surfaces []surface
+	var kept []string
 	for _, rel := range paths {
-		if matchesGlobs(rel, opts.ExcludeGlobs) {
+		if matchesGlobs(rel, excludeGlobs) {
 			continue
 		}
-		s, err := parseSurface(root, rel)
-		if err != nil {
-			// Skip unreadable files; don't abort the whole scan.
-			continue
-		}
-		surfaces = append(surfaces, s)
+		kept = append(kept, rel)
 	}
-	return surfaces, nil
+	return kept, nil
 }
 
 // parseSurface reads one .md file and extracts H1 + up to 3 H2 headings.
@@ -205,8 +222,14 @@ func writeCacheFile(root string, surfaces []surface, now time.Time) error {
 	return os.WriteFile(outPath, []byte(sb.String()), 0o644)
 }
 
-// Stale returns ErrStale if any .md file in the scanned directories is newer
-// than the cache file, or an error if the cache does not exist.
+// Stale returns ErrStale if the cache is out of date, or an error if the cache
+// does not exist. Two independent triggers mark the cache stale:
+//
+//   - mtime: any scanned .md file is newer than the cache file (covers new and
+//     edited docs).
+//   - set drift: the set of doc files on disk differs from the set recorded in
+//     the cache (covers deletes, which bump no surviving file's mtime, and adds
+//     for completeness).
 func Stale(root string) error {
 	cachePath := filepath.Join(root, cacheFile)
 	fi, err := os.Stat(cachePath)
@@ -226,7 +249,81 @@ func Stale(root string) error {
 	if newest.After(cacheMtime) {
 		return ErrStale
 	}
+
+	// Set drift: compare the doc files on disk against those the cache lists.
+	// Catches deletions (and additions), which an mtime check cannot.
+	excl, err := readSignalsIgnore(root)
+	if err != nil {
+		return fmt.Errorf("docs stale: %w", err)
+	}
+	current, err := docPaths(root, excl)
+	if err != nil {
+		return fmt.Errorf("docs stale: %w", err)
+	}
+	cached, err := cachedDocPaths(cachePath)
+	if err != nil {
+		return fmt.Errorf("docs stale: %w", err)
+	}
+	if !sameStringSet(current, cached) {
+		return ErrStale
+	}
 	return nil
+}
+
+// cachedDocPaths parses the repo-relative doc paths recorded in a doc-surfaces
+// cache file. Each surface is written as "- <rel>[ — <title>][ [<h2s>]]", so
+// the path is the token after "- " up to the first " — " or " [" delimiter.
+func cachedDocPaths(cachePath string) ([]string, error) {
+	f, err := os.Open(cachePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var paths []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "- ") {
+			continue
+		}
+		rest := strings.TrimPrefix(line, "- ")
+		// Cut at the earliest of the title or h2-list delimiters.
+		cut := len(rest)
+		if i := strings.Index(rest, " — "); i >= 0 && i < cut {
+			cut = i
+		}
+		if i := strings.Index(rest, " ["); i >= 0 && i < cut {
+			cut = i
+		}
+		rel := strings.TrimSpace(rest[:cut])
+		if rel != "" {
+			paths = append(paths, rel)
+		}
+	}
+	return paths, scanner.Err()
+}
+
+// sameStringSet reports whether a and b contain the same elements, ignoring
+// order and duplicates.
+func sameStringSet(a, b []string) bool {
+	setA := make(map[string]bool, len(a))
+	for _, s := range a {
+		setA[s] = true
+	}
+	setB := make(map[string]bool, len(b))
+	for _, s := range b {
+		setB[s] = true
+	}
+	if len(setA) != len(setB) {
+		return false
+	}
+	for s := range setA {
+		if !setB[s] {
+			return false
+		}
+	}
+	return true
 }
 
 // newestDocMtime returns the mtime of the newest .md file across all doc dirs
