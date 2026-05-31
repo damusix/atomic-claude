@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.0.1](https://github.com/damusix/atomic-claude/compare/v3.0.0...v3.0.1) (2026-05-31)
+
+
+### Bug Fixes
+
+* **docs:** detect deleted docs in stale check ([76950a0](https://github.com/damusix/atomic-claude/commit/76950a04140eb24e4deb1ff9edb72b3d2099dd35))
+* **doctor:** realize --verbose, add remediation lines, double-dash help ([19c2f8a](https://github.com/damusix/atomic-claude/commit/19c2f8a9f67a3242304cb1c07d35f7709edb19d1))
+* **validate:** scope C5 @-ref check to CLAUDE.md only ([2f108ab](https://github.com/damusix/atomic-claude/commit/2f108ab041c27214cd65b1a4e2ddd717c0de820d))
+
 ## [3.0.0](https://github.com/damusix/atomic-claude/compare/v2.1.0...v3.0.0) (2026-05-30)
 
 
