@@ -17,17 +17,6 @@ Before your first session in a new project, two commands teach Claude what it is
 You only need to do this once per repo. Signals refresh automatically after that — ship commands re-scan whenever source files change.
 
 
-## 0.5. Verify hunches (optional)
-
-```
-/gather-evidence "<hypothesis>"
-```
-
-When the work ahead rests on a factual hunch ("library X supports Y", "our codebase already has a Z pattern", "approach A is faster than B"), `/gather-evidence` chases the claim through primary sources before any spec is written. It pulls from context7, official docs, source code, ast-grep, and run-it experiments — citing every piece of evidence with its source tier. Hearsay from blogs or forums cannot produce a `SUPPORTED` verdict.
-
-Returns one of `SUPPORTED`, `UNSUPPORTED`, `MIXED`, or `INCONCLUSIVE` with a clear recommendation: proceed to `/atomic-plan`, abandon, refine the hypothesis, or dig deeper. Skip this step when the work is grounded in code you've already read — but reach for it the moment you catch yourself assuming.
-
-
 ## 1. Plan
 
 ```
@@ -39,6 +28,17 @@ You and Claude produce a spec together. For small tasks, this is an inline check
 If the plan rests on an unverified hunch, `/atomic-plan` will suggest `/gather-evidence` before continuing — you decide whether to gather first or proceed at risk.
 
 
+### Verify hunches (optional)
+
+```
+/gather-evidence "<hypothesis>"
+```
+
+When the work ahead rests on a factual hunch ("library X supports Y", "our codebase already has a Z pattern", "approach A is faster than B"), `/gather-evidence` chases the claim through primary sources before any spec is written. It pulls from context7, official docs, source code, ast-grep, and run-it experiments — citing every piece of evidence with its source tier. Hearsay from blogs or forums cannot produce a `SUPPORTED` verdict.
+
+Returns one of `SUPPORTED`, `UNSUPPORTED`, `MIXED`, or `INCONCLUSIVE` with a clear recommendation: proceed to `/atomic-plan`, abandon, refine the hypothesis, or dig deeper. Skip this step when the work is grounded in code you've already read — but reach for it the moment you catch yourself assuming.
+
+
 ## 2. Implement
 
 ```
@@ -48,7 +48,7 @@ If the plan rests on an unverified hunch, `/atomic-plan` will suggest `/gather-e
 Claude reads the approved spec and runs an autonomous implement-then-review loop. A builder agent writes code (failing test first), a reviewer agent checks it, and each passing checkpoint gets committed automatically. Non-blocking findings (risks, nits, questions) accumulate in a ledger that you review at the end — nothing gets silently dropped. When the loop gets stuck — the same failure surviving two rounds of fixes, or the reviewer flagging error-swallowing patches that dodge the bug instead of fixing it — it stops grinding and surfaces a root-cause path: a pressure-test prompt or a read-only strategist analysis you can run, rather than piling on more suppression.
 
 
-## Hands-off: /autopilot
+### Hands-off: /autopilot
 
 ```
 /autopilot <task | issue#> [merge-verb]

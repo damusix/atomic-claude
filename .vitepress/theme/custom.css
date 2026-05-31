@@ -180,11 +180,17 @@ code, kbd, samp, pre {
 }
 
 /* ─────────────────────────────────────────────
-   Code blocks — sunken surface
+   Code blocks — sunken surface + mac-style window chrome
+
+   Every code block gets a title bar with three traffic-light dots (amber-first,
+   to match the hero console) and a divider beneath it. The bar is reserved via
+   `padding-top`; the dots and divider are drawn with pseudo-elements.
    ───────────────────────────────────────────── */
 .vp-doc div[class*='language-'] {
+    position: relative;
     border-radius: 10px;
     border: 1px solid var(--vp-c-border);
+    padding-top: 2.6rem;
     box-shadow:
         0 0 1rem rgba(26, 20, 16, 0.03),
         0 0 3rem rgba(26, 20, 16, 0.02);
@@ -196,7 +202,35 @@ code, kbd, samp, pre {
         0 0 3rem rgba(0, 0, 0, 0.1);
 }
 
+/* Three dots, top-left of the bar. */
+.vp-doc div[class*='language-']::before {
+    content: '';
+    position: absolute;
+    top: 0.95rem;
+    left: 1rem;
+    z-index: 1;
+    width: 35px;
+    height: 9px;
+    background:
+        radial-gradient(circle 4.5px at 4.5px 4.5px, #6b4f1e 98%, transparent 100%) 0 0 / 13px 9px no-repeat,
+        radial-gradient(circle 4.5px at 4.5px 4.5px, #3a3028 98%, transparent 100%) 13px 0 / 13px 9px no-repeat,
+        radial-gradient(circle 4.5px at 4.5px 4.5px, #3a3028 98%, transparent 100%) 26px 0 / 13px 9px no-repeat;
+}
+
+/* Divider line under the bar. */
+.vp-doc div[class*='language-']::after {
+    content: '';
+    position: absolute;
+    top: 2.6rem;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: var(--vp-c-divider);
+}
+
+/* Language label sits in the bar, top-right. */
 .vp-doc div[class*='language-'] > span.lang {
+    top: 0.6rem;
     font-family: var(--vp-font-family-mono);
     font-size: 0.75rem;
     letter-spacing: 0.01em;
@@ -279,12 +313,31 @@ code, kbd, samp, pre {
     color: var(--vp-c-text-2);
 }
 
-.VPHero .image-container .image-bg {
-    background-image: radial-gradient(circle, rgba(232, 160, 32, 0.2) 0%, transparent 70%);
+/* Hero slot is a solid terminal component — kill the default glow halo
+   and the fixed 320/392px square so the terminal controls its own size. */
+.VPHero .image-bg {
+    display: none;
 }
 
-.VPHero .image-container img {
-    filter: drop-shadow(0 0 40px rgba(232, 160, 32, 0.3));
+.VPHero .image-container {
+    width: 100%;
+    max-width: 460px;
+    height: auto;
+    transform: none;
+}
+
+/* Mobile: VitePress bleeds the image with negative margins and centers it.
+   Flush it to the content edge and left-align instead. */
+@media (max-width: 959px) {
+    .VPHero .image {
+        margin: 0 0 2rem;
+    }
+    .VPHero .image-container {
+        margin: 0;
+    }
+    .VPHero .image-container .ac-term {
+        margin-inline: 0;
+    }
 }
 
 /* ─────────────────────────────────────────────
@@ -324,6 +377,136 @@ code, kbd, samp, pre {
 .VPFeature .details {
     line-height: 1.65;
     color: var(--vp-c-text-2);
+}
+
+/* ─────────────────────────────────────────────
+   Feature card icons
+   ───────────────────────────────────────────── */
+.VPFeature .icon {
+    background-color: var(--vp-c-brand-soft);
+    color: var(--vp-c-brand-1);
+    border-radius: 8px;
+    /* Each card's `icon` is a Font Awesome 7 solid glyph (a single PUA
+       codepoint set in frontmatter). Bind the box to the solid webfont so
+       the glyph renders; it inherits the brand color above, so it flips
+       amber/gold between light and dark themes for free. */
+    font-family: "Font Awesome 7 Free";
+    font-weight: 900;
+    font-style: normal;
+}
+
+/* ─────────────────────────────────────────────
+   Home page — extra markdown sections below grid
+   ───────────────────────────────────────────── */
+.home-extra {
+    max-width: 1152px;
+    margin: 0 auto;
+    padding: 4rem 24px 2rem;
+}
+
+.home-extra h2 {
+    margin-top: 3.5rem;
+    padding-top: 0;
+    border-top: 0;
+    font-size: 1.6rem;
+    letter-spacing: -0.02em;
+}
+
+.home-extra > h2:first-of-type {
+    margin-top: 0;
+}
+
+/* Before / after two-column */
+.ba-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    margin: 1.5rem 0;
+}
+
+/* The replies before/after block specifically wants extra room below it. */
+#ba-replies {
+    margin-bottom: 2.5rem;
+}
+
+.ba-col {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.ba-col > p:first-child {
+    font-family: var(--vp-font-family-mono);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--vp-c-text-3);
+    margin-bottom: 0.5rem;
+}
+
+.ba-col:last-child > p:first-child {
+    color: var(--vp-c-brand-1);
+}
+
+/* Both columns stretch to the grid row (default align-items: stretch), and the
+   code block flex-grows to fill its column below the label — so the two
+   terminals are exactly equal height with their borders aligned, the shorter
+   one simply showing more empty terminal surface. */
+.ba-col div[class*='language-'] {
+    margin: 0;
+    flex: 1;
+}
+
+@media (max-width: 720px) {
+    .ba-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Closing CTA row — three links rendered as buttons, centered on desktop,
+   stacked full-width on mobile. */
+.home-cta {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--vp-c-divider);
+}
+
+.home-cta p {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.75rem;
+    margin: 0;
+}
+
+.home-cta a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1.4rem;
+    border: 1px solid var(--vp-c-border);
+    border-radius: 8px;
+    font-family: var(--vp-font-family-mono);
+    font-size: 0.9rem;
+    color: var(--vp-c-text-1);
+    text-decoration: none;
+    transition:
+        border-color 180ms ease-out,
+        color 180ms ease-out,
+        background-color 180ms ease-out;
+}
+
+.home-cta a:hover {
+    border-color: var(--vp-c-brand-1);
+    color: var(--vp-c-brand-1);
+    background-color: var(--vp-c-brand-soft);
+}
+
+@media (max-width: 720px) {
+    .home-cta p {
+        flex-direction: column;
+        align-items: stretch;
+    }
 }
 
 /* ─────────────────────────────────────────────
@@ -399,4 +582,110 @@ html.dark {
 
 .dark ::-webkit-scrollbar-thumb:hover {
     background-color: #5A4838;
+}
+
+/* ─────────────────────────────────────────────
+   Scroll-reveal animations (IntersectionObserver-driven)
+
+   Gated on `.ac-js` (added to <html> by the theme on the client) so a no-JS or
+   SSR render shows everything normally. The observer adds `.ac-inview` when an
+   element scrolls into view; that's what plays each animation.
+   ───────────────────────────────────────────── */
+
+/* Feature cards — rise + fade as the row enters view, slight column cascade. */
+.ac-js .VPFeature.ac-reveal {
+    opacity: 0;
+    transform: translateY(14px);
+}
+
+.ac-js .VPFeature.ac-reveal.ac-inview {
+    animation: ac-rise 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--ac-i, 0) * 0.08s);
+}
+
+@keyframes ac-rise {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* Home code blocks → styled like the hero console: dark surface, window chrome,
+   and a forced-light foreground so they read the same in light and dark themes.
+   The box is static; only its lines animate in (see below). */
+.home-extra div[class*='language-'].ac-term-block {
+    position: relative;
+    border-radius: 12px;
+    border: 1px solid var(--vp-c-border);
+    background: #0f0d0a;
+    box-shadow: 0 24px 56px -24px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
+}
+
+.home-extra .ac-term-block pre {
+    background: transparent;
+}
+
+.home-extra div[class*='language-'].ac-term-block code,
+.home-extra div[class*='language-'].ac-term-block .line span {
+    color: #d4cdbf;
+}
+
+/* Tighten the console line spacing — VitePress's default code line-height
+   (~1.7) reads too airy in these terminal blocks. */
+.home-extra div[class*='language-'].ac-term-block code {
+    line-height: 1;
+}
+
+/* Breathing room below the full-width body terminals (direct children only —
+   the side-by-side before/after blocks live in .ba-grid and keep their own
+   layout). */
+.home-extra > div[class*='language-'] {
+    margin-bottom: 2.5rem;
+}
+
+/* The window chrome (dots + divider) comes from the global code-block rule
+   above. Console blocks just drop the language label. */
+.home-extra .ac-term-block > span.lang {
+    display: none;
+}
+
+/* Lines reveal in sequence — staggered by their index, set in JS. */
+.ac-js .home-extra .ac-term-block .line {
+    display: block;
+}
+
+.ac-js .home-extra .ac-term-block.ac-reveal .line {
+    opacity: 0;
+    transform: translateY(6px);
+}
+
+.ac-js .home-extra .ac-term-block.ac-inview .line {
+    animation: ac-line-in 0.4s ease-out both;
+    animation-delay: calc(var(--ac-i, 0) * 0.045s + 0.12s);
+}
+
+@keyframes ac-line-in {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+/* Respect reduced-motion: reveal everything, no movement. */
+@media (prefers-reduced-motion: reduce) {
+    .ac-js .VPFeature.ac-reveal,
+    .ac-js .home-extra .ac-term-block.ac-reveal .line {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+    }
 }

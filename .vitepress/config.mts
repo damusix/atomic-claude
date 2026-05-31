@@ -88,6 +88,8 @@ export default defineConfig({
     description: 'An opinionated Claude Code configuration — compressed replies, idea-to-PR workflow, clean skill/command split.',
     srcDir: 'docs',
     base: '/',
+    // Internal contract docs — kept in-repo for contributors, excluded from the public site.
+    srcExclude: ['spec/**', 'design/**'],
     head: [
         ['link', { rel: 'icon', type: 'image/png', href: '/logo.png' }],
         ['meta', { property: 'og:image', content: '/share-image.png' }],
@@ -102,8 +104,7 @@ export default defineConfig({
         logo: '/logo.png',
         nav: [
             { text: 'Guides', link: '/guides/install' },
-            { text: 'Reference', link: '/reference/workflow' },
-            { text: 'Specs', link: '/spec/atomic-binary' },
+            { text: 'Reference', link: '/reference/concepts' },
             {
                 text: 'Links',
                 items: [
@@ -136,50 +137,6 @@ export default defineConfig({
                         { text: 'Output Style', link: '/reference/output-style' },
                         { text: 'Signals Workflow', link: '/reference/signals-workflow' },
                         { text: 'Conventions', link: '/reference/conventions' },
-                    ],
-                },
-            ],
-            '/design/': [
-                {
-                    text: 'Design',
-                    items: [
-                        { text: 'Artifact Templates', link: '/design/artifact-templates' },
-                        { text: 'Atomic Doctor', link: '/design/atomic-doctor' },
-                        { text: 'Atomic Validate', link: '/design/atomic-validate' },
-                        { text: 'State & Config', link: '/design/atomic-state-and-config' },
-                        { text: 'Diagnose Orchestrators', link: '/design/diagnose-orchestrators' },
-                        { text: 'Documentation as Maintenance', link: '/design/documentation-as-maintenance' },
-                        { text: 'Signals Router', link: '/design/signals-router' },
-                        { text: 'Uninstall', link: '/design/uninstall' },
-                        { text: 'User Profile', link: '/design/user-profile' },
-                    ],
-                },
-            ],
-            '/spec/': [
-                {
-                    text: 'Specifications',
-                    items: [
-                        { text: 'Atomic Binary', link: '/spec/atomic-binary' },
-                        { text: 'Atomic Doctor', link: '/spec/atomic-doctor' },
-                        { text: 'Atomic Plan', link: '/spec/atomic-plan' },
-                        { text: 'Atomic Setup', link: '/spec/atomic-setup' },
-                        { text: 'Atomic Validate', link: '/spec/atomic-validate' },
-                        { text: 'State & Config', link: '/spec/atomic-state-and-config' },
-                        { text: 'Update Doctor', link: '/spec/atomic-update-doctor' },
-                        { text: 'Artifact Templates', link: '/spec/artifact-templates' },
-                        { text: 'Cron Workflow', link: '/spec/cron-workflow' },
-                        { text: 'Docker Eval', link: '/spec/docker-eval-environment' },
-                        { text: 'Documentation as Maintenance', link: '/spec/documentation-as-maintenance' },
-                        { text: 'Documentation Skill', link: '/spec/documentation-skill-split' },
-                        { text: 'Follow-ups Folder', link: '/spec/follow-ups-folder' },
-                        { text: 'Install Workflow', link: '/spec/install-workflow' },
-                        { text: 'Session Report', link: '/spec/session-report' },
-                        { text: 'Signals Detection', link: '/spec/signals-project-detection' },
-                        { text: 'Signals Router', link: '/spec/signals-router' },
-                        { text: 'Signals Workflow', link: '/spec/signals-workflow' },
-                        { text: 'Subagent Diagnose', link: '/spec/subagent-diagnose' },
-                        { text: 'Uninstall', link: '/spec/uninstall' },
-                        { text: 'User Profile', link: '/spec/user-profile' },
                     ],
                 },
             ],

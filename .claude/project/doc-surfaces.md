@@ -1,6 +1,6 @@
 # Doc surfaces
 
-last-scanned: 2026-05-30T20:38:49Z
+last-scanned: 2026-05-31T05:15:17Z
 
 - README.md [Before / after, What you get, Start here]
 - docs/credits.md — Credits [Inspirations, caveman, superpowers]
@@ -19,7 +19,7 @@ last-scanned: 2026-05-30T20:38:49Z
 - docs/guides/contributing.md — Contributing [Setup, Day-to-day workflow, Git hooks]
 - docs/guides/evaluations.md — Evaluations [For contributors, For everyone else, How volumes work]
 - docs/guides/install.md — Install [Prerequisites, Windows, Quick install]
-- docs/index.md [layout: homehero:name: Atomic Claudetext: Talk less. Do more.tagline: Everything you'd eventually cobble together, in one install — plus some extra.actions:- theme: brandtext: Get Startedlink: /guides/install- theme: alttext: Workflowlink: /reference/workflow- theme: alttext: Commandslink: /reference/commandsfeatures:- title: Built on Claude, not around itdetails: Skills, commands, agents, and memory — all native Claude Code features. Nothing reinvented.- title: Teach Claude your repodetails: One command scans your project. Claude learns your framework, build commands, and structure.- title: Plan, build, shipdetails: Write a spec. Subagents implement, review, and commit. Pick up where you left off.- title: Docs stay in syncdetails: Ship commands check for stale docs and prompt you before the commit goes through.- title: Reminders and follow-upsdetails: Schedule reminders. Track deferred decisions. Surface them at session start or on demand.- title: Skills that fire on their owndetails: TDD on "implement." Verification on "done." Debugging on error pastes.]
+- docs/index.md [layout: homehero:name: Atomic Claudetext: Higher accuracy. Less busywork.tagline: Onboard Claude once. It keeps a live map of your repo, takes features from issue to merged PR on autopilot, and sharpens its own setup from how you actually work. An opinionated Claude Code configuration. One install.actions:- theme: brandtext: Get Startedlink: /guides/install- theme: alttext: How it workslink: /reference/concepts- theme: alttext: GitHublink: https://github.com/damusix/atomic-claudefeatures:- icon: "\uE522"title: A Karpathy-inspired repo explorerdetails: One scan and Claude builds a standing model of your codebase, covering framework, build and test commands, and a domain map of what lives where. It reads that before it reads your code, and ship commands keep it fresh.- icon: "\uF5B0"title: Autopilot, task to PR, hands-offdetails: Hand it a description or a GitHub issue number. It plans, implements with test-first subagents, reviews its own diff, and ships. The only decision left to you is how to merge.- icon: "\uF5DC"title: A config that learns from youdetails: After a rough session, /atomic-improve mines your history for friction, corrections, and misbehavior, then proposes fixes to your own skills and rules. The setup gets sharper the more you use it.- icon: "\uF066"title: Compressed repliesdetails: A tone layer that strips filler from Claude's responses. Same accuracy, fewer tokens, faster to scan. Three intensity levels, switchable mid-session.- icon: "\uF0E7"title: Skills that auto-firedetails: TDD on "implement." Verification on "done." Debugging on error pastes. Commit messages, code review, prose. No slash command needed.- icon: "\uF126"title: A verb for every git opdetails: Ten commands covering every combination of commit, push, squash, PR, and merge. Plus CI watching, stale-branch cleanup, and worktree isolation., Claude explores your repo first, Hand off the whole feature]
 - docs/reference/agents.md — Agents [Code agents, Research agents, Infrastructure agents]
 - docs/reference/commands.md — Commands [Planning, Implementation, Shipping]
 - docs/reference/concepts.md — Concepts [How it flows, Signals, Session reports]
@@ -27,7 +27,7 @@ last-scanned: 2026-05-30T20:38:49Z
 - docs/reference/output-style.md — Output style [Where the behavior actually comes from, How to activate it, Intensity levels]
 - docs/reference/signals-workflow.md — Signals workflow [Steering the inferrer, .signalsignore]
 - docs/reference/skills.md — Skills [Discipline, Workflow, Awareness]
-- docs/reference/workflow.md — Workflow [0. Set up your repo, 0.5. Verify hunches (optional), 1. Plan]
+- docs/reference/workflow.md — Workflow [0. Set up your repo, 1. Plan, 2. Implement]
 - docs/spec/artifact-templates.md — Artifact templates [Goal, Non-goals, Success criteria]
 - docs/spec/atomic-binary.md — Spec: atomic binary [Purpose, Non-goals, Repository layout]
 - docs/spec/atomic-doctor.md — atomic doctor [Goal, Non-goals, Success criteria]

@@ -55,19 +55,25 @@ Same accuracy. Fewer tokens. Faster to scan.
 
 ## What you get
 
-Atomic Claude is a coherent system of output styles, discipline skills, subagents, and workflow commands designed to compose. The pieces:
+Atomic Claude is a coherent system of output styles, discipline skills, subagents, and workflow commands designed to compose. Three capabilities separate it from a hand-rolled `CLAUDE.md` or a bag of slash commands.
+
+**A Karpathy-inspired repo explorer.** `/refresh-signals` walks your repo and builds a standing model of it. The deterministic half records filesystem facts: directory tree, manifests, languages, lockfiles. The inferred half derives meaning: framework, build and test commands, architectural style, and a domain map of which directories form which feature. Claude reads the model before it reads your code, and ship commands refresh it as the source tree changes, so you never hand-maintain a `CLAUDE.md` that drifts. Details in [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md).
+
+**Autopilot.** `/autopilot` takes a task description or a GitHub issue number and runs the whole lifecycle on its own: plan, implement with test-first subagents, review every diff, and ship. It addresses each reviewer finding in the same iteration and dispatches a read-only strategist for root-cause analysis when it gets stuck. One decision stays with you, how to merge. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
+
+**A config that learns from you.** `/atomic-improve` runs a retrospective over your recent session history and the current conversation. It finds where Claude caused friction, fought you, or repeated a mistake, cross-checks it against your installed skills and rules, and proposes fixes one at a time. It applies only what you accept and records a learnings log so later runs know what you keep and what you drop. Details in [docs/reference/concepts.md](docs/reference/concepts.md).
+
+The rest of the system supports those three.
 
 **Compressed replies.** A tone layer that strips filler from Claude's responses. Three intensity levels switchable mid-session. Opt in via `/config` then Output style then Atomic. Details in [docs/reference/output-style.md](docs/reference/output-style.md).
 
-**Project-state awareness.** The `atomic` binary scans your repo and writes context files that Claude loads every session. Claude knows your framework, package manager, and build commands instead of guessing. Details in [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md).
-
-**User profile.** Install creates `~/.claude/.atomic/profile.md`, a plain-markdown file with six sections (Identity, Work, Active projects, Interests, People mentioned, Environment). Claude reads it every session and appends new facts as they surface naturally. Facts that hold across all projects go here; project-specific preferences stay in that project's auto memory. Run `/atomic-improve` to review and accept or discard drift. Run `atomic profile refresh` to re-detect your dev tooling (runtimes, version managers, containers, shell framework) and rewrite the `## Environment` block. The session-start hook fires this automatically with `--if-stale 7d` so the env stays current. Details in [docs/reference/concepts.md](docs/reference/concepts.md).
-
-**A spec-to-PR workflow.** Verify a hunch with `/gather-evidence`, plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`, then close the loop with `/atomic-improve` to turn session friction into durable config changes. Each stage uses fresh-context subagents that write TDD, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Or hand the whole thing to `/autopilot`, which runs plan through ship on its own and asks only how to merge. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
+**The interactive workflow.** To stay in the loop instead of handing the work to autopilot, run the same lifecycle as individual commands with approval gates: verify a hunch with `/gather-evidence`, plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`. Each stage uses fresh-context subagents that write tests first, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
 
 **Discipline skills that auto-fire.** Seven skills trigger on natural language: TDD enforcement, completion verification, debugging, commit messages, code review, prose editing, and documentation routing. No slash command needed. Details in [docs/reference/skills.md](docs/reference/skills.md).
 
 **Workflow commands for every git operation.** Ten verbs covering every combination of commit, push, squash, PR, and merge-to-base. Plus utilities for CI watching, stale branch cleanup, worktree isolation, reminders, and integrity checks. Details in [docs/reference/commands.md](docs/reference/commands.md).
+
+**A user profile that persists.** Install creates `~/.claude/.atomic/profile.md`, a plain-markdown file with six sections (Identity, Work, Active projects, Interests, People mentioned, Environment). Claude reads it every session and appends new facts as they surface. Facts that hold across all projects go here; project-specific preferences stay in that project's auto memory. Run `atomic profile refresh` to re-detect your dev tooling (runtimes, version managers, containers, shell framework) and rewrite the `## Environment` block. The session-start hook fires this with `--if-stale 7d` so the environment stays current. Details in [docs/reference/concepts.md](docs/reference/concepts.md).
 
 For a walkthrough of how the pieces fit together, see [docs/reference/concepts.md](docs/reference/concepts.md).
 
@@ -79,8 +85,8 @@ Not sure where to begin? Run `/atomic-help` in any repo. It reads your git state
 Otherwise, pick your depth:
 
 1. **Compressed replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
-2. **Project-state awareness.** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
-3. **Full plan, implement, review loop.** Read the [workflow reference](docs/reference/workflow.md).
+2. **A repo explorer.** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
+3. **Full plan, implement, review loop, or autopilot.** Read the [workflow reference](docs/reference/workflow.md).
 
 
 ## Install

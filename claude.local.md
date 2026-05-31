@@ -275,6 +275,24 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
 
 
+## VitePress docs site (public, not bundled)
+
+
+The `.vitepress/` theme, `docs/index.md` landing page, and `package.json` are the public docs site only — **not** part of the Go build or the embedded bundle. Editing them does NOT require `make render` / `make bundle`. (Editing `README.md` does — it is a bundle source.) Build/verify with `npm run docs:build` (~1.2s; harmless `@vueuse/core` `#__PURE__` Rollup warnings are expected).
+
+
+### Home feature-card icons — use an icon font, not inline SVG
+
+
+The landing page (`docs/index.md`) feature cards use **Font Awesome 7 Free (solid)** glyphs, set per-card in frontmatter as a YAML `\uXXXX` escape (e.g. `icon: "\\uF0E7"` for `bolt`).
+
+
+- **Why not inline SVG.** VitePress (2.0.0-alpha.17) HTML-escapes frontmatter values before the `v-html` icon slot renders them, so `icon: '<svg>…</svg>'` ships as visible escaped text (`&lt;svg&gt;`). A font glyph is a single PUA codepoint — plain text, nothing to escape — so it survives.
+- **Why a font over `{ src }` image icons.** The glyph inherits `--vp-c-brand-1` via `currentColor`, so it flips amber (light) / gold (dark) for free. An `<img>` SVG can't theme-react without baked-in color or light/dark variants.
+- **Wiring.** `.vitepress/theme/index.ts` imports `@fortawesome/fontawesome-free/css/solid.min.css` (gives the `@font-face`; Vite self-hosts `fa-solid-900.woff2`, no CDN). `.vitepress/theme/custom.css` binds `.VPFeature .icon` to `font-family: "Font Awesome 7 Free"; font-weight: 900`. FA is a `devDependency`.
+- **Picking glyphs.** Read exact codepoints from `node_modules/@fortawesome/fontawesome-free/metadata/icon-families.json` (`unicode` field; confirm `familyStylesByLicense.free` includes `{classic, solid}`) — never guess the hex. Lucide has no official font, so it is not an option for this approach.
+
+
 ## Release-please conventional commit types — hard rules
 
 
