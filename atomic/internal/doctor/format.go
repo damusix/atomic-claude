@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// indentPrefix is prepended to secondary lines (remediation, findings, fix summary).
+const indentPrefix = "   "
+
 // nameWidth is the fixed column width for the check name field.
 // Spec example longest name is "followups" (9 chars); 25 gives comfortable padding.
 const nameWidth = 25
@@ -20,7 +23,12 @@ const nameWidth = 25
 //	N PASS, N WARN, N FAIL, N SKIP. exit N.
 //
 //	To repair: atomic doctor --fix   (only when WARN or FAIL present)
-func FormatHuman(results []Result, project string) string {
+//
+// Rich fields on Result are rendered after each result line:
+//   - Remediation is printed on Warn/Fail regardless of opts.Verbose.
+//   - Findings are printed only when opts.Verbose is true.
+//   - FixSummary is printed when FixApplied is true.
+func FormatHuman(results []Result, opts Opts, project string) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "atomic doctor — integrity check  (project: %s)\n", project)
@@ -28,6 +36,20 @@ func FormatHuman(results []Result, project string) string {
 
 	for _, r := range results {
 		b.WriteString(FormatResultLine(r))
+		// Remediation: always shown on non-PASS when set.
+		if r.Severity != PASS && r.Severity != SKIP && r.Remediation != "" {
+			fmt.Fprintf(&b, "%s↳ fix: %s\n", indentPrefix, r.Remediation)
+		}
+		// Findings: verbose-gated.
+		if opts.Verbose {
+			for _, f := range r.Findings {
+				fmt.Fprintf(&b, "%s• %s\n", indentPrefix, f)
+			}
+		}
+		// Fix summary: always shown when a fix was applied.
+		if r.FixApplied && r.FixSummary != "" {
+			fmt.Fprintf(&b, "%s✓ fixed: %s\n", indentPrefix, r.FixSummary)
+		}
 	}
 
 	b.WriteString("\n")

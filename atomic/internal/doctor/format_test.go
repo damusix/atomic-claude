@@ -20,7 +20,7 @@ var sampleResults = []doctor.Result{
 
 // TestFormatHumanHeader verifies the header line contains "atomic doctor" and the project name.
 func TestFormatHumanHeader(t *testing.T) {
-	out := doctor.FormatHuman(sampleResults, "myproject")
+	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	if !strings.Contains(out, "atomic doctor") {
 		t.Errorf("output missing 'atomic doctor': %q", out)
 	}
@@ -31,7 +31,7 @@ func TestFormatHumanHeader(t *testing.T) {
 
 // TestFormatHumanIndexedRows verifies each result appears with its index.
 func TestFormatHumanIndexedRows(t *testing.T) {
-	out := doctor.FormatHuman(sampleResults, "myproject")
+	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	for _, r := range sampleResults {
 		// Each row must contain [N] prefix.
 		marker := "[" + string(rune('0'+r.Index)) + "]"
@@ -43,7 +43,7 @@ func TestFormatHumanIndexedRows(t *testing.T) {
 
 // TestFormatHumanSeverityColumn verifies severity values appear in output.
 func TestFormatHumanSeverityColumn(t *testing.T) {
-	out := doctor.FormatHuman(sampleResults, "myproject")
+	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	for _, sev := range []string{"PASS", "WARN", "FAIL", "SKIP"} {
 		if !strings.Contains(out, sev) {
 			t.Errorf("output missing severity %q", sev)
@@ -54,7 +54,7 @@ func TestFormatHumanSeverityColumn(t *testing.T) {
 // TestFormatHumanCountersLine verifies the counters line is present and correct.
 // 2 PASS, 1 WARN, 1 FAIL, 1 SKIP (SKIP excluded from PASS/WARN/FAIL tally but shown).
 func TestFormatHumanCountersLine(t *testing.T) {
-	out := doctor.FormatHuman(sampleResults, "myproject")
+	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	if !strings.Contains(out, "2 PASS") {
 		t.Errorf("counters line missing '2 PASS': %q", out)
 	}
@@ -72,7 +72,7 @@ func TestFormatHumanCountersLine(t *testing.T) {
 // TestFormatHumanExitCodeInCounters verifies the exit code appears in the counters line.
 func TestFormatHumanExitCodeInCounters(t *testing.T) {
 	exitCode := doctor.ExitCode(sampleResults)
-	out := doctor.FormatHuman(sampleResults, "myproject")
+	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	if !strings.Contains(out, "exit 1") && exitCode == 1 {
 		t.Errorf("counters line missing 'exit 1': %q", out)
 	}
@@ -80,7 +80,7 @@ func TestFormatHumanExitCodeInCounters(t *testing.T) {
 
 // TestFormatHumanRepairHintShownOnWarnOrFail verifies "To repair:" appears when WARN/FAIL present.
 func TestFormatHumanRepairHintShownOnWarnOrFail(t *testing.T) {
-	out := doctor.FormatHuman(sampleResults, "myproject")
+	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	if !strings.Contains(out, "To repair:") {
 		t.Errorf("output missing repair hint when WARN/FAIL present: %q", out)
 	}
@@ -92,7 +92,7 @@ func TestFormatHumanRepairHintAbsentOnAllPass(t *testing.T) {
 		{Index: 1, Name: "install", Severity: doctor.PASS, Detail: "ok"},
 		{Index: 2, Name: "hooks", Severity: doctor.PASS, Detail: "ok"},
 	}
-	out := doctor.FormatHuman(allPass, "myproject")
+	out := doctor.FormatHuman(allPass, doctor.Opts{}, "myproject")
 	if strings.Contains(out, "To repair:") {
 		t.Errorf("repair hint must be absent when all PASS: %q", out)
 	}
@@ -103,7 +103,7 @@ func TestFormatHumanRepairHintAbsentOnAllSkip(t *testing.T) {
 	allSkip := []doctor.Result{
 		{Index: 5, Name: "manifest", Severity: doctor.SKIP, Detail: "not in repo"},
 	}
-	out := doctor.FormatHuman(allSkip, "myproject")
+	out := doctor.FormatHuman(allSkip, doctor.Opts{}, "myproject")
 	if strings.Contains(out, "To repair:") {
 		t.Errorf("repair hint must be absent when all SKIP: %q", out)
 	}
@@ -111,7 +111,7 @@ func TestFormatHumanRepairHintAbsentOnAllSkip(t *testing.T) {
 
 // TestFormatHumanDetailPresent verifies detail text appears in output rows.
 func TestFormatHumanDetailPresent(t *testing.T) {
-	out := doctor.FormatHuman(sampleResults, "myproject")
+	out := doctor.FormatHuman(sampleResults, doctor.Opts{}, "myproject")
 	if !strings.Contains(out, "36/36 files match bundle") {
 		t.Errorf("output missing detail for install check: %q", out)
 	}

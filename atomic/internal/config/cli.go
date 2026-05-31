@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 )
 
 // Run is the CLI entry point for `atomic config <verb> [args]`.
@@ -98,6 +100,7 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 
 	case "list":
 		fs := flag.NewFlagSet("config-list", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic config list [--json]")
 		fs.SetOutput(stderr)
 		var asJSON bool
 		fs.BoolVar(&asJSON, "json", false, "print as JSON object")

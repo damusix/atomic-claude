@@ -107,6 +107,99 @@ func TestCheckInstall_atomic_subtree_not_flagged(t *testing.T) {
 	}
 }
 
+// TestCheckInstall_findings_drift: a drifted artifact must appear in Findings
+// with prefix "drifted: " and Remediation must be set.
+func TestCheckInstall_findings_drift(t *testing.T) {
+	target := t.TempDir()
+
+	manifest := embedded.Manifest()
+	var driftedPath string
+	for i, a := range manifest {
+		if i == 0 {
+			driftedPath = a.Target
+			writeFile(t, filepath.Join(target, filepath.FromSlash(a.Target)), []byte("drift"))
+		} else {
+			installArtifact(t, target, a)
+		}
+	}
+
+	r := doctor.RunCheckInstall(target)
+	if r.Severity != doctor.WARN {
+		t.Fatalf("severity = %q, want WARN; detail: %s", r.Severity, r.Detail)
+	}
+
+	want := "drifted: " + driftedPath
+	found := false
+	for _, f := range r.Findings {
+		if f == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Findings = %v; want entry %q", r.Findings, want)
+	}
+	if r.Remediation != "atomic claude update" {
+		t.Errorf("Remediation = %q, want %q", r.Remediation, "atomic claude update")
+	}
+}
+
+// TestCheckInstall_findings_missing: a missing artifact must appear in Findings
+// with prefix "missing: " and Remediation must be set.
+func TestCheckInstall_findings_missing(t *testing.T) {
+	target := t.TempDir()
+
+	manifest := embedded.Manifest()
+	var missingPath string
+	for i, a := range manifest {
+		if i == 0 {
+			missingPath = a.Target
+			continue // do not install
+		}
+		installArtifact(t, target, a)
+	}
+
+	r := doctor.RunCheckInstall(target)
+	if r.Severity != doctor.FAIL {
+		t.Fatalf("severity = %q, want FAIL; detail: %s", r.Severity, r.Detail)
+	}
+
+	want := "missing: " + missingPath
+	found := false
+	for _, f := range r.Findings {
+		if f == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Findings = %v; want entry %q", r.Findings, want)
+	}
+	if r.Remediation != "atomic claude update" {
+		t.Errorf("Remediation = %q, want %q", r.Remediation, "atomic claude update")
+	}
+}
+
+// TestCheckInstall_pass_no_findings: clean install must have empty Findings and
+// empty Remediation.
+func TestCheckInstall_pass_no_findings(t *testing.T) {
+	target := t.TempDir()
+	for _, a := range embedded.Manifest() {
+		installArtifact(t, target, a)
+	}
+
+	r := doctor.RunCheckInstall(target)
+	if r.Severity != doctor.PASS {
+		t.Fatalf("severity = %q, want PASS; detail: %s", r.Severity, r.Detail)
+	}
+	if len(r.Findings) != 0 {
+		t.Errorf("Findings = %v, want empty", r.Findings)
+	}
+	if r.Remediation != "" {
+		t.Errorf("Remediation = %q, want empty", r.Remediation)
+	}
+}
+
 // --- helpers ---
 
 func installArtifact(t *testing.T, target string, a embedded.Artifact) {

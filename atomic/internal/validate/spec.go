@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
 
@@ -175,10 +176,11 @@ func runSpec(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 	// since they were parsed first; sub-flags only fill gaps where top-level
 	// left them false.
 	subFS := flag.NewFlagSet("validate spec", flag.ContinueOnError)
+	cliutil.SetUsage(subFS, "atomic validate spec [--json] [--suggest]")
 	subFS.SetOutput(w)
 	var subJSON, subSuggest bool
-	subFS.BoolVar(&subJSON, "json", false, "")
-	subFS.BoolVar(&subSuggest, "suggest", false, "")
+	subFS.BoolVar(&subJSON, "json", false, "emit JSON output ({schema_version:1, findings:[...]})")
+	subFS.BoolVar(&subSuggest, "suggest", false, "print structural templates for content-FAIL rules")
 	_ = subFS.Parse(subArgs)
 	paths := subFS.Args()
 

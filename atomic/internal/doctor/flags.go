@@ -3,6 +3,8 @@ package doctor
 import (
 	"flag"
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 )
@@ -11,7 +13,24 @@ import (
 // returns a validated Opts. Returns a non-nil error for usage violations;
 // callers should exit 2 on error.
 func ParseFlags(args []string) (Opts, error) {
+	return ParseFlagsWithOutput(args, os.Stderr)
+}
+
+// ParseFlagsWithOutput is ParseFlags with a configurable output writer for the
+// usage/error text. Exposed for testing.
+func ParseFlagsWithOutput(args []string, w io.Writer) (Opts, error) {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(w)
+	fs.Usage = func() {
+		fmt.Fprintf(w, "Usage: atomic doctor [options]\n\n")
+		fmt.Fprintf(w, "Options:\n")
+		fmt.Fprintf(w, "  --fix              Per-item confirm prompt before applying any repair\n")
+		fmt.Fprintf(w, "  --verbose          Print per-file detail for install integrity and manifest parity\n")
+		fmt.Fprintf(w, "  --json             Emit machine-readable JSON result to stdout\n")
+		fmt.Fprintf(w, "  --only <cat>       Comma-separated category indices or names to run\n")
+		fmt.Fprintf(w, "  --skip <cat>       Comma-separated category indices or names to skip\n")
+		fmt.Fprintf(w, "  --stale-days N     Stale-signals threshold in days (positive int, default 7)\n")
+	}
 
 	var fix bool
 	var jsonOut bool

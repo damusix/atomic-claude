@@ -45,11 +45,24 @@ func RunCheckManifest(cwd string) Result {
 		return Result{Severity: PASS, Detail: "generated == committed"}
 	}
 
+	var findings []string
+	for _, path := range res.Missing {
+		findings = append(findings, "missing: "+path)
+	}
+	for _, path := range res.Extra {
+		findings = append(findings, "extra: "+path)
+	}
+	for _, d := range res.Drifted {
+		findings = append(findings, "drifted: "+d.Target)
+	}
+
 	return Result{
 		Severity: FAIL,
 		Detail: fmt.Sprintf(
 			"%d missing, %d extra, %d drifted",
 			len(res.Missing), len(res.Extra), len(res.Drifted),
 		),
+		Findings:    findings,
+		Remediation: "make -C atomic bundle",
 	}
 }

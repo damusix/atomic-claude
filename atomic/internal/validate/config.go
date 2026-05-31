@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
+	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
@@ -405,10 +406,11 @@ func lineOfMatch(src, match []byte, sectionStart int) int {
 func runConfig(subArgs []string, jsonOut, suggest bool, w io.Writer) int {
 	// Honor flags placed after the subcommand (F-1 fix, same pattern as runSpec).
 	subFS := flag.NewFlagSet("validate config", flag.ContinueOnError)
+	cliutil.SetUsage(subFS, "atomic validate config [--json] [--suggest]")
 	subFS.SetOutput(w)
 	var subJSON, subSuggest bool
-	subFS.BoolVar(&subJSON, "json", false, "")
-	subFS.BoolVar(&subSuggest, "suggest", false, "")
+	subFS.BoolVar(&subJSON, "json", false, "emit JSON output ({schema_version:1, findings:[...]})")
+	subFS.BoolVar(&subSuggest, "suggest", false, "print structural templates for content-FAIL rules")
 	_ = subFS.Parse(subArgs)
 
 	if subJSON {

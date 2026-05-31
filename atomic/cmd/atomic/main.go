@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
+	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
@@ -237,7 +238,7 @@ func runDoctor(args []string) {
 		}
 		fmt.Println(string(data))
 	} else {
-		fmt.Print(doctor.FormatHuman(results, project))
+		fmt.Print(doctor.FormatHuman(results, opts, project))
 	}
 
 	if opts.Fix {
@@ -264,6 +265,7 @@ func doctorProjectName() string {
 
 func runUpdate(args []string) {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
+	cliutil.SetUsage(fs, "atomic update [--check] [--channel stable|prerelease] [--no-doctor]")
 	var check bool
 	var channel string
 	var noDoctor bool
@@ -348,6 +350,7 @@ func runReminder(args []string, repoOverride string) {
 	switch verb {
 	case "add":
 		fs := flag.NewFlagSet("reminder add", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic reminder add <text> [--due <RFC3339>] [--transport cron|routine|none]")
 		var due string
 		var transport string
 		fs.StringVar(&due, "due", "", "RFC3339 due timestamp (e.g. 2026-05-24T09:00:00Z)")
@@ -429,6 +432,7 @@ func runHooks(args []string, repoOverride string) {
 	switch verb {
 	case "session-start":
 		fs := flag.NewFlagSet("hooks session-start", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic hooks session-start [--format json|text]")
 		var format string
 		fs.StringVar(&format, "format", "json", "output format: json or text")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -458,6 +462,7 @@ func runHooks(args []string, repoOverride string) {
 
 	case "install":
 		fs := flag.NewFlagSet("hooks install", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic hooks install [--scope user|project]")
 		var scope string
 		fs.StringVar(&scope, "scope", "user", "scope: user or project")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -484,6 +489,7 @@ func runHooks(args []string, repoOverride string) {
 
 	case "uninstall":
 		fs := flag.NewFlagSet("hooks uninstall", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic hooks uninstall [--scope user|project]")
 		var scope string
 		fs.StringVar(&scope, "scope", "user", "scope: user or project")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -605,6 +611,7 @@ func runDocker(args []string) {
 	switch verb {
 	case "init":
 		fs := flag.NewFlagSet("docker init", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic docker init [--target <dir>] [--force]")
 		var target string
 		var force bool
 		fs.StringVar(&target, "target", "./atomic-docker", "target directory for scaffolded files")
@@ -736,6 +743,7 @@ func runClaude(args []string) {
 	switch verb {
 	case "install", "update":
 		fs := flag.NewFlagSet("claude "+verb, flag.ContinueOnError)
+		cliutil.SetUsage(fs, fmt.Sprintf("atomic claude %s [--dry-run] [--target <dir>] [--no-hooks]", verb))
 		var dryRun bool
 		var target string
 		var noHooks bool
@@ -781,6 +789,7 @@ func runClaude(args []string) {
 
 	case "diff":
 		fs := flag.NewFlagSet("claude diff", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic claude diff [--target <dir>]")
 		var target string
 		fs.StringVar(&target, "target", "~/.claude", "target directory (default ~/.claude)")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -804,6 +813,7 @@ func runClaude(args []string) {
 
 	case "uninstall":
 		fs := flag.NewFlagSet("claude uninstall", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic claude uninstall [--target <dir>]")
 		var target string
 		fs.StringVar(&target, "target", "~/.claude", "target directory (default ~/.claude)")
 		if err := fs.Parse(args[1:]); err != nil {
@@ -890,6 +900,7 @@ func profileAction(args []string, claudeHome, today string) int {
 	switch verb {
 	case "refresh":
 		fs := flag.NewFlagSet("profile-refresh", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic profile refresh [--if-stale <Nd>]")
 		fs.SetOutput(os.Stderr)
 		var ifStale string
 		fs.StringVar(&ifStale, "if-stale", "", "skip refresh when lastcheck is within this window (e.g. 7d, 30d)")

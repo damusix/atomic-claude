@@ -40,12 +40,15 @@ func RunCheckInstall(target string) Result {
 
 	total := len(rows)
 	var missing, drifted int
+	var findings []string
 	for _, r := range rows {
 		switch r.Status {
 		case claudeinstall.DiffAbsent:
 			missing++
+			findings = append(findings, "missing: "+r.Artifact.Target)
 		case claudeinstall.DiffDiffer:
 			drifted++
+			findings = append(findings, "drifted: "+r.Artifact.Target)
 		}
 	}
 
@@ -54,13 +57,17 @@ func RunCheckInstall(target string) Result {
 	switch {
 	case missing > 0:
 		return Result{
-			Severity: FAIL,
-			Detail:   fmt.Sprintf("%d/%d files match bundle (%d missing, %d drifted)", matched, total, missing, drifted),
+			Severity:    FAIL,
+			Detail:      fmt.Sprintf("%d/%d files match bundle (%d missing, %d drifted)", matched, total, missing, drifted),
+			Findings:    findings,
+			Remediation: "atomic claude update",
 		}
 	case drifted > 0:
 		return Result{
-			Severity: WARN,
-			Detail:   fmt.Sprintf("%d/%d files match bundle (%d drifted)", matched, total, drifted),
+			Severity:    WARN,
+			Detail:      fmt.Sprintf("%d/%d files match bundle (%d drifted)", matched, total, drifted),
+			Findings:    findings,
+			Remediation: "atomic claude update",
 		}
 	default:
 		return Result{

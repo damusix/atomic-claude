@@ -64,6 +64,67 @@ func TestCheckManifest_fail_drift(t *testing.T) {
 	}
 }
 
+// TestCheckManifest_pass_no_findings: a clean repo-dev must have empty
+// Findings and empty Remediation.
+func TestCheckManifest_pass_no_findings(t *testing.T) {
+	root := buildSyntheticRepoDev(t)
+
+	r := doctor.RunCheckManifest(root)
+	if r.Severity != doctor.PASS {
+		t.Fatalf("severity = %q, want PASS; detail: %s", r.Severity, r.Detail)
+	}
+	if len(r.Findings) != 0 {
+		t.Errorf("Findings = %v, want empty", r.Findings)
+	}
+	if r.Remediation != "" {
+		t.Errorf("Remediation = %q, want empty", r.Remediation)
+	}
+}
+
+// TestCheckManifest_fail_findings: a drifted artifact on FAIL result must
+// have Findings with "drifted: " prefix and Remediation set.
+func TestCheckManifest_fail_findings(t *testing.T) {
+	root := buildSyntheticRepoDev(t)
+
+	// Mutate one agent source file to cause drift.
+	manifest := embedded.Manifest()
+	var driftTarget string
+	var driftRelPath string
+	for _, a := range manifest {
+		if a.Kind == "agent" {
+			driftTarget = filepath.Join(root, filepath.FromSlash(a.Target))
+			driftRelPath = a.Target
+			break
+		}
+	}
+	if driftTarget == "" {
+		t.Fatal("no agent artifact found in manifest")
+	}
+	if err := os.WriteFile(driftTarget, []byte("mutated"), 0o644); err != nil {
+		t.Fatalf("mutate artifact: %v", err)
+	}
+
+	r := doctor.RunCheckManifest(root)
+	if r.Severity != doctor.FAIL {
+		t.Fatalf("severity = %q, want FAIL; detail: %s", r.Severity, r.Detail)
+	}
+
+	want := "drifted: " + driftRelPath
+	found := false
+	for _, f := range r.Findings {
+		if f == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Findings = %v; want entry %q", r.Findings, want)
+	}
+	if r.Remediation != "make -C atomic bundle" {
+		t.Errorf("Remediation = %q, want %q", r.Remediation, "make -C atomic bundle")
+	}
+}
+
 // buildSyntheticRepoDev creates a temporary directory tree that looks like the
 // atomic-claude repo root to IsRepoDev and bundlemirror.Enumerate:
 //   - atomic/internal/bundlemirror/mirror.go  (marker file)

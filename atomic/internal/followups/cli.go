@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 )
 
 const (
@@ -76,6 +78,7 @@ func runRender(dir string, stdout, stderr io.Writer, today time.Time) int {
 
 func runList(args []string, dir string, stdout, stderr io.Writer, today time.Time) int {
 	fs := flag.NewFlagSet("followups-list", flag.ContinueOnError)
+	cliutil.SetUsage(fs, "atomic followups list [--stale] [--json]")
 	fs.SetOutput(stderr)
 	var stale bool
 	var asJSON bool
@@ -107,6 +110,7 @@ func runList(args []string, dir string, stdout, stderr io.Writer, today time.Tim
 
 func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today time.Time) int {
 	fs := flag.NewFlagSet("followups-add", flag.ContinueOnError)
+	cliutil.SetUsage(fs, "atomic followups add --id <id> --title <t> [--kind finding|plan] [--severity risk|nit|question] [--origin <o>] [--file <f>] [--body <b|->]")
 	fs.SetOutput(stderr)
 	var id, title, kind, severity, origin, file, body string
 	fs.StringVar(&id, "id", "", "entry id (kebab-case)")
@@ -182,6 +186,7 @@ func runAdd(args []string, dir, repoRoot string, stdout, stderr io.Writer, today
 
 func runClose(args []string, dir string, stdout, stderr io.Writer, today time.Time) int {
 	fs := flag.NewFlagSet("followups-close", flag.ContinueOnError)
+	cliutil.SetUsage(fs, "atomic followups close <id> [--reason <r>]")
 	fs.SetOutput(stderr)
 	var reason string
 	fs.StringVar(&reason, "reason", "", "optional closure reason")

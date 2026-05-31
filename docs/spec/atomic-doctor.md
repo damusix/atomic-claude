@@ -114,6 +114,33 @@ To repair: atomic doctor --fix
 Counters exclude SKIP. Exit code is determined by FAIL count only.
 
 
+### Per-result rich detail
+
+
+Each result line may be followed by indented detail lines:
+
+
+```
+[1] WARN  install                    53/54 files match bundle (1 drifted)
+   ↳ fix: atomic claude update
+   • drifted: CLAUDE.md
+```
+
+
+- **Remediation** (`↳ fix: <command>`): printed on every non-PASS, non-SKIP result that carries a `Remediation` string. Shown **always**, independent of `--verbose`. Tells the user the single command that repairs the drift.
+- **Findings** (`• <item>`): printed only under `--verbose`. One line per `Finding` — the per-file detail the `--verbose` flag promises (e.g. `drifted: <path>`, `missing: <path>`, `extra: <path>`). PASS/SKIP results carry no findings.
+- **Fix summary** (`✓ fixed: <summary>`): printed when a `--fix` repair was applied and reported a summary.
+
+
+Checks that populate these fields today: `install` (Remediation `atomic claude update`; Findings = drifted/missing files) and `manifest` (Remediation `make -C atomic bundle`; Findings = missing/extra/drifted targets). Other checks render a bare result line until they opt in.
+
+
+### Help text convention
+
+
+All flag help (`atomic doctor -h`, and every other subcommand) renders flags in double-dash form (`--fix`, `--verbose`), matching the documented surface. The shared renderer is `cliutil.SetUsage`; doctor's flagset uses a bespoke double-dash usage block for the same effect.
+
+
 ## Output format (`--json`)
 
 
@@ -318,3 +345,13 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Why:** v2 of the user-profile spec introduces a `lastcheck` attribute stamped on every `atomic profile refresh` run. Without a doctor check, users on v1-format files or who haven't run a session in >30 days would have a stale environment block with no visible signal. The WARN wording is carefully non-alarmist ("run `atomic profile refresh`") to avoid implying a broken install — profile staleness is a degraded-experience condition, not a fatal one.
 
 **Superseded:** Prior category 10 description checked two conditions (file-exists, @-ref). Now checks three (file-exists, @-ref, lastcheck freshness).
+
+### 2026-05-31 — realize `--verbose`; add remediation lines; double-dash help
+
+**What changed:** Three corrections to the human output layer. (1) `--verbose` was a dead flag — parsed into `Opts.Verbose` but never read, so verbose output was byte-identical to default. The `install` and `manifest` checks computed per-file drift then discarded it. `Result` now carries `Findings []string` + `Remediation string` (plus `FixApplied`/`FixSummary` render hooks); `install` populates Findings (`drifted:`/`missing:` paths) + Remediation `atomic claude update`, `manifest` populates Findings (`missing:`/`extra:`/`drifted:` targets) + Remediation `make -C atomic bundle`. `FormatHuman(results, opts, project)` renders Remediation as `↳ fix:` on every non-PASS/non-SKIP result (independent of `--verbose`) and Findings as `• ` lines only under `--verbose`. See the new "Per-result rich detail" body section. (2) `atomic doctor -h` printed single-dash flags (`-fix`/`-verbose`) via Go's default `flag.PrintDefaults()` because `ParseFlags` set no custom `fs.Usage` — contradicting the documented double-dash surface. `ParseFlags` now installs a bespoke double-dash usage block (split into `ParseFlagsWithOutput(args, io.Writer)` for testability). (3) The same single-dash defect affected 15 other subcommand flagsets; fixed repo-wide via a shared `cliutil.SetUsage` helper (out of doctor's package but same root cause — see body "Help text convention").
+
+**Why:** User report: "I can't see what's wrong via the --verbose commands. The help is also misleading. It states a `-verbose` and `-fix` instead of a --fix or --verbose." Both were real: the flag did nothing and the help advertised the wrong syntax.
+
+**Correction:** The spec's Surface table (line 52) has always promised `--verbose` "Print per-file detail for install integrity and manifest parity" — but no implementation ever rendered it. This amendment makes the body match the long-standing contract rather than introducing new behavior. How we know it was wrong: the flag's effect was untestable because no code read `opts.Verbose`.
+
+**Known gaps (filed as followups):** `manifest` `missing:`/`extra:` Finding prefixes are implemented but only the `drifted:` path is test-covered (`doctor-verbose-f-1`). `FixApplied`/`FixSummary` render correctly but no `--fix` repair path populates them yet (`doctor-verbose-f-2`).
