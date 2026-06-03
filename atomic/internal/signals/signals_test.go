@@ -675,7 +675,7 @@ func TestStale_FreshAfterScan(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 	// Signals file was just written — should not be stale.
-	if err := signals.Stale(root); err != nil {
+	if _, err := signals.Stale(root); err != nil {
 		t.Errorf("expected fresh (nil), got: %v", err)
 	}
 }
@@ -688,27 +688,57 @@ func TestStale_StaleAfterSourceChange(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 
-	// Force the signals file's mtime to be slightly older.
+	// Add a new source file. This changes the deterministic body (file count,
+	// tree listing, language LOC) — so a fresh scan would differ from stored.
+	if err := os.WriteFile(filepath.Join(root, "helper.go"), []byte("package main\n\nfunc helper() {}\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	info, err := signals.Stale(root)
+	if err != signals.ErrStale {
+		t.Errorf("expected ErrStale, got: %v", err)
+	}
+	// Evidence drives the imperative CLI output: the orchestrator sees a
+	// concrete magnitude of drift rather than a bare exit code it can dismiss.
+	if info.ChangedLines < 1 {
+		t.Errorf("expected changed-line evidence > 0, got ChangedLines=%d", info.ChangedLines)
+	}
+}
+
+// TestStale_FreshAfterIdempotentRewrite is the regression test for the
+// commit-time-regeneration treadmill: a generated file (e.g. manifest.go) is
+// rewritten with identical bytes at commit time, bumping its mtime without
+// changing what a scan would produce. A pure-mtime staleness check called this
+// stale forever; the content-based check must call it fresh.
+func TestStale_FreshAfterIdempotentRewrite(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"main.go": "package main\n",
+	})
+	if err := signals.Scan(root); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	// Make the signals file older so any mtime-based check would call it stale.
 	signalsPath := signals.SignalsPath(root)
 	past := time.Now().Add(-2 * time.Second)
 	if err := os.Chtimes(signalsPath, past, past); err != nil {
 		t.Fatalf("chtimes: %v", err)
 	}
 
-	// Now touch a source file.
+	// Rewrite a source file with byte-identical content — newer mtime, same bytes.
 	srcPath := filepath.Join(root, "main.go")
-	if err := os.WriteFile(srcPath, []byte("package main\n// updated\n"), 0o644); err != nil {
+	if err := os.WriteFile(srcPath, []byte("package main\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 
-	if err := signals.Stale(root); err != signals.ErrStale {
-		t.Errorf("expected ErrStale, got: %v", err)
+	if _, err := signals.Stale(root); err != nil {
+		t.Errorf("expected fresh (content unchanged despite newer mtime), got: %v", err)
 	}
 }
 
 func TestStale_MissingFile(t *testing.T) {
 	root := makeRepo(t, nil)
-	err := signals.Stale(root)
+	_, err := signals.Stale(root)
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}

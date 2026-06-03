@@ -75,15 +75,18 @@ Run doc-impact before signals refresh. **Why:** new or updated doc files appear 
 Refresh project signals so Claude's map stays current for the next session.
 
 1. Check `command -v atomic`. If missing, skip.
-2. Check `atomic signals stale`. If fresh (exit 0), skip.
-3. Both pass → dispatch the `atomic-signals-inferrer` agent in silent mode:
+2. Run `atomic signals stale` and act on the exit code:
+   - **exit 0** (fresh) → skip the refresh.
+   - **exit 1** (stale) → refresh is mandatory. Continue to step 3. Do NOT second-guess this with `atomic signals diff`, file counts, or a judgment that "the change was small" — exit 1 means a fresh scan would produce different deterministic content than the stored signals file, and the only correct response is to refresh. Skipping it accumulates drift. The command prints how much would change and the directive; follow it.
+   - **exit 2** (error, e.g. signals file missing) → report the stderr message and skip; a refresh cannot run against a missing baseline.
+3. Dispatch the `atomic-signals-inferrer` agent in silent mode:
    ```
    mode: silent
    first_run: false
    ```
    Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
 
-The `atomic signals stale` command is the source of truth — it fast-fails when nothing changed and catches structural shifts that a file-extension allowlist would miss.
+`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>
 6. **Commit** using a HEREDOC message.
 7. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. The reports were consumed by the commit message. If the commit failed, leave them for the next attempt.
@@ -192,15 +195,18 @@ Run doc-impact before signals refresh. **Why:** new or updated doc files appear 
 Refresh project signals so Claude's map stays current for the next session.
 
 1. Check `command -v atomic`. If missing, skip.
-2. Check `atomic signals stale`. If fresh (exit 0), skip.
-3. Both pass → dispatch the `atomic-signals-inferrer` agent in silent mode:
+2. Run `atomic signals stale` and act on the exit code:
+   - **exit 0** (fresh) → skip the refresh.
+   - **exit 1** (stale) → refresh is mandatory. Continue to step 3. Do NOT second-guess this with `atomic signals diff`, file counts, or a judgment that "the change was small" — exit 1 means a fresh scan would produce different deterministic content than the stored signals file, and the only correct response is to refresh. Skipping it accumulates drift. The command prints how much would change and the directive; follow it.
+   - **exit 2** (error, e.g. signals file missing) → report the stderr message and skip; a refresh cannot run against a missing baseline.
+3. Dispatch the `atomic-signals-inferrer` agent in silent mode:
    ```
    mode: silent
    first_run: false
    ```
    Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
 
-The `atomic signals stale` command is the source of truth — it fast-fails when nothing changed and catches structural shifts that a file-extension allowlist would miss.
+`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>
     If signals regenerate, commit as a follow-up: `chore(signals): refresh after squash`.
 9. `git status` to confirm.

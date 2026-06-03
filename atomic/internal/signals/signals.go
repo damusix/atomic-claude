@@ -112,10 +112,11 @@ func resolveConfigPath() string {
 	return config.TOMLPath(filepath.Join(home, ".claude"))
 }
 
-// ScanWithOptions is like Scan but accepts Options for dependency injection.
-func ScanWithOptions(root string, opts *Options) error {
-	// Read .signalsignore once per scan and inject into opts so the tree
-	// scanner can flag matching paths as [generated].
+// resolveScanOptions fills opts with the .signalsignore globs and config-driven
+// MaxDepth that a scan uses, so callers that assemble a body (Scan and Stale)
+// produce identical output for identical source. Reading .signalsignore also
+// lets the tree scanner flag matching paths as [generated].
+func resolveScanOptions(root string, opts *Options) (*Options, error) {
 	if opts == nil {
 		opts = &Options{}
 	}
@@ -136,10 +137,19 @@ func ScanWithOptions(root string, opts *Options) error {
 	if len(opts.ExcludeGlobs) == 0 && len(opts.GeneratedGlobs) == 0 {
 		excl, gen, err := readSignalsIgnore(root)
 		if err != nil {
-			return fmt.Errorf("signals scan: %w", err)
+			return nil, err
 		}
 		opts.ExcludeGlobs = excl
 		opts.GeneratedGlobs = gen
+	}
+	return opts, nil
+}
+
+// ScanWithOptions is like Scan but accepts Options for dependency injection.
+func ScanWithOptions(root string, opts *Options) error {
+	opts, err := resolveScanOptions(root, opts)
+	if err != nil {
+		return fmt.Errorf("signals scan: %w", err)
 	}
 
 	body, err := assembleBody(root, opts)
@@ -246,58 +256,84 @@ func Show(root string) error {
 	return err
 }
 
-// Stale exits 0 if the signals file is newer than the most recent source tree change,
-// or returns an error (caller exits 1) if stale or file missing.
-// Returns a sentinel ErrStale when stale.
-func Stale(root string) error {
-	path := SignalsPath(root)
-	fi, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("signals stale: file not found at %s — run 'atomic signals scan' first", path)
-		}
-		return fmt.Errorf("signals stale: %w", err)
-	}
-	signalsMtime := fi.ModTime()
-
-	newestSrc, err := newestSourceMtime(root)
-	if err != nil {
-		return fmt.Errorf("signals stale: %w", err)
-	}
-
-	if newestSrc.After(signalsMtime) {
-		return ErrStale
-	}
-	return nil
+// StaleInfo carries evidence about why the signals file is stale. The CLI
+// turns it into imperative output because the staleness gate is consumed by an
+// LLM orchestrator that can rationalize a silent exit code away — a concrete
+// magnitude of drift makes the staleness real, not dismissable. Zero when fresh.
+type StaleInfo struct {
+	// ChangedLines is how many deterministic-body lines would change (added +
+	// removed) if the signals file were re-scanned now.
+	ChangedLines int
 }
 
-// ErrStale is returned by Stale when the signals file is out of date.
-var ErrStale = fmt.Errorf("signals stale: source tree is newer than signals file")
+// Stale reports whether the signals file is out of date. It is content-based:
+// it assembles the deterministic body exactly as Scan would and compares it to
+// the stored body, so it is stale only when a fresh scan would actually differ.
+// Pure mtime cannot tell an idempotent regeneration (same bytes, newer mtime)
+// from a real edit; content comparison can, which avoids the commit-time-regen
+// false-positive treadmill.
+//
+// Returns (zero, nil) when fresh, (info, ErrStale) when a re-scan would differ
+// — info carries evidence for the caller's output — and (zero, error) on a hard
+// failure such as a missing signals file. The three outcomes map to CLI exit
+// codes 0 / 1 / 2 respectively.
+func Stale(root string) (StaleInfo, error) {
+	path := SignalsPath(root)
+	existingRaw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return StaleInfo{}, fmt.Errorf("signals stale: file not found at %s — run 'atomic signals scan' first", path)
+		}
+		return StaleInfo{}, fmt.Errorf("signals stale: %w", err)
+	}
+	_, oldBody, err := frontmatter.Parse(string(existingRaw))
+	if err != nil {
+		return StaleInfo{}, fmt.Errorf("signals stale: parse %s: %w", path, err)
+	}
 
-// newestSourceMtime returns the mtime of the most recently modified file
-// in the source tree (excluding skipDirs).
-func newestSourceMtime(root string) (time.Time, error) {
-	var newest time.Time
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
+	opts, err := resolveScanOptions(root, nil)
+	if err != nil {
+		return StaleInfo{}, fmt.Errorf("signals stale: %w", err)
+	}
+	newBody, err := assembleBody(root, opts)
+	if err != nil {
+		return StaleInfo{}, fmt.Errorf("signals stale: %w", err)
+	}
+
+	if newBody != oldBody {
+		return StaleInfo{ChangedLines: lineDelta(oldBody, newBody)}, ErrStale
+	}
+	return StaleInfo{}, nil
+}
+
+// ErrStale is returned by Stale when a fresh scan would differ from the stored
+// signals file.
+var ErrStale = fmt.Errorf("signals stale: a fresh scan would differ from the stored signals file")
+
+// lineDelta counts how many lines differ (added + removed) between two bodies,
+// as a multiset symmetric difference — a cheap magnitude of drift, not a true
+// edit distance.
+func lineDelta(oldBody, newBody string) int {
+	count := func(s string) map[string]int {
+		m := map[string]int{}
+		for _, line := range strings.Split(s, "\n") {
+			m[line]++
 		}
-		if d.IsDir() {
-			if skipDirs[d.Name()] {
-				return filepath.SkipDir
-			}
-			return nil
+		return m
+	}
+	oldCounts, newCounts := count(oldBody), count(newBody)
+	delta := 0
+	for line, n := range newCounts {
+		if extra := n - oldCounts[line]; extra > 0 {
+			delta += extra // added
 		}
-		fi, err := d.Info()
-		if err != nil {
-			return nil
+	}
+	for line, o := range oldCounts {
+		if extra := o - newCounts[line]; extra > 0 {
+			delta += extra // removed
 		}
-		if fi.ModTime().After(newest) {
-			newest = fi.ModTime()
-		}
-		return nil
-	})
-	return newest, err
+	}
+	return delta
 }
 
 // Diff prints a unified diff between the previous and current signals files.

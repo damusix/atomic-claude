@@ -53,7 +53,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  reminder rm <id>    Delete a reminder\n")
 		fmt.Fprintf(os.Stderr, "  signals scan        Walk repo and write deterministic-signals.md\n")
 		fmt.Fprintf(os.Stderr, "  signals show        Print deterministic-signals.md to stdout\n")
-		fmt.Fprintf(os.Stderr, "  signals stale       Exit 0 if fresh, 1 if stale\n")
+		fmt.Fprintf(os.Stderr, "  signals stale       Exit 0 fresh, 1 stale, 2 error\n")
 		fmt.Fprintf(os.Stderr, "  signals diff        Print unified diff of signals file\n")
 		fmt.Fprintf(os.Stderr, "  update [--check] [--channel stable|prerelease]   Self-update the atomic binary\n")
 		fmt.Fprintf(os.Stderr, "  followups list [--stale] [--json]                 List open follow-up entries\n")
@@ -63,7 +63,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  followups path                                    Print followups folder path\n")
 		fmt.Fprintf(os.Stderr, "  validate [flags] [spec|config|bundle] [paths...]  Lint repo artifacts\n")
 		fmt.Fprintf(os.Stderr, "  docs scan                                         Scan docs and write doc-surfaces.md\n")
-		fmt.Fprintf(os.Stderr, "  docs stale                                        Exit 0 if fresh, 1 if stale\n")
+		fmt.Fprintf(os.Stderr, "  docs stale                                        Exit 0 fresh, 1 stale, 2 error\n")
 		fmt.Fprintf(os.Stderr, "  profile refresh [--if-stale <dur>]               Refresh ## Environment in profile.md\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
@@ -283,10 +283,13 @@ func runUpdate(args []string) {
 	if check {
 		newer, tag, err := c.Check(ctx, channel, version.Version)
 		if err != nil {
+			// Hard error (network, parse): exit 2, distinct from the exit-1
+			// "update available" signal — see the check-family exit convention.
 			fmt.Fprintf(os.Stderr, "atomic update: %v\n", err)
-			os.Exit(1)
+			os.Exit(2)
 		}
 		if newer {
+			// Actionable signal: a newer version exists. Exit 1 (diff(1) idiom).
 			fmt.Printf("update available: %s (current: %s)\n", tag, version.Version)
 			os.Exit(1)
 		}
@@ -563,15 +566,24 @@ func runSignals(args []string, repoOverride string) {
 			os.Exit(1)
 		}
 	case "stale":
-		err := signals.Stale(root)
+		info, err := signals.Stale(root)
 		if err == nil {
-			return // fresh → exit 0
+			return // fresh → exit 0, silent
 		}
 		if err == signals.ErrStale {
+			// Imperative, evidence-bearing output. The staleness gate is read by
+			// an LLM orchestrator that can rationalize a silent exit code away, so
+			// the tool states the directive and the evidence, not just the state.
+			// Deliberate model-safeguard layer over the deterministic exit code —
+			// see the prefer-code-over-model exception in CLAUDE.md.
+			fmt.Printf("signals: STALE — a fresh scan would change the deterministic snapshot (~%d lines)\n", info.ChangedLines)
+			fmt.Printf("→ refresh required; dispatch atomic-signals-inferrer. do not skip.\n")
 			os.Exit(1)
 		}
+		// Hard error (e.g. missing signals file): exit 2, distinct from the
+		// exit-1 stale signal so callers can tell "out of date" from "broken".
 		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
+		os.Exit(2)
 	case "diff":
 		err := signals.Diff(root, os.Stdout)
 		if err == nil {
@@ -583,8 +595,10 @@ func runSignals(args []string, repoOverride string) {
 		if err == signals.ErrNoPrior {
 			os.Exit(2)
 		}
+		// Hard error: exit 2, alongside ErrNoPrior — distinct from the exit-1
+		// "diff present" signal. See the check-family exit convention.
 		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
+		os.Exit(2)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic signals: unknown verb %q\n", verb)
 		os.Exit(1)

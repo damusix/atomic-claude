@@ -65,6 +65,24 @@ All commands accept global flags:
 On every command invocation (except `--no-update-check` and `atomic update` itself), the binary fires an asynchronous GitHub Releases lookup. If a newer version is available and the local cache says we haven't notified the user in the last 24h, a one-line banner is appended to stderr after the command's primary output: `update available: vX.Y.Z (current: vA.B.C). run: atomic update`. The cache lives at `~/.cache/atomic/update.json`. The lookup never blocks the foreground command — if it has not completed by the time the foreground work finishes, the banner is skipped for this invocation.
 
 
+### Exit code convention
+
+
+Two families of commands, two exit-code meanings. Conflating them is the failure mode this convention exists to prevent — a caller that reads exit 1 as "error" when it means "actionable signal" either acts on nothing or skips work it should do.
+
+
+**Check / status commands** (`signals stale`, `signals diff`, `docs stale`, `update --check`) follow the `diff(1)` / `cmp(1)` idiom:
+
+- **exit 0** — nothing actionable: fresh, up to date, no diff. Silent or a brief confirmation on stdout.
+- **exit 1** — an actionable positive signal: stale, diff present, update available. The result goes to **stdout**.
+- **exit 2** — a hard error (missing baseline, parse failure, network failure). The explanation goes to **stderr**.
+
+Exit 1 is never an error in this family — it is the answer. Reserve 2 for "the check could not run."
+
+
+**Gate / action commands** (`doctor`, `validate`, install/update apply) use plain success/failure: **0** = success (or all PASS/WARN/SKIP), **1** = failure (any FAIL), **2** = usage error. Here exit 1 *is* a problem.
+
+
 ### `atomic signals`
 
 
@@ -72,8 +90,8 @@ On every command invocation (except `--no-update-check` and `atomic update` itse
 |------|-------------|
 | `scan` | Walk the repo and write `.claude/project/deterministic-signals.md`. Idempotent — same input → same output. Before overwriting, copies the existing file (if any) to `.claude/project/.deterministic-signals.prev.md` so `atomic signals diff` has an old version to compare against in non-git contexts. The `.prev.md` file should be in `.gitignore`. |
 | `show` | Print the most recent `deterministic-signals.md` to stdout. |
-| `stale` | Exit 0 if the signals doc is fresh (newer than the most recent source-tree change), exit 1 if stale. Used as a gate by the signals skill. |
-| `diff` | Print the unified diff between the previous and current `deterministic-signals.md` to stdout. Thin wrapper: shells out to `git diff -- .claude/project/deterministic-signals.md` when inside a git repo, falls back to unix `diff -u <prev> <current>` against `.claude/project/.deterministic-signals.prev.md` otherwise. No custom format. Diff content always goes to stdout — exit codes are an additional signal, not a replacement for the diff body. Exit 0 = no diff (stdout empty), 1 = diff present (stdout = unified diff), 2 = no prior version available (stdout empty, stderr explains). |
+| `stale` | Content-based freshness check. Assembles the deterministic body exactly as `scan` would and compares it to the stored `deterministic-signals.md` body. Exit 0 if a re-scan would produce identical content (fresh), exit 1 if it would differ (stale), exit 2 on a hard error (e.g. signals file missing — stderr explains). Used as a gate by the signals skill. Because it compares content, not mtimes, an idempotent regeneration that only bumps a file's mtime (e.g. commit-time `make bundle` rewriting `manifest.go` with identical bytes) stays fresh — no false-positive treadmill. Cost is a full tree assembly, not a stat. On exit 1 it prints imperative, evidence-bearing output to stdout — the approximate number of deterministic-body lines that would change and the directive to dispatch the inferrer — because the gate is consumed by an LLM orchestrator that can otherwise rationalize a silent exit code away. Exit 0 is silent. |
+| `diff` | Print the unified diff between the previous and current `deterministic-signals.md` to stdout. Thin wrapper: shells out to `git diff -- .claude/project/deterministic-signals.md` when inside a git repo, falls back to unix `diff -u <prev> <current>` against `.claude/project/.deterministic-signals.prev.md` otherwise. No custom format. Diff content always goes to stdout — exit codes are an additional signal, not a replacement for the diff body. Exit 0 = no diff (stdout empty), 1 = diff present (stdout = unified diff), 2 = no prior version available or a hard error (stdout empty, stderr explains). |
 
 
 ### `atomic reminder`
@@ -126,7 +144,7 @@ Self-update the binary. Foreground check (not the background lookup other comman
 | Verb / flag | Description |
 |-------------|-------------|
 | (default) | Check GitHub Releases for the latest tag. If newer than `--version`, download the matching archive + checksum, verify SHA256, replace the running binary in place atomically (download to temp, then `rename`). On success, if `~/.claude/CLAUDE.md` exists, prints: `binary updated. note: artifact bundle may now be out of sync — run \`atomic claude update\` when you want to refresh it.` |
-| `--check` | Only check, don't apply. Exit 0 if up-to-date, exit 1 if a newer version is available. |
+| `--check` | Only check, don't apply. Exit 0 if up-to-date, exit 1 if a newer version is available (prints `update available: ...` to stdout), exit 2 on a hard error such as a network or parse failure (stderr explains). Follows the check-family exit convention — exit 1 is the "update available" signal, not an error. |
 | `--channel <stable\|prerelease>` | Default `stable` (only non-prerelease tags). `prerelease` includes RC/beta tags. |
 
 
@@ -682,6 +700,22 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 
 ## Change log
 
+
+### 2026-06-03 — signals stale becomes content-based
+
+**What changed:** `signals stale` no longer compares mtimes. It assembles the deterministic body exactly as `scan` would (via a shared `resolveScanOptions` helper) and compares it to the stored `deterministic-signals.md` body; stale iff they differ. `StaleInfo` now carries `ChangedLines` (a multiset line-delta magnitude) instead of `Count`/`Newest`; the exit-1 output reads "a fresh scan would change the deterministic snapshot (~N lines)". The mtime walker (`scanSourceTree`/`sourceScan`) is removed. The `signals-gate` partial and `signals stale` row were reworded from mtime to content framing.
+
+**Why:** The mtime model had a real false-positive class: any commit that regenerates a tracked file (e.g. the pre-commit `make bundle` rewriting `manifest.go` with identical bytes) bumps the file's mtime without changing what a scan produces, so `stale` reported stale forever after every signals-touching commit — a treadmill. Content comparison reads identical-byte regeneration as fresh while still catching real project-map shifts. This makes the strict "exit 1 ⇒ always refresh" gate wording honest (no false positives to rationalize around). Cost rises from a stat to a full tree assembly, which is acceptable for a once-per-ship-verb gate.
+
+**Superseded:** the same-day "check-family exit-code convention" entry below described `signals stale` evidence as "count of newer source files, newest repo-relative path" from an mtime walk — that evidence is now the content line-delta. The mtime-based staleness definition (and the `signals-workflow.md` open question about mtime vs content hashing) is resolved in favor of content comparison.
+
+### 2026-06-03 — check-family exit-code convention (0 / 1 / 2)
+
+**What changed:** Documented and enforced one exit-code convention across the check / status commands (`signals stale`, `signals diff`, `docs stale`, `update --check`): exit 0 = nothing actionable, exit 1 = actionable signal (to stdout), exit 2 = hard error (to stderr). New "Exit code convention" section under `## CLI surface`. Three commands were brought into line: `signals stale` now returns exit 2 on hard error (was 1) and prints evidence-bearing imperative output to stdout on exit 1 (count of newer source files, newest repo-relative path, directive to dispatch the inferrer); `signals diff` returns exit 2 on a generic hard error (was 1, alongside its existing `ErrNoPrior`→2); `update --check` returns exit 2 on network/parse failure (was 1), reserving exit 1 for "update available". The `signals.Stale` Go signature changed from `error` to `(StaleInfo, error)`; the `ErrStale` sentinel is unchanged so call-site identity comparisons still hold. The `signals-gate` shared partial was rewritten to a three-branch exit-code gate that forbids second-guessing a stale verdict. Help text for `signals stale` and `docs stale` updated to "0 fresh, 1 stale, 2 error".
+
+**Why:** Each check command had independently overloaded exit 1 to mean both "actionable signal" and "error", with `signals stale` additionally silent. The signals refresh gate is read by an LLM orchestrator, and the silent overloaded exit 1 let it rationalize skipping a warranted refresh, risking project-map drift. Unifying on the `diff(1)`/`cmp(1)` idiom and emitting imperative output is a deliberate model-safeguard layer over the deterministic exit code (the prefer-code-over-model exception). Detection logic (mtime-based) is unchanged — no false-positive shift.
+
+**Superseded:** `signals stale`, `signals diff` (generic error path), and `update --check` previously returned exit 1 for both their actionable signal and hard errors; `signals stale` produced no stdout output on any path; `signals.Stale` returned a bare `error`.
 
 ### 2026-05-30 — hooks install inlines the command, drops the wrapper script
 

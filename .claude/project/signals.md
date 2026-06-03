@@ -36,13 +36,14 @@ CI gates: (1) `make render && git diff --exit-code` — stale `commands/` fails.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Markdown | 36606 | 255 | 50% |
-| Go | 32551 | 138 | 44% |
-| JSON | 2283 | 5 | 3% |
-| CSS | 402 | 1 | 0% |
+| Markdown | 37546 | 263 | 50% |
+| Go | 33454 | 142 | 44% |
+| JSON | 2295 | 5 | 3% |
+| CSS | 691 | 1 | 0% |
 | Shell | 269 | 3 | 0% |
 | YAML | 218 | 6 | 0% |
-| TypeScript | 104 | 2 | 0% |
+| TypeScript | 205 | 3 | 0% |
+| Vue | 183 | 1 | 0% |
 | Python | 30 | 1 | 0% |
 
 ## DevOps & CI
@@ -80,13 +81,15 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 
 **Pipeline order is load-bearing (bundle)**: `make render` must precede `make bundle`. The pre-commit hook stages 1 and 2 enforce this order; stage 1 re-stages both `commands/` and `agents/` after render. CI runs the same two drift gates in order. Running only `make bundle` after editing a template embeds stale command or agent outputs.
 
-**Agent template partial pipeline**: `templates/agents/` now mirrors `templates/commands/` — agent source files are rendered, not directly edited. Three agent-specific partials live in `templates/shared/`: `agent-tdd-signals` (TDD + quality signals workflow steps), `agent-signals-output` (output block format), `agent-shared-rules` (style/git/error-quoting constraints). `atomic-builder.md` and `atomic-surgeon.md` compose all three. `make render` produces `agents/*.md`; `make bundle` embeds them. Editing `agents/*.md` directly is overwritten on next render — edit `templates/agents/*.md` instead.
+**Agent template partial pipeline**: `templates/agents/` now mirrors `templates/commands/` — agent source files are rendered, not directly edited. Five agent-specific partials live in `templates/shared/`: `agent-tdd-signals` (TDD + quality signals workflow steps), `agent-signals-output` (output block format), `agent-shared-rules` (style/git/error-quoting constraints), `agent-search-tooling` (grep/glob/sg tool-selection rule), `agent-implementer-workflow` (shared `<workflow>` block for builder/surgeon, composes `agent-search-tooling` + `agent-tdd-signals`). `atomic-builder.md` and `atomic-surgeon.md` compose all five via `agent-implementer-workflow`. `make render` produces `agents/*.md`; `make bundle` embeds them. Editing `agents/*.md` directly is overwritten on next render — edit `templates/agents/*.md` instead.
 
 **Domain partitioning basis**: domains are vertical slices by feature concern, not horizontal layers by file type. Each domain file answers: "if I'm working on X, what artifacts, what CLI code, and what docs do I need?"
 
 **Artifact additions checklist**: adding any new command/agent/skill requires updating the artifact file, `CLAUDE.md`, `CLAUDE.md`, `README.md`, relevant `docs/reference/` tables, `docs/spec/<topic>.md` if non-trivial, cross-references in other artifacts, running `make render` and `make bundle`, and `/refresh-signals`. See `claude.local.md` for the full checklist with per-row guidance.
 
 **`/refresh-signals` is the single idempotent entry point**: `/initialize-signals` was removed (commit 4011b30). `/refresh-signals` handles both first-run init and subsequent refreshes. The `atomic-signals` skill was removed and absorbed into `atomic-signals-inferrer` — the agent now owns the full pipeline (scan + infer + wire).
+
+**`atomic signals stale` exit-code contract**: returns `(StaleInfo, error)`. Exit 0 = fresh; exit 1 = stale (stdout has imperative evidence lines); exit 2 = hard error (binary absent, scan failed, etc.). `signals diff` and `atomic update --check` use the same check-family exit convention. Spec: `docs/spec/atomic-binary.md`.
 
 **Uninstall feature**: `atomic/internal/claudeinstall/` contains `snapshot.go`, `snapshot_internal_test.go`, `snapshot_test.go`, `uninstall.go`, `uninstall_test.go`. Spec at `docs/spec/uninstall.md`, design at `docs/design/uninstall.md`. Implements `atomic claude uninstall` — reads pre-install snapshot, computes restore plan, LLM-merges modified files.
 

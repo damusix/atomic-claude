@@ -9,13 +9,16 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
+	"github.com/damusix/atomic-claude/atomic/internal/signals"
 )
 
-// makeSignalsFile creates .claude/project/deterministic-signals.md in root
-// and sets its mtime to the given time. It also writes a minimal signals.md
-// router and a wired claude.local.md (both with the same mtime) so that router
-// integrity checks PASS, allowing tests focused on freshness to remain
-// unaffected by router WARNs.
+// makeSignalsFile sets root up with a fresh, self-consistent signals state and
+// ages it to the given mtime. It writes a minimal signals.md router and a wired
+// claude.local.md (so router checks PASS), then runs a real signals.Scan so the
+// deterministic-signals.md body matches what a re-scan would produce — the
+// content-based staleness check therefore sees it as fresh, and freshness tests
+// exercise the age logic rather than tripping a stub-vs-scan mismatch. Tests
+// that want the stale (ErrStale) path add a source file after calling this.
 func makeSignalsFile(t *testing.T, root string, mtime time.Time) {
 	t.Helper()
 	dir := filepath.Join(root, ".claude", "project")
@@ -23,21 +26,29 @@ func makeSignalsFile(t *testing.T, root string, mtime time.Time) {
 		t.Fatalf("mkdirall: %v", err)
 	}
 
-	writeAtMtime := func(path, content string) {
-		t.Helper()
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatalf("write %s: %v", path, err)
-		}
-		if err := os.Chtimes(path, mtime, mtime); err != nil {
-			t.Fatalf("chtimes %s: %v", path, err)
-		}
+	// Router + @-ref, written before the scan so the scanned tree is stable
+	// (.claude/project/ is excluded from the body; claude.local.md is counted).
+	if err := os.WriteFile(filepath.Join(dir, "signals.md"), []byte("# Project signals\n"), 0o644); err != nil {
+		t.Fatalf("write signals.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "claude.local.md"), []byte("@.claude/project/signals.md\n"), 0o644); err != nil {
+		t.Fatalf("write claude.local.md: %v", err)
 	}
 
-	writeAtMtime(filepath.Join(dir, "deterministic-signals.md"), "# Deterministic signals\n")
-	// Write a minimal router so freshness-focused tests aren't downgraded by router WARNs.
-	writeAtMtime(filepath.Join(dir, "signals.md"), "# Project signals\n")
-	// Wire the @-ref so the router check passes.
-	writeAtMtime(filepath.Join(root, "claude.local.md"), "@.claude/project/signals.md\n")
+	if err := signals.Scan(root); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	// Age every file the check inspects.
+	for _, p := range []string{
+		filepath.Join(dir, "deterministic-signals.md"),
+		filepath.Join(dir, "signals.md"),
+		filepath.Join(root, "claude.local.md"),
+	} {
+		if err := os.Chtimes(p, mtime, mtime); err != nil {
+			t.Fatalf("chtimes %s: %v", p, err)
+		}
+	}
 }
 
 // TestCheckSignalsMissingFile verifies WARN when signals file does not exist.

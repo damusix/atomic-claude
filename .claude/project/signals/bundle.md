@@ -10,12 +10,12 @@ Template rendering → bundle embedding → install/uninstall into `~/.claude/`.
 
 - `templates/commands/*.md` — 31 per-verb command source files. Edit surface for slash commands.
 - `templates/agents/*.md` — 9 agent source files. Edit surface for subagent definitions. Mirrors the commands template pattern.
-- `templates/shared/*.md` — 14 reusable partials composed via `{{ template "<name>" . }}`. Big command partials: `commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`. Small command partials: `doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety`, `staleness-check`. Agent partials: `agent-tdd-signals` (TDD + quality-signals steps), `agent-signals-output` (output block format), `agent-shared-rules` (style/git/error-quoting constraints).
+- `templates/shared/*.md` — 16 reusable partials composed via `{{ template "<name>" . }}`. Big command partials: `commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`. Small command partials: `doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety`, `staleness-check`. Agent partials: `agent-tdd-signals` (TDD + quality-signals steps), `agent-signals-output` (output block format), `agent-shared-rules` (style/git/error-quoting constraints), `agent-search-tooling` (grep/glob/sg tool-selection rule used by investigator/builder/surgeon), `agent-implementer-workflow` (shared `<workflow>` block for builder/surgeon, composes `agent-search-tooling` + `agent-tdd-signals`).
 
 **Rendered/generated (never edit directly):**
 
 - `commands/*.md` — 31 rendered slash command files. Generated from `templates/commands/` + `templates/shared/` by `make render`.  Includes `commands/_templates/implementer-prompt.md` and `commands/_templates/reviewer-prompt.md` (runtime prompt partials consumed by orchestrator commands).
-- `agents/*.md` — 9 rendered subagent definition files. Generated from `templates/agents/` + `templates/shared/` by `make render`. Partial-composing agents (`atomic-builder.md`, `atomic-surgeon.md`) use `{{ template "agent-tdd-signals" . }}`, `{{ template "agent-signals-output" . }}`, and `{{ template "agent-shared-rules" . }}`.
+- `agents/*.md` — 9 rendered subagent definition files. Generated from `templates/agents/` + `templates/shared/` by `make render`. Partial-composing agents (`atomic-builder.md`, `atomic-surgeon.md`) pull all five agent partials via `{{ template "agent-implementer-workflow" . }}` (which composes `agent-search-tooling` + `agent-tdd-signals`) plus `{{ template "agent-signals-output" . }}` and `{{ template "agent-shared-rules" . }}`. `atomic-investigator.md` uses `agent-search-tooling` directly.
 
 **Bundle inputs (the distributed artifact set):**
 

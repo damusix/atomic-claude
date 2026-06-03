@@ -58,7 +58,7 @@ func RunCheckSignalsWith(root string, staleDays int) Result {
 	}
 
 	// Check if source tree changed since last scan (regardless of age).
-	if err := signals.Stale(root); err == signals.ErrStale {
+	if _, err := signals.Stale(root); err == signals.ErrStale {
 		return Result{
 			Severity: WARN,
 			Detail:   fmt.Sprintf("source tree changed since last scan %dd ago", days),

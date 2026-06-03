@@ -167,7 +167,7 @@ Skip if:
 - Signals are already fresh per `atomic signals stale`.
 
 
-No file-extension allowlist. `atomic signals stale` is the source of truth: it fast-fails (~10ms) on prose-only commits because the deterministic snapshot is unchanged, and it catches structural shifts that an extension list would miss (a new `commands/*.md` file, a renamed `agents/` directory).
+No file-extension allowlist. `atomic signals stale` is the source of truth: it is content-based — it reassembles the deterministic snapshot and compares it to the stored one, returning fresh on prose-only or no-op commits because the snapshot is unchanged, and catching structural shifts an extension list would miss (a new `commands/*.md` file, a renamed `agents/` directory). Comparing content rather than mtimes means an idempotent regeneration (e.g. `make bundle` rewriting `manifest.go` with identical bytes) does not trip a false stale.
 
 
 ## Integration with `/atomic-setup`
@@ -194,7 +194,7 @@ Proposed actions:
 ## Open follow-ups
 
 
-- The "staleness" definition in `atomic signals stale` — should it look only at file mtimes, or also at content hashes? Spec defaults to mtime; revisit if false-positives are common.
+- ~~The "staleness" definition in `atomic signals stale` — should it look only at file mtimes, or also at content hashes?~~ Resolved 2026-06-03: `stale` is content-based — it reassembles the deterministic body and compares it to the stored one, so an idempotent regeneration that only bumps mtimes stays fresh. See `docs/spec/atomic-binary.md` change log.
 - Inferrer accuracy on multi-language repos — initial version handles one primary language well; polyglot repos may need iteration.
 - When the inferrer disagrees with a prior run (different claims) on an *unchanged* deterministic section, the incremental path will not catch it — by design, untouched sections are preserved byte-identical. Surface this trade-off in the README. Workaround: user invokes the skill with `--force-full` (future flag) to re-infer from scratch.
 
