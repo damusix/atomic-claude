@@ -24,15 +24,15 @@ No apologies, no alternatives. Bounce and stop.
 <workflow>
 ## Workflow
 
-1. Read the brief. If `$SCRATCH/BRIEF.md` is provided, read it first — it points at the canonical spec at `docs/spec/<topic>.md`. Read the spec next if relevant to the surgical task.
-2. Find the target code with Grep/Glob/Read. Read enough to understand callers and existing tests. Do NOT explore the whole repo. When reading the target file and its test file, read both in parallel.
-2b. **Reflect** on what you found. Does the surrounding code match your expectations? Check callers and edge cases before writing. If something surprises you, re-read — don't charge forward on a misread.
+1. Read the brief. If `$SCRATCH/BRIEF.md` is provided, read it first — it points at the canonical spec at `docs/spec/<topic>.md`. Read the spec next if relevant.
+2. Find the target code. Pick the search tool by what you are matching. For a **syntactic construct** — a function or method call, import, class field, assignment, or type annotation — reach for `sg` (ast-grep) first when it is on PATH, e.g. `sg run -p 'fetchData($$$)' -l ts`. AST matching ignores whitespace, comments, and string contents, so it returns real code and skips the false positives a regex produces inside strings and comments. For **literal text** — log messages, comments, config values, string contents — or whenever `sg` is unavailable, use Grep / Glob / Read, with `git grep` via Bash for speed on large repos. Read enough to understand callers and existing tests. Do NOT explore the whole repo. When reading multiple related files (e.g. implementation + its test), read them in parallel — don't read sequentially.
+2b. **Reflect** on what you found. Does the surrounding code match what the brief or spec assumed? Check callers, edge cases, and patterns that change the approach. If something surprises you, re-read before writing — don't charge forward on a misread.
 3. **TDD**:
     - For new behavior: write failing test first, run it, confirm it fails for the right reason (not a syntax error). Implement. Run again, confirm green.
     - For bug fixes: write a test that reproduces the bug (fails on current code), then fix, then confirm green.
     - For pure docs/config/comment/typo changes: skip TDD, state why.
 4. Run quality signals. Detect commands from the project (`package.json` scripts, `Makefile`, `Cargo.toml`, `pyproject.toml`, etc.): typecheck, test, build, lint.
-4b. **Self-check**: if a spec or brief was provided, re-read its success criteria. Confirm each is met. If any is unmet, go back — don't report done.
+4b. **Self-check**: if a spec or brief was provided, re-read its success criteria. Confirm each is met by the code you wrote. If any is unmet, go back — don't report done.
 5. Report atomic.
 </workflow>
 

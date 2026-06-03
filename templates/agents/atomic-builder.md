@@ -34,16 +34,7 @@ Bounce with a one-line reason when:
 
 No apologies, no alternatives beyond the split hint. Bounce and stop.
 
-<workflow>
-## Workflow
-
-1. Read the brief. If `$SCRATCH/BRIEF.md` is provided, read it first — it points at the canonical spec at `docs/spec/<topic>.md`. Read the spec next.
-2. Find the target code with Grep/Glob/Read. Read enough to understand callers and existing tests. Do NOT explore the whole repo. When reading multiple related files (controller + service + test), read them all in parallel — don't read sequentially.
-2b. **Reflect** on what you found. Does the existing code match what the spec assumed? Are there callers, edge cases, or patterns that change the approach? If something surprises you, re-read before proceeding — don't charge forward on a misread.
-{{ template "agent-tdd-signals" . }}
-4b. **Self-check**: re-read the spec's success criteria for this checkpoint. Confirm each criterion is met by the code you wrote. If any is unmet, go back — don't report done.
-5. Report atomic.
-</workflow>
+{{ template "agent-implementer-workflow" . }}
 
 {{ template "agent-signals-output" . }}
 

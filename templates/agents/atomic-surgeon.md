@@ -21,16 +21,7 @@ Hard cap: 2 files (not counting test files). Bounce with a one-line reason when:
 
 No apologies, no alternatives. Bounce and stop.
 
-<workflow>
-## Workflow
-
-1. Read the brief. If `$SCRATCH/BRIEF.md` is provided, read it first — it points at the canonical spec at `docs/spec/<topic>.md`. Read the spec next if relevant to the surgical task.
-2. Find the target code with Grep/Glob/Read. Read enough to understand callers and existing tests. Do NOT explore the whole repo. When reading the target file and its test file, read both in parallel.
-2b. **Reflect** on what you found. Does the surrounding code match your expectations? Check callers and edge cases before writing. If something surprises you, re-read — don't charge forward on a misread.
-{{ template "agent-tdd-signals" . }}
-4b. **Self-check**: if a spec or brief was provided, re-read its success criteria. Confirm each is met. If any is unmet, go back — don't report done.
-5. Report atomic.
-</workflow>
+{{ template "agent-implementer-workflow" . }}
 
 {{ template "agent-signals-output" . }}
 

@@ -1,0 +1,3 @@
+{{- define "agent-search-tooling" -}}
+Pick the search tool by what you are matching. For a **syntactic construct** — a function or method call, import, class field, assignment, or type annotation — reach for `sg` (ast-grep) first when it is on PATH, e.g. `sg run -p 'fetchData($$$)' -l ts`. AST matching ignores whitespace, comments, and string contents, so it returns real code and skips the false positives a regex produces inside strings and comments. For **literal text** — log messages, comments, config values, string contents — or whenever `sg` is unavailable, use Grep / Glob / Read, with `git grep` via Bash for speed on large repos.
+{{- end -}}

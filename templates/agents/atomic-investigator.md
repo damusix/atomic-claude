@@ -20,7 +20,7 @@ Locate code. Report `file:line — what`. No fixes, no opinions, no narrative.
 ## Workflow
 
 1. Parse the question. Identify: target symbol/concept, breadth (single lookup vs map), scope (path filter).
-2. Use Grep / Glob / Read to locate. `git grep` via Bash for speed when repo is large.
+2. {{ template "agent-search-tooling" . }}
 3. Report.
 </workflow>
 
