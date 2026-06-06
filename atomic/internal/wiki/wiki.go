@@ -63,43 +63,45 @@ type Member struct {
 
 // Scan runs the full CP1 wiki operation: discover repos under root, scaffold
 // wiki/, and write (or update) wiki/index.md with an idempotent <wiki-scan> block.
+// It returns the classified members so callers can use them directly without a
+// second filesystem walk.
 //
 // Collision refusal: if wiki/ already exists but index.md is absent or lacks a
 // <wiki-scan> marker, Scan returns an error naming the path.
-func Scan(root string, opts Options) error {
+func Scan(root string, opts Options) ([]Member, error) {
 	wikiDir := filepath.Join(root, "wiki")
 
 	// --- Collision check ---
 	if err := checkCollision(wikiDir); err != nil {
-		return err
+		return nil, err
 	}
 
 	// --- Parse existing entries from index.md (for summarized-preservation) ---
 	prior, err := parsePriorEntries(filepath.Join(wikiDir, "index.md"))
 	if err != nil {
-		return fmt.Errorf("wiki scan: parse prior entries: %w", err)
+		return nil, fmt.Errorf("wiki scan: parse prior entries: %w", err)
 	}
 
 	// --- Discover members ---
-	members, err := discoverMembers(root, wikiDir)
+	rawMembers, err := discoverMembers(root, wikiDir)
 	if err != nil {
-		return fmt.Errorf("wiki scan: discover: %w", err)
+		return nil, fmt.Errorf("wiki scan: discover: %w", err)
 	}
 
 	// --- Classify members ---
-	classified := classifyMembers(root, wikiDir, members, prior)
+	classified := classifyMembers(root, wikiDir, rawMembers, prior)
 
 	// --- Scaffold ---
 	if err := scaffold(wikiDir, root); err != nil {
-		return fmt.Errorf("wiki scan: scaffold: %w", err)
+		return nil, fmt.Errorf("wiki scan: scaffold: %w", err)
 	}
 
 	// --- Write <wiki-scan> block ---
 	if err := writeWikiScanBlock(filepath.Join(wikiDir, "index.md"), root, classified, opts); err != nil {
-		return fmt.Errorf("wiki scan: write block: %w", err)
+		return nil, fmt.Errorf("wiki scan: write block: %w", err)
 	}
 
-	return nil
+	return classified, nil
 }
 
 // checkCollision verifies that an existing wiki/ dir is owned by this tool.

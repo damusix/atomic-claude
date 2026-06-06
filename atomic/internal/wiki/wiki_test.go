@@ -114,7 +114,7 @@ func TestScan_HappyPath(t *testing.T) {
 	root := setupFixtureTree(t)
 	opts := wiki.Options{Clock: fixedClock()}
 
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 
@@ -214,7 +214,7 @@ func TestScan_IndexedStatus(t *testing.T) {
 	makeGitRepo(t, root, "repoB") // no signals → pending
 
 	opts := wiki.Options{Clock: fixedClock()}
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 
@@ -240,7 +240,7 @@ func TestScan_RootExcludedFromMembership(t *testing.T) {
 	makeGitRepo(t, root, "child")
 
 	opts := wiki.Options{Clock: fixedClock()}
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 
@@ -260,7 +260,7 @@ func TestScan_Idempotent_NarrativePreserved(t *testing.T) {
 	makeGitRepo(t, root, "repoA")
 
 	opts := wiki.Options{Clock: fixedClock()}
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("first Scan: %v", err)
 	}
 
@@ -273,7 +273,7 @@ func TestScan_Idempotent_NarrativePreserved(t *testing.T) {
 	}
 
 	// Re-scan
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("second Scan: %v", err)
 	}
 
@@ -296,7 +296,7 @@ func TestScan_SummarizedPreserved(t *testing.T) {
 	_ = repoA
 
 	opts := wiki.Options{Clock: fixedClock()}
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("first Scan: %v", err)
 	}
 
@@ -317,7 +317,7 @@ func TestScan_SummarizedPreserved(t *testing.T) {
 	}
 
 	// Re-scan — summarized entry with existing summary file must be preserved.
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("second Scan: %v", err)
 	}
 
@@ -332,7 +332,7 @@ func TestScan_SummarizedDowngradedWhenFileMissing(t *testing.T) {
 	makeGitRepo(t, root, "repoA")
 
 	opts := wiki.Options{Clock: fixedClock()}
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("first Scan: %v", err)
 	}
 
@@ -344,7 +344,7 @@ func TestScan_SummarizedDowngradedWhenFileMissing(t *testing.T) {
 	}
 
 	// Re-scan — with no summary file, must downgrade to pending.
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("second Scan: %v", err)
 	}
 
@@ -368,7 +368,7 @@ func TestScan_CollisionNoIndexMD(t *testing.T) {
 	}
 
 	opts := wiki.Options{Clock: fixedClock()}
-	err := wiki.Scan(root, opts)
+	_, err := wiki.Scan(root, opts)
 	if err == nil {
 		t.Fatal("expected error for wiki/ without index.md, got nil")
 	}
@@ -392,7 +392,7 @@ func TestScan_CollisionIndexMDMissingMarker(t *testing.T) {
 	}
 
 	opts := wiki.Options{Clock: fixedClock()}
-	err := wiki.Scan(root, opts)
+	_, err := wiki.Scan(root, opts)
 	if err == nil {
 		t.Fatal("expected error for index.md without wiki-scan marker, got nil")
 	}
@@ -408,7 +408,7 @@ func TestScan_GitInitSkippedIfAlreadyRepo(t *testing.T) {
 	opts := wiki.Options{Clock: fixedClock()}
 
 	// First scan — creates wiki/ and runs git init
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("first Scan: %v", err)
 	}
 	// Verify wiki is a git repo
@@ -417,7 +417,7 @@ func TestScan_GitInitSkippedIfAlreadyRepo(t *testing.T) {
 	}
 
 	// Second scan — must not error (git init skipped gracefully)
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("second Scan (re-scan existing wiki): %v", err)
 	}
 }
@@ -432,7 +432,7 @@ func TestScan_NestedRepoFound(t *testing.T) {
 	makeGitRepo(t, deepDir, "repoC")
 
 	opts := wiki.Options{Clock: fixedClock()}
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 
@@ -448,7 +448,7 @@ func TestScan_WikiDirSkippedDuringWalk(t *testing.T) {
 
 	opts := wiki.Options{Clock: fixedClock()}
 	// First scan creates wiki/
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("first Scan: %v", err)
 	}
 
@@ -467,7 +467,7 @@ func TestScan_StableSort(t *testing.T) {
 	}
 
 	opts := wiki.Options{Clock: fixedClock()}
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 
@@ -494,7 +494,7 @@ func TestScan_IndexedMemberHasSignalsAttribute(t *testing.T) {
 	writeSignals(t, repoA)
 
 	opts := wiki.Options{Clock: fixedClock()}
-	if err := wiki.Scan(root, opts); err != nil {
+	if _, err := wiki.Scan(root, opts); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
 
