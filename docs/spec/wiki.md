@@ -154,4 +154,36 @@ New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + inj
 ## Change log
 
 
-<!-- Empty at birth. First entry on the first amendment after the spec is approved and implementation has started. -->
+<!-- No amendments: the build matched the contract; nothing in the body was superseded. -->
+
+
+## Implementation log
+
+
+### Shipped — 2026-06-06
+
+
+Built across 10 checkpoints via `/autopilot` → the `/subagent-implementation` loop on branch `feat/project-wiki`. Commits (chronological):
+
+- `71444e3` — CP1 wiki-core package (discovery, scaffold, `<wiki-scan>` block, collision, summarized-preservation)
+- `4b59005` — CP2 `atomic wiki scan` + `<wikis>` registry writer
+- `0d14f5c` — CP3 `signals scan --out` + `atomic wiki stamp` code fingerprinter
+- `513f441` — CP4 `atomic wiki stale` comparator
+- `ae3e6c5` — CP5 `CheckStaleness` + `atomic wiki mark-dirty` primitives
+- `8895bdb` — CP6 forcing-function wiring (session-start nudge + ship-time `mark-dirty`)
+- `ee85475` — CP7 inferrer wiki-output mode
+- `acde091` — CP8 `/refresh-wiki` orchestration command
+- `4228d30` — CP9 discovery + docs (CLAUDE.md, `/atomic-help`, merger note, README, docs/reference) + hardened `<wikis>` detection
+- (this commit) — CP10 implementation log; bundle + render parity confirmed
+
+**Out-of-scope work performed during the build:**
+- Hardened `RegisterWiki` to line-anchored `<wikis>` detection (folded into CP9). The original substring scan would have false-matched the documentation mention of the literal tag in the installed `~/.claude/CLAUDE.md` and written the user's registry entry inside `<atomic>`, where `atomic claude update` clobbers it. Caught by the CP9 reviewer; fixed in-iteration with a regression test.
+- Bundle regenerated per artifact-touching commit (CP6–CP9) rather than once at CP10, per the build-pipeline hard rule ("any commit touching a source artifact includes its regenerated bundle"). CP10 is therefore a parity confirmation, not a bundle commit.
+
+**Unforeseens:**
+- CP3 reviewer reported an "all cited ids unresolvable → crash" 🔴 whose described mechanism did not actually exist (a nil `[]any` still matches the `[]any` type-switch arm and emits an empty sequence). The defensive empty-slice initializer + an all-unresolvable regression test were applied regardless.
+- Isolation used a feature-branch-checked-out-as-worktree rather than a fresh `/worktree-start`, because the spec/design/follow-up were uncommitted on `main` and a fresh worktree from HEAD would have stranded them.
+
+**Deferred items still open:** none. The scratchpad FOLLOWUPS ledger is empty — every reviewer finding (blocking and non-blocking) was addressed in-iteration per autopilot.
+
+**End-to-end verification:** built the binary and ran `atomic wiki scan` on a fixture (with `HOME` redirected to a temp dir, never touching the real `~/.claude`) — correct `N repos · M indexed · K pending` handoff, scaffold, `<wiki-scan>` block, and `<wikis>` registration; `atomic wiki stale` returned fresh (exit 0); junk dirs skipped. Full Go suite green; `go vet` + `gofmt` clean; render + bundle parity clean; `/atomic-help` coverage complete (zero `MISSING`); VitePress docs build clean.
