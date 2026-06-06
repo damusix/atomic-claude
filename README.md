@@ -71,7 +71,7 @@ The rest of the system supports those three.
 
 **Discipline skills that auto-fire.** Seven skills trigger on natural language: TDD enforcement, completion verification, debugging, commit messages, code review, prose editing, and documentation routing. No slash command needed. Details in [docs/reference/skills.md](docs/reference/skills.md).
 
-**Workflow commands for every git operation.** Ten verbs covering every combination of commit, push, squash, PR, and merge-to-base. Plus utilities for CI watching, stale branch cleanup, worktree isolation, reminders, and integrity checks. Details in [docs/reference/commands.md](docs/reference/commands.md).
+**Workflow commands for every git operation.** Ten verbs covering every combination of commit, push, squash, PR, and merge-to-base. Plus utilities for CI watching, stale branch cleanup, worktree isolation, reminders, integrity checks, and cross-repo wiki management (`/refresh-wiki`). Details in [docs/reference/commands.md](docs/reference/commands.md).
 
 **A user profile that persists.** Install creates `~/.claude/.atomic/profile.md`, a plain-markdown file with six sections (Identity, Work, Active projects, Interests, People mentioned, Environment). Claude reads it every session and appends new facts as they surface. Facts that hold across all projects go here; project-specific preferences stay in that project's auto memory. Run `atomic profile refresh` to re-detect your dev tooling (runtimes, version managers, containers, shell framework) and rewrite the `## Environment` block. The session-start hook fires this with `--if-stale 7d` so the environment stays current. Details in [docs/reference/concepts.md](docs/reference/concepts.md).
 

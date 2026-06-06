@@ -30,6 +30,8 @@ Atomic-owned content in `CLAUDE.md` is bounded by `<atomic>...</atomic>` tags. E
 | **user-owned** | Outside `<atomic>...</atomic>` in the current file | Preserve verbatim. Position unchanged. |
 | **no current block** | Current file has no `<atomic>` tag | Migration path — see below. |
 
+User-owned sibling blocks (e.g. `<wikis>...</wikis>`) that live outside `<atomic>` are user-owned content and are preserved verbatim on every merge, including migration runs. Never strip or move them.
+
 ## Merge algorithm
 
 <workflow>

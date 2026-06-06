@@ -25,6 +25,11 @@ const atomicClose = "</atomic>"
 //   - block absent → append a fresh <wikis> block after </atomic> (or at EOF).
 //   - file absent → create it containing just the block.
 //
+// Block detection is line-anchored: a line whose trimmed content is exactly
+// "<wikis>" opens the block; a line whose trimmed content is exactly "</wikis>"
+// closes it. Inline or backtick mentions of the literal text (e.g. inside a
+// sentence or as `<wikis>`) do NOT match.
+//
 // The <atomic> block and all other content are never altered.
 func RegisterWiki(claudeMDPath, indexPath string) error {
 	// Normalize the path for consistent dedup comparison.
@@ -59,27 +64,77 @@ func normalizePath(p string) (string, error) {
 	return filepath.Clean(abs), nil
 }
 
-// rewriteWikisBlock either inserts a new entry into an existing <wikis> block
-// or appends a new block after </atomic> (or at EOF). Never touches <atomic>.
+// findBareLineBlock scans lines for a block whose open/close tags occupy a
+// line by themselves (trimmed). Returns the byte offsets of the start of the
+// open-tag line and the end (exclusive) of the close-tag line within content,
+// plus the body text between the tags. Returns (-1, -1, "") if not found.
+//
+// "Bare line" means: strings.TrimSpace(line) == tag. A line like
+// "`<wikis>`" or "see <wikis> for details" does NOT match.
+func findBareLineBlock(content, openTag, closeTag string) (blockStart, blockEnd int, body string) {
+	lines := strings.Split(content, "\n")
+	openLine := -1
+	pos := 0
+	for i, line := range lines {
+		lineLen := len(line)
+		// Account for the \n that was consumed by Split (except for the last segment).
+		if i < len(lines)-1 {
+			lineLen++ // +1 for the \n
+		}
+		if openLine == -1 {
+			if strings.TrimSpace(line) == openTag {
+				openLine = i
+				blockStart = pos
+			}
+		} else {
+			if strings.TrimSpace(line) == closeTag {
+				blockEnd = pos + lineLen
+				// body is everything between the open-tag line's \n and the close-tag line start.
+				// Rebuild from lines[openLine+1 .. i-1] to avoid index arithmetic bugs.
+				bodyLines := lines[openLine+1 : i]
+				body = strings.Join(bodyLines, "\n")
+				if len(bodyLines) > 0 {
+					body += "\n"
+				}
+				return blockStart, blockEnd, body
+			}
+		}
+		pos += lineLen
+	}
+	return -1, -1, ""
+}
+
+// findBareAtomicClose returns the byte offset immediately after the bare-line
+// </atomic> tag (i.e. including its trailing newline if present). Returns -1
+// if no bare-line </atomic> exists.
+func findBareAtomicClose(content string) int {
+	lines := strings.Split(content, "\n")
+	pos := 0
+	for i, line := range lines {
+		lineLen := len(line)
+		if i < len(lines)-1 {
+			lineLen++ // +1 for \n
+		}
+		if strings.TrimSpace(line) == atomicClose {
+			return pos + lineLen
+		}
+		pos += lineLen
+	}
+	return -1
+}
+
+// rewriteWikisBlock either inserts a new entry into an existing bare-line
+// <wikis> block or appends a new block after a bare-line </atomic> (or at
+// EOF). Inline/backtick mentions of "<wikis>" are ignored.
 func rewriteWikisBlock(content, normalized string) string {
-	openIdx := strings.Index(content, wikisMarkerOpen)
-	if openIdx == -1 {
-		// No <wikis> block — insert one.
+	blockStart, _, body := findBareLineBlock(content, wikisMarkerOpen, wikisMarkerClose)
+	if blockStart == -1 {
+		// No bare-line <wikis> block — insert one.
 		return insertWikisBlock(content, normalized)
 	}
 
-	// Block present — find it and add iff absent.
-	closeIdx := strings.Index(content[openIdx:], wikisMarkerClose)
-	if closeIdx == -1 {
-		// Malformed (no close tag) — append a new entry before EOF.
-		return insertWikisBlock(content, normalized)
-	}
-	blockEnd := openIdx + closeIdx + len(wikisMarkerClose)
-
-	blockContent := content[openIdx+len(wikisMarkerOpen) : openIdx+closeIdx]
-
-	// Check whether normalized is already recorded.
-	for _, line := range strings.Split(blockContent, "\n") {
+	// Block present — check whether normalized is already recorded.
+	for _, line := range strings.Split(body, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
@@ -95,30 +150,35 @@ func rewriteWikisBlock(content, normalized string) string {
 		}
 	}
 
-	// Add the new entry.
-	entry := "\n- " + normalized
-	before := content[:openIdx+len(wikisMarkerOpen)]
-	after := content[openIdx+len(wikisMarkerOpen) : blockEnd]
-	rest := content[blockEnd:]
-	return before + entry + after + rest
+	// Add the new entry immediately after the open tag line.
+	// blockStart points to the start of the "<wikis>" line.
+	// We need to insert after the first \n following the open tag.
+	openTagEnd := blockStart + len(wikisMarkerOpen)
+	// Skip the \n that follows the open tag line.
+	if openTagEnd < len(content) && content[openTagEnd] == '\n' {
+		openTagEnd++
+	}
+	entry := "- " + normalized + "\n"
+	before := content[:openTagEnd]
+	after := content[openTagEnd:]
+	return before + entry + after
 }
 
-// insertWikisBlock builds a fresh <wikis> block and inserts it after </atomic>
-// if present, or appends it at EOF.
+// insertWikisBlock builds a fresh <wikis> block and inserts it after the
+// bare-line </atomic> if present, or appends it at EOF.
 func insertWikisBlock(content, normalized string) string {
 	block := "\n" + buildWikisBlock([]string{normalized})
 
-	atomicIdx := strings.LastIndex(content, atomicClose)
-	if atomicIdx == -1 {
-		// No <atomic> block — append at EOF.
+	insertAt := findBareAtomicClose(content)
+	if insertAt == -1 {
+		// No bare-line </atomic> — append at EOF.
 		if !strings.HasSuffix(content, "\n") {
 			content += "\n"
 		}
 		return content + block
 	}
 
-	// Insert immediately after </atomic>.
-	insertAt := atomicIdx + len(atomicClose)
+	// Insert immediately after the bare-line </atomic>.
 	before := content[:insertAt]
 	after := content[insertAt:]
 	return before + block + after

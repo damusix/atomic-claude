@@ -151,6 +151,7 @@ Dispatch via the `Agent` tool (`subagent_type`). Names + when-to-use only here �
 
 **Discovery.** Every command self-describes in the slash listing the harness injects each session, and every skill via its trigger description. For "which verb for my situation?", invoke `/atomic-help [<topic> | <intent> | tour]` — the router. This file carries only the *lifecycle ordering and cross-artifact contracts*, not a per-command catalog.
 
+**Cross-repo wiki.** `/refresh-wiki [root]` maintains a project-wiki: a separate git repo that summarizes every member repo under a root directory. It reuses `atomic-signals-inferrer` in wiki-output mode to summarize repos that have no signals, writes summaries under `wiki/repos/`, synthesizes cross-cutting concerns under `wiki/concerns/`, and refreshes only stale artifacts. The wiki index path is written by `atomic wiki scan` into a `<wikis>` block in `~/.claude/CLAUDE.md` (outside `<atomic>`, never `@-ref`'d — the block is CLI-managed). A session-start nudge fires when a registered wiki is stale (age > 30 days or `.dirty` marker present); the shared `signals-gate` partial calls `atomic wiki mark-dirty` on every ship so drift is caught. `atomic-claude-merger` preserves the `<wikis>` block verbatim on merge.
 
 ## Atomic binary subcommands
 
@@ -166,5 +167,8 @@ Dispatch via the `Agent` tool (`subagent_type`). Names + when-to-use only here �
 - `atomic docs <scan|stale>` — doc-surface cache + staleness gate for `/documentation`.
 - `atomic docker init [--target DIR]` — write an eval Dockerfile + compose into the target dir.
 - `atomic claude uninstall` — reverse `atomic claude install` from the pre-install snapshot.
+- `atomic wiki scan [--root=<path>]` — scaffold `wiki/` (dirs + README + `.gitignore` + git init), walk member repos, classify each `indexed`/`pending`, write `<wiki-scan>` block idempotently, register the wiki index path in `~/.claude/CLAUDE.md`'s `<wikis>` block.
+- `atomic wiki stale [--root=<path>]` — read-only freshness verdict; exits `0` fresh / `1` stale / `2` error; reports membership drift and per-artifact `reflects_*` vs current fingerprint. Mirrors `atomic signals stale` exit-code contract.
+- `atomic signals scan --out <dir>` — redirect the deterministic substrate to `<dir>` instead of `<root>/.claude/project/`; the scanned repo is never written to. Without `--out`, behavior is unchanged.
 
 </atomic>

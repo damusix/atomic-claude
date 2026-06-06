@@ -246,6 +246,96 @@ func TestRegistry_AtomicBlockUntouched(t *testing.T) {
 	}
 }
 
+// TestRegistry_ProseMentionNotMatched verifies that a CLAUDE.md containing prose
+// mentions of `<wikis>` inside an <atomic> block — including backtick-quoted
+// examples like `<wikis>` and `</wikis>` — are NOT treated as a real bare-line
+// block. The first RegisterWiki call must create a NEW block AFTER </atomic> and
+// must NOT write into or near the prose mention. A second call finds the created
+// block and dedups.
+func TestRegistry_ProseMentionNotMatched(t *testing.T) {
+	dir := t.TempDir()
+	claudeMD := filepath.Join(dir, "CLAUDE.md")
+
+	// Fixture: <atomic>…</atomic> with inline prose that mentions `<wikis>` and
+	// `</wikis>` via backticks and in a sentence — none of these are bare lines.
+	original := "<atomic>\n" +
+		"## Wiki section\n" +
+		"\n" +
+		"The wiki index path is written into a `<wikis>` block in CLAUDE.md.\n" +
+		"Use `</wikis>` to close it. See the `<wikis>` / `</wikis>` pair.\n" +
+		"\n" +
+		"</atomic>\n" +
+		"\n" +
+		"## User section\n" +
+		"\n" +
+		"custom content\n"
+
+	if err := os.WriteFile(claudeMD, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	indexPath := "/my/wiki/index.md"
+
+	// First call — must append a new block AFTER </atomic>, not inside <atomic>.
+	if err := RegisterWiki(claudeMD, indexPath); err != nil {
+		t.Fatalf("first RegisterWiki: %v", err)
+	}
+
+	got, err := os.ReadFile(claudeMD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(got)
+
+	// A real <wikis> block must now exist.
+	if !strings.Contains(content, "<wikis>") {
+		t.Fatal("expected <wikis> block to be created")
+	}
+	if !strings.Contains(content, "- "+indexPath) {
+		t.Errorf("expected entry %q in <wikis> block", indexPath)
+	}
+
+	// The entry must land AFTER </atomic>.
+	atomicCloseIdx := strings.Index(content, "</atomic>")
+	if atomicCloseIdx == -1 {
+		t.Fatal("</atomic> missing from output")
+	}
+	entryIdx := strings.Index(content, "- "+indexPath)
+	if entryIdx <= atomicCloseIdx {
+		t.Errorf("wiki entry landed inside or before </atomic> (atomicClose=%d, entry=%d)", atomicCloseIdx, entryIdx)
+	}
+
+	// The <atomic> block content must be byte-identical to the original.
+	if content[:atomicCloseIdx] != original[:strings.Index(original, "</atomic>")] {
+		t.Error("content before </atomic> was modified")
+	}
+
+	// ## User section must survive.
+	if !strings.Contains(content, "custom content") {
+		t.Error("user section content was dropped")
+	}
+
+	// Count occurrences of "- /my/wiki/index.md" — must be exactly 1.
+	if strings.Count(content, "- "+indexPath) != 1 {
+		t.Errorf("expected exactly 1 entry, got %d", strings.Count(content, "- "+indexPath))
+	}
+
+	// Second call — must dedup (the real block now exists).
+	if err := RegisterWiki(claudeMD, indexPath); err != nil {
+		t.Fatalf("second RegisterWiki: %v", err)
+	}
+
+	got2, err := os.ReadFile(claudeMD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content2 := string(got2)
+
+	if strings.Count(content2, "- "+indexPath) != 1 {
+		t.Errorf("second call created a duplicate; got %d occurrences", strings.Count(content2, "- "+indexPath))
+	}
+}
+
 // --- wikiAction integration tests ---
 
 // TestWikiAction_ScanWritesRegistryAndHandoff verifies that wikiAction:

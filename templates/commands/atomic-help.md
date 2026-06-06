@@ -102,6 +102,7 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `setup` / `install` | First-run flow: `/atomic-setup` audits conventions, then `/refresh-signals` generates project context. |
 | `signals` | `/refresh-signals` — idempotent, initializes or refreshes. Ship verbs auto-dispatch `atomic-signals-inferrer` on source-tree changes. |
+| `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, refreshes only stale artifacts, offers a commit. Run `atomic wiki scan` first to scaffold. |
 | `worktree` | `/worktree-start <branch>` creates `.worktrees/<branch>/`. Cleanup via `/git-cleanup`. |
 | `session` | `/session-report [<slug>]` captures branch session. Read + deleted by next commit-message ship verb. |
 | `reminders` | `/remind-me <when> <text>` schedules. `/follow-up` reviews pending. `/follow-up review` triages stale entries. |
@@ -125,7 +126,7 @@ One-line pointer per topic. Group by category for scannability.
 | `skills` | 7 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` / `intensity` | atomic output style — three levels: `lite`, `full` (default), `ultra`. Switch mid-session by saying "atomic ultra" / "atomic lite". |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
-| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`. |
+| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`. |
 
 ### C. Freeform intent — classify and route
 
@@ -195,8 +196,10 @@ If user picks "dive in", ask which stage (1–4), then dump that stage's verb de
 .worktrees/<branch>/                  isolated branches (gitignored)
 docs/design/<topic>.md                conceptual workspace (committed)
 docs/spec/<topic>.md                  implementation contract (committed; body kept current, changes logged)
+<wikis> block in ~/.claude/CLAUDE.md  registered wiki index paths (CLI-managed, outside <atomic>)
 
 Refresh project map any time: /refresh-signals
+Refresh cross-repo wiki: /refresh-wiki [root]
 ```
 
 Prompt: continue to maintenance / explain one of these / exit tour.
@@ -204,17 +207,20 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 **Stage 4 — Maintenance and utilities.**
 
 ```
-atomic doctor [--fix]       10 integrity checks (install, hooks, signals, refs, ..., profile)
-atomic validate             lint spec / config / bundle parity
-atomic update [--check]     self-update binary, runs doctor after
-atomic profile refresh      re-detect dev tooling + shell, rewrite ## Environment block
-/atomic-claude-merge        merge proposed CLAUDE.md after install/update
-/git-cleanup                stale worktrees / branches (scout reports, you confirm)
-/undo-commit                soft-undo HEAD (refuses if pushed)
-/watch-ci [target]          background Haiku tails CI, notifies when terminal
-/report-issue               file issue against current repo
-/report-issue-with-atomic   file issue against atomic-claude config itself
-/atomic-improve [<hint>]    session retrospective; surfaces friction and drift
+atomic doctor [--fix]             10 integrity checks (install, hooks, signals, refs, ..., profile)
+atomic validate                   lint spec / config / bundle parity
+atomic update [--check]           self-update binary, runs doctor after
+atomic profile refresh            re-detect dev tooling + shell, rewrite ## Environment block
+atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki in ~/.claude/CLAUDE.md
+atomic wiki stale [--root=<path>] read-only freshness verdict for a registered wiki (exit 0/1/2)
+/refresh-wiki [root]              incremental wiki refresh — re-authors stale/pending artifacts only
+/atomic-claude-merge              merge proposed CLAUDE.md after install/update
+/git-cleanup                      stale worktrees / branches (scout reports, you confirm)
+/undo-commit                      soft-undo HEAD (refuses if pushed)
+/watch-ci [target]                background Haiku tails CI, notifies when terminal
+/report-issue                     file issue against current repo
+/report-issue-with-atomic         file issue against atomic-claude config itself
+/atomic-improve [<hint>]          session retrospective; surfaces friction and drift
 ```
 
 Prompt: end tour / get a specific topic recap / re-run tour.
