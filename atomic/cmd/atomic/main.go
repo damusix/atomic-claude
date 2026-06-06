@@ -52,7 +52,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  reminder list       List all reminders\n")
 		fmt.Fprintf(os.Stderr, "  reminder show <id>  Print body of a reminder\n")
 		fmt.Fprintf(os.Stderr, "  reminder rm <id>    Delete a reminder\n")
-		fmt.Fprintf(os.Stderr, "  signals scan        Walk repo and write deterministic-signals.md\n")
+		fmt.Fprintf(os.Stderr, "  signals scan [--out <dir>]  Walk repo and write deterministic-signals.md\n")
 		fmt.Fprintf(os.Stderr, "  signals show        Print deterministic-signals.md to stdout\n")
 		fmt.Fprintf(os.Stderr, "  signals stale       Exit 0 fresh, 1 stale, 2 error\n")
 		fmt.Fprintf(os.Stderr, "  signals diff        Print unified diff of signals file\n")
@@ -560,7 +560,23 @@ func runSignals(args []string, repoOverride string) {
 	verb := args[0]
 	switch verb {
 	case "scan":
-		if err := signals.Scan(root); err != nil {
+		fs := flag.NewFlagSet("signals-scan", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		var outDir string
+		fs.StringVar(&outDir, "out", "", "write substrate to <dir> instead of <root>/.claude/project/")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+		opts := &signals.Options{}
+		if outDir != "" {
+			absOut, err := filepath.Abs(outDir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "atomic signals scan: resolve --out: %v\n", err)
+				os.Exit(1)
+			}
+			opts.OutDir = absOut
+		}
+		if err := signals.ScanWithOptions(root, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}

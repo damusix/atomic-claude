@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -34,10 +35,97 @@ func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	switch verb {
 	case "scan":
 		return wikiScanAction(args[1:], claudeHome, cwd, out)
+	case "stamp":
+		return wikiStampAction(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "atomic wiki: unknown verb %q\n", verb)
 		return 1
 	}
+}
+
+// wikiStampAction implements:
+//
+//	atomic wiki stamp <file> --repo <path>                        (summary mode)
+//	atomic wiki stamp <file> --root <wiki-root> --cites a,b,c    (concern mode)
+//
+// It is an INTERNAL helper invoked by /refresh-wiki — not surfaced in /atomic-help.
+func wikiStampAction(args []string) int {
+	fs := flag.NewFlagSet("wiki-stamp", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	var repo string  // summary mode: repo whose HEAD to stamp
+	var root string  // concern mode: wiki root
+	var cites string // concern mode: comma-separated cited repo ids
+
+	fs.StringVar(&repo, "repo", "", "repo path (summary mode)")
+	fs.StringVar(&root, "root", "", "wiki root (concern mode)")
+	fs.StringVar(&cites, "cites", "", "comma-separated cited repo ids (concern mode)")
+
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	positional := fs.Args()
+	if len(positional) < 1 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic wiki stamp <file> --repo <path>\n")
+		fmt.Fprintf(os.Stderr, "       atomic wiki stamp <file> --root <wiki-root> --cites <ids>\n")
+		return 1
+	}
+
+	filePath := positional[0]
+
+	absFile, err := filepath.Abs(filePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki stamp: resolve file path: %v\n", err)
+		return 1
+	}
+
+	switch {
+	case repo != "" && root == "" && cites == "":
+		// Summary mode.
+		absRepo, err := filepath.Abs(repo)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic wiki stamp: resolve --repo: %v\n", err)
+			return 1
+		}
+		if err := StampSummary(absFile, absRepo); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic wiki stamp: %v\n", err)
+			return 1
+		}
+		return 0
+
+	case root != "" && cites != "":
+		// Concern mode.
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic wiki stamp: resolve --root: %v\n", err)
+			return 1
+		}
+		ids := splitCites(cites)
+		if err := StampConcern(absFile, absRoot, ids); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic wiki stamp: %v\n", err)
+			return 1
+		}
+		return 0
+
+	default:
+		fmt.Fprintf(os.Stderr, "atomic wiki stamp: supply either --repo (summary) or --root + --cites (concern)\n")
+		return 1
+	}
+}
+
+// splitCites splits a comma-separated cites string into a slice of trimmed ids.
+// Empty elements are discarded.
+func splitCites(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // wikiScanAction implements `atomic wiki scan [--root=<path>]`.
