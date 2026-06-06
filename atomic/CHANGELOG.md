@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.1.0](https://github.com/damusix/atomic-claude/compare/v3.0.1...v3.1.0) (2026-06-06)
+
+
+### Features
+
+* **agents:** prefer ast-grep for code search ([ad65d24](https://github.com/damusix/atomic-claude/commit/ad65d24101c4310d9f8edaf79c911759271c8c47))
+
+
+### Bug Fixes
+
+* **cli:** content-based stale + unified exit codes ([ea22b8c](https://github.com/damusix/atomic-claude/commit/ea22b8ccfe5d4c1119f3a0733a961d159e85cf5f))
+
 ## [3.0.1](https://github.com/damusix/atomic-claude/compare/v3.0.0...v3.0.1) (2026-05-31)
 
 
