@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.1.1](https://github.com/damusix/atomic-claude/compare/v3.1.0...v3.1.1) (2026-06-06)
+
+
+### Bug Fixes
+
+* skip bundle/manifest checks outside the atomic-claude repo ([af9a323](https://github.com/damusix/atomic-claude/commit/af9a3238a4a92d96f86ec1c0077dc8d34c34d70a))
+* skip bundle/manifest checks outside the atomic-claude repo ([3204206](https://github.com/damusix/atomic-claude/commit/3204206d5184b752a4c4a4efbc72d20eebaa0f96)), closes [#35](https://github.com/damusix/atomic-claude/issues/35)
+
 ## [3.1.0](https://github.com/damusix/atomic-claude/compare/v3.0.1...v3.1.0) (2026-06-06)
 
 
