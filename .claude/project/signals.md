@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-05-28T13:38:28Z
+generated_at: 2026-06-06T23:04:47Z
 source: .claude/project/deterministic-signals.md
 ---
 
@@ -36,15 +36,14 @@ CI gates: (1) `make render && git diff --exit-code` — stale `commands/` fails.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Markdown | 37546 | 263 | 50% |
-| Go | 33454 | 142 | 44% |
-| JSON | 2295 | 5 | 3% |
+| Markdown | 40571 | 276 | 49% |
+| Go | 38258 | 155 | 46% |
+| JSON | 2295 | 5 | 2% |
 | CSS | 691 | 1 | 0% |
 | Shell | 269 | 3 | 0% |
 | YAML | 218 | 6 | 0% |
 | TypeScript | 205 | 3 | 0% |
 | Vue | 183 | 1 | 0% |
-| Python | 30 | 1 | 0% |
 
 ## DevOps & CI
 
@@ -64,6 +63,7 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 | workflow | `commands/autopilot.md`, `commands/atomic-plan.md`, `commands/gather-evidence.md`, `commands/subagent-implementation.md`, `commands/subagent-diagnose.md`, `commands/atomic-setup.md`, `commands/atomic-improve.md`, ship verbs (`commands/commit-*.md`, `commands/push-only.md`, etc.), `commands/_templates/`, `agents/atomic-builder.md`, `agents/atomic-surgeon.md`, `agents/atomic-reviewer.md`, `agents/atomic-investigator.md`, `agents/atomic-strategist.md`, `skills/atomic-tdd/`, `skills/atomic-verify/`, `skills/atomic-commit/`, `skills/atomic-review/`, `skills/atomic-debug/` | Plan → gather-evidence → implement → review → ship → retrospective lifecycle; `/autopilot` runs it hands-off | .claude/project/signals/workflow.md |
 | config | `commands/follow-up.md`, `commands/remind-me.md`, `commands/git-cleanup.md`, `commands/watch-ci.md`, `commands/atomic-claude-merge.md`, `agents/atomic-git-scout.md`, `agents/atomic-haiku.md`, `agents/atomic-claude-merger.md`, `atomic/internal/config/`, `atomic/internal/hooks/`, `atomic/internal/reminder/`, `atomic/internal/followups/`, `atomic/internal/prompt/`, `atomic/internal/selfupdate/` | User config, state dir (profile.md, config.toml), session hooks, reminders, follow-ups, self-update | .claude/project/signals/config.md |
 | docs-meta | `output-styles/atomic.md`, `skills/atomic-documentation/`, `skills/atomic-prose/`, `commands/documentation.md`, `.claude/docs/axioms.md`, `.claude/docs/agent-config.md`, `docs/spec/documentation-skill-split.md`, `docs/spec/documentation-as-maintenance.md` | Two-voice taxonomy, diff-driven surface routing, prose style, design axioms | .claude/project/signals/docs-meta.md |
+| wiki | `commands/refresh-wiki.md`, `atomic/internal/wiki/`, `docs/spec/wiki.md`, `docs/design/wiki.md`, `docs/reference/wiki-workflow.md`, `docs/reference/concepts.md` (Wikis section), `docs/credits.md` | Cross-repo knowledge layer: scan → stale → incremental LLM refresh; ship-time dirty marker; session-start nudge | .claude/project/signals/wiki.md |
 
 ## Cross-cutting
 
@@ -96,6 +96,8 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 **VitePress docs site**: not part of the Go build or embedded bundle. `package.json` / `.vitepress/config.mts` are purely for the public docs site. `docs.yml` workflow deploys it.
 
 **Typed follow-ups (config domain)**: `atomic/internal/followups/entry.go` defines `Kind` type (`KindFinding`/`KindPlan`). Missing `kind` parses as `KindFinding` (back-compat — existing 19 entries unchanged). `--severity` optional when `--kind plan`. `Render` places `## 📋 plans` first; plans are exempt from staleness. Plans are filed via `atomic followups add --kind plan`. Spec: `docs/spec/typed-followups.md`.
+
+**Wiki feature (wiki domain)**: `atomic/internal/wiki/` implements `atomic wiki scan` (scaffold + classify + `<wiki-scan>` block + `<wikis>` registry), `atomic wiki stale` (membership drift + per-artifact fingerprint drift), `atomic wiki stamp` (writes `reflects_rev`/`reflects:` fingerprints into YAML frontmatter — code-only, model never writes fingerprints), and `atomic wiki mark-dirty` (touches `.dirty` on ship). `/refresh-wiki` dispatches `atomic-signals-inferrer` in wiki-output mode using `atomic signals scan --out <tmp>` to avoid writing into the target repo. The `signals-gate` partial (shared across all ship verbs) invokes `atomic wiki mark-dirty` after signals refresh. Session-start hook calls `wiki.CheckStaleness` best-effort with 30-day default (reads from memory per axiom 2). `atomic-claude-merger` preserves the `<wikis>` block verbatim on merge.
 
 **`atomic-documentation` skill is two-mode**: maintenance mode (fires during ship verbs — flags stale/incomplete only) and authoring mode (`/documentation` — full discovery, gap detection, content generation). `atomic docs scan` / `atomic docs stale` are binary subcommands that support it.
 

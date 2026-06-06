@@ -13,6 +13,8 @@ Two ideas shaped how atomic-claude thinks about project context and `CLAUDE.md` 
 
 The signals workflow in atomic-claude is this pattern applied to codebases. The deterministic scan produces the raw data. The inferrer "compiles" it into a structured wiki (`signals.md` + domain files) with summaries, cross-references, and an index. Claude reads the wiki every session instead of guessing your framework, build commands, or project structure. The wiki auto-refreshes on source changes. You rarely edit it by hand — it is the domain of the LLM.
 
+Atomic-claude's project wikis apply the same pattern at the next scale up, and closer to Karpathy's original framing of a knowledge base over many sources. `/refresh-wiki` compiles a whole realm of repositories into a markdown knowledge base — per-repo summaries, cross-cutting concern articles, and an auto-maintained index — that Claude reads to answer questions spanning the realm.
+
 **[Karpathy-inspired CLAUDE.md principles](https://github.com/multica-ai/andrej-karpathy-skills)** by multica-ai — distilled Karpathy's observations about LLM coding mistakes into four rules (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution) packaged as a `CLAUDE.md`. The principles section in atomic-claude's `CLAUDE.md` descends directly from these four rules.
 
 These inspirations, along with various community contributions found on Reddit, led to the core design: project context should be derived from the repo itself (signals), behavioral guidance should live in structured markdown files (`CLAUDE.md`), and the agent should read the filesystem rather than relying on its training data to guess.

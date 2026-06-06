@@ -18,6 +18,9 @@ features:
     - icon: "\uE522"
       title: A Karpathy-inspired repo explorer
       details: One scan and Claude builds a standing model of your codebase, covering framework, build and test commands, and a domain map of what lives where. It reads that before it reads your code, and ship commands keep it fresh.
+    - icon: "\uF542"
+      title: A cross-repo knowledge layer
+      details: Signals map one repo; a wiki maps a realm of them \u2014 a folder of services, libraries, or client projects and how they relate. /refresh-wiki points at the repos that already have signals, summarizes the ones that don't without touching them, and writes up the concerns they share.
     - icon: "\uF5B0"
       title: Autopilot, task to PR, hands-off
       details: Hand it a description or a GitHub issue number. It plans, implements with test-first subagents, reviews its own diff, and ships. The only decision left to you is how to merge.

@@ -16,6 +16,8 @@ Before your first session in a new project, two commands teach Claude what it is
 
 You only need to do this once per repo. Signals refresh automatically after that — ship commands re-scan whenever source files change.
 
+If you work across several repos in one realm — a folder of services, a set of libraries, your client projects — a wiki gives Claude a map of how they relate, one level up from per-repo signals. Set one up with `/refresh-wiki`; see [wiki workflow](/reference/wiki-workflow).
+
 
 ## 1. Plan
 
