@@ -19,7 +19,7 @@ func Manifest() []Artifact {
 		{Kind: "agent", Source: "bundle/agents/atomic-haiku.md", Target: "agents/atomic-haiku.md", SHA256: "184ed9cf10dd12d45c576296467868f970080828132ee4ab20afe17bf2008f21"},
 		{Kind: "agent", Source: "bundle/agents/atomic-investigator.md", Target: "agents/atomic-investigator.md", SHA256: "f061bd15038ab99f318fbb099e6de53c587b2b79be4f3ddee1df6c831638947b"},
 		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "71c224f9f11f25a7c70be545723e91e4d8ba780cef4f0231e127551534b43b30"},
-		{Kind: "agent", Source: "bundle/agents/atomic-signals-inferrer.md", Target: "agents/atomic-signals-inferrer.md", SHA256: "fc1c88094e4c5eb735fb3a2e3c43dd0941e44f3a0f295293ba197040ec09673c"},
+		{Kind: "agent", Source: "bundle/agents/atomic-signals-inferrer.md", Target: "agents/atomic-signals-inferrer.md", SHA256: "4e41f2c6ffdafe9a0425dc01860b2b10182cd1c4fd1aaae115e98cfee6ae8821"},
 		{Kind: "agent", Source: "bundle/agents/atomic-strategist.md", Target: "agents/atomic-strategist.md", SHA256: "604dca251bcab74bbd0d93755b6c95766913e9841f77d80c5813768ab011da2b"},
 		{Kind: "agent", Source: "bundle/agents/atomic-surgeon.md", Target: "agents/atomic-surgeon.md", SHA256: "05cb192f3459e9840c2f619b29acda5560062736049e86be6c1e462f84481f41"},
 		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "842d5c862f19e6f10196940e1a92bd4af23915fa35bcd0fdca798cae55c8cf67"},
