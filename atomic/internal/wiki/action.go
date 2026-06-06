@@ -39,6 +39,8 @@ func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 		return wikiStaleAction(args[1:], cwd, out)
 	case "stamp":
 		return wikiStampAction(args[1:])
+	case "mark-dirty":
+		return wikiMarkDirtyAction(args[1:], claudeHome, cwd)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic wiki: unknown verb %q\n", verb)
 		return 1
@@ -143,6 +145,24 @@ func wikiStampAction(args []string) int {
 		fmt.Fprintf(os.Stderr, "atomic wiki stamp: supply either --repo (summary) or --root + --cites (concern)\n")
 		return 1
 	}
+}
+
+// wikiMarkDirtyAction implements `atomic wiki mark-dirty`.
+// It is an INTERNAL helper invoked by the signals-gate partial — not surfaced
+// in /atomic-help.  Exits 0 when no registered root matches cwd; exits 1 on
+// arg error or MarkDirty failure.
+func wikiMarkDirtyAction(args []string, claudeHome, cwd string) int {
+	// No flags — mark-dirty is a zero-argument subcommand.
+	if len(args) > 0 {
+		fmt.Fprintf(os.Stderr, "atomic wiki mark-dirty: unexpected arguments: %v\n", args)
+		return 1
+	}
+
+	if err := MarkDirty(claudeHome, cwd); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki mark-dirty: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // splitCites splits a comma-separated cites string into a slice of trimmed ids.
