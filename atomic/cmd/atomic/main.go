@@ -25,6 +25,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/updatedoctor"
 	"github.com/damusix/atomic-claude/atomic/internal/validate"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
+	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
 func main() {
@@ -51,7 +52,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  reminder list       List all reminders\n")
 		fmt.Fprintf(os.Stderr, "  reminder show <id>  Print body of a reminder\n")
 		fmt.Fprintf(os.Stderr, "  reminder rm <id>    Delete a reminder\n")
-		fmt.Fprintf(os.Stderr, "  signals scan        Walk repo and write deterministic-signals.md\n")
+		fmt.Fprintf(os.Stderr, "  signals scan [--out <dir>]  Walk repo and write deterministic-signals.md\n")
 		fmt.Fprintf(os.Stderr, "  signals show        Print deterministic-signals.md to stdout\n")
 		fmt.Fprintf(os.Stderr, "  signals stale       Exit 0 fresh, 1 stale, 2 error\n")
 		fmt.Fprintf(os.Stderr, "  signals diff        Print unified diff of signals file\n")
@@ -65,6 +66,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  docs scan                                         Scan docs and write doc-surfaces.md\n")
 		fmt.Fprintf(os.Stderr, "  docs stale                                        Exit 0 fresh, 1 stale, 2 error\n")
 		fmt.Fprintf(os.Stderr, "  profile refresh [--if-stale <dur>]               Refresh ## Environment in profile.md\n")
+		fmt.Fprintf(os.Stderr, "  wiki scan [--root=<path>]                         Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md\n")
+		fmt.Fprintf(os.Stderr, "  wiki stale [--root=<path>]                        Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -147,6 +150,8 @@ func main() {
 		runDocs(args[1:], repoOverride)
 	case "profile":
 		runProfile(args[1:])
+	case "wiki":
+		runWiki(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
 		os.Exit(1)
@@ -556,7 +561,23 @@ func runSignals(args []string, repoOverride string) {
 	verb := args[0]
 	switch verb {
 	case "scan":
-		if err := signals.Scan(root); err != nil {
+		fs := flag.NewFlagSet("signals-scan", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		var outDir string
+		fs.StringVar(&outDir, "out", "", "write substrate to <dir> instead of <root>/.claude/project/")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+		opts := &signals.Options{}
+		if outDir != "" {
+			absOut, err := filepath.Abs(outDir)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "atomic signals scan: resolve --out: %v\n", err)
+				os.Exit(1)
+			}
+			opts.OutDir = absOut
+		}
+		if err := signals.ScanWithOptions(root, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", err)
 			os.Exit(1)
 		}
@@ -964,4 +985,21 @@ func runProfile(args []string) {
 	claudeHome := filepath.Join(home, ".claude")
 	today := time.Now().UTC().Format("2006-01-02")
 	os.Exit(profileAction(args, claudeHome, today))
+}
+
+func runWiki(args []string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki: resolve home dir: %v\n", err)
+		os.Exit(2)
+	}
+	claudeHome := filepath.Join(home, ".claude")
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki: resolve cwd: %v\n", err)
+		os.Exit(2)
+	}
+
+	os.Exit(wiki.WikiAction(args, claudeHome, cwd, os.Stdout))
 }

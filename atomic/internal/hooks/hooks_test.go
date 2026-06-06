@@ -1196,6 +1196,128 @@ func TestSessionStart_ProfileRefreshError_NeverBlocks(t *testing.T) {
 	}
 }
 
+// --- Wiki staleness seam tests ---
+
+// TestSessionStart_WikiNudgesInjected verifies that when the WikiCheckStaleness
+// seam returns nudge lines, SessionStart includes them in the additionalContext.
+// WHY: the wiki nudge is a ride-along; proving the seam fires and its output
+// lands in the JSON payload ensures the wiring is correct without real disk I/O.
+func TestSessionStart_WikiNudgesInjected(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	// Seed one past-due reminder so the hook has something to return.
+	addReminderWithDate(t, root, "existing reminder", 0)
+
+	hooks.WikiCheckStaleness = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
+		return []string{"wiki /some/path/wiki/index.md is stale: not refreshed in 45 days — run /refresh-wiki"}, nil
+	}
+	t.Cleanup(func() { hooks.WikiCheckStaleness = hooks.DefaultWikiCheckStaleness })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+
+	if !strings.Contains(ctx, "wiki /some/path/wiki/index.md is stale") {
+		t.Errorf("wiki nudge missing from additionalContext: %q", ctx)
+	}
+}
+
+// TestSessionStart_WikiNudgesOnly_NoReminders verifies that wiki nudges appear
+// even when there are no pending reminders — the hook returns non-empty output.
+func TestSessionStart_WikiNudgesOnly_NoReminders(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	hooks.WikiCheckStaleness = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
+		return []string{"wiki /home/user/wiki/index.md is stale: uncommitted changes since last refresh (.dirty) — run /refresh-wiki"}, nil
+	}
+	t.Cleanup(func() { hooks.WikiCheckStaleness = hooks.DefaultWikiCheckStaleness })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output when only wiki nudges are present")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", err, out)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+	if !strings.Contains(ctx, "wiki /home/user/wiki/index.md is stale") {
+		t.Errorf("wiki nudge missing from additionalContext: %q", ctx)
+	}
+}
+
+// TestSessionStart_WikiError_NeverBlocks verifies that when the WikiCheckStaleness
+// seam returns an error, SessionStart still succeeds (best-effort: errors are
+// swallowed, no nudges emitted, session is not blocked).
+// WHY: wiki staleness is a ride-along; a file-read failure must not break the session.
+func TestSessionStart_WikiError_NeverBlocks(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	addReminderWithDate(t, root, "must still surface despite wiki error", 0)
+
+	hooks.WikiCheckStaleness = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
+		return nil, fmt.Errorf("simulated wiki staleness failure")
+	}
+	t.Cleanup(func() { hooks.WikiCheckStaleness = hooks.DefaultWikiCheckStaleness })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart returned error despite best-effort wiki check: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected reminder output even when wiki check fails")
+	}
+	if !strings.Contains(out, "must still surface despite wiki error") {
+		t.Errorf("reminder text missing from output: %q", out)
+	}
+}
+
+// TestSessionStart_WikiSeamReceivesThreshold30 verifies the seam is called with
+// thresholdDays == 30 (the spec-mandated deterministic floor).
+func TestSessionStart_WikiSeamReceivesThreshold30(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	var gotThreshold int
+	called := false
+	hooks.WikiCheckStaleness = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
+		called = true
+		gotThreshold = thresholdDays
+		return nil, nil
+	}
+	t.Cleanup(func() { hooks.WikiCheckStaleness = hooks.DefaultWikiCheckStaleness })
+
+	_, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+
+	if !called {
+		t.Fatal("WikiCheckStaleness seam was never invoked")
+	}
+	if gotThreshold != 30 {
+		t.Errorf("WikiCheckStaleness called with thresholdDays=%d, want 30", gotThreshold)
+	}
+}
+
 func TestUninstall_MalformedSettings_Refuses(t *testing.T) {
 	scopeRoot := t.TempDir()
 	repoRoot := t.TempDir()

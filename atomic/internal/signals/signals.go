@@ -56,6 +56,11 @@ type Options struct {
 	// Populated automatically by ScanWithOptions from the repo's .signalsignore.
 	// Callers may also set this directly for testing.
 	GeneratedGlobs []string
+	// OutDir, when non-empty, redirects the deterministic substrate to
+	// <OutDir>/.claude/project/deterministic-signals.md instead of the
+	// default <root>/.claude/project/deterministic-signals.md.
+	// The scanned repo is never written to when OutDir is set.
+	OutDir string
 }
 
 // readSignalsIgnore reads .signalsignore from the repo root and returns two
@@ -157,8 +162,14 @@ func ScanWithOptions(root string, opts *Options) error {
 		return fmt.Errorf("signals scan: %w", err)
 	}
 
-	outPath := SignalsPath(root)
-	prevPath := PrevPath(root)
+	// When OutDir is set, redirect both the substrate and the prev-file backup
+	// to that directory so the scanned repo is never written to.
+	outputRoot := root
+	if opts.OutDir != "" {
+		outputRoot = opts.OutDir
+	}
+	outPath := filepath.Join(outputRoot, signalsFile)
+	prevPath := filepath.Join(outputRoot, prevFile)
 
 	// Read existing file (if any) to check idempotency.
 	existingRaw, readErr := os.ReadFile(outPath)

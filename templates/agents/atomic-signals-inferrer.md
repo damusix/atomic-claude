@@ -31,6 +31,7 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 - **`mode: silent`** — scan + infer + wire. Suppress report. Discard concerns.
 - **`steering:`** block — contents of `signals-steering.md`, if it exists. Treat as ground truth — steering wins over inference.
 - **`first_run: true`** — no prior signals exist. Run full pipeline, not incremental.
+- **`target_repo: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates wiki-output mode. Both must be present together. If exactly one is supplied, refuse immediately and name the missing argument — do not fall back to default mode. See the **Wiki-output mode** steps in the workflow below.
 
 
 <workflow>
@@ -214,6 +215,103 @@ Print one-line summary: `signals refreshed. <N> sections changed. inferrer updat
 
 In **silent mode**, produce no output beyond writing the files.
 
+---
+
+## Wiki-output mode
+
+Activated when the caller provides **both** `target_repo` and `wiki_dir`. If exactly one is present, stop immediately:
+
+```
+ERROR: wiki-output mode requires both target_repo and wiki_dir.
+Missing: <whichever is absent>.
+Aborting — not falling back to default signals mode.
+```
+
+When both are present, run this alternate pipeline instead of Steps 1-9 above. The default pipeline is not executed.
+
+### W1 — Guard: read-only on target_repo
+
+`target_repo` is explored **read-only**. No writes, no edits, no file creation anywhere inside it. The only write destination is `wiki_dir/repos/`. This mode is exempt from the default Scope rule: it never writes to `target_repo`'s `.claude/project/` and never wires `@-refs`.
+
+### W2 — Obtain deterministic substrate
+
+Run `atomic signals scan` scoped to `target_repo`, writing output to a temporary directory outside it:
+
+```bash
+cd <target_repo> && atomic signals scan --out <tmp_dir>
+```
+
+where `<tmp_dir>` is a fresh temporary directory outside `target_repo` (e.g., a `os.MkdirTemp`-equivalent path). The scan must be rooted at `target_repo` so the substrate reflects that repo's files — not the current working directory or wiki dir. The output goes to `<tmp_dir>` instead of into `target_repo`'s `.claude/project/`, which is never written to.
+
+Read the resulting `<tmp_dir>/deterministic-signals.md` as the substrate for inference.
+
+### W3 — Infer domain partitioning
+
+Apply the same domain-partitioning logic as Step 3 of the default pipeline (vertical slices by functional concern). Read source files in `target_repo` as needed to verify structure — read-only.
+
+**Size heuristic:**
+
+- **Small repo** (≤ 3 inferred domains or ≤ ~1,000 total lines of significant source): write a single summary file at `wiki_dir/repos/<repo-name>.md`.
+- **Large repo** (> 3 domains or > ~1,000 lines): write one file per domain at `wiki_dir/repos/<repo-name>/<domain>.md`.
+
+`<repo-name>` is the base name of `target_repo` (e.g., `target_repo = /home/user/projects/myapp` → `<repo-name> = myapp`).
+
+### W4 — Dispatch sub-agents per domain
+
+Same sub-agent dispatch logic as Step 4 of the default pipeline, with two differences:
+
+1. Sub-agents read from `target_repo` read-only and write their domain output to `wiki_dir/repos/<repo-name>/` (or single file for small repos). They do NOT write into `target_repo`.
+2. **Omit the `<concerns_format>` block from sub-agent prompts.** Wiki mode never surfaces concerns (W7 explicitly excludes them), so including the block wastes tokens generating output that is immediately discarded.
+
+The output format is the **wiki summary format** (not the signals domain file format):
+
+```
+<output_format>
+---
+title: <domain or repo name>
+repo: <repo-name>
+generated: <YYYY-MM-DD>
+# reflects_rev and reflects fields are intentionally absent — written by 'atomic wiki stamp'
+---
+
+## Overview
+
+<2-4 fact sentences about what this repo/domain does>
+
+## Key paths
+
+<bullet list: path — purpose. Most important entry points and packages.>
+
+## Tech stack
+
+<bullet: language, frameworks, key deps — facts from reading source/config>
+
+## Patterns worth knowing
+
+<bullet: conventions, non-obvious decisions, things that affect callers>
+</output_format>
+```
+
+The `reflects_rev` frontmatter field is **intentionally left absent**. The code step `atomic wiki stamp` writes it after this agent completes. The agent does not compute or write any fingerprint values.
+
+### W5 — Reviewer validates each summary file
+
+Same reviewer dispatch logic as Step 5 of the default pipeline. Reviewer checks that every claim is verifiable from source files in `target_repo`. Iterate up to 3 times before flagging unresolved.
+
+### W6 — Skip @-ref wiring
+
+Do NOT run Step 8 (wire `@-ref`). Wiki summaries live under `wiki_dir/` — they are not wired into any CLAUDE.md or project config. No `@-ref` is written.
+
+### W7 — Report
+
+Print a per-file disposition:
+
+```
+wiki summary written: wiki_dir/repos/<repo-name>[/<domain>].md  NEW | RE-AUTHORED
+```
+
+Do not print concerns in wiki-output mode — concerns are surfaced by the `/refresh-wiki` orchestrator, not this agent.
+
 </workflow>
 
 
@@ -375,6 +473,8 @@ Outputs:
 Plus the `@-ref` wiring target (one of `claude.local.md`, `CLAUDE.local.md`, or `CLAUDE.md`).
 
 The deterministic substrate (`.claude/project/deterministic-signals.md`) is written by the scan step. Never rewrite it manually.
+
+**Wiki-output mode is exempt from this scope rule.** When `target_repo` + `wiki_dir` are both supplied, the only write destination is `wiki_dir/repos/`. This agent never writes to `target_repo`'s `.claude/project/` and never wires `@-refs` in wiki mode.
 
 
 <constraints>

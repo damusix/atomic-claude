@@ -79,6 +79,23 @@ Claude reads these files before it reads your code. It knows what it is looking 
 Signals auto-refresh when you commit through the ship commands, so they stay current without you thinking about it. See [signals workflow](/reference/signals-workflow) for the full mechanism.
 
 
+## Wikis
+
+Signals describe one repo's internals. Nothing describes how a set of repos *relate* — the shared libraries, the contracts one repo owns and another consumes, the patterns duplicated across a folder of services. If you work across several repos in one realm (your client projects, a set of open-source libraries, everything personal), that cross-cutting knowledge lives only in your head, and a fresh Claude session rediscovers it one repo at a time with no map of the whole.
+
+A wiki fixes this. It is a portable, git-initialized knowledge base for one realm of repos, living at `<root>/wiki/`, where `<root>` is a folder that contains repositories. Most people keep three to five, one per realm. The mental model is one level up from signals: **signals map one repo; a wiki maps how a realm's repos relate.** The command parallel is exact — `/refresh-signals` is to one repo what `/refresh-wiki` is to a realm.
+
+Running `/refresh-wiki` scans the root for member repos (any directory with a `.git`) and sorts each into one of three states:
+
+- **`indexed`** — the repo already has signals. The wiki points at them and cites the path; it never copies signals in, so there is one source of truth.
+- **`summarized`** — the repo has no signals. The wiki writes its own summary of the repo, reading it without ever writing into it. This is the right state for repos that should never carry committed signals, like open-source dependencies.
+- **`pending`** — found in a fresh scan, not yet summarized. The refresh pass resolves it, either by offering to add signals to the repo or by summarizing it into the wiki.
+
+A repo with no signals is not a defect to fix — it is a fork between repo-owned and wiki-owned knowledge. On top of the per-repo picture, the refresh pass synthesizes the cross-cutting concerns across the realm and writes them up with cited evidence.
+
+The wiki does not guarantee freshness the way signals do — it sits outside any single repo's lifecycle, so it cannot ride a commit. Instead a cheap nudge keeps it honest: the session-start hook flags a wiki that has gone untouched too long or has changes pending, and shipping from any member repo marks its wiki dirty. Acting on the nudge is the only heavy step, and it clears both signals. See [wiki workflow](/reference/wiki-workflow) for the full mechanism.
+
+
 ## Session reports
 
 Long-running work across multiple sessions loses context. You come back tomorrow, Claude has no memory of why you made the choices you made yesterday.

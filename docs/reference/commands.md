@@ -55,6 +55,7 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 |---------|-------------|
 | `/atomic-setup` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
 | `/refresh-signals` | Scan the project and generate (or update) the signals files that teach Claude your repo's shape. Idempotent. |
+| `/refresh-wiki` | Maintain a cross-repo wiki. Runs `atomic wiki scan` to classify member repos, then refreshes only stale or pending artifacts. Pending repos without signals are summarized by `atomic-signals-inferrer` in wiki-output mode; repos that have signals are offered as candidates for `/refresh-signals`. Prints a per-artifact disposition and offers a commit when done. Run `atomic wiki scan` first to scaffold the wiki directory. |
 
 
 ## Maintenance

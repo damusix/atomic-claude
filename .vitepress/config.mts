@@ -136,6 +136,7 @@ export default defineConfig({
                         { text: 'Agents', link: '/reference/agents' },
                         { text: 'Output Style', link: '/reference/output-style' },
                         { text: 'Signals Workflow', link: '/reference/signals-workflow' },
+                        { text: 'Wiki Workflow', link: '/reference/wiki-workflow' },
                         { text: 'Conventions', link: '/reference/conventions' },
                     ],
                 },

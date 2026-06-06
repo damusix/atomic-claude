@@ -85,6 +85,7 @@ Refresh project signals so Claude's map stays current for the next session.
    first_run: false
    ```
    Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
+4. Run `atomic wiki mark-dirty` (best-effort, no-op when cwd is under no registered wiki root). This marks any registered wiki as having uncommitted changes since the last refresh, so the next session nudge fires. Skip silently if `atomic` is not on PATH.
 
 `atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>
@@ -170,6 +171,7 @@ Refresh project signals so Claude's map stays current for the next session.
    first_run: false
    ```
    Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
+4. Run `atomic wiki mark-dirty` (best-effort, no-op when cwd is under no registered wiki root). This marks any registered wiki as having uncommitted changes since the last refresh, so the next session nudge fires. Skip silently if `atomic` is not on PATH.
 
 `atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>
