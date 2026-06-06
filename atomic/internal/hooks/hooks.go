@@ -12,6 +12,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
+	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
 // DefaultProfileRefresh is the real implementation used in production.
@@ -35,6 +36,44 @@ func refreshProfile(now time.Time) {
 	_, _ = ProfileRefresh(claudeHome, today, profile.DefaultRefreshDays)
 }
 
+// WikiCheckStalenessFn is the function signature for wiki staleness checks.
+// Uses raw func types (not wiki.ExecRunner) so test function literals are
+// directly assignable without a cast.
+type WikiCheckStalenessFn func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error)
+
+// DefaultWikiCheckStaleness is the real implementation used in production.
+// Exposed so tests can restore the original after overriding WikiCheckStaleness.
+var DefaultWikiCheckStaleness WikiCheckStalenessFn = func(claudeHome string, thresholdDays int, runner func(string, ...string) error, clock func() time.Time) ([]string, error) {
+	return wiki.CheckStaleness(claudeHome, thresholdDays, wiki.ExecRunner(runner), clock)
+}
+
+// WikiCheckStaleness is an injectable seam for tests: swap it with a spy to
+// assert nudge injection and no-git semantics without real disk I/O.
+// Production code always calls DefaultWikiCheckStaleness; only tests override this.
+var WikiCheckStaleness WikiCheckStalenessFn = DefaultWikiCheckStaleness
+
+// wikiStalenessThresholdDays is the deterministic floor for wiki neglect.
+// The spec's "from memory" override is an LLM-layer concern, not this code.
+const wikiStalenessThresholdDays = 30
+
+// checkWikiStaleness performs a best-effort wiki staleness check.
+// Errors and empty nudge lists are both silent — the hook must never block.
+// Returns the nudge lines, or nil when nothing to surface.
+func checkWikiStaleness(now time.Time) []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	claudeHome := filepath.Join(home, ".claude")
+	// nil runner is intentional: CheckStaleness performs stats/reads only and
+	// never invokes the runner in production; the runner is a test-recording seam.
+	nudges, err := WikiCheckStaleness(claudeHome, wikiStalenessThresholdDays, nil, func() time.Time { return now })
+	if err != nil {
+		return nil
+	}
+	return nudges
+}
+
 const (
 	// sessionStartCommand is the command registered directly in settings.json's
 	// SessionStart hook. Claude Code runs hook commands through a shell, so the
@@ -55,10 +94,14 @@ const (
 )
 
 // SessionStart returns the JSON hook payload for the SessionStart event.
-// If no reminders are pending, it returns an empty string (no-op for Claude).
+// If no reminders are pending and no wiki nudges exist, it returns an empty
+// string (no-op for Claude).
 // now is the reference time used for relative date formatting (allows testing).
 func SessionStart(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
+
+	// Best-effort wiki staleness nudges — swallowed on error (ride-along).
+	wikiNudges := checkWikiStaleness(now)
 
 	// Call reminder.List once and filter to past-due immediately so both the
 	// body builder and the systemMessage count use the same surfaced set.
@@ -66,13 +109,10 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(rows) == 0 {
-		return "", nil
-	}
 
 	pastDue := filterPastDue(rows, now)
 
-	body, err := buildBodyFromPastDue(pastDue, now)
+	body, err := buildBody(pastDue, wikiNudges, now)
 	if err != nil {
 		return "", err
 	}
@@ -120,15 +160,44 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 }
 
 // SessionStartText returns the plain-markdown version of the session-start
-// context (no JSON envelope). Returns empty string when no reminders exist.
+// context (no JSON envelope). Returns empty string when no reminders or wiki
+// nudges exist.
 func SessionStartText(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
+
+	wikiNudges := checkWikiStaleness(now)
 
 	rows, err := reminder.List(repoRoot)
 	if err != nil {
 		return "", fmt.Errorf("hooks session-start: list reminders: %w", err)
 	}
-	return buildAdditionalContextFromRows(rows, now)
+	return buildBody(filterPastDue(rows, now), wikiNudges, now)
+}
+
+// buildBody constructs the full markdown body from past-due reminders and wiki
+// nudge lines. Wiki nudges appear first as a dedicated section; reminders follow.
+// Returns empty string when both slices are empty.
+func buildBody(pastDue []reminder.Row, wikiNudges []string, now time.Time) (string, error) {
+	reminderBody, err := buildBodyFromPastDue(pastDue, now)
+	if err != nil {
+		return "", err
+	}
+
+	if len(wikiNudges) == 0 {
+		return reminderBody, nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "## Wiki staleness (%d)\n", len(wikiNudges))
+	for _, nudge := range wikiNudges {
+		fmt.Fprintf(&sb, "- %s\n", nudge)
+	}
+	wikiSection := strings.TrimRight(sb.String(), "\n")
+
+	if reminderBody == "" {
+		return wikiSection, nil
+	}
+	return wikiSection + "\n\n" + reminderBody, nil
 }
 
 // buildBodyFromPastDue constructs the markdown body from an already-filtered
@@ -187,12 +256,6 @@ func filterPastDue(rows []reminder.Row, now time.Time) []reminder.Row {
 		// now < due: not yet past-due — silent.
 	}
 	return out
-}
-
-// buildAdditionalContextFromRows filters rows to past-due reminders and
-// delegates body formatting to buildBodyFromPastDue.
-func buildAdditionalContextFromRows(rows []reminder.Row, now time.Time) (string, error) {
-	return buildBodyFromPastDue(filterPastDue(rows, now), now)
 }
 
 // relativeAge returns a human-readable string like "today", "yesterday",
