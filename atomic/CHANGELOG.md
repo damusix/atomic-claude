@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.0](https://github.com/damusix/atomic-claude/compare/v3.1.1...v3.2.0) (2026-06-06)
+
+
+### Features
+
+* **wiki:** cross-repository project wikis ([049818b](https://github.com/damusix/atomic-claude/commit/049818bd551ba0f2e29274771d728b1f6653783e))
+
 ## [3.1.1](https://github.com/damusix/atomic-claude/compare/v3.1.0...v3.1.1) (2026-06-06)
 
 
