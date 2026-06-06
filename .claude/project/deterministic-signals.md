@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-06T23:04:47Z
+generated_at: 2026-06-06T23:23:51Z
 atomic_version: 3.1.1
 ---
 # Deterministic signals
@@ -347,7 +347,7 @@ atomic_version: 3.1.1
 │   │   ├── typed-followups.md (a165287, 90L, 5701ch, 5740B)
 │   │   ├── uninstall.md (eee8979, 178L, 8612ch, 8652B)
 │   │   ├── user-profile.md (902d4a1, 639L, 54191ch, 54493B)
-│   │   └── wiki.md (53732eb, 189L, 23801ch, 23938B)
+│   │   └── wiki.md (37d10ec, 191L, 24213ch, 24352B)
 │   ├── credits.md (ed5981d, 105L, 8509ch, 8685B)
 │   └── index.md (2a94372, 151L, 6880ch, 6912B)
 ├── output-styles/ (1)
@@ -469,7 +469,7 @@ atomic_version: 3.1.1
 
 ## Languages
 
-- Markdown: 40571 LOC (49%), 276 files (61%)
+- Markdown: 40573 LOC (49%), 276 files (61%)
 - Go: 38258 LOC (46%), 155 files (34%)
 - JSON: 2295 LOC (2%), 5 files (1%)
 - CSS: 691 LOC (0%), 1 file (0%)

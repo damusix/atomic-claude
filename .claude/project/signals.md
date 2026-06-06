@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-06T23:04:47Z
+generated_at: 2026-06-06T23:23:51Z
 source: .claude/project/deterministic-signals.md
 ---
 
@@ -36,7 +36,7 @@ CI gates: (1) `make render && git diff --exit-code` — stale `commands/` fails.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Markdown | 40571 | 276 | 49% |
+| Markdown | 40573 | 276 | 49% |
 | Go | 38258 | 155 | 46% |
 | JSON | 2295 | 5 | 2% |
 | CSS | 691 | 1 | 0% |
