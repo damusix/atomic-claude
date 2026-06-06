@@ -35,12 +35,43 @@ func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	switch verb {
 	case "scan":
 		return wikiScanAction(args[1:], claudeHome, cwd, out)
+	case "stale":
+		return wikiStaleAction(args[1:], cwd, out)
 	case "stamp":
 		return wikiStampAction(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "atomic wiki: unknown verb %q\n", verb)
 		return 1
 	}
+}
+
+// wikiStaleAction implements `atomic wiki stale [--root=<path>]`.
+// Read-only freshness check. Exit 0 fresh / 1 stale / 2 hard error.
+// Stdout is injected via out so tests can capture the DRIFT/STALE lines.
+func wikiStaleAction(args []string, cwd string, out io.Writer) int {
+	fs := flag.NewFlagSet("wiki-stale", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var root string
+	fs.StringVar(&root, "root", "", "root directory to check (default: cwd)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	if root == "" {
+		root = cwd
+	}
+
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki stale: resolve root: %v\n", err)
+		return 2
+	}
+
+	code, err := Stale(absRoot, out)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki stale: %v\n", err)
+	}
+	return code
 }
 
 // wikiStampAction implements:

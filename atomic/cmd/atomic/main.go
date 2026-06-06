@@ -67,6 +67,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  docs stale                                        Exit 0 fresh, 1 stale, 2 error\n")
 		fmt.Fprintf(os.Stderr, "  profile refresh [--if-stale <dur>]               Refresh ## Environment in profile.md\n")
 		fmt.Fprintf(os.Stderr, "  wiki scan [--root=<path>]                         Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md\n")
+		fmt.Fprintf(os.Stderr, "  wiki stale [--root=<path>]                        Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
 	}
