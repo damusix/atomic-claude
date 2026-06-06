@@ -1,0 +1,492 @@
+// Package wiki implements the deterministic core of the atomic wiki feature:
+// repo discovery, classification, scaffold creation, and idempotent
+// <wiki-scan> block writes.
+//
+// CP1 scope: pure package logic + tests. No CLI wiring, no <wikis> registry,
+// no stale/stamp/mark-dirty/CheckStaleness. Those arrive in later checkpoints.
+package wiki
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// skipDirs is the set of directory base-names that the discovery walk skips.
+// Mirrors the skip set from internal/signals/tree.go plus .worktrees.
+var skipDirs = map[string]bool{
+	"node_modules": true,
+	"dist":         true,
+	"build":        true,
+	"target":       true,
+	"vendor":       true,
+	".worktrees":   true,
+	"tmp":          true,
+	".git":         true,
+}
+
+// scanMarkerOpen is the literal prefix of the managed block open tag.
+const scanMarkerOpen = "<wiki-scan"
+
+// scanMarkerClose is the literal close tag of the managed block.
+const scanMarkerClose = "</wiki-scan>"
+
+// Options configures a Scan run.
+type Options struct {
+	// Clock returns the current time. If nil, time.Now().UTC() is used.
+	// Inject a fixed clock in tests to get deterministic generated dates.
+	Clock func() time.Time
+}
+
+func (o Options) clock() time.Time {
+	if o.Clock != nil {
+		return o.Clock()
+	}
+	return time.Now().UTC()
+}
+
+// Member represents a discovered git repository under the scan root.
+type Member struct {
+	// Path is the repo path relative to root, e.g. "repoA" or "not-a-repo/repoC".
+	Path string
+	// Status is one of "indexed", "pending", or "summarized".
+	Status string
+	// SignalsPath is the absolute path to .claude/project/signals.md when Status == "indexed".
+	SignalsPath string
+	// SummaryPath is the value of the summary attribute when Status == "summarized".
+	SummaryPath string
+}
+
+// Scan runs the full CP1 wiki operation: discover repos under root, scaffold
+// wiki/, and write (or update) wiki/index.md with an idempotent <wiki-scan> block.
+//
+// Collision refusal: if wiki/ already exists but index.md is absent or lacks a
+// <wiki-scan> marker, Scan returns an error naming the path.
+func Scan(root string, opts Options) error {
+	wikiDir := filepath.Join(root, "wiki")
+
+	// --- Collision check ---
+	if err := checkCollision(wikiDir); err != nil {
+		return err
+	}
+
+	// --- Parse existing entries from index.md (for summarized-preservation) ---
+	prior, err := parsePriorEntries(filepath.Join(wikiDir, "index.md"))
+	if err != nil {
+		return fmt.Errorf("wiki scan: parse prior entries: %w", err)
+	}
+
+	// --- Discover members ---
+	members, err := discoverMembers(root, wikiDir)
+	if err != nil {
+		return fmt.Errorf("wiki scan: discover: %w", err)
+	}
+
+	// --- Classify members ---
+	classified := classifyMembers(root, wikiDir, members, prior)
+
+	// --- Scaffold ---
+	if err := scaffold(wikiDir, root); err != nil {
+		return fmt.Errorf("wiki scan: scaffold: %w", err)
+	}
+
+	// --- Write <wiki-scan> block ---
+	if err := writeWikiScanBlock(filepath.Join(wikiDir, "index.md"), root, classified, opts); err != nil {
+		return fmt.Errorf("wiki scan: write block: %w", err)
+	}
+
+	return nil
+}
+
+// checkCollision verifies that an existing wiki/ dir is owned by this tool.
+// If wiki/ exists but index.md is absent or lacks a <wiki-scan> marker,
+// returns an error naming the path.
+func checkCollision(wikiDir string) error {
+	if _, err := os.Lstat(wikiDir); os.IsNotExist(err) {
+		// wiki/ doesn't exist yet — no collision, scaffold will create it.
+		return nil
+	}
+
+	indexPath := filepath.Join(wikiDir, "index.md")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("wiki scan: collision: %s exists but index.md is absent — refusing to overwrite", wikiDir)
+		}
+		return fmt.Errorf("wiki scan: read index.md: %w", err)
+	}
+
+	if !strings.Contains(string(data), scanMarkerOpen) {
+		return fmt.Errorf("wiki scan: collision: %s lacks a <wiki-scan> marker — refusing to overwrite", indexPath)
+	}
+
+	return nil
+}
+
+// priorEntry holds the parsed status from a previous scan block entry.
+type priorEntry struct {
+	status      string
+	summaryAttr string // e.g. "repos/repoA.md"
+}
+
+// parsePriorEntries reads wiki/index.md (if present) and extracts the prior
+// status for each repo path from the <wiki-scan> block. Used for
+// summarized-preservation.
+func parsePriorEntries(indexPath string) (map[string]priorEntry, error) {
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	content := string(data)
+	blockContent := extractBlockContent(content)
+	if blockContent == "" {
+		return nil, nil
+	}
+
+	entries := map[string]priorEntry{}
+	for _, line := range strings.Split(blockContent, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "<repo ") {
+			continue
+		}
+		path := attrValue(line, "path")
+		status := attrValue(line, "status")
+		summary := attrValue(line, "summary")
+		if path != "" && status != "" {
+			entries[path] = priorEntry{status: status, summaryAttr: summary}
+		}
+	}
+
+	return entries, nil
+}
+
+// extractBlockContent returns the content between <wiki-scan ...> and </wiki-scan>.
+// Returns empty string if the block is not present.
+func extractBlockContent(content string) string {
+	openIdx := strings.Index(content, scanMarkerOpen)
+	if openIdx == -1 {
+		return ""
+	}
+	// Find the end of the open tag.
+	closeTagIdx := strings.Index(content[openIdx:], ">")
+	if closeTagIdx == -1 {
+		return ""
+	}
+	afterOpen := openIdx + closeTagIdx + 1
+
+	closeIdx := strings.Index(content[afterOpen:], scanMarkerClose)
+	if closeIdx == -1 {
+		return ""
+	}
+	return content[afterOpen : afterOpen+closeIdx]
+}
+
+// attrValue extracts the value of an XML attribute from a self-closing tag line.
+// e.g. attrValue(`<repo path="foo" status="indexed"/>`, "path") → "foo"
+func attrValue(line, attr string) string {
+	needle := attr + `="`
+	idx := strings.Index(line, needle)
+	if idx == -1 {
+		return ""
+	}
+	start := idx + len(needle)
+	end := strings.Index(line[start:], `"`)
+	if end == -1 {
+		return ""
+	}
+	return line[start : start+end]
+}
+
+// discoverMembers recursively walks root's children to find git repos.
+// The root itself is never returned as a member.
+// Returns relative paths sorted stably.
+func discoverMembers(root, wikiDir string) ([]string, error) {
+	var members []string
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return nil, fmt.Errorf("read root dir: %w", err)
+	}
+
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		base := e.Name()
+		if skipDirs[base] {
+			continue
+		}
+		// Skip the wiki output dir itself.
+		absDir := filepath.Join(root, base)
+		if absDir == wikiDir {
+			continue
+		}
+
+		found, err := walkForRepos(root, absDir, wikiDir)
+		if err != nil {
+			return nil, err
+		}
+		members = append(members, found...)
+	}
+
+	sort.Strings(members)
+	return members, nil
+}
+
+// walkForRepos checks if dir is a git repo member. If it is, returns just that
+// path (relative to root) and stops recursing. If not, recurses into children.
+func walkForRepos(root, dir, wikiDir string) ([]string, error) {
+	// Is dir itself a git repo?
+	if isGitMember(dir) {
+		rel, err := filepath.Rel(root, dir)
+		if err != nil {
+			return nil, err
+		}
+		return []string{rel}, nil
+	}
+
+	// Not a member — descend into children.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		// Unreadable directories are silently skipped.
+		return nil, nil
+	}
+
+	var found []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		base := e.Name()
+		if skipDirs[base] {
+			continue
+		}
+		child := filepath.Join(dir, base)
+		if child == wikiDir {
+			continue
+		}
+		sub, err := walkForRepos(root, child, wikiDir)
+		if err != nil {
+			return nil, err
+		}
+		found = append(found, sub...)
+	}
+	return found, nil
+}
+
+// isGitMember reports whether dir has a .git entry (file or directory).
+// This mirrors the pattern from internal/validate/repo.go (worktree-aware).
+func isGitMember(dir string) bool {
+	_, err := os.Lstat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// classifyMembers derives the status for each member.
+//
+// Classification rules:
+//  1. If prior status was "summarized" AND the summary file still exists → keep "summarized".
+//  2. If .claude/project/signals.md exists → "indexed".
+//  3. Otherwise → "pending".
+func classifyMembers(root, wikiDir string, members []string, prior map[string]priorEntry) []Member {
+	result := make([]Member, 0, len(members))
+
+	for _, rel := range members {
+		absRepo := filepath.Join(root, rel)
+
+		// Check summarized-preservation.
+		if pe, ok := prior[rel]; ok && pe.status == "summarized" && pe.summaryAttr != "" {
+			summaryAbs := filepath.Join(wikiDir, pe.summaryAttr)
+			if _, err := os.Lstat(summaryAbs); err == nil {
+				result = append(result, Member{
+					Path:        rel,
+					Status:      "summarized",
+					SummaryPath: pe.summaryAttr,
+				})
+				continue
+			}
+			// Summary file gone — fall through to re-derive.
+		}
+
+		// Derive from signals presence.
+		signalsAbs := filepath.Join(absRepo, ".claude", "project", "signals.md")
+		if _, err := os.Lstat(signalsAbs); err == nil {
+			result = append(result, Member{
+				Path:        rel,
+				Status:      "indexed",
+				SignalsPath: signalsAbs,
+			})
+		} else {
+			result = append(result, Member{
+				Path:   rel,
+				Status: "pending",
+			})
+		}
+	}
+
+	return result
+}
+
+// scaffold creates the wiki directory structure:
+//   - wiki/index.md (only created if absent — writeWikiScanBlock handles content)
+//   - wiki/README.md
+//   - wiki/repos/
+//   - wiki/concerns/
+//   - wiki/.gitignore (ignoring .dirty)
+//   - runs git init in wiki/ if not already a git repo
+func scaffold(wikiDir, root string) error {
+	// Create all subdirs.
+	for _, sub := range []string{wikiDir, filepath.Join(wikiDir, "repos"), filepath.Join(wikiDir, "concerns")} {
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			return fmt.Errorf("mkdir %s: %w", sub, err)
+		}
+	}
+
+	// .gitignore — ignores the .dirty marker.
+	gitignorePath := filepath.Join(wikiDir, ".gitignore")
+	if _, err := os.Lstat(gitignorePath); os.IsNotExist(err) {
+		if err := os.WriteFile(gitignorePath, []byte(".dirty\n"), 0o644); err != nil {
+			return fmt.Errorf("write .gitignore: %w", err)
+		}
+	}
+
+	// README.md — boilerplate.
+	readmePath := filepath.Join(wikiDir, "README.md")
+	if _, err := os.Lstat(readmePath); os.IsNotExist(err) {
+		readme := buildREADME(root)
+		if err := os.WriteFile(readmePath, []byte(readme), 0o644); err != nil {
+			return fmt.Errorf("write README.md: %w", err)
+		}
+	}
+
+	// git init — skip if already a git repo.
+	if !isGitMember(wikiDir) {
+		var stderr strings.Builder
+		cmd := exec.Command("git", "init", wikiDir)
+		cmd.Stdout = nil
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git init wiki: %w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+	}
+
+	return nil
+}
+
+// buildREADME produces the README.md content for a wiki directory.
+func buildREADME(root string) string {
+	var sb strings.Builder
+	sb.WriteString("# Project wiki\n\n")
+	sb.WriteString("Cross-repository knowledge layer generated by `atomic wiki scan`.\n\n")
+	fmt.Fprintf(&sb, "**Realm root:** `%s`\n\n", root)
+	sb.WriteString("## How to regenerate\n\n")
+	sb.WriteString("```sh\natomic wiki scan\n```\n\n")
+	sb.WriteString("Or run `/refresh-wiki` in Claude Code.\n\n")
+	sb.WriteString("## Structure\n\n")
+	sb.WriteString("- `index.md` — member registry with `<wiki-scan>` block + narrative\n")
+	sb.WriteString("- `repos/` — per-repo summaries (written by `/refresh-wiki`)\n")
+	sb.WriteString("- `concerns/` — cross-cutting concern documents\n")
+	return sb.String()
+}
+
+// writeWikiScanBlock writes the <wiki-scan> block into wiki/index.md.
+// If index.md does not exist, creates it with a minimal narrative stub.
+// If it exists and already has a block, replaces the block in-place.
+// Content outside the block is preserved byte-for-byte.
+func writeWikiScanBlock(indexPath, root string, members []Member, opts Options) error {
+	date := opts.clock().Format("2006-01-02")
+	block := buildScanBlock(root, date, members)
+
+	// Read existing content.
+	existing, err := os.ReadFile(indexPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read index.md: %w", err)
+	}
+
+	var newContent string
+	if os.IsNotExist(err) || len(existing) == 0 {
+		// Create fresh with block + stub narrative.
+		newContent = block + "\n" + defaultNarrative()
+	} else {
+		newContent = rewriteScanBlock(string(existing), block)
+	}
+
+	return os.WriteFile(indexPath, []byte(newContent), 0o644)
+}
+
+// buildScanBlock produces the full <wiki-scan ...> … </wiki-scan> block string.
+func buildScanBlock(root, date string, members []Member) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "<wiki-scan root=%q generated=%q>\n", root, date)
+	for _, m := range members {
+		sb.WriteString(repoTag(m))
+		sb.WriteString("\n")
+	}
+	sb.WriteString("</wiki-scan>")
+	return sb.String()
+}
+
+// repoTag produces a single self-closing <repo .../> tag for a member.
+func repoTag(m Member) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, `<repo path=%q status=%q`, m.Path, m.Status)
+	if m.Status == "indexed" && m.SignalsPath != "" {
+		fmt.Fprintf(&sb, ` signals=%q`, m.SignalsPath)
+	}
+	if m.Status == "summarized" && m.SummaryPath != "" {
+		fmt.Fprintf(&sb, ` summary=%q`, m.SummaryPath)
+	}
+	sb.WriteString("/>")
+	return sb.String()
+}
+
+// defaultNarrative is the stub below the block when creating a fresh index.md.
+func defaultNarrative() string {
+	return "\n## Realm overview\n\n<!-- Add narrative context about this realm here. -->\n"
+}
+
+// rewriteScanBlock replaces the <wiki-scan> block in content with newBlock.
+// Content outside the block is preserved byte-for-byte.
+// This mirrors the splice pattern from internal/profile/render.go
+// (RewriteEnvironmentSection / findHeadingIndex / findNextH2After).
+func rewriteScanBlock(content, newBlock string) string {
+	openIdx := strings.Index(content, scanMarkerOpen)
+	if openIdx == -1 {
+		// No existing block — append.
+		result := content
+		if !strings.HasSuffix(result, "\n") {
+			result += "\n"
+		}
+		return result + "\n" + newBlock
+	}
+
+	// Find end of open tag.
+	closeTagIdx := strings.Index(content[openIdx:], ">")
+	if closeTagIdx == -1 {
+		// Malformed open tag — append.
+		return content + "\n" + newBlock
+	}
+	afterOpenTag := openIdx + closeTagIdx + 1
+
+	// Find the close tag.
+	closeIdx := strings.Index(content[afterOpenTag:], scanMarkerClose)
+	if closeIdx == -1 {
+		// No close tag — replace from open tag to EOF.
+		before := content[:openIdx]
+		return before + newBlock
+	}
+
+	blockEnd := afterOpenTag + closeIdx + len(scanMarkerClose)
+
+	before := content[:openIdx]
+	after := content[blockEnd:]
+
+	return before + newBlock + after
+}
