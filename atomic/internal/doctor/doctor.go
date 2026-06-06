@@ -2,6 +2,8 @@
 // integrity check for atomic-claude install + project state coherence.
 package doctor
 
+import "os"
+
 // Severity represents the outcome of a single check.
 type Severity string
 
@@ -45,6 +47,14 @@ type Category struct {
 	Name     string
 	Severity Severity // default severity for this category (individual Results may override)
 	Run      CheckFunc
+
+	// RepoDevOnly marks a check that only makes sense inside the atomic-claude
+	// development repo (e.g. manifest parity against the embedded source
+	// snapshot). Outside that repo it is omitted entirely — not even a SKIP
+	// line — so end users running atomic doctor in their own projects never see
+	// repo-development noise. An explicit `--only <index>` request overrides
+	// this and runs the check anyway (it self-reports SKIP).
+	RepoDevOnly bool
 }
 
 // categories is the single source of truth for all check categories.
@@ -55,7 +65,7 @@ var categories = []Category{
 	{Index: 2, Name: "hooks", Severity: WARN, Run: checkHooks},
 	{Index: 3, Name: "signals", Severity: WARN, Run: checkSignals},
 	{Index: 4, Name: "refs", Severity: FAIL, Run: checkRefs},
-	{Index: 5, Name: "manifest", Severity: FAIL, Run: checkManifest},
+	{Index: 5, Name: "manifest", Severity: FAIL, Run: checkManifest, RepoDevOnly: true},
 	{Index: 6, Name: "followups", Severity: WARN, Run: checkFollowups},
 	{Index: 7, Name: "memory", Severity: WARN, Run: checkMemory},
 	{Index: 8, Name: "binary", Severity: WARN, Run: checkBinary},
@@ -69,8 +79,15 @@ func Categories() []Category {
 }
 
 // Run executes the full registry (or the filtered subset in opts) and returns
-// results in index order.
+// results in index order. Repo-dev-only checks are auto-omitted outside the
+// atomic-claude repo (detected from cwd) unless explicitly requested via --only.
 func Run(opts Opts) ([]Result, error) {
+	return RunWith(opts, isRepoDevCwd())
+}
+
+// RunWith is Run with the repo-dev verdict injected, exported for testing so a
+// repo-dev / non-repo-dev tree can be simulated without chdir.
+func RunWith(opts Opts, repoDev bool) ([]Result, error) {
 	onlySet := indexSet(opts.Only)
 	skipSet := indexSet(opts.Skip)
 
@@ -83,12 +100,32 @@ func Run(opts Opts) ([]Result, error) {
 		if skipSet[c.Index] {
 			continue
 		}
+		// Repo-dev-only checks are noise outside the atomic-claude repo. Omit
+		// them entirely unless the user explicitly asked via --only.
+		if c.RepoDevOnly && !repoDev && !onlySet[c.Index] {
+			continue
+		}
 		r := c.Run(opts)
 		r.Index = c.Index
 		r.Name = c.Name
 		results = append(results, r)
 	}
 	return results, nil
+}
+
+// isRepoDevCwd reports whether the current working directory is inside the
+// atomic-claude development repo. Best-effort: a getwd or detection error
+// resolves to false (treat as a normal user repo).
+func isRepoDevCwd() bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	ok, err := IsRepoDev(cwd)
+	if err != nil {
+		return false
+	}
+	return ok
 }
 
 // indexSet converts a slice of indices to a presence map for O(1) lookup.

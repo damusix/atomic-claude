@@ -26,3 +26,18 @@ func findRepoRoot(startDir string) string {
 		dir = parent
 	}
 }
+
+// repoDev reports whether root is the atomic-claude development repo, detected
+// by the presence of the bundle-mirror source that only exists in-repo. The
+// bundle-parity check compares the working tree against the embedded source
+// snapshot, which has no meaning outside this repo, so callers skip it when
+// this returns false. Mirrors doctor.IsRepoDev's marker heuristic without
+// importing the doctor package.
+func repoDev(root string) bool {
+	if root == "" {
+		return false
+	}
+	marker := filepath.Join(root, "atomic", "internal", "bundlemirror", "mirror.go")
+	_, err := os.Stat(marker)
+	return err == nil
+}

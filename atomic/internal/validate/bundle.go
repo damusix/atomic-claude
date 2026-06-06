@@ -91,12 +91,9 @@ func runBundleImpl(jsonOut, suggest bool, w io.Writer) int {
 		return 2
 	}
 
+	// repoRoot may be "" outside a git repo; runBundleAt skips cleanly when the
+	// tree is not the atomic-claude dev repo, so no .git error is raised here.
 	repoRoot := findRepoRoot(cwd)
-	if repoRoot == "" {
-		fmt.Fprintf(w, "atomic validate bundle: no .git found from %s\n", cwd)
-		return 2
-	}
-
 	return runBundleAt(repoRoot, jsonOut, suggest, w)
 }
 
@@ -104,7 +101,22 @@ func runBundleImpl(jsonOut, suggest bool, w io.Writer) int {
 // manifestcheck.Compare (shared with atomic doctor). Drift entries are
 // converted to Findings with Rule="bundle" and Severity="FAIL", emitted via
 // the unified formatter so all three subcommands share one output contract.
+//
+// Bundle parity only has meaning in the atomic-claude dev repo (it compares the
+// working tree against the embedded source snapshot). When repoRoot is not that
+// repo, the check is skipped cleanly with exit 0 rather than crashing on the
+// absent source (issue #35).
 func runBundleAt(repoRoot string, jsonOut, suggest bool, w io.Writer) int {
+	if !repoDev(repoRoot) {
+		if jsonOut {
+			printJSON(w, nil, summary{})
+		} else {
+			printHeader(w, "bundle", "manifest parity")
+			fmt.Fprintln(w, "SKIP — not in atomic-claude repo (no embedded source to compare)")
+		}
+		return 0
+	}
+
 	findings, exit := bundleFindings(repoRoot)
 	if exit != 0 {
 		fmt.Fprintf(w, "atomic validate bundle: internal error\n")

@@ -78,6 +78,20 @@ Minimal config for test.
 	return root
 }
 
+// addRepoDevMarker creates the bundle-mirror source file that identifies a tree
+// as the atomic-claude development repo. Bundle parity only runs when this
+// marker is present.
+func addRepoDevMarker(t *testing.T, root string) {
+	t.Helper()
+	dir := filepath.Join(root, "atomic", "internal", "bundlemirror")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir bundlemirror: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mirror.go"), []byte("package bundlemirror\n"), 0o644); err != nil {
+		t.Fatalf("write mirror.go: %v", err)
+	}
+}
+
 // runFromDir temporarily sets the working directory and calls RunWithOutput,
 // then restores the original wd. This is needed so findRepoRoot works correctly.
 func runFromDir(t *testing.T, dir string, args []string) (code int, out string) {
@@ -110,9 +124,9 @@ func runFromDir(t *testing.T, dir string, args []string) (code int, out string) 
 // output. Exit 0 or 1 both indicate validators ran; exit 2 means the dispatch
 // itself failed (internal error), which must not happen on a valid repo.
 //
-// Note: the synthetic repo has no real bundle artifacts, so bundle parity
-// will FAIL (exit 1 is expected). The test checks that all three sections ran,
-// not that everything passed.
+// Note: a minimal repo is NOT the atomic-claude dev repo (no bundle-mirror
+// marker), so the bundle validator is skipped silently — spec + config run and
+// the bundle header must NOT appear.
 func TestDispatch_WholeRepo_Exit0(t *testing.T) {
 	root := buildMinimalRepo(t)
 	code, out := runFromDir(t, root, []string{})
@@ -122,11 +136,61 @@ func TestDispatch_WholeRepo_Exit0(t *testing.T) {
 		t.Errorf("whole-repo on minimal repo: got internal error (exit 2)\noutput:\n%s", out)
 	}
 
-	// Each subcommand header must appear — proving all three validators ran.
-	for _, header := range []string{"atomic validate spec", "atomic validate config", "atomic validate bundle"} {
+	// spec + config run anywhere.
+	for _, header := range []string{"atomic validate spec", "atomic validate config"} {
 		if !strings.Contains(out, header) {
 			t.Errorf("whole-repo output missing header %q:\n%s", header, out)
 		}
+	}
+	// bundle is repo-dev-only: must be skipped outside the atomic-claude repo.
+	if strings.Contains(out, "atomic validate bundle") {
+		t.Errorf("whole-repo outside atomic-claude repo must skip bundle, but bundle header present:\n%s", out)
+	}
+}
+
+// TestDispatch_WholeRepo_RepoDev_IncludesBundle proves the bundle validator
+// runs (header present) when the tree IS the atomic-claude dev repo.
+func TestDispatch_WholeRepo_RepoDev_IncludesBundle(t *testing.T) {
+	root := buildMinimalRepo(t)
+	addRepoDevMarker(t, root)
+	code, out := runFromDir(t, root, []string{})
+
+	if code == 2 {
+		t.Errorf("whole-repo on repo-dev tree: got internal error (exit 2)\noutput:\n%s", out)
+	}
+	for _, header := range []string{"atomic validate spec", "atomic validate config", "atomic validate bundle"} {
+		if !strings.Contains(out, header) {
+			t.Errorf("repo-dev whole-repo output missing header %q:\n%s", header, out)
+		}
+	}
+}
+
+// TestDispatch_Bundle_NotRepoDev_Skips proves explicit `atomic validate bundle`
+// outside the atomic-claude repo exits 0 with a clean SKIP, not a crash (exit 2).
+// Regression for issue #35.
+func TestDispatch_Bundle_NotRepoDev_Skips(t *testing.T) {
+	root := buildMinimalRepo(t)
+	code, out := runFromDir(t, root, []string{"bundle"})
+
+	if code != 0 {
+		t.Errorf("explicit bundle outside atomic-claude repo: got exit %d, want 0\noutput:\n%s", code, out)
+	}
+	if !strings.Contains(out, "SKIP") {
+		t.Errorf("explicit bundle skip should mention SKIP:\n%s", out)
+	}
+}
+
+// TestDispatch_Bundle_NotRepoDev_JSON proves the JSON path also skips cleanly
+// (exit 0, valid envelope, no internal error) outside the repo.
+func TestDispatch_Bundle_NotRepoDev_JSON(t *testing.T) {
+	root := buildMinimalRepo(t)
+	code, out := runFromDir(t, root, []string{"--json", "bundle"})
+
+	if code != 0 {
+		t.Errorf("explicit bundle --json outside repo: got exit %d, want 0\noutput:\n%s", code, out)
+	}
+	if !strings.Contains(out, "schema_version") {
+		t.Errorf("bundle --json skip missing schema_version:\n%s", out)
 	}
 }
 
