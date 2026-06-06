@@ -178,12 +178,21 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	}
 	configSummary := summarize(configFindings)
 
-	// --- Bundle ---
-	// Capture bundle output separately so we can aggregate findings.
-	bundleFindings, bundleSummary, bundleErr := runBundleCollect(root)
-	if bundleErr != 0 {
-		fmt.Fprintf(w, "atomic validate: bundle check failed: internal error (exit %d)\n", bundleErr)
-		return 2
+	// --- Bundle (repo-dev only) ---
+	// Bundle parity compares the working tree against the embedded source
+	// snapshot, which only exists in the atomic-claude repo. Outside it, skip
+	// silently — a user's own project has no bundle to validate, and surfacing
+	// it would crash (issue #35) or confuse.
+	var bundleFindings []Finding
+	var bundleSummary summary
+	includeBundle := repoDev(root)
+	if includeBundle {
+		var bundleErr int
+		bundleFindings, bundleSummary, bundleErr = runBundleCollect(root)
+		if bundleErr != 0 {
+			fmt.Fprintf(w, "atomic validate: bundle check failed: internal error (exit %d)\n", bundleErr)
+			return 2
+		}
 	}
 
 	// --- Aggregate ---
@@ -213,10 +222,11 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	printHeader(w, "config", "referential integrity")
 	printHuman(w, configFindings, configSummary, suggest)
 
-	fmt.Fprintln(w)
-
-	printHeader(w, "bundle", "manifest parity")
-	printHuman(w, bundleFindings, bundleSummary, suggest)
+	if includeBundle {
+		fmt.Fprintln(w)
+		printHeader(w, "bundle", "manifest parity")
+		printHuman(w, bundleFindings, bundleSummary, suggest)
+	}
 
 	return exitCode(aggSummary)
 }

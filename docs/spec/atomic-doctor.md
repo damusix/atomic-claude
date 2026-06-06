@@ -29,7 +29,7 @@ Design source: `docs/design/atomic-doctor.md`.
 - [ ] `--fix` prompts per item (axiom 3); no batched silent mutations.
 - [ ] `--only <cat>` / `--skip <cat>` accept category indices or canonical short names.
 - [ ] Missing `~/.claude/` short-circuits to exit 0 with one informational line; no FAIL cascade.
-- [ ] Repo-dev-only checks (manifest parity) skip silently when not in the atomic-claude repo.
+- [ ] Repo-dev-only checks (manifest parity) are omitted entirely (no result row, no `SKIP`) when not in the atomic-claude repo, unless explicitly requested via `--only`.
 - [ ] All checks deterministic — no LLM judgment, pure Go.
 - [ ] `go test ./atomic/internal/doctor/...` covers each check + each repair with table-driven cases.
 
@@ -67,7 +67,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 2 | `hooks`          | `~/.claude/settings.json` contains the session-start hook payload that `atomic hooks session-start` would emit. | WARN |
 | 3 | `signals`        | `.claude/project/deterministic-signals.md` exists; `atomic signals stale --threshold <days>` exits 0. Threshold defaults to 7; overridable via `--stale-days`. | WARN |
 | 4 | `refs`           | `@.claude/project/signals.md` ref present in one of `claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md` / `claude.md` (skill search order). Only `signals.md` is @-ref'd; `deterministic-signals.md` is read on demand by the inferrer. | FAIL |
-| 5 | `manifest`       | Repo-dev only (heuristic: `atomic/internal/bundlemirror/` exists). Committed `manifest.go` SHA matches what `go generate ./...` would produce — without writing. | FAIL |
+| 5 | `manifest`       | Repo-dev only (heuristic: `atomic/internal/bundlemirror/` exists). Committed `manifest.go` SHA matches what `go generate ./...` would produce — without writing. Omitted entirely outside the repo (no row, no `SKIP`) unless explicitly requested via `--only 5`. | FAIL |
 | 6 | `followups`      | If `.claude/project/followups.md` exists, every `### F-<id>` entry has an `Origin:` line and a severity bucket. | WARN |
 | 7 | `memory`         | `~/.claude/projects/<project>/memory/MEMORY.md` link targets all resolve (file exists in same dir). | WARN |
 | 8 | `binary`         | `atomic update --check` succeeds without performing update. | WARN |
@@ -87,7 +87,7 @@ Default: 7 days. Overridable per-invocation via `--stale-days N`. No persistent 
 ## Repo-dev detection
 
 
-A run counts as "in the atomic-claude repo" iff `atomic/internal/bundlemirror/mirror.go` exists relative to the git toplevel of the cwd. When false, category 5 is skipped (status `SKIP`, no PASS/WARN/FAIL counted).
+A run counts as "in the atomic-claude repo" iff `atomic/internal/bundlemirror/mirror.go` exists relative to the git toplevel of the cwd. When false, category 5 (`manifest`, flagged `RepoDevOnly` in the registry) is **omitted entirely** — no result row, not counted in the summary, no `SKIP` line — so end users never see repo-development noise. An explicit `--only 5` overrides the auto-omit and runs the check, which then self-reports `SKIP — not in atomic-claude repo`.
 
 
 ## Output format (human)
@@ -100,12 +100,11 @@ atomic doctor — integrity check  (project: <name>)
 [2] WARN  hooks                    session-start hook missing
 [3] PASS  signals                  last scan 3d ago (threshold 7d)
 [4] FAIL  refs                     @-refs not present in CLAUDE.md, claude.local.md, CLAUDE.local.md, or claude.md
-[5] SKIP  manifest                 not in atomic-claude repo
 [6] PASS  followups                no .claude/project/followups.md
 [7] PASS  memory                   8/8 refs resolve
 [8] PASS  binary                   v0.4.2 (latest)
 
-5 PASS, 1 WARN, 1 FAIL, 1 SKIP. exit 1.
+5 PASS, 1 WARN, 1 FAIL, 0 SKIP. exit 1.
 
 To repair: atomic doctor --fix
 ```
@@ -355,3 +354,11 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Correction:** The spec's Surface table (line 52) has always promised `--verbose` "Print per-file detail for install integrity and manifest parity" — but no implementation ever rendered it. This amendment makes the body match the long-standing contract rather than introducing new behavior. How we know it was wrong: the flag's effect was untestable because no code read `opts.Verbose`.
 
 **Known gaps (filed as followups):** `manifest` `missing:`/`extra:` Finding prefixes are implemented but only the `drifted:` path is test-covered (`doctor-verbose-f-1`). `FixApplied`/`FixSummary` render correctly but no `--fix` repair path populates them yet (`doctor-verbose-f-2`).
+
+### 2026-06-06 — repo-dev-only checks omitted outside the atomic-claude repo
+
+**What changed:** Category 5 (`manifest`) is now flagged `RepoDevOnly` in the category registry. When `atomic doctor` runs outside the atomic-claude repo (detected from cwd via `IsRepoDev`), the manifest check is omitted from results entirely — no `SKIP` line, not counted in the summary. An explicit `--only 5` overrides the auto-omit and runs the check (which then self-reports its existing `SKIP — not in atomic-claude repo`). `Run` now delegates to an exported `RunWith(opts, repoDev bool)` seam so the repo-dev verdict is injectable for tests; `isRepoDevCwd()` resolves it from cwd best-effort (getwd/detection error → false).
+
+**Why:** Issue #35 follow-on. Manifest parity is a contributor/CI concern; end users running `atomic doctor` in their own projects previously saw a `[5] SKIP manifest  not in atomic-claude repo` line that only made sense to repo developers. Omitting the check entirely removes the repo-development noise while keeping it fully functional in-repo and on explicit request.
+
+**Superseded:** Prior contract always registered and ran category 5, emitting a `SKIP` result line outside the atomic-claude repo.

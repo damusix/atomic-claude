@@ -74,6 +74,14 @@ v1.1 adds: `atomic validate design`, `atomic validate followups`.
 Path-aware dispatch: `atomic validate docs/spec/foo.md other/path.md` routes the first to `spec`, ignores (with WARN) the second.
 
 
+**Bundle is repo-dev-only.** Bundle parity compares the working tree against the embedded source snapshot, which only exists in the atomic-claude repo (detected by the presence of `atomic/internal/bundlemirror/mirror.go` at the git toplevel — the same heuristic as `atomic doctor`'s manifest check). Outside that repo:
+
+- Bare `atomic validate` runs spec + config only; the bundle section is omitted silently (no header, no findings).
+- Explicit `atomic validate bundle` (and `--json`) prints a one-line `SKIP — not in atomic-claude repo` and exits 0.
+
+It never errors out. spec and config validators run in any repo.
+
+
 ## v1 rules
 
 
@@ -288,3 +296,11 @@ Closed during the build (dropped from ledger; commits cover them): F-1 (flag-aft
 
 
 **Squashed onto `main` as `82cd9cc` — 2026-05-18.** Per-iteration SHAs above are historical (unreachable post-squash).
+
+### 2026-06-06 — bundle check skips outside the atomic-claude repo
+
+**What changed:** The bundle-parity validator is now repo-dev-gated. Bare `atomic validate` run outside the atomic-claude repo runs only the spec + config validators; the bundle section is omitted silently (no header, no findings). Explicit `atomic validate bundle` (and `--json`) outside the repo prints a one-line `SKIP — not in atomic-claude repo` and exits 0 instead of crashing. Repo-dev detection mirrors `doctor.IsRepoDev` (presence of `atomic/internal/bundlemirror/mirror.go`) via a local `repoDev(root)` helper in `internal/validate/repo.go` — no doctor import. The no-`.git` hard error was removed from the explicit bundle path (it now skips cleanly); whole-repo dispatch still requires a repo root for spec/config.
+
+**Why:** Issue #35 — `atomic validate` crashed with `bundle check failed: internal error (exit 2)` in any project that is not the atomic-claude repo itself, because bundle parity compares the working tree against the embedded source snapshot, which only exists in-repo. `manifestcheck.Compare` returned an error on the absent source and the dispatcher mapped it to exit 2. Bundle parity is a contributor/CI concern; end users running `atomic validate` in their own projects should get the spec + config checks that actually apply, not a crash.
+
+**Superseded:** Prior contract ran the bundle validator unconditionally in all three entry points (bare `validate`, `validate bundle`, `--json`), erroring out (exit 2) outside the atomic-claude repo.
