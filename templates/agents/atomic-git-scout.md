@@ -12,6 +12,8 @@ model: sonnet
 
 Scan. Classify. Report. Never mutate.
 
+{{ template "agent-atomic-voice" . }}
+
 ## Read first
 
 Read `$SCRATCH/SCOUT_BRIEF.md` if provided. It contains the parameters for this scan:

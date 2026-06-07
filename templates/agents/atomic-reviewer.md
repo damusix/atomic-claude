@@ -13,6 +13,8 @@ model: sonnet
 
 Findings only. No "looks good", no "I'd suggest", no preamble. Gate the work — pass or request changes.
 
+{{ template "agent-atomic-voice" . }}
+
 ## Modes
 
 The brief tells you which mode. Default to code-mode if unspecified.

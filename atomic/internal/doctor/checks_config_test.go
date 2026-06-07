@@ -59,7 +59,7 @@ func TestCheckConfig_noTOML(t *testing.T) {
 // TestCheckConfig_validTOMLAndSyncedResolved: valid TOML + resolved.md in sync → PASS.
 func TestCheckConfig_validTOMLAndSyncedResolved(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[output]\nintensity = \"lite\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 5\n")
 
 	// Pre-render the correct resolved.md.
 	cfg, warns, err := config.Load(config.TOMLPath(root))
@@ -111,21 +111,21 @@ func TestCheckConfig_unknownKey(t *testing.T) {
 // TestCheckConfig_invalidValue: known key, out-of-enum value → FAIL with Validate error.
 func TestCheckConfig_invalidValue(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[output]\nintensity = \"bogus\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 0\n")
 
 	r := doctor.RunCheckConfigWith(root)
 	if r.Severity != doctor.FAIL {
 		t.Errorf("severity = %q, want FAIL; detail: %s", r.Severity, r.Detail)
 	}
-	if !strings.Contains(r.Detail, "intensity") {
-		t.Errorf("detail %q: want mention of 'intensity'", r.Detail)
+	if !strings.Contains(r.Detail, "max_depth") {
+		t.Errorf("detail %q: want mention of 'max_depth'", r.Detail)
 	}
 }
 
 // TestCheckConfig_resolvedMissing: valid TOML but no resolved.md → WARN about drift.
 func TestCheckConfig_resolvedMissing(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[output]\nintensity = \"lite\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 5\n")
 	// deliberately do NOT write resolved.md
 
 	r := doctor.RunCheckConfigWith(root)
@@ -140,7 +140,7 @@ func TestCheckConfig_resolvedMissing(t *testing.T) {
 // TestCheckConfig_resolvedDrifted: valid TOML, resolved.md exists but has stale content → WARN.
 func TestCheckConfig_resolvedDrifted(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[output]\nintensity = \"lite\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 5\n")
 	writeResolved(t, root, "# stale content that does not match rendered output\n")
 
 	r := doctor.RunCheckConfigWith(root)
@@ -155,7 +155,7 @@ func TestCheckConfig_resolvedDrifted(t *testing.T) {
 // TestCheckConfig_fixRerender: repair re-renders resolved.md and check goes PASS.
 func TestCheckConfig_fixRerender(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[output]\nintensity = \"full\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 5\n")
 	// resolved.md missing — should be WARN before fix
 	before := doctor.RunCheckConfigWith(root)
 	if before.Severity != doctor.WARN {
@@ -178,7 +178,7 @@ func TestCheckConfig_fixRerender(t *testing.T) {
 // TestCheckConfig_fixRerenderDrifted: repair corrects drifted resolved.md.
 func TestCheckConfig_fixRerenderDrifted(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[output]\nintensity = \"lite\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 5\n")
 	writeResolved(t, root, "# wrong content\n")
 
 	before := doctor.RunCheckConfigWith(root)
@@ -209,10 +209,10 @@ func TestCheckConfig_fixUnparseableCantFix(t *testing.T) {
 
 // TestRunConfigRepairWith_invalidValueRefuses: repair MUST NOT write to
 // config.resolved.md when the TOML has an invalid value. The rendered content
-// with "bogus" intensity would poison every Claude session via @-ref.
+// with an out-of-range max_depth would poison every Claude session via @-ref.
 func TestRunConfigRepairWith_invalidValueRefuses(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[output]\nintensity = \"bogus\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 0\n")
 	// Write a sentinel so we can verify the file was not overwritten.
 	writeResolved(t, root, "original\n")
 
@@ -237,7 +237,7 @@ func TestRunConfigRepairWith_invalidValueRefuses(t *testing.T) {
 func TestCheckConfig_unknownKeyAndDrift_combinedWARN(t *testing.T) {
 	root := t.TempDir()
 	// Unknown key in a known section + valid key, no resolved.md.
-	writeTOML(t, root, "[output]\nintensity = \"lite\"\nfoo = \"bar\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 5\nfoo = \"bar\"\n")
 	// Deliberately write a stale resolved.md so drift is also present.
 	writeResolved(t, root, "# stale\n")
 
@@ -259,7 +259,7 @@ func TestCheckConfig_unknownKeyAndDrift_combinedWARN(t *testing.T) {
 // Parse errors and invalid values cannot be repaired by the binary.
 func TestRepairPlan_configFAIL_notFixable(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[output]\nintensity = \"bogus\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 0\n")
 
 	// RunCheckConfigWith returns FAIL for invalid values.
 	r := doctor.RunCheckConfigWith(root)
@@ -297,7 +297,7 @@ func TestRepairPlan_configFAIL_notFixable(t *testing.T) {
 // TestRepairPlan_configWARN_fixable: a config WARN result (drift) must be auto-fixable.
 func TestRepairPlan_configWARN_fixable(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[output]\nintensity = \"lite\"\n")
+	writeTOML(t, root, "[output.signals]\nmax_depth = 5\n")
 	// No resolved.md → WARN (drift).
 	r := doctor.RunCheckConfigWith(root)
 	if r.Severity != doctor.WARN {

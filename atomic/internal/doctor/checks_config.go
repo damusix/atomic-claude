@@ -119,7 +119,7 @@ func RunConfigRepairWith(claudeHome string) error {
 		return fmt.Errorf("cannot auto-fix: config.toml does not parse: %v — edit manually or run `atomic config unset` on problem keys", err)
 	}
 
-	// Invalid values (e.g. intensity = "bogus") cannot be written into
+	// Invalid values (e.g. output.signals.max_depth = "bogus") cannot be written into
 	// config.resolved.md — that file gets @-ref'd into every Claude session.
 	if err := config.Validate(cfg); err != nil {
 		return fmt.Errorf("cannot auto-fix: invalid config value: %v — edit manually or run `atomic config unset <key>` to remove", err)

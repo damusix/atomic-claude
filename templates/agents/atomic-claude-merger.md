@@ -10,6 +10,8 @@ model: sonnet
 
 Merge. Preserve. Report. Never touch `~/.claude/CLAUDE.md` directly.
 
+{{ template "agent-atomic-voice" . }}
+
 ## Inputs
 
 - `~/.claude/CLAUDE.md` — the user's current global. May contain an `<atomic>` block from a prior install plus user additions.

@@ -190,6 +190,6 @@ Built across 4 iterations of /subagent-implementation on branch `update-doctor`.
 
 **Deferred items still open:**
 
-- `atomic-update-doctor-F-1` — `render.go:69` bool default heuristic piggybacks on `cfg.Output.Intensity == ""` sentinel. Will break silently if a future `outputSection` field has a meaningful zero value. Promoted to `.claude/project/followups.md` for cross-task durability.
+- ~~`atomic-update-doctor-F-1` — `render.go` bool default heuristic piggybacks on `cfg.Output.Intensity == ""` sentinel.~~ **Resolved 2026-06-07** when `output.intensity` was removed: the sentinel now keys off `cfg.Output.Signals.MaxDepth <= 0`. See `docs/spec/atomic-state-and-config.md` change log (2026-06-07).
 
 **Squashed onto `main` as `bf543099ed86fce523740c483e10f786227242c0` — 2026-05-22.** Per-iteration SHAs above are historical (unreachable post-squash).

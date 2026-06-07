@@ -135,15 +135,15 @@ Code changes break docs. An endpoint gets renamed, a config field disappears, an
 The `atomic-documentation` skill is the engine that classifies surfaces. The `/documentation` command is the interface you interact with. The `atomic docs scan` and `atomic docs stale` binary subcommands handle the deterministic scanning underneath.
 
 
-## Why compressed output?
+## Why clearer output?
 
 Claude is verbose by default. It opens with "Sure! I'd be happy to help." It hedges with "perhaps" and "it seems like." It explains what it is about to do, does it, then summarizes what it just did. For a single question, this is fine. Across a working session with dozens of exchanges, the filler adds up — it costs tokens, slows you down, and buries the answer.
 
-Atomic's output style strips this scaffolding. The result is the same information in fewer tokens, faster to scan. A bug explanation that took a paragraph becomes two sentences and a code block. Three intensity levels let you dial it mid-session. Security warnings and irreversible-action confirmations always revert to full prose regardless of intensity.
+Atomic's output style strips this scaffolding. Clarity is the goal: the same information, easier to follow. A bug explanation that took a paragraph becomes two sentences and a code block. Multi-part answers use tables, trees, and ASCII flows so structure carries the meaning. Security warnings and irreversible-action confirmations always revert to full prose.
 
 The output style is the most optional part of Atomic Claude. Everything else — skills, commands, agents, signals — works without it.
 
-See [output style](/reference/output-style) for intensity levels and examples.
+See [output style](/reference/output-style) for details and examples.
 
 
 ## Worktrees

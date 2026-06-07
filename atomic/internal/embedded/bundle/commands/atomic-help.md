@@ -124,7 +124,7 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `agents` | 9 subagents: `atomic-builder`, `atomic-surgeon`, `atomic-investigator`, `atomic-strategist`, `atomic-reviewer`, `atomic-git-scout`, `atomic-signals-inferrer`, `atomic-claude-merger`, `atomic-haiku`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
 | `skills` | 7 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
-| `style` / `intensity` | atomic output style — three levels: `lite`, `full` (default), `ultra`. Switch mid-session by saying "atomic ultra" / "atomic lite". |
+| `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
 | `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`. |
 

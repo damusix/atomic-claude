@@ -28,8 +28,8 @@ features:
       title: A config that learns from you
       details: After a rough session, /atomic-improve mines your history for friction, corrections, and misbehavior, then proposes fixes to your own skills and rules. The setup gets sharper the more you use it.
     - icon: "\uF066"
-      title: Compressed replies
-      details: A tone layer that strips filler from Claude's responses. Same accuracy, fewer tokens, faster to scan. Three intensity levels, switchable mid-session.
+      title: Clearer replies
+      details: A communication layer that cuts filler and structures multi-part answers with tables, trees, and ASCII flows. Compressed, but built for clarity.
     - icon: "\uF126"
       title: A verb for every git op
       details: Ten commands covering every combination of commit, push, squash, PR, and merge. Plus CI watching, stale-branch cleanup, and worktree isolation.
@@ -127,13 +127,13 @@ Fix: change `token.exp < now` to
 </div>
 </div>
 
-Same accuracy. Fewer tokens. Faster to scan.
+Same accuracy. Less noise. Clearer to follow.
 
 ## Pick your depth
 
 You don't have to adopt all of it. Start where it helps.
 
-1. **Compressed replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
+1. **Clearer replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
 2. **A repo explorer.** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
 3. **Full plan → implement → review loop, or autopilot.** Read the [workflow reference](/reference/workflow).
 

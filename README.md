@@ -50,7 +50,7 @@ uses `<` not `<=` — tokens expiring at current second get rejected.
 Fix: change `token.exp < now` to `token.exp <= now`.
 ```
 
-Same accuracy. Fewer tokens. Faster to scan.
+Same accuracy. Less noise. Clearer to follow.
 
 
 ## What you get
@@ -65,7 +65,7 @@ Atomic Claude is a coherent system of output styles, discipline skills, subagent
 
 The rest of the system supports those three.
 
-**Compressed replies.** A tone layer that strips filler from Claude's responses. Three intensity levels switchable mid-session. Opt in via `/config` then Output style then Atomic. Details in [docs/reference/output-style.md](docs/reference/output-style.md).
+**Clearer replies.** A communication layer that cuts filler and gives multi-part answers real structure: tables, indented trees, ASCII flows. Compressed, but built for clarity, not brevity for its own sake. Opt in via `/config` then Output style then Atomic. Details in [docs/reference/output-style.md](docs/reference/output-style.md).
 
 **The interactive workflow.** To stay in the loop instead of handing the work to autopilot, run the same lifecycle as individual commands with approval gates: verify a hunch with `/gather-evidence`, plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`. Each stage uses fresh-context subagents that write tests first, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
 
@@ -86,7 +86,7 @@ Not sure where to begin? Run `/atomic-help` in any repo. It reads your git state
 
 Otherwise, pick your depth:
 
-1. **Compressed replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
+1. **Clearer replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
 2. **A repo explorer.** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
 3. **Full plan, implement, review loop, or autopilot.** Read the [workflow reference](docs/reference/workflow.md).
 

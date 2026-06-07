@@ -7,45 +7,15 @@ import (
 	"testing"
 )
 
-// TestRoundTrip: set → persist → load → get returns the set value.
-func TestRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-
-	cfg := Default()
-	if err := Set(cfg, "output.intensity", "lite"); err != nil {
-		t.Fatalf("Set: %v", err)
-	}
-	if err := WritePersist(path, cfg); err != nil {
-		t.Fatalf("WritePersist: %v", err)
-	}
-
-	loaded, warns, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(warns) != 0 {
-		t.Errorf("unexpected warnings: %v", warns)
-	}
-
-	got, err := Get(loaded, "output.intensity")
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if got != "lite" {
-		t.Errorf("got %q, want %q", got, "lite")
-	}
-}
-
 // TestSetUnknownKey: Set returns error on unknown key and includes a suggestion for near-matches.
 func TestSetUnknownKey(t *testing.T) {
 	cfg := Default()
-	err := Set(cfg, "outpot.intensity", "full") // typo: outpot
+	err := Set(cfg, "output.signals.max_dept", "5") // typo: max_dept
 	if err == nil {
 		t.Fatal("expected error for unknown key, got nil")
 	}
-	if !strings.Contains(err.Error(), "output.intensity") {
-		t.Errorf("expected suggestion 'output.intensity' in error %q", err.Error())
+	if !strings.Contains(err.Error(), "output.signals.max_depth") {
+		t.Errorf("expected suggestion 'output.signals.max_depth' in error %q", err.Error())
 	}
 }
 
@@ -62,16 +32,16 @@ func TestSetUnknownKeyNoSuggestion(t *testing.T) {
 	}
 }
 
-// TestSetUnknownValue: Set returns error listing allowed values on bad enum.
+// TestSetUnknownValue: Set returns error describing the expected type on a bad value.
 func TestSetUnknownValue(t *testing.T) {
 	cfg := Default()
-	err := Set(cfg, "output.intensity", "bogus")
+	err := Set(cfg, "output.signals.max_depth", "bogus")
 	if err == nil {
-		t.Fatal("expected error for unknown value, got nil")
+		t.Fatal("expected error for invalid value, got nil")
 	}
-	// Should mention allowed values
-	if !strings.Contains(err.Error(), "lite") || !strings.Contains(err.Error(), "full") || !strings.Contains(err.Error(), "ultra") {
-		t.Errorf("expected allowed values in error %q", err.Error())
+	// Should describe the expected type.
+	if !strings.Contains(err.Error(), "positive integer") {
+		t.Errorf("expected 'positive integer' in error %q", err.Error())
 	}
 }
 
@@ -80,7 +50,7 @@ func TestLoadUnknownKeyWarn(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 
-	toml := "[output]\nintensity = \"full\"\n[unknown_section]\nfoo = \"bar\"\n"
+	toml := "[output.signals]\nmax_depth = 3\n[unknown_section]\nfoo = \"bar\"\n"
 	if err := os.WriteFile(path, []byte(toml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -125,12 +95,12 @@ func TestLoadUnknownLeafKeyWarn(t *testing.T) {
 		t.Errorf("expected warning mentioning 'output.foo', got: %v", warns)
 	}
 	// Valid keys still resolve to defaults.
-	got, err := Get(cfg, "output.intensity")
+	got, err := Get(cfg, "output.signals.max_depth")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got != intensityDefault {
-		t.Errorf("got intensity %q, want default %q", got, intensityDefault)
+	if got != "3" {
+		t.Errorf("got max_depth %q, want default %q", got, "3")
 	}
 }
 
@@ -144,39 +114,30 @@ func TestLoadMissingFile(t *testing.T) {
 		t.Errorf("unexpected warnings: %v", warns)
 	}
 	// Should return default values
-	got, err := Get(cfg, "output.intensity")
+	got, err := Get(cfg, "update.run_doctor")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got != "full" {
-		t.Errorf("got %q, want default %q", got, "full")
-	}
-}
-
-// TestValidate: Validate rejects bad enum values.
-func TestValidate(t *testing.T) {
-	cfg := &Config{}
-	cfg.Output.Intensity = "invalid"
-	if err := Validate(cfg); err == nil {
-		t.Fatal("expected Validate to error on invalid intensity")
+	if got != "true" {
+		t.Errorf("got %q, want default %q", got, "true")
 	}
 }
 
 // TestUnset: Unset reverts to built-in default.
 func TestUnset(t *testing.T) {
 	cfg := Default()
-	if err := Set(cfg, "output.intensity", "lite"); err != nil {
+	if err := Set(cfg, "output.signals.max_depth", "7"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Unset(cfg, "output.intensity"); err != nil {
+	if err := Unset(cfg, "output.signals.max_depth"); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Get(cfg, "output.intensity")
+	got, err := Get(cfg, "output.signals.max_depth")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "full" {
-		t.Errorf("after Unset got %q, want default %q", got, "full")
+	if got != "3" {
+		t.Errorf("after Unset got %q, want default %q", got, "3")
 	}
 }
 
@@ -222,8 +183,8 @@ func TestWritePersistAtomic(t *testing.T) {
 func TestResolvedDefaults(t *testing.T) {
 	cfg := Default()
 	m := Resolved(cfg)
-	if m["output.intensity"] != "full" {
-		t.Errorf("expected default 'full', got %q", m["output.intensity"])
+	if m["output.signals.max_depth"] != "3" {
+		t.Errorf("expected default '3', got %q", m["output.signals.max_depth"])
 	}
 }
 
@@ -240,7 +201,7 @@ func TestUpdateRunDoctorAbsent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 
-	tomlContent := "[output]\nintensity = \"full\"\n"
+	tomlContent := "[output.signals]\nmax_depth = 3\n"
 	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -325,11 +286,12 @@ func TestUpdateRunDoctorRoundTrip(t *testing.T) {
 
 // TestResolvedZeroValueConfig: Resolved(&Config{}) returns defaults for both keys.
 // This is the render.go backfill path — a literal zero-value Config must
-// produce "full" for intensity and "true" for run_doctor even before Default() is called.
+// produce "3" for max_depth and "true" for run_doctor even before Default() is called.
+// The zero-value max_depth (0) is also the sentinel that triggers the run_doctor default.
 func TestResolvedZeroValueConfig(t *testing.T) {
 	m := Resolved(&Config{})
-	if m["output.intensity"] != "full" {
-		t.Errorf("Resolved(&Config{}) output.intensity = %q, want \"full\"", m["output.intensity"])
+	if m["output.signals.max_depth"] != "3" {
+		t.Errorf("Resolved(&Config{}) output.signals.max_depth = %q, want \"3\"", m["output.signals.max_depth"])
 	}
 	if m["update.run_doctor"] != "true" {
 		t.Errorf("Resolved(&Config{}) update.run_doctor = %q, want \"true\"", m["update.run_doctor"])
@@ -507,7 +469,7 @@ func TestSignalsMaxDepthUnknownKeyNoFalsePositive(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 
-	tomlContent := "[output]\nintensity = \"full\"\n[output.signals]\nmax_depth = 5\n[update]\nrun_doctor = true\n"
+	tomlContent := "[output.signals]\nmax_depth = 5\n[update]\nrun_doctor = true\n"
 	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}

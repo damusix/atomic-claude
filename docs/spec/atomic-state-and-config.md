@@ -31,7 +31,7 @@ Consolidate atomic-owned state under `~/.claude/.atomic/` and ship a TOML-backed
 - [ ] `atomic doctor` includes a new `config` check (TOML parses, no unknown keys, `config.resolved.md` matches render of TOML).
 - [ ] `atomic doctor --fix` re-renders `config.resolved.md` when drift detected.
 - [ ] `atomic-claude-merger` agent and `/atomic-claude-merge` command reference the new proposed path.
-- [ ] Axiom 2 amended in `.claude/docs/axioms.md` with the shell-settable carve-out.
+- [ ] Axiom 2 amended in `.claude/rules/authoring/axioms.md` with the shell-settable carve-out.
 
 
 ## Layout (target end state)
@@ -53,12 +53,15 @@ Consolidate atomic-owned state under `~/.claude/.atomic/` and ship a TOML-backed
 
 
 ```toml
-[output]
-intensity = "full"          # lite | full | ultra
+[output.signals]
+max_depth = 3               # positive integer; bounded tree depth in `atomic signals scan`
+
+[update]
+run_doctor = true           # true | false; run doctor after `atomic update`
 ```
 
 
-Only `output.intensity` ships in v1. `forge.*`, `cleanup.*`, `update.*` added per concrete steering need in follow-up specs (rollout step 5). Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
+v1 keys: `output.signals.max_depth` and `update.run_doctor`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
 
 
 ## Precedence (highest wins)
@@ -96,7 +99,7 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 | 7 | New `doctor` check category `config`: TOML present + parses, no unknown keys, `config.resolved.md` matches render of TOML; `--fix` re-renders on drift | `atomic/internal/doctor/checks_config.go`, `checks_config_test.go`, dispatch wiring | unit: PASS/WARN/FAIL paths; integration: `--fix` re-renders and check goes PASS |
 | 8 | `doctor` install-integrity scans `.atomic/` paths (no legacy path scan) | `atomic/internal/doctor/checks_install.go` | unit: install check passes with new paths populated, regardless of legacy-path presence |
 | 9 | Amend `docs/spec/atomic-doctor.md`: add category #9 entry + change-log entry per spec-amendment rule | `docs/spec/atomic-doctor.md` | spec body lists check #9; change log has dated entry referencing this spec |
-| 10 | Amend `.claude/docs/axioms.md` axiom 2 with shell-settable carve-out | `.claude/docs/axioms.md` | grep: carve-out paragraph present under axiom 2 |
+| 10 | Amend `.claude/rules/authoring/axioms.md` axiom 2 with shell-settable carve-out | `.claude/rules/authoring/axioms.md` | grep: carve-out paragraph present under axiom 2 |
 
 
 ## Risks
@@ -120,6 +123,17 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 
 
 ## Change log
+
+
+### 2026-06-07 — Remove output.intensity config key
+
+**What changed:** Dropped `output.intensity` (the original v1 key) from the schema. The atomic output style is now single-mode; the `lite` / `full` / `ultra` intensity levels no longer exist. The schema is now `output.signals.max_depth` + `update.run_doctor`. The `Resolved()` zero-value-Config sentinel that backfills `update.run_doctor` — previously keyed off `cfg.Output.Intensity == ""` — now keys off `cfg.Output.Signals.MaxDepth <= 0` (a literal `&Config{}` has `MaxDepth == 0`; `Default()`/`Load()` always yield `MaxDepth > 0`).
+
+**Why:** intensity added prompt bloat (the lite/full/ultra table loaded into every session) without earning its keep. One clarity-focused mode is simpler to reason about and to document.
+
+**Superseded:** v1 originally shipped `output.intensity = "full"` (`lite | full | ultra`) as the first and only key; the render sentinel keyed the run_doctor default off the empty intensity string.
+
+**Removed:** `output.intensity` key, `validIntensity` enum, intensity backfill in `Load`, and the intensity cases in `Validate`/`Set`/`Unset`. Closes follow-up `atomic-update-doctor-f-1` (the intensity-sentinel coupling it flagged is gone).
 
 
 ### 2026-05-23 — Add output.signals.max_depth config key
@@ -164,7 +178,7 @@ Built across 5 implement-review iterations of `/subagent-implementation` plus a 
 - `6cbde38` — CP-3: `atomic config get|set|unset|list|path` CLI wired through `atomic/cmd/atomic/main.go`. Re-renders `config.resolved.md` after every `set`/`unset`. Near-match (Levenshtein-2) suggestions on unknown keys for all three of get/set/unset. 24 CLI tests.
 - `0ed7004` — CP-4 + CP-5 + CP-6: bundled `CLAUDE.md` gains the `@~/.claude/.atomic/config.resolved.md` `@-ref` and a "Where things live" bullet. `claudeinstall` migrates backups to `.atomic/backups/<ts>/`, proposed merges to `.atomic/proposed/CLAUDE.md`, and idempotently pre-creates `config.resolved.md` on every Apply so the bundled ref always resolves. Cross-references in `agents/atomic-claude-merger.md` + `commands/atomic-claude-merge.md` updated. Bundle regenerated.
 - `c5c34fc` — CP-7 + CP-8: new doctor check category #9 (`config`), with PASS / WARN / FAIL coverage and a `--fix` repair that re-renders on drift but refuses to write when validation fails (`bogus` never reaches `config.resolved.md`). `repairPlan` reports FAIL-severity config results as non-fixable. Install-integrity check confirmed to skip the `.atomic/` subtree. `CLAUDE.md` prose updated from "eight" to "nine" checks.
-- `009baaa` — CP-9 + CP-10: `docs/spec/atomic-doctor.md` gains row 9 + change-log entry per the append-mostly rule. `.claude/docs/axioms.md` axiom 2 gains the shell-settable carve-out paragraph settled during pressure-test.
+- `009baaa` — CP-9 + CP-10: `docs/spec/atomic-doctor.md` gains row 9 + change-log entry per the append-mostly rule. `.claude/rules/authoring/axioms.md` axiom 2 gains the shell-settable carve-out paragraph settled during pressure-test.
 - `57ab0ae` — Phase 3 polish: closed F-1, F-2, F-3, F-4, F-5, F-8, F-9 (test gaps, hoisted package vars, dead-code removal, alphabetical usage printer, combined-WARN UX in doctor config check, `strings.Contains` cleanup). Added `claude.local.md` Platform support rule (macOS/Linux only).
 
 **Out-of-scope work performed during this build:** none. Spec was tight; no schema additions, no expansion beyond CP-1..CP-10.

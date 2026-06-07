@@ -26,7 +26,7 @@ func Render(cfg *Config) string {
 	sb.WriteString("\n")
 
 	// Group keys by section (first dotted component).
-	// Schema v1 always has at least one key (output.intensity), so len(keys) > 0 here.
+	// Schema v1 always has at least one key (output.signals.max_depth), so len(keys) > 0 here.
 	type entry struct{ key, val string }
 	sections := map[string][]entry{}
 	var sectionOrder []string
@@ -55,29 +55,25 @@ func Render(cfg *Config) string {
 // Resolved returns a flat dotted-key → resolved-value map.
 // Built-in defaults are filled in for any zero-value fields.
 func Resolved(cfg *Config) map[string]string {
-	intensity := cfg.Output.Intensity
-	if intensity == "" {
-		intensity = intensityDefault
-	}
-	// For update.run_doctor: bool's zero value (false) is indistinguishable
-	// from an explicit false without a sentinel. We use the same zero-value
-	// signal as intensity: a Config where intensity == "" is a literal zero-value
-	// struct, not one produced by Default() or Load(). In that case apply the
-	// default for run_doctor too. A Config where intensity != "" was produced by
-	// Default()/Load() — RunDoctor=false there is intentional and preserved.
-	runDoctor := cfg.Update.RunDoctor
-	if !runDoctor && intensity == intensityDefault && cfg.Output.Intensity == "" {
-		// intensity was backfilled above (cfg.Output.Intensity was ""), meaning
-		// this is a zero-value Config. Apply the run_doctor default too.
-		runDoctor = runDoctorDefault
-	}
 	// output.signals.max_depth: int zero-value (0) means "use default".
+	// It also doubles as the zero-value-Config signal below.
 	maxDepth := cfg.Output.Signals.MaxDepth
+	zeroValueConfig := maxDepth <= 0
 	if maxDepth <= 0 {
 		maxDepth = signalsMaxDepthDefault
 	}
+	// For update.run_doctor: bool's zero value (false) is indistinguishable
+	// from an explicit false without a sentinel. A literal zero-value Config
+	// (e.g. &Config{}) has MaxDepth == 0; one produced by Default()/Load()
+	// always has MaxDepth > 0 (absent → backfilled to the default, explicit
+	// non-positive → rejected by Validate). So MaxDepth <= 0 means "zero-value
+	// Config", in which case apply the run_doctor default too. A Default()/Load()
+	// Config with RunDoctor == false is intentional and preserved.
+	runDoctor := cfg.Update.RunDoctor
+	if !runDoctor && zeroValueConfig {
+		runDoctor = runDoctorDefault
+	}
 	return map[string]string{
-		"output.intensity":         intensity,
 		"output.signals.max_depth": fmt.Sprintf("%d", maxDepth),
 		"update.run_doctor":        fmt.Sprintf("%t", runDoctor),
 	}

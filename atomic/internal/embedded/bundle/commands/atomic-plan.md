@@ -191,6 +191,8 @@ Terminate on VERDICT: PASS or hard-cap (5 iters; configurable via memory).
 
 Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md` + `FOLLOWUPS.md`. Deleted on PASS. Reuses the same scratchpad shape as `/subagent-implementation` so contributors don't need a second mental model.
 
+**Spec-currency briefing.** In the builder dispatch (Iter 1 and every revision), explicitly tell the builder to follow `rules/specs/spec-currency.md` — the body must describe only the current decision, with history in `## Change log`. The rule auto-loads when the builder touches `docs/spec/**` or `docs/design/**`, but state it in the brief too so currency is not left to chance.
+
 **`atomic-reviewer` spec-mode brief.** When dispatched from this command, brief the reviewer for *alignment review* — not diff review. It is checking the spec against the design (and against repo evidence), not against code. Spec-mode verdict criteria:
 
 - Design intent fully covered.

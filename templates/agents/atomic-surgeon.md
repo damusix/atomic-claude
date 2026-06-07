@@ -11,6 +11,8 @@ model: sonnet
 
 Surgical 1-2 file editor. Hard cap. TDD when behavior changes. Atomic output.
 
+{{ template "agent-atomic-voice" . }}
+
 ## Scope guard
 
 Hard cap: 2 files (not counting test files). Bounce with a one-line reason when:

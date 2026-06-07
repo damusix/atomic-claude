@@ -10,25 +10,14 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// intensityDefault is the built-in default for output.intensity.
-const intensityDefault = "full"
-
 // runDoctorDefault is the built-in default for update.run_doctor.
 const runDoctorDefault = true
 
 // signalsMaxDepthDefault is the built-in default for output.signals.max_depth.
 const signalsMaxDepthDefault = 3
 
-// validIntensity is the set of allowed output.intensity values.
-var validIntensity = map[string]bool{
-	"lite":  true,
-	"full":  true,
-	"ultra": true,
-}
-
 // knownKeys is the exhaustive list of v1 dotted keys.
 var knownKeys = []string{
-	"output.intensity",
 	"output.signals.max_depth",
 	"update.run_doctor",
 }
@@ -59,8 +48,7 @@ type signalsSubSection struct {
 
 // outputSection is the [output] TOML table.
 type outputSection struct {
-	Intensity string            `toml:"intensity"`
-	Signals   signalsSubSection `toml:"signals"`
+	Signals signalsSubSection `toml:"signals"`
 }
 
 // updateSection is the [update] TOML table.
@@ -79,8 +67,7 @@ type Config struct {
 func Default() *Config {
 	return &Config{
 		Output: outputSection{
-			Intensity: intensityDefault,
-			Signals:   signalsSubSection{MaxDepth: signalsMaxDepthDefault},
+			Signals: signalsSubSection{MaxDepth: signalsMaxDepthDefault},
 		},
 		Update: updateSection{RunDoctor: runDoctorDefault},
 	}
@@ -141,9 +128,6 @@ func Load(path string) (*Config, []Warning, error) {
 	}
 
 	// Backfill defaults for any zero-value fields.
-	if cfg.Output.Intensity == "" {
-		cfg.Output.Intensity = intensityDefault
-	}
 	// update.run_doctor: only backfill default when the key was absent.
 	// When explicitly set to false, the decoded value is already false — correct.
 	// When absent, Default() already set it to true; TOML decode of a missing
@@ -229,10 +213,6 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 // Validate returns an error if cfg contains values outside the allowed schema.
 // update.run_doctor is a bool and has no invalid state at the Config level.
 func Validate(cfg *Config) error {
-	if cfg.Output.Intensity != "" && !validIntensity[cfg.Output.Intensity] {
-		allowed := strings.Join(sortedKeys(validIntensity), ", ")
-		return fmt.Errorf("config: output.intensity %q is not one of: %s", cfg.Output.Intensity, allowed)
-	}
 	if cfg.Output.Signals.MaxDepth <= 0 {
 		return fmt.Errorf("config: output.signals.max_depth must be a positive integer, got %d", cfg.Output.Signals.MaxDepth)
 	}
@@ -268,12 +248,6 @@ func Set(cfg *Config, dottedKey, value string) error {
 	}
 
 	switch dottedKey {
-	case "output.intensity":
-		if !validIntensity[value] {
-			allowed := strings.Join(sortedKeys(validIntensity), ", ")
-			return fmt.Errorf("config: output.intensity %q is not one of: %s", value, allowed)
-		}
-		cfg.Output.Intensity = value
 	case "output.signals.max_depth":
 		var n int
 		if _, err := fmt.Sscanf(value, "%d", &n); err != nil || n <= 0 {
@@ -305,8 +279,6 @@ func Unset(cfg *Config, dottedKey string) error {
 		return fmt.Errorf("config: unknown key %q", dottedKey)
 	}
 	switch dottedKey {
-	case "output.intensity":
-		cfg.Output.Intensity = intensityDefault
 	case "output.signals.max_depth":
 		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
 	case "update.run_doctor":
@@ -422,19 +394,4 @@ func min3(a, b, c int) int {
 		return b
 	}
 	return c
-}
-
-// sortedKeys returns the keys of a map[string]bool in sorted order.
-func sortedKeys(m map[string]bool) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	// Simple insertion sort; small slice.
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
-			keys[j], keys[j-1] = keys[j-1], keys[j]
-		}
-	}
-	return keys
 }

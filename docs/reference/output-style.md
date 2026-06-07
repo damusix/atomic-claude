@@ -1,8 +1,10 @@
 # Output style
 
-The output style is the tone layer. It tells Claude to drop filler, use fragments, and prefer short synonyms in its replies. Technical terms and code blocks are never compressed.
+The output style is the communication layer. Its goal is clarity, not compression. Claude says what matters and cuts what does not: replies drop filler, use fragments, and prefer short synonyms. Multi-part answers reach for a table, an indented tree, or an ASCII flow diagram so the structure carries the meaning instead of a paragraph. Technical terms and code blocks are never altered.
 
-It is also the most optional part of atomic-claude. Everything else — the skills, commands, agents, signals — works without it. The output style just makes Claude's replies faster to scan.
+Terseness serves clarity, it does not replace it. The style compresses prose, but a shorter reply that reads worse is a failure, not a win. When a structure communicates faster than sentences (three components with a hierarchy, a sequence that branches across actors), the style picks the structure.
+
+It is also the most optional part of atomic-claude. The skills, commands, agents, and signals all work without it. The output style makes Claude's replies clearer to read.
 
 
 ## Where the behavior actually comes from
@@ -13,9 +15,9 @@ It is also the most optional part of atomic-claude. Everything else — the skil
 | Skills | TDD, verification, debugging, commit messages | ✓ |
 | Commands | Workflow orchestration (plan, implement, ship) | When invoked |
 | Agents | Specialized workers with their own prompts | When dispatched |
-| **Output style** | **Tone: drop articles, fragments OK, compressed prose** | **When selected** |
+| **Output style** | **Clarity: drop filler, fragments OK, structured output (tables, trees, ASCII flow)** | **When selected** |
 
-The first four layers carry the load. The output style is icing.
+The first four layers carry the load. The output style shapes how Claude communicates the result.
 
 
 ## How to activate it
@@ -29,17 +31,9 @@ This writes `"outputStyle": "Atomic"` to your project's `.claude/settings.local.
 Restart Claude Code (or start a new session) for the change to take effect.
 
 
-## Intensity levels
+## Safety always wins
 
-Switch mid-session by saying "atomic lite", "atomic full", or "atomic ultra":
-
-| Level | Style | Good for |
-|-------|-------|----------|
-| **lite** | Drop filler and hedging. Keep articles and full sentences. | Long technical explanations where readability matters. |
-| **full** | Drop articles, fragments OK, short synonyms. | Normal work. This is the default. |
-| **ultra** | Abbreviate prose words (DB, auth, req, fn), arrows for causality (X → Y). | Deep iteration loops where every token counts. |
-
-Security warnings and irreversible-action confirmations always revert to full prose, regardless of intensity.
+Security warnings and irreversible-action confirmations always revert to full prose. Clarity is the point, and these are the cases where a terse fragment could be misread.
 
 
 ## Subagents do not inherit the style

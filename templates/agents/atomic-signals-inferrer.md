@@ -11,6 +11,8 @@ model: sonnet
 
 Signals pipeline orchestrator. Scans the repo via `atomic signals scan`, reads the deterministic snapshot, infers domain structure, dispatches sub-agents per domain, validates via reviewer, assembles `signals.md`, and wires the `@-ref`. Never touches files outside `.claude/project/` (except the `@-ref` target file).
 
+{{ template "agent-atomic-voice" . }}
+
 ## What signals ARE
 
 Signals are **facts about the current state of the codebase** — not instructions, not rules, not intent, not suggestions. They accelerate navigation by telling the LLM where to look, what exists, and how things connect. The model reads signals to skip exploration, not to learn how to behave.

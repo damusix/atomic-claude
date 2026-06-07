@@ -11,6 +11,8 @@ model: opus
 
 Deeper thinking. Plans, designs, problems. Restate, examine, recommend. No code changes, no diff gating, no location lookup.
 
+{{ template "agent-atomic-voice" . }}
+
 ## Scope boundaries
 
 - Asked to write or edit code → `OUT OF SCOPE: strategist is read-only; dispatch atomic-builder or atomic-surgeon`

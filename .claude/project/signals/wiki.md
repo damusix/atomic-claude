@@ -6,32 +6,32 @@ Cross-repository knowledge layer: `atomic wiki scan` scaffolds and classifies me
 
 ## Artifacts
 
-- `commands/refresh-wiki.md` — `/refresh-wiki [root]` command. Resolves wiki root (default `./wiki/` from cwd), runs `atomic wiki scan`, reads `atomic wiki stale` output, presents pending repos as a numbered list (axiom 4), dispatches `atomic-signals-inferrer` in wiki-output mode for unselected pending repos, re-synthesizes affected `concerns/*.md` and `index.md` narrative, invokes `atomic wiki stamp` for every artifact written, clears `.dirty`, offers to commit.
+- [`commands/refresh-wiki.md`](../../../commands/refresh-wiki.md) — `/refresh-wiki [root]` command. Resolves wiki root (default `./wiki/` from cwd), runs `atomic wiki scan`, reads `atomic wiki stale` output, presents pending repos as a numbered list (axiom 4), dispatches `atomic-signals-inferrer` in wiki-output mode for unselected pending repos, re-synthesizes affected `concerns/*.md` and `index.md` narrative, invokes `atomic wiki stamp` for every artifact written, clears `.dirty`, offers to commit.
 
 ## CLI code
 
-- `atomic/internal/wiki/wiki.go` — repo discovery, classification, scaffold creation (`wiki/index.md`, `wiki/README.md`, `wiki/repos/`, `wiki/concerns/`, `wiki/.gitignore`, `git init`), idempotent `<wiki-scan>` block writes, `<wikis>` registry writes to `~/.claude/CLAUDE.md`. Skip dirs: `node_modules`, `dist`, `build`, `target`, `vendor`, `.worktrees`, `tmp`, `.git`. Classification: `indexed` (has `.claude/project/signals.md`), `pending`, or `summarized` (summary file exists on re-scan).
-- `atomic/internal/wiki/registry.go` — `<wikis>` block management in `~/.claude/CLAUDE.md`. Three insertion cases: block present (add line iff absent, dedup by normalized path), block absent (append after `</atomic>` or EOF), file absent (create). Never alters `<atomic>` block.
-- `atomic/internal/wiki/stale.go` — `atomic wiki stale` implementation. Reads `<wiki-scan>` block, re-walks the root, computes membership drift (`DRIFT added`, `DRIFT removed`, `DRIFT status`). Exits `0` fresh / `1` stale / `2` error.
-- `atomic/internal/wiki/staleness.go` — per-artifact content drift checks. For each `repos/<repo>(/<domain>).md`: `git rev-parse HEAD` vs `reflects_rev`. For each `concerns/<concern>.md`: each `reflects:` entry vs referenced repo's current fingerprint. Missing/unparseable `reflects_*` counts as stale (fail-safe).
-- `atomic/internal/wiki/stamp.go` — `atomic wiki stamp` CLI helper. Computes `git rev-parse HEAD`, writes/updates `reflects_rev` in summary YAML frontmatter. For concerns, takes `--cites repoA,repoB` args, resolves each to a fingerprint (HEAD SHA for `summarized`; `.claude/project/signals.md` content hash for `indexed`), writes `reflects:` list. Unresolvable cited repo is skipped, not crashed on.
-- `atomic/internal/wiki/action.go` — `atomic wiki mark-dirty` helper. Reads `<wikis>`, checks whether cwd is under any registered wiki root (normalized path-prefix, no git), `touch`es `.dirty` if so. No-op when cwd is under no registered root. Invoked by the `signals-gate` partial on every ship.
-- `atomic/internal/wiki/wiki_test.go`, `registry_test.go`, `stale_test.go`, `staleness_test.go`, `stamp_test.go` — package tests.
+- [`atomic/internal/wiki/wiki.go`](../../../atomic/internal/wiki/wiki.go) — repo discovery, classification, scaffold creation (`wiki/index.md`, `wiki/README.md`, `wiki/repos/`, `wiki/concerns/`, `wiki/.gitignore`, `git init`), idempotent `<wiki-scan>` block writes, `<wikis>` registry writes to `~/.claude/CLAUDE.md`. Skip dirs: `node_modules`, `dist`, `build`, `target`, `vendor`, `.worktrees`, `tmp`, `.git`. Classification: `indexed` (has [`.claude/project/signals.md`](../signals.md)), `pending`, or `summarized` (summary file exists on re-scan).
+- [`atomic/internal/wiki/registry.go`](../../../atomic/internal/wiki/registry.go) — `<wikis>` block management in `~/.claude/CLAUDE.md`. Three insertion cases: block present (add line iff absent, dedup by normalized path), block absent (append after `</atomic>` or EOF), file absent (create). Never alters `<atomic>` block.
+- [`atomic/internal/wiki/stale.go`](../../../atomic/internal/wiki/stale.go) — `atomic wiki stale` implementation. Reads `<wiki-scan>` block, re-walks the root, computes membership drift (`DRIFT added`, `DRIFT removed`, `DRIFT status`). Exits `0` fresh / `1` stale / `2` error.
+- [`atomic/internal/wiki/staleness.go`](../../../atomic/internal/wiki/staleness.go) — per-artifact content drift checks. For each `repos/<repo>(/<domain>).md`: `git rev-parse HEAD` vs `reflects_rev`. For each `concerns/<concern>.md`: each `reflects:` entry vs referenced repo's current fingerprint. Missing/unparseable `reflects_*` counts as stale (fail-safe).
+- [`atomic/internal/wiki/stamp.go`](../../../atomic/internal/wiki/stamp.go) — `atomic wiki stamp` CLI helper. Computes `git rev-parse HEAD`, writes/updates `reflects_rev` in summary YAML frontmatter. For concerns, takes `--cites repoA,repoB` args, resolves each to a fingerprint (HEAD SHA for `summarized`; [`.claude/project/signals.md`](../signals.md) content hash for `indexed`), writes `reflects:` list. Unresolvable cited repo is skipped, not crashed on.
+- [`atomic/internal/wiki/action.go`](../../../atomic/internal/wiki/action.go) — `atomic wiki mark-dirty` helper. Reads `<wikis>`, checks whether cwd is under any registered wiki root (normalized path-prefix, no git), `touch`es `.dirty` if so. No-op when cwd is under no registered root. Invoked by the `signals-gate` partial on every ship.
+- [`atomic/internal/wiki/wiki_test.go`](../../../atomic/internal/wiki/wiki_test.go), `registry_test.go`, `stale_test.go`, `staleness_test.go`, `stamp_test.go` — package tests.
 
 ## Docs
 
-- `docs/spec/wiki.md` — implementation contract. Covers `atomic wiki scan` success criteria, `atomic signals scan --out` redirect, `atomic wiki stale` exit-code contract, forcing function (neglect nudge + drift marker), `/refresh-wiki` + inferrer wiki-output mode. Design at `docs/design/wiki.md`.
-- `docs/design/wiki.md` — design rationale for the realm-above-repo knowledge layer.
-- `docs/reference/wiki-workflow.md` — user-facing reference: two deterministic verbs + one command, setup walkthrough, what a wiki looks like on disk. Covers the realm concept (a folder containing repos + loose material), two-layer model (atomic drives repo layer; user drives knowledge layer), realm-root `CLAUDE.md` pattern, `wiki/knowledge/` directory for raw-material digests, and repo states (`indexed`, `summarized`, `pending`).
-- `docs/reference/concepts.md` — contains `## Wikis` section (conceptual orientation).
-- `docs/credits.md` — credits note for the wiki feature.
+- [`docs/spec/wiki.md`](../../../docs/spec/wiki.md) — implementation contract. Covers `atomic wiki scan` success criteria, `atomic signals scan --out` redirect, `atomic wiki stale` exit-code contract, forcing function (neglect nudge + drift marker), `/refresh-wiki` + inferrer wiki-output mode. Design at [`docs/design/wiki.md`](../../../docs/design/wiki.md).
+- [`docs/design/wiki.md`](../../../docs/design/wiki.md) — design rationale for the realm-above-repo knowledge layer.
+- [`docs/reference/wiki-workflow.md`](../../../docs/reference/wiki-workflow.md) — user-facing reference: two deterministic verbs + one command, setup walkthrough, what a wiki looks like on disk. Covers the realm concept (a folder containing repos + loose material), two-layer model (atomic drives repo layer; user drives knowledge layer), realm-root [`CLAUDE.md`](../../../CLAUDE.md) pattern, `wiki/knowledge/` directory for raw-material digests, and repo states (`indexed`, `summarized`, `pending`).
+- [`docs/reference/concepts.md`](../../../docs/reference/concepts.md) — contains `## Wikis` section (conceptual orientation).
+- [`docs/credits.md`](../../../docs/credits.md) — credits note for the wiki feature.
 
 ## Coupling
 
 - **→ signals**: `atomic signals scan --out <dir>` redirect is a direct wiki dependency — the inferrer in wiki-output mode calls this to obtain the deterministic substrate without writing into the target repo. Changes to `atomic signals scan` output format propagate to wiki's no-signals summarization path.
 - **→ signals**: `atomic-signals-inferrer` is dispatched in wiki-output mode by `/refresh-wiki`. Changes to the agent's interface or wiki-mode contract require updating `/refresh-wiki`.
 - **→ config**: session-start wiki staleness check (`wiki.CheckStaleness`) reads `<wikis>` from `~/.claude/CLAUDE.md` — same file that `atomic claude install` writes to. Changes to the `<wikis>` block format require coordinated changes in both.
-- **→ bundle**: `commands/refresh-wiki.md` ships in the bundle via the `commands/` bundlespec rule. Changes require `make render` + `make bundle`.
+- **→ bundle**: [`commands/refresh-wiki.md`](../../../commands/refresh-wiki.md) ships in the bundle via the [`commands/`](../../../commands) bundlespec rule. Changes require `make render` + `make bundle`.
 - **→ workflow**: the `signals-gate` partial (used by all ship verbs) invokes `atomic wiki mark-dirty` after signals refresh. Adding a ship verb without the signals-gate partial breaks the drift marker.
 
 ## Conventions worth knowing

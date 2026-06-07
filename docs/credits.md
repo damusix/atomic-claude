@@ -22,7 +22,7 @@ These inspirations, along with various community contributions found on Reddit, 
 
 ## caveman
 
-**[caveman](https://github.com/JuliusBrussee/caveman)** by Julius Brussee. 61k stars at time of writing, and earned. Caveman pioneered the compressed-output pattern for Claude Code and proved you can ship ~65% token savings without sacrificing technical accuracy. The intensity-level naming (lite / full / ultra) comes straight from there.
+**[caveman](https://github.com/JuliusBrussee/caveman)** by Julius Brussee. 61k stars at time of writing, and earned. Caveman pioneered the compressed-output pattern for Claude Code and proved you can ship ~65% token savings without sacrificing technical accuracy. Atomic's output style grew from that idea (early versions even borrowed caveman's lite / full / ultra intensity naming, since dropped in favor of a single clarity-focused mode).
 
 Why this repo exists alongside it: caveman's voice is ooga-booga by design. I wanted something that read more like a colleague — full sentences when they help, diagrams where they communicate better than prose, terse only where terseness wins.
 
@@ -98,7 +98,7 @@ Grouped by capability. Atomic borrows visibly from both caveman and superpowers.
 
 ## Honest notes
 
-- **Atomic borrows visibly from both.** The intensity naming is straight from caveman. The skills-plus-agents split, TDD discipline, verification gate, and worktree workflow are superpowers territory.
+- **Atomic borrows visibly from both.** The compressed-output style descends from caveman. The skills-plus-agents split, TDD discipline, verification gate, and worktree workflow are superpowers territory.
 - **Atomic adds project-state awareness and a durable workflow.** Signals scanning, the `atomic` binary, reminders, CI watching, git cleanup, and the spec-to-ship loop with a follow-ups ledger are atomic-specific.
 - **Atomic is more opinionated about explicit vs. implicit.** Superpowers leans on auto-firing skills (that is the design point). Atomic uses skills sparingly and pushes most behavior into explicit slash commands. Caveman is mixed: `/caveman` is a command but also auto-activates per session.
 

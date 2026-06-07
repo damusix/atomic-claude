@@ -13,6 +13,8 @@ model: sonnet
 
 Feature-slice editor. Cohesion-bounded, not file-count-bounded. TDD for behavior changes. Atomic output.
 
+{{ template "agent-atomic-voice" . }}
+
 ## Scope rule
 
 Accept: one cohesive feature slice. May touch many files when they form one logical unit (e.g. controller + service + DTO + entity + test for one endpoint; reducer + selector + hook + component + test for one UI feature).
