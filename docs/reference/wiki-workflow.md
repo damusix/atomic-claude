@@ -1,6 +1,35 @@
 # Wiki workflow
 
-A wiki is a knowledge base for one realm of repositories — how a folder of services, libraries, or client projects relate. Signals describe one repo; a wiki describes the realm above it. See [concepts](/reference/concepts#wikis) for the idea; this page is the mechanism.
+You work out of a folder. Call it a realm: a client engagement, a team's set of services, an open-source org you contribute to. It accumulates two kinds of things. Repositories, some yours and some vendored. And the loose material that collects around real work: a ticket you are halfway through, an email thread with the one detail that explains a bug, a PDF someone sent you, the notes you took chasing a problem across three systems. You keep that loose material by hand, in a `raw/` dump.
+
+```
+~/work/acme/                the realm
+├─ CLAUDE.md           realm rules · references the wiki
+├─ billing-api/        repo · signals → indexed
+├─ gateway/            repo · signals → indexed
+├─ legacy-cron/        repo · no signals → opt-in
+├─ vendor-sdk/         repo · no signals → opt-in
+├─ raw/                non-repo dump: PDFs, emails, decks · user-maintained
+├─ research/           findings and notes · user-maintained
+├─ experiments/        code spikes and prototypes · user-maintained
+└─ wiki/               the map atomic compiles over it
+   ├─ index.md         member registry + your narrative
+   ├─ repos/           summaries of the opt-in repos
+   ├─ concerns/        what cuts across them
+   └─ knowledge/       digests Claude distills from raw/
+```
+
+Holding all of that in your head is what makes a context-switch expensive. A wiki removes that cost. It is a knowledge base for one realm, compiled by `/refresh-wiki`, so the next time the realm needs explaining, the work is already done. Signals describe one repo; a wiki describes the realm above it. See [concepts](/reference/concepts#wikis) for the idea; this page is the mechanism.
+
+Two layers fill a wiki, and they differ by who drives them.
+
+**Atomic drives the repo layer.** `/refresh-wiki` walks the realm, finds the repositories, and documents them. A repo that already has signals is documented in place; the wiki references those signals and cites the path, never copying them. A repo without signals is opt-in, the kind that needs a deeper dive: you pick which ones get promoted to their own signals, and the rest Claude summarizes into `repos/` from a read-only pass that never writes back to the source. `concerns/` holds what cuts across them.
+
+**You drive the knowledge layer.** Atomic never touches `raw/`; it is yours to maintain. To compress it, point Claude at the dump and tell it to add the result to your wiki, and a digest lands in `wiki/knowledge/`. The CLI creates neither folder. A wiki is plain markdown in a git repo, so distilling raw material into knowledge is Claude working on files at your direction.
+
+**You manage the realm from a `CLAUDE.md`.** Keep one at the realm root, holding your rules for the realm and a pointer to the wiki. Claude Code walks up the directory tree when it loads `CLAUDE.md`, and the walk crosses repo boundaries, so a realm-root file stays in context from anywhere inside the realm, including a session you start in a member repo. The realm level is where that earns its place: cross-cutting concerns, or a feature or bug you are tracing across several services, work that spans repos instead of sitting in one. Start there to organize `raw/`, fold it into the wiki, manage `research/` and `experiments/`, or reason across the repos at once.
+
+This draws the boundary. Atomic stays on the code side: it documents repos, keeps signals current, and runs the plan-implement-ship lifecycle, but it does not manage the realm around them. The non-code work is yours to direct from the realm `CLAUDE.md`, and the wiki is the assistant layer for it, a Karpathy-style knowledge base you build with Claude instead of by hand.
 
 Two deterministic CLI verbs and one command do the work:
 
@@ -44,11 +73,15 @@ The scan is idempotent. Re-running regenerates only the managed `<wiki-scan>` bl
 ├── README.md     # written by the scan
 ├── .gitignore    # ignores the transient .dirty marker
 ├── repos/        # summaries — only for repos without signals
-│   ├── billing.md
-│   └── gateway/<domain>.md   # large repos are split by domain
-└── concerns/     # cross-cutting docs, one per concern
-    └── shared-auth.md
+│   ├── legacy-cron.md
+│   └── vendor-sdk/<domain>.md   # large repos are split by domain
+├── concerns/     # cross-cutting docs, one per concern
+│   └── shared-auth.md
+└── knowledge/    # user-driven digests — written when you ask, not by the scan
+    └── incident-4821.md
 ```
+
+The scan and `/refresh-wiki` write everything here except `knowledge/`, the user-driven layer Claude fills on request by distilling your `raw/` dump into it.
 
 The wiki is its own git repository — `atomic wiki scan` runs `git init` for you. There is no in-file change log; the wiki's git history is the change log. `/refresh-wiki` ends by offering to commit, never automatically.
 

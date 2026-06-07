@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-06-06T23:23:51Z
-atomic_version: 3.1.1
+generated_at: 2026-06-07T00:57:10Z
+atomic_version: 3.2.0
 ---
 # Deterministic signals
 
@@ -32,7 +32,7 @@ atomic_version: 3.1.1
 │   │   ├── custom.css (0083ed7, 691L, 18246ch, 22062B)
 │   │   ├── index.ts (4ab2211, 37L, 1407ch, 1407B)
 │   │   └── scroll-animate.ts (cbee3e4, 68L, 2647ch, 2659B)
-│   └── config.mts (253c1e2, 155L, 6621ch, 6625B)
+│   └── config.mts (3be8a74, 151L, 6448ch, 6452B)
 ├── agents/ (9)
 │   ├── atomic-builder.md (617b266, 92L, 5649ch, 5709B)
 │   ├── atomic-claude-merger.md (9e73ac6, 103L, 5757ch, 5785B)
@@ -241,7 +241,7 @@ atomic_version: 3.1.1
 │   │       └── wiki_test.go (196651e, 537L, 15858ch, 15900B)
 │   ├── test/ (1)
 │   │   └── install_sh_test.go (dfa131f, 229L, 6304ch, 6310B)
-│   ├── CHANGELOG.md (de012fa, 222L, 13966ch, 13972B)
+│   ├── CHANGELOG.md (8db88ff, 237L, 14718ch, 14724B)
 │   ├── Makefile (d68669b, 31L, 751ch, 751B)
 │   ├── go.mod (0b1e956, 41L, 1784ch, 1784B)
 │   └── go.sum (1567032, 69L, 6492ch, 6492B)
@@ -314,7 +314,7 @@ atomic_version: 3.1.1
 │   │   ├── output-style.md (a2629ba, 52L, 2534ch, 2548B)
 │   │   ├── signals-workflow.md (f625fae, 106L, 4440ch, 4460B)
 │   │   ├── skills.md (d6b0ae9, 34L, 1859ch, 1861B)
-│   │   ├── wiki-workflow.md (2a4d19a, 108L, 7061ch, 7159B)
+│   │   ├── wiki-workflow.md (f53c762, 141L, 10702ch, 10882B)
 │   │   └── workflow.md (2bf0551, 158L, 8872ch, 8998B)
 │   ├── spec/ (31)
 │   │   ├── artifact-templates.md (9c31bdb, 122L, 13661ch, 13732B)
@@ -349,7 +349,7 @@ atomic_version: 3.1.1
 │   │   ├── user-profile.md (902d4a1, 639L, 54191ch, 54493B)
 │   │   └── wiki.md (37d10ec, 191L, 24213ch, 24352B)
 │   ├── credits.md (ed5981d, 105L, 8509ch, 8685B)
-│   └── index.md (2a94372, 151L, 6880ch, 6912B)
+│   └── index.md (1ac41a4, 148L, 6676ch, 6708B)
 ├── output-styles/ (1)
 │   └── atomic.md (27f2169, 86L, 4492ch, 4532B)
 ├── rules/ (2)
@@ -459,7 +459,7 @@ atomic_version: 3.1.1
 ├── package-lock.json (6fe371e, 2254L, 91385ch, 91385B)
 ├── package.json (df17f35, 15L, 373ch, 373B)
 ├── release-please-config.json (fc8b307, 15L, 419ch, 419B)
-└── release-please-manifest.json (1a09046, 3L, 24ch, 24B)
+└── release-please-manifest.json (c912432, 3L, 24ch, 24B)
 
 ## Manifests
 
@@ -469,7 +469,7 @@ atomic_version: 3.1.1
 
 ## Languages
 
-- Markdown: 40573 LOC (49%), 276 files (61%)
+- Markdown: 40618 LOC (49%), 276 files (61%)
 - Go: 38258 LOC (46%), 155 files (34%)
 - JSON: 2295 LOC (2%), 5 files (1%)
 - CSS: 691 LOC (0%), 1 file (0%)

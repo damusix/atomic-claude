@@ -114,34 +114,30 @@ export default defineConfig({
                 ],
             },
         ],
-        sidebar: {
-            '/guides/': [
-                {
-                    text: 'Guides',
-                    items: [
-                        { text: 'Install', link: '/guides/install' },
-                        { text: 'Contributing', link: '/guides/contributing' },
-                        { text: 'Evaluations', link: '/guides/evaluations' },
-                    ],
-                },
-            ],
-            '/reference/': [
-                {
-                    text: 'Reference',
-                    items: [
-                        { text: 'Concepts', link: '/reference/concepts' },
-                        { text: 'Workflow', link: '/reference/workflow' },
-                        { text: 'Commands', link: '/reference/commands' },
-                        { text: 'Skills', link: '/reference/skills' },
-                        { text: 'Agents', link: '/reference/agents' },
-                        { text: 'Output Style', link: '/reference/output-style' },
-                        { text: 'Signals Workflow', link: '/reference/signals-workflow' },
-                        { text: 'Wiki Workflow', link: '/reference/wiki-workflow' },
-                        { text: 'Conventions', link: '/reference/conventions' },
-                    ],
-                },
-            ],
-        },
+        sidebar: [
+            {
+                text: 'Guides',
+                items: [
+                    { text: 'Install', link: '/guides/install' },
+                    { text: 'Contributing', link: '/guides/contributing' },
+                    { text: 'Evaluations', link: '/guides/evaluations' },
+                ],
+            },
+            {
+                text: 'Reference',
+                items: [
+                    { text: 'Concepts', link: '/reference/concepts' },
+                    { text: 'Workflow', link: '/reference/workflow' },
+                    { text: 'Commands', link: '/reference/commands' },
+                    { text: 'Skills', link: '/reference/skills' },
+                    { text: 'Agents', link: '/reference/agents' },
+                    { text: 'Output Style', link: '/reference/output-style' },
+                    { text: 'Signals Workflow', link: '/reference/signals-workflow' },
+                    { text: 'Wiki Workflow', link: '/reference/wiki-workflow' },
+                    { text: 'Conventions', link: '/reference/conventions' },
+                ],
+            },
+        ],
         socialLinks: [
             { icon: 'github', link: 'https://github.com/damusix/atomic-claude' },
         ],

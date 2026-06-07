@@ -22,7 +22,7 @@ Cross-repository knowledge layer: `atomic wiki scan` scaffolds and classifies me
 
 - `docs/spec/wiki.md` — implementation contract. Covers `atomic wiki scan` success criteria, `atomic signals scan --out` redirect, `atomic wiki stale` exit-code contract, forcing function (neglect nudge + drift marker), `/refresh-wiki` + inferrer wiki-output mode. Design at `docs/design/wiki.md`.
 - `docs/design/wiki.md` — design rationale for the realm-above-repo knowledge layer.
-- `docs/reference/wiki-workflow.md` — user-facing reference: two deterministic verbs + one command, setup walkthrough, what a wiki looks like on disk.
+- `docs/reference/wiki-workflow.md` — user-facing reference: two deterministic verbs + one command, setup walkthrough, what a wiki looks like on disk. Covers the realm concept (a folder containing repos + loose material), two-layer model (atomic drives repo layer; user drives knowledge layer), realm-root `CLAUDE.md` pattern, `wiki/knowledge/` directory for raw-material digests, and repo states (`indexed`, `summarized`, `pending`).
 - `docs/reference/concepts.md` — contains `## Wikis` section (conceptual orientation).
 - `docs/credits.md` — credits note for the wiki feature.
 

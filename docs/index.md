@@ -30,9 +30,6 @@ features:
     - icon: "\uF066"
       title: Compressed replies
       details: A tone layer that strips filler from Claude's responses. Same accuracy, fewer tokens, faster to scan. Three intensity levels, switchable mid-session.
-    - icon: "\uF0E7"
-      title: Skills that auto-fire
-      details: TDD on "implement." Verification on "done." Debugging on error pastes. Commit messages, code review, prose. No slash command needed.
     - icon: "\uF126"
       title: A verb for every git op
       details: Ten commands covering every combination of commit, push, squash, PR, and merge. Plus CI watching, stale-branch cleanup, and worktree isolation.

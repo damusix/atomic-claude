@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-06T23:23:51Z
+generated_at: 2026-06-07T00:57:10Z
 source: .claude/project/deterministic-signals.md
 ---
 
