@@ -30,6 +30,7 @@ These are the contract; they override the interactive defaults because invoking
 - [ ] The body states each of the five behaviors and *why each override is safe* (strategist read-only; merge gate = the axiom-3 confirm).
 - [ ] The ship gate uses `AskUserQuestion` with the ship-verb options, and is skipped when a merge-verb is supplied in `$ARGUMENTS`.
 - [ ] A genuine blocker halts the run and surfaces — autonomy is not "ignore failures".
+- [ ] Scratch hygiene: the body forbids `rm` and chained shell commands mid-run (both trigger permission prompts that stall an unattended run); experiments are quarantined to `tmp/trash/` (gitignored) and the dispatch briefs carry the same instruction; Phase 6 does one `rm -rf tmp/trash` + scratchpad cleanup at the end (the single expected deletion prompt), degrading to "leave it" if permission is not granted.
 - [ ] Registered on every discovery surface: `CLAUDE.md` Workflow section, `/atomic-help` (topic row + tour), `docs/reference/commands.md`. Cross-references `/subagent-implementation`, `atomic-strategist`, and the ship verbs.
 - [ ] `make render` + `make bundle` parity clean; `/atomic-help` MISSING-scan returns zero; signals refreshed.
 
@@ -70,4 +71,10 @@ ship) — `/autopilot` codifies it.
 
 ## Change log
 
-<!-- Empty. First entry on the first amendment after this spec ships. -->
+### 2026-06-07 — Scratch hygiene: quarantine instead of delete
+
+**What changed:** Added a `scratch_hygiene` discipline to the command body. During an autopilot run, the orchestrator and its subagents never `rm` and never chain shell commands (`&&`, `;`) — both trigger Bash permission prompts that stall an unattended run. Experiments, probes, and one-off scripts are quarantined under `tmp/trash/` (created once in Phase 2, gitignored) by `mv`, not deleted. Every builder/surgeon dispatch brief carries the same instruction. Phase 6 (renamed "Summary and cleanup") performs one `rm -rf tmp/trash` + scratchpad removal at the very end — the single deletion where a permission prompt is expected; if the user is away to grant it, both are left in place (gitignored, never shipped).
+
+**Why:** observed in practice — autopilot experiments looking for evidence ran `rm` and chained commands mid-run, each firing a permission prompt that blocked the hands-off flow waiting on a human. Deferring all deletion to one end-of-run cleanup keeps the run unattended and collapses N scattered prompts into one expected prompt at the finish.
+
+**Note on rule 4:** the end cleanup is a Bash permission grant, not an `AskUserQuestion`, so the ship gate remains the only decision prompt.
