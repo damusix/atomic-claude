@@ -1,5 +1,16 @@
 # Changelog
 
+## [4.0.0](https://github.com/damusix/atomic-claude/compare/v3.3.0...v4.0.0) (2026-06-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* the output.intensity config key is removed. An existing config.toml entry for it now parses as an unknown key (warned and ignored) rather than erroring; no crash, but the key no longer does anything.
+
+### Features
+
+* output-style clarity overhaul; remove output.intensity ([b8fb5ec](https://github.com/damusix/atomic-claude/commit/b8fb5ec0861fbb7c5274acebcc5057228eb74e2b))
+
 ## [3.3.0](https://github.com/damusix/atomic-claude/compare/v3.2.0...v3.3.0) (2026-06-07)
 
 
