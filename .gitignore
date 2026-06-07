@@ -27,7 +27,9 @@ tmp/claude-home/*
 !.claude/skills/atomic-cli-contrib/**
 !.claude/skills/atomic-release-ci/
 !.claude/skills/atomic-release-ci/**
-.claude/rules/
+.claude/rules/*
+!.claude/rules/authoring/
+!.claude/rules/authoring/**
 !.claude/settings.local.json
 .claude/project/.deterministic-signals.prev.md
 /bin/

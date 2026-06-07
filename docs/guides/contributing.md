@@ -22,7 +22,7 @@ This does two things:
 3. Restart Claude Code to pick up the change
 4. Test in this repo's session — that is the dogfood loop
 
-Do not edit files under `.claude/agents/`, `.claude/commands/`, etc. Those are generated via symlinks. The `.claude/docs/` and `.claude/settings.local.json` files are real and tracked.
+Do not edit files under `.claude/agents/`, `.claude/commands/`, etc. Those are generated via symlinks. The `.claude/settings.local.json` file is real and tracked.
 
 
 ## Git hooks

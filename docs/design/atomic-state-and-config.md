@@ -171,7 +171,7 @@ No `atomic config edit` initially — users can `$EDITOR $(atomic config path)`.
 ## Axiom 2 amendment
 
 
-Append to `.claude/docs/axioms.md` axiom 2:
+Append to `.claude/rules/authoring/axioms.md` axiom 2:
 
 
 > **Carve-out for shell-settable defaults.** Tunables that must be writable from a shell (CI scripts, `atomic config set`, dotfile-managed setup) live in `~/.claude/.atomic/config.toml`, not memory. Memory cannot be written non-interactively. Config is the durable floor; memory is a per-conversation nudge on top, intended to decay with the conversation. Memory entries overriding config should be scoped ("for this session", "for this task"), never "remember forever" — a stale memory must not silently outlive a recent `atomic config set`. Example: `output.intensity = "lite"` (config, durable) vs "use atomic ultra for this session" (memory, scoped).

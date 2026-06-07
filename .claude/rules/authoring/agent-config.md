@@ -1,3 +1,15 @@
+---
+paths:
+  - "agents/**"
+  - "templates/agents/**"
+  - "skills/**"
+  - "commands/**"
+  - "templates/commands/**"
+  - "templates/shared/**"
+  - "output-styles/**"
+  - "rules/**"
+---
+
 # Claude Code: Agent Configuration & System Prompt Guide
 
 A comprehensive guide to configuring agents, subagents, memory, and system prompts in Claude Code.

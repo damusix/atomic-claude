@@ -1,3 +1,15 @@
+---
+paths:
+  - "agents/**"
+  - "templates/agents/**"
+  - "skills/**"
+  - "commands/**"
+  - "templates/commands/**"
+  - "templates/shared/**"
+  - "output-styles/**"
+  - "rules/**"
+---
+
 # Claude Code official documentation references
 
 Canonical Claude Code docs to consult when designing or editing artifacts in this repo. Fetch on demand via WebFetch — these are upstream sources of truth, not snapshots.

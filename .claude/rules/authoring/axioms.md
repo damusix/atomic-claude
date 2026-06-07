@@ -1,3 +1,15 @@
+---
+paths:
+  - "agents/**"
+  - "templates/agents/**"
+  - "skills/**"
+  - "commands/**"
+  - "templates/commands/**"
+  - "templates/shared/**"
+  - "output-styles/**"
+  - "rules/**"
+---
+
 # Atomic axioms
 
 
@@ -43,12 +55,12 @@ Each axiom: what it is, why it exists, where it applies, what it forbids.
 **Graduation triggers:**
 
 
-- **Stay in memory** when the value is a conversational nudge ("use atomic ultra for this session"), a per-task override, or a soft preference that's fine to lose. Memory is conversational — the user says "remember 60 days" and the system updates. No schema, no migration.
-- **Graduate to config** (`~/.claude/.atomic/config.toml`) when the value must be shell-settable (CI scripts, `atomic config set`, dotfile-managed setup), or memory's per-user/per-conversation scope is too narrow. Memory cannot be written non-interactively. Example: `output.intensity = "lite"` (config, durable) vs "use atomic ultra for this session" (memory, scoped).
+- **Stay in memory** when the value is a conversational nudge ("use a shallower signals tree for this session"), a per-task override, or a soft preference that's fine to lose. Memory is conversational — the user says "remember 60 days" and the system updates. No schema, no migration.
+- **Graduate to config** (`~/.claude/.atomic/config.toml`) when the value must be shell-settable (CI scripts, `atomic config set`, dotfile-managed setup), or memory's per-user/per-conversation scope is too narrow. Memory cannot be written non-interactively. Example: `output.signals.max_depth = 5` (config, durable) vs "use depth 2 for this session" (memory, scoped).
 - **Graduate to code** when the value is a hard contract (test thresholds, security gates, version pins, CI exit codes), scope-bleeds badly across projects, or must be reviewable in a diff. Memory drift on a hard contract = silent regression. Memory's per-user scope corrupts other projects when recalled in the wrong context. Memory edits are invisible to git review.
 
 
-**Where it applies.** Every new tunable, threshold, retention window, intensity default, batch size. Default to memory. Justify each promotion.
+**Where it applies.** Every new tunable, threshold, retention window, depth limit, batch size. Default to memory. Justify each promotion.
 
 
 **What it forbids.** Adding `.atomicrc` / `atomic.config.json` / env vars without first checking whether memory fits. Hardcoding values with `// TODO: make configurable`. Promoting to config "in case we need it later" — wait until the need is real. Asking the user the same question every run when memory could persist their answer.

@@ -1,3 +1,15 @@
+---
+paths:
+  - "agents/**"
+  - "templates/agents/**"
+  - "skills/**"
+  - "commands/**"
+  - "templates/commands/**"
+  - "templates/shared/**"
+  - "output-styles/**"
+  - "rules/**"
+---
+
 # Claude prompting best practices
 
 Reference for prompt engineering with Claude Opus 4.7 / Sonnet 4.6 / Haiku 4.5. Sourced from Anthropic's official guide. Consult when editing agents, skills, commands, or output styles.

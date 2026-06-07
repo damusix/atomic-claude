@@ -24,44 +24,22 @@ Target macOS and Linux only. Drop Windows-specific review findings, Windows-only
 | `README.md` | Human-facing overview of what the config does and how to install it. | Repo root, committed. |
 | `commands/*.md` | **Rendered** slash command definitions. Edit `templates/commands/<verb>.md` (and `templates/shared/<flow>.md` for cross-verb partials); `make render` regenerates these. Copied to `~/.claude/commands/` by `atomic claude install`. | `~/.claude/commands/` |
 | `templates/commands/<verb>.md` | Source of truth for command files. Either a single `{{ template "<flow>" . }}` directive plus verb-specific orchestration, or a self-contained body if no partial applies. | Renders to `commands/<verb>.md`. |
-| `templates/shared/<name>.md` | Reusable partials composed by command AND agent templates via `{{ template "<name>" . }}`. One shared pool — a partial defined once is callable from any command or agent template. Command partials: big flows (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`) + small (`doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety`). Agent partials (`agent-` prefix): `agent-tdd-signals`, `agent-signals-output`, `agent-shared-rules`, `agent-implementer-workflow` — the blocks shared verbatim across builder/surgeon (`agent-implementer-workflow` is the entire `<workflow>` block, and itself composes `agent-search-tooling` + `agent-tdd-signals`); `agent-search-tooling` — grep/glob/`sg` tool-selection rule shared by investigator/builder/surgeon. | Not copied directly; consumed at render time. |
+| `templates/shared/<name>.md` | Reusable partials composed by command AND agent templates via `{{ template "<name>" . }}`. One shared pool — a partial defined once is callable from any command or agent template. Command partials: big flows (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`) + small (`doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety`). Agent partials (`agent-` prefix): `agent-tdd-signals`, `agent-signals-output`, `agent-shared-rules`, `agent-implementer-workflow` — the blocks shared verbatim across builder/surgeon (`agent-implementer-workflow` is the entire `<workflow>` block, and itself composes `agent-search-tooling` + `agent-tdd-signals`); `agent-search-tooling` — grep/glob/`sg` tool-selection rule shared by investigator/builder/surgeon; `agent-atomic-voice` — response-voice rule (reply to the orchestrator in atomic style) injected into all nine agent templates. | Not copied directly; consumed at render time. |
 | `agents/*.md` | **Rendered** subagent definitions. Edit `templates/agents/<name>.md` (and `templates/shared/agent-*.md` for cross-agent partials); `make render` regenerates these. NEVER edit `agents/<name>.md` directly — overwritten on next render. Copied to `~/.claude/agents/` by `atomic claude install`. | `~/.claude/agents/` |
 | `templates/agents/<name>.md` | Source of truth for agent files. Either a self-contained body (most agents) or verbatim-shared blocks pulled via `{{ template "agent-*" . }}` (builder + surgeon, which share TDD workflow, signal output format, and discipline rules). | Renders to `agents/<name>.md`. |
 | `skills/*/SKILL.md` | Discipline skills. Copied to `~/.claude/skills/`. | `~/.claude/skills/` |
 | `output-styles/*.md` | Output style definitions. Copied to `~/.claude/output-styles/`. | `~/.claude/output-styles/` |
-| `rules/<lang>/*.md` | Path-scoped topic rules. `paths:` frontmatter globs against filetypes (e.g. `**/*.{ts,tsx}`, `**/*.py`) so the rule only loads when Claude touches a matching file. Currently: `typescript/`, `python/`. Expand with more languages or topic subdirs as needed. | `~/.claude/rules/` (via `atomic claude install`) |
+| `rules/<topic>/*.md` | **Shipped** path-scoped topic rules. `paths:` frontmatter globs (e.g. `**/*.{ts,tsx}`, `docs/spec/**`) so the rule only loads when Claude touches a matching file — auto-loads into subagents too (verified). Currently: `typescript/`, `python/` (language style), `specs/spec-currency.md` (spec body-is-truth, globs `docs/spec/**` + `docs/design/**`). | `~/.claude/rules/` (via `atomic claude install`) |
+| `.claude/rules/<topic>/*.md` | **Repo-only** path-scoped rules — committed (gitignore-negated) but NOT bundled, so they never ship to users. `.claude/rules/authoring/` holds the contributor artifact-authoring references (`agent-config`, `prompting`, `claude-code-refs`, `axioms`) — glob the artifact sources (`agents/**`, `skills/**`, `commands/**`, `templates/**`, `output-styles/**`, `rules/**`) so they auto-load only when editing an artifact, instead of `@`-ref'ing every session. | Stays in repo; never installed. |
 
 
-## Reference docs (load every session — longform data, placed before behavioral rules)
+## Reference docs
 
 
-### Design axioms
-
-@.claude/docs/axioms.md
-
-Decisions that emerged from this work and shouldn't be re-litigated each session: cohesion-bounded scope, memory-first persistence, destructive-ops explicit confirm, plain-text indexed selection, skills auto-fire vs commands explicit. Read before adding new commands, skills, or agents.
+**Artifact-authoring references** — frontmatter/dispatch semantics (`.claude/rules/authoring/agent-config.md`), Anthropic prompting patterns (`.claude/rules/authoring/prompting.md`), upstream Claude Code doc URLs (`.claude/rules/authoring/claude-code-refs.md`), and atomic's design axioms (`.claude/rules/authoring/axioms.md`) — are now **path-scoped rules**. They auto-load only when an artifact source is touched (`agents/**`, `templates/**`, `skills/**`, `commands/**`, `output-styles/**`, `rules/**`), in the main agent and in subagents, instead of `@`-ref'ing every session. Read before adding or editing any command / agent / skill / output-style / rule.
 
 
-### Agent configuration reference
-
-@.claude/docs/agent-config.md
-
-How Claude Code agents, skills, commands, and output styles are defined — frontmatter shapes, tool restrictions, model selection, dispatch semantics. Consult before editing any artifact in `agents/`, `skills/`, `commands/`, or `output-styles/`.
-
-
-### Claude Code upstream docs
-
-@.claude/docs/claude-code-references.md
-
-URL index for official Claude Code documentation: agents, sub-agents, skills, commands, hooks, hooks-guide, tools-reference, worktrees, scheduled-tasks, headless. Fetch via WebFetch when verifying semantics — these URLs are the source of truth, not the local snapshots in `agent-config.md`.
-
-
-### Prompting best practices
-
-@.claude/docs/prompting-best-practices.md
-
-Anthropic's official prompt engineering guide, distilled for this repo's artifact authoring. Covers Opus 4.7 behavioral notes, XML structuring, positive framing, parallel tool calls, thinking guidance, and agentic patterns. Consult before editing agents, skills, or commands.
-
+These two stay auto-loaded every session (project-specific, compact):
 
 ### Project signals (auto-loaded)
 
@@ -148,37 +126,9 @@ Both `commands/` AND `agents/` are fully generated from `templates/` via `make r
 ## Spec amendment rule (`docs/spec/<topic>.md`)
 
 
-Specs are the canonical contract for a feature, **read verbatim by fresh-context subagents in `/subagent-implementation`**. The body must always describe the *current* decision — a subagent builds what the body says, so any superseded content left in the body makes it build the wrong thing. Two separate jobs: **the body** states what is true now; **the change log** records how it got there. Never conflate them — leaving old behavior in the body "for history" is what causes subagent hallucination.
+The canonical spec-currency contract lives in **`rules/specs/spec-currency.md`** — a path-scoped rule that auto-loads (into the main agent *and* subagents) whenever a `docs/spec/**` or `docs/design/**` file is touched. It covers: body-is-current-truth, the `## Change log` discipline, the per-amendment rules (add / change-supersede / remove / correct / rename), and the change-log entry template. Read that rule rather than duplicating it here.
 
-
-**Every spec file must have a `## Change log` section at the bottom.** When amending, append a new dated entry; do not delete prior entries. The log is the audit trail — but it never substitutes for keeping the body current.
-
-
-- **Adding behavior.** Add a new section to the spec body describing the new behavior. Append a change-log entry: `### YYYY-MM-DD — <short title>` with a one-paragraph **What changed** + **Why** (the trigger: bug, user feedback, axiom shift, downstream artifact requirement).
-- **Changing / superseding behavior.** **Rewrite every affected body section to the new behavior** — do not leave the old behavior described anywhere in the body, not even annotated. In the change-log entry, include a **Superseded** line summarizing the prior contract so the old intent survives *in the log*. Format: `Superseded: <one-line summary of what the spec used to say>`. The test: after the edit, could a fresh subagent reading only the body build the superseded scope? If yes, the body isn't done.
-- **Removing behavior.** Delete the section from the body. In the change-log entry, include a **Removed** line with what was removed and why. If the removal is reversible (feature parked, not killed), say so. A rejected or dropped *approach* belongs in the design doc's rejected-approaches section — never as a lingering spec body section.
-- **Correcting a factually wrong spec.** Edit the body in place. Append a change-log entry with `**Correction:**` prefix explaining what was wrong, how you know it was wrong (test failure, prod incident, code already diverged), and what the truth is. Corrections are the *only* case where the body changes without an additive section — and even then the log records the delta.
-- **Renaming or splitting a spec file.** The old file gets a final change-log entry pointing to the new location: `Moved to: docs/spec/<new>.md` or `Split into: docs/spec/<a>.md + docs/spec/<b>.md`. Keep the old file one commit longer so grep finds both.
-
-
-**Change-log entry template:**
-
-<example>
-
-```markdown
-### 2026-05-17 — <short title>
-
-**What changed:** <one paragraph>
-
-**Why:** <trigger — bug, feedback, axiom, dependency>
-
-**Superseded:** <if applicable, one line on prior contract>
-```
-
-</example>
-
-
-**When in doubt, make the body match the current decision, then log what changed.** A long change log is healthy; a body that still describes a superseded decision is a defect — it will be handed to a fresh subagent that reads it as ground truth. The log is cheap; a subagent building the wrong scope is not. **Nothing that could mislead a fresh subagent may survive in the body.**
+Repo-specific note: in this repo specs are also read verbatim by fresh-context subagents in `/subagent-implementation` and authored via the `/atomic-plan` spec loop, so currency is load-bearing — a superseded body section gets built. The planning and autopilot commands brief spec-writing subagents to follow the rule explicitly in addition to the auto-load.
 
 
 ## Cross-artifact wiring rules (mandatory for cohesion)
