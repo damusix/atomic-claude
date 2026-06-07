@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/damusix/atomic-claude/compare/v3.2.0...v3.3.0) (2026-06-07)
+
+
+### Features
+
+* navigable markdown links in signals and wiki artifacts ([34613f2](https://github.com/damusix/atomic-claude/commit/34613f296e043f5977792961b8e4e5db758d1f63))
+
 ## [3.2.0](https://github.com/damusix/atomic-claude/compare/v3.1.1...v3.2.0) (2026-06-06)
 
 
