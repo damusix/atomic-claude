@@ -170,6 +170,45 @@ Skip if:
 No file-extension allowlist. `atomic signals stale` is the source of truth: it is content-based — it reassembles the deterministic snapshot and compares it to the stored one, returning fresh on prose-only or no-op commits because the snapshot is unchanged, and catching structural shifts an extension list would miss (a new `commands/*.md` file, a renamed `agents/` directory). Comparing content rather than mtimes means an idempotent regeneration (e.g. `make bundle` rewriting `manifest.go` with identical bytes) does not trip a false stale.
 
 
+## Post-merge / post-squash integration
+
+
+`/commit-only` is the pre-op gate (refresh *before* the commit). The merge and squash verbs add a symmetric post-op gate: a defense-in-depth refresh that runs *after* the history operation completes. This catches drift that the pre-op gate never saw — branch commits may have skipped `/commit-only` entirely (a manual `git commit`, a rebase that rewrote history, a PR squashed externally on the forge), so the merge/squash target is the last guaranteed gate before the change lands on the base branch.
+
+
+### Verbs that run the post-op refresh
+
+
+| Verb | Flow | Step | Follow-up commit subject |
+|------|------|------|--------------------------|
+| `/merge-to-main` | merge-flow-steps | post-merge | `chore(signals): refresh after merge of <feature>` |
+| `/commit-and-merge` | merge-flow-steps | post-merge | `chore(signals): refresh after merge of <feature>` |
+| `/squash-and-merge` | merge-flow-steps + squash-flow-steps | post-merge **and** post-squash | both subjects, per the step that regenerates |
+| `/squash-only` | squash-flow-steps | post-squash | `chore(signals): refresh after squash` |
+| `/commit-and-squash` | squash-flow-steps | post-squash | `chore(signals): refresh after squash` |
+
+
+### Probe (the `signals-gate` shared partial)
+
+
+All of the above delegate to the `signals-gate` partial — the same probe `/commit-only` uses:
+
+
+1. `command -v atomic` — skip silently if the binary is absent.
+2. `atomic signals stale` — act on the exit code (0 fresh → skip; 1 stale → refresh mandatory; 2 error → report and skip). Content-based, not mtime-based.
+3. On exit 1, dispatch `atomic-signals-inferrer` in silent mode, then stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`.
+4. `atomic wiki mark-dirty` (best-effort) so a registered wiki's next session nudge fires.
+
+
+If the gate regenerates the signals files, the verb commits them as a **separate follow-up commit** (the subjects above) rather than amending the merge/squash commit — the refresh is a distinct concern from the feature, and amending a just-pushed merge would rewrite shared history. On the remote path, the follow-up is pushed after the merge.
+
+
+### `/pr-only` is exempt
+
+
+`/pr-only` does not run the post-op gate. By construction it requires a clean working tree (it ships already-committed history to a PR), so there is nothing uncommitted to refresh; any signals drift was already caught by the `/commit-only` that produced the branch commits. Leaving it exempt avoids a no-op probe on every PR open.
+
+
 ## Integration with `/atomic-setup`
 
 
@@ -321,3 +360,10 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Why:** The skill was an unnecessary indirection layer. Everything the skill did could be put into the agent definition, with the command just dispatching the agent. Commands auto-fire in practice (Claude picks up on descriptions), so the skill's auto-trigger surface is not lost. Simplifies the architecture from three artifacts (skill + agent + command) to two (agent + command).
 
 **Removed:** `skills/atomic-signals/SKILL.md` — skill definition. All references across `CLAUDE.md`, `claude.local.md`, `docs/reference/skills.md`, `docs/reference/signals-workflow.md`, ship verb templates, and `templates/commands/atomic-setup.md` updated to reference the agent directly.
+
+
+### 2026-06-07 — Document post-merge / post-squash signals refresh
+
+**What changed:** Added a "Post-merge / post-squash integration" section. The spec previously contracted only the `/commit-only` pre-op gate; the post-op defense-in-depth refresh in `/merge-to-main`, `/commit-and-merge`, `/squash-and-merge`, `/squash-only`, and `/commit-and-squash` was implemented in the `merge-flow-steps` / `squash-flow-steps` partials but unspecced. The new section documents the verb set, the shared `signals-gate` probe they delegate to, the separate-follow-up-commit convention (`chore(signals): refresh after merge of <feature>` / `chore(signals): refresh after squash`), and why `/pr-only` is exempt (clean-working-tree precondition means nothing to refresh).
+
+**Why:** The pattern lived in code with no canonical contract, so a contributor editing those verbs had no spec to follow. Documenting it closes the spec gap flagged by follow-up `nits-spec-the-post-merge-f-4`. No behavior changed — this is documentation of the existing implementation.

@@ -1,2 +1,9 @@
 - 2026-05-22 nits-design-and-decide-on-f-2 — "Design and decide on `atomic doctor` CLI subcommand" — *(closed 2026-05-17 — dbe2a53)*
 - 2026-05-30 renumber-decimal-sections — "Remove decimal section numbering in skills and commands" — *(closed 2026-05-30)*
+- 2026-06-07 atomic-improve-spec-1 — "Write docs/spec/atomic-improve.md" — *(closed 2026-06-07)*
+- 2026-06-07 gather-evidence-spec-1 — "Write docs/spec/gather-evidence.md" — *(closed 2026-06-07)*
+- 2026-06-07 nits-design-and-decide-on-f-3 — "Design and decide on `atomic validate` CLI subcommand" — *(closed 2026-06-07)*
+- 2026-06-07 artifact-templates-f-4 — "Orphan error message hardcodes commands/ path prefix" — *(closed 2026-06-07)*
+- 2026-06-07 nits-spec-the-post-merge-f-4 — "Spec the post-merge / post-squash signals-refresh integration" — *(closed 2026-06-07)*
+- 2026-06-07 atomic-style-tree-ascii — "Add tree + ASCII diagram format to atomic output style" — *(closed 2026-06-07)*
+- 2026-06-07 atomic-update-doctor-f-1 — "`Resolved()` bool default heuristic piggybacks on intensity sentinel" — *(closed 2026-06-07)*
