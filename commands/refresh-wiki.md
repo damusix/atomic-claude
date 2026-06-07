@@ -160,7 +160,17 @@ The `--cites` ids are the repo identifiers (base directory names) of the repos w
 
 Print: `RE-AUTHORED  <concern-file-path>`
 
-## Step 6 — Summary disposition report
+## Step 6 — Linkify wiki artifacts (deterministic)
+
+After every summary and concern has been authored AND stamped (Steps 5a–5c), render path citations into navigable relative markdown links:
+
+```bash
+atomic wiki linkify --root <resolved-root>
+```
+
+This runs **after** stamping, so it never disturbs `reflects_*` fingerprints or `atomic wiki stale` verdicts (staleness is HEAD/hash-based, not body-based). Base resolution: `repos/**` summaries use each summary's `repo:` frontmatter dir; `concerns/*.md` and `index.md` use the realm root. It is idempotent — re-running produces byte-identical files; fenced code blocks are never touched. A `[text](path)` link is not an `@-ref`.
+
+## Step 7 — Summary disposition report
 
 After all artifacts are processed, print a per-artifact disposition table:
 
@@ -175,9 +185,9 @@ Wiki refresh — disposition:
 <N> new, <M> re-authored, <K> skipped.
 ```
 
-## Step 7 — Clear drift marker and re-scan (only on full completion)
+## Step 8 — Clear drift marker and re-scan (only on full completion)
 
-Only if Steps 2-6 all completed without error (no hard exit, no aborted dispatch):
+Only if Steps 2-7 all completed without error (no hard exit, no aborted dispatch):
 
 Remove the drift marker:
 
@@ -193,7 +203,7 @@ atomic wiki scan --root <resolved-root>
 
 If any step earlier encountered an error or was aborted, leave `.dirty` set — the neglect nudge will continue to fire until a clean run completes.
 
-## Step 8 — Offer to commit
+## Step 9 — Offer to commit
 
 Once the drift marker is cleared, offer to commit the wiki repository (the wiki is its own git repo under `<resolved-root>/`):
 

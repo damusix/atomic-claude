@@ -34,6 +34,12 @@ Design: `docs/design/wiki.md`.
 - [ ] The `index.md` path is written to a `<wikis>` block in `~/.claude/CLAUDE.md`. Three insertion cases: block present (add line iff absent, dedup by normalized path), block absent (append after `</atomic>`, or EOF when none), file absent (create). A registry write never alters the `<atomic>` block (diff outside `<wikis>` is empty).
 - [ ] If `<root>/wiki/` exists but `index.md` is absent or lacks a `<wiki-scan>` marker, `scan` refuses with a non-zero exit and a message naming the path.
 - [ ] `scan` prints a stdout handoff: summary (`<N> repos · <M> indexed · <K> pending`), per-repo list (`<status> <path> [→ signals path]`), `NEXT STEPS` naming each `pending` repo. Labels stable (orientation for `/refresh-wiki`; the incremental pass is driven by `atomic wiki stale`).
+- [ ] `scan` writes a managed `## Members` linked section into `index.md` between `<!-- wiki-members:start -->` / `<!-- wiki-members:end -->` markers, spliced idempotently like the `<wiki-scan>` block (content outside the markers untouched): `indexed` → link to `../<repo>/.claude/project/signals.md`; `summarized` → link to `repos/<repo>.md`; `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
+
+### `atomic wiki linkify`
+
+- [ ] `atomic wiki linkify --root=<path>` is a user-runnable verb that renders path citations in wiki artifacts into file-relative markdown links: each `repos/<repo>(/<domain>).md` with base = `<realm>/<repo>` (repo read from the summary's `repo:` frontmatter); each `concerns/*.md` and the `index.md` narrative with base = realm root. Idempotent; fenced code blocks untouched; a `[text](path)` link is not an `@-ref`. (Unlike `stamp`/`mark-dirty`, which are internal, `linkify` is surfaced in `/atomic-help`.)
+- [ ] `/refresh-wiki` runs `atomic wiki linkify` after summaries/concerns are (re)authored and stamped, before the `.dirty`-clear and commit offer. Running after `atomic wiki stamp` means it never alters `reflects_*` frontmatter, so it does not affect `atomic wiki stale` verdicts (staleness is HEAD/hash-based, not body-based).
 
 ### `atomic signals scan --out` + code fingerprint stamp
 
@@ -55,7 +61,7 @@ Design: `docs/design/wiki.md`.
 
 ### `/refresh-wiki` + inferrer wiki mode
 
-- [ ] `/refresh-wiki [root]` runs `atomic wiki scan`, then `atomic wiki stale`, then refreshes INCREMENTALLY. Pending repos are presented as a numbered list (axiom 4); the user types which to `/refresh-signals` (accept → `indexed`); unselected pending repos go to `atomic-signals-inferrer` (wiki mode). It re-authors only the stale-flagged/pending artifacts and preserves the rest; re-synthesizes affected `concerns/*.md` + the `index.md` narrative; invokes the code stamp step for every artifact it (re)writes; prints a per-artifact disposition (`NEW` / `RE-AUTHORED` / `SKIPPED (fresh)`); clears `.dirty`; offers to commit.
+- [ ] `/refresh-wiki [root]` runs `atomic wiki scan`, then `atomic wiki stale`, then refreshes INCREMENTALLY. Pending repos are presented as a numbered list (axiom 4); the user types which to `/refresh-signals` (accept → `indexed`); unselected pending repos go to `atomic-signals-inferrer` (wiki mode). It re-authors only the stale-flagged/pending artifacts and preserves the rest; re-synthesizes affected `concerns/*.md` + the `index.md` narrative; invokes the code stamp step for every artifact it (re)writes; runs `atomic wiki linkify` after stamping; prints a per-artifact disposition (`NEW` / `RE-AUTHORED` / `SKIPPED (fresh)`); clears `.dirty`; offers to commit.
 - [ ] `atomic-signals-inferrer` wiki-output mode (caller-provided `target_repo` + `wiki_dir`): obtains the substrate via `atomic signals scan --out <tmp>` (never writing into `target_repo`), infers, writes the summary ONLY under `wiki_dir/repos/<repo>(/<domain>)`, skips @-ref wiring. It does NOT write the fingerprint — the code stamp step does. Large repos domain-split; small repos single file. Reviewer-verified prompt constraints, not unit-tested.
 - [ ] The inferrer's default (non-wiki) mode is unchanged: existing signals tests stay green; reviewer confirms default-mode steps unchanged except for the additive branch.
 - [ ] If exactly one of `target_repo` / `wiki_dir` is supplied, the inferrer fails loud — refuses and names the missing arg rather than proceeding in default mode (prompt-level guard; the command always passes both, and no Go dispatch code exists, so reviewer-verified).
@@ -118,6 +124,10 @@ New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + inj
 
 **Classification.** `indexed` iff `<repo>/.claude/project/signals.md` exists, else `pending`. `scan` never reads `HEAD`. Re-classification: prior `summarized` + summary file present → keep `summarized`; else re-derive.
 
+**`## Members` linked section.** Literal `<!-- wiki-members:start -->` / `<!-- wiki-members:end -->` boundary in `wiki/index.md`. One link per member, derived from its `<wiki-scan>` status: `indexed` → `../<repo>/.claude/project/signals.md`; `summarized` → `repos/<repo>.md`; `pending` → `../<repo>/`. Spliced idempotently like the `<wiki-scan>` block; content outside the markers untouched. Written by `atomic wiki scan` so the realm is browsable after a deterministic pass, no LLM required.
+
+**`atomic wiki linkify` (code).** Renders inline-code path citations that resolve on disk into file-relative markdown links. Bases per artifact: `repos/<repo>(/<domain>).md` → `<realm>/<repo>` (from the summary's `repo:` frontmatter); `concerns/*.md` and `index.md` narrative → realm root. Idempotent (skips already-linked tokens); never touches fenced code blocks or `reflects_*` frontmatter. Runs after `atomic wiki stamp` in `/refresh-wiki`, so it cannot affect `atomic wiki stale` verdicts. A `[text](path)` link is not an `@-ref`. User-runnable and surfaced in `/atomic-help` (unlike `stamp`/`mark-dirty`).
+
 **`<wiki-scan>` block.** Literal `<wiki-scan ...>` / `</wiki-scan>` boundary. Open attrs `root`, `generated` (injected clock — no wall-clock reads). One `<repo .../>` per member: `path`, `status`, optional `signals`/`summary`. No fingerprints. Target `wiki/index.md`; idempotent in-place; content outside untouched. `generated` doubles as the neglect baseline read by the hook.
 
 **`<wikis>` block.** `~/.claude/CLAUDE.md`, literal `<wikis>`/`</wikis>`. One `- <abs index.md path>` per wiki. Present → add iff absent (dedup by normalized path = `filepath.Abs` then `filepath.Clean`, no symlink resolution); absent → append after `</atomic>` (or EOF); file absent → create. `<atomic>` never touched.
@@ -152,6 +162,13 @@ New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + inj
 
 
 ## Change log
+
+
+### 2026-06-06 — Link navigability: `## Members` section + `atomic wiki linkify`
+
+**What changed:** Added two behaviors. (1) `atomic wiki scan` now writes a managed `## Members` linked section into `wiki/index.md` (markers `<!-- wiki-members:start -->` / `<!-- wiki-members:end -->`), spliced idempotently like the `<wiki-scan>` block: `indexed` → `../<repo>/.claude/project/signals.md`, `summarized` → `repos/<repo>.md`, `pending` → `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan. (2) A new user-runnable verb `atomic wiki linkify --root=<path>` renders path citations in `repos/**` (base = each summary's `repo:` frontmatter dir), `concerns/*.md`, and the `index.md` narrative (base = realm root) into file-relative markdown links. `/refresh-wiki` runs it after stamping (Step 6), so it never disturbs `reflects_*` fingerprints or `atomic wiki stale` verdicts. Full contract: `docs/spec/signals-wiki-linkify.md`.
+
+**Why:** Plain backtick paths are inert in Obsidian, a markdown server, or GitHub. Linkifying makes the realm navigable as a graph. Relative-prefix computation is a deterministic transform — code's job, not the model's. A `[text](path)` link is not an `@-ref`. `linkify` is user-runnable (surfaced in `/atomic-help`), unlike the internal `stamp` / `mark-dirty` helpers.
 
 
 ### 2026-06-06 — Conform checkpoint table to validator schema

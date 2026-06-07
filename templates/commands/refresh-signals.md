@@ -94,7 +94,7 @@ first_run: <true if Step 2 found no existing signals, false otherwise>
 </steering>
 ```
 
-Wait for the agent to complete.
+Wait for the agent to complete. As its final action the agent runs `atomic signals linkify`, so the written signals files render path citations as navigable relative markdown links (idempotent; not `@-refs`). No separate invocation is needed here.
 
 ## Step 5 — Surface concerns
 

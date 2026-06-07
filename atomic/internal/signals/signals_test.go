@@ -2141,3 +2141,111 @@ func TestDiffPaths_WorksWithoutGit(t *testing.T) {
 		t.Errorf("expected new.go in Added, got added=%v changed=%v removed=%v", cp.Added, cp.Changed, cp.Removed)
 	}
 }
+
+// --- LinkifyFiles tests ---
+
+// TestLinkifyFiles_LinkifiesRouterAndDomains verifies that LinkifyFilesWithBase
+// rewrites signals.md and domain files under signals/, and leaves non-path tokens
+// untouched.
+func TestLinkifyFiles_LinkifiesRouterAndDomains(t *testing.T) {
+	root := t.TempDir()
+
+	// Create the target file that the token will resolve to.
+	targetPath := filepath.Join(root, "agents", "atomic-builder.md")
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte("# builder\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create signals.md with a plain backtick token.
+	projectDir := filepath.Join(root, ".claude", "project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	routerContent := "# router\n\nSee `agents/atomic-builder.md` for details.\n"
+	routerPath := filepath.Join(projectDir, "signals.md")
+	if err := os.WriteFile(routerPath, []byte(routerContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a domain file under signals/ with a plain backtick token.
+	domainDir := filepath.Join(projectDir, "signals")
+	if err := os.MkdirAll(domainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	domainContent := "# domain\n\n`agents/atomic-builder.md` is key.\n"
+	domainPath := filepath.Join(domainDir, "workflow.md")
+	if err := os.WriteFile(domainPath, []byte(domainContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := signals.LinkifyFilesWithBase(root, root); err != nil {
+		t.Fatalf("LinkifyFilesWithBase: %v", err)
+	}
+
+	// Router should be linkified.
+	gotRouter, err := os.ReadFile(routerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gotRouter), "[`agents/atomic-builder.md`]") {
+		t.Errorf("router not linkified:\n%s", gotRouter)
+	}
+
+	// Domain file should be linkified.
+	gotDomain, err := os.ReadFile(domainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gotDomain), "[`agents/atomic-builder.md`]") {
+		t.Errorf("domain file not linkified:\n%s", gotDomain)
+	}
+}
+
+// TestLinkifyFiles_Idempotent verifies that running twice produces no change on
+// the second run (byte-identical output).
+func TestLinkifyFiles_Idempotent(t *testing.T) {
+	root := t.TempDir()
+
+	targetPath := filepath.Join(root, "agents", "atomic-builder.md")
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte("# builder\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectDir := filepath.Join(root, ".claude", "project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	routerPath := filepath.Join(projectDir, "signals.md")
+	if err := os.WriteFile(routerPath, []byte("# router\n\nSee `agents/atomic-builder.md`.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := signals.LinkifyFilesWithBase(root, root); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	after1, _ := os.ReadFile(routerPath)
+
+	if err := signals.LinkifyFilesWithBase(root, root); err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	after2, _ := os.ReadFile(routerPath)
+
+	if string(after1) != string(after2) {
+		t.Errorf("not idempotent:\nafter1: %q\nafter2: %q", after1, after2)
+	}
+}
+
+// TestLinkifyFiles_NoOp_WhenNoFiles verifies no error when signals.md and
+// signals/ directory don't exist.
+func TestLinkifyFiles_NoOp_WhenNoFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := signals.LinkifyFilesWithBase(root, root); err != nil {
+		t.Errorf("expected no error on empty root: %v", err)
+	}
+}

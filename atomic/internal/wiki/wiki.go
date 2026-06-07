@@ -35,6 +35,12 @@ const scanMarkerOpen = "<wiki-scan"
 // scanMarkerClose is the literal close tag of the managed block.
 const scanMarkerClose = "</wiki-scan>"
 
+// membersMarkerStart / membersMarkerEnd are the HTML-comment boundaries of the
+// managed ## Members section. Content between the markers is replaced on each
+// scan; content outside the markers (including the heading itself) is preserved.
+const membersMarkerStart = "<!-- wiki-members:start -->"
+const membersMarkerEnd = "<!-- wiki-members:end -->"
+
 // Options configures a Scan run.
 type Options struct {
 	// Clock returns the current time. If nil, time.Now().UTC() is used.
@@ -97,8 +103,14 @@ func Scan(root string, opts Options) ([]Member, error) {
 	}
 
 	// --- Write <wiki-scan> block ---
-	if err := writeWikiScanBlock(filepath.Join(wikiDir, "index.md"), root, classified, opts); err != nil {
+	indexPath := filepath.Join(wikiDir, "index.md")
+	if err := writeWikiScanBlock(indexPath, root, classified, opts); err != nil {
 		return nil, fmt.Errorf("wiki scan: write block: %w", err)
+	}
+
+	// --- Write ## Members section ---
+	if err := writeMembersSection(indexPath, classified); err != nil {
+		return nil, fmt.Errorf("wiki scan: write members section: %w", err)
 	}
 
 	return classified, nil
@@ -452,6 +464,128 @@ func repoTag(m Member) string {
 // defaultNarrative is the stub below the block when creating a fresh index.md.
 func defaultNarrative() string {
 	return "\n## Realm overview\n\n<!-- Add narrative context about this realm here. -->\n"
+}
+
+// writeMembersSection writes (or replaces) the managed ## Members section in
+// indexPath. The section uses HTML-comment boundary markers so it can be
+// re-spliced idempotently while narrative outside it is preserved byte-for-byte.
+//
+// Link targets are relative to the directory containing indexPath (wiki/).
+//   - indexed  → [<repo>](../<repo>/.claude/project/signals.md)
+//   - summarized → [<repo>](repos/<repo>.md)
+//   - pending  → [<repo>](../<repo>/)
+func writeMembersSection(indexPath string, members []Member) error {
+	indexDir := filepath.Dir(indexPath)
+
+	section := buildMembersSection(indexDir, members)
+
+	existing, err := os.ReadFile(indexPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read index.md: %w", err)
+	}
+
+	var newContent string
+	if os.IsNotExist(err) || len(existing) == 0 {
+		newContent = section
+	} else {
+		newContent = rewriteMembersSection(string(existing), section)
+	}
+
+	return os.WriteFile(indexPath, []byte(newContent), 0o644)
+}
+
+// buildMembersSection produces the full ## Members managed section string,
+// bounded by the HTML-comment markers.
+func buildMembersSection(indexDir string, members []Member) string {
+	var sb strings.Builder
+	sb.WriteString("## Members\n\n")
+	sb.WriteString(membersMarkerStart)
+	sb.WriteString("\n")
+	for _, m := range members {
+		name := filepath.Base(m.Path)
+		target := memberLinkTarget(indexDir, m)
+		fmt.Fprintf(&sb, "- [%s](%s)\n", name, target)
+	}
+	sb.WriteString(membersMarkerEnd)
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// memberLinkTarget computes the markdown link target for a member, relative to
+// the index.md directory.
+func memberLinkTarget(indexDir string, m Member) string {
+	switch m.Status {
+	case "indexed":
+		// Link to the repo's signals.md.
+		// m.SignalsPath is the absolute path to .claude/project/signals.md in the repo.
+		if m.SignalsPath != "" {
+			rel, err := filepath.Rel(indexDir, m.SignalsPath)
+			if err == nil {
+				return rel
+			}
+		}
+		// Fallback: construct from path.
+		return "../" + m.Path + "/.claude/project/signals.md"
+	case "summarized":
+		// Link to wiki/repos/<repo>.md (already relative to wiki/).
+		return "repos/" + filepath.Base(m.Path) + ".md"
+	default: // "pending"
+		// Link to the repo directory.
+		return "../" + m.Path + "/"
+	}
+}
+
+// rewriteMembersSection replaces the managed ## Members section in content.
+// The heading "## Members" and the markers are both managed — the whole block
+// from "## Members\n" through the end marker is replaced.
+// Content outside is preserved byte-for-byte.
+func rewriteMembersSection(content, newSection string) string {
+	// Strategy: find "## Members\n" followed eventually by the start marker.
+	// If the start marker is present, replace everything from the heading to the
+	// end marker. If neither exists, append.
+
+	startIdx := strings.Index(content, membersMarkerStart)
+	if startIdx == -1 {
+		// No existing managed section — append.
+		result := content
+		if !strings.HasSuffix(result, "\n") {
+			result += "\n"
+		}
+		return result + "\n" + newSection
+	}
+
+	// Find the heading "## Members" before the start marker.
+	// Walk backwards from startIdx to find the start of the line containing "## Members".
+	headingPrefix := "## Members"
+	before := content[:startIdx]
+	headingIdx := strings.LastIndex(before, headingPrefix)
+	if headingIdx == -1 {
+		// Marker exists but no heading — replace just from the marker.
+		endIdx := strings.Index(content[startIdx:], membersMarkerEnd)
+		if endIdx == -1 {
+			// No end marker — replace from start marker to EOF.
+			return content[:startIdx] + newSection
+		}
+		blockEnd := startIdx + endIdx + len(membersMarkerEnd)
+		return content[:startIdx] + newSection + content[blockEnd:]
+	}
+
+	// Find the end marker.
+	endIdx := strings.Index(content[startIdx:], membersMarkerEnd)
+	if endIdx == -1 {
+		// No end marker — replace from heading to EOF.
+		return content[:headingIdx] + newSection
+	}
+	blockEnd := startIdx + endIdx + len(membersMarkerEnd)
+
+	// Consume trailing newline after end marker if present.
+	afterBlock := content[blockEnd:]
+	if strings.HasPrefix(afterBlock, "\n") {
+		blockEnd++
+		afterBlock = content[blockEnd:]
+	}
+
+	return content[:headingIdx] + newSection + afterBlock
 }
 
 // rewriteScanBlock replaces the <wiki-scan> block in content with newBlock.

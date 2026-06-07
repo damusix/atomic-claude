@@ -303,3 +303,68 @@ func TestCheckSignalsRouterSubdirDomainFile(t *testing.T) {
 		t.Errorf("severity = %v, want PASS (sub-routed domain file exists)", r.Severity)
 	}
 }
+
+// routerWithLinkifiedDomains builds a signals.md body where the Detail column
+// contains linkified markdown links: [`signals/x.md`](signals/x.md)
+// This is the form emitted after `atomic signals linkify` runs.
+func routerWithLinkifiedDomains(details ...string) string {
+	header := "# Project signals\n\n## Domains\n\n| Domain | Repo paths | One-liner | Detail |\n|--------|------------|-----------|--------|\n"
+	rows := ""
+	for i, d := range details {
+		// Simulate a linkified Detail cell: [`signals/x.md`](signals/x.md)
+		linked := fmt.Sprintf("[`%s`](%s)", d, d)
+		rows += fmt.Sprintf("| domain%d | src/%d/ | desc | %s |\n", i, i, linked)
+	}
+	return header + rows
+}
+
+// TestCheckSignalsRouterLinkifiedDetailPresent verifies PASS when Detail column
+// contains linkified markdown links (` [`signals/x.md`](signals/x.md) `) and
+// the domain files exist on disk. Exercises the link-extraction path in parseRouterDomains.
+func TestCheckSignalsRouterLinkifiedDetailPresent(t *testing.T) {
+	root := t.TempDir()
+	makeRouterFile(t, root, routerWithLinkifiedDomains("signals/auth.md", "signals/billing.md"))
+	makeClaudeMd(t, root, "claude.local.md", "@.claude/project/signals.md\n")
+	makeDomainFile(t, root, "signals/auth.md")
+	makeDomainFile(t, root, "signals/billing.md")
+
+	r := doctor.RunCheckRouterWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS (linkified detail, all files present)", r.Severity)
+	}
+}
+
+// TestCheckSignalsRouterLinkifiedDetailMissing verifies WARN when Detail column
+// contains a linkified link but the domain file is missing.
+func TestCheckSignalsRouterLinkifiedDetailMissing(t *testing.T) {
+	root := t.TempDir()
+	makeRouterFile(t, root, routerWithLinkifiedDomains("signals/auth.md"))
+	makeClaudeMd(t, root, "claude.local.md", "@.claude/project/signals.md\n")
+	// signals/auth.md NOT created
+
+	r := doctor.RunCheckRouterWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %v, want WARN (linkified detail, file missing)", r.Severity)
+	}
+	if !strings.Contains(r.Detail, "signals/auth.md") {
+		t.Errorf("detail %q should name the missing domain file", r.Detail)
+	}
+}
+
+// TestCheckSignalsRouterLinkifiedDetailChain verifies the full resolution chain:
+// linkified Detail cell [`signals/auth.md`](signals/auth.md) → extract target
+// "signals/auth.md" → join root/.claude/project/signals/auth.md → exists check.
+func TestCheckSignalsRouterLinkifiedDetailChain(t *testing.T) {
+	root := t.TempDir()
+	// The Detail column as emitted by the linkifier: [`signals/auth.md`](signals/auth.md)
+	content := "# Project signals\n\n## Domains\n\n| Domain | Repo paths | One-liner | Detail |\n|--------|------------|-----------|--------|\n" +
+		"| auth | src/auth/ | JWT | [`.claude/project/signals/auth.md`](signals/auth.md) |\n"
+	makeRouterFile(t, root, content)
+	makeClaudeMd(t, root, "claude.local.md", "@.claude/project/signals.md\n")
+	makeDomainFile(t, root, "signals/auth.md")
+
+	r := doctor.RunCheckRouterWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS (linkified chain, file present): detail=%s", r.Severity, r.Detail)
+	}
+}

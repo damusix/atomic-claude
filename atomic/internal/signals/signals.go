@@ -12,6 +12,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
+	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
 
@@ -419,4 +420,70 @@ func diffFallback(prevPath, currentPath string, out io.Writer) error {
 		return fmt.Errorf("signals diff: diff failed: %w", err)
 	}
 	return nil
+}
+
+// LinkifyFiles linkifies .claude/project/signals.md and every *.md file under
+// .claude/project/signals/ in the repo at root, using root as the base directory
+// for path resolution. Each file is read, linkified, and written back in place.
+// If a file's content is unchanged after linkification, it is not rewritten.
+// Idempotent: re-running on already-linkified content is a no-op.
+func LinkifyFiles(root string) error {
+	return LinkifyFilesWithBase(root, root)
+}
+
+// LinkifyFilesWithBase is like LinkifyFiles but accepts an explicit base directory.
+// Exported so tests can inject a temp directory without needing a git repo.
+func LinkifyFilesWithBase(root, base string) error {
+	routerPath := filepath.Join(root, ".claude", "project", "signals.md")
+	domainDir := filepath.Join(root, ".claude", "project", "signals")
+
+	var targets []string
+
+	if _, err := os.Stat(routerPath); err == nil {
+		targets = append(targets, routerPath)
+	}
+
+	entries, err := os.ReadDir(domainDir)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				// Recurse one level for sub-domain directories.
+				subDir := filepath.Join(domainDir, e.Name())
+				subs, rerr := os.ReadDir(subDir)
+				if rerr != nil {
+					continue
+				}
+				for _, se := range subs {
+					if !se.IsDir() && strings.HasSuffix(se.Name(), ".md") {
+						targets = append(targets, filepath.Join(subDir, se.Name()))
+					}
+				}
+				continue
+			}
+			if strings.HasSuffix(e.Name(), ".md") {
+				targets = append(targets, filepath.Join(domainDir, e.Name()))
+			}
+		}
+	}
+
+	for _, target := range targets {
+		if err := linkifyFile(target, base); err != nil {
+			return fmt.Errorf("linkify %s: %w", target, err)
+		}
+	}
+	return nil
+}
+
+// linkifyFile reads a file, linkifies it with the given base, and writes it
+// back only if the content changed.
+func linkifyFile(path, base string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	linkified := mdlink.LinkifyFile(string(raw), path, base)
+	if linkified == string(raw) {
+		return nil // no change
+	}
+	return os.WriteFile(path, []byte(linkified), 0o644)
 }

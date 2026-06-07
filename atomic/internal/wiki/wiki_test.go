@@ -535,3 +535,181 @@ func TestScan_IndexedMemberHasSignalsAttribute(t *testing.T) {
 		t.Errorf("signals= attribute %q should end with signals.md; line: %s", signalsVal, repoALine)
 	}
 }
+
+// --- ## Members section tests ---
+
+// TestScan_MembersSectionPresent verifies that after a scan, wiki/index.md contains
+// a managed ## Members section with the correct HTML-comment boundary markers.
+func TestScan_MembersSectionPresent(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeSignals(t, repoA)
+	makeGitRepo(t, root, "repoB") // pending
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, "<!-- wiki-members:start -->") {
+		t.Errorf("index.md missing <!-- wiki-members:start --> marker:\n%s", content)
+	}
+	if !strings.Contains(content, "<!-- wiki-members:end -->") {
+		t.Errorf("index.md missing <!-- wiki-members:end --> marker:\n%s", content)
+	}
+	if !strings.Contains(content, "## Members") {
+		t.Errorf("index.md missing ## Members heading:\n%s", content)
+	}
+}
+
+// TestScan_MembersSectionLinksIndexed verifies that an "indexed" member links to
+// ../<repo>/.claude/project/signals.md (relative to index.md which is at wiki/index.md).
+func TestScan_MembersSectionLinksIndexed(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeSignals(t, repoA)
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	// indexed → link to ../<repo>/.claude/project/signals.md
+	// index.md is at wiki/index.md; repoA is at root/repoA → rel = ../repoA/.claude/project/signals.md
+	if !strings.Contains(content, "../repoA/.claude/project/signals.md") {
+		t.Errorf("indexed repoA missing signals.md link:\n%s", content)
+	}
+	if !strings.Contains(content, "[repoA]") {
+		t.Errorf("indexed repoA missing [repoA] link text:\n%s", content)
+	}
+}
+
+// TestScan_MembersSectionLinksPending verifies that a "pending" member links to
+// ../<repo>/ (relative to index.md).
+func TestScan_MembersSectionLinksPending(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoB") // no signals → pending
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	// pending → link to ../<repo>/
+	if !strings.Contains(content, "../repoB/") {
+		t.Errorf("pending repoB missing ../<repo>/ link:\n%s", content)
+	}
+	if !strings.Contains(content, "[repoB]") {
+		t.Errorf("pending repoB missing [repoB] link text:\n%s", content)
+	}
+}
+
+// TestScan_MembersSectionLinksSummarized verifies that a "summarized" member links to
+// repos/<repo>.md (relative to index.md).
+func TestScan_MembersSectionLinksSummarized(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	// Manually mark repoA as summarized.
+	summaryPath := filepath.Join(root, "wiki", "repos", "repoA.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(summaryPath, []byte("# repoA summary\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content := readIndexMD(t, root)
+	content = strings.ReplaceAll(content, `status="pending"`, `status="summarized" summary="repos/repoA.md"`)
+	if err := os.WriteFile(indexMDPath(root), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+
+	content = readIndexMD(t, root)
+	// summarized → link to repos/<repo>.md (relative to wiki/index.md → repos/repoA.md)
+	if !strings.Contains(content, "repos/repoA.md") {
+		t.Errorf("summarized repoA missing repos/<repo>.md link:\n%s", content)
+	}
+	if !strings.Contains(content, "[repoA]") {
+		t.Errorf("summarized repoA missing [repoA] link text:\n%s", content)
+	}
+}
+
+// TestScan_MembersSectionIdempotent verifies that re-scanning replaces the managed
+// Members section in-place while preserving narrative outside the managed region.
+func TestScan_MembersSectionIdempotent(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	after1 := readIndexMD(t, root)
+
+	// Inject narrative outside the managed region.
+	narrative := "\n## My realm notes\n\nThis realm contains interesting projects.\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(after1+narrative), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+
+	after2 := readIndexMD(t, root)
+	// Narrative must be preserved.
+	if !strings.Contains(after2, narrative) {
+		t.Errorf("narrative lost after re-scan:\n%s", after2)
+	}
+	// Members section must still be present.
+	if !strings.Contains(after2, "<!-- wiki-members:start -->") {
+		t.Errorf("Members section missing after re-scan:\n%s", after2)
+	}
+	// Members section must appear exactly once.
+	if strings.Count(after2, "<!-- wiki-members:start -->") > 1 {
+		t.Errorf("Members section duplicated after re-scan:\n%s", after2)
+	}
+}
+
+// TestScan_MembersSectionNarrativePreservedByExistingTests verifies that the new
+// Members managed section does not break the existing narrative preservation test.
+// (This documents intent — the existing TestScan_Idempotent_NarrativePreserved
+// already covers this, but we re-check the Members-section variant.)
+func TestScan_MembersSectionDoesNotBreakNarrativePreservation(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	existingNarrative := "\n## My notes\n\nSome important context about this realm.\n"
+	contentWithNarrative := content + existingNarrative
+	if err := os.WriteFile(indexMDPath(root), []byte(contentWithNarrative), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+
+	afterRescan := readIndexMD(t, root)
+	if !strings.Contains(afterRescan, existingNarrative) {
+		t.Errorf("narrative lost after re-scan:\n%s", afterRescan)
+	}
+}

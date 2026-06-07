@@ -56,6 +56,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  signals show        Print deterministic-signals.md to stdout\n")
 		fmt.Fprintf(os.Stderr, "  signals stale       Exit 0 fresh, 1 stale, 2 error\n")
 		fmt.Fprintf(os.Stderr, "  signals diff        Print unified diff of signals file\n")
+		fmt.Fprintf(os.Stderr, "  signals linkify [--root=<path>]  Linkify path tokens in signals.md and signals/*.md\n")
 		fmt.Fprintf(os.Stderr, "  update [--check] [--channel stable|prerelease]   Self-update the atomic binary\n")
 		fmt.Fprintf(os.Stderr, "  followups list [--stale] [--json]                 List open follow-up entries\n")
 		fmt.Fprintf(os.Stderr, "  followups add --id <id> --title <t> --severity <s> --origin <o>  Create entry\n")
@@ -68,6 +69,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  profile refresh [--if-stale <dur>]               Refresh ## Environment in profile.md\n")
 		fmt.Fprintf(os.Stderr, "  wiki scan [--root=<path>]                         Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md\n")
 		fmt.Fprintf(os.Stderr, "  wiki stale [--root=<path>]                        Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)\n")
+		fmt.Fprintf(os.Stderr, "  wiki linkify [--root=<path>]                      Linkify path tokens in wiki artifacts in-place\n")
 		fmt.Fprintf(os.Stderr, "\nFlags:\n")
 		fs.PrintDefaults()
 	}
@@ -620,6 +622,18 @@ func runSignals(args []string, repoOverride string) {
 		// "diff present" signal. See the check-family exit convention.
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(2)
+	case "linkify":
+		fs := flag.NewFlagSet("signals-linkify", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+		// Root follows the signals convention (cwd / global --repo), like
+		// scan and stale. There is no per-verb --root flag here.
+		if err := signals.LinkifyFiles(root); err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			os.Exit(1)
+		}
 	default:
 		fmt.Fprintf(os.Stderr, "atomic signals: unknown verb %q\n", verb)
 		os.Exit(1)

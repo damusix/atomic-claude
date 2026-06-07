@@ -41,6 +41,8 @@ func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 		return wikiStampAction(args[1:])
 	case "mark-dirty":
 		return wikiMarkDirtyAction(args[1:], claudeHome, cwd)
+	case "linkify":
+		return wikiLinkifyAction(args[1:], cwd)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic wiki: unknown verb %q\n", verb)
 		return 1
@@ -160,6 +162,34 @@ func wikiMarkDirtyAction(args []string, claudeHome, cwd string) int {
 
 	if err := MarkDirty(claudeHome, cwd); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki mark-dirty: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// wikiLinkifyAction implements `atomic wiki linkify [--root=<path>]`.
+// It linkifies all wiki artifacts under <root>/wiki/ in-place.
+func wikiLinkifyAction(args []string, cwd string) int {
+	fs := flag.NewFlagSet("wiki-linkify", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var root string
+	fs.StringVar(&root, "root", "", "realm root directory (default: cwd)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	if root == "" {
+		root = cwd
+	}
+
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki linkify: resolve root: %v\n", err)
+		return 2
+	}
+
+	if err := LinkifyWiki(absRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki linkify: %v\n", err)
 		return 1
 	}
 	return 0

@@ -139,6 +139,12 @@ func routerRefWired(root string) bool {
 // parseRouterDomains extracts non-empty Detail column values from the Domains
 // table in the router file content. The Detail column is the 4th pipe-separated
 // column. Returns relative paths like "signals/auth.md" or "signals/auth/index.md".
+//
+// The Detail cell may be either a bare path (e.g. "signals/auth.md") or a
+// linkified markdown link (e.g. "[`signals/auth.md`](signals/auth.md)"). In the
+// latter case the link TARGET (the `](...)` part) is extracted, since that is the
+// actual relative path on disk. The spec requires that linkify emits targets that
+// join correctly as root/.claude/project/<target>.
 func parseRouterDomains(content string) []string {
 	var result []string
 	inTable := false
@@ -170,9 +176,39 @@ func parseRouterDomains(content string) []string {
 		if detail == "" || strings.EqualFold(detail, "Detail") {
 			continue
 		}
+		// If the cell is a markdown link [`text`](target), extract the target.
+		if path, ok := extractLinkTarget(detail); ok {
+			detail = path
+		}
 		result = append(result, detail)
 	}
 	return result
+}
+
+// extractLinkTarget extracts the link target from a markdown link of the form
+// `[text](target)` or “ [`text`](target) “. Returns (target, true) when the
+// cell is a markdown link; (_, false) otherwise.
+func extractLinkTarget(cell string) (string, bool) {
+	// Find '](' which separates text from target.
+	idx := strings.Index(cell, "](")
+	if idx == -1 {
+		return "", false
+	}
+	// Must start with '['.
+	if !strings.HasPrefix(cell, "[") {
+		return "", false
+	}
+	// Extract from after '](' to the closing ')'.
+	after := cell[idx+2:]
+	closeIdx := strings.LastIndex(after, ")")
+	if closeIdx == -1 {
+		return "", false
+	}
+	target := strings.TrimSpace(after[:closeIdx])
+	if target == "" {
+		return "", false
+	}
+	return target, true
 }
 
 // findOrphanDomains lists files under .claude/project/signals/ that are not

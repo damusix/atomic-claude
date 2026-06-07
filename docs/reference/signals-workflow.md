@@ -11,6 +11,8 @@ Both files live in `.claude/project/`, are gitignored, and auto-load into every 
 
 Requires the `atomic` binary. Without it, a degraded tree-only fallback runs instead.
 
+The signals files are a navigable markdown graph. The inferrer writes each path citation as a plain backtick path, then runs `atomic signals linkify` as its final step to render every one that resolves on disk into a relative link to the file it names. Open `.claude/project/` in Obsidian or any markdown server and click through the router into its domain files and out to the source. The linkifier is deterministic and idempotent, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference, so it stays inert until something reads it.
+
 
 ## Steering the inferrer
 

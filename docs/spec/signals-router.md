@@ -137,11 +137,11 @@ Domain table format:
 ```markdown
 | Domain  | Repo paths                         | One-liner                     | Detail              |
 |---------|------------------------------------|-------------------------------|---------------------|
-| auth    | src/auth/, src/middleware/auth.ts  | JWT + session, 2FA optional   | signals/auth/index.md |
-| billing | src/billing/, prisma/schema.prisma | Stripe-backed, webhook-driven | signals/billing.md  |
+| auth    | `src/auth/`, `src/middleware/auth.ts`  | JWT + session, 2FA optional   | `.claude/project/signals/auth/index.md` |
+| billing | `src/billing/`, `prisma/schema.prisma` | Stripe-backed, webhook-driven | `.claude/project/signals/billing.md`  |
 ```
 
-- Detail links are plain markdown paths, NOT `@-refs`. `@-refs` are eager and transitive; plain paths require explicit `Read`.
+- The inferrer writes every path citation — the `Repo paths` and `Detail` columns — as a **repo-root-relative path in backticks** (e.g. `` `.claude/project/signals/auth/index.md` ``, not `signals/auth/index.md`). The code step `atomic signals linkify` (base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `[`.claude/project/signals/auth/index.md`](signals/auth/index.md)`. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target from the linkified Detail cell.
 - Detail column is empty when no domain files exist (small repo, everything in router).
 
 **Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. The ~1,000 lines / ~5k tokens threshold is a secondary signal — if a single-file router grows past it, that's a hint to look for concern boundaries, not a mechanical split trigger. After domain files exist, the router keeps all frontloaded orientation content even if it exceeds 5k tokens.
@@ -163,7 +163,7 @@ Required sections (vertical slice):
 | `## Coupling` | Bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known bugs or stale cross-references. |
 | `## Conventions worth knowing` | Domain-local convention facts |
 
-Plain markdown paths throughout. No `@-refs`. Fact-shaped, not steering-shaped.
+Path citations are written repo-root-relative in backticks and rendered to file-relative markdown links by `atomic signals linkify` — never `@-refs` (a `[text](path)` link is not an `@-ref`). Fact-shaped, not steering-shaped.
 
 **Sub-routing (large domains only):**
 
@@ -320,7 +320,13 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 
 ## Change log
 
-### 2026-05-23 — Vertical-slice domain partitioning replaces size-based splitting
+### 2026-06-06 — Path citations are linkified to relative markdown links
+
+**What changed:** The inferrer now writes every path citation (router `Repo paths` + `Detail` columns, and each domain file's path bullets) as a **repo-root-relative path in backticks** (e.g. `` `.claude/project/signals/auth/index.md` ``). After all signals files are written, the agent runs `atomic signals linkify` (base = repo root) as its final default-mode action; the code step renders each backtick path that resolves on disk into a file-relative markdown link (`[`.claude/project/signals/auth/index.md`](signals/auth/index.md)`). Idempotent; fenced code blocks untouched. Doctor's router parser extracts the link target from the linkified Detail cell. Full contract: `docs/spec/signals-wiki-linkify.md`.
+
+**Why:** Plain backtick paths are inert text in Obsidian, a markdown server, or GitHub — not clickable. Linkifying makes signals navigable as a graph. Relative-prefix computation is a deterministic transform, so it is code's job, not the model's; the model keeps writing the same facts (paths), only their rendering changes. A `[text](path)` link is not an `@-ref` — the no-`@-ref` rule is unchanged (relative links are inert until explicitly `Read`).
+
+**Superseded:** Detail and path citations were described as "plain markdown paths, NOT @-refs" with the example `signals/auth/index.md`. The new contract is repo-root-relative backtick paths rendered to file-relative links by `atomic signals linkify`; still not `@-refs`.
 
 **What changed:** Domain partitioning axis changed from size-based (~1k lines / ~5k tokens threshold) to functional-concern-based (vertical slices). Each domain file now groups artifacts + CLI code + docs + coupling for one feature, not one layer. Domain file schema gains `## Artifacts`, `## CLI code`, `## Docs`, `## Coupling` sections replacing the old `## Where it lives` / `## What it talks to`. The `## Coupling` section — naming what changes here force changes elsewhere — is the primary value of the split. Size remains a secondary trigger but no longer drives the partitioning decision.
 

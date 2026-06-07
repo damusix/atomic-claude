@@ -126,7 +126,7 @@ One-line pointer per topic. Group by category for scannability.
 | `skills` | 7 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` / `intensity` | atomic output style — three levels: `lite`, `full` (default), `ultra`. Switch mid-session by saying "atomic ultra" / "atomic lite". |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
-| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`. |
+| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`. |
 
 ### C. Freeform intent — classify and route
 
@@ -211,8 +211,10 @@ atomic doctor [--fix]             10 integrity checks (install, hooks, signals, 
 atomic validate                   lint spec / config / bundle parity
 atomic update [--check]           self-update binary, runs doctor after
 atomic profile refresh            re-detect dev tooling + shell, rewrite ## Environment block
-atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki in ~/.claude/CLAUDE.md
+atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki; write ## Members links
 atomic wiki stale [--root=<path>] read-only freshness verdict for a registered wiki (exit 0/1/2)
+atomic signals linkify          render signals path citations as navigable relative md links (inferrer runs it)
+atomic wiki linkify --root        same for wiki summaries/concerns/index (/refresh-wiki runs it post-stamp)
 /refresh-wiki [root]              incremental wiki refresh — re-authors stale/pending artifacts only
 /atomic-claude-merge              merge proposed CLAUDE.md after install/update
 /git-cleanup                      stale worktrees / branches (scout reports, you confirm)

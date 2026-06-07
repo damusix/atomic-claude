@@ -35,7 +35,8 @@ Two deterministic CLI verbs and one command do the work:
 
 - **`atomic wiki scan [--root=<path>]`** — scaffolds the wiki, scans the root for member repos, classifies each, and registers the wiki globally. Deterministic, no model.
 - **`atomic wiki stale [--root=<path>]`** — a read-only freshness verdict. Exits `0` fresh, `1` stale, `2` error, mirroring `atomic signals stale`.
-- **`/refresh-wiki [root]`** — the LLM pass. Runs the scan, reads the staleness verdict, and refreshes only what drifted: summarizes no-signals repos, re-synthesizes affected concerns, updates the index.
+- **`atomic wiki linkify --root=<path>`** — renders the path citations in summaries, concerns, and the index into file-relative markdown links. Deterministic, idempotent, no model.
+- **`/refresh-wiki [root]`** — the LLM pass. Runs the scan, reads the staleness verdict, and refreshes only what drifted: summarizes no-signals repos, re-synthesizes affected concerns, updates the index. It runs `atomic wiki linkify` after stamping, so the refreshed wiki ships as a navigable graph.
 
 The split is the same one signals use. The CLI does the deterministic work — walking the tree, classifying, registering, fingerprinting. The command does the judgment — summarizing repos and synthesizing the concerns that cut across them.
 
@@ -84,6 +85,8 @@ The scan is idempotent. Re-running regenerates only the managed `<wiki-scan>` bl
 The scan and `/refresh-wiki` write everything here except `knowledge/`, the user-driven layer Claude fills on request by distilling your `raw/` dump into it.
 
 The wiki is its own git repository — `atomic wiki scan` runs `git init` for you. There is no in-file change log; the wiki's git history is the change log. `/refresh-wiki` ends by offering to commit, never automatically.
+
+The wiki is a navigable markdown graph. The scan writes a managed `## Members` section into `index.md` that links to each member, in place to its signals or into `repos/` for a summary. `atomic wiki linkify` then turns the inline path citations across summaries, concerns, and the index into relative links to the files they name. Open the realm in Obsidian or any markdown server and click through it. The linkifier runs after fingerprint stamping, so it never disturbs staleness, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference.
 
 
 ## Repo states

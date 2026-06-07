@@ -101,7 +101,7 @@ Source paths in this domain: <list from deterministic tree>
 </output_format>
 
 <constraints>
-Plain markdown paths throughout. No @-refs. Fact-shaped, not steering-shaped.
+Write repo-root-relative paths in backticks; a code linkify step renders them to relative links — never @-refs. Fact-shaped, not steering-shaped.
 </constraints>
 
 If you notice issues that are judgments (bugs, risks, missing handling, dead code, stale imports), append them separately:
@@ -131,7 +131,7 @@ Check:
 - Every claim in the domain file is supported by a source file.
 - No claims about paths outside this domain.
 - Required sections present: What it does, Where it lives, What it talks to, Conventions worth knowing.
-- No @-refs (plain markdown paths only).
+- No @-refs (repo-root-relative paths in backticks only — a code linkify step renders them to relative links later; a `[text](path)` link is not an @-ref).
 - Fact-shaped, not steering-shaped.
 
 Return VERDICT: PASS or VERDICT: CHANGES_REQUESTED with specific corrections."
@@ -208,6 +208,18 @@ Block to append:
 ```
 
 In **silent mode** (ship verb context), append without confirmation. In **interactive mode** (from `/refresh-signals`), still append — the ref is non-destructive and the user expects signals to work after running refresh.
+
+### Step 8b — Linkify written signals files
+
+After all signals files are written and reviewed, run:
+
+```bash
+atomic signals linkify
+```
+
+This renders every repo-root-relative backtick path citation that resolves on disk (in `signals.md` and every file under `signals/`) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
+
+Run this in **both** interactive and silent modes. (Wiki-output mode does NOT run it — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
 
 ### Step 9 — Report (interactive only)
 
@@ -386,8 +398,8 @@ The fallback is deliberately limited.
 
 | Domain | Repo paths | One-liner | Detail |
 |--------|------------|-----------|--------|
-| auth   | src/auth/  | JWT + session, 2FA optional | signals/auth/index.md |
-| billing | src/billing/ | Stripe-backed, webhook-driven | signals/billing.md |
+| auth   | `src/auth/`  | JWT + session, 2FA optional | `.claude/project/signals/auth/index.md` |
+| billing | `src/billing/` | Stripe-backed, webhook-driven | `.claude/project/signals/billing.md` |
 
 (Detail column empty when no domain files exist — small repo, everything in router)
 
@@ -396,7 +408,7 @@ The fallback is deliberately limited.
 <test layout, conventions pointer, deterministic substrate path, domain partitioning basis>
 ```
 
-Detail links are plain markdown paths, NOT `@-refs`. `@-refs` are eager and transitive; plain paths require explicit `Read`.
+Write every path citation — the `Repo paths` column AND the `Detail` column — as a **repo-root-relative path in backticks** (e.g. `` `.claude/project/signals/auth/index.md` ``, NOT `signals/auth/index.md`). A code step (`atomic signals linkify`, base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `[`.claude/project/signals/auth/index.md`](signals/auth/index.md)`. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target (`signals/auth/index.md`) from the linkified Detail cell.
 
 **Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. Size (~1,000 lines / ~5k tokens) is a secondary hint to look for concern boundaries. After domain files exist, router keeps all frontloaded orientation content even if it grows past 5k tokens.
 
@@ -433,9 +445,9 @@ Required sections per domain file (vertical slice):
 <domain-local convention facts>
 ```
 
-Plain markdown paths throughout. No `@-refs`.
+Write repo-root-relative paths in backticks throughout; a code linkify step renders them to relative links — never @-refs.
 
-**Sub-routing (large domains only):** When a domain is large, write `signals/<domain>/index.md` as the entry-point. The router's Detail column points to `signals/<domain>/index.md`. The `index.md` routes to sibling files (`signals/<domain>/middleware.md`, etc.) via plain markdown links. Same pattern as the top-level router, scoped to one domain.
+**Sub-routing (large domains only):** When a domain is large, write `signals/<domain>/index.md` as the entry-point. The router's Detail column points to it as a repo-root-relative backtick path (e.g. `` `.claude/project/signals/<domain>/index.md` ``). The `index.md` routes to sibling files via repo-root-relative backtick paths; `atomic signals linkify` renders them to relative links. Same pattern as the top-level router, scoped to one domain.
 
 **Naming continuity:** On rescan, keep existing domain filenames when the underlying repo paths still match. Rename (remove old, write new) only when paths no longer match. This prevents `signals/auth.md` → `signals/identity.md` churn when code is unchanged.
 
@@ -484,7 +496,7 @@ The deterministic substrate (`.claude/project/deterministic-signals.md`) is writ
 - Every claim in domain files must be sourced from actual file reads, not inferred from filenames. **Why:** filenames suggest but don't prove content — a file named `auth.go` may contain billing logic after a refactor.
 - Sub-agents read source files in their area. Read actual source files to verify structure — tree filenames alone are insufficient. **Why:** directory names and file extensions don't reveal internal structure; only reading the code does.
 - Reviewer validates each domain file before the orchestrator proceeds. **Why:** sub-agents can hallucinate or misread scope; reviewer is the correctness gate before content is committed to signals.
-- Never write `@-refs` in domain files or the router's Detail column — plain markdown paths only. **Why:** `@-refs` are eager and transitive — they load the referenced file into every session that reads signals, defeating the lazy-load budget model.
+- Never write `@-refs` in domain files or the router's Detail column — write repo-root-relative paths in backticks; `atomic signals linkify` renders them to file-relative markdown links (a `[text](path)` link is not an `@-ref`). **Why:** `@-refs` are eager and transitive — they load the referenced file into every session that reads signals, defeating the lazy-load budget model; relative links are inert until explicitly `Read`.
 - Never modify files outside `.claude/project/` (except the single `@-ref` target file for wiring). **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
 - Errors quoted exact. No paraphrasing. **Why:** paraphrased errors lose the exact token needed to `grep` for the root cause.
 - Never block a commit — if the scan fails, log and continue. **Why:** signals are supplemental context, not a build gate.
