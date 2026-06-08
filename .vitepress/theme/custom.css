@@ -137,7 +137,11 @@ body {
 }
 
 code, kbd, samp, pre {
-    font-feature-settings: "ss01", "ss02", "zero", "calt";
+    /* Drop "calt": contextual alternates ligate " --" in Geist Mono, kerning the
+       dashes left so the preceding space visually collapses (validateToken --depth
+       → validateToken--depth). Code should not ligate. Keep ss01/ss02/zero. */
+    font-feature-settings: "ss01", "ss02", "zero";
+    font-variant-ligatures: none;
 }
 
 ::selection {
