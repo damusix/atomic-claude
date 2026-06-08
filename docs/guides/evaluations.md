@@ -34,6 +34,8 @@ docker compose run --rm atomic-eval
 
 `atomic docker init` writes a self-contained Docker setup into `./atomic-docker/` (override with `--target`). Drop your project files into `atomic-docker/tmp/workspace/` or symlink your repo into it.
 
+To evaluate the code-intelligence engine, drop a project into the workspace, then inside the container run `atomic code index` followed by `atomic code explore "<question about the codebase>"`. The response shows the symbols, files, and call relationships resolved from the real graph rather than from grep, which is the clearest way to see what the engine adds.
+
 
 ## How volumes work
 

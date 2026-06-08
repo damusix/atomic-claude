@@ -133,6 +133,42 @@ func TestRunSpecRules_S5_Fail(t *testing.T) {
 	}
 }
 
+// TestRunSpecRules_S5_Pass_SixCol proves that the canonical 6-column header
+// emitted by /atomic-plan passes S5. WHY: S5 must accept the canonical output
+// of the planning tool; rejecting it was the bug this test guards against.
+func TestRunSpecRules_S5_Pass_SixCol(t *testing.T) {
+	src := fixtureBytes(t, "pass/S5/has-checkpoints-6col.md")
+	findings, err := validate.RunSpecRules("testdata/spec/pass/S5/has-checkpoints-6col.md", src)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, f := range findings {
+		if f.Rule == "S5" {
+			t.Errorf("S5 false-positive on 6-col canonical header: %+v", f)
+		}
+	}
+}
+
+// TestRunSpecRules_S5_Fail_MissingRequiredCol proves that a Checkpoints table
+// missing a required column produces S5 FAIL. WHY: extra columns are allowed
+// but all four required columns must be present in order.
+func TestRunSpecRules_S5_Fail_MissingRequiredCol(t *testing.T) {
+	src := fixtureBytes(t, "fail/S5/missing-required-col.md")
+	findings, err := validate.RunSpecRules("testdata/spec/fail/S5/missing-required-col.md", src)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var found bool
+	for _, f := range findings {
+		if f.Rule == "S5" && f.Severity == "FAIL" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected S5 FAIL for header missing required column, got %+v", findings)
+	}
+}
+
 // TestRunSpecRules_S5_WrongHeader proves that a spec with ## Checkpoints but a
 // wrong table header produces an S5 FAIL. WHY: the exact header is the machine-
 // readable contract; a different header is a real defect, not a style issue.

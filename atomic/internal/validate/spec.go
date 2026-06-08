@@ -11,8 +11,10 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
 
-// checkpointsHeader is the exact table header required by S5.
-var checkpointsHeader = []string{"#", "Checkpoint", "Files/areas", "Verifies"}
+// checkpointsRequiredColumns are the four required columns for the S5 Checkpoints
+// table, which must appear as an ordered subsequence in the header row. Extra
+// columns (e.g. "Agent", "Est. files") are allowed between or after them.
+var checkpointsRequiredColumns = []string{"#", "Checkpoint", "Files/areas", "Verifies"}
 
 // RunSpecRules runs S0/S1/S5/S6 on a single markdown file given its content.
 // path is used for Finding.Path only (no filesystem access). Returns findings
@@ -75,7 +77,7 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 		})
 	} else {
 		// Section exists — check the table header within its line range.
-		found, line, err := findTableInSection(src, checkpointsSection, checkpointsHeader)
+		found, line, err := findTableInSection(src, checkpointsSection, checkpointsRequiredColumns)
 		if err != nil {
 			return nil, fmt.Errorf("parse %s S5: %w", path, err)
 		}
@@ -85,7 +87,7 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 				Rule:     "S5",
 				Path:     path,
 				Line:     checkpointsSection.Start,
-				Message:  `## Checkpoints table header mismatch; expected "| # | Checkpoint | Files/areas | Verifies |"`,
+				Message:  `## Checkpoints table must include columns "# | Checkpoint | Files/areas | … | Verifies" in order (extra columns allowed)`,
 			})
 		} else {
 			_ = line // line info available if needed for future polish
@@ -114,12 +116,13 @@ func RunSpecRules(path string, src []byte) ([]Finding, error) {
 	return findings, nil
 }
 
-// findTableInSection looks for a table matching header within sec's line range
-// in src. Returns found=true if a matching table exists inside the section.
-func findTableInSection(src []byte, sec *mdparse.Section, header []string) (bool, int, error) {
+// findTableInSection looks for a table whose header contains requiredCols as an
+// ordered subsequence within sec's line range in src. Returns found=true if a
+// matching table exists inside the section.
+func findTableInSection(src []byte, sec *mdparse.Section, requiredCols []string) (bool, int, error) {
 	// Extract the section's source bytes by line range.
 	sectionSrc := extractLines(src, sec.Start, sec.End)
-	found, lineInSection, err := mdparse.FindTableByHeader(sectionSrc, header)
+	found, lineInSection, err := mdparse.FindTableByRequiredColumns(sectionSrc, requiredCols)
 	if err != nil {
 		return false, 0, err
 	}

@@ -126,7 +126,7 @@ One-line pointer per topic. Group by category for scannability.
 | `skills` | 7 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
-| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`, `code <verb>` (code-intel index/query/mcp). For manual project-scoped MCP registration of the code-intel server, see `docs/guides/code-intel-mcp.md`. |
+| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`, `code index/sync` (build/refresh the symbol graph), `code explore "<query>"` (one-shot context digest for a question — the verb to reach for first), `code search/callers/callees/impact <symbol>` (targeted graph queries, `--json` for machine output), `code mcp` (expose the graph as MCP tools). For manual project-scoped MCP registration of the code-intel server, see `docs/guides/code-intel-mcp.md`. |
 
 ### C. Freeform intent — classify and route
 
@@ -213,6 +213,7 @@ atomic validate                   lint spec / config / bundle parity
 atomic update [--check]           self-update binary, runs doctor after
 atomic profile refresh            re-detect dev tooling + shell, rewrite ## Environment block
 atomic code index/sync            build or refresh the symbol graph; investigator/reviewer/signals use it when present
+atomic code explore "<query>"     one-shot context digest for a question; search/callers/callees/impact drill into one symbol
 atomic code mcp                   start MCP server exposing graph as tools (opt-in; register manually in .mcp.json)
 atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki; write ## Members links
 atomic wiki stale [--root=<path>] read-only freshness verdict for a registered wiki (exit 0/1/2)

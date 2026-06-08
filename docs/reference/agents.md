@@ -20,7 +20,7 @@ These read code but never write it.
 
 | Agent | What it does | Model |
 |-------|-------------|-------|
-| `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." Uses `atomic code search/callers/callees/impact` when an index is present; falls back to `sg`/`grep` otherwise. Returns a file:line table with no speculation. | Haiku |
+| `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." When an index is present, leads with `atomic code explore` for broad scoping (one natural-language query returns the relevant symbols, files, and relationships), then uses `atomic code search/callers/callees/impact` for targeted follow-up; falls back to `sg`/`grep` otherwise. Returns a file:line table with no speculation. | Haiku |
 | `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. Dispatched for root-cause analysis when the implement→review loop gets stuck on the same failure. | Opus |
 
 

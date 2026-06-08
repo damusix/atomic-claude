@@ -35,6 +35,8 @@ Symptom: `POST /users` returns 500 since commit abc1234. Stack: `TypeError: Cann
 
 ### 1b. Locate the surface (when not already in context)
 
+**Code-intel first (when an index is present).** Before dispatching an agent, try `atomic code explore "<symptom as a natural-language query>"` for a one-shot digest of the failure neighborhood, or `atomic code callers <suspect-fn>` when the symptom names a symbol. This is a single shell command — cheaper than spawning an investigator and it returns caller-graph context grep would have to reconstruct. Fall through to the investigator dispatch below only when the index is absent or the query returns nothing useful.
+
 If the suspect code isn't already mapped in the conversation (no `file:line` references, no recent reads of the relevant module), dispatch `atomic-investigator` BEFORE forming the hypothesis table. Haiku-backed and read-only, so it's cheap. Give it a focused brief:
 
 ```
@@ -84,6 +86,8 @@ ASCII flow diagram if the chain has ≥3 hops:
 ```
 parseBody (moved after) → requireAuth runs → req.body = {} → req.body.user undefined → .id throws
 ```
+
+If the root cause is a shared symbol, run `atomic code callers <fn>` (when an index is present) to check for other callers that assume the old behavior. A fix that ignores the blast radius leaves related callers broken — list any non-trivial callers in the root-cause statement.
 
 ### 5. Fix the cause, not the symptom
 

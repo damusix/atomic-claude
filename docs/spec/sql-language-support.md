@@ -134,6 +134,17 @@ Exact file:line targets (mapped by investigator, verify before editing):
 
 Each is one cohesive `/subagent-implementation` iteration with its own green gate. Build in order — later checkpoints depend on earlier.
 
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | Taxonomy foundation — 8 NodeKinds + `LanguageSQL` | `types.go`, `code-intel-engine.md` appendix C, search `KindBonus` | `go test ./internal/codeintel/types/... ./internal/codeintel/search/...`; `TestNodeKindCount`/`TestLanguageCount` updated |
+| 2 | Definition extraction (tables, columns, views, functions, procedures, triggers, indexes, sequences, schemas, types, synonyms, databases) | `extraction/standalone/sql.go`; orchestrator routing, `extToLanguage`, `standaloneExts` | multi-dialect (PG/MySQL/T-SQL) extractor unit tests assert kinds/names/lines; comment/string false-positive test; real `.sql` indexed end-to-end |
+| 3 | Constraints → `constraint` nodes (inline, table-level, ALTER) | `sql.go` | fixtures: inline PK/UNIQUE, table-level CONSTRAINT, ALTER-based, across dialects |
+| 4 | Relationship edges (FK/view/trigger/synonym `references`, trigger→fn `calls`) + RLS `policy` NodeKind | `sql.go`, `types.go` | FK/view/trigger/synonym references resolve; policy→table+fn resolves; `code impact`/`callers <table>` surface referrers |
+| 5 | Body-level edges + `writes` EdgeKind (INSERT/UPDATE/DELETE/MERGE→writes, FROM/JOIN→references, EXEC/CALL→calls) | `sql.go`, `types.go` | proc fixture: writes/references/calls resolve distinctly; `code impact` distinguishes writers from readers |
+| 6 | Eval + real-repo validation | `scripts/code-eval/corpus.tsv` | run `scripts/code-eval/run-eval.sh`; non-zero tables/columns/constraints + resolved edges, no timeout |
+
+Per-checkpoint detail:
+
 - **CP1 — Taxonomy foundation.** Add 8 NodeKinds + `LanguageSQL` to `types.go` (consts + `AllNodeKinds` + `AllLanguages`). Update `TestNodeKindCount`/`TestLanguageCount`. Update appendix C in `code-intel-engine.md`. Add `KindBonus` entries. Confirm `validKinds` derives from `AllNodeKinds` (no hardcoded edit). Green: `go test ./internal/codeintel/types/... ./internal/codeintel/search/...`.
 - **CP2 — Definition extraction.** `sql.go` extractor capturing the **definition nodes**: table (incl. FOREIGN/EXTERNAL → metadata), column (incl. GENERATED/computed → metadata, and `ALTER TABLE ADD COLUMN`), view, function, procedure, trigger, index, sequence, schema(→namespace), type (`AS ENUM`→enum/member; `AS TABLE`→type_alias table_type; `FROM <base>` T-SQL alias→type_alias; composite/DOMAIN→type_alias), synonym(→type_alias + metadata), database(→module). Comment stripping + dialect-agnostic identifier matching (incl. T-SQL `[..]`, MySQL backticks, `CREATE OR ALTER`, `GO`) + normalization. Register `.sql` (+ `.ddl`/`.pgsql`/`.mysql`) in standalone registry; wire orchestrator routing + `extToLanguage` + `standaloneExts` + `LanguageSQL`. `contains` edges for the obvious hierarchy (table→column, enum→member, schema→objects, table→index). Green: extractor unit tests on synthetic multi-dialect DDL (Postgres + MySQL + T-SQL fixtures) assert every node kind + correct names/lines, incl. the T-SQL `CREATE TYPE … FROM` alias arm; comment/string false-positive test; `go build ./...`; index a real `.sql` file end-to-end and confirm nodes land in the DB.
 - **CP3 — Constraints.** Named + table-level + inline constraints → `constraint` nodes with `contains` to table; including `ALTER TABLE … ADD CONSTRAINT`. Metadata records constraint type. Green: fixtures covering inline PK/UNIQUE, table-level CONSTRAINT, ALTER-based constraints across dialects.
@@ -180,6 +191,12 @@ Each is one cohesive `/subagent-implementation` iteration with its own green gat
 **Why:** The user's own writing-guidelines route every mutation through procedures, making the write-edge the single highest-value relationship for these schemas — it was the biggest omission. The T-SQL alias-type arm was intended but unspecified in the dialect contract (the most-used MSSQL construct). Trigger→function and RLS policies are core to the Postgres methodology. User directive: "capture everything useful, don't leave anything behind." Decisions confirmed via AskUserQuestion (new `writes` EdgeKind over metadata; include RLS now over deferring).
 
 **Superseded:** prior contract had 8 NodeKinds (no `policy`), no new EdgeKind (writes folded into `references`), no T-SQL alias-type/synonym/foreign-table/generated-column/ALTER-column capture, no trigger→function edge, and RLS in out-of-scope.
+
+### 2026-06-08 — Checkpoints rendered as a table
+
+**What changed:** Added the canonical `## Checkpoints` table (required columns `# | Checkpoint | Files/areas | Verifies`) above the existing per-checkpoint bullets. No checkpoint content changed — the bullets are retained verbatim as per-checkpoint detail.
+
+**Why:** `atomic validate` rule S5 requires a `## Checkpoints` table; this spec carried only bullets and so failed validation (and the CI Validate gate). Reconciled to the convention. The S5 check itself was also fixed the same day to accept the required columns as an ordered subsequence, so the 6-column `/atomic-plan` header passes too (follow-up `validate-checkpoint-header-drift`).
 
 ## Implementation log
 

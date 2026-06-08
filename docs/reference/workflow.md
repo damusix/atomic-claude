@@ -16,6 +16,8 @@ Before your first session in a new project, two commands teach Claude what it is
 
 You only need to do this once per repo. Signals refresh automatically after that — ship commands re-scan whenever source files change.
 
+For deeper structural queries, run `atomic code index` to build a symbol graph of the project. Once indexed, you can ask `atomic code explore "<question>"` for a one-shot context digest, and the implementation agents query the graph for callers and blast radius instead of grepping. This is also a one-time setup step. `atomic code sync` keeps the index current, and the ship commands and `/refresh-signals` run it for you. See the [code-intel reference](/reference/code-intel).
+
 If you work across several repos in one realm — a folder of services, a set of libraries, your client projects — a wiki gives Claude a map of how they relate, one level up from per-repo signals. Set one up with `/refresh-wiki`; see [wiki workflow](/reference/wiki-workflow).
 
 
@@ -48,6 +50,8 @@ Returns one of `SUPPORTED`, `UNSUPPORTED`, `MIXED`, or `INCONCLUSIVE` with a cle
 ```
 
 Claude reads the approved spec and runs an autonomous implement-then-review loop. A builder agent writes code (failing test first), a reviewer agent checks it, and each passing checkpoint gets committed automatically. Non-blocking findings (risks, nits, questions) accumulate in a ledger that you review at the end — nothing gets silently dropped. When the loop gets stuck — the same failure surviving two rounds of fixes, or the reviewer flagging error-swallowing patches that dodge the bug instead of fixing it — it stops grinding and surfaces a root-cause path: a pressure-test prompt or a read-only strategist analysis you can run, rather than piling on more suppression.
+
+If the project is indexed, the loop uses the code-intel graph throughout. It indexes the project at the start of the task, the investigator leads with `atomic code explore` to scope each surface, the reviewer checks blast radius with `atomic code impact`, and the orchestrator runs `atomic code sync` after each committed checkpoint so the graph reflects the latest code. When no index is present the agents fall back to plain search, so the loop runs either way.
 
 
 ### Hands-off: /autopilot

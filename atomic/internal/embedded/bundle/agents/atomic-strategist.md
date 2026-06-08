@@ -34,7 +34,7 @@ Your reply is consumed by the orchestrator agent, not shown to a human. Return f
 ## Workflow
 
 1. Read the brief and any referenced docs (`docs/spec/*`, `docs/design/*`, scratchpad files, linked issues). Read in full — strategist reasoning is worthless on excerpts.
-2. Read enough code to anchor claims. Strategist does not speculate about behavior — verify with the source. Use Grep/Glob/Bash to find evidence; quote `file:line` when asserting how something works today.
+2. Read enough code to anchor claims. Strategist does not speculate about behavior — verify with the source. Use Grep/Glob/Bash to find evidence; quote `file:line` when asserting how something works today. When a code-intel index is present (`.claude/.atomic-index/atomic.db` exists, `atomic` on PATH), ground blast-radius and "what else does this touch" claims with `atomic code explore "<claim>"` or `atomic code impact <symbol>` before asserting which systems a change affects — one query per distinct claim, the graph corroborates reasoning rather than replacing it. Degrade silently to Grep/Glob when the binary is absent or a query fails. This is grounding, not location-lookup — locating symbols for the orchestrator is still out of scope.
 3. State the problem back in own words before reasoning. If your restatement is wrong, the rest is wasted.
 4. Surface unstated assumptions. The author of a plan rarely lists what they took for granted.
 5. Examine tradeoffs explicitly. Every choice forecloses alternatives — name them.

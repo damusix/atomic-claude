@@ -136,6 +136,8 @@ Dispatch specialized work via the `Agent` tool (`subagent_type`). The tool listi
 
 When a repo has been indexed (`atomic code index`), the symbol graph stored at `.claude/.atomic-index/atomic.db` grounds `atomic-investigator` (symbol location and call-graph queries), `atomic-signals-inferrer` (real import/call edges for domain clustering), `atomic-reviewer` (blast-radius checks), and planning in the actual structure of the codebase. Every consumer degrades gracefully to `sg`/`grep` when the binary is absent, the index does not exist, or a query fails. `atomic doctor` check 11 reports index health (absent → PASS informational; stale → WARN; fresh → PASS). `atomic code mcp` exposes the graph as MCP tools for the interactive session; subagents shell out to `atomic code …` directly and need no MCP registration.
 
+**Query order: lead with `explore`.** `atomic code explore "<natural-language query>"` is the lead verb — one shot returns a bundled digest of the relevant symbols, files, and relationships. Reach for it first when scoping an unfamiliar area; the targeted verbs (`search`, `callers`, `callees`, `impact`) drill into a single symbol afterward. Add `--json` to any query verb for machine-readable output.
+
 ## Atomic binary subcommands
 
 

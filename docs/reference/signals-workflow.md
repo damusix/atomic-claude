@@ -66,8 +66,9 @@ Do not recurse into submodules or create domains for them.
 1. `/refresh-signals` dispatches the `atomic-signals-inferrer` agent
 2. The agent runs `atomic signals scan` to produce the deterministic file, then reads it + `signals-steering.md` (if present)
 3. Steering directives override inference — if steering says "this is NestJS", the inferrer writes NestJS regardless of what `package.json` implies
-4. The inferrer writes `signals.md` (and domain files on large repos)
-5. On the next `/refresh-signals`, changes to steering take effect immediately
+4. When the project has been indexed with `atomic code index`, the agent also reads real import and call edges from the symbol graph to corroborate domain boundaries. Files that call each other heavily cluster together regardless of directory layout; filename heuristics are the fallback when no index is present
+5. The inferrer writes `signals.md` (and domain files on large repos)
+6. On the next `/refresh-signals`, changes to steering take effect immediately
 
 
 ### Bootstrap

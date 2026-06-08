@@ -355,6 +355,88 @@ func FindTableByHeader(src []byte, header []string) (found bool, lineNumber int,
 	return found, lineNumber, nil
 }
 
+// FindTableByRequiredColumns locates the first ast.Table in src whose header
+// row contains all of the required column titles as an ordered subsequence.
+// "Ordered subsequence" means the required columns appear among the actual
+// header cells in the same left-to-right order, with zero or more extra
+// columns allowed between or after them.
+//
+// Returns found=true and the 1-indexed line number of the table header row, or
+// found=false and line=0 if no matching table is found.
+//
+// Unlike FindTableByHeader (exact match), this function accepts tables that
+// have additional columns (e.g. the canonical 6-column Checkpoints header
+// emitted by /atomic-plan passes when required = ["#","Checkpoint","Files/areas","Verifies"]).
+func FindTableByRequiredColumns(src []byte, required []string) (found bool, lineNumber int, err error) {
+	if len(src) == 0 {
+		return false, 0, nil
+	}
+	doc := parseAST(src)
+
+	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering || found {
+			return ast.WalkContinue, nil
+		}
+		tbl, ok := n.(*extast.Table)
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+
+		var hdr *extast.TableHeader
+		for c := tbl.FirstChild(); c != nil; c = c.NextSibling() {
+			if th, ok := c.(*extast.TableHeader); ok {
+				hdr = th
+				break
+			}
+		}
+		if hdr == nil {
+			return ast.WalkContinue, nil
+		}
+
+		var cells []string
+		for c := hdr.FirstChild(); c != nil; c = c.NextSibling() {
+			cell, ok := c.(*extast.TableCell)
+			if !ok {
+				continue
+			}
+			cells = append(cells, cellText(cell, src))
+		}
+
+		// Check that required is an ordered subsequence of cells.
+		if !isOrderedSubsequence(cells, required) {
+			return ast.WalkContinue, nil
+		}
+
+		// Match. Determine line number using the same fallback chain as FindTableByHeader.
+		if first := hdr.FirstChild(); first != nil {
+			if first.Lines().Len() > 0 {
+				lineNumber = lineOf(src, first.Lines().At(0).Start)
+			} else if hdr.Lines().Len() > 0 {
+				lineNumber = lineOf(src, hdr.Lines().At(0).Start)
+			} else if tbl.Lines().Len() > 0 {
+				lineNumber = lineOf(src, tbl.Lines().At(0).Start)
+			}
+		}
+		found = true
+		return ast.WalkStop, nil
+	})
+
+	return found, lineNumber, nil
+}
+
+// isOrderedSubsequence reports whether required is an ordered subsequence of
+// cells: every element of required appears in cells in the same left-to-right
+// order (extra elements between or around them are allowed).
+func isOrderedSubsequence(cells, required []string) bool {
+	ri := 0
+	for _, c := range cells {
+		if ri < len(required) && c == required[ri] {
+			ri++
+		}
+	}
+	return ri == len(required)
+}
+
 // cellText extracts the plain text content of a table cell node.
 func cellText(cell *extast.TableCell, src []byte) string {
 	var buf bytes.Buffer

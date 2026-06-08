@@ -95,7 +95,7 @@ func printHuman(w io.Writer, findings []Finding, s summary, suggest bool) {
 func suggestionTemplate(f Finding) (template, hint string) {
 	switch f.Rule {
 	case "S5":
-		return "## Checkpoints\n\n| # | Checkpoint | Files/areas | Verifies |\n|---|------------|-------------|----------|\n| 1 |            |             |          |",
+		return "## Checkpoints\n\n| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |\n|---|------------|-------------|-------|------------|----------|\n| 1 |            |             |       |            |          |",
 			"insert before ## Change log"
 	case "S6":
 		// Empty heading only — content is human-authored per the spec amendment rule.

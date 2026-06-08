@@ -9,3 +9,4 @@
 - 2026-06-07 nits-spec-the-post-merge-f-4 — "Spec the post-merge / post-squash signals-refresh integration" — *(closed 2026-06-07)*
 - 2026-06-07 atomic-style-tree-ascii — "Add tree + ASCII diagram format to atomic output style" — *(closed 2026-06-07)*
 - 2026-06-07 atomic-update-doctor-f-1 — "`Resolved()` bool default heuristic piggybacks on intensity sentinel" — *(closed 2026-06-07)*
+- 2026-06-08 validate-checkpoint-header-drift — "atomic validate expects 4-col Checkpoints header; /atomic-plan emits 6-col, so every canonical spec fails validate" — *(closed 2026-06-08)*

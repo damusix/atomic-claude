@@ -4,6 +4,8 @@
 
 **This is fully opt-in.** Atomic does not auto-register the MCP server. Subagents (`atomic-investigator`, `atomic-builder`, `atomic-surgeon`, `atomic-reviewer`, `atomic-signals-inferrer`) shell out to `atomic code …` directly and need no MCP registration. MCP is a convenience for the *interactive* session only.
 
+**Try `explore` from the CLI first.** Before registering anything, run `atomic code explore "<question>"` directly after indexing. It takes a natural-language query and returns a bundled digest of the relevant symbols, files, and relationships in one call. This is the fastest way to orient in an unfamiliar codebase and the verb most agents reach for first, and it works immediately from the CLI. MCP registration adds the same graph to the interactive session as tools; the CLI verb needs no registration at all.
+
 
 ## Prerequisites
 

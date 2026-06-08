@@ -24,6 +24,8 @@ This does two things:
 
 Do not edit files under `.claude/agents/`, `.claude/commands/`, etc. Those are generated via symlinks. The `.claude/settings.local.json` file is real and tracked.
 
+To let agents answer structural questions about this codebase from the real symbol graph while you work, run `atomic code index` once from the repo root. After that, `atomic code explore "<question>"` returns a digest of the relevant symbols and call edges, which is a fast way to find where a command, agent, or CLI verb is wired. Run `atomic code sync` after significant changes to keep the index current.
+
 
 ## Git hooks
 

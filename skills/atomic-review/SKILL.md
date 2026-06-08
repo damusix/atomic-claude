@@ -17,6 +17,10 @@ description: >
 
 Write code review comments terse and actionable. One line per finding. Location, problem, fix. No throat-clearing.
 
+## Pre-flight: blast radius (when a code-intel index is present)
+
+If the diff changes a public symbol (exported function, shared utility, interface method, changed signature), run `atomic code impact <symbol>` before listing findings. Callers that assume the old behavior become `🟡 risk` findings. One targeted query per changed public symbol — no full-graph dump. Skip silently when no index is present.
+
 <output_format>
 
 ## Format

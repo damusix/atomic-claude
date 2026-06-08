@@ -20,7 +20,7 @@ features:
       details: One scan and Claude builds a standing model of your codebase, covering framework, build and test commands, and a domain map of what lives where. It reads that before it reads your code, and ship commands keep it fresh.
     - icon: "\uF542"
       title: A cross-repo knowledge layer
-      details: Signals map one repo; a wiki maps a realm of them \u2014 a folder of services, libraries, or client projects and how they relate. /refresh-wiki points at the repos that already have signals, summarizes the ones that don't without touching them, and writes up the concerns they share.
+      details: "Signals map one repo; a wiki maps a realm of them: a folder of services, libraries, or client projects and how they relate. /refresh-wiki points at the repos that already have signals, summarizes the ones that don't without touching them, and writes up the concerns they share."
     - icon: "\uF5B0"
       title: Autopilot, task to PR, hands-off
       details: Hand it a description or a GitHub issue number. It plans, implements with test-first subagents, reviews its own diff, and ships. The only decision left to you is how to merge.
@@ -30,9 +30,9 @@ features:
     - icon: "\uF066"
       title: Clearer replies
       details: A communication layer that cuts filler and structures multi-part answers with tables, trees, and ASCII flows. Compressed, but built for clarity.
-    - icon: "\uF126"
-      title: A verb for every git op
-      details: Ten commands covering every combination of commit, push, squash, PR, and merge. Plus CI watching, stale-branch cleanup, and worktree isolation.
+    - icon: "\uF0E8"
+      title: A queryable map of your code
+      details: "One command parses your repo into a symbol graph across 29 languages and 15 web frameworks, no compiler required: definitions, callers, call sites, and the blast radius of any change. Claude queries the graph instead of grepping."
 ---
 
 <div class="vp-doc home-extra">
@@ -47,6 +47,23 @@ One scan fixes that. `/refresh-signals` is a Karpathy-inspired repo explorer: it
 - **The meaning.** Framework, build, test, and lint commands, architectural style, and a domain map of which directories form which feature, across every layer.
 
 Claude reads that model before it reads your code, so it knows what it's looking at before your first question. Ship commands refresh it as the repo changes, so the map stays current and you don't hand-maintain a `CLAUDE.md` that drifts.
+
+## And it can query your code's structure
+
+Signals give Claude a prose map of your repo. The code-intel engine gives it a precise one. `atomic code index` parses your code into a symbol graph of every definition, call edge, and import across 29 languages, using tree-sitter compiled to WebAssembly. It runs without a compiler or a language server.
+
+Once the graph exists, Claude stops grepping for structure and starts querying it:
+
+```text
+atomic code explore "how does token refresh work"
+   → the relevant symbols, files, and call relationships,
+     gathered into one context digest.
+
+atomic code impact validateToken
+   → every caller that breaks if you change it, transitively.
+```
+
+The investigator, reviewer, and signals agents reach for the graph when an index is present, and fall back to plain search when it isn't. Keep it fresh with `atomic code sync`; `/refresh-signals` does it for you whenever the index is warm.
 
 ## Hand off the whole feature
 

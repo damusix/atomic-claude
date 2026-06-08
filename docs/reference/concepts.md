@@ -79,6 +79,15 @@ Claude reads these files before it reads your code. It knows what it is looking 
 Signals auto-refresh when you commit through the ship commands, so they stay current without you thinking about it. See [signals workflow](/reference/signals-workflow) for the full mechanism.
 
 
+## Code intelligence
+
+Signals describe the shape of your project from the outside: directories, manifests, framework names. The code-intelligence index goes one level deeper. `atomic code index` parses every source file with tree-sitter and builds a symbol graph stored at `.claude/.atomic-index/atomic.db`. The graph records what calls what, what imports what, and where every symbol is defined, across 29 languages and with no compiler or language server required.
+
+The highest-value query is `atomic code explore "<natural-language question>"`. It returns a bundled context digest, the relevant symbols and files and the relationships between them, in one shot. Reach for it first when scoping unfamiliar code. Once it points you at a symbol, the targeted verbs drill into that symbol: `callers` lists everything that calls it, `callees` lists what it calls, and `impact` reports the blast radius of changing it.
+
+Agents that read code use the graph on their own. The investigator leads with `explore` to scope a surface, the reviewer checks `impact` before flagging a risky change, and the signals inferrer corroborates domain boundaries with real call edges instead of filename guesses. Every one of them falls back to `sg` and `grep` when no index is present, so indexing is optional and never required. Build the index once with `atomic code index`, keep it current with `atomic code sync` (ship commands and `/refresh-signals` do this for you when the index is warm), and expose it to your interactive session as MCP tools with `atomic code mcp`. See the [code-intel reference](/reference/code-intel) for the full verb list and lifecycle, and the [MCP guide](/guides/code-intel-mcp) for registration.
+
+
 ## Wikis
 
 Signals describe one repo's internals. Nothing describes how a set of repos *relate* — the shared libraries, the contracts one repo owns and another consumes, the patterns duplicated across a folder of services. If you work across several repos in one realm (your client projects, a set of open-source libraries, everything personal), that cross-cutting knowledge lives only in your head, and a fresh Claude session rediscovers it one repo at a time with no map of the whole.

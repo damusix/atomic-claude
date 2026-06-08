@@ -37,6 +37,8 @@ Run `atomic code <verb>` from your project root. Every query verb accepts `--jso
 | `explore` | Gather context for a natural-language query (markdown output) |
 | `mcp` | Run the MCP server over stdio (see [Code-intel MCP](/guides/code-intel-mcp)) |
 
+Start with `explore` when you don't yet know the exact symbol. `atomic code explore "how does session refresh work"` returns a bundled digest — the relevant definitions, files, and call relationships — in one query, instead of running `search`, `callers`, and `callees` separately and stitching the results together. Once `explore` points you at a symbol, the targeted verbs (`callers`, `callees`, `impact`) drill into it precisely. Atomic's investigator, reviewer, and signals agents follow the same order automatically: explore to orient, then drill in.
+
 
 ## Where the index lives
 

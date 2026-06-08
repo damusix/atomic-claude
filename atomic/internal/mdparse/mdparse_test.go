@@ -406,6 +406,113 @@ func TestInlineRefs_Empty(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// FindTableByRequiredColumns
+// ---------------------------------------------------------------------------
+
+const tableDoc6Col = `# Doc
+
+## Checkpoints
+
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
+|---|------------|-------------|-------|------------|----------|
+| 1 | do the thing | foo.go | atomic-builder | 3 | it works |
+`
+
+func TestFindTableByRequiredColumns_ExactFourColPass(t *testing.T) {
+	// 4-col header matching required columns exactly must pass (unchanged behavior).
+	src := []byte(`# Doc
+
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | thing | foo.go | works |
+`)
+	found, line, err := mdparse.FindTableByRequiredColumns(
+		src,
+		[]string{"#", "Checkpoint", "Files/areas", "Verifies"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected found=true for exact 4-col match")
+	}
+	if line <= 0 {
+		t.Errorf("expected positive line number, got %d", line)
+	}
+}
+
+func TestFindTableByRequiredColumns_SixColSubsequencePass(t *testing.T) {
+	// 6-col canonical header from /atomic-plan must pass: required columns are
+	// a subsequence (in order) of the actual header.
+	found, line, err := mdparse.FindTableByRequiredColumns(
+		[]byte(tableDoc6Col),
+		[]string{"#", "Checkpoint", "Files/areas", "Verifies"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !found {
+		t.Fatal("expected found=true for 6-col header with required columns as subsequence")
+	}
+	if line <= 0 {
+		t.Errorf("expected positive line number, got %d", line)
+	}
+}
+
+func TestFindTableByRequiredColumns_MissingRequiredFail(t *testing.T) {
+	// Header missing "Verifies" must not match.
+	src := []byte(`# Doc
+
+| # | Checkpoint | Files/areas |
+|---|------------|-------------|
+| 1 | thing | foo.go |
+`)
+	found, _, err := mdparse.FindTableByRequiredColumns(
+		src,
+		[]string{"#", "Checkpoint", "Files/areas", "Verifies"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found {
+		t.Error("expected found=false for header missing required column 'Verifies'")
+	}
+}
+
+func TestFindTableByRequiredColumns_OutOfOrderFail(t *testing.T) {
+	// Required columns present but Verifies appears before Checkpoint — must not match.
+	src := []byte(`# Doc
+
+| # | Verifies | Checkpoint | Files/areas |
+|---|----------|------------|-------------|
+| 1 | works | thing | foo.go |
+`)
+	found, _, err := mdparse.FindTableByRequiredColumns(
+		src,
+		[]string{"#", "Checkpoint", "Files/areas", "Verifies"},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if found {
+		t.Error("expected found=false for header with required columns out of order")
+	}
+}
+
+func TestFindTableByRequiredColumns_EmptyInput(t *testing.T) {
+	found, line, err := mdparse.FindTableByRequiredColumns([]byte(""), []string{"#"})
+	if err != nil {
+		t.Fatalf("unexpected error on empty input: %v", err)
+	}
+	if found {
+		t.Error("expected found=false on empty input")
+	}
+	if line != 0 {
+		t.Errorf("expected line=0 on empty input, got %d", line)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

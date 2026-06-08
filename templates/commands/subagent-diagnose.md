@@ -70,7 +70,7 @@ Write the full `BRIEF.md` before dispatching (refreshed each iteration — orche
 Dispatch:
 
 - `subagent_type: "atomic-investigator"`
-- Prompt: `Read $SCRATCH/BRIEF.md and $SCRATCH/CONTEXT.md. Map the suspect surface — files, call sites, functions, test coverage. Return a file:line — what table as your output.`
+- Prompt: `Read $SCRATCH/BRIEF.md and $SCRATCH/CONTEXT.md. Map the suspect surface — files, call sites, functions, test coverage. Return a file:line — what table as your output.` When a code-intel index is warm, seed the brief with the failing symbol or top-level error from `CONTEXT.md` and tell the investigator to lead with `atomic code explore "<that failure context>"` to scope the failure neighborhood in one shot, plus `atomic code callers <failing-fn>` for blast radius, before grepping cold.
 
 Orchestrator appends the investigator's output to `BRIEF.md` as `## Phase 1 — surface map`.
 
