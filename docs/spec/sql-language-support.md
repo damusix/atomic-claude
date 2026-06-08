@@ -210,3 +210,5 @@ Built across 7 checkpoints (+2 prep commits) of /subagent-implementation. Commit
 **Eval results (real repos, CP6):** Chinook 121 tables; pgsamples 140 tables / 1127 columns / 387 constraints / 96 views / triggers / functions; Northwind resolves 12 table→table FK `references` edges. Both PG and T-SQL dialect scripts index, no timeouts.
 
 **Deferred items still open:** none. All 13 review followups (F-1..F-15; F-6/F-7 closed in CP5) were fixed in CP7 per user disposition ("fix all 13 now"). F-2 and F-15 were documented as non-issues in-code (harmless / invalid-DDL).
+
+**Squashed to 84aeb5d — 2026-06-08.** Per-iteration SHAs above are historical (unreachable from any branch).

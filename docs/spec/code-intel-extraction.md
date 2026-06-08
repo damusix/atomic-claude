@@ -254,3 +254,5 @@ Built across iterations 9–22 of /subagent-implementation (worktree
 - The Dart grammar's call structure blocked call-site extraction (documented, F-16). require()/top-level calls outside function bodies aren't walked (F-15).
 
 **Deferred items still open (scratchpad FOLLOWUPS, engine-wide):** F-1..F-17 — binding mem-leaks, true bulk-walk traversal, async recycle, single-conn FK hardening, updated_at, Java/C# field over-export, Kotlin interface header-anchoring, top-level-require extraction, Dart calls, standalone nits, CP5-test hardening. Dispositioned with the user when the full engine completes.
+
+**Squashed to 84aeb5d — 2026-06-08.** Per-iteration SHAs above are historical (unreachable from any branch).

@@ -138,3 +138,5 @@ Built across 8 iterations of `/subagent-implementation` (worktree
 **Deferred items still open (scratchpad FOLLOWUPS F-1..F-10, engine-wide):**
 - Binding mem-leaks (F-1 strlenPtr, F-2 ctx); true bulk-walk traversal (F-3); async recycle (F-4); recycle-panic reconsider (F-5); close-error visibility (F-6); single-conn FK-on-reconnect hardening (F-7); migration MAX-NULL guard + stronger rollback test (F-8); CP5 test hardening (F-9); `UpsertNode` updated_at=0 never round-trips — CP10 sync needs it (F-10).
 - These target later checkpoints (CP10/CP18/CP20/CP22) and are carried in the shared engine scratchpad ledger, dispositioned with the user when the full engine completes.
+
+**Squashed to 84aeb5d — 2026-06-08.** Per-iteration SHAs above are historical (unreachable from any branch).

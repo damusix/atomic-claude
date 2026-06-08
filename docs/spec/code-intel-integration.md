@@ -100,3 +100,5 @@ Built across 8 checkpoints via `/autopilot` (merge-verb `commit-only`). Commits 
 ### 2026-06-07 — CP5 cold-start behavior split by command
 
 Clarified CP5: the "cold-start is an explicit offer, never silent" rule applies to `/subagent-implementation` (interactive). `/autopilot` cannot prompt mid-run (its only human decision is the ship gate), so on a cold index it auto-indexes best-effort at task start without prompting, degrading to grep on error. Discovered during implementation — autopilot runs in a fresh worktree (always cold), so a no-prompt path is required for it to use code-intel at all; auto-indexing is non-destructive and the user already granted autonomy. **Superseded:** the prior single rule "cold-start is an explicit offer, never silent auto-index" applied uniformly to both commands.
+
+**Squashed to 84aeb5d — 2026-06-08.** Per-iteration SHAs above are historical (unreachable from any branch).

@@ -373,3 +373,5 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Why:** Issue #35 follow-on. Manifest parity is a contributor/CI concern; end users running `atomic doctor` in their own projects previously saw a `[5] SKIP manifest  not in atomic-claude repo` line that only made sense to repo developers. Omitting the check entirely removes the repo-development noise while keeping it fully functional in-repo and on explicit request.
 
 **Superseded:** Prior contract always registered and ran category 5, emitting a `SKIP` result line outside the atomic-claude repo.
+
+**Squashed to 84aeb5d — 2026-06-08.** Per-iteration SHAs above are historical (unreachable from any branch).
