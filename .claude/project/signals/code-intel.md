@@ -30,6 +30,7 @@ Tree-sitter/wazero-based code-intelligence engine embedded in the [`atomic`](../
 
 ## Docs
 
+- [`docs/reference/code-intel.md`](../../../docs/reference/code-intel.md) — user-facing reference: what the engine indexes (29 languages, 15 web-route frameworks, SQL graph), all `atomic code` verbs, index lifecycle, workflow integration diagram, and MCP setup pointer.
 - [`docs/spec/code-intel-engine.md`](../../../docs/spec/code-intel-engine.md) — umbrella spec; shared appendices A–O (schema, extraction contract, resolution contract, MCP tools, profiling, watch-stub). Part-specs reference this by letter.
 - [`docs/spec/code-intel-extraction.md`](../../../docs/spec/code-intel-extraction.md) — extraction part-spec (CP0–CP9).
 - [`docs/spec/code-intel-resolution.md`](../../../docs/spec/code-intel-resolution.md) — resolution part-spec (CP10–CP14).
