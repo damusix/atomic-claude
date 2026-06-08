@@ -14,13 +14,9 @@ builds:
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
-    ignore:
-      - goos: windows
-        goarch: arm64
     ldflags:
       - -s -w
       - -X github.com/damusix/atomic-claude/atomic/internal/version.Version={{.Version}}
@@ -29,10 +25,6 @@ builds:
 archives:
   - id: atomic
     name_template: "atomic_{{.Version}}_{{.Os}}_{{.Arch}}"
-    format_overrides:
-      - goos: windows
-        formats:
-          - zip
     files:
       - README.md
 
