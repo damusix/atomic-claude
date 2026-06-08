@@ -1,5 +1,7 @@
 - 2026-05-22 nits-design-and-decide-on-f-2 — "Design and decide on `atomic doctor` CLI subcommand" — *(closed 2026-05-17 — dbe2a53)*
 - 2026-05-30 renumber-decimal-sections — "Remove decimal section numbering in skills and commands" — *(closed 2026-05-30)*
+- 2026-06-07 corpus-fastify-clone — "Fix rw-fastify corpus clone + validate fastify resolver" — *(closed 2026-06-07)*
+- 2026-06-07 sql-language-support — "Add SQL tree-sitter language support" — *(closed 2026-06-07)*
 - 2026-06-07 atomic-improve-spec-1 — "Write docs/spec/atomic-improve.md" — *(closed 2026-06-07)*
 - 2026-06-07 gather-evidence-spec-1 — "Write docs/spec/gather-evidence.md" — *(closed 2026-06-07)*
 - 2026-06-07 nits-design-and-decide-on-f-3 — "Design and decide on `atomic validate` CLI subcommand" — *(closed 2026-06-07)*

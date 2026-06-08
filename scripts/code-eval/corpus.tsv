@@ -1,0 +1,52 @@
+# Code-intelligence engine evaluation corpus.
+# Tab-separated. Lines starting with # are comments.
+# Columns: id  kind  language  url  ref  note
+#   id       short unique slug (becomes tmp/code-eval/repos/<id> + out/<id>)
+#   kind     "lang" (language-coverage repo) or "framework" (real app using a framework)
+#   language the primary language the engine should detect
+#   url      git clone URL
+#   ref      tag/branch to pin (shallow); fetch falls back to default branch on failure
+#   note     human description (for framework rows, names the framework + that it has real routes)
+#
+# Framework rows are REAL APPS (mostly the gothinkster "RealWorld" set) — they DEFINE routes,
+# so they exercise the framework route resolvers. Framework LIBRARY repos do not (a lib
+# defines the framework API, it doesn't call r.GET("/path", h)); use lib repos for lang
+# coverage only.
+
+# ---- language coverage (19 tree-sitter languages) ----
+zod	lang	typescript	https://github.com/colinhacks/zod	v3.23.8	TS validation lib, moderate
+lodash	lang	javascript	https://github.com/lodash/lodash	4.17.21	JS utility lib
+flask-lib	lang	python	https://github.com/pallets/flask	3.0.3	Python web framework lib (lang coverage)
+gin-lib	lang	go	https://github.com/gin-gonic/gin	v1.10.0	Go web framework lib (lang coverage)
+ripgrep	lang	rust	https://github.com/BurntSushi/ripgrep	14.1.0	Rust CLI, moderate-large
+gson	lang	java	https://github.com/google/gson	gson-parent-2.11.0	Java JSON lib
+jq	lang	c	https://github.com/jqlang/jq	jq-1.7.1	C JSON processor
+nlohmann-json	lang	cpp	https://github.com/nlohmann/json	v3.11.3	C++ JSON header lib
+newtonsoft-json	lang	csharp	https://github.com/JamesNK/Newtonsoft.Json	13.0.3	C# JSON lib
+alamofire	lang	swift	https://github.com/Alamofire/Alamofire	5.9.1	Swift networking
+okhttp	lang	kotlin	https://github.com/square/okhttp	parent-5.0.0-alpha.14	Kotlin+Java HTTP client
+dart-http	lang	dart	https://github.com/dart-lang/http	v1.2.2	Dart HTTP (note: F-16 dart calls not extracted)
+upickle	lang	scala	https://github.com/com-lihaoyi/upickle	3.3.1	Scala serialization
+luarocks	lang	lua	https://github.com/luarocks/luarocks	v3.11.1	Lua package manager
+luau	lang	luau	https://github.com/luau-lang/luau	0.640	Luau (+C++)
+afnetworking	lang	objc	https://github.com/AFNetworking/AFNetworking	4.0.1	Objective-C networking
+freepascal-fpgui	lang	pascal	https://github.com/graemeg/fpGUI	release-1_4_1	Object Pascal GUI toolkit
+
+# ---- framework route detection (real apps with route definitions) ----
+rw-express	framework	javascript	https://github.com/gothinkster/node-express-realworld-example-app	main	express routes
+rw-fastify	framework	typescript	https://github.com/fastify/demo	main	fastify official demo app, routes
+rw-nestjs	framework	typescript	https://github.com/lujakob/nestjs-realworld-example-app	master	nestjs controllers/routes
+rw-django	framework	python	https://github.com/gothinkster/django-realworld-example-app	master	django urlpatterns
+rw-flask	framework	python	https://github.com/gothinkster/flask-realworld-example-app	master	flask routes
+rw-fastapi	framework	python	https://github.com/nsidnev/fastapi-realworld-example-app	master	fastapi routes
+rw-gin	framework	go	https://github.com/gothinkster/golang-gin-realworld-example-app	master	gin routes
+rw-spring	framework	java	https://github.com/gothinkster/spring-boot-realworld-example-app	master	spring @RequestMapping
+rw-laravel	framework	php	https://github.com/gothinkster/laravel-realworld-example-app	master	laravel routes
+rw-rails	framework	ruby	https://github.com/gothinkster/rails-realworld-example-app	master	rails routes
+rw-phoenix	framework	elixir	https://github.com/gothinkster/elixir-phoenix-realworld-example-app	master	phoenix router (LanguageUnknown)
+rw-actix	framework	rust	https://github.com/snamiki1212/realworld-v1-rust-actix-web-diesel	main	actix-web routes
+
+# ---- SQL language coverage ----
+sql-chinook	lang	sql	https://github.com/lerocha/chinook-database	master	Chinook sample DB — Postgres + SQL Server DDL scripts, tables + FKs + constraints
+sql-northwind	lang	sql	https://github.com/pthom/northwind_psql	master	Northwind Postgres port — CREATE TABLE + FK constraints + views + triggers
+sql-pgsamples	lang	sql	https://github.com/morenoh149/postgresDBSamples	master	Postgres sample DBs: pagila (views+triggers+functions), world, dellstore, rbac — rich Postgres DDL

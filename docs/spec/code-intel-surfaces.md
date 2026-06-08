@@ -35,25 +35,29 @@ register `atomic code` in `CLAUDE.md` "Atomic binary subcommands", the
 
 ## Success criteria
 
-- [ ] The facade method set matches appendix M; both the MCP server and the
+- [x] The facade method set matches appendix M; both the MCP server and the
       `atomic code` CLI compile against it.
-- [ ] `atomic code <verb>` subcommands exist for index/sync/status/search/
-      callers/callees/impact/node/files/affected/explore/mcp — each query verb
+- [x] `atomic code <verb>` subcommands exist for index/sync/status/search/
+      callers/callees/impact/node/files/affected/explore — each query verb
       with a `--json` mode — dispatched from `runCode`; `case "code"` wired into
-      the top-level switch.
-- [ ] MCP `initialize` returns the de-branded server-instructions text; the
+      the top-level switch. `atomic code index` idempotently adds
+      `.claude/.atomic-index/` to `.gitignore`. Registered in `CLAUDE.md` +
+      `/atomic-help` + `docs/reference/commands.md`.
+- [x] `atomic code mcp` subcommand exists (CP22 scope).
+- [x] MCP `initialize` returns the de-branded server-instructions text; the
       `atomic_code_node` tool returns **all overloads in one call** on an
       ambiguous name; the explore tool respects the exact budget tiers, the 25k
       ceiling, and the section-boundary cut.
-- [ ] `atomic setup` adds the `.gitignore` entry; the binary subcommand is
-      registered in `CLAUDE.md` + `/atomic-help` + `docs/reference/`.
-- [ ] The MCP server is a per-project **singleton**: a tool call against a dead or
+- [x] The MCP server is a per-project **singleton**: a tool call against a dead or
       absent `mcp.sock` auto-starts it (flock-guarded — concurrent starts don't
       double-spawn); a second client reuses the warm engine.
-- [ ] A connection idle >30 min (no request; `updated_at` stale) is force-closed
+- [x] A connection idle >30 min (no request; `updated_at` stale) is force-closed
       by the reaper; the server exits and **removes the socket** after 0
       connections persist for 30 min, so the next call cleanly restarts it.
-- [ ] Every umbrella success criterion has an automated check in the harness.
+- [x] Every umbrella success criterion has an automated check in the harness.
+      _(`validation.TestCoverageMap`, `validation.TestSchemaDrift`,
+      `validation.TestSynthesizedEdgePrecision` —
+      package `atomic/internal/codeintel/validation`.)_
 
 ## MCP server lifecycle (contract)
 
@@ -82,6 +86,30 @@ lifecycle. The contract a builder must implement:
 - **Relationship to CP3.** CP3 builds the MCP server + tool handlers; CP4 wraps
   that server in this socket-listener + registry + reaper lifecycle. The go-sdk
   server runs over the unix-socket transport rather than stdio.
+
+## Index profiling (`--profile`)
+
+`atomic code index --profile` emits per-phase wall-time to stderr so an indexing
+perf cliff is attributable to a phase even when the run is killed by a timeout.
+`ATOMIC_CODE_PROFILE=1` enables the same output without the flag (eval scripts
+toggle it via env). Default (no flag, env unset): no profiling output; normal
+index output unchanged.
+
+Phases are emitted **incrementally** — each line is written as soon as that phase
+completes, before the next phase starts — so a process killed mid-resolve still
+shows the completed `extract` (and any completed resolve sub-phase) with its
+duration. Lines (prefix `[profile] `):
+
+- `extract: <dur> (<n> files)` — `Engine.IndexAll` (scan + tree-sitter extraction + store).
+- `frameworks: <dur> (<n> routes)` — `Engine.ExtractFrameworkNodes` (framework route-node extraction; runs after generic extract, before resolve).
+- `resolve.warm: <dur> (<n> nodes)` — `warmCaches` (known-files + known-names load).
+- `resolve.match: <dur> (<n> refs)` — the `resolveOne` batch loop.
+- `resolve.synth: <dur>` — `SynthesizeCallbackEdges`.
+
+Durations are monotonic-clock wall-time. The instrument is read-only: it changes
+no indexing behavior, only adds timing + output. Resolve sub-phase timings are
+surfaced from the pipeline (a `ResolveProfile` value returned from the batched
+resolve path); the CLI prints them when profiling is enabled.
 
 ## Checkpoints
 
@@ -112,6 +140,18 @@ setup gitignore, artifact registration) are concentrated here.
 
 **Why:** Split the 25-checkpoint monolith into five dependency-ordered parts.
 
+### 2026-06-06 — CP20 engine facade implemented
+
+**What changed:** `internal/codeintel/engine` package created. One `Engine`
+struct wraps db, extraction.Pool, indexer.Orchestrator, resolution.Pipeline
+(with framework + synthesis seams), graph.Manager, search.Searcher, and
+codectx.Builder into the appendix-M method set. `db/stats.go` adds GetStats,
+GetAllFiles, and Clear helpers. Watch/StopWatch stubbed with
+ErrWatchNotImplemented. All 10 engine tests pass; full suite green (39 packages).
+
+**Why:** CP20 checkpoint — the facade is the surface both CP21 (CLI) and CP22
+(MCP) compile against.
+
 ### 2026-06-04 — MCP server is a singleton auto-managed daemon (CP23 rewrite)
 
 **What changed:** Rewrote master CP23 from an *optional* daemon ("only if
@@ -131,3 +171,114 @@ forever, never orphaned.
 **Superseded:** prior CP23 contract — "(Optional) Daemon … only if cold-open
 exceeds a set threshold (e.g. >Xms on a 5k-file DB)"; serving was otherwise a
 plain long-lived/stdio process.
+
+### 2026-06-06 — CP21 `atomic code` CLI subcommands implemented
+
+**What changed:** `atomic/internal/codeintel/cli` package added with
+`RunCode(args, projectRoot, stdout, stderr)` dispatcher and 11 verb handlers:
+`runIndex`, `runSync`, `runStatus`, `runSearch`, `runCallers`, `runCallees`,
+`runImpact`, `runNode`, `runFiles`, `runAffected`, `runExplore`. All query verbs
+support `--json`. `StatusJSON` struct matches appendix N (initialized, version,
+indexPath, lastIndexed, fileCount, nodeCount, edgeCount, backend, journalMode,
+nodesByKind, pendingChanges). `EnsureGitignore` idempotently adds
+`.claude/.atomic-index/` to `.gitignore` (creates file if absent). F-56 fix:
+`orchestrator.IndexPaths` added; `engine.IndexFiles` now delegates to it instead
+of calling `IndexAll`. `case "code"` wired into `atomic/cmd/atomic/main.go`
+top-level switch. Registered in `CLAUDE.md` + `templates/commands/atomic-help.md`
+(binary topic + Stage 4) + `docs/reference/commands.md`. Bundle regenerated. 14
+CLI tests pass; full suite green.
+
+**Why:** CP21 checkpoint — the `atomic code` binary interface is the primary user
+surface for the code-intel engine; CLI handlers are extracted into a testable
+`io.Writer`-injected package so verb behavior can be verified without
+`os.Exit`.
+
+### 2026-06-06 — CP22 MCP server implemented
+
+**What changed:** `atomic/internal/codeintel/mcp` package added with `NewServer`,
+`RunStdio`, and 8 `atomic_code_*` tool handlers (search, callers, callees, impact,
+node, explore, status, files). `GetExploreBudget` / `GetExploreOutputBudget`
+(`ExploreOutputBudget` struct with exported fields) / `ApplyCeiling` exported for
+test assertions. Appendix-K budget tiers encoded exactly and verified by
+table-driven tests. `atomic_code_explore` respects the 25 k hard ceiling and
+section-boundary cut (`\n####`); `buildFlowFromNamedSymbols` BFS with ≤1 bridge
+hop. Tiny-repo gating: `<500` files → 3 tools only; ≥500 → all 8. Server
+instructions de-branded (no reference product name). `jsonschema` tags use
+plain-description format (SDK v1.6.1 rejects `WORD=value` prefix). `go-sdk
+v1.6.1` added to `go.mod`; `CGO_ENABLED=0 go build ./...` and full 43-package
+test suite green. `case "mcp"` wired into `cli/code.go` `runCode` dispatch and
+`printCodeUsage`. 20 in-process tests via `sdk.NewInMemoryTransports()` pass.
+
+**Why:** CP22 checkpoint — transport-agnostic MCP server is the primary interface
+for agents navigating the indexed codebase; CP23 (daemon) connects to it over a
+unix socket using the same `NewServer` + `srv.Connect` surface.
+
+### 2026-06-06 — CP23 MCP singleton daemon lifecycle implemented
+
+**What changed:** Implemented master CP23: `mcp/daemon.go` (per-project unix-socket
+daemon with `Daemon`, clock-injectable `registry`, `touchingConn`, `IsLive`,
+`RunDaemon`, `NewTestDaemon`, `RunAcceptLoop`; exported constants `ConnIdleTTL`,
+`ServerIdleTTL`, `ReapTick`; in-process reaper goroutine; auto-shutdown with socket
+removal; fixed defer ordering bug that deadlocked reaper and shutdown).
+`mcp/proxy.go` (`SpawnFunc`, `DefaultSpawn`, `EnsureRunning`, flock-guarded
+connect-or-start, `RunProxy` bidirectional pipe). `cli/code.go` wired: `mcp` verb
+uses `RunProxy`; internal `__serve` verb invokes `RunDaemon`. 13 CP23 tests all
+pass (constants, IsLive, registry, auto-start, warm-reuse, auto-shutdown,
+reaper, e2e real-socket MCP session). Success-criteria checkboxes ticked.
+
+### 2026-06-06 — CP24 validation harness implemented (part 5 complete; engine feature-complete CP0–24)
+
+**What changed:** New package `atomic/internal/codeintel/validation` with three
+tests. `TestCoverageMap` — auditable Go table mapping all 11 umbrella criteria to
+covering automated tests; fails if any non-CI criterion is unmapped.
+`TestSchemaDrift` — opens a fresh migrated DB, dumps `sqlite_master` normalised +
+sorted, compares against an embedded 15-entry canonical snapshot; fails on schema
+drift. `TestSynthesizedEdgePrecision` — multi-synthesizer fixture asserting exact
+heuristic edge set, zero edges on non-qualifying nodes, and every heuristic edge
+has `kind=calls`, `provenance="heuristic"`, non-empty `synthesizedBy`. All 16
+`codeintel/*` packages pass `go test ./...`. Last success criterion ticked `[x]`.
+
+**Why:** CP24 — the final checkpoint. All five part-specs (CP0–24) are now
+implemented and green. Engine feature-complete.
+
+### 2026-06-06 — `atomic code index --profile` phase timing
+
+**What changed:** Added a `--profile` flag (and `ATOMIC_CODE_PROFILE=1` env) to
+`atomic code index` that emits incremental per-phase wall-time to stderr:
+`extract`, `resolve.warm`, `resolve.match`, `resolve.synth`. Each line is flushed
+as its phase completes, so a timeout still attributes time to the last completed
+phase. Resolve sub-phase durations are surfaced from the pipeline via a
+`ResolveProfile` value returned from the batched resolve path; default output is
+unchanged when profiling is off. New body section "Index profiling (`--profile`)".
+
+**Why:** real-repo eval found indexing times out on rw-django (44 files) and zod
+(176 files). Phase timing localizes the cliff (extraction vs resolve.warm vs
+resolve.match vs synth) with data before committing to a fix — the prior
+"fuzzy is the cliff" diagnosis was unmeasured inference, and a pre-filter gate in
+`resolveOne` (skip unless the exact lowercase name is in the warmed cache) may
+make fuzzy largely inert, so measurement must precede the fix.
+
+### 2026-06-06 — framework route extraction wired into the index pipeline
+
+**What changed:** `Engine.ExtractFrameworkNodes(ctx)` added and called by the
+index pipeline (`code index` / `code sync`) **after** generic extraction and
+**before** `ResolveReferences`. It scans project files and invokes
+`frameworks.Registry.ExtractAndPersist`, which runs each detected framework
+resolver's `Extract` over each file — persisting `route` nodes and their
+unresolved handler references. The engine now retains the `*frameworks.Registry`
+(previously only its resolution view `FrameworkRegistry()` was kept, so the
+extraction seam had no caller). A `[profile] frameworks: <dur> (<n> routes)` line
+is emitted under `--profile`.
+
+**Why:** real-repo eval showed `routes = 0` on every framework app (rw-express,
+rw-gin, rw-django) despite all 23 framework resolvers implementing working
+`Extract` methods and `MakeRouteNode`. Root cause: `Registry.ExtractAndPersist`
+was a defined seam documented as "the engine facade (CP20) will call it" — but
+the call site was never added, so route-node extraction was dead code. Wiring the
+call lights up route nodes; resolution then links route→handler edges via the
+resolvers' existing `Resolve`/`ClaimsReference`.
+
+**Correction:** CP20/CP21 shipped the engine + CLI without invoking the
+framework-extraction seam — the index pipeline ran extract → resolve, skipping
+framework route extraction. The pipeline is now extract → framework-extract →
+resolve.

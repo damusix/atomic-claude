@@ -48,6 +48,8 @@ One consolidated block covering: goal, success criteria, non-goals, constraints 
 
 Before drafting, dispatch `atomic-investigator` (haiku, read-only) when checkpoints will touch unfamiliar code. Brief it with the surface area to map; expect a `file:line — what` table back. This grounds checkpoint paths in reality instead of guessing.
 
+**Code-intel awareness.** The investigator now carries the `agent-code-intel` partial (CP1). When a code-intel index is present in the project, the investigator's structural map is grounded in the real call/import graph (`atomic code search`/`callers`/`callees`/`impact`) rather than filename guesses — and the result returned here is the same compact `file:line` digest. The planner receives that digest and works from it. The planner does NOT run `atomic code` queries itself — all graph exploration stays in the disposable investigator thread. **Why:** `atomic code` queries are bounded within the investigator's throwaway context; flooding the main planner context with graph output defeats the token budget the delegation is meant to protect.
+
 Skip Ground for trivial — the file count is small enough to read directly.
 
 Skip Ground when the surface area is already in your context from the current session.

@@ -6,7 +6,7 @@ Cross-repository knowledge layer: `atomic wiki scan` scaffolds and classifies me
 
 ## Artifacts
 
-- [`commands/refresh-wiki.md`](../../../commands/refresh-wiki.md) — `/refresh-wiki [root]` command. Resolves wiki root (default `./wiki/` from cwd), runs `atomic wiki scan`, reads `atomic wiki stale` output, presents pending repos as a numbered list (axiom 4), dispatches `atomic-signals-inferrer` in wiki-output mode for unselected pending repos, re-synthesizes affected `concerns/*.md` and `index.md` narrative, invokes `atomic wiki stamp` for every artifact written, clears `.dirty`, offers to commit.
+- [`commands/refresh-wiki.md`](../../../commands/refresh-wiki.md) — `/refresh-wiki [root]` command. Resolves wiki root (default `./wiki/` from cwd), runs `atomic wiki scan`, reads `atomic wiki stale` output, presents pending repos as a numbered list (axiom 4), dispatches `atomic-signals-inferrer` in wiki-output mode for unselected pending repos, **syncs/indexes each member repo best-effort before summarizing** (`atomic code sync` when warm, degrades to summary-without-graph when a repo has no index), re-synthesizes affected `concerns/*.md` and `index.md` narrative, invokes `atomic wiki stamp` for every artifact written, clears `.dirty`, offers to commit.
 
 ## CLI code
 

@@ -147,6 +147,10 @@ No signals block in spec-mode (no code ran). Zero findings → `No issues. VERDI
 
 </output_format>
 
+{{ template "agent-code-intel" . }}
+
+**Code-intel in review.** When verifying a diff, if `.claude/.atomic-index/atomic.db` exists, run `atomic code impact <changed-symbol>` to confirm the diff's blast radius matches what actually changed — this catches callers the diff missed. Query one symbol at a time; skip silently if the binary is absent or the DB is missing.
+
 ## Rules
 
 <constraints>

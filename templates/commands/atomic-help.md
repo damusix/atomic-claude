@@ -112,7 +112,7 @@ One-line pointer per topic. Group by category for scannability.
 | Topic | Output |
 |-------|--------|
 | `cleanup` | `/git-cleanup` (stale worktrees / branches via `atomic-git-scout`). `/undo-commit` (soft-undo HEAD, refuses if pushed). |
-| `doctor` | `atomic doctor [--fix]` runs 9 integrity checks. `atomic validate` lints spec / config / bundle. |
+| `doctor` | `atomic doctor [--fix]` runs 11 integrity checks. `atomic validate` lints spec / config / bundle. |
 | `update` | `atomic update [--check]` self-updates binary. `/atomic-claude-merge` merges proposed `~/.claude/CLAUDE.md` after `atomic claude install/update`. |
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns background Haiku to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
@@ -126,7 +126,7 @@ One-line pointer per topic. Group by category for scannability.
 | `skills` | 7 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
-| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`. |
+| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`, `code <verb>` (code-intel index/query/mcp). For manual project-scoped MCP registration of the code-intel server, see `docs/guides/code-intel-mcp.md`. |
 
 ### C. Freeform intent — classify and route
 
@@ -190,6 +190,7 @@ If user picks "dive in", ask which stage (1–4), then dump that stage's verb de
 ```
 .claude/project/signals.md            project map — auto-loaded every session
 .claude/project/deterministic-signals.md   raw scan output — NOT @-ref'd (too big)
+.claude/.atomic-index/atomic.db       code-intel symbol graph (gitignored; built with `atomic code index`)
 .claude/.scratchpad/<task>/           implement→review working memory (gitignored)
 .claude/.scratchpad/session-reports/  per-branch session notes (gitignored)
 .claude/project/followups/            committed follow-up entries with INDEX.md
@@ -198,7 +199,7 @@ docs/design/<topic>.md                conceptual workspace (committed)
 docs/spec/<topic>.md                  implementation contract (committed; body kept current, changes logged)
 <wikis> block in ~/.claude/CLAUDE.md  registered wiki index paths (CLI-managed, outside <atomic>)
 
-Refresh project map any time: /refresh-signals
+Refresh project map any time: /refresh-signals (syncs code-intel index when warm)
 Refresh cross-repo wiki: /refresh-wiki [root]
 ```
 
@@ -207,10 +208,12 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 **Stage 4 — Maintenance and utilities.**
 
 ```
-atomic doctor [--fix]             10 integrity checks (install, hooks, signals, refs, ..., profile)
+atomic doctor [--fix]             11 integrity checks (install, hooks, signals, refs, ..., profile, code-index)
 atomic validate                   lint spec / config / bundle parity
 atomic update [--check]           self-update binary, runs doctor after
 atomic profile refresh            re-detect dev tooling + shell, rewrite ## Environment block
+atomic code index/sync            build or refresh the symbol graph; investigator/reviewer/signals use it when present
+atomic code mcp                   start MCP server exposing graph as tools (opt-in; register manually in .mcp.json)
 atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki; write ## Members links
 atomic wiki stale [--root=<path>] read-only freshness verdict for a registered wiki (exit 0/1/2)
 atomic signals linkify          render signals path citations as navigable relative md links (inferrer runs it)

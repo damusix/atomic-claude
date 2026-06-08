@@ -121,6 +121,7 @@ export default defineConfig({
                     { text: 'Install', link: '/guides/install' },
                     { text: 'Contributing', link: '/guides/contributing' },
                     { text: 'Evaluations', link: '/guides/evaluations' },
+                    { text: 'Code-intel MCP', link: '/guides/code-intel-mcp' },
                 ],
             },
             {
@@ -134,6 +135,7 @@ export default defineConfig({
                     { text: 'Output Style', link: '/reference/output-style' },
                     { text: 'Signals Workflow', link: '/reference/signals-workflow' },
                     { text: 'Wiki Workflow', link: '/reference/wiki-workflow' },
+                    { text: 'Code Intelligence', link: '/reference/code-intel' },
                     { text: 'Conventions', link: '/reference/conventions' },
                 ],
             },

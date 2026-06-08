@@ -132,6 +132,10 @@ Dispatch specialized work via the `Agent` tool (`subagent_type`). The tool listi
 
 **Cross-repo wiki.** `/refresh-wiki [root]` maintains a project-wiki: a separate git repo that summarizes every member repo under a root directory. It reuses `atomic-signals-inferrer` in wiki-output mode to summarize repos that have no signals, writes summaries under `wiki/repos/`, synthesizes cross-cutting concerns under `wiki/concerns/`, and refreshes only stale artifacts. After stamping, `/refresh-wiki` runs `atomic wiki linkify` to render path citations as file-relative markdown links (the realm browses as a navigable graph in Obsidian or any md server); `atomic wiki scan` also writes a managed `## Members` linked section into `index.md`. The wiki index path is written by `atomic wiki scan` into a `<wikis>` block in `~/.claude/CLAUDE.md` (outside `<atomic>`, never `@-ref`'d — the block is CLI-managed). A session-start nudge fires when a registered wiki is stale (age > 30 days or `.dirty` marker present); the shared `signals-gate` partial calls `atomic wiki mark-dirty` on every ship so drift is caught. `atomic-claude-merger` preserves the `<wikis>` block verbatim on merge.
 
+## Code-intel engine
+
+When a repo has been indexed (`atomic code index`), the symbol graph stored at `.claude/.atomic-index/atomic.db` grounds `atomic-investigator` (symbol location and call-graph queries), `atomic-signals-inferrer` (real import/call edges for domain clustering), `atomic-reviewer` (blast-radius checks), and planning in the actual structure of the codebase. Every consumer degrades gracefully to `sg`/`grep` when the binary is absent, the index does not exist, or a query fails. `atomic doctor` check 11 reports index health (absent → PASS informational; stale → WARN; fresh → PASS). `atomic code mcp` exposes the graph as MCP tools for the interactive session; subagents shell out to `atomic code …` directly and need no MCP registration.
+
 ## Atomic binary subcommands
 
 

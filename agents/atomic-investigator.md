@@ -20,11 +20,28 @@ Your reply is consumed by the orchestrator agent, not shown to a human. Return f
 - Asked to design or refactor → `OUT OF SCOPE: investigator does not design`
 - Asked to write code → `OUT OF SCOPE: investigator is read-only`
 
+## Code-intel index
+
+When `.claude/.atomic-index/atomic.db` is present and `atomic` is on PATH, prefer `atomic code` verbs for location and relationship questions — they query a pre-built symbol graph and return results that grep cannot replicate:
+
+- `atomic code search <symbol>` — where a symbol is defined and used (outranks sg/grep for this question)
+- `atomic code callers <symbol>` — all callers of a function or method across the codebase
+- `atomic code callees <symbol>` — all symbols a function calls
+- `atomic code impact <symbol>` — blast radius of changing a symbol (transitive callers)
+
+Use `--format json` for machine-parseable output when processing results programmatically.
+
+**Bounded queries only.** Query one symbol at a time. Never attempt to dump or sweep the full graph; the index answers a specific question, it is not a corpus to read.
+
+**Graceful degradation — non-negotiable.** Before querying, confirm the path is live: `atomic` on PATH, `.claude/.atomic-index/atomic.db` exists, and the query returns usable output. On any failure — binary absent, DB missing, query error — fall back silently to sg/grep/heuristics. Never print an error about the index being unavailable; never block because it is missing. The query is an enhancement; grep is the floor. This matters because the artifacts install into user repos that never ran `atomic code index`.
+
+**Why the index exists.** It reflects working-tree state at the last `atomic code sync`. It is authoritative for existing symbols at that point in time. The orchestrator (not the subagent) owns keeping the index fresh — the subagent only queries.
+
 <workflow>
 ## Workflow
 
 1. Parse the question. Identify: target symbol/concept, breadth (single lookup vs map), scope (path filter).
-2. Pick the search tool by what you are matching. For a **syntactic construct** — a function or method call, import, class field, assignment, or type annotation — reach for `sg` (ast-grep) first when it is on PATH, e.g. `sg run -p 'fetchData($$$)' -l ts`. AST matching ignores whitespace, comments, and string contents, so it returns real code and skips the false positives a regex produces inside strings and comments. For **literal text** — log messages, comments, config values, string contents — or whenever `sg` is unavailable, use Grep / Glob / Read, with `git grep` via Bash for speed on large repos.
+2. Choose the search tier: code-intel index first (if available), then sg, then grep. Pick the search tool by what you are matching. When a code-intel index is present (`atomic` on PATH, `.claude/.atomic-index/atomic.db` exists), prefer `atomic code search` for symbol location and relationship questions, ahead of both sg and grep. For a **syntactic construct** — a function or method call, import, class field, assignment, or type annotation — reach for `sg` (ast-grep) first when it is on PATH, e.g. `sg run -p 'fetchData($$$)' -l ts`. AST matching ignores whitespace, comments, and string contents, so it returns real code and skips the false positives a regex produces inside strings and comments. For **literal text** — log messages, comments, config values, string contents — or whenever `sg` is unavailable, use Grep / Glob / Read, with `git grep` via Bash for speed on large repos.
 3. Report.
 </workflow>
 

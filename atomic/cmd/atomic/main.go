@@ -11,6 +11,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
+	codecli "github.com/damusix/atomic-claude/atomic/internal/codeintel/cli"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
@@ -67,6 +68,17 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  docs scan                                         Scan docs and write doc-surfaces.md\n")
 		fmt.Fprintf(os.Stderr, "  docs stale                                        Exit 0 fresh, 1 stale, 2 error\n")
 		fmt.Fprintf(os.Stderr, "  profile refresh [--if-stale <dur>]               Refresh ## Environment in profile.md\n")
+		fmt.Fprintf(os.Stderr, "  code index                                        Index all source files\n")
+		fmt.Fprintf(os.Stderr, "  code sync                                         Incrementally re-index changed files\n")
+		fmt.Fprintf(os.Stderr, "  code status [--json]                              Show index status\n")
+		fmt.Fprintf(os.Stderr, "  code search <query> [--json] [--limit N]         Search indexed nodes\n")
+		fmt.Fprintf(os.Stderr, "  code callers <symbol> [--depth N] [--json]       Find callers of symbol\n")
+		fmt.Fprintf(os.Stderr, "  code callees <symbol> [--depth N] [--json]       Find callees of symbol\n")
+		fmt.Fprintf(os.Stderr, "  code impact <symbol> [--depth N] [--json]        Find impact radius of symbol\n")
+		fmt.Fprintf(os.Stderr, "  code node <symbol> [--file] [--line N] [--json]  Show node detail\n")
+		fmt.Fprintf(os.Stderr, "  code files [pattern] [--json]                    List indexed files\n")
+		fmt.Fprintf(os.Stderr, "  code affected [--depth N] [--stdin] [--json]     Find affected test files\n")
+		fmt.Fprintf(os.Stderr, "  code explore <query> [--json]                    Gather context for a query\n")
 		fmt.Fprintf(os.Stderr, "  wiki scan [--root=<path>]                         Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md\n")
 		fmt.Fprintf(os.Stderr, "  wiki stale [--root=<path>]                        Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)\n")
 		fmt.Fprintf(os.Stderr, "  wiki linkify [--root=<path>]                      Linkify path tokens in wiki artifacts in-place\n")
@@ -152,6 +164,8 @@ func main() {
 		runDocs(args[1:], repoOverride)
 	case "profile":
 		runProfile(args[1:])
+	case "code":
+		runCode(args[1:], repoOverride)
 	case "wiki":
 		runWiki(args[1:])
 	default:
@@ -999,6 +1013,15 @@ func runProfile(args []string) {
 	claudeHome := filepath.Join(home, ".claude")
 	today := time.Now().UTC().Format("2006-01-02")
 	os.Exit(profileAction(args, claudeHome, today))
+}
+
+func runCode(args []string, repoOverride string) {
+	root, err := repoctx.Resolve(repoOverride)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic code: %v\n", err)
+		os.Exit(1)
+	}
+	os.Exit(codecli.RunCode(args, root, os.Stdout, os.Stderr, os.Stdin))
 }
 
 func runWiki(args []string) {

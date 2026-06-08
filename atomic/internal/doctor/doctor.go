@@ -71,6 +71,7 @@ var categories = []Category{
 	{Index: 8, Name: "binary", Severity: WARN, Run: checkBinary},
 	{Index: 9, Name: "config", Severity: WARN, Run: checkConfig},
 	{Index: 10, Name: "profile", Severity: WARN, Run: checkProfile},
+	{Index: 11, Name: "code-index", Severity: WARN, Run: checkCodeIndex},
 }
 
 // Categories returns the full category registry slice. Callers must not mutate.
@@ -141,13 +142,14 @@ func indexSet(indices []int) map[int]bool {
 }
 
 // All check functions are implemented in their respective files:
-// checkInstall  → checks_install.go  (CP-3)
-// checkHooks    → checks_hooks.go    (CP-4)
-// checkSignals  → checks_signals.go  (CP-5)
-// checkRefs     → checks_refs.go     (CP-4)
-// checkManifest → checks_manifest.go (CP-3)
-// checkFollowups → checks_followups.go (CP-5)
-// checkMemory   → checks_memory.go   (CP-5)
-// checkBinary   → checks_binary.go   (CP-3)
-// checkConfig   → checks_config.go   (CP-7)
-// checkProfile  → checks_profile.go  (CP-5)
+// checkInstall   → checks_install.go      (CP-3)
+// checkHooks     → checks_hooks.go        (CP-4)
+// checkSignals   → checks_signals.go      (CP-5)
+// checkRefs      → checks_refs.go         (CP-4)
+// checkManifest  → checks_manifest.go     (CP-3)
+// checkFollowups → checks_followups.go    (CP-5)
+// checkMemory    → checks_memory.go       (CP-5)
+// checkBinary    → checks_binary.go       (CP-3)
+// checkConfig    → checks_config.go       (CP-7)
+// checkProfile   → checks_profile.go      (CP-5)
+// checkCodeIndex → checks_code_index.go   (CP7 code-intel-integration)

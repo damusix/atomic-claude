@@ -165,6 +165,8 @@ Read the `## Documentation surfaces` table. For each surface:
 - **Incomplete** — the diff adds something (new entity, new endpoint, new step) related to the surface's covers, but the surface doesn't mention it yet.
 - **Missing** — domains identified in project signals (`signals.md`) that have 5+ source files with no corresponding doc surface within two directory levels. Only suggest new pages in authoring mode; never during commit flow.
 
+**Code-intel blast-radius (when index is present).** If a code-intel index exists (`atomic code search` responds without error), the changed-symbol impact sweep — determining which symbols from the diff affect which doc surfaces — should be DELEGATED to a subagent (`atomic-investigator` or `atomic-haiku`). Brief it with the list of changed symbols and ask it to run `atomic code impact <symbol>` for each and return a compact "symbol → affected surfaces" digest. The main `/documentation` agent must NOT run `atomic code impact` inline — these queries are token-heavy and belong in a disposable subagent thread. Consume the returned digest to refine stale/incomplete classification. **Degrade:** when no index is present or the subagent reports the binary is absent, fall back to the existing diff-vs-covers judgment above (no code-intel path, no error).
+
 If `--dry-run` was supplied, print the classifications and exit:
 
 ```

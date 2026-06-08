@@ -81,7 +81,28 @@ Print: `created .claude/project/signals-steering.md (edit to steer the inferrer)
 
 If the file already exists, read its contents for the dispatch prompt.
 
-## Step 4 — Dispatch agent
+## Step 4 — Code-intel index lifecycle
+
+Ensure the code-intel index is current before dispatching the inferrer, so domain clustering can use real dependency edges rather than filename heuristics alone.
+
+- If `atomic` is not on `$PATH` (already checked in Step 1 above): skip this step silently and proceed. The inferrer degrades to heuristic-only clustering.
+- If `.claude/.atomic-index/atomic.db` **exists** (warm index): run `atomic code sync` to bring it up to date with the current working tree. This is incremental and cheap. On sync error, print a warning and proceed degraded — a stale index is still useful and never blocks the refresh.
+- If `.claude/.atomic-index/atomic.db` **does not exist** (cold — no index yet): ask via `AskUserQuestion`:
+
+  ```
+  No code index found. Build one now so signals can use the real dependency graph?
+  First index can take seconds to minutes depending on repo size.
+  ```
+
+  Options:
+  - "Yes, build index" → run `atomic code index`. On completion, continue to Step 5.
+  - "No, use heuristics" → proceed to Step 5 without an index.
+
+  The offer fires each run until accepted. The decline is not persisted — memory-of-decline is a deferred follow-up out of scope here.
+
+A missing or declined index never blocks the refresh. The inferrer uses filename/path heuristics in that case and produces valid signals — the index is an enhancement, not a requirement.
+
+## Step 5 — Dispatch agent
 
 Dispatch the `atomic-signals-inferrer` agent via the `Agent` tool. Build the prompt:
 
@@ -96,7 +117,7 @@ first_run: <true if Step 2 found no existing signals, false otherwise>
 
 Wait for the agent to complete. As its final action the agent runs `atomic signals linkify`, so the written signals files render path citations as navigable relative markdown links (idempotent; not `@-refs`). No separate invocation is needed here.
 
-## Step 5 — Surface concerns
+## Step 6 — Surface concerns
 
 If the agent returned a `## Concerns` table (judgment observations found during inference), present them to the user as a numbered list. Ask via `AskUserQuestion`: "The signals scan found N potential issues. Create follow-ups for any?" with options:
 
@@ -104,7 +125,7 @@ If the agent returned a `## Concerns` table (judgment observations found during 
 - "Pick" — print the indexed list, accept space/comma-separated indices, create only those
 - "Skip" — discard, no follow-ups created
 
-## Step 6 — No CLAUDE.md at all
+## Step 7 — No CLAUDE.md at all
 
 If no `CLAUDE.md` exists after the agent runs (the agent could not wire the `@-ref`), ask via `AskUserQuestion`:
 
@@ -128,7 +149,7 @@ On "Yes": write a minimal `CLAUDE.md` at repo root containing only:
 
 On "No, skip": continue without creating.
 
-## Step 7 — Report
+## Step 8 — Report
 
 Print final state:
 

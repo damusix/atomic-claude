@@ -20,7 +20,7 @@ These read code but never write it.
 
 | Agent | What it does | Model |
 |-------|-------------|-------|
-| `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." Returns a file:line table with no speculation. | Haiku |
+| `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." Uses `atomic code search/callers/callees/impact` when an index is present; falls back to `sg`/`grep` otherwise. Returns a file:line table with no speculation. | Haiku |
 | `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. Dispatched for root-cause analysis when the implement→review loop gets stuck on the same failure. | Opus |
 
 
@@ -31,6 +31,6 @@ These handle system-level tasks.
 | Agent | What it does | Model |
 |-------|-------------|-------|
 | `atomic-git-scout` | Scans for stale worktrees, branches, and remote tracking refs. Classifies each as safe-to-delete, needs-confirmation, or skip. Used by `/git-cleanup`. | Sonnet |
-| `atomic-signals-inferrer` | Owns the full signals pipeline: scans the repo via `atomic signals scan`, infers domain structure, writes `signals.md` (and per-domain files on large repos), wires the `@-ref` into `CLAUDE.md`. Dispatched by `/refresh-signals` and silently by ship verbs. | Sonnet |
+| `atomic-signals-inferrer` | Owns the full signals pipeline: scans the repo via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), writes `signals.md` (and per-domain files on large repos), wires the `@-ref` into `CLAUDE.md`. Dispatched by `/refresh-signals` and silently by ship verbs. | Sonnet |
 | `atomic-haiku` | Lightweight background runner for CI polling, log scraping, and status checks. Used by `/watch-ci`. | Haiku |
 | `atomic-claude-merger` | Reconciles your `CLAUDE.md` with updates from an install or upgrade. Preserves your sections, replaces atomic-owned ones. | Sonnet |

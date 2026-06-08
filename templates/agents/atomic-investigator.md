@@ -18,11 +18,13 @@ Locate code. Report `file:line — what`. No fixes, no opinions, no narrative.
 - Asked to design or refactor → `OUT OF SCOPE: investigator does not design`
 - Asked to write code → `OUT OF SCOPE: investigator is read-only`
 
+{{ template "agent-code-intel" . }}
+
 <workflow>
 ## Workflow
 
 1. Parse the question. Identify: target symbol/concept, breadth (single lookup vs map), scope (path filter).
-2. {{ template "agent-search-tooling" . }}
+2. Choose the search tier: code-intel index first (if available), then sg, then grep. {{ template "agent-search-tooling" . }}
 3. Report.
 </workflow>
 

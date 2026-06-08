@@ -36,3 +36,4 @@ tmp/claude-home/*
 node_modules/
 .vitepress/dist/
 .vitepress/cache/
+.claude/.atomic-index/

@@ -75,6 +75,8 @@ The rest of the system supports those three.
 
 **Cross-repo wikis.** Signals map one repo; a wiki maps a realm of them — a folder of services, libraries, or client projects and how they relate. `/refresh-wiki` scans the realm, points at the repos that already have signals, summarizes the ones that don't without touching them, and writes up the concerns they share. A session-start nudge keeps it from rotting. Details in [docs/reference/wiki-workflow.md](docs/reference/wiki-workflow.md).
 
+**A code-intelligence engine.** `atomic code index` builds a symbol graph from your source files using tree-sitter (stored at `.claude/.atomic-index/atomic.db`, gitignored). Once indexed, `atomic-investigator` answers "what calls this?" and "where is this used?" from the real call graph instead of grepping. `atomic-signals-inferrer` uses actual import/call edges for more accurate domain clustering. `atomic-reviewer` can check blast-radius before flagging a risky change. Everything degrades gracefully to grep when no index is present — indexing is opt-in and never required. `atomic code mcp` exposes the graph as MCP tools for the interactive session; register it manually in `.mcp.json`. Full reference — the verbs, the index lifecycle, and how it powers the workflow — in [docs/reference/code-intel.md](docs/reference/code-intel.md); MCP setup in [docs/guides/code-intel-mcp.md](docs/guides/code-intel-mcp.md).
+
 **A user profile that persists.** Install creates `~/.claude/.atomic/profile.md`, a plain-markdown file with six sections (Identity, Work, Active projects, Interests, People mentioned, Environment). Claude reads it every session and appends new facts as they surface. Facts that hold across all projects go here; project-specific preferences stay in that project's auto memory. Run `atomic profile refresh` to re-detect your dev tooling (runtimes, version managers, containers, shell framework) and rewrite the `## Environment` block. The session-start hook fires this with `--if-stale 7d` so the environment stays current. Details in [docs/reference/concepts.md](docs/reference/concepts.md).
 
 For a walkthrough of how the pieces fit together, see [docs/reference/concepts.md](docs/reference/concepts.md).
@@ -167,6 +169,8 @@ From here: `/atomic-plan` opens the spec, `/worktree-start` isolates the branch,
 | Output style | [docs/reference/output-style.md](docs/reference/output-style.md) |
 | Signals workflow | [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md) |
 | Wiki workflow | [docs/reference/wiki-workflow.md](docs/reference/wiki-workflow.md) |
+| Code intelligence | [docs/reference/code-intel.md](docs/reference/code-intel.md) |
+| Code-intel MCP setup | [docs/guides/code-intel-mcp.md](docs/guides/code-intel-mcp.md) |
 | Concepts (how it flows) | [docs/reference/concepts.md](docs/reference/concepts.md) |
 | Conventions | [docs/reference/conventions.md](docs/reference/conventions.md) |
 | Install / update / uninstall | [docs/guides/install.md](docs/guides/install.md) |

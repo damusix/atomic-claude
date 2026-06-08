@@ -78,3 +78,23 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 | `/atomic-claude-merge` | Reconcile your `~/.claude/CLAUDE.md` with updates from `atomic claude install`. Keeps your instructions, deduplicates conflicts. |
 | `/report-issue` | Open a GitHub issue against your current repo. |
 | `/report-issue-with-atomic` | Open a GitHub issue against the atomic-claude repo itself. |
+
+
+## Binary subcommands (`atomic code`)
+
+The `atomic code` subcommand provides a code-intelligence index and query engine. When a project has been indexed, `atomic-investigator`, `atomic-reviewer`, and `atomic-signals-inferrer` query the symbol graph automatically; every consumer falls back to `sg`/`grep` when the index is absent. `atomic doctor` check 11 reports index health. Run `atomic code --help` for full usage.
+
+| Subcommand | What it does |
+|---------|-------------|
+| `atomic code index` | Index all source files in the project root. Creates `.claude/.atomic-index/atomic.db` and adds the path to `.gitignore`. |
+| `atomic code sync` | Incrementally re-index only files that changed since the last run. |
+| `atomic code status [--json]` | Show index status: initialized state, file/node/edge counts, last-indexed timestamp, pending changes. `--json` emits the appendix-N shape. |
+| `atomic code search <query> [--json] [--limit N]` | Full-text + fuzzy search over indexed nodes by name, kind, or language. |
+| `atomic code callers <symbol> [--depth N] [--json]` | Find all callers of a symbol up to N hops. |
+| `atomic code callees <symbol> [--depth N] [--json]` | Find all callees of a symbol up to N hops. |
+| `atomic code impact <symbol> [--depth N] [--json]` | Find the impact radius of a symbol — all nodes reachable through call/import edges. |
+| `atomic code node <symbol> [--file path] [--line N] [--json]` | Show detailed node info for a symbol. `--file` and `--line` disambiguate overloads. |
+| `atomic code files [pattern] [--json]` | List all indexed files. Optional pattern filters by path substring. |
+| `atomic code affected [--depth N] [--test-glob pattern] [--stdin] [--json] [paths...]` | BFS over the dependency graph from changed files; returns test files transitively affected. |
+| `atomic code explore <query> [--json]` | Gather relevant context for a natural-language query; returns markdown or structured JSON. |
+| `atomic code mcp` | Start an MCP server exposing the code graph as tools (`atomic_code_search`, `atomic_code_callers`, `atomic_code_callees`, `atomic_code_impact`, `atomic_code_node`, `atomic_code_files`, `atomic_code_affected`, `atomic_code_explore`). Subagents do not need MCP — they shell out directly. MCP is opt-in for the interactive session; register manually in `.mcp.json`. See [code-intel MCP setup](/guides/code-intel-mcp). |

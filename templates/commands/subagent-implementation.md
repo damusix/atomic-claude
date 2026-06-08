@@ -51,6 +51,31 @@ GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
 
 For tasks classified as obviously small in the Spec gate, skip the worktree question.
 
+## Code-intel index lifecycle
+
+Before writing the brief, ensure the code-intel index is fresh so subagents can query the dependency graph during this task.
+
+Check whether the index DB exists:
+
+```bash
+test -f .claude/.atomic-index/atomic.db
+```
+
+- **Warm (DB exists):** run `atomic code sync` to bring the index up to date with the current working tree. Skip silently if `atomic` is absent or errors.
+- **Cold (no DB):** offer to build the index via `AskUserQuestion`:
+
+    ```
+    No code-intel index found (.claude/.atomic-index/atomic.db). Build one now so builders
+    and reviewers can use the dependency graph for this task? First index can take
+    seconds to a few minutes depending on repo size.
+    - Yes — run `atomic code index`
+    - No — proceed; subagents fall back to sg/grep
+    ```
+
+    On Yes: run `atomic code index`. On No (or if `atomic` is absent, or if indexing errors): proceed without the index — subagents degrade to sg/grep automatically.
+
+The index lifecycle is orchestrator-owned. Subagents never trigger indexing. A missing or declined index never blocks the loop.
+
 ## Phase 1 — Write brief to `$SCRATCH`
 
 Pick the working dir: `.claude/.scratchpad/<YYYY-MM-DD>-<topic>/`. Use today's date.
@@ -229,6 +254,7 @@ After each PASS, commit before the next iteration:
 2. Stage only the files the implementer touched (explicit paths from the implementer's `## Did` section). No `-A`.
 3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
 4. Record the commit SHA in STATE.md under the iteration's `Commit:` line.
+5. If the code-intel index exists (`.claude/.atomic-index/atomic.db`), run `atomic code sync` so the next iteration's reviewer queries the just-committed working-tree state. Skip silently if absent or errors — a failed sync never blocks the next iteration.
 
 Skip Step D only if the iteration produced zero behavior change (pure investigation, no diff). State that explicitly in STATE.md.
 

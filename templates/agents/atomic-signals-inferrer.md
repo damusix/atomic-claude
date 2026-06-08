@@ -58,6 +58,8 @@ Partition by functional concern, not by file type or directory structure. Each d
 
 Heuristic: identify commands, skills, or agents that form a cohesive unit. Find the Go packages that serve them and the docs that describe them. Things that break together belong together. Structural signals (top-level dirs, workspaces, co-located tests) inform the grouping but do not dictate it.
 
+**Code-intel corroboration (when index is present).** If `.claude/.atomic-index/atomic.db` exists and `atomic` is on PATH, query the real import and call graph to corroborate and refine the grouping. Actual dependency edges are stronger evidence for domain boundaries than directory names: files that import each other heavily, or that share a dense call cluster, belong in the same domain even if their paths look disparate. Use broader structural queries here — the inferrer is a disposable subagent consuming output to produce a compact signals.md, not a bounded one-symbol probe. Queries to consider: `atomic code callers <entrypoint> --format json` to find all consumers of a key symbol, or `atomic code callees <package-init> --format json` to map what a package depends on. If the index, the DB, or the binary is absent, fall back fully to the filename/path heuristics above — code-intel is corroborating evidence, never a hard dependency.
+
 Document the partitioning basis in the router's `## Cross-domain coupling` section.
 
 Skip `[generated]` entries when partitioning — generated files do not drive domain narratives.
@@ -328,6 +330,7 @@ Do not print concerns in wiki-output mode — concerns are surfaced by the `/ref
 
 </workflow>
 
+{{ template "agent-code-intel" . }}
 
 ## Incremental vs full mode
 

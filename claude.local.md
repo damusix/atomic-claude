@@ -216,11 +216,13 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `docs/guides/install.md` | installation, updating, uninstalling | atomic-prose |
 | `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-prose |
 | `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-prose |
+| `docs/guides/code-intel-mcp.md` | code-intel MCP server setup, .mcp.json, tools | atomic-prose |
 | `docs/reference/workflow.md` | plan, implement, diagnose, ship lifecycle | atomic-prose |
 | `docs/reference/commands.md` | command reference table | atomic-prose |
 | `docs/reference/agents.md` | agent reference table | atomic-prose |
 | `docs/reference/skills.md` | skills reference table | atomic-prose |
 | `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-prose |
+| `docs/reference/code-intel.md` | code-intel engine: verbs, index, lifecycle, workflow integration | atomic-prose |
 | `docs/reference/output-style.md` | atomic output style reference | atomic-prose |
 | `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
 

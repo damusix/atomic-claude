@@ -56,6 +56,10 @@ Create an isolated worktree so the autonomous run never touches the working bran
 - Detect existing isolation (`$GIT_DIR` vs `$GIT_COMMON`). If already in a worktree, stay.
 - Else create one: `/worktree-start <topic>` (or `git worktree add .worktrees/<topic> -b <topic>`). Verify the baseline test suite is green before proceeding.
 - Create the scratch quarantine once: `mkdir -p tmp/trash` (scratch_hygiene). Everything throwaway moves here during the run instead of being deleted.
+- **Code-intel index (no-prompt auto-index):** check for `.claude/.atomic-index/atomic.db`.
+  - Warm (exists): run `atomic code sync` best-effort. Skip silently on error.
+  - Cold (absent): run `atomic code index` best-effort to build the index before the loop starts. Autopilot runs in a fresh worktree (always cold), so this no-prompt path is what lets builders and reviewers use the dependency graph; it is non-destructive and the user granted autonomy by invoking `/autopilot`. On any error, degrade to sg/grep — never block the run. Record the indexing decision (success or error) in `STATE.md`.
+  - Do NOT use `AskUserQuestion` for indexing — the only human decision in this run is the Ship gate (rule 4). A cold-index prompt would violate that contract.
 
 ## Phase 3 — Implement (the `/subagent-implementation` loop, with overrides)
 
@@ -66,6 +70,7 @@ Run the loop exactly as `/subagent-implementation` defines it — scratchpad bri
 - **Re-verify spec currency before each dispatch (rule 5).**
 - **Quarantine scratch, never delete (scratch_hygiene).** Add to every builder/surgeon dispatch brief: "Discard scratch by moving it to `tmp/trash/`; never `rm` and do not chain shell commands." Mid-run deletions and command chains trigger permission prompts that stall the unattended run.
 - **No user interaction.** If something would normally prompt the user mid-loop (worktree question already handled; ambiguity), make the best-judgment call and record it in `STATE.md`. Only a true blocker (`BLOCKED`/`NEEDS_CONTEXT` that judgment cannot resolve) stops the run and surfaces to the user.
+- **Code-intel sync per iteration.** After each green builder commit, if `.claude/.atomic-index/atomic.db` exists, run `atomic code sync` so the next reviewer queries current working-tree state. Skip silently on error — never block the loop.
 
 ## Phase 4 — Verify
 

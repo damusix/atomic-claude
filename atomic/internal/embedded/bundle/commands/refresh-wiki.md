@@ -103,6 +103,26 @@ For each artifact, determine its disposition:
 
 For each `pending` repo not selected in Step 4:
 
+**Code-intel index sync (best-effort).** Before dispatching the inferrer, check whether the member repo has an existing index:
+
+```bash
+test -f <member-repo-path>/.claude/.atomic-index/atomic.db
+```
+
+- **Warm** (DB exists) → run an incremental sync so the inferrer sees fresh call/import edges:
+
+  ```bash
+  atomic --repo <member-repo-path> code sync
+  ```
+
+  The `--repo` global flag goes BEFORE `code`. On any non-zero exit, skip silently and continue to the inferrer dispatch — the inferrer degrades to heuristic summarization.
+
+- **Cold** (no DB) → do NOT auto-index and do NOT prompt. Indexing is opt-in: the user runs `atomic --repo <member-repo-path> code index` themselves when they want graph-grounded summaries. The inferrer will degrade to summary-without-graph for this repo.
+
+- **`atomic` binary absent** → skip the sync step silently, proceed to the inferrer dispatch.
+
+Code-intel grounding is best-effort per repo. A repo without an index still gets summarized via heuristics — absence of an index is never a blocker for the wiki refresh.
+
 Dispatch `atomic-signals-inferrer` in wiki-output mode:
 
 ```
@@ -134,7 +154,11 @@ Print: `NEW  <summary-file-path>`
 
 For each `STALE summary <path>` line from Step 3:
 
-The `STALE summary <path>` line from Step 3 gives you the summary file path. Derive the corresponding repo path from the path structure: `repos/<repo-name>.md` or `repos/<repo-name>/<domain>.md` — the `<repo-name>` segment identifies the member whose `path` was recorded during `atomic wiki scan`. Look up that path in your member list from Step 2. Dispatch `atomic-signals-inferrer` in wiki-output mode the same way as 5a, passing that repo path as `target_repo`.
+The `STALE summary <path>` line from Step 3 gives you the summary file path. Derive the corresponding repo path from the path structure: `repos/<repo-name>.md` or `repos/<repo-name>/<domain>.md` — the `<repo-name>` segment identifies the member whose `path` was recorded during `atomic wiki scan`. Look up that path in your member list from Step 2.
+
+**Code-intel index sync (best-effort).** Apply the same warm/cold/absent logic as 5a using the resolved `target_repo` path before dispatching the inferrer.
+
+Dispatch `atomic-signals-inferrer` in wiki-output mode the same way as 5a, passing that repo path as `target_repo`.
 
 After the agent returns, stamp each summary file the inferrer produced, using the `target_repo` path from your member list:
 

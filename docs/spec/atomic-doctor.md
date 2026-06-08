@@ -73,6 +73,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 8 | `binary`         | `atomic update --check` succeeds without performing update. | WARN |
 | 9 | `config`         | `~/.claude/.atomic/config.toml` parses + validates; `~/.claude/.atomic/config.resolved.md` matches render of TOML (byte-stable). Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN; drifted/missing resolved.md → WARN. | WARN by default; FAIL for parse error or invalid value |
 | 10 | `profile`       | `~/.claude/.atomic/profile.md` exists; `@~/.claude/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`); `<deterministic lastcheck=YYYY-MM-DD>` attribute is present and within the last 30 days. Missing file → WARN; missing @-ref → WARN; missing or stale lastcheck → WARN. | WARN |
+| 11 | `code-index`    | `<projectRoot>/.claude/.atomic-index/atomic.db` freshness check. **Absence is normal — the index is opt-in — and reports PASS (informational).** DB present + mtime older than `--stale-days` (default 7) → WARN with `run 'atomic code sync'`. DB present + fresh → PASS with age detail. **Never FAIL.** | WARN |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -354,6 +355,16 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Correction:** The spec's Surface table (line 52) has always promised `--verbose` "Print per-file detail for install integrity and manifest parity" — but no implementation ever rendered it. This amendment makes the body match the long-standing contract rather than introducing new behavior. How we know it was wrong: the flag's effect was untestable because no code read `opts.Verbose`.
 
 **Known gaps (filed as followups):** `manifest` `missing:`/`extra:` Finding prefixes are implemented but only the `drifted:` path is test-covered (`doctor-verbose-f-1`). `FixApplied`/`FixSummary` render correctly but no `--fix` repair path populates them yet (`doctor-verbose-f-2`).
+
+### 2026-06-08 — add `code-index` check (category 11)
+
+**What changed:** Added category 11 `code-index` (severity WARN) checking the freshness of the code-intelligence SQLite index at `<projectRoot>/.claude/.atomic-index/atomic.db`. Absence reports PASS informational (not WARN) — the index is opt-in. A present-but-stale DB (mtime older than `--stale-days`, default 7) reports WARN with `run 'atomic code sync'`. A present-and-fresh DB reports PASS. The check never produces FAIL; the code index is optional and is never a hard installation requirement.
+
+**Why:** CP7 of `docs/spec/code-intel-integration.md`. Doctor should surface index staleness for teams that have opted in, without penalising the majority of repos that have not.
+
+**Implementation note:** Uses `engine.IndexPath(root)` (new exported helper in `atomic/internal/codeintel/engine`) to resolve the DB path without hardcoding it. Staleness is measured via DB mtime age — no DB open, no WASM pool startup — matching the mtime-age approach used by category 3 (`signals`).
+
+**Superseded:** Prior spec listed ten indexed checks (1–10). Now eleven (1–11).
 
 ### 2026-06-06 — repo-dev-only checks omitted outside the atomic-claude repo
 
