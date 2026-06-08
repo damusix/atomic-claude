@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.1.0](https://github.com/damusix/atomic-claude/compare/v4.0.0...v4.1.0) (2026-06-08)
+
+
+### Features
+
+* code-intelligence engine + workflow integration ([045e5ce](https://github.com/damusix/atomic-claude/commit/045e5ce997e092b8e08fc2ce8f927d406c2da239))
+
+
+### Bug Fixes
+
+* surface atomic code explore across the workflow; correct CLI-coordination drift ([0d24f22](https://github.com/damusix/atomic-claude/commit/0d24f22ba8dc9afdbf7331879947e87f0e55c1aa))
+
 ## [4.0.0](https://github.com/damusix/atomic-claude/compare/v3.3.0...v4.0.0) (2026-06-07)
 
 
