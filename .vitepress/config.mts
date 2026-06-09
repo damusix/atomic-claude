@@ -119,9 +119,11 @@ export default defineConfig({
                 text: 'Guides',
                 items: [
                     { text: 'Install', link: '/guides/install' },
+                    { text: 'Getting Started', link: '/guides/getting-started' },
+                    { text: 'Knowledge Base', link: '/guides/knowledge-base' },
+                    { text: 'Code-intel MCP', link: '/guides/code-intel-mcp' },
                     { text: 'Contributing', link: '/guides/contributing' },
                     { text: 'Evaluations', link: '/guides/evaluations' },
-                    { text: 'Code-intel MCP', link: '/guides/code-intel-mcp' },
                 ],
             },
             {

@@ -63,6 +63,10 @@ If the project is indexed, the loop uses the code-intel graph throughout. It ind
 When you trust the system to drive, `/autopilot` runs the whole lifecycle — plan, the implement-then-review loop, and ship — from a task description or a GitHub issue number, with one decision left to you: how to merge. It always uses the same subagent loop, but with three autonomous defaults. Every reviewer finding is fixed as it goes rather than deferred. When the loop gets stuck, it dispatches the read-only strategist for root-cause analysis on its own instead of waiting for you. And it keeps the spec current the whole way, so a fresh subagent never reads stale scope. The only decision is the merge method at the end — pass a merge verb (`/autopilot 29 squash-and-merge`) to skip even that. It also keeps experiments in a gitignored scratch folder rather than deleting them mid-run, so it never stops to ask permission for a stray `rm`; it clears that folder once when the run finishes. Reach for the interactive verbs above when you want approval gates; reach for this when you don't.
 
 
+### What the loop costs
+
+The loop trades tokens for verification: every checkpoint is implemented by one agent and re-checked by another, and that second pass is not free. Implementation and review run on Sonnet subagents; log reading and CI watching run on Haiku, the cheapest tier. The overhead has not been measured precisely. As one anecdote, heavy daily use on the Claude Max 20x plan, often four or five instances at once, never hits the five-hour window limit and lands around half the weekly limit; the smaller Max plan may hit the window cap under the same load. If you are rate-limit sensitive, run the gated verbs stage by stage instead of `/autopilot`, and skip the loop entirely for small edits: a one-file fix does not need a builder and a reviewer.
+
 ## 3. Diagnose
 
 ```
@@ -84,10 +88,10 @@ Pick the verb that matches where you are:
 | `/commit-and-pr` | ✓ | ✓ | | ✓ | |
 | `/commit-and-merge` | ✓ | | | | ✓ |
 | `/commit-and-squash` | ✓ | | ✓ | | |
-| `/push-only` | | ✓ | | | |
-| `/pr-only` | | ✓ | | ✓ | |
 | `/squash-only` | | | ✓ | | |
 | `/squash-and-merge` | | | ✓ | | ✓ |
+| `/push-only` | | ✓ | | | |
+| `/pr-only` | | ✓ | | ✓ | |
 | `/merge-to-main` | | | | | ✓ |
 
 All merge and squash commands run tests on the merged result and prompt to clean up the worktree if you used one.

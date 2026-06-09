@@ -226,7 +226,8 @@ You don't have to adopt all of it. Start where it helps.
 
 1. **Structured replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
 2. **A repo explorer.** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
-3. **Full plan → implement → review loop, or autopilot.** Read the [workflow reference](/reference/workflow).
+3. **A symbol-aware assistant.** Run `atomic code index`, then `atomic code explore "<question>"` returns a digest of symbols, files, and call edges in one query.
+4. **Full plan → implement → review loop, or autopilot.** Read the [workflow reference](/reference/workflow).
 
 Not sure where to begin? Run `/atomic-help` in any repo. It reads your git state and recommends one next command.
 

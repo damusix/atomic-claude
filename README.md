@@ -34,7 +34,7 @@
 ## 🌟 Highlights
 
 - **Repo-aware from the first message.** One scan builds a standing map of your codebase that Claude reads before your code, so it stops inventing `npm` scripts.
-- **A queryable map of your code.** A tree-sitter symbol graph across 29 languages answers callers, call sites, and blast radius, no compiler required.
+- **A queryable map of your code.** A tree-sitter symbol graph across 29 languages and 15 web frameworks answers callers, call sites, and blast radius, no compiler required.
 - **SQL is a first-class language in the graph.** Procedures, views, and foreign keys across Postgres, MySQL, and T-SQL, read from your `.sql` files with no database connection.
 - **Issue to merged PR, hands-off.** `/autopilot` plans, tests first, reviews its own diff, and ships. Your only decision is how to merge.
 - **A config that learns from you.** It mines your corrections for friction and edits its own skills and rules, only with your say-so.
@@ -44,7 +44,7 @@
 
 ## ℹ️ Overview
 
-Atomic Claude is a configuration you install into Claude Code once. By default Claude starts every session blind to your project: it doesn't know your framework, your build command, or how your code is laid out, so it guesses, and you correct the same guesses again and again.
+Atomic Claude is a configuration you install into Claude Code once. Mechanically it is plain markdown files copied into `~/.claude/` (commands, agents, skills, rules) plus one standalone Go binary: no daemon, no API proxy, every file readable before you trust it. By default Claude starts every session blind to your project: it doesn't know your framework, your build command, or how your code is laid out, so it guesses, and you correct the same guesses again and again.
 
 This replaces that with a Claude that knows your repo before it reads your code, takes a feature from issue to merged PR on its own, and refines its own rules from where it last tripped you up. Clearer replies come with it. One install, and you adopt as much or as little as helps.
 
@@ -208,7 +208,7 @@ verb               push  PR   merge
 Same facts every time. The shape does the explaining.
 
 
-## Pick your depth
+## 🪜 Pick your depth
 
 Lost? Run `/atomic-help` in any repo — it reads your git state and names one next command. `/atomic-help tour` walks the whole system in four stages. Otherwise:
 
@@ -234,7 +234,9 @@ The second wires up the artifact bundle into `~/.claude/`:
 atomic claude install
 ```
 
-Activate the output style with `/config` then Output style then Atomic, and you're set.
+Activate the output style with `/config` → Output style → Atomic.
+
+Then get the most from it: run `/refresh-signals` in each repo so Claude learns its shape, and `/refresh-wiki` over a folder of related repos for a cross-repo map. If your organization allows Claude Code hooks, `atomic hooks install` wires up profile refresh, pending reminders, and staleness nudges.
 
 For prereqs, flags, existing `~/.claude/CLAUDE.md` handling, updates, Docker evaluation, and uninstall: [docs/guides/install.md](docs/guides/install.md).
 

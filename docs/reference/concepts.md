@@ -69,12 +69,12 @@ Claude does not know your project. Every session starts fresh — no idea what f
 
 You might maintain a `CLAUDE.md` by hand, and that helps — but it inevitably drifts. You add a new service, rename a package, switch from Jest to Vitest, and forget to update the instructions. Now Claude is working from a stale map.
 
-Signals fix this. Running `/refresh-signals` scans your repo and produces two markdown files that Claude reads at the start of every session:
+Signals fix this. Running `/refresh-signals` scans your repo and produces two markdown files:
 
 - **Deterministic signals** — facts from the filesystem: directory tree, manifests, languages, lockfile presence. Reproducible and idempotent — running the scan twice produces the same output.
 - **Inferred signals** — meaning derived from those facts: framework, build/test/lint commands, domain boundaries, conventions.
 
-Claude reads these files before it reads your code. It knows what it is looking at before you ask your first question.
+Claude loads the inferred signals at the start of every session, before it reads your code, so it knows what it is looking at before you ask your first question. The deterministic file is the substrate underneath: on a large repo it can run thousands of lines, so it stays out of session context and the inference step reads it on demand.
 
 Signals auto-refresh when you commit through the ship commands, so they stay current without you thinking about it. See [signals workflow](/reference/signals-workflow) for the full mechanism.
 
@@ -213,7 +213,7 @@ You could do all of this manually. The ship verbs make it the default so nothing
 
 - **Signals scanning** — reads the filesystem and produces the deterministic signals file. Intentionally done by code so the output is reproducible and fast.
 - **Self-update** — fetches the latest release, verifies its checksum, replaces the binary.
-- **Health checks** — `atomic doctor` runs ten integrity checks against your install. `atomic validate` lints specs and cross-references.
+- **Health checks** — `atomic doctor` runs a suite of integrity checks against your install. `atomic validate` lints specs and cross-references.
 - **Config/state** — manages `~/.claude/.atomic/config.toml`, follow-ups, install/uninstall.
 
 The binary exists because some operations need to be deterministic, fast, and runnable outside a Claude session. Scanning a repo's tree structure, computing SHA checksums, and managing scheduled jobs are all better done by code than by asking a model.
@@ -282,7 +282,7 @@ XML volatility tags tell Claude how to treat contradictions:
 
 **Drift review.** Claude appends new facts but never removes old ones; both the old and new line are retained. Contradictions are resolved through `/atomic-improve`, which surfaces a profile drift finding category during its history scan. You accept, modify, or skip each finding. The `<deterministic>` section is excluded from drift detection entirely.
 
-**Environment refresh.** The `## Environment` section is owned by `atomic profile refresh`, which re-detects your dev tooling on demand and rewrites the block wholesale. The registry covers ~50 known tools across seven categories: language runtimes (node, python, go, rust, …), package managers (npm, pip, cargo, …), version managers (nvm, pyenv, asdf, …), containers (docker, kubectl, …), monorepo tools (nx, turbo), CLI tools (jq, gh, rg, …), and cloud CLIs (aws, gcloud, az, …). Each entry records the active binary version and its source class (system, homebrew, version-manager, or other). Shell info (`$SHELL`, oh-my-zsh/prezto/starship) is also captured. The `<deterministic>` tag gains a `lastcheck=YYYY-MM-DD` attribute stamped on every refresh.
+**Environment refresh.** The `## Environment` section is owned by `atomic profile refresh`, which re-detects your dev tooling on demand and rewrites the block wholesale. The registry covers the common dev tools across seven categories: language runtimes (node, python, go, rust, …), package managers (npm, pip, cargo, …), version managers (nvm, pyenv, asdf, …), containers (docker, kubectl, …), monorepo tools (nx, turbo), CLI tools (jq, gh, rg, …), and cloud CLIs (aws, gcloud, az, …). Each entry records the active binary version and its source class (system, homebrew, version-manager, or other). Shell info (`$SHELL`, oh-my-zsh/prezto/starship) is also captured. The `<deterministic>` tag gains a `lastcheck=YYYY-MM-DD` attribute stamped on every refresh.
 
 `atomic profile refresh` — unconditional refresh. `atomic profile refresh --if-stale 7d` — no-op if `lastcheck` is within 7 days, full refresh otherwise. The session-start hook fires `--if-stale 7d` automatically on every Claude Code session open so the env stays current during active use. `atomic doctor` warns when `lastcheck` is absent or older than 30 days.
 

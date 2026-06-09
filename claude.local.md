@@ -214,6 +214,8 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 |------|--------|-------|
 | `README.md` | project overview, install, commands, agents, skills | atomic-prose |
 | `docs/guides/install.md` | installation, updating, uninstalling | atomic-prose |
+| `docs/guides/getting-started.md` | first-session quickstart, output style, repo setup, first task, updating | atomic-prose |
+| `docs/guides/knowledge-base.md` | karpathy realm, capture surfaces (research/raw/tickets), fingerprint synthesis to wiki/knowledge | atomic-prose |
 | `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-prose |
 | `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-prose |
 | `docs/guides/code-intel-mcp.md` | code-intel MCP server setup, .mcp.json, tools | atomic-prose |
@@ -230,7 +232,7 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 ## VitePress docs site (public, not bundled)
 
 
-The `.vitepress/` theme, `docs/index.md` landing page, and `package.json` are the public docs site only — **not** part of the Go build or the embedded bundle. Editing them does NOT require `make render` / `make bundle`. (Editing `README.md` does — it is a bundle source.) Build/verify with `npm run docs:build` (~1.2s; harmless `@vueuse/core` `#__PURE__` Rollup warnings are expected).
+The `.vitepress/` theme, `docs/index.md` landing page, and `package.json` are the public docs site only — **not** part of the Go build or the embedded bundle. Editing them does NOT require `make render` / `make bundle`, and neither does `README.md` — the bundle mirror ships only the install artifacts (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`). Build/verify with `npm run docs:build` (~1.2s; harmless `@vueuse/core` `#__PURE__` Rollup warnings are expected).
 
 
 ### Home feature-card icons — use an icon font, not inline SVG

@@ -40,6 +40,40 @@ Run `atomic code <verb>` from your project root. Every query verb accepts `--jso
 Start with `explore` when you don't yet know the exact symbol. `atomic code explore "how does session refresh work"` returns a bundled digest — the relevant definitions, files, and call relationships — in one query, instead of running `search`, `callers`, and `callees` separately and stitching the results together. Once `explore` points you at a symbol, the targeted verbs (`callers`, `callees`, `impact`) drill into it precisely. Atomic's investigator, reviewer, and signals agents follow the same order automatically: explore to orient, then drill in.
 
 
+## Using it without Claude
+
+
+The engine is a CLI first. Claude is one consumer of the graph; you are another. Every verb runs from your terminal with no model, no API key, and no network. Indexing parses your working tree locally, and a query is a read against the local SQLite file, so the whole thing works offline.
+
+Index once, then query directly:
+
+```bash
+atomic code index                          # build the graph (once)
+atomic code search PaymentService          # where is this defined
+atomic code callers chargeCard             # who calls it, before you change it
+atomic code impact validateToken --depth 2 # what breaks if you change it
+atomic code sync                           # refresh after edits
+```
+
+This is a structural alternative to `grep` for the questions grep answers badly. `grep chargeCard` matches the string in comments, strings, and unrelated names; `atomic code callers chargeCard` returns the actual call sites from the parsed graph. The `callers`, `callees`, and `impact` verbs have no grep equivalent at all, because they traverse edges rather than text.
+
+Add `--json` to any query verb and the output pipes into scripts, `jq`, an editor integration, or a CI step:
+
+```bash
+# Lint rule: fail if anything still calls a deprecated function.
+test -z "$(atomic code callers legacyAuth --json | jq '.callers[]')" \
+  || { echo "legacyAuth still has callers"; exit 1; }
+```
+
+`atomic code affected` is built for CI test selection: give it the files a change touched and it returns the test files transitively affected, so a pipeline runs the tests that matter instead of the whole suite.
+
+```bash
+atomic code affected $(git diff --name-only main...HEAD) --json
+```
+
+The MCP server below is the conversational front end to this same graph. The CLI is the scriptable one.
+
+
 ## Where the index lives
 
 The index is a single SQLite file at `<project>/.claude/.atomic-index/atomic.db`. It is project-scoped, added to `.gitignore` on first index, and never committed. Delete the file to discard the index; rebuild with `atomic code index`.
