@@ -28,11 +28,11 @@ features:
       title: A config that learns from you
       details: After a rough session, /atomic-improve mines your history for friction, corrections, and misbehavior, then proposes fixes to your own skills and rules. The setup gets sharper the more you use it.
     - icon: "\uF066"
-      title: Clearer replies
-      details: A communication layer that cuts filler and structures multi-part answers with tables, trees, and ASCII flows. Compressed, but built for clarity.
+      title: The right shape for the answer
+      details: "A paragraph is one instrument, not the only one. The output style gives a multi-part reply the form that explains it fastest: a table to compare, a tree to nest, an ASCII flow to sequence. It cuts filler too, but the point is structure, not brevity."
     - icon: "\uF0E8"
       title: A queryable map of your code
-      details: "One command parses your repo into a symbol graph across 29 languages and 15 web frameworks, no compiler required: definitions, callers, call sites, and the blast radius of any change. Claude queries the graph instead of grepping."
+      details: "One command parses your repo into a symbol graph across 29 languages and 15 web frameworks, no compiler required: definitions, callers, call sites, and the blast radius of any change. SQL is included, graphed from .sql across Postgres, MySQL, and T-SQL. Claude queries the graph instead of grepping."
 ---
 
 <div class="vp-doc home-extra">
@@ -62,6 +62,8 @@ atomic code explore "how does token refresh work"
 atomic code impact validateToken
    → every caller that breaks if you change it, transitively.
 ```
+
+SQL is one of those languages. `.sql` files are indexed alongside your application code, so Claude can answer which procedures read a table, what a view depends on, or where a foreign key points, across Postgres, MySQL, and T-SQL, from source with no database connection. Most code tools treat SQL as plain text; this one graphs it.
 
 The investigator, reviewer, and signals agents reach for the graph when an index is present, and fall back to plain search when it isn't. Keep it fresh with `atomic code sync`; `/refresh-signals` does it for you whenever the index is warm.
 
@@ -103,9 +105,81 @@ Most setups are static. You write rules once and they rot. `/atomic-improve` run
 
 Nothing changes without your yes. But over weeks the config stops being someone else's defaults and becomes yours.
 
-## And the replies are tighter
+## The answer takes the right shape
 
-Same question, same model. Default Claude Code on the left, Atomic Claude on the right.
+A paragraph is one instrument, not the only one. When an answer has parts that sequence, compare, or nest, the output style reaches for the form that shows that structure directly. Same question, same model, same facts. Default Claude Code on the left, Atomic Claude on the right.
+
+A sequence becomes a flow:
+
+<div class="ba-grid">
+<div class="ba-col">
+
+**Default Claude Code**
+
+```text
+When a request arrives it first passes through
+the rate limiter, which checks the client IP
+against a sliding window. If that allows it, the
+authentication middleware reads the bearer token
+from the Authorization header and verifies its
+signature and expiry. With a valid token, the
+authorization layer loads the user's roles and
+checks them against the route's required
+permissions before the handler finally runs.
+```
+
+</div>
+<div class="ba-col">
+
+**Atomic Claude**
+
+```text
+request
+  → rate limit ... sliding window per IP
+  → authn ........ verify bearer: sig + expiry
+  → authz ........ load roles, check route perms
+  → handler
+```
+
+</div>
+</div>
+
+A comparison becomes a table:
+
+<div class="ba-grid">
+<div class="ba-col">
+
+**Default Claude Code**
+
+```text
+If you just want to record work locally, use
+/commit-only, which stages and commits without
+pushing. When you also want it on the remote,
+/commit-and-push does both. To open a pull
+request as well, reach for /commit-and-pr, which
+commits, pushes, and opens the PR. And to merge
+straight into the base branch, /commit-and-merge
+handles the whole path.
+```
+
+</div>
+<div class="ba-col">
+
+**Atomic Claude**
+
+```text
+verb               push  PR   merge
+────────────────   ────  ───  ─────
+/commit-only        no   no    no
+/commit-and-push    yes  no    no
+/commit-and-pr      yes  yes   no
+/commit-and-merge   yes   –    yes
+```
+
+</div>
+</div>
+
+And the filler goes too. A bug report, prose versus signal:
 
 <div class="ba-grid" id="ba-replies">
 <div class="ba-col">
@@ -144,13 +218,13 @@ Fix: change `token.exp < now` to
 </div>
 </div>
 
-Same accuracy. Less noise. Clearer to follow.
+Same facts every time. The shape does the explaining.
 
 ## Pick your depth
 
 You don't have to adopt all of it. Start where it helps.
 
-1. **Clearer replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
+1. **Structured replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
 2. **A repo explorer.** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
 3. **Full plan → implement → review loop, or autopilot.** Read the [workflow reference](/reference/workflow).
 

@@ -1,8 +1,8 @@
 # Output style
 
-The output style is the communication layer. Its goal is clarity, not compression. Claude says what matters and cuts what does not: replies drop filler, use fragments, and prefer short synonyms. Multi-part answers reach for a table, an indented tree, or an ASCII flow diagram so the structure carries the meaning instead of a paragraph. Technical terms and code blocks are never altered.
+The output style is the communication layer. Its goal is clarity, and a paragraph is one instrument, not the only one. When an answer has parts that compare, nest, or sequence, replies reach for a table, an indented tree, or an ASCII flow so the structure carries the meaning instead of a wall of prose. Filler is dropped, fragments are fine, and short synonyms win, but compression serves the structure, it does not lead. Technical terms and code blocks are never altered.
 
-Terseness serves clarity, it does not replace it. The style compresses prose, but a shorter reply that reads worse is a failure, not a win. When a structure communicates faster than sentences (three components with a hierarchy, a sequence that branches across actors), the style picks the structure.
+A shorter reply that reads worse is a failure, not a win. When a structure communicates faster than sentences (three components with a hierarchy, a sequence that branches across actors), the style picks the structure. When a paragraph is genuinely the clearest form, it stays a paragraph.
 
 It is also the most optional part of atomic-claude. The skills, commands, agents, and signals all work without it. The output style makes Claude's replies clearer to read.
 

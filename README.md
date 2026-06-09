@@ -5,7 +5,11 @@
 </p>
 
 <p align="center">
- <strong>An opinionated Claude Code configuration that trades narrative for signal.</strong>
+ <strong>An opinionated Claude Code configuration. Onboard Claude once: it maps your repo, ships features from issue to merged PR on autopilot, and sharpens its own setup from how you work.</strong>
+</p>
+
+<p align="center">
+ <em>Stop re-explaining your repo to Claude every session.</em>
 </p>
 
 <p align="center">
@@ -27,95 +31,44 @@
 > **Still evolving.** Commands, agents, and skills may shift between releases. Breaking changes are flagged in the changelog.
 
 
-## Before / after
+## 🌟 Highlights
 
-Same question, same model, default Claude Code vs. Atomic Claude:
+- **Repo-aware from the first message.** One scan builds a standing map of your codebase that Claude reads before your code, so it stops inventing `npm` scripts.
+- **A queryable map of your code.** A tree-sitter symbol graph across 29 languages answers callers, call sites, and blast radius, no compiler required.
+- **SQL is a first-class language in the graph.** Procedures, views, and foreign keys across Postgres, MySQL, and T-SQL, read from your `.sql` files with no database connection.
+- **Issue to merged PR, hands-off.** `/autopilot` plans, tests first, reviews its own diff, and ships. Your only decision is how to merge.
+- **A config that learns from you.** It mines your corrections for friction and edits its own skills and rules, only with your say-so.
+- **Replies with structure.** Tables, trees, and ASCII flows replace walls of prose when they explain faster, filler cut.
+- **One install, adopt incrementally.** Every layer is optional, from clearer replies up to full autopilot.
 
-**Default Claude Code:**
+
+## ℹ️ Overview
+
+Atomic Claude is a configuration you install into Claude Code once. By default Claude starts every session blind to your project: it doesn't know your framework, your build command, or how your code is laid out, so it guesses, and you correct the same guesses again and again.
+
+This replaces that with a Claude that knows your repo before it reads your code, takes a feature from issue to merged PR on its own, and refines its own rules from where it last tripped you up. Clearer replies come with it. One install, and you adopt as much or as little as helps.
+
+
+## 🚀 Usage
+
+Everything below is opt-in. The pieces compose into one lifecycle, and you can run it stage by stage or hand it off whole.
+
+### The workflow, end to end
+
+Fresh-context subagents drive each stage. The builder writes a failing test before any code; the reviewer re-runs tests and gates the diff against the spec; work commits per green checkpoint.
+
 ```
-Sure! I'd be happy to help you understand that. The issue you're experiencing
-is likely caused by the middleware not properly validating the token expiry
-timestamp. What's happening is that the comparison uses a strict less-than
-operator when it should be using less-than-or-equal-to, which means tokens
-that expire at exactly the current second are incorrectly rejected.
-
-I'd suggest updating the comparison on line 42 of src/auth/middleware.ts...
-```
-
-**Atomic Claude:**
-```
-Bug in auth middleware. Token expiry check at src/auth/middleware.ts:42
-uses `<` not `<=` — tokens expiring at current second get rejected.
-
-Fix: change `token.exp < now` to `token.exp <= now`.
-```
-
-Same accuracy. Less noise. Clearer to follow.
-
-
-## What you get
-
-Atomic Claude is a coherent system of output styles, discipline skills, subagents, and workflow commands designed to compose. Three capabilities separate it from a hand-rolled `CLAUDE.md` or a bag of slash commands.
-
-**A Karpathy-inspired repo explorer.** `/refresh-signals` walks your repo and builds a standing model of it. The deterministic half records filesystem facts: directory tree, manifests, languages, lockfiles. The inferred half derives meaning: framework, build and test commands, architectural style, and a domain map of which directories form which feature. Claude reads the model before it reads your code, and ship commands refresh it as the source tree changes, so you never hand-maintain a `CLAUDE.md` that drifts. Details in [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md).
-
-**Autopilot.** `/autopilot` takes a task description or a GitHub issue number and runs the whole lifecycle on its own: plan, implement with test-first subagents, review every diff, and ship. It addresses each reviewer finding in the same iteration and dispatches a read-only strategist for root-cause analysis when it gets stuck. One decision stays with you, how to merge. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
-
-**A config that learns from you.** `/atomic-improve` runs a retrospective over your recent session history and the current conversation. It finds where Claude caused friction, fought you, or repeated a mistake, cross-checks it against your installed skills and rules, and proposes fixes one at a time. It applies only what you accept and records a learnings log so later runs know what you keep and what you drop. Details in [docs/reference/concepts.md](docs/reference/concepts.md).
-
-The rest of the system supports those three.
-
-**Clearer replies.** A communication layer that cuts filler and gives multi-part answers real structure: tables, indented trees, ASCII flows. Compressed, but built for clarity, not brevity for its own sake. Opt in via `/config` then Output style then Atomic. Details in [docs/reference/output-style.md](docs/reference/output-style.md).
-
-**The interactive workflow.** To stay in the loop instead of handing the work to autopilot, run the same lifecycle as individual commands with approval gates: verify a hunch with `/gather-evidence`, plan with `/atomic-plan`, implement with `/subagent-implementation`, diagnose failures with `/subagent-diagnose`. Each stage uses fresh-context subagents that write tests first, gate on review, and commit per green checkpoint. Close your laptop, rerun the command next week, pick up where you left off. Details in [docs/reference/workflow.md](docs/reference/workflow.md).
-
-**Discipline skills that auto-fire.** Seven skills trigger on natural language: TDD enforcement, completion verification, debugging, commit messages, code review, prose editing, and documentation routing. No slash command needed. Details in [docs/reference/skills.md](docs/reference/skills.md).
-
-**Workflow commands for every git operation.** Ten verbs covering every combination of commit, push, squash, PR, and merge-to-base. Plus utilities for CI watching, stale branch cleanup, worktree isolation, reminders, and integrity checks. Details in [docs/reference/commands.md](docs/reference/commands.md).
-
-**Cross-repo wikis.** Signals map one repo; a wiki maps a realm of them — a folder of services, libraries, or client projects and how they relate. `/refresh-wiki` scans the realm, points at the repos that already have signals, summarizes the ones that don't without touching them, and writes up the concerns they share. A session-start nudge keeps it from rotting. Details in [docs/reference/wiki-workflow.md](docs/reference/wiki-workflow.md).
-
-**A code-intelligence engine.** `atomic code index` builds a symbol graph from your source files using tree-sitter (stored at `.claude/.atomic-index/atomic.db`, gitignored). Once indexed, `atomic-investigator` answers "what calls this?" and "where is this used?" from the real call graph instead of grepping. `atomic-signals-inferrer` uses actual import/call edges for more accurate domain clustering. `atomic-reviewer` can check blast-radius before flagging a risky change. The fastest way to orient in unfamiliar code is `atomic code explore "<question>"`: one natural-language query returns a bundled digest of the relevant symbols, files, and relationships, which is why agents reach for it first and drill into a single symbol with `search`, `callers`, `callees`, and `impact` afterward. Everything degrades gracefully to grep when no index is present — indexing is opt-in and never required. `atomic code mcp` exposes the graph as MCP tools for the interactive session; register it manually in `.mcp.json`. Full reference — the verbs, the index lifecycle, and how it powers the workflow — in [docs/reference/code-intel.md](docs/reference/code-intel.md); MCP setup in [docs/guides/code-intel-mcp.md](docs/guides/code-intel-mcp.md).
-
-**A user profile that persists.** Install creates `~/.claude/.atomic/profile.md`, a plain-markdown file with six sections (Identity, Work, Active projects, Interests, People mentioned, Environment). Claude reads it every session and appends new facts as they surface. Facts that hold across all projects go here; project-specific preferences stay in that project's auto memory. Run `atomic profile refresh` to re-detect your dev tooling (runtimes, version managers, containers, shell framework) and rewrite the `## Environment` block. The session-start hook fires this with `--if-stale 7d` so the environment stays current. Details in [docs/reference/concepts.md](docs/reference/concepts.md).
-
-For a walkthrough of how the pieces fit together, see [docs/reference/concepts.md](docs/reference/concepts.md).
-
-
-## Start here
-
-Not sure where to begin? Run `/atomic-help` in any repo. It reads your git state and recommends one next command, or run `/atomic-help tour` for a four-stage guided walkthrough of the whole system.
-
-Otherwise, pick your depth:
-
-1. **Clearer replies only.** Install, activate the output style via `/config`. Done. Everything else is optional.
-2. **A repo explorer.** Run `/atomic-setup` + `/refresh-signals` in your repo. Claude stops hallucinating build commands.
-3. **A symbol-aware assistant.** Run `atomic code index` in your repo, then ask `atomic code explore "how does authentication flow through this service?"`. You get a bundled digest of the relevant symbols, files, and call edges in one query, and agents use the graph automatically once it exists.
-4. **Full plan, implement, review loop, or autopilot.** Read the [workflow reference](docs/reference/workflow.md).
-
-
-## Install
-
-Two commands. The first downloads the `atomic` binary (macOS / Linux / WSL2):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
+plan ........ /atomic-plan writes a design doc + a checkpoint spec
+implement ... atomic-builder: failing test first, then the code
+review ...... atomic-reviewer: re-run tests, gate against the spec
+ship ........ a commit / push / squash / PR / merge verb
 ```
 
-The second wires up the artifact bundle into `~/.claude/`:
+Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subagent-implementation` → a ship verb), or hand the whole loop to `/autopilot`. → [workflow](docs/reference/workflow.md)
 
-```bash
-atomic claude install
-```
+### Orient Claude in a new repo
 
-Activate the output style with `/config` then Output style then Atomic, and you're set.
-
-For prereqs, flags, existing `~/.claude/CLAUDE.md` handling, updates, Docker evaluation, and uninstall: [docs/guides/install.md](docs/guides/install.md).
-
-
-## What a fresh repo looks like
-
-First session inside a new project. `/atomic-setup` audits conventions, `/refresh-signals` teaches Claude the repo's shape:
+`/atomic-setup` audits conventions, `/refresh-signals` teaches Claude the repo's shape, deterministic facts plus inferred meaning:
 
 ```text
 ❯ /atomic-setup
@@ -156,10 +109,142 @@ First session inside a new project. `/atomic-setup` audits conventions, `/refres
   signals initialized.
 ```
 
-From here: `/atomic-plan` opens the spec, `/worktree-start` isolates the branch, `/subagent-implementation` drives the loop.
+Claude reads that model before your code; ship commands refresh it as the source tree changes. → [signals](docs/reference/signals-workflow.md)
+
+### Query your code's structure
+
+`atomic code index` parses your repo into a symbol graph using tree-sitter. Claude then queries structure instead of grepping for it:
+
+```text
+atomic code explore "how does token refresh work"
+   → the relevant symbols, files, and call relationships,
+     gathered into one context digest.
+
+atomic code impact validateToken
+   → every caller that breaks if you change it, transitively.
+```
+
+Atomic indexes SQL as a first-class language: `.sql` files join the graph alongside your application code, so Claude can answer which procedures read a table, what a view depends on, or where a foreign key points, across Postgres, MySQL, and T-SQL, with no database connection. Most code tools treat SQL as plain text.
+
+Agents reach for the graph when an index is present and fall back to grep when it isn't. → [code-intel](docs/reference/code-intel.md)
+
+### Hand off the whole feature
+
+`/autopilot` takes a task description or a GitHub issue number and runs the entire lifecycle on its own:
+
+```text
+/autopilot 142 squash-and-merge
+
+   → Reads issue #142. Writes a spec: controller, service, DTO,
+     queue, signature validation.
+   → Worktree-isolated. Builder implements each checkpoint;
+     atomic-tdd fires — failing test first, then code.
+   → Reviewer re-runs tests and gates against the spec. Every
+     finding, blocking or not, gets fixed in-iteration.
+   → Stuck twice on the same error? It dispatches a read-only
+     strategist for root-cause analysis, then keeps going.
+   → Squashes, merges, closes the issue.
+```
+
+One decision is yours, how to merge. Everything else runs unattended. → [workflow](docs/reference/workflow.md)
+
+### The rest, at a glance
+
+| Capability | What it gives you | Docs |
+|---|---|---|
+| **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. | [wiki](docs/reference/wiki-workflow.md) |
+| **Self-sharpening config** | `/atomic-improve` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
+| **Output style** | Multi-part answers shaped as tables, trees, and ASCII flows, filler cut. The most optional piece. | [output-style](docs/reference/output-style.md) |
+| **Discipline skills** | Seven that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing. | [skills](docs/reference/skills.md) |
+| **Git commands** | Ten verbs across commit / push / squash / PR / merge-to-base, plus CI watch, branch cleanup, worktrees, reminders. | [commands](docs/reference/commands.md) |
+| **Persistent profile** | `~/.claude/.atomic/profile.md`: who you are plus auto-detected dev tooling, read every session, refreshed on a staleness check. | [concepts](docs/reference/concepts.md) |
+
+### And the replies take the right shape
+
+A paragraph is one instrument, not the only one. When an answer has parts that sequence, compare, or nest, the output style reaches for the form that shows that structure directly. Same question, same model, same facts, default Claude Code vs. Atomic Claude.
+
+A sequence becomes a flow:
+
+**Default Claude Code:**
+```
+When a request arrives it first passes through the rate limiter, which checks
+the client IP against a sliding window. If that allows it, the authentication
+middleware reads the bearer token from the Authorization header and verifies
+its signature and expiry. With a valid token, the authorization layer loads the
+user's roles and checks them against the route's required permissions before
+the handler finally runs.
+```
+
+**Atomic Claude:**
+```
+request
+  → rate limit ... sliding window per IP
+  → authn ........ verify bearer: signature + expiry
+  → authz ........ load roles, check route perms
+  → handler
+```
+
+A comparison becomes a table:
+
+**Default Claude Code:**
+```
+If you just want to record work locally, use /commit-only, which stages and
+commits without pushing. When you also want it on the remote, /commit-and-push
+does both. To open a pull request as well, reach for /commit-and-pr, which
+commits, pushes, and opens the PR. And to merge straight into the base branch,
+/commit-and-merge handles the whole path.
+```
+
+**Atomic Claude:**
+```
+verb               push  PR   merge
+────────────────   ────  ───  ─────
+/commit-only        no   no    no
+/commit-and-push    yes  no    no
+/commit-and-pr      yes  yes   no
+/commit-and-merge   yes   –    yes
+```
+
+Same facts every time. The shape does the explaining.
 
 
-## Reference
+## Pick your depth
+
+Lost? Run `/atomic-help` in any repo — it reads your git state and names one next command. `/atomic-help tour` walks the whole system in four stages. Otherwise:
+
+| # | Adopt | Do this |
+|---|-------|---------|
+| 1 | Structured replies | Install, activate the output style via `/config`. Everything else is optional. |
+| 2 | A repo explorer | `/atomic-setup` + `/refresh-signals`. Claude stops hallucinating build commands. |
+| 3 | A symbol-aware assistant | `atomic code index`, then `atomic code explore "<question>"` returns a digest of symbols, files, and call edges in one query. |
+| 4 | The full loop, or autopilot | Read the [workflow reference](docs/reference/workflow.md). |
+
+
+## ⬇️ Installation
+
+Two commands. The first downloads the `atomic` binary (macOS / Linux / WSL2):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
+```
+
+The second wires up the artifact bundle into `~/.claude/`:
+
+```bash
+atomic claude install
+```
+
+Activate the output style with `/config` then Output style then Atomic, and you're set.
+
+For prereqs, flags, existing `~/.claude/CLAUDE.md` handling, updates, Docker evaluation, and uninstall: [docs/guides/install.md](docs/guides/install.md).
+
+
+## 💭 Contributing & feedback
+
+Atomic Claude dogfoods itself: the root artifacts are both the live config and the bundle source. Bugs and ideas are welcome via [Issues](https://github.com/damusix/atomic-claude/issues). To work on the config, see [docs/guides/contributing.md](docs/guides/contributing.md).
+
+
+## 📖 Further reading
 
 | Topic | Link |
 |-------|------|
@@ -179,11 +264,6 @@ From here: `/atomic-plan` opens the spec, `/worktree-start` isolates the branch,
 | Contributing | [docs/guides/contributing.md](docs/guides/contributing.md) |
 | Credits | [docs/credits.md](docs/credits.md) |
 | Specs | [docs/spec/](docs/spec/) |
-
-
-## Contributing
-
-Atomic Claude dogfoods itself. The root artifacts are both the live config and the bundle source. See [docs/guides/contributing.md](docs/guides/contributing.md).
 
 
 ## License
