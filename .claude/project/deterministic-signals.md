@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-09T22:03:34Z
+generated_at: 2026-06-09T22:49:58Z
 atomic_version: 4.1.0
 ---
 # Deterministic signals
@@ -330,7 +330,7 @@ atomic_version: 4.1.0
 │   │   ├── evaluations.md (cf4d14d, 75L, 2545ch, 2547B)
 │   │   ├── getting-started.md (bc598c2, 114L, 5040ch, 5056B)
 │   │   ├── install.md (8836cff, 132L, 6331ch, 6357B)
-│   │   └── knowledge-base.md (0e851b3, 129L, 8931ch, 9014B)
+│   │   └── knowledge-base.md (c9a9267, 137L, 10157ch, 10244B)
 │   ├── public/ (3)
 │   │   ├── CNAME (96daaff, 1L, 22ch, 22B)
 │   │   ├── logo.png (071e23b, 101L, 18608ch, 19120B)
@@ -514,7 +514,7 @@ atomic_version: 4.1.0
 
 - C: 6565619 LOC (97%), 104 files (14%)
 - Go: 98400 LOC (1%), 285 files (40%)
-- Markdown: 43898 LOC (0%), 292 files (41%)
+- Markdown: 43906 LOC (0%), 292 files (41%)
 - JSON: 2295 LOC (0%), 5 files (0%)
 - CSS: 695 LOC (0%), 1 file (0%)
 - Shell: 512 LOC (0%), 5 files (0%)

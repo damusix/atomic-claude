@@ -5,13 +5,21 @@ Atomic documents code. A [wiki](/reference/wiki-workflow) compiles a folder of r
 
 Real work is not only code. A client engagement accumulates tickets, research you wrote chasing a problem, an email thread with the one detail that explains a bug, a PDF someone sent, a Slack export, scraped pages. Atomic does not manage that material, by design. The line it draws is deliberate: atomic stays on the code side, and the non-code side is yours to direct.
 
-This guide shows how to extend the same realm into a knowledge base that holds both. The code wiki is the part atomic ships. The knowledge pipeline is a pattern you build on top of it, out of plain markdown, a realm `CLAUDE.md`, and a few commands of your own. The result is a Karpathy-style wiki: a knowledge base you compile with Claude instead of maintaining by hand.
+This guide shows how to extend the same realm into a knowledge base that holds both. One thing to keep straight as you read: almost everything below is a suggested pattern you build yourself, not a feature atomic provides. Atomic ships the code wiki and the realm walk. The rest is an example of what you can layer on top, in the same plain-markdown, deterministic-diff-plus-LLM-judgment style atomic uses, and you should adapt the folder names, scripts, and commands to your own work rather than copy them literally.
+
+| | Provided by atomic | Yours to build |
+|---|---|---|
+| **Code side** | `/refresh-wiki` documents the repos and writes everything under `wiki/` except `knowledge/`; `atomic wiki` subcommands (`linkify`, `scan`, `stale`, `mark-dirty`) maintain it. | — |
+| **Knowledge side** | — | The capture folders and their conventions, the fingerprint script, the synthesis commands, and everything in `wiki/knowledge/`. |
+| **Glue** | The realm `CLAUDE.md` walk is a Claude Code behavior atomic relies on. | The contents of that `CLAUDE.md`: your rules, paths, and conventions. |
+
+The result is a Karpathy-style wiki: a knowledge base you compile with Claude instead of maintaining by hand.
 
 
 ## The realm layout
 
 
-A realm is a folder that holds repositories and the loose material around them. It is not itself a git repository. Each member repo is one, and so is the wiki.
+A realm is a folder that holds repositories and the loose material around them. It is not itself a git repository. Each member repo is one, and so is the wiki. The layout below is one arrangement that works, not a required structure: atomic only cares about the member repos and the `wiki/` folder. The capture folders and their names are a convention you pick, so rename or drop them to fit how you already organize work.
 
 ```text
 ~/work/acme/                    the realm — not a git repo
@@ -79,9 +87,9 @@ The naive version is manual: point Claude at a file in `raw/`, tell it to distil
 ## Only reprocess what changed
 
 
-The scaling move is a fingerprint. Snapshot a SHA-256 hash of every file in a capture folder, store it as a baseline, and on the next run diff the current hashes against the baseline. Only the new and changed files need synthesis. The baseline advances only after a synthesis succeeds, so running the diff twice without synthesizing never loses the work list, and an aborted run leaves the work pending instead of marking it done.
+Atomic does not provide this step; it is a pattern you implement, borrowing the same idea atomic uses internally for signals and wiki staleness. The move is a fingerprint. Snapshot a SHA-256 hash of every file in a capture folder, store it as a baseline, and on the next run diff the current hashes against the baseline. Only the new and changed files need synthesis. The baseline advances only after a synthesis succeeds, so running the diff twice without synthesizing never loses the work list, and an aborted run leaves the work pending instead of marking it done.
 
-This is the same idea atomic uses for signals and wiki staleness, applied to your capture folders. A small script is enough:
+One layout that works, though the details are yours to decide:
 
 ```text
 research/.fingerprints/
@@ -96,7 +104,7 @@ The script computes `current.sha256`, diffs it against `baseline.sha256`, and re
 ## Wiring it into commands
 
 
-Wrap the flow in commands of your own so it is one keystroke, not a recited procedure. Put them in the realm's `.claude/commands/`. A research-synthesis command does this:
+Wrap the flow in commands of your own so it is one keystroke, not a recited procedure. These are commands you write and put in the realm's `.claude/commands/`; atomic does not ship them. A research-synthesis command could do this:
 
 1. Run the fingerprint script against `research/` and read the new and changed files.
 2. Distill each into `wiki/knowledge/<slug>.md`, cross-linking related entries and the repo signals they touch.
