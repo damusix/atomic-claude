@@ -127,3 +127,5 @@ Built across 6 checkpoints + 1 polish pass via `/subagent-implementation` (8 loo
 **Follow-on scope (not part of this spec):** extending embedded extraction to the remaining engine languages (Ruby, Java, Rust, C#, etc.) — to be planned separately. The harvester registry and `StringLiteralSpan` seam already generalize for it.
 
 **Squashed to b439d18 — 2026-06-10.** Per-iteration SHAs above are historical (unreachable from any branch). All seven deferred items listed above were subsequently fixed in the followup-hardening batch (see `docs/spec/followup-hardening.md`); only the separate Vue/Svelte node-ID staleness (`followup-hardening-f-4`) remains open.
+
+**Squashed to 19b4782 — 2026-06-10.** Branch re-squashed (original feature + followup-hardening + the 16-language expansion) into a single commit; per-iteration SHAs above are historical and unreachable from any branch.

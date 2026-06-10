@@ -139,3 +139,5 @@ Built via `/autopilot` (the `/subagent-implementation` loop), 8 iterations (each
 - Per-grammar string shapes split three ways (content-child, inline, heredoc), unified into two harvest branches (content-descendant reconstruction vs. inline text with byte-range interpolation substitution + delimiter stripping). Node kinds were probed from the live grammars rather than guessed.
 
 **Deferred items still open:** none — every reviewer finding (blocking and non-blocking) was addressed in-iteration per the autopilot contract. The Go/Python/TS/TSX bespoke harvesters were deliberately left on their existing tested paths (a documented non-goal, not a deferral); unifying them onto the generic harvester remains available as future work.
+
+**Squashed to 19b4782 — 2026-06-10.** Branch re-squashed (original feature + followup-hardening + the 16-language expansion) into a single commit; per-iteration SHAs above are historical and unreachable from any branch.

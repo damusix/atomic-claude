@@ -114,3 +114,5 @@ CP1 (commit `217091f`) implemented the newline-padding fix. The reviewer verifie
 - Changed: CP6 scope extended to remove dead `offsetResult` (+ stale-comment rewording in the CP1 files). Est. files 3–4 → 5–6.
 - Changed: Non-goals clarifies the Vue/Svelte path uses inline `contentLineOffset`, not `offsetResult`.
 - Superseded: prior text asserting Vue/Svelte are offsetResult consumers (factually wrong; they inline their offset).
+
+**Squashed to 19b4782 — 2026-06-10.** Branch re-squashed (original feature + followup-hardening + the 16-language expansion) into a single commit; per-iteration SHAs above are historical and unreachable from any branch.
