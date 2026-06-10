@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-06-10T14:40:42Z
-atomic_version: 4.2.0
+generated_at: 2026-06-10T18:30:21Z
+atomic_version: dev
 ---
 # Deterministic signals
 
@@ -220,8 +220,8 @@ atomic_version: 4.2.0
 │   │   │   └── repoctx_test.go (560fe5b, 100L, 2725ch, 2727B)
 │   │   ├── selfupdate/ (4)
 │   │   │   ├── cache.go (6c93723, 65L, 1662ch, 1662B)
-│   │   │   ├── selfupdate.go (1f21398, 498L, 14201ch, 14209B)
-│   │   │   ├── selfupdate_test.go (d4e8945, 759L, 20754ch, 20758B)
+│   │   │   ├── selfupdate.go (1423596, 503L, 14558ch, 14566B)
+│   │   │   ├── selfupdate_test.go (e08c3f9, 845L, 23214ch, 23220B)
 │   │   │   └── semver.go (1730544, 95L, 2333ch, 2335B)
 │   │   ├── signals/ (8)
 │   │   │   ├── testdata/ (0 files, 1 dir)
@@ -273,7 +273,7 @@ atomic_version: 4.2.0
 │   │       └── wiki_test.go (dd792c7, 715L, 22145ch, 22201B)
 │   ├── test/ (1)
 │   │   └── install_sh_test.go (dfa131f, 229L, 6304ch, 6310B)
-│   ├── CHANGELOG.md (3897caf, 274L, 16269ch, 16277B)
+│   ├── CHANGELOG.md (f07445b, 282L, 16685ch, 16693B)
 │   ├── Makefile (d68669b, 31L, 751ch, 751B)
 │   ├── go.mod (d0b6c75, 60L, 2542ch, 2542B)
 │   └── go.sum (d9f8407, 145L, 13162ch, 13162B)
@@ -521,7 +521,7 @@ atomic_version: 4.2.0
 ├── package-lock.json (6fe371e, 2254L, 91385ch, 91385B)
 ├── package.json (df17f35, 15L, 373ch, 373B)
 ├── release-please-config.json (fc8b307, 15L, 419ch, 419B)
-└── release-please-manifest.json (ef47908, 3L, 24ch, 24B)
+└── release-please-manifest.json (5c09461, 3L, 24ch, 24B)
 
 ## Manifests
 
@@ -533,8 +533,8 @@ atomic_version: 4.2.0
 ## Languages
 
 - C: 6565619 LOC (97%), 104 files (13%)
-- Go: 105899 LOC (1%), 308 files (41%)
-- Markdown: 44939 LOC (0%), 302 files (40%)
+- Go: 105990 LOC (1%), 308 files (41%)
+- Markdown: 44947 LOC (0%), 302 files (40%)
 - JSON: 2295 LOC (0%), 5 files (0%)
 - Shell: 775 LOC (0%), 6 files (0%)
 - CSS: 695 LOC (0%), 1 file (0%)
