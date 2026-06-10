@@ -18,7 +18,8 @@ func resolveClaudeHome() (string, error) {
 
 // applyInstallRepair runs claudeinstall.Install (which is idempotent) against ~/.claude.
 // This mirrors `atomic claude install --merge` behavior: unchanged files are no-ops,
-// changed files get backed up and overwritten, CLAUDE.md gets the proposed-file treatment.
+// changed files get backed up and overwritten, CLAUDE.md gets block-aware handling
+// (in-place <atomic> block replacement, or the proposed-file path when no block parses).
 func applyInstallRepair(targetDir string) error {
 	plan, err := claudeinstall.Install(targetDir, false, claudeinstall.RealClock)
 	if err != nil {

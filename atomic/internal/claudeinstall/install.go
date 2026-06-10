@@ -42,6 +42,10 @@ const (
 	ActionUpdated       ActionKind = "updated"
 	ActionUnchanged     ActionKind = "unchanged"
 	ActionMergeRequired ActionKind = "merge_required"
+	// ActionBlockReplaced: CLAUDE.md only — the on-disk file carries an
+	// <atomic> block that differs from the embedded one. The block is
+	// replaced in place; user content outside it is preserved.
+	ActionBlockReplaced ActionKind = "block_replaced"
 )
 
 // FileAction describes the planned or executed action for one artifact.
@@ -88,8 +92,21 @@ func planArtifact(targetDir string, a embedded.Artifact) (FileAction, error) {
 		return FileAction{Artifact: a, Kind: ActionUnchanged}, nil
 	}
 
-	// Differs. CLAUDE.md gets the proposed-file treatment.
+	// Differs. CLAUDE.md is block-aware: the <atomic>...</atomic> block is
+	// atomic-owned, everything outside is user-owned. When both sides carry a
+	// parseable block, compare and replace only the block — user content
+	// outside it never causes drift or a merge. The proposed-file + LLM merge
+	// path remains only for files without a parseable block (pre-tag installs,
+	// malformed tags) where code cannot draw the ownership boundary safely.
 	if a.Target == "CLAUDE.md" {
+		embBlock, embOK := extractAtomicBlock(string(embeddedData))
+		diskBlock, diskOK := extractAtomicBlock(string(diskData))
+		if embOK && diskOK {
+			if embBlock == diskBlock {
+				return FileAction{Artifact: a, Kind: ActionUnchanged}, nil
+			}
+			return FileAction{Artifact: a, Kind: ActionBlockReplaced}, nil
+		}
 		proposedPath := config.ProposedCLAUDEMD(targetDir)
 		return FileAction{Artifact: a, Kind: ActionMergeRequired, ProposedPath: proposedPath}, nil
 	}
@@ -108,7 +125,7 @@ func Apply(targetDir string, plan []FileAction, dryRun bool, clock Clock) error 
 	// Compute the backup timestamp only when there are updates to make.
 	var backupTimestamp string
 	for _, fa := range plan {
-		if fa.Kind == ActionUpdated {
+		if fa.Kind == ActionUpdated || fa.Kind == ActionBlockReplaced {
 			backupTimestamp = formatTimestamp(runStart)
 			break
 		}
@@ -224,6 +241,34 @@ func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp 
 		}
 		return os.WriteFile(proposedPath, embeddedData, 0o644)
 
+	case ActionBlockReplaced:
+		backupPath := filepath.Join(config.BackupDir(targetDir), backupTimestamp, filepath.FromSlash(fa.Artifact.Target))
+		fa.BackupPath = backupPath
+		if dryRun {
+			return nil
+		}
+		existing, err := os.ReadFile(onDiskPath)
+		if err != nil {
+			return fmt.Errorf("read existing for backup %s: %w", onDiskPath, err)
+		}
+		embBlock, ok := extractAtomicBlock(string(embeddedData))
+		if !ok {
+			return fmt.Errorf("embedded %s has no parseable <atomic> block", fa.Artifact.Target)
+		}
+		merged, ok := replaceAtomicBlock(string(existing), embBlock)
+		if !ok {
+			// Plan saw a parseable block; the file changed between plan and
+			// apply. Fail loud rather than guessing the boundary.
+			return fmt.Errorf("%s lost its parseable <atomic> block between plan and apply", onDiskPath)
+		}
+		if err := os.MkdirAll(filepath.Dir(backupPath), 0o755); err != nil {
+			return fmt.Errorf("mkdir backup: %w", err)
+		}
+		if err := os.WriteFile(backupPath, existing, 0o644); err != nil {
+			return fmt.Errorf("write backup %s: %w", backupPath, err)
+		}
+		return os.WriteFile(onDiskPath, []byte(merged), 0o644)
+
 	case ActionUnchanged:
 		// Nothing to do.
 		return nil
@@ -322,9 +367,14 @@ func Diff(targetDir string) ([]DiffRow, error) {
 			return nil, fmt.Errorf("read on-disk %s: %w", onDiskPath, err)
 		}
 
-		if hexSHA256(embeddedData) == hexSHA256(diskData) {
+		switch {
+		case hexSHA256(embeddedData) == hexSHA256(diskData):
 			rows = append(rows, DiffRow{Status: DiffMatch, Artifact: a})
-		} else {
+		case a.Target == "CLAUDE.md" && atomicBlocksEqual(embeddedData, diskData):
+			// Merged CLAUDE.md: user content outside the <atomic> block is
+			// expected and is not drift. Only a stale block differs.
+			rows = append(rows, DiffRow{Status: DiffMatch, Artifact: a})
+		default:
 			rows = append(rows, DiffRow{Status: DiffDiffer, Artifact: a})
 		}
 	}
@@ -356,7 +406,7 @@ func List() []ListRow {
 
 // Report renders the final summary for install/update.
 func Report(plan []FileAction, targetDir string) string {
-	var installed, updated, unchanged, mergeRequired []FileAction
+	var installed, updated, unchanged, mergeRequired, blockReplaced []FileAction
 
 	for _, fa := range plan {
 		switch fa.Kind {
@@ -368,6 +418,8 @@ func Report(plan []FileAction, targetDir string) string {
 			unchanged = append(unchanged, fa)
 		case ActionMergeRequired:
 			mergeRequired = append(mergeRequired, fa)
+		case ActionBlockReplaced:
+			blockReplaced = append(blockReplaced, fa)
 		}
 	}
 
@@ -375,7 +427,7 @@ func Report(plan []FileAction, targetDir string) string {
 	// BackupPath shape: <targetDir>/.atomic/backups/<timestamp>/<relpath>
 	// We want: <targetDir>/.atomic/backups/<timestamp>
 	backupDir := ""
-	for _, fa := range updated {
+	for _, fa := range append(append([]FileAction{}, updated...), blockReplaced...) {
 		if fa.BackupPath != "" {
 			// The relpath inside BackupPath matches fa.Artifact.Target, so strip it off.
 			rel := filepath.FromSlash(fa.Artifact.Target)
@@ -410,6 +462,13 @@ func Report(plan []FileAction, targetDir string) string {
 		fmt.Fprintf(&sb, "\nUnchanged (%d):\n", len(unchanged))
 		for _, fa := range unchanged {
 			fmt.Fprintf(&sb, "  • %s\n", fa.Artifact.Target)
+		}
+	}
+
+	if len(blockReplaced) > 0 {
+		fmt.Fprintf(&sb, "\nUpdated <atomic> block (%d, backed up to %s/):\n", len(blockReplaced), backupDir)
+		for _, fa := range blockReplaced {
+			fmt.Fprintf(&sb, "  ↻ %s (your content outside <atomic> preserved)\n", fa.Artifact.Target)
 		}
 	}
 

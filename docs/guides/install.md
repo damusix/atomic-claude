@@ -94,9 +94,11 @@ atomic config set update.run_doctor false
 
 ## If you already have a CLAUDE.md
 
-The installer will not overwrite it. Instead, it writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and tells you to run `/atomic-claude-merge` from any Claude Code session.
+If your file already contains an `<atomic>...</atomic>` block from a prior install, the installer updates that block in place and leaves everything outside it alone. Your own sections are never touched, and a file whose block is current does not count as drift in `atomic claude diff` or `atomic doctor`. The previous version is backed up to `~/.claude/.atomic/backups/` before any change.
 
-That command shows a diff, lets you accept or edit, and backs up your previous file. Your instructions are preserved; duplicates are resolved.
+If your file has no `<atomic>` block yet (a pre-block install, or hand-edited tags), the installer will not overwrite it. Instead, it writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and tells you to run `/atomic-claude-merge` from any Claude Code session.
+
+That command shows a diff, lets you accept or edit, and backs up your previous file. Your instructions are preserved; duplicates are resolved. After this one-time merge wraps the atomic content in `<atomic>` tags, future updates apply on their own.
 
 
 ## Manual install

@@ -33,10 +33,10 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
 | C | 6565619 | 104 | 13% |
-| Go | 105899 | 308 | 41% |
-| Markdown | 44939 | 302 | 40% |
-| JSON | 2295 | 5 | 0% |
-| Shell | 775 | 6 | 0% |
+| Go | 106432 | 311 | 41% |
+| Markdown | 45077 | 303 | 40% |
+| JSON | 2298 | 5 | 0% |
+| Shell | 837 | 7 | 0% |
 | CSS | 695 | 1 | 0% |
 | YAML | 210 | 6 | 0% |
 | TypeScript | 205 | 3 | 0% |
@@ -94,7 +94,11 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 
 **`atomic signals stale` exit-code contract**: returns `(StaleInfo, error)`. Exit 0 = fresh; exit 1 = stale (stdout has imperative evidence lines); exit 2 = hard error (binary absent, scan failed, etc.). Spec: [`docs/spec/atomic-binary.md`](../../docs/spec/atomic-binary.md).
 
+**`<atomic>` block-aware CLAUDE.md handling (bundle domain)**: [`atomic/internal/claudeinstall/atomicblock.go`](../../atomic/internal/claudeinstall/atomicblock.go) parses the single `<atomic>...</atomic>` block in CLAUDE.md (line-anchored tag matching, mirrors the `<wikis>` block parser). `planArtifact` now classifies CLAUDE.md as `ActionBlockReplaced` (in-place block swap, user content outside preserved byte-for-byte) when both on-disk and embedded carry a parseable block; `ActionMergeRequired` (proposed-file + `/atomic-claude-merge` LLM path) fires only when no parseable block exists. `atomicBlocksEqual` is used by `claudeinstall.Diff` and doctor check 1 to treat a merged file with a current block as a match. Specs amended: [`docs/spec/atomic-binary.md`](../../docs/spec/atomic-binary.md), [`docs/spec/install-workflow.md`](../../docs/spec/install-workflow.md).
+
 **Uninstall feature**: [`atomic/internal/claudeinstall/`](../../atomic/internal/claudeinstall) contains `snapshot.go`, `uninstall.go` + tests. Spec at [`docs/spec/uninstall.md`](../../docs/spec/uninstall.md), design at [`docs/design/uninstall.md`](../../docs/design/uninstall.md). Implements `atomic claude uninstall` — reads pre-install snapshot, computes restore plan, LLM-merges modified files.
+
+**Repo-local commands ([`.claude/commands/`](../commands))**: [`.claude/commands/triage-issues.md`](../commands/triage-issues.md) — a project-local (gitignored) slash command for issue triage; paired with [`scripts/triage-scan.sh`](../../scripts/triage-scan.sh). Not bundled, not installed to `~/.claude`.
 
 **VitePress docs site**: not part of the Go build or embedded bundle. [`package.json`](../../package.json) / [`.vitepress/config.mts`](../../.vitepress/config.mts) are purely for the public docs site. `docs.yml` workflow deploys it.
 

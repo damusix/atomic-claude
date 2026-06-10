@@ -1,10 +1,10 @@
 # Spec: install workflow (CLAUDE.md merge)
 
 
-The `atomic claude install` / `atomic claude update` binary commands handle file writes mechanically: copy embedded atomic-prefixed artifacts into `~/.claude/`, back up replaced files. They do *not* try to merge `~/.claude/CLAUDE.md` because that file is user-owned and may contain personal customization the binary cannot safely reconcile.
+The `atomic claude install` / `atomic claude update` binary commands handle file writes mechanically: copy embedded atomic-prefixed artifacts into `~/.claude/`, back up replaced files. For `~/.claude/CLAUDE.md` the binary is block-aware: when the on-disk file carries exactly one parseable `<atomic>...</atomic>` block, the binary compares and replaces only that block (backing up the whole file first) and treats user content outside the block as out of scope — no drift, no merge. See [`atomic-binary.md`](./atomic-binary.md) § CLAUDE.md handling for the deterministic path.
 
 
-Instead, the binary writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and defers the merge to a Claude Agent. This spec defines that merge surface: a slash command (`/atomic-claude-merge`), a subagent (`atomic-claude-merger`), and the conventions they follow.
+Only when the on-disk `CLAUDE.md` has no parseable `<atomic>` block (pre-tag installs, unclosed or duplicate tags) does the binary fall back to writing the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and deferring the merge to a Claude Agent. This spec defines that merge surface: a slash command (`/atomic-claude-merge`), a subagent (`atomic-claude-merger`), and the conventions they follow.
 
 
 This spec depends on [`atomic-binary.md`](./atomic-binary.md) for the install/update orchestration and the proposed-file convention.
@@ -28,7 +28,7 @@ Both ship in the embedded bundle via `atomic claude install`. They live at `~/.c
 User-initiated, always. Two paths:
 
 
-1. **After install/update**. `atomic claude install` or `atomic claude update` writes `~/.claude/.atomic/proposed/CLAUDE.md` and prints `run /atomic-claude-merge inside any Claude Code session when ready`. The user runs the slash command when they decide it's the right time — minutes later, the next day, or never.
+1. **After install/update, migration only**. When the on-disk `~/.claude/CLAUDE.md` has no parseable `<atomic>` block, `atomic claude install` or `atomic claude update` writes `~/.claude/.atomic/proposed/CLAUDE.md` and prints `run /atomic-claude-merge inside any Claude Code session when ready`. The user runs the slash command when they decide it's the right time — minutes later, the next day, or never. (Files that already carry the block are updated deterministically by the binary; no proposed file is written.)
 2. **Ad-hoc**. User types `/atomic-claude-merge` directly in any Claude Code session. Covers re-runs after aborting a prior merge, or running merges out of band.
 
 
@@ -163,7 +163,8 @@ Conflicts flagged:
 
 
 - Running `atomic claude install` for the first time on a machine with no `~/.claude/CLAUDE.md` writes the embedded version directly; `/atomic-claude-merge` is unnecessary.
-- Running `atomic claude update` after a user has edited `~/.claude/CLAUDE.md` produces `.atomic/proposed/CLAUDE.md`; `/atomic-claude-merge` produces `.atomic-merged` that preserves the user's custom sections verbatim and replaces atomic-owned sections.
+- Running `atomic claude update` against a `~/.claude/CLAUDE.md` that carries an `<atomic>` block updates the block in place (or no-ops when current) without producing `.atomic/proposed/CLAUDE.md`; user sections outside the block survive verbatim.
+- Running `atomic claude update` against a `~/.claude/CLAUDE.md` with no `<atomic>` block produces `.atomic/proposed/CLAUDE.md`; `/atomic-claude-merge` produces `.atomic-merged` that preserves the user's custom sections verbatim and replaces atomic-owned sections.
 - The user can Open editor → tweak the merged file → Accept; the accepted file becomes `~/.claude/CLAUDE.md`.
 - Abort leaves all three files in place; nothing is destroyed.
 - A second run of `/atomic-claude-merge` when no `.atomic/proposed/CLAUDE.md` exists exits cleanly with `nothing to merge`.
@@ -233,3 +234,12 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 
 
 **This branch (atomic-state-and-config) squashed onto `main` as `5c9d61c` — 2026-05-21.** Change log entry above amended via squash.
+
+
+### 2026-06-10 — Deterministic `<atomic>` block replacement; LLM merge becomes migration-only
+
+**What changed:** `atomic claude install/update` now compares and replaces the `<atomic>...</atomic>` block in `~/.claude/CLAUDE.md` deterministically (`claudeinstall` block parser, `ActionBlockReplaced`). The proposed-file + `/atomic-claude-merge` flow fires only when the on-disk file has no parseable block. `claudeinstall.Diff` (and therefore doctor check 1) treats a merged file with a current block as `match`. Intro, Trigger path 1, and success criteria rewritten accordingly.
+
+**Why:** after a completed merge, user content outside the block made every whole-file SHA compare report drift — doctor flagged `drifted: CLAUDE.md` permanently and every update forced a slow LLM merge for a boundary code can draw itself (code-over-model principle).
+
+**Superseded:** prior contract: the binary never merges CLAUDE.md; any difference produced a proposed file requiring `/atomic-claude-merge`.

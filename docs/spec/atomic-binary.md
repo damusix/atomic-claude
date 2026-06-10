@@ -129,7 +129,7 @@ Installs / updates the atomic-claude artifact bundle (CLAUDE.md, agents, command
 
 | Verb | Description |
 |------|-------------|
-| `install [--dry-run] [--target ~/.claude]` | First-time install. Writes embedded artifacts to `~/.claude/`. Refuses to touch any non-atomic-prefixed file. For an existing `~/.claude/CLAUDE.md`, writes the proposed version to `~/.claude/.atomic/proposed/CLAUDE.md` and prints instructions for the user to run `/atomic-claude-merge` themselves (see [CLAUDE.md handling](#claudemd-handling)). |
+| `install [--dry-run] [--target ~/.claude]` | First-time install. Writes embedded artifacts to `~/.claude/`. Refuses to touch any non-atomic-prefixed file. For an existing `~/.claude/CLAUDE.md`, applies block-aware handling: replaces a stale `<atomic>` block in place, or — when the file has no parseable block — writes the proposed version to `~/.claude/.atomic/proposed/CLAUDE.md` for `/atomic-claude-merge` (see [CLAUDE.md handling](#claudemd-handling)). |
 | `update [--dry-run] [--target ~/.claude]` | Refresh an existing install. Diff every embedded artifact against its on-disk counterpart, back up changed files to `~/.claude/.atomic/backups/<ISO-timestamp>/`, then overwrite. Same `CLAUDE.md` handling as `install`. |
 | `list` | Print the artifact manifest embedded in this binary version: one row per artifact (kind, name, sha256). Useful for diffing against `~/.claude` state. |
 | `diff` | Show, per artifact, whether the on-disk file matches, differs, or is absent. Read-only. Pairs with `--dry-run` for safety review. |
@@ -319,7 +319,7 @@ Per-file flow:
 3. If shas match → skip, report as `unchanged`.
 4. If on-disk file is missing → write source, report as `installed`.
 5. If on-disk file is bundle-managed (its target path appears in the bundle manifest) and differs → back up to `~/.claude/.atomic/backups/<ISO-timestamp>/<relative-path>`, then overwrite, report as `updated (backup at <path>)`.
-6. If on-disk file is `CLAUDE.md` and differs → write source to `~/.claude/.atomic/proposed/CLAUDE.md`, report as `merge required (proposed at <path>)`.
+6. If on-disk file is `CLAUDE.md` and differs → block-aware comparison. When both the embedded source and the on-disk file carry exactly one parseable `<atomic>...</atomic>` block: equal blocks → report as `unchanged` (user content outside the block is not drift); different blocks → back up the whole file to `~/.claude/.atomic/backups/<ISO-timestamp>/CLAUDE.md`, replace only the block in place, report as `block replaced`. When the on-disk file has no parseable block (pre-tag install, unclosed or duplicate tags) → write source to `~/.claude/.atomic/proposed/CLAUDE.md`, report as `merge required (proposed at <path>)`.
 7. If on-disk file does not appear in the bundle manifest and is not `CLAUDE.md` → refuse to touch, report as `skipped (not owned by atomic)`. Defensive guard against accidental writes outside the bundle.
 
 
@@ -332,7 +332,13 @@ Per-file flow:
 ### CLAUDE.md handling
 
 
-`CLAUDE.md` is user-owned global configuration. A blind overwrite would clobber user edits. The binary writes only to a sibling proposed file and stops — it never spawns Claude, never edits CLAUDE.md itself:
+`CLAUDE.md` mixes two ownership zones: the `<atomic>...</atomic>` block is atomic-owned (a versioned contract), everything outside it is user-owned. The binary draws that boundary with a line-anchored parser (a line whose trimmed content is exactly `<atomic>` opens the block, `</atomic>` closes it; inline mentions never match) and handles each zone deterministically:
+
+
+**Block path (on-disk file has exactly one parseable `<atomic>` block).** Equal blocks → no action; user content outside the block never registers as drift, in install/update, `diff`, or doctor check 1. Stale block → the binary backs up the whole file, splices the embedded block over the on-disk block byte-for-byte, and preserves everything outside it. User edits *inside* the block are overwritten (recoverable from the backup) — atomic-owned content is a versioned contract, and silently preserving divergent edits inside it would leave the user running a patched version they can't diff against upstream. No proposed file, no merge step.
+
+
+**Merge path (no parseable block — pre-tag install, unclosed or duplicate tags).** Code cannot draw the ownership boundary safely, so it defers to the LLM merge — it never spawns Claude, never edits CLAUDE.md itself:
 
 
 1. Binary writes the embedded `CLAUDE.md` content to `~/.claude/.atomic/proposed/CLAUDE.md`.
@@ -735,3 +741,12 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 **What changed:** Documented `atomic doctor` (eight-check integrity verb with `--fix` repair mode) as a new `### atomic doctor` H3 section in the CLI surface. Full behavioral contract lives at `docs/spec/atomic-doctor.md`; this section is a summary + flag table.
 
 **Why:** CP-8 of atomic-doctor implementation — wire the CLI surface into the binary's subcommand inventory so the spec inventory stays current.
+
+
+### 2026-06-10 — Block-aware CLAUDE.md handling
+
+**What changed:** Per-file flow step 6 and § CLAUDE.md handling rewritten: when the on-disk `~/.claude/CLAUDE.md` carries exactly one parseable `<atomic>...</atomic>` block, install/update compares blocks only — equal → `unchanged`, stale → backup + in-place block replacement (`block replaced`). `diff` reports `match` for merged files with a current block. The proposed-file path remains only for files without a parseable block.
+
+**Why:** whole-file SHA compare flagged permanent drift on every merged CLAUDE.md and forced a slow LLM merge on each update for a boundary code can draw deterministically.
+
+**Superseded:** prior contract: any CLAUDE.md difference → proposed file + `/atomic-claude-merge`, no exceptions.
