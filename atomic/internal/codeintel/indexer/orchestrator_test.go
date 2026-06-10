@@ -662,6 +662,189 @@ func assertNoDanglingEdges(t *testing.T, ctx context.Context, database *db.DB, n
 	}
 }
 
+// ---------------------------------------------------------------------------
+// TestEmbeddedSQLInGoFile — CP2 end-to-end
+// ---------------------------------------------------------------------------
+
+// TestEmbeddedSQLInGoFile verifies that embedded SQL in Go string literals
+// produces the expected nodes and edges in the DB.
+//
+// WHY: CP2 success criteria require that:
+//   - A .go file with CREATE TABLE in a raw/interpreted string literal produces
+//     ≥1 table node attributed to that file with file-absolute StartLine.
+//   - Embedded DML in a .go literal produces ≥1 unresolved ref owned by the
+//     enclosing host function node (or file fallback).
+//   - GetEdgesByProvenance("embedded") returns the DDL contains edges.
+//   - Standalone .sql routing is unchanged (zero-regression).
+//
+// The fixture contains:
+//   - line 5:  raw string literal with CREATE TABLE users(...) — DDL path
+//   - line 16: interpreted string literal with SELECT ... FROM users WHERE id = $1 — DML path
+//   - Both literals are inside the CreateUsersTable() function (line 3).
+func TestEmbeddedSQLInGoFile(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	// The fixture: a Go file with embedded DDL (raw string) and embedded DML
+	// (interpreted string), both inside CreateUsersTable.
+	// Line numbers (1-based):
+	//   1: package main
+	//   2: (blank)
+	//   3: func CreateUsersTable(db interface{}) {
+	//   4:     _ = `
+	//   5:         CREATE TABLE users (
+	//   6:             id SERIAL PRIMARY KEY,
+	//   7:             email TEXT NOT NULL
+	//   8:         )
+	//   9:     `
+	//  10:     _ = "SELECT id, email FROM users WHERE id = $1"
+	//  11: }
+	const goFixture = `package main
+
+func CreateUsersTable(db interface{}) {
+	_ = ` + "`" + `
+		CREATE TABLE users (
+			id SERIAL PRIMARY KEY,
+			email TEXT NOT NULL
+		)
+	` + "`" + `
+	_ = "SELECT id, email FROM users WHERE id = $1"
+}
+`
+	writeFile(t, dir, "migration.go", goFixture)
+	gitAdd(t, dir, ".")
+	gitCommit(t, dir, "init")
+
+	orch := indexer.NewOrchestrator(database, pool)
+	if err := orch.IndexAll(ctx, dir); err != nil {
+		t.Fatalf("IndexAll: %v", err)
+	}
+
+	// --- Criterion 1: at least one table node attributed to migration.go ---
+	goNodes, err := database.GetNodesInFile(ctx, "migration.go")
+	if err != nil {
+		t.Fatalf("GetNodesInFile(migration.go): %v", err)
+	}
+
+	var tableNodes []types.Node
+	for _, n := range goNodes {
+		if n.Kind == types.NodeKindTable {
+			tableNodes = append(tableNodes, n)
+		}
+	}
+	if len(tableNodes) == 0 {
+		t.Fatalf("FAIL: no table nodes found in migration.go — embedded DDL extraction not wired (CP2)")
+	}
+
+	// Verify the table node is named "users" and has a file-absolute StartLine ≥ 4
+	// (the raw string literal starts on line 4, CREATE TABLE is on line 5).
+	var usersNode *types.Node
+	for i := range tableNodes {
+		if tableNodes[i].Name == "users" {
+			usersNode = &tableNodes[i]
+			break
+		}
+	}
+	if usersNode == nil {
+		t.Fatalf("FAIL: no table node named 'users' in migration.go; got table nodes: %v", tableNodeNames(tableNodes))
+	}
+	// StartLine must be file-absolute (≥4 because the literal starts on line 4).
+	if usersNode.StartLine < 4 {
+		t.Errorf("users table StartLine=%d, want ≥4 (file-absolute; literal starts line 4)", usersNode.StartLine)
+	}
+
+	// --- Criterion 2: ≥1 unresolved ref from a node inside migration.go for DML ---
+	// The DML "SELECT id, email FROM users WHERE id = $1" should produce an
+	// UnresolvedReference. We can't query unresolved_refs by file directly here
+	// but GetUnresolvedRefs returns all rows. Check that at least one ref is from
+	// migration.go and has ReferenceName == "users".
+	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
+	if err != nil {
+		t.Fatalf("GetUnresolvedRefs: %v", err)
+	}
+	var dmlRef *types.UnresolvedReference
+	for i := range allRefs {
+		if allRefs[i].FilePath == "migration.go" && allRefs[i].ReferenceName == "users" {
+			dmlRef = &allRefs[i]
+			break
+		}
+	}
+	if dmlRef == nil {
+		t.Fatalf("FAIL: no unresolved ref for 'users' from migration.go — embedded DML not wired (CP2)")
+	}
+
+	// F-5 (tightened): the ref must be owned by the CreateUsersTable function
+	// node specifically — not just any non-empty FromNodeID, which would pass
+	// on file-node fallback too.
+	var createUsersTableNode *types.Node
+	for i := range goNodes {
+		if goNodes[i].Kind == types.NodeKindFunction && goNodes[i].Name == "CreateUsersTable" {
+			createUsersTableNode = &goNodes[i]
+			break
+		}
+	}
+	if createUsersTableNode == nil {
+		t.Fatal("FAIL: CreateUsersTable function node not found in migration.go — needed for ownership assertion (F-5)")
+	}
+	if dmlRef.FromNodeID != createUsersTableNode.ID {
+		t.Errorf("DML ref FromNodeID=%q, want CreateUsersTable node id=%q — ownership not correct (F-5)",
+			dmlRef.FromNodeID, createUsersTableNode.ID)
+	}
+	// Language must be SQL (so the provenance seam in createEdges can detect it).
+	if dmlRef.Language != types.LanguageSQL {
+		t.Errorf("DML unresolved ref Language=%q, want %q", dmlRef.Language, types.LanguageSQL)
+	}
+
+	// --- Criterion 3: embedded-provenance edges via GetEdgesByProvenance ---
+	// The DDL contains edges (table→column) are stamped with Provenance:"embedded" by CP1.
+	// After indexing, GetEdgesByProvenance("embedded") must return ≥1 edge.
+	embeddedEdges, err := database.GetEdgesByProvenance(ctx, "embedded")
+	if err != nil {
+		t.Fatalf("GetEdgesByProvenance(embedded): %v", err)
+	}
+	if len(embeddedEdges) == 0 {
+		t.Fatalf("FAIL: GetEdgesByProvenance(embedded) returned 0 edges — DDL embedded edges not stored (CP2)")
+	}
+
+	// --- Criterion 4: standalone .sql routing unchanged ---
+	// Index a .sql file and confirm it still works (zero-regression for standaloneExts).
+	writeFile(t, dir, "schema.sql", "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL);")
+	gitAdd(t, dir, "schema.sql")
+	gitCommit(t, dir, "add-sql")
+
+	if err := orch.Sync(ctx, dir); err != nil {
+		t.Fatalf("Sync after adding schema.sql: %v", err)
+	}
+
+	sqlNodes, err := database.GetNodesInFile(ctx, "schema.sql")
+	if err != nil {
+		t.Fatalf("GetNodesInFile(schema.sql): %v", err)
+	}
+	hasSQLTable := false
+	for _, n := range sqlNodes {
+		if n.Kind == types.NodeKindTable {
+			hasSQLTable = true
+			break
+		}
+	}
+	if !hasSQLTable {
+		t.Error("REGRESSION: schema.sql no longer produces a table node — standaloneExts routing broken")
+	}
+}
+
+// tableNodeNames returns the Name of each table node for error messages.
+func tableNodeNames(nodes []types.Node) []string {
+	names := make([]string, len(nodes))
+	for i, n := range nodes {
+		names[i] = n.Name
+	}
+	return names
+}
+
 // nodeIDSet returns a map of node IDs for fast lookup.
 func nodeIDSet(nodes []types.Node) map[string]bool {
 	m := make(map[string]bool, len(nodes))
@@ -677,4 +860,392 @@ func generateHelloNodeIDAtLine(t *testing.T, filePath string, line int) string {
 	t.Helper()
 	// qualified name = "Hello" (no parent scope at top level)
 	return extraction.GenerateNodeID(filePath, string(types.NodeKindFunction), "Hello", line)
+}
+
+// ---------------------------------------------------------------------------
+// TestEmbeddedSQLInPythonFile — CP3 end-to-end
+// ---------------------------------------------------------------------------
+
+// TestEmbeddedSQLInPythonFile verifies that embedded SQL in Python string literals
+// is extracted correctly per the CP3 spec:
+//
+//   - Regular-string DDL → ≥1 table node attributed to the file.
+//   - Triple-quoted DDL → ≥1 table node.
+//   - DML in a function → unresolved ref owned by the enclosing function node.
+//   - Module/class/function docstrings with SQL content → excluded (zero nodes).
+//   - f-string with interpolated table target → zero nodes, zero refs.
+//   - f-string with literal table and interpolated value → ref to "users".
+func TestEmbeddedSQLInPythonFile(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	// Fixture line layout (1-based):
+	//   1:  """Module docstring: SELECT * FROM module_secret"""
+	//   2:  (blank)
+	//   3:  CREATE_USERS = "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT NOT NULL)"
+	//   4:  (blank)
+	//   5:  TRIPLE = """
+	//   6:  CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER)
+	//   7:  """
+	//   8:  (blank)
+	//   9:  class MyService:
+	//  10:      """Class docstring: SELECT * FROM class_secret"""
+	//  11:  (blank)
+	//  12:  def do_query(conn):
+	//  13:      """Function docstring: CREATE TABLE fn_secret (id INT)"""
+	//  14:      q = "SELECT id, email FROM users WHERE active = 1"
+	//  15:      fq1 = f"SELECT a FROM {table} WHERE id = %s"
+	//  16:      fq2 = f"SELECT a FROM users WHERE id = {uid}"
+	//
+	// Expected:
+	//   - "users" table node from line 3 (regular string DDL) ✓
+	//   - "orders" table node from line 5-7 (triple-quoted DDL) ✓
+	//   - Unresolved ref to "users" from DML on line 14, owned by do_query ✓
+	//   - module_secret, class_secret, fn_secret: NOT extracted (docstrings) ✓
+	//   - fq1 (interpolated table target): zero refs ✓
+	//   - fq2 (interpolated value + literal table): ref to "users" ✓
+	const pyFixture = `"""Module docstring: SELECT * FROM module_secret"""
+
+CREATE_USERS = "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT NOT NULL)"
+
+TRIPLE = """
+CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER)
+"""
+
+class MyService:
+    """Class docstring: SELECT * FROM class_secret"""
+
+def do_query(conn):
+    """Function docstring: CREATE TABLE fn_secret (id INT)"""
+    q = "SELECT id, email FROM users WHERE active = 1"
+    fq1 = f"SELECT a FROM {table} WHERE id = %s"
+    fq2 = f"SELECT a FROM users WHERE id = {uid}"
+`
+	writeFile(t, dir, "models.py", pyFixture)
+	gitAdd(t, dir, ".")
+	gitCommit(t, dir, "init")
+
+	orch := indexer.NewOrchestrator(database, pool)
+	if err := orch.IndexAll(ctx, dir); err != nil {
+		t.Fatalf("IndexAll: %v", err)
+	}
+
+	pyNodes, err := database.GetNodesInFile(ctx, "models.py")
+	if err != nil {
+		t.Fatalf("GetNodesInFile(models.py): %v", err)
+	}
+
+	// --- Criterion 1: regular-string DDL → table node "users" ---
+	var usersNode *types.Node
+	for i := range pyNodes {
+		if pyNodes[i].Kind == types.NodeKindTable && pyNodes[i].Name == "users" {
+			usersNode = &pyNodes[i]
+			break
+		}
+	}
+	if usersNode == nil {
+		t.Fatalf("FAIL: no table node 'users' from regular-string DDL (line 3) — CP3 not wired")
+	}
+	// StartLine must be file-absolute.
+	if usersNode.StartLine < 3 {
+		t.Errorf("users table StartLine=%d, want ≥3 (file-absolute)", usersNode.StartLine)
+	}
+
+	// --- Criterion 2: triple-quoted DDL → table node "orders" ---
+	var ordersNode *types.Node
+	for i := range pyNodes {
+		if pyNodes[i].Kind == types.NodeKindTable && pyNodes[i].Name == "orders" {
+			ordersNode = &pyNodes[i]
+			break
+		}
+	}
+	if ordersNode == nil {
+		t.Fatalf("FAIL: no table node 'orders' from triple-quoted DDL (lines 5-7) — CP3 triple-quote not wired")
+	}
+
+	// --- Criterion 3: docstrings excluded — module_secret, class_secret, fn_secret ---
+	docstringTableNames := []string{"module_secret", "class_secret", "fn_secret"}
+	for _, forbidden := range docstringTableNames {
+		for _, n := range pyNodes {
+			if n.Kind == types.NodeKindTable && n.Name == forbidden {
+				t.Errorf("FAIL: table node %q extracted from docstring — decision 4 not enforced", forbidden)
+			}
+		}
+	}
+
+	// --- Criterion 4: DML ref owned by the enclosing do_query function node (F-5) ---
+	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
+	if err != nil {
+		t.Fatalf("GetUnresolvedRefs: %v", err)
+	}
+
+	// Find the do_query function node.
+	var doQueryNode *types.Node
+	for i := range pyNodes {
+		if pyNodes[i].Kind == types.NodeKindFunction && pyNodes[i].Name == "do_query" {
+			doQueryNode = &pyNodes[i]
+			break
+		}
+	}
+	if doQueryNode == nil {
+		t.Fatal("FAIL: do_query function node not found in models.py — needed for F-5 ownership assertion")
+	}
+
+	// DML "SELECT id, email FROM users WHERE active = 1" should emit a ref to "users"
+	// owned by do_query.
+	var dmlRef *types.UnresolvedReference
+	for i := range allRefs {
+		if allRefs[i].FilePath == "models.py" &&
+			allRefs[i].ReferenceName == "users" &&
+			allRefs[i].FromNodeID == doQueryNode.ID {
+			dmlRef = &allRefs[i]
+			break
+		}
+	}
+	if dmlRef == nil {
+		t.Errorf("FAIL: no unresolved ref for 'users' from models.py owned by do_query (F-5 ownership, CP3)")
+	}
+
+	// --- Criterion 5: f-string interpolated table target → zero refs (decision 8a) ---
+	// fq1 = f"SELECT a FROM {table} WHERE id = %%s" — after substitution: no valid table
+	for _, ref := range allRefs {
+		if ref.FilePath == "models.py" && ref.ReferenceName == "table" {
+			t.Errorf("FAIL: ref to 'table' (interpolation segment) leaked — decision 8a not enforced")
+		}
+	}
+
+	// --- Criterion 6: f-string interpolated value + literal table → ref to "users" (decision 8b) ---
+	// fq2 = f"SELECT a FROM users WHERE id = {uid}" — literal "users" survives substitution
+	// ("SELECT a FROM users WHERE id = ?"), so a second distinct ref to "users" must be
+	// emitted from doQueryNode.
+	//
+	// WHY count ≥2: criterion 4 already confirmed one "users" ref from the plain DML q
+	// (line 14). If fq2 extraction is broken the count stays at 1 and this check fails —
+	// which is the correct outcome. Re-using the find-any predicate from C4 would pass
+	// even with fq2 silently missing.
+	var usersRefsFromDoQuery int
+	for i := range allRefs {
+		if allRefs[i].FilePath == "models.py" &&
+			allRefs[i].ReferenceName == "users" &&
+			allRefs[i].FromNodeID == doQueryNode.ID {
+			usersRefsFromDoQuery++
+		}
+	}
+	if usersRefsFromDoQuery < 2 {
+		t.Errorf("FAIL: want ≥2 distinct 'users' refs from doQueryNode (q DML + fq2 f-string); got %d — fq2 literal table ref not extracted (decision 8b)", usersRefsFromDoQuery)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestEmbeddedSQLInTypeScriptFile — CP4 end-to-end
+// ---------------------------------------------------------------------------
+
+// TestEmbeddedSQLInTypeScriptFile verifies that embedded SQL in TypeScript string
+// literals and template literals is extracted correctly per the CP4 spec:
+//
+//   - Plain-string DDL → ≥1 table node attributed to the file (file-absolute lines).
+//   - Template-literal DDL → ≥1 table node.
+//   - DML in a function → unresolved ref owned by the enclosing function node.
+//   - Template literal with interpolated table target → zero refs (decision 8a).
+//   - Template literal with interpolated value + literal table → ref to "users" (decision 8b).
+func TestEmbeddedSQLInTypeScriptFile(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	// Fixture line layout (1-based):
+	//   1:  // db.ts
+	//   2:  (blank)
+	//   3:  const CREATE_USERS = "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT NOT NULL)";
+	//   4:  (blank)
+	//   5:  const CREATE_ORDERS = `CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER)`;
+	//   6:  (blank)
+	//   7:  export function queryUsers(db: any, id: number) {
+	//   8:    const q = "SELECT id, email FROM users WHERE active = 1";
+	//   9:    const fq1 = `SELECT a FROM ${table} WHERE id = ?`;
+	//  10:    const fq2 = `SELECT a FROM users WHERE id = ${id}`;
+	//  11:    return db.query(q);
+	//  12:  }
+	//
+	// Expected:
+	//   - "users" table node from line 3 (plain-string DDL) ✓
+	//   - "orders" table node from line 5 (template-literal DDL) ✓
+	//   - Unresolved ref to "users" from DML on line 8, owned by queryUsers ✓
+	//   - fq1 (interpolated table target): zero refs for the identifier "table" ✓
+	//   - fq2 (interpolated value + literal table): second "users" ref from queryUsers ✓
+	const tsFixture = `// db.ts
+
+const CREATE_USERS = "CREATE TABLE users (id SERIAL PRIMARY KEY, email TEXT NOT NULL)";
+
+const CREATE_ORDERS = ` + "`" + `CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER)` + "`" + `;
+
+export function queryUsers(db: any, id: number) {
+  const q = "SELECT id, email FROM users WHERE active = 1";
+  const fq1 = ` + "`" + `SELECT a FROM ${table} WHERE id = ?` + "`" + `;
+  const fq2 = ` + "`" + `SELECT a FROM users WHERE id = ${id}` + "`" + `;
+  return db.query(q);
+}
+`
+	writeFile(t, dir, "db.ts", tsFixture)
+	gitAdd(t, dir, ".")
+	gitCommit(t, dir, "init")
+
+	orch := indexer.NewOrchestrator(database, pool)
+	if err := orch.IndexAll(ctx, dir); err != nil {
+		t.Fatalf("IndexAll: %v", err)
+	}
+
+	tsNodes, err := database.GetNodesInFile(ctx, "db.ts")
+	if err != nil {
+		t.Fatalf("GetNodesInFile(db.ts): %v", err)
+	}
+
+	// --- Criterion 1: plain-string DDL → table node "users" ---
+	var usersNode *types.Node
+	for i := range tsNodes {
+		if tsNodes[i].Kind == types.NodeKindTable && tsNodes[i].Name == "users" {
+			usersNode = &tsNodes[i]
+			break
+		}
+	}
+	if usersNode == nil {
+		t.Fatalf("FAIL: no table node 'users' from plain-string DDL (line 3) — CP4 not wired for .ts")
+	}
+	if usersNode.StartLine < 3 {
+		t.Errorf("users table StartLine=%d, want ≥3 (file-absolute)", usersNode.StartLine)
+	}
+
+	// --- Criterion 2: template-literal DDL → table node "orders" ---
+	var ordersNode *types.Node
+	for i := range tsNodes {
+		if tsNodes[i].Kind == types.NodeKindTable && tsNodes[i].Name == "orders" {
+			ordersNode = &tsNodes[i]
+			break
+		}
+	}
+	if ordersNode == nil {
+		t.Fatalf("FAIL: no table node 'orders' from template-literal DDL (line 5) — CP4 template literal not harvested")
+	}
+
+	// --- Criterion 3: DML ref owned by enclosing queryUsers function node ---
+	allRefs, err := database.GetUnresolvedRefs(ctx, 0, 0)
+	if err != nil {
+		t.Fatalf("GetUnresolvedRefs: %v", err)
+	}
+
+	// Find the queryUsers function node.
+	var queryUsersNode *types.Node
+	for i := range tsNodes {
+		if tsNodes[i].Kind == types.NodeKindFunction && tsNodes[i].Name == "queryUsers" {
+			queryUsersNode = &tsNodes[i]
+			break
+		}
+	}
+	if queryUsersNode == nil {
+		t.Fatal("FAIL: queryUsers function node not found in db.ts — needed for ownership assertion")
+	}
+
+	// DML "SELECT id, email FROM users WHERE active = 1" should emit a ref to
+	// "users" owned by queryUsers.
+	var dmlRef *types.UnresolvedReference
+	for i := range allRefs {
+		if allRefs[i].FilePath == "db.ts" &&
+			allRefs[i].ReferenceName == "users" &&
+			allRefs[i].FromNodeID == queryUsersNode.ID {
+			dmlRef = &allRefs[i]
+			break
+		}
+	}
+	if dmlRef == nil {
+		t.Errorf("FAIL: no unresolved ref for 'users' from db.ts owned by queryUsers — DML ownership not wired")
+	}
+
+	// --- Criterion 4: template-literal interpolated table target → zero refs for "table" ---
+	// fq1 = `SELECT a FROM ${table} WHERE id = ?` — after substitution: no valid table
+	var tableRefs []types.UnresolvedReference
+	for _, ref := range allRefs {
+		if ref.FilePath == "db.ts" && ref.ReferenceName == "table" {
+			tableRefs = append(tableRefs, ref)
+		}
+	}
+	if len(tableRefs) != 0 {
+		t.Errorf("FAIL: interpolated table target must yield zero refs, got %d: %+v — decision 8a not enforced for TS", len(tableRefs), tableRefs)
+	}
+
+	// --- Criterion 5: template-literal interpolated value + literal table → ref to "users" (decision 8b) ---
+	// fq2 = `SELECT a FROM users WHERE id = ${id}` — literal "users" survives substitution,
+	// so a second distinct ref to "users" must be emitted from queryUsersNode.
+	//
+	// WHY count ≥2: criterion 3 already confirmed one "users" ref from the plain DML q
+	// (line 8). If fq2 extraction is broken the count stays at 1 and this fails —
+	// which is the correct outcome. A find-any predicate would pass even with fq2 broken.
+	var usersRefsFromQueryUsers int
+	for i := range allRefs {
+		if allRefs[i].FilePath == "db.ts" &&
+			allRefs[i].ReferenceName == "users" &&
+			allRefs[i].FromNodeID == queryUsersNode.ID {
+			usersRefsFromQueryUsers++
+		}
+	}
+	if usersRefsFromQueryUsers < 2 {
+		t.Errorf("FAIL: want ≥2 distinct 'users' refs from queryUsersNode (q DML + fq2 template literal); got %d — fq2 literal table ref not extracted (decision 8b)", usersRefsFromQueryUsers)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestEmbeddedSQLInTSXFile — CP4 end-to-end (TSX grammar path)
+// ---------------------------------------------------------------------------
+
+// TestEmbeddedSQLInTSXFile verifies that the TSX grammar path works for embedded
+// SQL — same harvester logic, different grammar (.tsx extension).
+func TestEmbeddedSQLInTSXFile(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	// Minimal TSX fixture: a component that holds embedded SQL.
+	const tsxFixture = `import React from "react";
+
+const DDL = "CREATE TABLE products (id INT PRIMARY KEY, name TEXT NOT NULL)";
+
+export function ProductList() {
+  const q = ` + "`" + `SELECT id, name FROM products WHERE active = 1` + "`" + `;
+  return <div>{q}</div>;
+}
+`
+	writeFile(t, dir, "products.tsx", tsxFixture)
+	gitAdd(t, dir, ".")
+	gitCommit(t, dir, "init")
+
+	orch := indexer.NewOrchestrator(database, pool)
+	if err := orch.IndexAll(ctx, dir); err != nil {
+		t.Fatalf("IndexAll: %v", err)
+	}
+
+	tsxNodes, err := database.GetNodesInFile(ctx, "products.tsx")
+	if err != nil {
+		t.Fatalf("GetNodesInFile(products.tsx): %v", err)
+	}
+
+	// Criterion: plain-string DDL in a .tsx file → table node "products".
+	var productsNode *types.Node
+	for i := range tsxNodes {
+		if tsxNodes[i].Kind == types.NodeKindTable && tsxNodes[i].Name == "products" {
+			productsNode = &tsxNodes[i]
+			break
+		}
+	}
+	if productsNode == nil {
+		t.Fatalf("FAIL: no table node 'products' from plain-string DDL in .tsx file — CP4 not wired for .tsx")
+	}
 }

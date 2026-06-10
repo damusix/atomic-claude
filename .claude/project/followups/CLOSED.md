@@ -10,3 +10,13 @@
 - 2026-06-07 atomic-style-tree-ascii — "Add tree + ASCII diagram format to atomic output style" — *(closed 2026-06-07)*
 - 2026-06-07 atomic-update-doctor-f-1 — "`Resolved()` bool default heuristic piggybacks on intensity sentinel" — *(closed 2026-06-07)*
 - 2026-06-08 validate-checkpoint-header-drift — "atomic validate expects 4-col Checkpoints header; /atomic-plan emits 6-col, so every canonical spec fails validate" — *(closed 2026-06-08)*
+- 2026-06-10 embedded-sql-extraction — "Extract SQL embedded in host-language string literals" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-node-id-collision — "offsetResult does not regenerate Node.ID (embedded DDL node collision)" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-multiline-offset-test — "Multiline-DDL offset test uses weak < guard" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-lineoffset-test-nodeid — "LineOffset test lacks node-ID stability assertion" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-dml-gate-tightening — "Tighten embedded DML gate to cut UPDATE-verb prose false positives" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-harness-empty-index — "Corpus harness vacuous-PASS on empty index" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-ext-list-dup — "Embedded SQL ext list duplicated across pipeline + orchestrator (parity risk)" — *(closed 2026-06-10)*
+- 2026-06-10 mdlink-nested-fence — "mdlink fence toggle mishandles nested/4-backtick fences" — *(closed 2026-06-10)*
+- 2026-06-10 embedded-sql-eval-tool-nits — "Embedded SQL eval-tool nits (unused path, silent skip, rough non-Go harvester)" — *(closed 2026-06-10)*
+- 2026-06-10 gorilla-multiline-methods — "Gorilla multi-line .Methods() emits method ANY" — *(closed 2026-06-10)*

@@ -124,11 +124,7 @@ var extToLanguage = map[string]types.Language{
 	".liquid": types.LanguageLiquid,
 	// XML (MyBatis mapper)
 	".xml": types.LanguageXML,
-	// SQL (dialect-agnostic standalone extractor).
-	".sql":   types.LanguageSQL,
-	".ddl":   types.LanguageSQL,
-	".pgsql": types.LanguageSQL,
-	".mysql": types.LanguageSQL,
+	// SQL extensions are populated in init() from standalone.SQLExtensions.
 	// File-level only (no symbol extraction)
 	".yaml":       types.LanguageYAML,
 	".yml":        types.LanguageYAML,
@@ -147,6 +143,7 @@ var fileLevelOnly = map[types.Language]bool{
 // standaloneExts is the set of extensions routed to the standalone registry.
 // These extensions are a subset of extToLanguage but handled by regex-based
 // extractors rather than tree-sitter.
+// SQL extensions are populated in init() from standalone.SQLExtensions.
 var standaloneExts = map[string]bool{
 	".vue":    true,
 	".svelte": true,
@@ -154,11 +151,16 @@ var standaloneExts = map[string]bool{
 	".dfm":    true,
 	".fmx":    true,
 	".xml":    true,
-	// SQL
-	".sql":   true,
-	".ddl":   true,
-	".pgsql": true,
-	".mysql": true,
+}
+
+func init() {
+	// Populate the SQL entries in extToLanguage and standaloneExts from the
+	// canonical list in the standalone package so the two maps never diverge
+	// from standalone.NewRegistry's SQL routing.
+	for _, ext := range standalone.SQLExtensions {
+		extToLanguage[ext] = types.LanguageSQL
+		standaloneExts[ext] = true
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +174,10 @@ type Orchestrator struct {
 	pool       *extraction.Pool
 	langReg    *languages.Registry
 	standalone *standalone.Registry
+	// sqlExt is the SQLExtractor used by embeddedSQLPostPass for DDL and DML
+	// extraction from host-language string literals. It is stateless and safe
+	// for concurrent use across goroutines (no parser pool involved).
+	sqlExt *standalone.SQLExtractor
 }
 
 // NewOrchestrator creates an Orchestrator. pool must be non-nil and already
@@ -182,6 +188,7 @@ func NewOrchestrator(database *db.DB, pool *extraction.Pool) *Orchestrator {
 		pool:       pool,
 		langReg:    languages.NewRegistry(),
 		standalone: standalone.NewRegistry(pool),
+		sqlExt:     standalone.NewSQLExtractor(),
 	}
 }
 
@@ -344,6 +351,15 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 		}
 		extractor := extraction.NewTreeSitterExtractor(o.pool, tsLang, cfg)
 		result = extractor.Extract(ctx, relPath, string(src), lang)
+
+		// Embedded SQL post-pass: harvest string literals from supported host
+		// languages (Go, Python; CP4 adds TypeScript) and merge any SQL
+		// nodes/edges/refs into the result before the single store call.
+		// embeddedSQLHostExts is a positive allowlist of registered host languages;
+		// this branch is only reached for non-standalone extensions (outer else).
+		if embeddedSQLHostExts[ext] {
+			embeddedSQLPostPass(ctx, relPath, string(src), &result, o.sqlExt, o.pool)
+		}
 	}
 
 	return o.storeExtractionResult(ctx, relPath, contentHash, lang, stat, result)
@@ -416,9 +432,17 @@ func (o *Orchestrator) storeExtractionResult(
 
 		// Insert unresolved references so CP13 can resolve them later.
 		// Set file_path and language on each ref so resolution can scope matches.
+		// Language preservation: embedded SQL refs already carry Language==SQL
+		// (set by ExtractEmbeddedSQL / scanBodyEdges). We must not overwrite that
+		// with the host-file language — the provenance seam in createEdges relies
+		// on Language==SQL to stamp Provenance:"embedded" on resolved edges.
+		// For all other refs (from normal host-language extraction), Language is
+		// empty at this point, so the assignment sets it correctly.
 		for _, ref := range result.UnresolvedReferences {
 			ref.FilePath = relPath
-			ref.Language = lang
+			if ref.Language == "" {
+				ref.Language = lang
+			}
 			if err := tx.InsertUnresolvedRef(ctx, ref); err != nil {
 				return fmt.Errorf("storeExtractionResult: insert unresolved ref %s: %w", ref.ID, err)
 			}
