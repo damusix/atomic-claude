@@ -42,6 +42,7 @@ Skip any step = lying, not verifying.
 | bug fixed | run repro that failed before, see it pass now |
 | agent task complete | check VCS diff for actual changes |
 | regression test works | red → fix → green sequence verified |
+| spec/artifact changed | run `atomic validate spec` + `atomic validate config`, 0 FAIL (skip if `atomic` binary absent) |
 
 ## Verification discipline
 
@@ -51,6 +52,7 @@ Every completion claim needs a fresh command run in this turn. Watch for these m
 - Before committing or pushing — verify all signals are green
 - After a subagent reports success — check the artifacts yourself
 - Partial checks (one test out of N) are not verification — run the full suite
+- When the change touched `docs/spec/**`, `docs/design/**`, or bundled artifacts (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md`), run `atomic validate spec` (when a spec changed) and `atomic validate config`. A FAIL is a gate failure with the same standing as a failing test. **Graceful degradation:** if the `atomic` binary is not on PATH or no matching files exist, skip silently — never fail the gate on absence. (This skill ships to user repos that may not have the binary installed.)
 
 ## When tempted to skip
 

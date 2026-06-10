@@ -30,7 +30,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/atomic-improve.md", Target: "commands/atomic-improve.md", SHA256: "e1392d14ba40c34f4806b3dd268bf793c94b6d60076b5a22510f841cc9f3b56b"},
 		{Kind: "command", Source: "bundle/commands/atomic-plan.md", Target: "commands/atomic-plan.md", SHA256: "1f12f8d15d9498b51b1faf6a0123263d9db157a09415b4e59e6b86b8c65732f4"},
 		{Kind: "command", Source: "bundle/commands/atomic-setup.md", Target: "commands/atomic-setup.md", SHA256: "e71434a4815ef944df9fbe04f8cf9e99d818b0282139c3a6f1894e089705db82"},
-		{Kind: "command", Source: "bundle/commands/autopilot.md", Target: "commands/autopilot.md", SHA256: "2f47537e67c27a31f6128f5fe052306e91484e87ddfcd8f35abdb6f210b7815e"},
+		{Kind: "command", Source: "bundle/commands/autopilot.md", Target: "commands/autopilot.md", SHA256: "0f92fb2c0b65f8345be61ccae16cb7e327684267b0c01f5e6fb7ddc5eaeea963"},
 		{Kind: "command", Source: "bundle/commands/commit-and-merge.md", Target: "commands/commit-and-merge.md", SHA256: "7cce470a76140dcbc0ad7885ae4385e4ec2b8c2c0f2f8c9356c5f67b02eb2f09"},
 		{Kind: "command", Source: "bundle/commands/commit-and-pr.md", Target: "commands/commit-and-pr.md", SHA256: "7f97d58b47098d5687111bb11af33dd62d2a6bd8c8ebb524048987d109e88d53"},
 		{Kind: "command", Source: "bundle/commands/commit-and-push.md", Target: "commands/commit-and-push.md", SHA256: "b276d4a0a244ecb1e6e1dfad06fb7f7f24a9f236a281ae4180954b23b41efec2"},
@@ -54,7 +54,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/squash-and-merge.md", Target: "commands/squash-and-merge.md", SHA256: "42636abf29204e92cb6264170bded3bd67bdd52ef3412ae18d0d949bd86792f9"},
 		{Kind: "command", Source: "bundle/commands/squash-only.md", Target: "commands/squash-only.md", SHA256: "cd8cd086962b1128c5dd34bfb132e4e7b7144385cc605205c409f3b3f565ee9b"},
 		{Kind: "command", Source: "bundle/commands/subagent-diagnose.md", Target: "commands/subagent-diagnose.md", SHA256: "97c1bddac31ba0034f693f9799f8c1923c3626f6f36ef4f7d9c69798b34f04bb"},
-		{Kind: "command", Source: "bundle/commands/subagent-implementation.md", Target: "commands/subagent-implementation.md", SHA256: "dc65bd614dc72d23c376d853c175fb8382808362ae04344988ae1d1020d29671"},
+		{Kind: "command", Source: "bundle/commands/subagent-implementation.md", Target: "commands/subagent-implementation.md", SHA256: "0ca84f277a1d2d47b783b76b6787f90a930ae4b96bc86ad37a3c863c3a86d74b"},
 		{Kind: "command", Source: "bundle/commands/undo-commit.md", Target: "commands/undo-commit.md", SHA256: "7def686f1a31f3b90fdd537806e2953cc6f1d85abca630eb97089aaf148655f7"},
 		{Kind: "command", Source: "bundle/commands/watch-ci.md", Target: "commands/watch-ci.md", SHA256: "5039f000385227026cdc52e85a4863b8bc064e79d8681e65e6520a5ab71a66fa"},
 		{Kind: "command", Source: "bundle/commands/worktree-start.md", Target: "commands/worktree-start.md", SHA256: "6a5d800f4696c73572ffac6e198d100ed4885f7d6cd0bf664f307f8896eb2aa9"},
@@ -68,6 +68,6 @@ func Manifest() []Artifact {
 		{Kind: "skill", Source: "bundle/skills/atomic-prose/SKILL.md", Target: "skills/atomic-prose/SKILL.md", SHA256: "fe2cbad6c7e239949c67a3f1b681da94f6ee26e713d5b9d0572a7d5a98201d88"},
 		{Kind: "skill", Source: "bundle/skills/atomic-review/SKILL.md", Target: "skills/atomic-review/SKILL.md", SHA256: "12479e32c4f5df7f546391e3933d4dc86f281dbfdabda9cd8edf91deeb28eb11"},
 		{Kind: "skill", Source: "bundle/skills/atomic-tdd/SKILL.md", Target: "skills/atomic-tdd/SKILL.md", SHA256: "627b43f286e2c11e51c63eac3dbe337a60abc341c56ed608de5478fc83e1feb7"},
-		{Kind: "skill", Source: "bundle/skills/atomic-verify/SKILL.md", Target: "skills/atomic-verify/SKILL.md", SHA256: "33c67289fcfdb17f9306974206a89b1d6bf011a95a8e52d46658730ac35b4ab5"},
+		{Kind: "skill", Source: "bundle/skills/atomic-verify/SKILL.md", Target: "skills/atomic-verify/SKILL.md", SHA256: "3a6b19a96fceab0eb98cb23d750c5e2996eaf0b413b8a178e69b0152873dbe7b"},
 	}
 }
