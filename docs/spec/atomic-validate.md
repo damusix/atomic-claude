@@ -65,10 +65,31 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 | `atomic validate spec [paths...]` | Spec structure | `docs/spec/*.md` |
 | `atomic validate config` | Cross-reference integrity | `CLAUDE.md` + `agents/` + `commands/` + `skills/` + `claude.local.md` |
 | `atomic validate bundle` | Bundle parity | `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, `CLAUDE.md` ↔ `atomic/internal/embedded/` |
+| `atomic validate artifacts [paths...]` | Artifact CLI-flag citations (rule A1) | Full artifact corpus via `bundlemirror.Enumerate` (or explicit paths) |
 | `atomic validate` | All of the above | Whole repo |
 
 
 v1.1 adds: `atomic validate design`, `atomic validate followups`.
+
+
+### Artifact validator (rule A1)
+
+
+Scans artifact corpus for `atomic <verb> --flag` citations inside markdown inline code spans (`` `…` ``) and fenced code blocks. Source of truth is `internal/cliusage` — a structured command-surface table that also renders the binary's `--help`.
+
+
+| Rule | Behavior | Severity |
+|------|----------|----------|
+| A1 | A cited `--flag` on a resolved verb-path is not in that command's flag set and is not a universal flag (`--help`, `-h`, `--version`, `-v`, `--repo`, `--no-update-check`) | FAIL |
+
+
+**Resolution:** greedily matches the longest known verb-path prefix (handles multi-word paths such as `code search`, `signals scan`). Remaining lowercase word tokens after the matched path are treated as positional args and are not validated (covers arg-enum subcommands like `validate spec`). Citations whose verb-path does not resolve emit nothing (accepted false-negative — prevents false positives on namespace verbs with unknown subcommands).
+
+
+**Scope:** citations in bare prose outside code spans are not checked. Only citations where the first token after `atomic` is a registered top-level verb qualify.
+
+
+Honors `--json` and `--suggest` identically to the other subcommands. Included in bare `atomic validate` (whole-repo run) after bundle. In non-atomic-claude repos, runs unconditionally (unlike bundle, which is repo-dev-only).
 
 
 Path-aware dispatch: `atomic validate docs/spec/foo.md other/path.md` routes the first to `spec`, ignores (with WARN) the second.
@@ -198,8 +219,10 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 | `atomic/internal/validate/` | Subcommand dispatch, rule runners, fixture-backed tests |
 | `atomic/internal/validate/spec.go` | S0, S1, S5, S6 rules |
 | `atomic/internal/validate/config.go` | C1, C3, C5, C7, C9 rules |
+| `atomic/internal/validate/artifacts.go` | A1 rule — CLI-flag citation scanner |
 | `atomic/internal/validate/output.go` | Human + JSON formatters, `--suggest` structural templates |
 | `atomic/internal/validate/testdata/` | PASS / FAIL fixtures per rule |
+| `atomic/internal/cliusage/` | Structured command-surface table; renders `--help` Commands block; source of truth for A1 |
 | `atomic/internal/bundlespec/` | Pure predicate package: `Matches(path) bool`. Thin leaf — small, no exported types beyond predicates. Imported by `bundlemirror/mirror.go` (build) and `manifestcheck/` (runtime) |
 | `atomic/internal/manifestcheck/` | Bundle-parity diff: walks tree using `bundlespec`, compares to committed `embedded/` snapshot |
 | `atomic/internal/mdparse/` | goldmark wrapper: section bracketing (group nodes by H2), table-by-header lookup, AST inline ref extraction (CodeSpan + Link, skips FencedCodeBlock/CodeBlock subtrees) |
@@ -304,3 +327,11 @@ Closed during the build (dropped from ledger; commits cover them): F-1 (flag-aft
 **Why:** Issue #35 — `atomic validate` crashed with `bundle check failed: internal error (exit 2)` in any project that is not the atomic-claude repo itself, because bundle parity compares the working tree against the embedded source snapshot, which only exists in-repo. `manifestcheck.Compare` returned an error on the absent source and the dispatcher mapped it to exit 2. Bundle parity is a contributor/CI concern; end users running `atomic validate` in their own projects should get the spec + config checks that actually apply, not a crash.
 
 **Superseded:** Prior contract ran the bundle validator unconditionally in all three entry points (bare `validate`, `validate bundle`, `--json`), erroring out (exit 2) outside the atomic-claude repo.
+
+### 2026-06-10 — add `atomic validate artifacts` subcommand (rule A1)
+
+**What changed:** Added `atomic validate artifacts [paths...]` — a new subcommand that scans the artifact corpus for `atomic <verb> --flag` citations inside markdown code spans and fenced blocks, failing on flags that are not in the resolved command's flag set (per `internal/cliusage` surface table) and not universal flags. Source of truth is a new `internal/cliusage` structured table that also renders the binary's `--help` Commands block. The subcommand is included in bare `atomic validate` (whole-repo run) after bundle. Honors `--json` and `--suggest` identically to other subcommands. Runs in any repo (not repo-dev-only). Package layout updated: `atomic/internal/validate/artifacts.go` (A1 rule), `atomic/internal/cliusage/` (surface table). Spec: `docs/spec/validate-artifact-cli-flags.md`. Checkpoint 2 of that spec.
+
+**Why:** `atomic code … --format json` class of authoring bug — wrong flags in artifacts fail silently at author time and surface only when a user runs the example. Catches this at CI/author time. Conservative scanner: citations in bare prose are ignored; unresolved verb-paths emit nothing (false-negatives favored over false-positives).
+
+**Added to body:** `## Subcommands (v1)` table row for `artifacts`; `### Artifact validator (rule A1)` section; package layout rows for `artifacts.go` and `cliusage/`.

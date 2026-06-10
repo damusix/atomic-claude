@@ -21,3 +21,4 @@
 - 2026-06-10 embedded-sql-eval-tool-nits — "Embedded SQL eval-tool nits (unused path, silent skip, rough non-Go harvester)" — *(closed 2026-06-10)*
 - 2026-06-10 gorilla-multiline-methods — "Gorilla multi-line .Methods() emits method ANY" — *(closed 2026-06-10)*
 - 2026-06-10 autopilot-verify-omits-atomic-validate — "Verify gate omits atomic validate (autopilot shipped S5-failing spec)" — *(closed 2026-06-10)*
+- 2026-06-10 validate-artifact-cli-flag-lint — "Add atomic validate check: flag artifacts that cite atomic CLI verbs/flags the binary doesn't define (the --format-json class)" — *(closed 2026-06-10)*

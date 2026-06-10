@@ -29,11 +29,12 @@ func RunWithOutput(args []string, w io.Writer) int {
 	fs.BoolVar(&suggest, "suggest", false, "print structural templates for content-FAIL rules")
 
 	fs.Usage = func() {
-		fmt.Fprintf(w, "Usage: atomic validate [flags] [spec|config|bundle] [paths...]\n\n")
+		fmt.Fprintf(w, "Usage: atomic validate [flags] [spec|config|bundle|artifacts] [paths...]\n\n")
 		fmt.Fprintf(w, "Subcommands:\n")
-		fmt.Fprintf(w, "  spec    [paths...]  Validate spec structure (S0,S1,S5,S6)\n")
-		fmt.Fprintf(w, "  config  [paths...]  Validate cross-reference integrity (C1,C3,C5,C7,C9)\n")
-		fmt.Fprintf(w, "  bundle              Validate bundle parity vs committed embedded/\n")
+		fmt.Fprintf(w, "  spec       [paths...]  Validate spec structure (S0,S1,S5,S6)\n")
+		fmt.Fprintf(w, "  config     [paths...]  Validate cross-reference integrity (C1,C3,C5,C7,C9)\n")
+		fmt.Fprintf(w, "  bundle                 Validate bundle parity vs committed embedded/\n")
+		fmt.Fprintf(w, "  artifacts  [paths...]  Lint atomic CLI verb/flag citations in artifacts\n")
 		fmt.Fprintf(w, "\nFlags:\n")
 		fmt.Fprintln(w, "  --json     emit JSON output ({schema_version:1, findings:[...]})")
 		fmt.Fprintln(w, "  --suggest  print structural templates for content-FAIL rules")
@@ -71,9 +72,15 @@ func RunWithOutput(args []string, w io.Writer) int {
 		return runConfig(subArgs, jsonOut, suggest, w)
 	case "bundle":
 		return runBundle(subArgs, jsonOut, suggest, w)
+	case "artifacts":
+		paths, jOut, sug, ok := parseArtifactsFlags(subArgs, w)
+		if !ok {
+			return 2
+		}
+		return runArtifacts(paths, jOut || jsonOut, sug || suggest, w)
 	default:
 		fmt.Fprintf(w, "atomic validate: unknown subcommand %q\n", sub)
-		fmt.Fprintf(w, "  subcommands: spec, config, bundle\n")
+		fmt.Fprintf(w, "  subcommands: spec, config, bundle, artifacts\n")
 		return 2
 	}
 }

@@ -195,16 +195,24 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 		}
 	}
 
+	// --- Artifacts ---
+	artifactsFindings, artifactsSummary, artifactsErr := runArtifactsCollect(root)
+	if artifactsErr != 0 {
+		fmt.Fprintf(w, "atomic validate: artifacts check failed: internal error (exit %d)\n", artifactsErr)
+		return 2
+	}
+
 	// --- Aggregate ---
 	var allFindings []Finding
 	allFindings = append(allFindings, specFindings...)
 	allFindings = append(allFindings, configFindings...)
 	allFindings = append(allFindings, bundleFindings...)
+	allFindings = append(allFindings, artifactsFindings...)
 
 	aggSummary := summary{
-		Pass: specSummary.Pass + configSummary.Pass + bundleSummary.Pass,
-		Warn: specSummary.Warn + configSummary.Warn + bundleSummary.Warn,
-		Fail: specSummary.Fail + configSummary.Fail + bundleSummary.Fail,
+		Pass: specSummary.Pass + configSummary.Pass + bundleSummary.Pass + artifactsSummary.Pass,
+		Warn: specSummary.Warn + configSummary.Warn + bundleSummary.Warn + artifactsSummary.Warn,
+		Fail: specSummary.Fail + configSummary.Fail + bundleSummary.Fail + artifactsSummary.Fail,
 	}
 
 	if jsonOut {
@@ -227,6 +235,10 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 		printHeader(w, "bundle", "manifest parity")
 		printHuman(w, bundleFindings, bundleSummary, suggest)
 	}
+
+	fmt.Fprintln(w)
+	printHeader(w, "artifacts", "CLI-flag citation integrity")
+	printHuman(w, artifactsFindings, artifactsSummary, suggest)
 
 	return exitCode(aggSummary)
 }
