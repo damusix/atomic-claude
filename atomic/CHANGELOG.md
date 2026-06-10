@@ -1,5 +1,13 @@
 # Changelog
 
+## [4.3.0](https://github.com/damusix/atomic-claude/compare/v4.2.0...v4.3.0) (2026-06-10)
+
+
+### Features
+
+* **validate:** lint CLI verb/flag citations in artifacts ([09e9c27](https://github.com/damusix/atomic-claude/commit/09e9c275e04813e2418b7a1132f6336c6b8f6220))
+* **verify:** add atomic validate to ship gate ([5f2c930](https://github.com/damusix/atomic-claude/commit/5f2c930edc158393cc85b7edd0d6bfbfd63514c9))
+
 ## [4.2.0](https://github.com/damusix/atomic-claude/compare/v4.1.0...v4.2.0) (2026-06-10)
 
 
