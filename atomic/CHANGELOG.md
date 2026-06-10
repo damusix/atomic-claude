@@ -1,5 +1,17 @@
 # Changelog
 
+## [4.4.0](https://github.com/damusix/atomic-claude/compare/v4.3.0...v4.4.0) (2026-06-10)
+
+
+### Features
+
+* **install:** block-aware CLAUDE.md update and diff ([badfb90](https://github.com/damusix/atomic-claude/commit/badfb90baac0a0b3f40103d3b09bcb6275713d84))
+
+
+### Bug Fixes
+
+* **update:** strip leading v from user-facing update version strings ([64d4c0c](https://github.com/damusix/atomic-claude/commit/64d4c0c8427010d75e5dd17eceb03c948788aea8))
+
 ## [4.3.0](https://github.com/damusix/atomic-claude/compare/v4.2.0...v4.3.0) (2026-06-10)
 
 
