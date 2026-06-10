@@ -210,6 +210,97 @@ func TestLinkify_TableCell(t *testing.T) {
 	}
 }
 
+// TestLinkify_NestedFence verifies that a 4-backtick outer fence containing a
+// 3-backtick inner block is handled correctly per CommonMark rules:
+//   - The inner 3-backtick lines are NOT treated as fence boundaries.
+//   - Content inside the outer fence (including the inner block) is left literal.
+//   - A link-eligible token OUTSIDE all fences IS linkified.
+//
+// Pre-fix, the bare bool toggle flips inFence on the inner 3-backtick lines,
+// so the inner content gets linkified — this test catches that regression.
+func TestLinkify_NestedFence(t *testing.T) {
+	dir := t.TempDir()
+	// agents/atomic-builder.md must exist on disk so Linkify would linkify it
+	// if fence tracking is broken.
+	makeFile(t, dir, "agents/atomic-builder.md")
+
+	fileAbs := filepath.Join(dir, ".claude", "project", "signals.md")
+
+	// Outer fence: 4 backticks. Inner block: 3 backticks.
+	// `agents/atomic-builder.md` appears three times:
+	//   (a) inside the outer fence before the inner block (must stay literal)
+	//   (b) BETWEEN the inner 3-backtick lines (must stay literal — this is where
+	//       the bool-toggle bug exposes content: inFence flips false on the inner
+	//       opener, so content between the inner ``` lines is treated as prose)
+	//   (c) in prose below the outer fence (must be linked)
+	content := strings.Join([]string{
+		"prose before",
+		"````",
+		"inner prose `agents/atomic-builder.md` should stay literal",
+		"```",
+		"`agents/atomic-builder.md` between inner fences also literal",
+		"```",
+		"more inner content `agents/atomic-builder.md` also literal",
+		"````",
+		"prose after `agents/atomic-builder.md` should be linked",
+		"",
+	}, "\n")
+
+	got := mdlink.Linkify(content, fileAbs, dir)
+
+	// The outer fence lines must be preserved verbatim.
+	if !contains(got, "````\n") {
+		t.Errorf("outer fence opener missing from output:\n%q", got)
+	}
+
+	// All three interior occurrences must stay literal (plain backtick spans).
+	// (a) before the inner 3-backtick opener
+	if !contains(got, "inner prose `agents/atomic-builder.md` should stay literal") {
+		t.Errorf("first inner token was linkified (before inner 3-backtick opener):\n%q", got)
+	}
+	// (b) BETWEEN the inner 3-backtick lines — this is the line the bool-toggle
+	//     bug exposes as prose (inFence flips false on the inner ``` opener).
+	if !contains(got, "`agents/atomic-builder.md` between inner fences also literal") {
+		t.Errorf("token between inner fences was linkified (bool-toggle bug):\n%q", got)
+	}
+	// (c) after the inner 3-backtick closer, still inside the outer fence
+	if !contains(got, "more inner content `agents/atomic-builder.md` also literal") {
+		t.Errorf("third inner token was linkified:\n%q", got)
+	}
+
+	// Token OUTSIDE the fence must be linkified.
+	wantLink := "[`agents/atomic-builder.md`](../../agents/atomic-builder.md)"
+	if !contains(got, wantLink) {
+		t.Errorf("prose token after outer fence was NOT linkified:\ngot: %q\nwant substring: %q", got, wantLink)
+	}
+
+	// The prose-after line must contain the link, not the plain token.
+	wantAfterLine := "prose after " + wantLink + " should be linked"
+	if !contains(got, wantAfterLine) {
+		t.Errorf("prose-after line has wrong form:\ngot: %q\nwant substring: %q", got, wantAfterLine)
+	}
+}
+
+// TestLinkify_TildeFence verifies that tilde fences (~~~) are also tracked and
+// their contents are not linkified.
+func TestLinkify_TildeFence(t *testing.T) {
+	dir := t.TempDir()
+	makeFile(t, dir, "agents/atomic-builder.md")
+
+	fileAbs := filepath.Join(dir, ".claude", "project", "signals.md")
+	content := "~~~\nSee `agents/atomic-builder.md` inside tilde fence.\n~~~\nAfter `agents/atomic-builder.md` end.\n"
+	got := mdlink.Linkify(content, fileAbs, dir)
+
+	// Inside the tilde fence must not be linked.
+	if !contains(got, "~~~\nSee `agents/atomic-builder.md` inside tilde fence.\n~~~") {
+		t.Errorf("tilde fence content was modified:\n%q", got)
+	}
+	// Outside the tilde fence must be linked.
+	if !contains(got, "[`agents/atomic-builder.md`](../../agents/atomic-builder.md)") {
+		t.Errorf("prose outside tilde fence was not linked:\n%q", got)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
 }

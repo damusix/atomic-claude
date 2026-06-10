@@ -56,6 +56,67 @@ func Linkify(content, fileAbsPath, baseDir string) string {
 	return linkify(content, fileAbsPath, baseDir, nil)
 }
 
+// fenceState tracks whether we are inside a fenced code block. Per CommonMark,
+// a fence opens on a line whose trimmed content starts with a run of ≥3
+// identical fence characters (backtick “ ` “ or tilde `~`). It closes on a
+// subsequent line whose trimmed content is a run of the SAME character with
+// length ≥ the opener's length (and no other non-whitespace content after the
+// run). A shorter inner run of the same character, or any run of the other
+// character, is literal content inside the block — not a boundary.
+//
+// Zero value means "not in a fence".
+type fenceState struct {
+	char   byte // '`' or '~'; 0 when not in a fence
+	length int  // number of fence characters in the opener
+}
+
+// fenceRunLength returns the length of a leading run of ch in s, or 0 if s
+// does not start with ch.
+func fenceRunLength(s string, ch byte) int {
+	n := 0
+	for n < len(s) && s[n] == ch {
+		n++
+	}
+	return n
+}
+
+// isFenceOpener reports whether trimmed starts a new fenced code block per
+// CommonMark. Returns the fence character and run length if so, else 0,0.
+func isFenceOpener(trimmed string) (ch byte, length int) {
+	if len(trimmed) == 0 {
+		return 0, 0
+	}
+	c := trimmed[0]
+	if c != '`' && c != '~' {
+		return 0, 0
+	}
+	n := fenceRunLength(trimmed, c)
+	if n < 3 {
+		return 0, 0
+	}
+	// For backtick fences, CommonMark requires no backtick in the info string
+	// (the remainder after the run). For simplicity and correctness in our use
+	// case (we only need to skip linkification, not fully parse markdown), we
+	// accept any info string — the key invariant is the run length.
+	return c, n
+}
+
+// isCloser reports whether trimmed closes the given open fence. A closer is a
+// run of the SAME character with length ≥ the opener's length, optionally
+// followed by whitespace, and no other content.
+func isCloser(trimmed string, fs fenceState) bool {
+	if fs.char == 0 {
+		return false
+	}
+	n := fenceRunLength(trimmed, fs.char)
+	if n < fs.length {
+		return false
+	}
+	// Everything after the run must be whitespace (or end of string).
+	rest := strings.TrimRight(trimmed[n:], " \t")
+	return rest == ""
+}
+
 // linkify is the core implementation. ignored, when non-nil, is a set of tokens
 // that must stay plain text even if they resolve on disk (e.g. gitignored
 // paths). A nil set means skip-set filtering only.
@@ -65,25 +126,27 @@ func linkify(content, fileAbsPath, baseDir string, ignored map[string]bool) stri
 	var sb strings.Builder
 	sb.Grow(len(content))
 
-	inFence := false
+	var fence fenceState
 	lines := splitLines(content)
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Track fenced code block boundaries.
-		if strings.HasPrefix(trimmed, "```") {
-			inFence = !inFence
+		if fence.char == 0 {
+			// Not in a fence: check for an opener.
+			if ch, n := isFenceOpener(trimmed); ch != 0 {
+				fence = fenceState{char: ch, length: n}
+				sb.WriteString(line)
+				continue
+			}
+			// Normal prose line — linkify inline-code spans.
+			sb.WriteString(linkifyLine(line, fileDir, baseDir, ignored))
+		} else {
+			// Inside a fence: check for the closer (same char, length ≥ opener).
+			if isCloser(trimmed, fence) {
+				fence = fenceState{}
+			}
 			sb.WriteString(line)
-			continue
 		}
-
-		if inFence {
-			sb.WriteString(line)
-			continue
-		}
-
-		// Linkify inline-code spans in prose/tables/bullets.
-		sb.WriteString(linkifyLine(line, fileDir, baseDir, ignored))
 	}
 
 	return sb.String()

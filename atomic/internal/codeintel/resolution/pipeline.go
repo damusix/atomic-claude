@@ -59,6 +59,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/db"
+	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/standalone"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
@@ -758,17 +759,44 @@ func createEdges(ref types.UnresolvedReference, targetNodeID string, edgeKind ty
 			meta = b
 		}
 	}
+
+	// Embedded provenance seam: a ref produced by embedded SQL extraction
+	// carries Language==SQL but is filed under a host-language file (e.g. .go).
+	// Detect this by checking that the ref's Language is SQL but the file
+	// extension is NOT a standalone SQL extension. Standalone SQL files
+	// (.sql/.ddl/.pgsql/.mysql) produce refs with Language==SQL from the
+	// SQLExtractor.Extract path; those edges carry empty provenance (static).
+	//
+	// WHY: DDL contains edges are already stamped Provenance:"embedded" at
+	// creation time by ExtractEmbeddedSQL (CP1). DML refs produce edges here
+	// via the resolution pipeline; those edges must also carry Provenance.
+	// We do NOT touch the existing "heuristic" provenance dedup paths.
+	provenance := ""
+	if ref.Language == types.LanguageSQL && !isStandaloneSQLExt(ref.FilePath) {
+		provenance = "embedded"
+	}
+
 	return []types.Edge{
 		{
-			Source:   ref.FromNodeID,
-			Target:   targetNodeID,
-			Kind:     edgeKind,
-			Line:     ref.Line,
-			Column:   ref.Column,
-			Metadata: meta,
-			// Provenance is empty for static edges (appendix G).
+			Source:     ref.FromNodeID,
+			Target:     targetNodeID,
+			Kind:       edgeKind,
+			Line:       ref.Line,
+			Column:     ref.Column,
+			Metadata:   meta,
+			Provenance: provenance,
 		},
 	}
+}
+
+// isStandaloneSQLExt reports whether filePath has an extension that is handled
+// by the standalone SQL extractor (i.e. a "real" SQL file, not a host-language
+// file with embedded SQL). These files produce SQL refs with Language==SQL from
+// the direct extraction path; their resolved edges carry empty provenance.
+//
+// Delegates to standalone.IsSQLExt so all consumers share one canonical list.
+func isStandaloneSQLExt(filePath string) bool {
+	return standalone.IsSQLExt(filePath)
 }
 
 // ---------------------------------------------------------------------------

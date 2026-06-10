@@ -49,21 +49,22 @@ type Registry struct {
 // pool is required for Vue and Svelte (which run the JS/TS tree-sitter extractor
 // on embedded script blocks); the other formats are regex-based and ignore pool.
 func NewRegistry(pool *extraction.Pool) *Registry {
-	return &Registry{
-		entries: map[string]Extractor{
-			".vue":    NewVueExtractor(pool),
-			".svelte": NewSvelteExtractor(pool),
-			".liquid": NewLiquidExtractor(),
-			".dfm":    NewDFMExtractor(),
-			".fmx":    NewDFMExtractor(),
-			".xml":    NewMyBatisExtractor(),
-			// SQL (dialect-agnostic regex extractor; pool not required).
-			".sql":   NewSQLExtractor(),
-			".ddl":   NewSQLExtractor(),
-			".pgsql": NewSQLExtractor(),
-			".mysql": NewSQLExtractor(),
-		},
+	entries := map[string]Extractor{
+		".vue":    NewVueExtractor(pool),
+		".svelte": NewSvelteExtractor(pool),
+		".liquid": NewLiquidExtractor(),
+		".dfm":    NewDFMExtractor(),
+		".fmx":    NewDFMExtractor(),
+		".xml":    NewMyBatisExtractor(),
 	}
+	// SQL (dialect-agnostic regex extractor; pool not required).
+	// Extensions come from the canonical SQLExtensions slice so all consumers
+	// stay in sync with a single source of truth.
+	sqlExt := NewSQLExtractor()
+	for _, ext := range SQLExtensions {
+		entries[ext] = sqlExt
+	}
+	return &Registry{entries: entries}
 }
 
 // For returns the Extractor for the given file extension (e.g. ".vue"), or nil
@@ -109,32 +110,6 @@ func containsEdge(sourceID, targetID string) types.Edge {
 		Source: sourceID,
 		Target: targetID,
 		Kind:   types.EdgeKindContains,
-	}
-}
-
-// offsetResult adds lineOffset to every StartLine/EndLine in nodes,
-// every Line in edges, and every Line in unresolved references.
-// This maps script-relative line numbers back to file-relative line numbers.
-// It mutates the result in-place and returns it for convenience.
-//
-// Why: the JS/TS extractor numbers lines relative to the start of the content
-// it parsed (the script block body). The caller must add the script block's
-// start line (1-based, in the .vue/.svelte file) minus 1 to get file lines.
-func offsetResult(result *types.ExtractionResult, lineOffset int) {
-	if lineOffset == 0 {
-		return
-	}
-	for i := range result.Nodes {
-		result.Nodes[i].StartLine += lineOffset
-		result.Nodes[i].EndLine += lineOffset
-	}
-	for i := range result.Edges {
-		if result.Edges[i].Line > 0 {
-			result.Edges[i].Line += lineOffset
-		}
-	}
-	for i := range result.UnresolvedReferences {
-		result.UnresolvedReferences[i].Line += lineOffset
 	}
 }
 

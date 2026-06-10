@@ -489,8 +489,6 @@ func (r *GorillaResolver) Extract(filePath, content string) ([]types.Node, []typ
 			windowEnd = len(stripped)
 		}
 		window := stripped[matchEnd:windowEnd]
-		// Only consider if the window doesn't have a newline before ".Methods"
-		// to avoid picking up Methods from the next statement.
 		methods := extractGorillaMethods(window)
 
 		r.claimed[handlerName] = true

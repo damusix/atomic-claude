@@ -145,6 +145,36 @@ Every consumer degrades the same way: if the binary is absent, the database does
 The subagents above shell out to `atomic code … --json` and need no MCP. MCP is a separate, opt-in convenience for *your* interactive session: register `atomic code mcp` as a project-scoped server and you can ask "what calls this?" in natural language and Claude answers from the graph. Setup and the tool list are in [Code-intel MCP](/guides/code-intel-mcp).
 
 
+## Embedded SQL extraction
+
+SQL embedded in host-language string literals is extracted alongside the host file's symbols. A Go raw-string migration, a Python `db.execute(...)` call, or a TypeScript template literal containing a `CREATE TABLE` or `SELECT` statement becomes part of the graph just like a dedicated `.sql` file would.
+
+The extraction runs as a post-pass after the host language tree-sitter extraction completes. For each file, a language-specific harvester collects string literal spans (text plus file-absolute line numbers), and each span is tested against an admission gate before SQL extraction runs.
+
+**Admission gate.** A literal passes when it satisfies one of two conditions:
+
+- DDL: `CREATE TABLE|VIEW|INDEX|SEQUENCE|TRIGGER|FUNCTION|PROCEDURE|SCHEMA` followed by a valid SQL identifier.
+- DML: `SELECT`, `INSERT INTO`, `UPDATE`, `DELETE FROM`, or `MERGE INTO` as the first non-whitespace token, plus at least one structural corroboration — a comma, comparison operator, quoted string, or placeholder (`$1`, `?`, `:name`, `%s`).
+
+Prose strings like `"choose an item from the dropdown"` or `"Copied from the original repo"` do not have both a DML verb at the start and a confidence discriminator, so they are rejected without running the full SQL extractor.
+
+**What gets emitted.** DDL literals produce the same table/column/constraint/foreign-key nodes and edges as a standalone `.sql` file would. DML literals produce `UnresolvedReference` entries pointing at the tables they read or write. Those references are owned by the narrowest enclosing host-language node — the function or method containing the literal, or the file node when no containing function exists.
+
+Every edge and unresolved reference produced by this path carries `Provenance: "embedded"`. This value is distinct from the empty string (static edges) and `"heuristic"` (synthesized edges from framework resolution). Use `GetEdgesByProvenance("embedded")` to retrieve or audit them independently.
+
+Line numbers on embedded nodes and edges are file-absolute: each harvester maps the literal's position back to its line in the host file, so a `CREATE TABLE` on line 80 of a migration is recorded at line 80, not at an offset within the literal.
+
+**Interpolation handling.** Interpolation segments are replaced with the SQL placeholder `?` before the gate runs, across every language whose strings support them — Python f-strings, JavaScript and TypeScript template literals, Ruby `#{...}`, Kotlin `$name` / `${...}`, PHP `$var`, Scala `s"...$x"`, Swift `\(...)`, Dart `$x`, and C# `$"...{x}"`. When the interpolation sits in a value position (e.g. `... WHERE id = {id}`), the table name remains intact and is extracted normally. When it sits in the table-name position (e.g. `... FROM {table}`), the `FROM` clause becomes `FROM ?` after substitution — `?` is not a valid SQL identifier, so no table reference is emitted.
+
+**Python docstrings.** Python tree-sitter parsing identifies the three PEP 257 docstring positions — the first expression statement in a module body, class body, or function body. Strings at those positions are excluded from gating entirely, regardless of content.
+
+**Supported host languages.** Twenty languages. Go, Python, TypeScript, and TSX use dedicated harvesters (Python additionally excludes docstrings). The remaining sixteen share one config-driven harvester parameterized by each grammar's string-literal node kinds: C, C++, C#, Java, JavaScript, Kotlin, Lua, Luau, Objective-C, Pascal, PHP, Ruby, Rust, Scala, Swift, and Dart. Secondary string forms are covered where SQL commonly lives — C++ and Rust raw strings, Kotlin, Scala, and Swift triple-quoted blocks, PHP and Ruby heredocs, Lua long brackets, C# verbatim and interpolated strings, and Java text blocks.
+
+**Known limitations.** Multi-fragment queries assembled by concatenation (`"SELECT " + cols + " FROM t"`) are not reconstructed — only the first fragment is seen. For languages whose grammars carry string content inline rather than in a dedicated child node (Lua, Pascal, Dart, Scala, and C# verbatim strings), a DML literal that ends with an embedded quoted SQL string may have its trailing characters clipped during delimiter stripping; this affects only tokens after the table reference and never produces a spurious edge.
+
+**Standalone SQL files are unchanged.** Files with `.sql`, `.ddl`, `.pgsql`, or `.mysql` extensions route through the standalone SQL extractor as before. Embedded extraction only runs on host-language files.
+
+
 ## Getting started
 
 ```bash
