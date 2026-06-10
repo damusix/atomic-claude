@@ -86,7 +86,7 @@ Approach A. The Python/TS harvesters are provably the same walk modulo three nod
 
 ## Checkpoints
 
-| # | Checkpoint | Files / areas | Agent | Est. files | Verifies |
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|---------------|-------|------------|----------|
 | 1 | Generic harvester engine | `extraction/embedded_literals.go` (NEW), `extraction/embedded_literals_test.go` (NEW) | atomic-builder | 2 | `HarvestEmbeddedLiterals` + `EmbeddedLiteralConfig`; unit tests parsing real fixtures proving all four modes: content-child (C/Java), content-child+interp (C#/Ruby), inline (Lua/Pascal), inline+interp (Dart/Scala); delimiter stripping; file-absolute lines; f-string/template interpolation → `?` |
 | 2 | Config table + orchestrator wiring | `indexer/embedded_literals_config.go` (NEW), `indexer/embedded_sql_postpass.go`, `indexer/orchestrator.go` | atomic-builder | 3 | All 16 configs present; `init()` derives new host exts from `extToLanguage`+config (single source, no second ext list); generic harvester dispatched for new langs; go/py/ts/tsx registry entries unchanged; smoke e2e for one language per mode (e.g. Java, C#, Lua, Dart) producing embedded table node + ref with `Provenance: "embedded"` |

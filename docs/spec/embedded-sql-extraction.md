@@ -67,7 +67,7 @@ A literal passes if it satisfies a Required discriminator; DML additionally requ
 
 ## Checkpoints
 
-| # | Checkpoint | Files / areas | Agent | Est. files | Verifies |
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|-----------|---------------|-------|------------|---------|
 | 1 | SQL-side embedded entry point | `standalone/sql.go`, `standalone/` tests | atomic-builder | 3-4 | Gate (DDL + DML discriminators); DDL path emitting nodes; DML path emitting `UnresolvedReference`; `Provenance: "embedded"` on directly-created edges; line-offset mapping via `offsetResult`. Synthetic gate tests covering all four canonical corpus cases plus offset correctness. |
 | 2 | Go harvester + orchestrator post-pass | `extraction/languages/go.go`, `indexer/orchestrator.go`, `resolution/pipeline.go` (provenance seam) | atomic-builder | 5-6 | End-to-end: `.go` file with embedded DDL + DML → `table` nodes with file-absolute lines + embedded-provenance edges; ownership containment (enclosing function node or file fallback); existing tests unchanged |
