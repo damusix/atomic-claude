@@ -264,7 +264,7 @@ This makes each iteration bisectable. The next iteration's reviewer diffs agains
 
 Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 
-1. Run the full test/typecheck/lint/build suite yourself (orchestrator) to confirm green. Do NOT trust subagent claims at the finish line — invoke the `atomic-verify` skill here, which is exactly this gate.
+1. Run the full test/typecheck/lint/build suite yourself (orchestrator) to confirm green. Do NOT trust subagent claims at the finish line — invoke the `atomic-verify` skill here, which is exactly this gate. When the work touched `docs/spec/**` or `docs/design/**`, also run `atomic validate` (structural integrity) so a malformed spec fails locally instead of in CI.
 2. **Surface `FOLLOWUPS.md` to the user.** Read it, list every open `F-N` entry, and ask the user what to do with each. Four dispositions:
 
     - **`fix-now`** — run another iteration to address it.

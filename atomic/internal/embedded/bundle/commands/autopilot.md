@@ -74,7 +74,7 @@ Run the loop exactly as `/subagent-implementation` defines it — scratchpad bri
 
 ## Phase 4 — Verify
 
-Orchestrator runs the full suite itself (invoke `atomic-verify`): tests, typecheck, lint, build, render+bundle parity, and the `/atomic-help` MISSING-scan if artifacts changed. Confirm green before shipping. Do not trust subagent claims at the finish line.
+Orchestrator runs the full suite itself (invoke `atomic-verify`): tests, typecheck, lint, build, render+bundle parity, `atomic validate` (spec/design structural integrity — the repo's own validator gates CI on it, so a malformed `## Checkpoints` table or other S-rule break must fail here, not in CI), and the `/atomic-help` MISSING-scan if artifacts changed. Confirm green before shipping. Do not trust subagent claims at the finish line.
 
 ## Phase 5 — Ship gate (the one human decision)
 

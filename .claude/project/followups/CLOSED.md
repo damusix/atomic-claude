@@ -20,3 +20,4 @@
 - 2026-06-10 mdlink-nested-fence — "mdlink fence toggle mishandles nested/4-backtick fences" — *(closed 2026-06-10)*
 - 2026-06-10 embedded-sql-eval-tool-nits — "Embedded SQL eval-tool nits (unused path, silent skip, rough non-Go harvester)" — *(closed 2026-06-10)*
 - 2026-06-10 gorilla-multiline-methods — "Gorilla multi-line .Methods() emits method ANY" — *(closed 2026-06-10)*
+- 2026-06-10 autopilot-verify-omits-atomic-validate — "Verify gate omits atomic validate (autopilot shipped S5-failing spec)" — *(closed 2026-06-10)*

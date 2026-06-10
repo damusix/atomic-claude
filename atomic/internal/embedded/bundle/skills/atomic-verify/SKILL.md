@@ -39,6 +39,7 @@ Skip any step = lying, not verifying.
 | build green | run build, exit 0 |
 | lint clean | run lint, 0 errors |
 | typecheck green | run typecheck (tsc/mypy/etc), 0 errors |
+| spec/design changed | run the repo's structural validator (e.g. `atomic validate`), see 0 FAIL |
 | bug fixed | run repro that failed before, see it pass now |
 | agent task complete | check VCS diff for actual changes |
 | regression test works | red → fix → green sequence verified |
@@ -49,6 +50,7 @@ Every completion claim needs a fresh command run in this turn. Watch for these m
 
 - Before saying "done" or "fixed" — run the proof command first
 - Before committing or pushing — verify all signals are green
+- After touching a spec or design (`docs/spec/**`, `docs/design/**`) — run the repo's structural validator (`atomic validate`) so a malformed spec fails locally, not in CI
 - After a subagent reports success — check the artifacts yourself
 - Partial checks (one test out of N) are not verification — run the full suite
 
