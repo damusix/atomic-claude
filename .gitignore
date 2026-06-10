@@ -20,7 +20,8 @@ tmp/claude-home/*
 .claude/.scratchpad/
 .worktrees/
 .claude/agents/
-.claude/commands/
+.claude/commands/*
+!.claude/commands/triage-issues.md
 .claude/output-styles/
 .claude/skills/*
 !.claude/skills/atomic-cli-contrib/

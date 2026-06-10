@@ -1,4 +1,4 @@
-.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall render bundle link dev-setup
+.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall render bundle link dev-setup triage-scan
 
 .DEFAULT_GOAL := help
 
@@ -35,3 +35,6 @@ docker-up: ## Run claude in the eval container
 
 docker-shell: ## Open a bash shell in the eval container
 	docker compose run --rm --entrypoint=bash atomic-eval
+
+triage-scan: ## Classify open GitHub issues by staleness as JSON (deterministic half of /triage-issues; ISSUES="43 50" to scope)
+	@./scripts/triage-scan.sh $(ISSUES)

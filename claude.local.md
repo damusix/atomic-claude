@@ -290,6 +290,17 @@ These live under `.claude/skills/`, auto-load for sessions in this repo, and are
 | `atomic-release-ci` | "release-please CI is failing", "release branch is out of date", "release PR is red", "fix the release CI" | Diagnose + fix broken release-please branch/PR CI. Cross-references the release-please commit-type rules above (cause 3 = commit-type mislabel). |
 
 
+## Contributor-only commands
+
+
+These live under `.claude/commands/`, load as project-scoped slash commands for sessions in this repo, and are **never bundled or installed** — they are not in `templates/` and never go through `make render` / `make bundle`. Each needs an explicit negation pair in `.gitignore` (the `.claude/commands/*` line ignores the dir by default; siblings there are broken symlinks to the user's global install and stay ignored). Because they are repo-local, the global artifact checklist (CLAUDE.md registry, `/atomic-help` router, README, docs, signals) does **not** apply — the command file's own frontmatter description is the discovery surface, and the harness lists it in the slash menu.
+
+
+| Command | Purpose |
+|---------|---------|
+| `/triage-issues` | GitHub issue triage for this repo: suggest labels per issue (you approve), and a two-stage staleness lifecycle on issues waiting on the reporter — nudge (@-mention + `stale` label) at 14 days idle, close at ~30. Deterministic staleness math in `gh`+`jq`; label suggestion + comment drafting are the model's judgment; nothing applied without explicit OK. Labels `windows` / `research` / `stale` were created on `damusix/atomic-claude` to support it. |
+
+
 ## Naming
 
 - All custom artifacts use the `atomic-` prefix (`atomic-builder`, `atomic-tdd`, `atomic-commit`, etc.) so they're easy to spot among third-party installs.
