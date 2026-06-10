@@ -428,15 +428,8 @@ func (c *Client) Update(ctx context.Context, channel, currentVersion, currentBin
 		return err
 	}
 	fmt.Printf("updated atomic %s → %s.\n", currentVersion, displayVersion(rel.TagName))
-
-	// Note if claude artifact bundle may be stale.
-	home, err := os.UserHomeDir()
-	if err == nil {
-		claudeMD := filepath.Join(home, ".claude", "CLAUDE.md")
-		if _, err := os.Stat(claudeMD); err == nil {
-			fmt.Printf("note: artifact bundle may now be out of sync — run `atomic claude update` when you want to refresh it.\n")
-		}
-	}
+	// Artifact-bundle follow-up (auto-refresh or out-of-sync nudge) is owned by
+	// the runUpdate orchestration layer — selfupdate stays binary-only.
 	return nil
 }
 

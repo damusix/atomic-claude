@@ -2,7 +2,7 @@
 
 ## Goal
 
-After a successful binary swap by `atomic update`, automatically run `atomic doctor` (scoped to checks unaffected by the swap), surface FAILs only, and never block the update success path. Make stale installs visible without requiring users to remember to run `doctor`.
+After a successful binary swap by `atomic update`: first, on managed installs, automatically refresh the `~/.claude` artifact bundle; then automatically run `atomic doctor` (scoped to checks unaffected by the swap), surface FAILs only, and never block the update success path. One command updates everything; doctor verifies the refreshed state instead of flagging drift the user must fix by hand.
 
 ## Non-goals
 
@@ -46,7 +46,10 @@ flowchart TD
     A[atomic update] --> B{--check?}
     B -- yes --> C[print availability + exit]
     B -- no --> D[selfupdate.Lookup + Apply]
-    D -- success --> E{--no-doctor?}
+    D -- success --> R{managed install && !--binary-only?}
+    R -- yes --> S[re-exec NEW binary: claude update --no-update-check]
+    R -- no --> E
+    S --> E{--no-doctor?}
     E -- yes --> Z[print 'updated to vX'; exit 0]
     E -- no --> F{config update.run_doctor?}
     F -- false --> Z
@@ -58,6 +61,17 @@ flowchart TD
 ```
 
 Caption: doctor invocation is at the `runUpdate` orchestration layer, not inside the `selfupdate` package. Update success exit is unconditional once `Apply` succeeds.
+
+## Artifact auto-refresh contract
+
+Runs between the binary swap and the post-update doctor, at the `runUpdate` orchestration layer (`maybeRefreshArtifacts` in `atomic/cmd/atomic/main.go`).
+
+- **Gate (`detectManagedInstall`)**: `~/.claude/CLAUDE.md` exists AND `hooks.IsInstalled($HOME)` reports installed (inline or legacy registration). Both signals present = the user completed an install; anything less keeps `atomic update` a pure binary swap.
+- **Mechanism**: re-exec the freshly swapped binary — `<exe> claude update --no-update-check` — streaming its output. Re-exec is load-bearing: the running process still embeds the OLD bundle after the swap; an in-process `claudeinstall.Update` would install stale artifacts.
+- **Opt-out**: `--binary-only` flag skips the refresh. No config key (add one if a real need appears).
+- **Failure**: warn on stderr with `run 'atomic claude update' manually`; never changes the update exit code. Doctor still runs afterwards and surfaces real breakage.
+- **Ordering**: refresh strictly before doctor, so check 1 (install integrity) validates the refreshed state. The in-process doctor compares against the old binary's embedded manifest; any resulting skew is drift-shaped (WARN) and suppressed by the FAIL-only output rule below.
+- The refresh also re-registers/migrates the session-start hook (a side effect of `claude update`), and applies the block-aware CLAUDE.md handling from [`atomic-binary.md`](./atomic-binary.md) — merged files update in place, no LLM merge prompt.
 
 ## Config schema addition
 
@@ -111,7 +125,8 @@ FAIL lines use the same format `atomic doctor` already emits (no reformatting), 
 |------|----------|----------|
 | `--check` | yes | Unchanged; never triggers post-update doctor (no apply happened) |
 | `--channel <name>` | yes | Unchanged |
-| `--no-doctor` | **new** | Disable post-update doctor for this invocation; overrides config |
+| `--no-doctor` | yes | Disable post-update doctor for this invocation; overrides config |
+| `--binary-only` | yes | Skip the post-swap `~/.claude` artifact refresh; binary swap only |
 
 No `--verbose` flag is added by this spec. Today's `atomic update` does not have one, and post-update doctor output is deliberately FAIL-only.
 
@@ -163,7 +178,13 @@ For testability, `runUpdate` accepts a function-typed dependency `runDoctor func
 
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. -->
+### 2026-06-10 — Auto-refresh ~/.claude artifacts before doctor
+
+**What changed:** `atomic update` now detects a managed install (CLAUDE.md + session-start hook) after a successful binary swap and re-execs the new binary as `claude update --no-update-check` before firing the post-update doctor. New `--binary-only` flag opts out. Goal, architecture diagram, and CLI flags table updated; new `## Artifact auto-refresh contract` section added.
+
+**Why:** the post-update doctor flagged `~/.claude` drift the user then had to clear by running `atomic claude update` manually on every release. With deterministic `<atomic>` block replacement landed (install-workflow spec, 2026-06-10), the artifact refresh is safe to run unattended — so update can do everything and doctor verifies the end state.
+
+**Superseded:** prior contract: `atomic update` swapped the binary only; artifact refresh was always a manual follow-up step.
 
 ## Implementation log
 

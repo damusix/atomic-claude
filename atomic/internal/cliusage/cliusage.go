@@ -181,8 +181,8 @@ var commands = []Command{
 	{
 		Path:        []string{"update"},
 		Args:        "",
-		Flags:       []string{"--check", "--channel", "--no-doctor"},
-		Description: "Self-update the atomic binary",
+		Flags:       []string{"--check", "--channel", "--no-doctor", "--binary-only"},
+		Description: "Self-update the atomic binary (refreshes ~/.claude artifacts on managed installs)",
 	},
 	{
 		Path:        []string{"followups", "list"},

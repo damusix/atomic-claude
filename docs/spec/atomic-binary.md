@@ -143,9 +143,11 @@ Self-update the binary. Foreground check (not the background lookup other comman
 
 | Verb / flag | Description |
 |-------------|-------------|
-| (default) | Check GitHub Releases for the latest tag. If newer than `--version`, download the matching archive + checksum, verify SHA256, replace the running binary in place atomically (download to temp, then `rename`). On success, if `~/.claude/CLAUDE.md` exists, prints: `binary updated. note: artifact bundle may now be out of sync — run \`atomic claude update\` when you want to refresh it.` |
+| (default) | Check GitHub Releases for the latest tag. If newer than `--version`, download the matching archive + checksum, verify SHA256, replace the running binary in place atomically (download to temp, then `rename`). On success: managed installs (`~/.claude/CLAUDE.md` present AND session-start hook registered) get the artifact bundle refreshed automatically by re-execing the new binary as `claude update --no-update-check`, then the post-update doctor runs (see `docs/spec/atomic-update-doctor.md`). Unmanaged installs with a `~/.claude/CLAUDE.md` get the nudge: `note: artifact bundle may now be out of sync — run \`atomic claude update\` when you want to refresh it.` |
 | `--check` | Only check, don't apply. Exit 0 if up-to-date, exit 1 if a newer version is available (prints `update available: ...` to stdout), exit 2 on a hard error such as a network or parse failure (stderr explains). Follows the check-family exit convention — exit 1 is the "update available" signal, not an error. |
 | `--channel <stable\|prerelease>` | Default `stable` (only non-prerelease tags). `prerelease` includes RC/beta tags. |
+| `--no-doctor` | Skip the post-update doctor self-check. |
+| `--binary-only` | Skip the post-swap `~/.claude` artifact refresh; the out-of-sync nudge prints instead. |
 
 
 ### `atomic doctor`
@@ -750,3 +752,12 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 **Why:** whole-file SHA compare flagged permanent drift on every merged CLAUDE.md and forced a slow LLM merge on each update for a boundary code can draw deterministically.
 
 **Superseded:** prior contract: any CLAUDE.md difference → proposed file + `/atomic-claude-merge`, no exceptions.
+
+
+### 2026-06-10 — `atomic update` artifact auto-refresh
+
+**What changed:** `### atomic update` verb table rewritten: on managed installs (CLAUDE.md + session-start hook) a successful binary swap now auto-refreshes `~/.claude` artifacts by re-execing the new binary (`claude update --no-update-check`) before the post-update doctor. New `--no-doctor` and `--binary-only` rows. The out-of-sync nudge moved from `selfupdate.Update` to the `runUpdate` orchestration layer and prints only when the refresh did not run.
+
+**Why:** every release required a manual `atomic claude update` follow-up and doctor flagged the gap as drift. Full contract: `docs/spec/atomic-update-doctor.md` § Artifact auto-refresh contract.
+
+**Superseded:** prior contract: update swapped the binary only and always printed the out-of-sync nudge when `~/.claude/CLAUDE.md` existed.

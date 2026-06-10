@@ -571,3 +571,148 @@ func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
 		t.Errorf("prompt missing 'CLAUDE.md'")
 	}
 }
+
+// --- post-update artifact auto-refresh ---
+
+// managedHome builds a temp $HOME that looks like a completed atomic install:
+// ~/.claude/CLAUDE.md present and the session-start hook registered.
+func managedHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	claudeDir := filepath.Join(home, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, "CLAUDE.md"), []byte("# CLAUDE.md\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := hooks.Install(home, home); err != nil {
+		t.Fatalf("hooks.Install: %v", err)
+	}
+	return home
+}
+
+// TestDetectManagedInstall encodes the auto-refresh gate: only a home that
+// already carries both the claude config (CLAUDE.md) and the session-start
+// hook is treated as a managed install that `atomic update` may refresh
+// without asking. Anything less means the user never completed an install,
+// and touching ~/.claude would be presumptuous.
+func TestDetectManagedInstall(t *testing.T) {
+	t.Run("full install detected", func(t *testing.T) {
+		if !detectManagedInstall(managedHome(t)) {
+			t.Error("detectManagedInstall = false for CLAUDE.md + hooks, want true")
+		}
+	})
+
+	t.Run("hooks without CLAUDE.md", func(t *testing.T) {
+		home := t.TempDir()
+		if err := hooks.Install(home, home); err != nil {
+			t.Fatalf("hooks.Install: %v", err)
+		}
+		if detectManagedInstall(home) {
+			t.Error("detectManagedInstall = true without CLAUDE.md, want false")
+		}
+	})
+
+	t.Run("CLAUDE.md without hooks", func(t *testing.T) {
+		home := t.TempDir()
+		claudeDir := filepath.Join(home, ".claude")
+		if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(claudeDir, "CLAUDE.md"), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if detectManagedInstall(home) {
+			t.Error("detectManagedInstall = true without hooks, want false")
+		}
+	})
+
+	t.Run("empty home", func(t *testing.T) {
+		if detectManagedInstall(t.TempDir()) {
+			t.Error("detectManagedInstall = true for empty home, want false")
+		}
+	})
+}
+
+// TestMaybeRefreshArtifacts_RunsClaudeUpdate: a managed install gets its
+// ~/.claude artifacts refreshed by re-execing the NEW binary. Re-exec is
+// load-bearing: the running process still embeds the old bundle after the
+// swap, so an in-process claudeinstall.Update would install stale artifacts.
+func TestMaybeRefreshArtifacts_RunsClaudeUpdate(t *testing.T) {
+	home := managedHome(t)
+
+	var gotName string
+	var gotArgs []string
+	runCmd := func(name string, args ...string) error {
+		gotName = name
+		gotArgs = args
+		return nil
+	}
+
+	var out, errW strings.Builder
+	ran := maybeRefreshArtifacts("/usr/local/bin/atomic", home, runCmd, &out, &errW)
+	if !ran {
+		t.Fatal("maybeRefreshArtifacts = false for managed install, want true")
+	}
+	if gotName != "/usr/local/bin/atomic" {
+		t.Errorf("exec name = %q, want the new binary path", gotName)
+	}
+	want := []string{"claude", "update", "--no-update-check"}
+	if len(gotArgs) != len(want) {
+		t.Fatalf("exec args = %v, want %v", gotArgs, want)
+	}
+	for i := range want {
+		if gotArgs[i] != want[i] {
+			t.Fatalf("exec args = %v, want %v", gotArgs, want)
+		}
+	}
+	if errW.Len() != 0 {
+		t.Errorf("unexpected stderr output: %q", errW.String())
+	}
+}
+
+// TestMaybeRefreshArtifacts_SkipsUnmanaged: no managed install → no exec, no
+// output. `atomic update` on a hooks-less machine must stay a pure binary swap.
+func TestMaybeRefreshArtifacts_SkipsUnmanaged(t *testing.T) {
+	called := false
+	runCmd := func(name string, args ...string) error {
+		called = true
+		return nil
+	}
+
+	var out, errW strings.Builder
+	ran := maybeRefreshArtifacts("/usr/local/bin/atomic", t.TempDir(), runCmd, &out, &errW)
+	if ran {
+		t.Error("maybeRefreshArtifacts = true for unmanaged home, want false")
+	}
+	if called {
+		t.Error("runCmd called for unmanaged home")
+	}
+	if out.Len() != 0 || errW.Len() != 0 {
+		t.Errorf("expected silence for unmanaged home, got out=%q err=%q", out.String(), errW.String())
+	}
+}
+
+// TestMaybeRefreshArtifacts_SurfacesFailure: a failed refresh prints a
+// warning with the manual remediation and never panics — update success is
+// preserved at the caller, doctor still runs and surfaces real breakage.
+func TestMaybeRefreshArtifacts_SurfacesFailure(t *testing.T) {
+	home := managedHome(t)
+
+	runCmd := func(name string, args ...string) error {
+		return os.ErrPermission
+	}
+
+	var out, errW strings.Builder
+	ran := maybeRefreshArtifacts("/usr/local/bin/atomic", home, runCmd, &out, &errW)
+	if !ran {
+		t.Fatal("maybeRefreshArtifacts = false, want true (attempt counts as ran)")
+	}
+	if !strings.Contains(errW.String(), "artifact refresh failed") {
+		t.Errorf("stderr missing failure notice; got %q", errW.String())
+	}
+	if !strings.Contains(errW.String(), "atomic claude update") {
+		t.Errorf("stderr missing manual remediation; got %q", errW.String())
+	}
+}

@@ -58,7 +58,7 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 
 **CLI surface table ([`atomic/internal/cliusage/`](../../../atomic/internal/cliusage) — 2 files):**
 
-- `cliusage.go` — defines the complete [`atomic`](../../../atomic) command surface as structured data (`Command` type: verb-path tokens, args hint, accepted `--flags`, description). Exports `TopLevelVerbs()`, `Lookup(path)`, `RenderHelp(w)`. Two consumers: (1) `main.go` renders `--help` from it; (2) `validate artifacts` rule A1 checks artifact citations against it. Single source of truth for the command surface — callers never maintain parallel flag lists.
+- `cliusage.go` — defines the complete [`atomic`](../../../atomic) command surface as structured data (`Command` type: verb-path tokens, args hint, accepted `--flags`, description). Exports `TopLevelVerbs()`, `Lookup(path)`, `RenderHelp(w)`. Two consumers: (1) `main.go` renders `--help` from it; (2) `validate artifacts` rule A1 checks artifact citations against it. Single source of truth for the command surface — callers never maintain parallel flag lists. The `update` verb entry includes `--binary-only` (added when the artifact auto-refresh feature shipped).
 - `cliusage_test.go` — golden test pinning `--help` output; validates all top-level verbs and flag sets.
 
 **Validation suite ([`atomic/internal/validate/`](../../../atomic/internal/validate) — 16 files):**
@@ -85,7 +85,7 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 - [`docs/spec/atomic-validate.md`](../../../docs/spec/atomic-validate.md) — `atomic validate` subcommand contract (S0/S1/S5/S6, C1/C3/C5/C7/C9, A1 checks).
 - [`docs/spec/validate-artifact-cli-flags.md`](../../../docs/spec/validate-artifact-cli-flags.md) — A1 rule contract: `internal/cliusage` surface table, `validate artifacts` subcommand, scanner rules, known scope limits. Design: [`docs/design/validate-artifact-cli-flags.md`](../../../docs/design/validate-artifact-cli-flags.md).
 - [`docs/spec/verify-gate-validate.md`](../../../docs/spec/verify-gate-validate.md) — `atomic validate` integration with the `atomic-verify` skill: when and how `/commit-only` and `/subagent-implementation` gate on validate output. Design: [`docs/design/verify-gate-validate.md`](../../../docs/design/verify-gate-validate.md).
-- [`docs/spec/atomic-update-doctor.md`](../../../docs/spec/atomic-update-doctor.md) — post-update doctor auto-fire contract. Specifies skip indices `[3, 8]`, panic recovery, exit code preservation.
+- [`docs/spec/atomic-update-doctor.md`](../../../docs/spec/atomic-update-doctor.md) — post-update doctor auto-fire contract. Specifies skip indices `[3, 8]`, panic recovery, exit code preservation. Amended to add "Artifact auto-refresh contract": `maybeRefreshArtifacts` re-execs the new binary as `<exe> claude update --no-update-check`; `detectManagedInstall` gates on `~/.claude/CLAUDE.md` + session-start hook; `--binary-only` skips refresh; refresh failure warns and never blocks update success.
 - [`docs/design/atomic-doctor.md`](../../../docs/design/atomic-doctor.md) — design rationale for the 9-check architecture.
 - [`docs/design/atomic-validate.md`](../../../docs/design/atomic-validate.md) — design rationale for the validate subcommand.
 - [`docs/spec/user-profile.md`](../../../docs/spec/user-profile.md) — contract for the user profile feature: schema, sections, `<stable>`/`<volatile>`/`<deterministic>` tag semantics, install-time stub generation.

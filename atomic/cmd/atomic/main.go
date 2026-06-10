@@ -4,7 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -240,13 +242,15 @@ func doctorProjectName() string {
 
 func runUpdate(args []string) {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
-	cliutil.SetUsage(fs, "atomic update [--check] [--channel stable|prerelease] [--no-doctor]")
+	cliutil.SetUsage(fs, "atomic update [--check] [--channel stable|prerelease] [--no-doctor] [--binary-only]")
 	var check bool
 	var channel string
 	var noDoctor bool
+	var binaryOnly bool
 	fs.BoolVar(&check, "check", false, "only check if an update is available; do not apply")
 	fs.StringVar(&channel, "channel", "stable", "release channel: stable or prerelease")
 	fs.BoolVar(&noDoctor, "no-doctor", false, "skip post-update doctor self-check")
+	fs.BoolVar(&binaryOnly, "binary-only", false, "skip the ~/.claude artifact refresh after the binary swap")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
@@ -289,6 +293,24 @@ func runUpdate(args []string) {
 		os.Exit(1)
 	}
 
+	// Auto-refresh ~/.claude artifacts when this machine already carries a
+	// completed install (CLAUDE.md + session-start hook), so doctor below runs
+	// against the refreshed state instead of flagging drift the user then has
+	// to fix by hand. Best-effort: a refresh failure warns and never blocks
+	// the update success path. When the refresh doesn't run (unmanaged
+	// install or --binary-only), fall back to the out-of-sync nudge.
+	if home, herr := os.UserHomeDir(); herr == nil {
+		refreshed := false
+		if !binaryOnly {
+			refreshed = maybeRefreshArtifacts(exe, home, defaultRunCmd, os.Stdout, os.Stderr)
+		}
+		if !refreshed {
+			if _, serr := os.Stat(filepath.Join(home, ".claude", "CLAUDE.md")); serr == nil {
+				fmt.Println("note: artifact bundle may now be out of sync — run `atomic claude update` when you want to refresh it.")
+			}
+		}
+	}
+
 	// Post-update doctor: load config to check user preference, then run.
 	// Ignore home-dir errors and config warnings — doctor will catch real issues.
 	cfgRunDoctor := true // safe default when config is unreadable
@@ -310,6 +332,46 @@ func shouldRunPostUpdateDoctor(noDoctor, cfgRunDoctor bool) bool {
 		return false
 	}
 	return cfgRunDoctor
+}
+
+// detectManagedInstall reports whether home carries a completed atomic
+// install: ~/.claude/CLAUDE.md present AND the session-start hook registered
+// (inline or legacy form). This is the gate for the post-update artifact
+// auto-refresh — anything less means the user never finished an install and
+// `atomic update` must stay a pure binary swap.
+func detectManagedInstall(home string) bool {
+	if _, err := os.Stat(filepath.Join(home, ".claude", "CLAUDE.md")); err != nil {
+		return false
+	}
+	installed, _, err := hooks.IsInstalled(home)
+	return err == nil && installed
+}
+
+// defaultRunCmd executes name with args, streaming output to this process's
+// stdout/stderr. Seam for maybeRefreshArtifacts tests.
+func defaultRunCmd(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+// maybeRefreshArtifacts re-runs `claude update` through the freshly swapped
+// binary at exe when home carries a managed install. Re-exec is load-bearing:
+// the running process still embeds the OLD bundle after the swap, so an
+// in-process claudeinstall.Update would install stale artifacts. Returns true
+// when a refresh was attempted. Failures warn on errW with the manual
+// remediation and never propagate — update success is preserved and the
+// post-update doctor still runs to surface real breakage.
+func maybeRefreshArtifacts(exe, home string, runCmd func(name string, args ...string) error, out, errW io.Writer) bool {
+	if !detectManagedInstall(home) {
+		return false
+	}
+	fmt.Fprintln(out, "existing install detected — refreshing ~/.claude artifacts")
+	if err := runCmd(exe, "claude", "update", "--no-update-check"); err != nil {
+		fmt.Fprintf(errW, "atomic update: artifact refresh failed: %v\nrun `atomic claude update` manually.\n", err)
+	}
+	return true
 }
 
 func runReminder(args []string, repoOverride string) {

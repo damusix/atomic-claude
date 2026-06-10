@@ -112,6 +112,8 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 
 **Config schema v1 (current)**: `output.intensity` key removed. Schema is now `output.signals.max_depth` (int, default 3) + `update.run_doctor` (bool, default `true`) — two keys only. `checks_config.go` (doctor domain) validates against this schema.
 
+**`atomic update` artifact auto-refresh (config domain)**: after binary swap, `main.go:runUpdate` calls `maybeRefreshArtifacts(exe, home, ...)` — re-execs the new binary as `<exe> claude update --no-update-check` when `detectManagedInstall(home)` passes (`~/.claude/CLAUDE.md` exists AND session-start hook registered). Re-exec is load-bearing: the running process still holds the old embedded bundle. `--binary-only` flag skips the refresh. When refresh does not run and `~/.claude/CLAUDE.md` exists, the out-of-sync nudge fires. `selfupdate.go` no longer emits the nudge — that logic moved to `runUpdate`. Spec: [`docs/spec/atomic-update-doctor.md`](../../docs/spec/atomic-update-doctor.md) (Artifact auto-refresh contract section). `cliusage.go` update verb entry includes `--binary-only`.
+
 **Path-scoped rule [`rules/specs/spec-currency.md`](../../rules/specs/spec-currency.md)**: bundled rule with `paths: ["docs/spec/**/*.md", "docs/design/**/*.md"]`. Auto-loads when touching spec or design files. Bundle now contains 3 path-scoped rules (typescript, python, specs).
 
 **[`output-styles/atomic.md`](../../output-styles/atomic.md) reframed**: intensity levels removed. Style organized as clarity goal + drop-list + pattern + Auto-Clarity escape hatch + structure-over-prose + subagents section. `agent-atomic-voice` partial carries response-voice rule into each agent.

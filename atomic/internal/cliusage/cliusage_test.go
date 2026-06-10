@@ -130,7 +130,7 @@ const goldenCommandsBlock = "" +
 	"  signals stale                                                                                Exit 0 fresh, 1 stale, 2 error\n" +
 	"  signals diff                                                                                 Print unified diff of signals file\n" +
 	"  signals linkify                                                                              Linkify path tokens in signals.md and signals/*.md\n" +
-	"  update               [--check] [--channel] [--no-doctor]                                     Self-update the atomic binary\n" +
+	"  update               [--check] [--channel] [--no-doctor] [--binary-only]                     Self-update the atomic binary (refreshes ~/.claude artifacts on managed installs)\n" +
 	"  followups list       [--stale] [--json]                                                      List open follow-up entries\n" +
 	"  followups add        [--id] [--title] [--kind] [--severity] [--origin] [--file] [--body]     Create entry\n" +
 	"  followups close      <id> [--reason]                                                         Close an entry\n" +
