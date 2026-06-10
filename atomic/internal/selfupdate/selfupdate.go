@@ -27,6 +27,11 @@ const (
 	bannerWindow   = 24 * time.Hour
 )
 
+// displayVersion strips the leading "v" from a release tag so user-facing
+// version strings match `atomic --version` (which prints version.Version
+// without a "v", per goreleaser {{.Version}}).
+func displayVersion(tag string) string { return strings.TrimPrefix(tag, "v") }
+
 // Release is a minimal representation of a GitHub release.
 type Release struct {
 	TagName    string  `json:"tag_name"`
@@ -398,9 +403,9 @@ func (c *Client) Check(ctx context.Context, channel, currentVersion string) (boo
 	}
 	newer, err := newerThan(currentVersion, rel.TagName)
 	if err != nil {
-		return false, rel.TagName, err
+		return false, displayVersion(rel.TagName), err
 	}
-	return newer, rel.TagName, nil
+	return newer, displayVersion(rel.TagName), nil
 }
 
 // Update performs the full foreground update: lookup + apply.
@@ -416,13 +421,13 @@ func (c *Client) Update(ctx context.Context, channel, currentVersion, currentBin
 		return err
 	}
 	if !newer {
-		fmt.Printf("atomic is up to date (%s)\n", rel.TagName)
+		fmt.Printf("atomic is up to date (%s)\n", displayVersion(rel.TagName))
 		return nil
 	}
 	if err := c.Apply(ctx, rel, currentBinary); err != nil {
 		return err
 	}
-	fmt.Printf("updated atomic %s → %s.\n", currentVersion, rel.TagName)
+	fmt.Printf("updated atomic %s → %s.\n", currentVersion, displayVersion(rel.TagName))
 
 	// Note if claude artifact bundle may be stale.
 	home, err := os.UserHomeDir()
@@ -448,7 +453,7 @@ func MaybeBanner(w io.Writer, cur, latest string, cache CacheEntry, cachePath st
 	if !shouldBanner(cache, cur) {
 		return false
 	}
-	fmt.Fprintf(w, "update available: %s (current: %s). run: atomic update\n", latest, cur)
+	fmt.Fprintf(w, "update available: %s (current: %s). run: atomic update\n", displayVersion(latest), cur)
 	cache.NotifiedAt = now.UTC()
 	_ = WriteCache(cachePath, cache)
 	return true

@@ -558,8 +558,8 @@ func TestCheckNewerAvailable(t *testing.T) {
 	if !newer {
 		t.Errorf("expected newer=true, got false (tag=%s)", tag)
 	}
-	if tag != "v0.1.1" {
-		t.Errorf("expected tag v0.1.1, got %s", tag)
+	if tag != "0.1.1" {
+		t.Errorf("expected tag 0.1.1 (no leading v), got %s", tag)
 	}
 }
 
@@ -697,7 +697,7 @@ func TestMaybeBannerPrintedFirstTime(t *testing.T) {
 	if !printed {
 		t.Error("expected MaybeBanner to return true on first notification")
 	}
-	want := "update available: v0.2.0 (current: v0.1.0). run: atomic update\n"
+	want := "update available: 0.2.0 (current: v0.1.0). run: atomic update\n"
 	if buf.String() != want {
 		t.Errorf("banner text mismatch:\ngot:  %q\nwant: %q", buf.String(), want)
 	}
@@ -731,6 +731,92 @@ func TestMaybeBannerNotPrintedWhenUpToDate(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Errorf("expected no output, got: %q", buf.String())
+	}
+}
+
+// ---------- displayVersion tests ----------
+
+func TestDisplayVersion(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"v1.2.0", "1.2.0"},
+		{"1.2.0", "1.2.0"}, // idempotent — no leading v
+		{"", ""},
+		{"v0.0.1-rc.1", "0.0.1-rc.1"},
+	}
+	for _, tc := range cases {
+		got := displayVersion(tc.in)
+		if got != tc.want {
+			t.Errorf("displayVersion(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestCheckReturnsNoVPrefix: Check with a server whose release tag is "v1.2.0"
+// must return "1.2.0" (no leading v) in the tag return value.
+func TestCheckReturnsNoVPrefix(t *testing.T) {
+	releases := []Release{{TagName: "v1.2.0"}}
+	srv := makeTestServer(releases)
+	defer srv.Close()
+
+	c := testClient(srv)
+	newer, tag, err := c.Check(context.Background(), "stable", "1.1.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !newer {
+		t.Errorf("expected newer=true, got false")
+	}
+	if tag != "1.2.0" {
+		t.Errorf("Check tag: got %q, want %q (no leading v)", tag, "1.2.0")
+	}
+}
+
+// TestCheckUpToDateReturnsNoVPrefix: the up-to-date path must also return no-v.
+func TestCheckUpToDateReturnsNoVPrefix(t *testing.T) {
+	releases := []Release{{TagName: "v1.2.0"}}
+	srv := makeTestServer(releases)
+	defer srv.Close()
+
+	c := testClient(srv)
+	newer, tag, err := c.Check(context.Background(), "stable", "1.2.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if newer {
+		t.Errorf("expected up-to-date, got newer=true")
+	}
+	if tag != "1.2.0" {
+		t.Errorf("Check tag (up-to-date): got %q, want %q (no leading v)", tag, "1.2.0")
+	}
+}
+
+// TestMaybeBannerNoVPrefix: MaybeBanner with latest="v1.2.0", cur="1.1.0"
+// must print "1.2.0" (no leading v) and must NOT contain "v1.2.0".
+func TestMaybeBannerNoVPrefix(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "update.json")
+
+	entry := CacheEntry{
+		NotifiedAt:    time.Time{}, // zero = never notified
+		LatestVersion: "v1.2.0",
+	}
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	var buf strings.Builder
+	printed := MaybeBanner(&buf, "1.1.0", "v1.2.0", entry, cachePath, now)
+
+	if !printed {
+		t.Error("expected MaybeBanner to return true")
+	}
+	out := buf.String()
+	want := "update available: 1.2.0 (current: 1.1.0). run: atomic update\n"
+	if out != want {
+		t.Errorf("banner text mismatch:\ngot:  %q\nwant: %q", out, want)
+	}
+	if strings.Contains(out, "v1.2.0") {
+		t.Errorf("banner must not contain 'v1.2.0', got: %q", out)
 	}
 }
 
