@@ -1,5 +1,12 @@
 # Changelog
 
+## [4.2.0](https://github.com/damusix/atomic-claude/compare/v4.1.0...v4.2.0) (2026-06-10)
+
+
+### Features
+
+* **codeintel:** extract embedded SQL across 20 host languages ([#44](https://github.com/damusix/atomic-claude/issues/44)) ([92935b0](https://github.com/damusix/atomic-claude/commit/92935b036530e1f482d19e913941f2d1a6b8e4d7))
+
 ## [4.1.0](https://github.com/damusix/atomic-claude/compare/v4.0.0...v4.1.0) (2026-06-08)
 
 
