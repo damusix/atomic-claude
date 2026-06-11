@@ -32,6 +32,8 @@ Write commit messages terse and exact. Conventional Commits. No fluff. Why over 
 
 - Skip entirely when subject is self-explanatory
 - Add body only for: non-obvious *why*, breaking changes, migration notes, linked issues
+- Hard cap: 4 lines / 2 bullets. One why-sentence beats a paragraph.
+- Never restate what the diff shows — file lists, renamed symbols, mechanical changes
 - Wrap at 72 chars
 - Bullets with `-`, not `*`
 - Reference issues/PRs at end: `Closes #42`, `Refs #17`
@@ -81,17 +83,16 @@ Diff: breaking API change
 
 ## Auto-Clarity
 
-Always include body for: breaking changes, security fixes, data migrations, anything reverting a prior commit. Never compress these into subject-only — future debuggers need the context.
+Always include body for: breaking changes, security fixes, data migrations, anything reverting a prior commit. Never compress these into subject-only — future debuggers need the context. The body cap still applies: 2-3 lines stating the break/risk and the migration path, not a narrative.
 
 ## Supplemental input: session reports
 
 When the invoking ship verb passes session-report content (markdown files from `.claude/.scratchpad/session-reports/<branch>/`), treat it as **why-context** for the message. The diff still drives *what*; the reports drive *why*. Specifically:
 
 - Read the report bodies in chronological order.
-- Pull the "Why" sections into the commit body when the reasoning is non-obvious from the diff.
+- Distill all "Why" sections into at most one sentence in the body. If the why doesn't survive compression to one sentence, it wasn't load-bearing.
 - Pull the "Open threads" sections forward only if they describe a known limitation worth recording (rare).
-- Do not paste the reports verbatim. Compress to fit the Body rules above (wrap at 72, bullets, no fluff).
-- Reports describing rejected alternatives belong in the body when the chosen path is non-obvious.
+- Never paragraph-quote a report. The body cap (4 lines) applies regardless of how much report content exists.
 
 If no reports are passed in, behave as before — diff alone drives synthesis.
 

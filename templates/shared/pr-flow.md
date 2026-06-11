@@ -12,7 +12,7 @@ Invoke the `atomic-review` skill for PR title and body tone.
     ```
     gh pr create --title "<imperative, ≤70 chars>" --body <HEREDOC>
     ```
-    Body sections: `## Summary` (1-3 bullets), `## Why` (skip if obvious), `## Test plan` (checklist).
+    Body sections: `## Summary` (1-3 bullets), `## What this solves` (1-2 sentences; skip if obvious). No test plan section. Never enumerate changed files or restate the diff — reviewers read the diff.
 7. Print the PR URL.
 
 If the working tree is dirty, stop and tell the user to commit first.

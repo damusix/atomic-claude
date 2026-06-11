@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-11T01:40:00Z
+generated_at: 2026-06-11T02:04:49Z
 atomic_version: 4.2.0
 ---
 # Deterministic signals
@@ -167,7 +167,7 @@ atomic_version: 4.2.0
 │   │   ├── embedded/ (3)
 │   │   │   ├── bundle/ (1 file, 5 dirs)
 │   │   │   ├── bundle.go (73b79e7, 13L, 437ch, 437B)
-│   │   │   └── manifest.go (a3fbe67, 73L, 10726ch, 10726B)
+│   │   │   └── manifest.go (dff10bc, 73L, 10726ch, 10726B)
 │   │   ├── followups/ (15)
 │   │   │   ├── testdata/ (1 file, 2 dirs)
 │   │   │   ├── add.go (2d5d059, 132L, 3590ch, 3590B)
@@ -293,7 +293,7 @@ atomic_version: 4.2.0
 │   ├── atomic-setup.md (e71434a, 358L, 14770ch, 14876B)
 │   ├── autopilot.md (0f92fb2, 115L, 11938ch, 12043B)
 │   ├── commit-and-merge.md (7cce470, 200L, 11050ch, 11128B)
-│   ├── commit-and-pr.md (7f97d58, 150L, 7895ch, 7961B)
+│   ├── commit-and-pr.md (a44f2a6, 150L, 7994ch, 8062B)
 │   ├── commit-and-push.md (b276d4a, 127L, 7040ch, 7100B)
 │   ├── commit-and-squash.md (2eb0b0b, 224L, 12431ch, 12535B)
 │   ├── commit-only.md (1825269, 103L, 6272ch, 6320B)
@@ -302,7 +302,7 @@ atomic_version: 4.2.0
 │   ├── gather-evidence.md (54f0658, 158L, 11702ch, 11816B)
 │   ├── git-cleanup.md (5724c55, 192L, 7820ch, 7892B)
 │   ├── merge-to-main.md (9491e89, 113L, 6452ch, 6490B)
-│   ├── pr-only.md (1c5e6b1, 51L, 2840ch, 2860B)
+│   ├── pr-only.md (e904240, 51L, 2939ch, 2961B)
 │   ├── pressure-test.md (b4d7fcf, 170L, 13598ch, 13696B)
 │   ├── push-only.md (5279554, 41L, 2427ch, 2449B)
 │   ├── refresh-signals.md (a43b86b, 202L, 6414ch, 6464B)
@@ -406,7 +406,7 @@ atomic_version: 4.2.0
 │   ├── credits.md (e16f9f8, 105L, 8615ch, 8791B)
 │   └── index.md (a86eaae, 240L, 10152ch, 10254B)
 ├── output-styles/ (1)
-│   └── atomic.md (05ced55, 73L, 3342ch, 3412B)
+│   └── atomic.md (7e171b7, 73L, 3358ch, 3428B)
 ├── rules/ (3)
 │   ├── python/ (1)
 │   │   └── style.md (79b5bc1, 45L, 3967ch, 3981B)
@@ -427,7 +427,7 @@ atomic_version: 4.2.0
 │   └── triage-scan.sh (dc97880, 62L, 2781ch, 2789B)
 ├── skills/ (7)
 │   ├── atomic-commit/ (1)
-│   │   └── SKILL.md (2d3e552, 110L, 4265ch, 4281B)
+│   │   └── SKILL.md (b2781c6, 111L, 4479ch, 4497B)
 │   ├── atomic-debug/ (1)
 │   │   └── SKILL.md (07ff7c2, 122L, 6266ch, 6317B)
 │   ├── atomic-documentation/ (1)
@@ -501,7 +501,7 @@ atomic_version: 4.2.0
 │       ├── doc-impact.md (617ee33, 59L, 2625ch, 2659B)
 │       ├── git-safety.md (fd832a8, 7L, 925ch, 927B)
 │       ├── merge-flow.md (74f504c, 62L, 2472ch, 2492B)
-│       ├── pr-flow.md (872bb40, 20L, 850ch, 856B)
+│       ├── pr-flow.md (f407e88, 20L, 949ch, 957B)
 │       ├── push-flow.md (9002f85, 15L, 646ch, 658B)
 │       ├── signals-gate.md (06cb6e6, 18L, 1695ch, 1703B)
 │       ├── squash-flow.md (009dc9a, 38L, 1986ch, 2000B)
@@ -540,7 +540,7 @@ atomic_version: 4.2.0
 
 - C: 6565619 LOC (97%), 104 files (13%)
 - Go: 106490 LOC (1%), 311 files (41%)
-- Markdown: 45110 LOC (0%), 303 files (40%)
+- Markdown: 45112 LOC (0%), 303 files (40%)
 - JSON: 2298 LOC (0%), 5 files (0%)
 - Shell: 837 LOC (0%), 7 files (0%)
 - CSS: 695 LOC (0%), 1 file (0%)

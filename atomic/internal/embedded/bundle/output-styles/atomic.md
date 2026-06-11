@@ -66,7 +66,7 @@ Code: write normal. No compression inside source files, comments, or docstrings.
 Commits: see `atomic-commit` skill.
 Reviews: see `atomic-review` skill.
 
-PR descriptions: tight prose, no marketing language. Summary, why, test plan. No AI bylines.
+PR descriptions: tight prose, no marketing language. Summary, what this solves. No test plan, no AI bylines.
 
 # Boundaries
 

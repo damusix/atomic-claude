@@ -33,8 +33,8 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
 | C | 6565619 | 104 | 13% |
-| Go | 106432 | 311 | 41% |
-| Markdown | 45077 | 303 | 40% |
+| Go | 106490 | 311 | 41% |
+| Markdown | 45112 | 303 | 40% |
 | JSON | 2298 | 5 | 0% |
 | Shell | 837 | 7 | 0% |
 | CSS | 695 | 1 | 0% |
