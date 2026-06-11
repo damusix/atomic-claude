@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-10T20:46:40Z
+generated_at: 2026-06-11T01:40:00Z
 atomic_version: 4.2.0
 ---
 # Deterministic signals
@@ -54,8 +54,8 @@ atomic_version: 4.2.0
 ├── atomic/ (7)
 │   ├── cmd/ (4)
 │   │   ├── atomic/ (2)
-│   │   │   ├── main.go (f2f04eb, 1058L, 33176ch, 33224B)
-│   │   │   └── main_test.go (066b607, 718L, 24962ch, 24986B)
+│   │   │   ├── main.go (8a9d2d7, 1041L, 32264ch, 32306B)
+│   │   │   └── main_test.go (a2ce7bc, 593L, 20920ch, 20942B)
 │   │   ├── bundle-mirror/ (2)
 │   │   │   ├── main.go (0478057, 105L, 3245ch, 3245B)
 │   │   │   └── main_test.go (f5f4524, 245L, 6546ch, 6546B)
@@ -82,8 +82,8 @@ atomic_version: 4.2.0
 │   │   │   ├── uninstall.go (dfbf6f1, 199L, 7766ch, 7794B)
 │   │   │   └── uninstall_test.go (da0d8dd, 453L, 16134ch, 16166B)
 │   │   ├── cliusage/ (2)
-│   │   │   ├── cliusage.go (c3c11c9, 390L, 11216ch, 11222B)
-│   │   │   └── cliusage_test.go (9fdc1a2, 259L, 13263ch, 13267B)
+│   │   │   ├── cliusage.go (ddad9a2, 390L, 11205ch, 11211B)
+│   │   │   └── cliusage_test.go (0b43d26, 259L, 13245ch, 13249B)
 │   │   ├── cliutil/ (2)
 │   │   │   ├── usage.go (81cfaf9, 37L, 1031ch, 1031B)
 │   │   │   └── usage_test.go (f00ee4b, 132L, 3928ch, 3936B)
@@ -287,7 +287,7 @@ atomic_version: 4.2.0
 │   │   ├── implementer-prompt.md (88821c3, 110L, 3410ch, 3466B)
 │   │   └── reviewer-prompt.md (2968891, 155L, 5489ch, 5605B)
 │   ├── atomic-claude-merge.md (0ad7fde, 177L, 4661ch, 4691B)
-│   ├── atomic-help.md (1fb62a9, 279L, 17340ch, 17498B)
+│   ├── atomic-help.md (998eafe, 279L, 17316ch, 17474B)
 │   ├── atomic-improve.md (e1392d1, 676L, 40304ch, 40581B)
 │   ├── atomic-plan.md (1f12f8d, 312L, 17643ch, 17801B)
 │   ├── atomic-setup.md (e71434a, 358L, 14770ch, 14876B)
@@ -346,7 +346,7 @@ atomic_version: 4.2.0
 │   │   ├── contributing.md (c914185, 78L, 4309ch, 4335B)
 │   │   ├── evaluations.md (cf4d14d, 75L, 2545ch, 2547B)
 │   │   ├── getting-started.md (bc598c2, 114L, 5040ch, 5056B)
-│   │   ├── install.md (f6da721, 135L, 7299ch, 7327B)
+│   │   ├── install.md (f3a58b9, 135L, 7272ch, 7300B)
 │   │   └── knowledge-base.md (c9a9267, 137L, 10157ch, 10244B)
 │   ├── public/ (3)
 │   │   ├── CNAME (96daaff, 1L, 22ch, 22B)
@@ -365,12 +365,12 @@ atomic_version: 4.2.0
 │   │   └── workflow.md (f73da52, 166L, 10780ch, 10906B)
 │   ├── spec/ (39)
 │   │   ├── artifact-templates.md (9c31bdb, 122L, 13661ch, 13732B)
-│   │   ├── atomic-binary.md (ddb21e6, 763L, 45907ch, 46303B)
+│   │   ├── atomic-binary.md (287be9e, 763L, 45896ch, 46292B)
 │   │   ├── atomic-doctor.md (37c66a9, 377L, 27581ch, 27726B)
 │   │   ├── atomic-plan.md (4f96e03, 78L, 7557ch, 7583B)
 │   │   ├── atomic-setup.md (4989a49, 164L, 9725ch, 9787B)
 │   │   ├── atomic-state-and-config.md (a4374f4, 201L, 15110ch, 15208B)
-│   │   ├── atomic-update-doctor.md (0fce8b3, 216L, 17638ch, 17718B)
+│   │   ├── atomic-update-doctor.md (8f5d86f, 216L, 18346ch, 18432B)
 │   │   ├── atomic-validate.md (5d56ef6, 337L, 24100ch, 24242B)
 │   │   ├── autopilot.md (993b080, 80L, 7524ch, 7580B)
 │   │   ├── code-intel-engine.md (e68047c, 760L, 49486ch, 50021B)
@@ -456,7 +456,7 @@ atomic_version: 4.2.0
 │   │   │   ├── implementer-prompt.md (88821c3, 110L, 3410ch, 3466B)
 │   │   │   └── reviewer-prompt.md (2968891, 155L, 5489ch, 5605B)
 │   │   ├── atomic-claude-merge.md (0ad7fde, 177L, 4661ch, 4691B)
-│   │   ├── atomic-help.md (1fb62a9, 279L, 17340ch, 17498B)
+│   │   ├── atomic-help.md (998eafe, 279L, 17316ch, 17474B)
 │   │   ├── atomic-improve.md (e1392d1, 676L, 40304ch, 40581B)
 │   │   ├── atomic-plan.md (1f12f8d, 312L, 17643ch, 17801B)
 │   │   ├── atomic-setup.md (e71434a, 358L, 14770ch, 14876B)
@@ -539,7 +539,7 @@ atomic_version: 4.2.0
 ## Languages
 
 - C: 6565619 LOC (97%), 104 files (13%)
-- Go: 106632 LOC (1%), 311 files (41%)
+- Go: 106490 LOC (1%), 311 files (41%)
 - Markdown: 45110 LOC (0%), 303 files (40%)
 - JSON: 2298 LOC (0%), 5 files (0%)
 - Shell: 837 LOC (0%), 7 files (0%)

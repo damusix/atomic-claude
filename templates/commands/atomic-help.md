@@ -113,7 +113,7 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `cleanup` | `/git-cleanup` (stale worktrees / branches via `atomic-git-scout`). `/undo-commit` (soft-undo HEAD, refuses if pushed). |
 | `doctor` | `atomic doctor [--fix]` runs 11 integrity checks. `atomic validate` lints spec / config / bundle / artifacts. |
-| `update` | `atomic update [--check]` self-updates binary; on a completed install it also auto-refreshes `~/.claude` artifacts, then runs doctor (`--binary-only` skips the refresh). `/atomic-claude-merge` merges proposed `~/.claude/CLAUDE.md` when it has no `<atomic>` block (migration). |
+| `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, then runs doctor (`--skip-claude-update` skips the refresh). `/atomic-claude-merge` merges proposed `~/.claude/CLAUDE.md` when it has no `<atomic>` block (migration). |
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns background Haiku to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
 | `improve` / `retrospective` / `audit` | `/atomic-improve [<targeted feedback>]` — session retrospective. Mines `.jsonl` session history + current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |

@@ -71,9 +71,9 @@ Update the binary:
 atomic update
 ```
 
-This fetches the latest release, verifies its SHA256 checksum, and replaces the binary. When the machine already carries a completed install (a `~/.claude/CLAUDE.md` and the session-start hook), it then refreshes the `~/.claude` artifact bundle automatically and finishes with a health check. One command updates everything; if any check fails, it prints what to look at.
+This fetches the latest release, verifies its SHA256 checksum, and replaces the binary. It then refreshes the `~/.claude` artifact bundle automatically and finishes with a health check. One command updates everything; if any check fails, it prints what to look at. The refresh respects your hook setup: if the session-start hook is not registered, the update will not add it.
 
-On a machine without a completed install, or with `--binary-only`, the artifact refresh is skipped and you can run it yourself:
+To skip the artifact refresh, pass `--skip-claude-update` and run it yourself when ready:
 
 ```bash
 atomic claude update
@@ -84,7 +84,7 @@ Four useful flags for `atomic update`:
 - `--check` — just check if an update is available, do not download
 - `--channel prerelease` — track release candidates instead of stable
 - `--no-doctor` — skip the post-update health check
-- `--binary-only` — replace the binary only, skip the artifact refresh
+- `--skip-claude-update` — replace the binary only, skip the artifact refresh
 
 To suppress the health check permanently:
 
