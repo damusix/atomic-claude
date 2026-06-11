@@ -1,5 +1,20 @@
 # Changelog
 
+## [4.4.0](https://github.com/damusix/atomic-claude/compare/v4.3.0...v4.4.0) (2026-06-11)
+
+
+### Features
+
+* **commit:** cap commit/PR verbosity, drop PR test plan ([167d7f3](https://github.com/damusix/atomic-claude/commit/167d7f3c86f1632654af2ed9ad266d965bc88264))
+* **install:** block-aware CLAUDE.md update and diff ([badfb90](https://github.com/damusix/atomic-claude/commit/badfb90baac0a0b3f40103d3b09bcb6275713d84))
+* **update:** auto-refresh ~/.claude artifacts before doctor ([b98f8b7](https://github.com/damusix/atomic-claude/commit/b98f8b7dd7171432f18386162543e82bed0523fd))
+* **update:** make artifact refresh default; drop managed-install gate ([d7bc667](https://github.com/damusix/atomic-claude/commit/d7bc667b94f008dba3d8d38d42403bc7a3905906))
+
+
+### Bug Fixes
+
+* **update:** strip leading v from user-facing update version strings ([64d4c0c](https://github.com/damusix/atomic-claude/commit/64d4c0c8427010d75e5dd17eceb03c948788aea8))
+
 ## [4.3.0](https://github.com/damusix/atomic-claude/compare/v4.2.0...v4.3.0) (2026-06-10)
 
 
