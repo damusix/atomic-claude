@@ -152,7 +152,7 @@ One decision is yours, how to merge. Everything else runs unattended. → [workf
 
 | Capability | What it gives you | Docs |
 |---|---|---|
-| **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. | [wiki](docs/reference/wiki-workflow.md) |
+| **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. Capture buckets (`atomic wiki bucket add/list/diff/promote`) let you register loose material folders at the realm root; `/refresh-wiki` synthesizes them into topic-keyed `wiki/knowledge/` pages with SHA-256 provenance tracking. | [wiki](docs/reference/wiki-workflow.md) |
 | **Self-sharpening config** | `/atomic-improve` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
 | **Output style** | Multi-part answers shaped as tables, trees, and ASCII flows, filler cut. The most optional piece. | [output-style](docs/reference/output-style.md) |
 | **Discipline skills** | Seven that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing. | [skills](docs/reference/skills.md) |

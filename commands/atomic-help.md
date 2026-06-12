@@ -102,7 +102,7 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `setup` / `install` | First-run flow: `/atomic-setup` audits conventions, then `/refresh-signals` generates project context. |
 | `signals` | `/refresh-signals` — idempotent, initializes or refreshes. Ship verbs auto-dispatch `atomic-signals-inferrer` on source-tree changes. |
-| `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, refreshes only stale artifacts, offers a commit. Run `atomic wiki scan` first to scaffold. |
+| `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, synthesizes capture-bucket material into `wiki/knowledge/` pages, refreshes only stale artifacts, offers a commit. Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/diff/promote` to manage capture folders. |
 | `worktree` | `/worktree-start <branch>` creates `.worktrees/<branch>/`. Cleanup via `/git-cleanup`. |
 | `session` | `/session-report [<slug>]` captures branch session. Read + deleted by next commit-message ship verb. |
 | `reminders` | `/remind-me <when> <text>` schedules. `/follow-up` reviews pending. `/follow-up review` triages stale entries. |
@@ -126,7 +126,7 @@ One-line pointer per topic. Group by category for scannability.
 | `skills` | 7 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
-| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate (spec/config/bundle/artifacts)`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`, `code index/sync` (build/refresh the symbol graph), `code explore "<query>"` (one-shot context digest for a question — the verb to reach for first), `code search/callers/callees/impact <symbol>` (targeted graph queries, `--json` for machine output), `code mcp` (expose the graph as MCP tools). For manual project-scoped MCP registration of the code-intel server, see `docs/guides/code-intel-mcp.md`. |
+| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate (spec/config/bundle/artifacts)`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`, `wiki bucket add <name>` (register a capture folder + splice `<wiki-buckets>` block), `wiki bucket list` (show registered buckets + pending/fresh status), `wiki bucket diff <name>` (read-only diff vs baseline: new/changed/removed), `wiki bucket promote <name>` (advance baseline after successful synthesis), `code index/sync` (build/refresh the symbol graph), `code explore "<query>"` (one-shot context digest for a question — the verb to reach for first), `code search/callers/callees/impact <symbol>` (targeted graph queries, `--json` for machine output), `code mcp` (expose the graph as MCP tools). For manual project-scoped MCP registration of the code-intel server, see `docs/guides/code-intel-mcp.md`. |
 
 ### C. Freeform intent — classify and route
 
@@ -199,6 +199,13 @@ docs/design/<topic>.md                conceptual workspace (committed)
 docs/spec/<topic>.md                  implementation contract (committed; body kept current, changes logged)
 <wikis> block in ~/.claude/CLAUDE.md  registered wiki index paths (CLI-managed, outside <atomic>)
 
+wiki layout:
+  wiki/repos/         summaries of no-signals repos
+  wiki/concerns/      cross-cutting docs
+  wiki/knowledge/     topic-keyed digests from capture buckets
+  wiki/.buckets/<n>/  SHA-256 manifests for capture folder <n> (current/baseline/previous)
+  <realm>/<bucket>/   capture folder (user-maintained; registered via `atomic wiki bucket add`)
+
 Refresh project map any time: /refresh-signals (syncs code-intel index when warm)
 Refresh cross-repo wiki: /refresh-wiki [root]
 ```
@@ -216,10 +223,11 @@ atomic code index/sync            build or refresh the symbol graph; investigato
 atomic code explore "<query>"     one-shot context digest for a question; search/callers/callees/impact drill into one symbol
 atomic code mcp                   start MCP server exposing graph as tools (opt-in; register manually in .mcp.json)
 atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki; write ## Members links
-atomic wiki stale [--root=<path>] read-only freshness verdict for a registered wiki (exit 0/1/2)
+atomic wiki stale [--root=<path>] read-only freshness verdict; reports STALE bucket lines alongside repo/concern drift
+atomic wiki bucket add|list|diff|promote  manage capture folders: register, inspect status, diff vs baseline, advance baseline
 atomic signals linkify          render signals path citations as navigable relative md links (inferrer runs it)
-atomic wiki linkify --root        same for wiki summaries/concerns/index (/refresh-wiki runs it post-stamp)
-/refresh-wiki [root]              incremental wiki refresh — re-authors stale/pending artifacts only
+atomic wiki linkify --root        same for wiki summaries/concerns/knowledge/index (/refresh-wiki runs it post-stamp)
+/refresh-wiki [root]              incremental wiki refresh — re-authors stale/pending repos + synthesizes capture buckets
 /atomic-claude-merge              merge proposed CLAUDE.md (migration: file has no <atomic> block yet)
 /git-cleanup                      stale worktrees / branches (scout reports, you confirm)
 /undo-commit                      soft-undo HEAD (refuses if pushed)

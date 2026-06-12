@@ -61,7 +61,7 @@ Design: `docs/design/wiki.md`.
 
 ### `/refresh-wiki` + inferrer wiki mode
 
-- [ ] `/refresh-wiki [root]` runs `atomic wiki scan`, then `atomic wiki stale`, then refreshes INCREMENTALLY. Pending repos are presented as a numbered list (axiom 4); the user types which to `/refresh-signals` (accept → `indexed`); unselected pending repos go to `atomic-signals-inferrer` (wiki mode). It re-authors only the stale-flagged/pending artifacts and preserves the rest; re-synthesizes affected `concerns/*.md` + the `index.md` narrative; invokes the code stamp step for every artifact it (re)writes; runs `atomic wiki linkify` after stamping; prints a per-artifact disposition (`NEW` / `RE-AUTHORED` / `SKIPPED (fresh)`); clears `.dirty`; offers to commit.
+- [ ] `/refresh-wiki [root]` runs `atomic wiki scan`, then `atomic wiki stale`, then refreshes INCREMENTALLY following the extended phase order: (1) scan, (2) stale check, (3) one-time bucket creation offer (fires when no `<wiki-buckets>` block exists; decline recorded as `declined="true"` attribute), (4) placeholder fill for new buckets, (5) stale check result parse, (6) pending-repo `/refresh-signals` offer, (7) repo summaries (pending/stale repos via inferrer wiki mode + stamp), (8) bucket synthesis (non-empty-diff buckets via inferrer bucket-synthesis mode + stamp knowledge pages + promote on success), (9) stale concern re-auth + stamp, (10) `atomic wiki linkify`, (11) disposition output, (12) conditional `.dirty` clear + `generated` bump, (13) commit offer. (The count of 13 phases includes all judgment/offer surfaces — bucket offer, placeholder fill, pending-repo offer, and disposition — not only data-transformation phases. For the data-phase-only ordering, see `docs/spec/wiki-buckets.md` § `/refresh-wiki` phase order.) Full bucket phase contract: `docs/spec/wiki-buckets.md` (§ `/refresh-wiki` bucket integration + Deterministic CLI contract §`/refresh-wiki` phase order). Pending repos presented as numbered list (axiom 4); unselected pending repos go to inferrer wiki mode. It re-authors only the stale-flagged/pending artifacts and preserves the rest; prints a per-artifact disposition (`NEW` / `RE-AUTHORED` / `SKIPPED (fresh)` / `SYNTHESIZED` / `PLACEHOLDER (unfilled)`); clears `.dirty` only on full completion.
 - [ ] `atomic-signals-inferrer` wiki-output mode (caller-provided `target_repo` + `wiki_dir`): obtains the substrate via `atomic signals scan --out <tmp>` (never writing into `target_repo`), infers, writes the summary ONLY under `wiki_dir/repos/<repo>(/<domain>)`, skips @-ref wiring. It does NOT write the fingerprint — the code stamp step does. Large repos domain-split; small repos single file. Reviewer-verified prompt constraints, not unit-tested.
 - [ ] The inferrer's default (non-wiki) mode is unchanged: existing signals tests stay green; reviewer confirms default-mode steps unchanged except for the additive branch.
 - [ ] If exactly one of `target_repo` / `wiki_dir` is supplied, the inferrer fails loud — refuses and names the missing arg rather than proceeding in default mode (prompt-level guard; the command always passes both, and no Go dispatch code exists, so reviewer-verified).
@@ -162,6 +162,15 @@ New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + inj
 
 
 ## Change log
+
+
+### 2026-06-12 — `/refresh-wiki` extended with bucket synthesis phase
+
+**What changed:** The `/refresh-wiki` success criterion now references the extended bucket phase order (scan → stale → bucket offer → placeholder fill → repo summaries → bucket synthesis → concern re-auth → linkify → dirty clear → commit offer) and points to `docs/spec/wiki-buckets.md` for the full contract. Disposition output gains `SYNTHESIZED` and `PLACEHOLDER (unfilled)` states alongside the existing `NEW` / `RE-AUTHORED` / `SKIPPED (fresh)`.
+
+**Why:** The bucket synthesis phase (CP6 of wiki-buckets) ships behavior — the spec body must describe the current state, not the prior incremental-only flow. Pointer to `docs/spec/wiki-buckets.md` avoids duplicating the detailed phase contract that lives there.
+
+**Superseded:** "Refreshes INCREMENTALLY (scan → stale → repo summaries → concerns → linkify → dirty clear → commit offer) with disposition `NEW` / `RE-AUTHORED` / `SKIPPED (fresh)`."
 
 
 ### 2026-06-11 — Classification discovers summaries on disk
