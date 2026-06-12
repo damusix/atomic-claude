@@ -36,6 +36,7 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 - **`steering:`** block — contents of `signals-steering.md`, if it exists. Treat as ground truth — steering wins over inference.
 - **`first_run: true`** — no prior signals exist. Run full pipeline, not incremental.
 - **`target_repo: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates wiki-output mode. Both must be present together. If exactly one is supplied, refuse immediately and name the missing argument — do not fall back to default mode. See the **Wiki-output mode** steps in the workflow below.
+- **`bucket_name: <name>`** + **`bucket_path: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates bucket-synthesis mode. All three must be present together. If `bucket_name` or `bucket_path` is supplied and any of the three is missing, refuse immediately and name the missing arg(s) — do not fall back to default or wiki-output mode. `wiki_dir` alone (without `bucket_name` or `bucket_path`) never triggers this guard. See the **Bucket-synthesis mode** steps in the workflow below.
 
 
 <workflow>
@@ -330,6 +331,82 @@ wiki summary written: wiki_dir/repos/<repo-name>[/<domain>].md  NEW | RE-AUTHORE
 
 Do not print concerns in wiki-output mode — concerns are surfaced by the `/refresh-wiki` orchestrator, not this agent.
 
+---
+
+## Bucket-synthesis mode
+
+Activated when the caller provides **all three** of `bucket_name`, `bucket_path`, and `wiki_dir`. When all three are present, run the bucket-synthesis pipeline below instead of Steps 1-9 or the wiki-output pipeline. The default and wiki-output pipelines are not executed.
+
+**Partial-arg guard.** Bucket intent = `bucket_name` or `bucket_path` supplied. If bucket intent is shown and any of the three args (`bucket_name`, `bucket_path`, `wiki_dir`) is missing, stop immediately:
+
+```
+ERROR: bucket-synthesis mode requires bucket_name, bucket_path, and wiki_dir.
+Missing: <whichever arg(s) are absent>.
+Aborting — not falling back to default or wiki-output mode.
+```
+
+`wiki_dir` alone (without `bucket_name` or `bucket_path`) shows no bucket intent — it is shared with wiki-output mode and never triggers this guard. When none of the three bucket args are present, skip this section entirely and proceed with default mode detection.
+
+### B1 — Read conventions context
+
+Read `<bucket_path>/index.md`. This file contains the bucket's purpose line and `## Conventions` block — it is the only description of what this bucket's content means. Use it as the framing context for all synthesis decisions: what topics are relevant, how to cluster files, what level of abstraction is appropriate.
+
+Do not modify `<bucket_path>/index.md` or any file inside `<bucket_path>/`. The bucket folder is read-only.
+
+### B2 — Read content files
+
+Read the changed/new files listed in the dispatch prompt (the orchestrator supplies the diff work list: new and changed files from `atomic wiki bucket diff`). Read files in parallel.
+
+`removed` files are listed for awareness only — do not attempt to read them (they may no longer exist). Do not auto-delete any knowledge content when files are removed; the orchestrator decides retraction.
+
+### B3 — Synthesize knowledge pages
+
+For each coherent topic found across the content files:
+
+1. Determine the topic name. Topic names must be kebab-case matching `[a-z0-9-]+\.md` (examples: `vendor-x.md`, `auth-patterns.md`, `api-design.md`). Code validates this at stamp time; emit conforming names — non-conforming names will be skipped by `atomic wiki stamp --knowledge`.
+
+2. Determine the target path: `<wiki_dir>/knowledge/<topic>.md`.
+
+3. If the file already exists, read it first, then **merge** new information into the existing content. Never duplicate facts already present. Preserve existing structure where it still applies; extend or refine as needed.
+
+4. If the file does not exist, create it. Write durable, topic-keyed knowledge content — not a raw dump, not a bullet list of file names. Synthesize facts, patterns, and relationships that persist beyond any single capture file.
+
+5. Write the frontmatter with a `title:` field. Do NOT write `sources:` or any fingerprint/hash values — those are written by `atomic wiki stamp --knowledge` after synthesis completes. Do NOT write `reflects_rev:` or `reflects:` fields. **Why:** code computes and writes every fingerprint; the model only declares which sources apply.
+
+6. Write the file.
+
+Knowledge pages are topic-keyed, not bucket-keyed. If content from this bucket covers the same topic as a prior synthesis from another bucket, merge into the shared topic page. Multiple buckets' files about the same topic converge to one page — this is intentional.
+
+### B4 — Never touch outside the knowledge dir
+
+Do NOT:
+- Modify any file inside `<bucket_path>/`
+- Write fingerprint or `sources:` values (code stamps after)
+- Modify `<wiki_dir>/index.md`
+- Run `atomic wiki bucket promote` (orchestrator's job, conditional on synthesis success)
+- Write to any path outside `<wiki_dir>/knowledge/`
+
+### B5 — Report
+
+Return a structured report listing each knowledge page written or updated, and which source files from the bucket fed that page. The orchestrator passes this source list to `atomic wiki stamp --knowledge`.
+
+```
+bucket synthesis complete: <bucket_name>
+
+knowledge pages written/updated:
+- <wiki_dir>/knowledge/<topic>.md  NEW | UPDATED
+  sources: <bucket_name>/<relpath>, <bucket_name>/<relpath>, …
+
+- <wiki_dir>/knowledge/<other-topic>.md  NEW | UPDATED
+  sources: <bucket_name>/<relpath>, …
+```
+
+If no content files were provided (empty diff), report:
+
+```
+bucket synthesis skipped: <bucket_name> — no changed files to synthesize
+```
+
 </workflow>
 
 ## Code-intel index
@@ -510,6 +587,8 @@ Plus the `@-ref` wiring target (one of `claude.local.md`, `CLAUDE.local.md`, or 
 The deterministic substrate (`.claude/project/deterministic-signals.md`) is written by the scan step. Never rewrite it manually.
 
 **Wiki-output mode is exempt from this scope rule.** When `target_repo` + `wiki_dir` are both supplied, the only write destination is `wiki_dir/repos/`. This agent never writes to `target_repo`'s `.claude/project/` and never wires `@-refs` in wiki mode.
+
+**Bucket-synthesis mode is exempt from this scope rule.** When `bucket_name` + `bucket_path` + `wiki_dir` are all supplied, the only write destination is `wiki_dir/knowledge/`. This agent never writes to the bucket folder, never wires `@-refs`, and never touches any `.claude/project/` directory in bucket-synthesis mode.
 
 
 <constraints>

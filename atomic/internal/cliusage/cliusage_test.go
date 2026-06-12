@@ -153,7 +153,11 @@ const goldenCommandsBlock = "" +
 	"  code explore         <query> [--json]                                                        Gather context for a query\n" +
 	"  wiki scan            [--root]                                                                Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md\n" +
 	"  wiki stale           [--root]                                                                Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)\n" +
-	"  wiki linkify         [--root]                                                                Linkify path tokens in wiki artifacts in-place\n"
+	"  wiki linkify         [--root]                                                                Linkify path tokens in wiki artifacts in-place\n" +
+	"  wiki bucket add      <name> [--root]                                                         Register a capture bucket; create index.md stub and manifest dir\n" +
+	"  wiki bucket list     [--root]                                                                List registered buckets with baseline count and pending/fresh status\n" +
+	"  wiki bucket diff     <name> [--root]                                                         Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty\n" +
+	"  wiki bucket promote  <name> [--root]                                                         Snapshot bucket and rotate baseline→previous, current→baseline\n"
 
 // TestRenderGolden pins the rendered Commands block to the exact expected
 // string. A dropped flag, renamed verb, or formatting change is a test

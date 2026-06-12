@@ -262,8 +262,14 @@ func Stale(root string, out io.Writer) (int, error) {
 			id := entryStr[:at]
 			recordedFP := entryStr[at+1:]
 
-			// Resolve current fingerprint for this repo.
-			currentFP, ok := resolveFingerprint(root, id)
+			// Resolve current fingerprint.
+			// Knowledge-page ids ("knowledge/<topic>.md") are relative to wikiDir;
+			// repo ids are relative to the realm root.
+			resolveRoot := root
+			if strings.HasPrefix(id, "knowledge/") && strings.HasSuffix(id, ".md") {
+				resolveRoot = wikiDir
+			}
+			currentFP, ok := resolveFingerprint(resolveRoot, id)
 			if !ok {
 				// Can't resolve → stale (fail-safe).
 				lines = append(lines, fmt.Sprintf("STALE concern %s (%s)", wikiPath, id))
@@ -279,9 +285,42 @@ func Stale(root string, out io.Writer) (int, error) {
 		}
 	}
 
-	// Sort lines for deterministic output.
+	// --- 3. Bucket staleness ---
+	//
+	// Read the <wiki-buckets> block from wiki/index.md (already loaded in data).
+	// For each registered bucket, run bucketDiffReadOnly. If the diff is non-empty,
+	// emit a "STALE bucket <name>" line. This is entirely read-only — no current
+	// manifest file is written.
+	//
+	// A realm with no <wiki-buckets> block, or a declined="true" empty block,
+	// produces zero bucket lines (parseBucketEntries returns nil in both cases).
+	//
+	// Walk/I/O errors (e.g. unreadable bucket dir) are escalated to exit 2
+	// consistent with the stale exit-code contract: exit 2 = hard error. A walk
+	// error means freshness cannot be determined, so emitting a fake STALE line
+	// would misrepresent the cause.
+	bucketEntries := parseBucketEntries(string(data))
+	var bucketLines []string
+	for _, be := range bucketEntries {
+		diff, diffErr := bucketDiffReadOnly(wikiDir, be.Name, be.Path)
+		if diffErr != nil {
+			return StaleCodeError, fmt.Errorf("bucket %q: %w", be.Name, diffErr)
+		}
+		if len(diff.Added)+len(diff.Changed)+len(diff.Removed) > 0 {
+			bucketLines = append(bucketLines, fmt.Sprintf("STALE bucket %s", be.Name))
+			stale = true
+		}
+	}
+
+	// Emit sections 1-2 (DRIFT/STALE repo/concern/summary) sorted first, then
+	// bucket lines sorted among themselves.  Spec requires bucket lines to appear
+	// after all repo/concern/summary lines so the sections remain distinct.
 	sort.Strings(lines)
+	sort.Strings(bucketLines)
 	for _, l := range lines {
+		fmt.Fprintln(out, l)
+	}
+	for _, l := range bucketLines {
 		fmt.Fprintln(out, l)
 	}
 

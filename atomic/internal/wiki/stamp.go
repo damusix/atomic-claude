@@ -1,17 +1,23 @@
 package wiki
 
-// stamp.go — CP3 fingerprint-stamp helpers.
+// stamp.go — CP3/CP4 fingerprint-stamp helpers.
 //
 // StampSummary writes/updates reflects_rev in a summary file's YAML frontmatter
 // from git rev-parse HEAD of the repo at repoPath.
 //
 // StampConcern writes/updates the reflects: YAML list in a concern file's
 // frontmatter.  For each cited repo id the fingerprint is:
+//   - sha256 of <wikiRoot>/knowledge/<topic>.md content   (knowledge page)
 //   - sha256 of <wikiRoot>/<id>/.claude/project/signals.md (indexed)
 //   - git rev-parse HEAD of <wikiRoot>/<id>               (summarized)
 //
 // An unresolvable cited id is silently skipped; the command never crashes.
-// Both functions use internal/frontmatter for read/write so the rest of
+//
+// StampKnowledge writes/updates the sources: YAML list in a knowledge page's
+// frontmatter. Each entry is an opaque "<bucket>/<relpath>@<sha256>" string
+// supplied by the caller; code writes the value, model supplies the entries.
+//
+// All functions use internal/frontmatter for read/write so the rest of
 // the file is preserved byte-for-byte.
 
 import (
@@ -54,15 +60,46 @@ func StampConcern(path, wikiRoot string, citedIDs []string) error {
 	return updateFrontmatterKey(path, "reflects", entries)
 }
 
-// resolveFingerprint computes the fingerprint for the repo identified by id
-// under wikiRoot.
+// StampKnowledge reads the knowledge page at path, sets or replaces the sources:
+// YAML list key to the provided entries, and writes the result back.
+// All other frontmatter keys and the body are preserved.
+// Returns an error if the file does not exist — the inferrer authors pages;
+// stamp only updates them (consistent with StampSummary/StampConcern).
+// The caller supplies the entries as opaque "<bucket>/<relpath>@<sha256hex>"
+// strings; code writes the value verbatim.
+func StampKnowledge(path string, sources []string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("stamp knowledge: %s does not exist", path)
+	}
+	entries := make([]any, len(sources))
+	for i, s := range sources {
+		entries[i] = s
+	}
+	return updateFrontmatterKey(path, "sources", entries)
+}
+
+// resolveFingerprint computes the fingerprint for the cited id under wikiRoot.
 //
-//   - If <wikiRoot>/<id>/.claude/project/signals.md exists → sha256 of its content.
-//   - Otherwise → git rev-parse HEAD of <wikiRoot>/<id>.
+//   - If id matches "knowledge/<topic>.md" → sha256 of wiki/knowledge/<topic>.md
+//     file content (knowledge page citation).
+//   - If <wikiRoot>/<id>/.claude/project/signals.md exists → sha256 of its content
+//     (indexed repo).
+//   - Otherwise → git rev-parse HEAD of <wikiRoot>/<id> (summarized repo).
 //
-// Returns (fingerprint, true) on success, ("", false) when neither source is
-// available (dir missing, no HEAD, no signals.md).
+// Returns (fingerprint, true) on success, ("", false) when the source is
+// unavailable (file missing, no HEAD, etc.).
 func resolveFingerprint(wikiRoot, id string) (string, bool) {
+	// Knowledge page citation: id = "knowledge/<topic>.md".
+	if strings.HasPrefix(id, "knowledge/") && strings.HasSuffix(id, ".md") {
+		knowledgePath := filepath.Join(wikiRoot, id)
+		data, err := os.ReadFile(knowledgePath)
+		if err != nil {
+			return "", false
+		}
+		h := sha256.Sum256(data)
+		return fmt.Sprintf("%x", h), true
+	}
+
 	repoDir := filepath.Join(wikiRoot, id)
 
 	// Check for signals.md (indexed repo).

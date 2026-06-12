@@ -55,7 +55,7 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 |---------|-------------|
 | `/atomic-setup` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
 | `/refresh-signals` | Scan the project and generate (or update) the signals files that teach Claude your repo's shape. Idempotent. |
-| `/refresh-wiki` | Maintain a cross-repo wiki. Runs `atomic wiki scan` to classify member repos, then refreshes only stale or pending artifacts. Pending repos without signals are summarized by `atomic-signals-inferrer` in wiki-output mode; repos that have signals are offered as candidates for `/refresh-signals`. Prints a per-artifact disposition and offers a commit when done. Run `atomic wiki scan` first to scaffold the wiki directory. |
+| `/refresh-wiki` | Maintain a cross-repo wiki. Runs `atomic wiki scan` to classify member repos, refreshes stale or pending artifacts, and synthesizes capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-signals-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and offers a commit when done. Run `atomic wiki scan` first to scaffold the wiki directory. |
 
 
 ## Maintenance
@@ -78,6 +78,21 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 | `/atomic-claude-merge` | Reconcile your `~/.claude/CLAUDE.md` with updates from `atomic claude install`. Keeps your instructions, deduplicates conflicts. |
 | `/report-issue` | Open a GitHub issue against your current repo. |
 | `/report-issue-with-atomic` | Open a GitHub issue against the atomic-claude repo itself. |
+
+
+## Binary subcommands (`atomic wiki`)
+
+The `atomic wiki` subcommand manages the cross-repo wiki and capture buckets. Most of these are called by `/refresh-wiki`, but the `bucket` verbs are also useful on their own. Run `atomic wiki --help` for full usage.
+
+| Subcommand | What it does |
+|---------|-------------|
+| `atomic wiki scan [--root=<path>]` | Scaffold the wiki directory, classify member repos, write the managed `<wiki-scan>` block in `index.md`, and register the wiki globally. Idempotent — re-running regenerates only the managed block. |
+| `atomic wiki stale [--root=<path>]` | Read-only freshness verdict. Reports `DRIFT`/`STALE` lines for repos and concerns, plus `STALE bucket <name>` for capture folders with a non-empty diff. Exits `0` fresh, `1` stale, `2` error. |
+| `atomic wiki linkify --root=<path>` | Render inline path citations across summaries, concerns, knowledge pages, and the index into file-relative markdown links. Deterministic, idempotent, no model. |
+| `atomic wiki bucket add <name>` | Register a capture folder at the realm root. Creates `<name>/index.md` (purpose stub), `wiki/.buckets/<name>/` (manifest dir), and splices a `<bucket>` entry into the `<wiki-buckets>` block in `wiki/index.md`. On first add in a realm, also writes a `## Capture surfaces` section to the realm `CLAUDE.md`. Refuses if `<name>` is `wiki` or the bucket is already registered. |
+| `atomic wiki bucket list` | Print one line per registered bucket: name, path, baseline file count, and `pending` or `fresh` status. Exits `0` even when no buckets are registered. |
+| `atomic wiki bucket diff <name>` | Read-only diff of the capture folder against its baseline. Prints `new <path>`, `changed <path>`, or `removed <path>` per changed file. Exits `0` when the diff is empty, `1` when any line is emitted. |
+| `atomic wiki bucket promote <name>` | Advance the baseline after successful synthesis: recomputes the SHA-256 manifest, rotates `baseline→previous`, sets new manifest as `baseline`. After promote, `diff` exits `0`. |
 
 
 ## Binary subcommands (`atomic code`)

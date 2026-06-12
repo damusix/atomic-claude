@@ -322,6 +322,30 @@ var commands = []Command{
 		Flags:       []string{"--root"},
 		Description: "Linkify path tokens in wiki artifacts in-place",
 	},
+	{
+		Path:        []string{"wiki", "bucket", "add"},
+		Args:        "<name>",
+		Flags:       []string{"--root"},
+		Description: "Register a capture bucket; create index.md stub and manifest dir",
+	},
+	{
+		Path:        []string{"wiki", "bucket", "list"},
+		Args:        "",
+		Flags:       []string{"--root"},
+		Description: "List registered buckets with baseline count and pending/fresh status",
+	},
+	{
+		Path:        []string{"wiki", "bucket", "diff"},
+		Args:        "<name>",
+		Flags:       []string{"--root"},
+		Description: "Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty",
+	},
+	{
+		Path:        []string{"wiki", "bucket", "promote"},
+		Args:        "<name>",
+		Flags:       []string{"--root"},
+		Description: "Snapshot bucket and rotate baseline→previous, current→baseline",
+	},
 }
 
 // Commands returns the ordered command surface. The returned slice is a copy;
