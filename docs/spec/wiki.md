@@ -28,13 +28,13 @@ Design: `docs/design/wiki.md`.
 - [ ] `atomic wiki scan` with no flag scaffolds `./wiki/` from cwd; `--root=<path>` uses `<path>`. The positional slot is reserved for verbs (`scan`, `stale`); `--root` is a flag.
 - [ ] Scaffold creates `wiki/index.md`, `wiki/README.md`, `wiki/repos/`, `wiki/concerns/`, `wiki/.gitignore` (ignoring the `.dirty` marker), and runs `git init` in `wiki/` (skipped if already a git repo).
 - [ ] Members = directories with a `.git` entry (dir or worktree file) found by recursing the root; recursion stops at each repo boundary; the root itself is never a member even when it is a git repo; junk dirs (`node_modules`, `dist`, `build`, `target`, `vendor`, `.worktrees`, `tmp`, `.git`) and the `wiki/` dir are skipped. `scan` classifies by signals-presence only and never reads git `HEAD`.
-- [ ] Each member is classified `indexed` (has `.claude/project/signals.md`) or `pending` and recorded in a `<wiki-scan>` block with `path`, `status`, optional `signals`. The open tag carries `root` and `generated` (date from injected clock). Membership + status only — no fingerprints in the block.
-- [ ] A member already recorded `summarized` whose summary file still exists keeps `summarized` on re-scan; otherwise status is re-derived from signals presence.
+- [ ] Each member is classified `indexed` (has `.claude/project/signals.md`), `summarized` (no signals, but a summary exists on disk at `wiki/repos/<name>.md` or `wiki/repos/<name>/` containing at least one `.md`), or `pending` (neither) and recorded in a `<wiki-scan>` block with `path`, `status`, optional `signals`/`summary`. The open tag carries `root` and `generated` (date from injected clock). Membership + status only — no fingerprints in the block.
+- [ ] A member already recorded `summarized` whose summary file still exists keeps `summarized` on re-scan; otherwise status is re-derived (signals → `indexed`, then summary-on-disk → `summarized`, else `pending`). Disk discovery makes `summarized` reachable without a prior entry: `/refresh-wiki` writes summaries after its initial scan, and the closing re-scan picks them up.
 - [ ] Re-running regenerates ONLY the `<wiki-scan>` block; a diff of `index.md` outside the block and of every file under `repos/`/`concerns/` is empty.
 - [ ] The `index.md` path is written to a `<wikis>` block in `~/.claude/CLAUDE.md`. Three insertion cases: block present (add line iff absent, dedup by normalized path), block absent (append after `</atomic>`, or EOF when none), file absent (create). A registry write never alters the `<atomic>` block (diff outside `<wikis>` is empty).
 - [ ] If `<root>/wiki/` exists but `index.md` is absent or lacks a `<wiki-scan>` marker, `scan` refuses with a non-zero exit and a message naming the path.
 - [ ] `scan` prints a stdout handoff: summary (`<N> repos · <M> indexed · <K> pending`), per-repo list (`<status> <path> [→ signals path]`), `NEXT STEPS` naming each `pending` repo. Labels stable (orientation for `/refresh-wiki`; the incremental pass is driven by `atomic wiki stale`).
-- [ ] `scan` writes a managed `## Members` linked section into `index.md` between `<!-- wiki-members:start -->` / `<!-- wiki-members:end -->` markers, spliced idempotently like the `<wiki-scan>` block (content outside the markers untouched): `indexed` → link to `../<repo>/.claude/project/signals.md`; `summarized` → link to `repos/<repo>.md`; `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
+- [ ] `scan` writes a managed `## Members` linked section into `index.md` between `<!-- wiki-members:start -->` / `<!-- wiki-members:end -->` markers, spliced idempotently like the `<wiki-scan>` block (content outside the markers untouched): `indexed` → link to `../<repo>/.claude/project/signals.md`; `summarized` → link to the recorded summary path (`repos/<repo>.md`, or `repos/<repo>/` for a domain-split summary); `pending` → link to `../<repo>/`. The realm is browsable from `index.md` after a deterministic scan, no LLM pass required.
 
 ### `atomic wiki linkify`
 
@@ -122,9 +122,9 @@ New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + inj
 
 **Repo discovery (shared `scan`/`stale`).** Recurse `<root>`'s children (never the root). Member iff `os.Lstat(<dir>/.git)` succeeds (dir or worktree file). On a member: record, don't descend. On a non-member: descend unless base name in the skip set or it's the `wiki/` dir. Sort for stable output.
 
-**Classification.** `indexed` iff `<repo>/.claude/project/signals.md` exists, else `pending`. `scan` never reads `HEAD`. Re-classification: prior `summarized` + summary file present → keep `summarized`; else re-derive.
+**Classification.** Precedence: prior `summarized` + summary file present → keep `summarized`; else `indexed` iff `<repo>/.claude/project/signals.md` exists; else `summarized` iff a summary exists on disk (`wiki/repos/<name>.md`, or `wiki/repos/<name>/` containing at least one `.md`, where `<name>` is the member's base name); else `pending`. Signals win over a leftover summary — a repo that graduates to signals stays `indexed`. `scan` never reads `HEAD`.
 
-**`## Members` linked section.** Literal `<!-- wiki-members:start -->` / `<!-- wiki-members:end -->` boundary in `wiki/index.md`. One link per member, derived from its `<wiki-scan>` status: `indexed` → `../<repo>/.claude/project/signals.md`; `summarized` → `repos/<repo>.md`; `pending` → `../<repo>/`. Spliced idempotently like the `<wiki-scan>` block; content outside the markers untouched. Written by `atomic wiki scan` so the realm is browsable after a deterministic pass, no LLM required.
+**`## Members` linked section.** Literal `<!-- wiki-members:start -->` / `<!-- wiki-members:end -->` boundary in `wiki/index.md`. One link per member, derived from its `<wiki-scan>` status: `indexed` → `../<repo>/.claude/project/signals.md`; `summarized` → the recorded `summary` path (`repos/<repo>.md` or `repos/<repo>/`); `pending` → `../<repo>/`. Spliced idempotently like the `<wiki-scan>` block; content outside the markers untouched. Written by `atomic wiki scan` so the realm is browsable after a deterministic pass, no LLM required.
 
 **`atomic wiki linkify` (code).** Renders inline-code path citations that resolve on disk into file-relative markdown links. Bases per artifact: `repos/<repo>(/<domain>).md` → `<realm>/<repo>` (from the summary's `repo:` frontmatter); `concerns/*.md` and `index.md` narrative → realm root. Idempotent (skips already-linked tokens); never touches fenced code blocks or `reflects_*` frontmatter. Runs after `atomic wiki stamp` in `/refresh-wiki`, so it cannot affect `atomic wiki stale` verdicts. A `[text](path)` link is not an `@-ref`. User-runnable and surfaced in `/atomic-help` (unlike `stamp`/`mark-dirty`).
 
@@ -162,6 +162,15 @@ New `atomic/internal/wiki/` package mirroring `internal/signals/` (Options + inj
 
 
 ## Change log
+
+
+### 2026-06-11 — Classification discovers summaries on disk
+
+**What changed:** `classifyMembers` gained a disk-discovery rule: a member with no signals but a summary on disk (`wiki/repos/<name>.md`, or `wiki/repos/<name>/` containing at least one `.md`) is classified `summarized` with the `summary` attribute set. Precedence: prior-`summarized` preservation → signals (`indexed`) → summary-on-disk (`summarized`) → `pending`. `memberLinkTarget` now links `summarized` members to the recorded `summary` path, so domain-split summaries link to `repos/<repo>/` instead of a nonexistent `repos/<repo>.md`.
+
+**Why:** Bug — `summarized` was unreachable. Nothing ever wrote the status initially: scan only *preserved* a prior `summarized` entry, and `/refresh-wiki`'s closing re-scan could not see freshly written summaries. Summarized repos stayed `pending` forever and the `## Members` section linked to the repo directory instead of the wiki page, defeating the point of summarizing.
+
+**Superseded:** "Each member is classified `indexed` or `pending`; `summarized` only survives via preservation" — derivation is now three-way.
 
 
 ### 2026-06-06 — Link navigability: `## Members` section + `atomic wiki linkify`

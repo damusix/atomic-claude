@@ -307,8 +307,13 @@ func isGitMember(dir string) bool {
 //
 // Classification rules:
 //  1. If prior status was "summarized" AND the summary file still exists → keep "summarized".
-//  2. If .claude/project/signals.md exists → "indexed".
-//  3. Otherwise → "pending".
+//  2. If .claude/project/signals.md exists → "indexed" (signals are richer than
+//     summaries; a leftover summary does not demote a graduated repo).
+//  3. If a summary exists on disk under wiki/repos/ (repos/<name>.md or
+//     repos/<name>/ with at least one .md) → "summarized". This makes the
+//     status reachable on first derivation — /refresh-wiki writes summaries
+//     after the initial scan, so the re-scan must discover them.
+//  4. Otherwise → "pending".
 func classifyMembers(root, wikiDir string, members []string, prior map[string]priorEntry) []Member {
 	result := make([]Member, 0, len(members))
 
@@ -337,15 +342,53 @@ func classifyMembers(root, wikiDir string, members []string, prior map[string]pr
 				Status:      "indexed",
 				SignalsPath: signalsAbs,
 			})
-		} else {
-			result = append(result, Member{
-				Path:   rel,
-				Status: "pending",
-			})
+			continue
 		}
+
+		// Derive from a summary on disk.
+		if summaryRel := discoverSummary(wikiDir, rel); summaryRel != "" {
+			result = append(result, Member{
+				Path:        rel,
+				Status:      "summarized",
+				SummaryPath: summaryRel,
+			})
+			continue
+		}
+
+		result = append(result, Member{
+			Path:   rel,
+			Status: "pending",
+		})
 	}
 
 	return result
+}
+
+// discoverSummary checks the wiki/repos/ directory for a summary belonging to
+// member rel. Summary files are named by the member's base name (the same
+// convention memberLinkTarget and /refresh-wiki use): repos/<name>.md for a
+// single-file summary, or repos/<name>/ containing at least one .md for a
+// domain-split summary. Returns the wiki-relative summary path, or "" when no
+// summary exists.
+func discoverSummary(wikiDir, rel string) string {
+	name := filepath.Base(rel)
+
+	fileForm := filepath.Join(wikiDir, "repos", name+".md")
+	if _, err := os.Lstat(fileForm); err == nil {
+		return "repos/" + name + ".md"
+	}
+
+	dirForm := filepath.Join(wikiDir, "repos", name)
+	entries, err := os.ReadDir(dirForm)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+			return "repos/" + name + "/"
+		}
+	}
+	return ""
 }
 
 // scaffold creates the wiki directory structure:
@@ -527,7 +570,11 @@ func memberLinkTarget(indexDir string, m Member) string {
 		// Fallback: construct from path.
 		return "../" + m.Path + "/.claude/project/signals.md"
 	case "summarized":
-		// Link to wiki/repos/<repo>.md (already relative to wiki/).
+		// Link to the summary (already relative to wiki/): repos/<repo>.md or
+		// repos/<repo>/ for a domain-split summary.
+		if m.SummaryPath != "" {
+			return m.SummaryPath
+		}
 		return "repos/" + filepath.Base(m.Path) + ".md"
 	default: // "pending"
 		// Link to the repo directory.
