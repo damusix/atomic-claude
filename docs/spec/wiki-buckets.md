@@ -116,6 +116,26 @@ Design: `docs/design/wiki-buckets.md`.
 - [ ] `go test ./...` green; `go vet ./...` clean; `gofmt -l .` empty (from `atomic/`).
 
 
+## Conversational entry point (`atomic-wiki` skill)
+
+
+The `atomic-wiki` skill (`skills/atomic-wiki/SKILL.md`) is the conversational routing layer for wiki and bucket operations. It is a bundled auto-firing skill, not a command.
+
+**Trigger surface:** fires on capture-intent phrases ("I want a place for notes/tickets/research", "add a bucket"), karpathy-realm setup ("set up a wiki for my projects"), and wiki query/staleness phrases ("what does my wiki know about X", "is my wiki stale"). The trigger description in the skill frontmatter is the canonical list.
+
+**Realm resolution:** reads the `<wikis>` block in `~/.claude/CLAUDE.md` (CLI-managed, outside `<atomic>`). cwd under a realm root → that realm is active. No registered realm + setup intent → `atomic wiki scan --root <path>` bootstraps.
+
+**Bucket creation contract:** when capture intent is detected and the cwd is under a registered realm, the skill routes to `atomic wiki bucket add <name> --root <realm>` — never a bare `mkdir`. After the binary creates the structure, the skill drives the meaning-fill: asks what the bucket is for, replaces the `<!-- describe what this bucket is for -->` placeholder in realm `CLAUDE.md` `## Capture surfaces`, and writes the bucket `index.md` purpose line + `## Conventions`. Code writes structure; model writes meaning.
+
+**Karpathy-wiki setup:** `atomic wiki scan --root` scaffolds, user names buckets (examples: `research`, `raw`, `tickets`), `atomic wiki bucket add` registers each, then `/refresh-wiki` runs the synthesis pass.
+
+**Query/staleness:** "what does my wiki know" → read `wiki/index.md` + `knowledge/` + `repos/`; "is it stale" → `atomic wiki stale --root` (exit 0 fresh / exit 1 stale with lines / exit 2 error).
+
+**Degradation:** `atomic` binary absent → say so, point at `/refresh-wiki` and `docs/reference/wiki-workflow.md`; never hand-build the structure.
+
+**Relationship to /refresh-wiki:** this skill is the conversational entry point; `/refresh-wiki` is the synthesis engine. The skill is not invoked by other commands; it complements but does not call `/refresh-wiki`.
+
+
 ## Approaches
 
 
@@ -208,6 +228,12 @@ Manifest location: `wiki/.buckets/<name>/` over `<bucket>/.fingerprints/` — ba
 **Why:** Correction — internal spec conflict caught by the CP1 code reviewer: the `bucket promote` success criterion already said "recomputes `current` live" while the contract paragraph said copy-on-disk. Recompute-live matches the reference fingerprint script (snapshot always precedes rotation within one invocation) and removes the stale-`current` hazard.
 
 **Superseded:** "Promote rotation = `cp baseline previous; cp current baseline`."
+
+### 2026-06-12 — Adding behavior: `atomic-wiki` conversational entry point skill
+
+**What changed:** Added the `atomic-wiki` bundled skill (`skills/atomic-wiki/SKILL.md`) as the conversational routing layer for wiki and bucket operations. The skill fires on capture-intent phrases, karpathy-realm setup intent, and wiki query/staleness phrases. It routes bucket creation to `atomic wiki bucket add` (never bare mkdir), handles realm resolution via the `<wikis>` block, drives meaning-fill after the binary scaffolds, and routes staleness queries to `atomic wiki stale`. A new `## Conversational entry point` section was added to this spec documenting the skill's contract.
+
+**Why:** Capture-intent phrases ("I want a space for tickets") had no deterministic route to `atomic wiki bucket add`. Without the skill the harness would mkdir a bare folder, bypassing the manifest system. Skills are the harness's intent-routing mechanism; the description is the trigger surface.
 
 ## Implementation log
 
