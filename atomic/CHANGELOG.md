@@ -1,5 +1,18 @@
 # Changelog
 
+## [4.5.0](https://github.com/damusix/atomic-claude/compare/v4.4.0...v4.5.0) (2026-06-12)
+
+
+### Features
+
+* **wiki:** atomic-wiki skill — conversational entry point for buckets and realms ([22f52c3](https://github.com/damusix/atomic-claude/commit/22f52c3efd0c3d5aa3fd320951ef8486fc8667d6))
+* **wiki:** capture buckets — fingerprinted folders synthesized into wiki knowledge ([c640602](https://github.com/damusix/atomic-claude/commit/c640602499da014d6429ec3931c81489ebbf5c35))
+
+
+### Bug Fixes
+
+* **wiki:** discover summaries on disk so summarized status is reachable ([e3b0f31](https://github.com/damusix/atomic-claude/commit/e3b0f319940202d3dc9c0a5d6eb96e505b4ce4e4))
+
 ## [4.4.0](https://github.com/damusix/atomic-claude/compare/v4.3.0...v4.4.0) (2026-06-11)
 
 
