@@ -357,6 +357,91 @@ func TestScan_SummarizedDowngradedWhenFileMissing(t *testing.T) {
 	}
 }
 
+func TestScan_SummarizedDiscoveredFromDisk(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoB")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	// Summary file exists on disk but no prior index entry says "summarized".
+	summaryPath := filepath.Join(root, "wiki", "repos", "repoB.md")
+	if err := os.WriteFile(summaryPath, []byte("# repoB summary\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `<repo path="repoB" status="summarized" summary="repos/repoB.md"/>`) {
+		t.Errorf("summary on disk should classify repoB as summarized; content:\n%s", content)
+	}
+	if !strings.Contains(content, `- [repoB](repos/repoB.md)`) {
+		t.Errorf("Members section should link summarized repoB to its wiki page; content:\n%s", content)
+	}
+}
+
+func TestScan_SummarizedDiscoveredDirForm(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoB")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	// Domain-split summary: wiki/repos/repoB/<domain>.md, no single repoB.md.
+	domainPath := filepath.Join(root, "wiki", "repos", "repoB", "cloud.md")
+	if err := os.MkdirAll(filepath.Dir(domainPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(domainPath, []byte("# repoB cloud domain\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `<repo path="repoB" status="summarized" summary="repos/repoB/"/>`) {
+		t.Errorf("domain-dir summary should classify repoB as summarized; content:\n%s", content)
+	}
+	if !strings.Contains(content, `- [repoB](repos/repoB/)`) {
+		t.Errorf("Members section should link summarized repoB to its summary dir; content:\n%s", content)
+	}
+}
+
+func TestScan_SignalsWinOverDiscoveredSummary(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeSignals(t, repoA)
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	// Leftover summary from before the repo graduated to signals.
+	summaryPath := filepath.Join(root, "wiki", "repos", "repoA.md")
+	if err := os.WriteFile(summaryPath, []byte("# repoA summary\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `<repo path="repoA" status="indexed"`) {
+		t.Errorf("repo with signals should stay indexed even with a leftover summary; content:\n%s", content)
+	}
+}
+
 func TestScan_CollisionNoIndexMD(t *testing.T) {
 	root := t.TempDir()
 	makeGitRepo(t, root, "repoA")

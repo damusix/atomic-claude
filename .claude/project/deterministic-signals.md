@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-11T02:04:49Z
+generated_at: 2026-06-12T04:57:08Z
 atomic_version: 4.2.0
 ---
 # Deterministic signals
@@ -20,7 +20,7 @@ atomic_version: 4.2.0
 │   │   │   └── SKILL.md (7cdf8cc, 286L, 21053ch, 21193B)
 │   │   └── atomic-release-ci/ (1)
 │   │       └── SKILL.md (a9df3a4, 143L, 13300ch, 13372B)
-│   └── settings.local.json (d5fd8ec, 11L, 248ch, 248B)
+│   └── settings.local.json (980a4ce, 8L, 94ch, 94B)
 ├── .githooks/ (1)
 │   └── pre-commit (46d75b2, 91L, 3348ch, 3362B)
 ├── .github/ (1)
@@ -274,11 +274,11 @@ atomic_version: 4.2.0
 │   │       ├── staleness_test.go (b76bd5a, 524L, 17190ch, 17210B)
 │   │       ├── stamp.go (deb7dfe, 117L, 3800ch, 3808B)
 │   │       ├── stamp_test.go (544638a, 378L, 12269ch, 12275B)
-│   │       ├── wiki.go (c1c8033, 628L, 19633ch, 19689B)
-│   │       └── wiki_test.go (dd792c7, 715L, 22145ch, 22201B)
+│   │       ├── wiki.go (c0b576c, 675L, 21257ch, 21317B)
+│   │       └── wiki_test.go (1caab12, 800L, 25009ch, 25065B)
 │   ├── test/ (1)
 │   │   └── install_sh_test.go (dfa131f, 229L, 6304ch, 6310B)
-│   ├── CHANGELOG.md (f07445b, 282L, 16685ch, 16693B)
+│   ├── CHANGELOG.md (cfe0139, 297L, 17631ch, 17639B)
 │   ├── Makefile (d68669b, 31L, 751ch, 751B)
 │   ├── go.mod (d0b6c75, 60L, 2542ch, 2542B)
 │   └── go.sum (d9f8407, 145L, 13162ch, 13162B)
@@ -402,7 +402,7 @@ atomic_version: 4.2.0
 │   │   ├── user-profile.md (902d4a1, 639L, 54191ch, 54493B)
 │   │   ├── validate-artifact-cli-flags.md (44dfc09, 67L, 7975ch, 8007B)
 │   │   ├── verify-gate-validate.md (715b1ee, 52L, 4697ch, 4717B)
-│   │   └── wiki.md (e8a3fba, 208L, 28019ch, 28184B)
+│   │   └── wiki.md (115a81d, 217L, 29884ch, 30067B)
 │   ├── credits.md (e16f9f8, 105L, 8615ch, 8791B)
 │   └── index.md (a86eaae, 240L, 10152ch, 10254B)
 ├── output-styles/ (1)
@@ -527,7 +527,7 @@ atomic_version: 4.2.0
 ├── package-lock.json (6fe371e, 2254L, 91385ch, 91385B)
 ├── package.json (df17f35, 15L, 373ch, 373B)
 ├── release-please-config.json (fc8b307, 15L, 419ch, 419B)
-└── release-please-manifest.json (5c09461, 3L, 24ch, 24B)
+└── release-please-manifest.json (9a2cf2c, 3L, 24ch, 24B)
 
 ## Manifests
 
@@ -539,9 +539,9 @@ atomic_version: 4.2.0
 ## Languages
 
 - C: 6565619 LOC (97%), 104 files (13%)
-- Go: 106490 LOC (1%), 311 files (41%)
-- Markdown: 45112 LOC (0%), 303 files (40%)
-- JSON: 2298 LOC (0%), 5 files (0%)
+- Go: 106622 LOC (1%), 311 files (41%)
+- Markdown: 45136 LOC (0%), 303 files (40%)
+- JSON: 2295 LOC (0%), 5 files (0%)
 - Shell: 837 LOC (0%), 7 files (0%)
 - CSS: 695 LOC (0%), 1 file (0%)
 - YAML: 210 LOC (0%), 6 files (0%)
