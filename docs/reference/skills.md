@@ -32,3 +32,4 @@ These keep Claude and your docs in sync with the project.
 |-------|----------------------|-------------|
 | `atomic-prose` | "draft the README", "write the docs", "edit the guide" | Applies a clear, direct voice to narrative documentation. No marketing language, no AI-tell phrases. |
 | `atomic-documentation` | "doc this change", "what surfaces does this touch" | Figures out which docs need updating based on a diff and routes each to the right voice. |
+| `atomic-wiki` | "I want a place for notes/tickets/research", "add a bucket", "add this to my wiki", "wiki this", "what does my wiki know about X", "is my wiki stale", "set up a karpathy wiki" | Routes capture-folder intent to `atomic wiki bucket add` (never a bare mkdir), handles karpathy-realm setup, and answers staleness queries for registered wikis. |

@@ -102,7 +102,7 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `setup` / `install` | First-run flow: `/atomic-setup` audits conventions, then `/refresh-signals` generates project context. |
 | `signals` | `/refresh-signals` — idempotent, initializes or refreshes. Ship verbs auto-dispatch `atomic-signals-inferrer` on source-tree changes. |
-| `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, synthesizes capture-bucket material into `wiki/knowledge/` pages, refreshes only stale artifacts, offers a commit. Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/diff/promote` to manage capture folders. |
+| `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, synthesizes capture-bucket material into `wiki/knowledge/` pages, refreshes only stale artifacts, offers a commit. Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/diff/promote` to manage capture folders. `atomic-wiki` skill is the conversational entry point — fires on "I want a place for notes/tickets", "add a bucket", "what does my wiki know", "is my wiki stale". |
 | `worktree` | `/worktree-start <branch>` creates `.worktrees/<branch>/`. Cleanup via `/git-cleanup`. |
 | `session` | `/session-report [<slug>]` captures branch session. Read + deleted by next commit-message ship verb. |
 | `reminders` | `/remind-me <when> <text>` schedules. `/follow-up` reviews pending. `/follow-up review` triages stale entries. |
@@ -123,7 +123,7 @@ One-line pointer per topic. Group by category for scannability.
 | Topic | Output |
 |-------|--------|
 | `agents` | 9 subagents: `atomic-builder`, `atomic-surgeon`, `atomic-investigator`, `atomic-strategist`, `atomic-reviewer`, `atomic-git-scout`, `atomic-signals-inferrer`, `atomic-claude-merger`, `atomic-haiku`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
-| `skills` | 7 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
+| `skills` | 8 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`, `atomic-wiki`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
 | `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate (spec/config/bundle/artifacts)`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`, `wiki bucket add <name>` (register a capture folder + splice `<wiki-buckets>` block), `wiki bucket list` (show registered buckets + pending/fresh status), `wiki bucket diff <name>` (read-only diff vs baseline: new/changed/removed), `wiki bucket promote <name>` (advance baseline after successful synthesis), `code index/sync` (build/refresh the symbol graph), `code explore "<query>"` (one-shot context digest for a question — the verb to reach for first), `code search/callers/callees/impact <symbol>` (targeted graph queries, `--json` for machine output), `code mcp` (expose the graph as MCP tools). For manual project-scoped MCP registration of the code-intel server, see `docs/guides/code-intel-mcp.md`. |
@@ -156,7 +156,7 @@ The tour is four stages. After each stage, prompt the user via `AskUserQuestion`
 atomic-claude — opinionated Claude Code config. Five surfaces compose:
 
   output style    terse TUI replies (atomic — drop filler, fragments OK)
-  skills          7 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose)
+  skills          8 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing)
   commands        30 explicit verbs (/autopilot, /atomic-plan, /commit-and-pr, ...)
   agents          9 dispatchable subagents (builder, surgeon, reviewer, investigator, ...)
   binary          atomic CLI — signals scan, doctor, validate, update, install
