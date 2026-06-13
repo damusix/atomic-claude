@@ -36,6 +36,11 @@ type Opts struct {
 	Skip      []int // resolved category indices; nil = none
 	StaleDays int
 	Verbose   bool
+
+	// ClaudeMDPath is the path to CLAUDE.md used for wiki-realm detection in
+	// check 11 (code-index). When empty, check 11 derives it from $HOME. Inject
+	// in tests to avoid reading the real user's CLAUDE.md.
+	ClaudeMDPath string
 }
 
 // CheckFunc is the signature every check implementation must satisfy.

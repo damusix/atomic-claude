@@ -126,7 +126,7 @@ atomic code impact validateToken
 
 Atomic indexes SQL as a first-class language: `.sql` files join the graph alongside your application code, so Claude can answer which procedures read a table, what a view depends on, or where a foreign key points, across Postgres, MySQL, and T-SQL, with no database connection. Most code tools treat SQL as plain text.
 
-Agents reach for the graph when an index is present and fall back to grep when it isn't. → [code-intel](docs/reference/code-intel.md)
+Agents reach for the graph when an index is present and fall back to grep when it isn't. At a wiki realm root, `atomic code index` indexes every member repo into per-repo dbs under `<realm>/.atomic/`; query verbs fan out across all members and group results under `[<key>]` headers (`--only`/`--exclude` to filter). Nothing is written into any member repo. → [code-intel](docs/reference/code-intel.md)
 
 ### Hand off the whole feature
 
@@ -152,7 +152,7 @@ One decision is yours, how to merge. Everything else runs unattended. → [workf
 
 | Capability | What it gives you | Docs |
 |---|---|---|
-| **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. Capture buckets (`atomic wiki bucket add/list/diff/promote`) let you register loose material folders at the realm root; `/refresh-wiki` synthesizes them into topic-keyed `wiki/knowledge/` pages with SHA-256 provenance tracking. | [wiki](docs/reference/wiki-workflow.md) |
+| **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. Capture buckets (`atomic wiki bucket add/list/diff/promote`) let you register loose material folders at the realm root; `/refresh-wiki` synthesizes them into topic-keyed `wiki/knowledge/` pages with SHA-256 provenance tracking. `atomic code index` at the realm root layers in a federated symbol graph — query verbs fan out across member repos, nothing written into members. | [wiki](docs/reference/wiki-workflow.md) · [code-intel](docs/reference/code-intel.md) |
 | **Self-sharpening config** | `/atomic-improve` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
 | **Output style** | Multi-part answers shaped as tables, trees, and ASCII flows, filler cut. The most optional piece. | [output-style](docs/reference/output-style.md) |
 | **Discipline skills** | Eight that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing. | [skills](docs/reference/skills.md) |

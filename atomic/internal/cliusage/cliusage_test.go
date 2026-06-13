@@ -140,17 +140,17 @@ const goldenCommandsBlock = "" +
 	"  docs scan                                                                                    Scan docs and write doc-surfaces.md\n" +
 	"  docs stale                                                                                   Exit 0 fresh, 1 stale, 2 error\n" +
 	"  profile refresh      [--if-stale]                                                            Refresh ## Environment in profile.md\n" +
-	"  code index           [--profile]                                                             Index all source files\n" +
+	"  code index           [--profile] [--only] [--exclude]                                        Index all source files\n" +
 	"  code sync                                                                                    Incrementally re-index changed files\n" +
 	"  code status          [--json]                                                                Show index status\n" +
-	"  code search          <query> [--json] [--limit]                                              Search indexed nodes\n" +
-	"  code callers         <symbol> [--depth] [--json]                                             Find callers of symbol\n" +
-	"  code callees         <symbol> [--depth] [--json]                                             Find callees of symbol\n" +
-	"  code impact          <symbol> [--depth] [--json]                                             Find impact radius of symbol\n" +
+	"  code search          <query> [--json] [--limit] [--only] [--exclude]                         Search indexed nodes\n" +
+	"  code callers         <symbol> [--depth] [--json] [--only] [--exclude]                        Find callers of symbol\n" +
+	"  code callees         <symbol> [--depth] [--json] [--only] [--exclude]                        Find callees of symbol\n" +
+	"  code impact          <symbol> [--depth] [--json] [--only] [--exclude]                        Find impact radius of symbol\n" +
 	"  code node            <symbol> [--file] [--line] [--json]                                     Show node detail\n" +
 	"  code files           [pattern] [--json]                                                      List indexed files\n" +
 	"  code affected        [--depth] [--test-glob] [--stdin] [--json]                              Find affected test files\n" +
-	"  code explore         <query> [--json]                                                        Gather context for a query\n" +
+	"  code explore         <query> [--json] [--only] [--exclude]                                   Gather context for a query\n" +
 	"  wiki scan            [--root]                                                                Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md\n" +
 	"  wiki stale           [--root]                                                                Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)\n" +
 	"  wiki linkify         [--root]                                                                Linkify path tokens in wiki artifacts in-place\n" +
@@ -242,6 +242,64 @@ func TestTopLevelVerbs(t *testing.T) {
 	for _, v := range required {
 		if !verbs[v] {
 			t.Errorf("TopLevelVerbs missing %q", v)
+		}
+	}
+}
+
+// TestCodeFanOutVerbs_HaveOnlyExclude verifies SC 9: the six fan-out code verbs
+// carry --only and --exclude, and no code verb carries --db (which was
+// explicitly rejected in the spec).
+func TestCodeFanOutVerbs_HaveOnlyExclude(t *testing.T) {
+	fanOutVerbs := [][]string{
+		{"code", "index"},
+		{"code", "search"},
+		{"code", "callers"},
+		{"code", "callees"},
+		{"code", "impact"},
+		{"code", "explore"},
+	}
+
+	for _, path := range fanOutVerbs {
+		cmd := cliusage.LookupByPath(path)
+		if cmd == nil {
+			t.Errorf("LookupByPath(%v) returned nil", path)
+			continue
+		}
+		if !containsFlag(cmd.Flags, "--only") {
+			t.Errorf("%v: missing --only flag; got %v", path, cmd.Flags)
+		}
+		if !containsFlag(cmd.Flags, "--exclude") {
+			t.Errorf("%v: missing --exclude flag; got %v", path, cmd.Flags)
+		}
+		if containsFlag(cmd.Flags, "--db") {
+			t.Errorf("%v: must NOT have --db flag (rejected in spec); got %v", path, cmd.Flags)
+		}
+	}
+}
+
+// TestCodeNonFanOutVerbs_NoOnlyExclude verifies that the non-fan-out code verbs
+// (sync, status, node, files, affected) do NOT carry --only/--exclude, since
+// they don't fan out across realm members.
+func TestCodeNonFanOutVerbs_NoOnlyExclude(t *testing.T) {
+	nonFanOutVerbs := [][]string{
+		{"code", "sync"},
+		{"code", "status"},
+		{"code", "node"},
+		{"code", "files"},
+		{"code", "affected"},
+	}
+
+	for _, path := range nonFanOutVerbs {
+		cmd := cliusage.LookupByPath(path)
+		if cmd == nil {
+			t.Errorf("LookupByPath(%v) returned nil", path)
+			continue
+		}
+		if containsFlag(cmd.Flags, "--only") {
+			t.Errorf("%v: should NOT have --only (non-fan-out verb); got %v", path, cmd.Flags)
+		}
+		if containsFlag(cmd.Flags, "--exclude") {
+			t.Errorf("%v: should NOT have --exclude (non-fan-out verb); got %v", path, cmd.Flags)
 		}
 	}
 }

@@ -202,6 +202,9 @@ func runDoctor(args []string) {
 	// Resolve project name: git toplevel basename, or cwd basename on failure.
 	project := doctorProjectName()
 
+	// Wire claudeMDPath for realm detection in check 11 (code-index).
+	opts.ClaudeMDPath = filepath.Join(home, ".claude", "CLAUDE.md")
+
 	results, err := doctor.Run(opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic doctor: %v\n", err)
@@ -1019,6 +1022,29 @@ func runProfile(args []string) {
 }
 
 func runCode(args []string, repoOverride string) {
+	// Resolve scope BEFORE calling repoctx.Resolve, because repoctx.Resolve
+	// runs `git rev-parse --show-toplevel` which errors at a realm root (a
+	// plain container directory, not a git repo).  realm.Resolve position-senses
+	// the cwd and branches to the correct engine path without git.
+	if repoOverride == "" {
+		// Inject cwd + claudeMD path for realm detection.
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic code: get cwd: %v\n", err)
+			os.Exit(1)
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic code: get home dir: %v\n", err)
+			os.Exit(1)
+		}
+		claudeMDPath := filepath.Join(home, ".claude", "CLAUDE.md")
+		os.Exit(codecli.RunCodeWithRealm(args, cwd, claudeMDPath, os.Stdout, os.Stderr, os.Stdin))
+	}
+
+	// --repo override: user explicitly specified a repo root, so we resolve it
+	// via repoctx (which normalises the path and handles worktree detection)
+	// and use single-repo scope unchanged (SC 2).
 	root, err := repoctx.Resolve(repoOverride)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic code: %v\n", err)

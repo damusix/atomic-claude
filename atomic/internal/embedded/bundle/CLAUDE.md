@@ -140,6 +140,8 @@ When a repo has been indexed (`atomic code index`), the symbol graph stored at `
 
 **Query order: lead with `explore`.** `atomic code explore "<natural-language query>"` is the lead verb — one shot returns a bundled digest of the relevant symbols, files, and relationships. Reach for it first when scoping an unfamiliar area; the targeted verbs (`search`, `callers`, `callees`, `impact`) drill into a single symbol afterward. Add `--json` to any query verb for machine-readable output.
 
+**Wiki realm federation.** When a `<code-index>` block is present in CLAUDE.md, the working directory is a **wiki realm** whose member repos are each independently indexed — N per-repo symbol graphs, no cross-repo edges. `atomic code` is position-sensing: run from the realm root it fans out across all members (results grouped under `[<key>]` headers in human output; `{ "<key>": … }` object with `--json`); run from inside a member directory it queries that member alone. Use `--only <keys>` or `--exclude <keys>` (comma-separated) to filter the fan-out to specific members. The block lists each member's key; member dbs live at `<realm>/.atomic/<key>.db` — nothing is written into any member repo. Graceful degradation to `sg`/`grep` is unchanged.
+
 ## Atomic binary subcommands
 
 
