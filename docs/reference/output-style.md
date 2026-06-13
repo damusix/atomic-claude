@@ -38,7 +38,7 @@ Security warnings and irreversible-action confirmations always revert to full pr
 
 ## Subagents do not inherit the style
 
-Output styles only attach to the main agent. When the orchestrator dispatches `atomic-builder`, `atomic-reviewer`, or any other subagent, those agents follow their own system prompts — they are already terse by design.
+Output styles only attach to the main agent. When the orchestrator dispatches `atomic-implementer`, `atomic-reviewer`, or any other subagent, those agents follow their own system prompts — they are already terse by design.
 
 
 ## `keep-coding-instructions: true`

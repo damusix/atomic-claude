@@ -60,7 +60,7 @@ If the project is indexed, the loop uses the code-intel graph throughout. It ind
 /autopilot <task | issue#> [merge-verb]
 ```
 
-When you trust the system to drive, `/autopilot` runs the whole lifecycle — plan, the implement-then-review loop, and ship — from a task description or a GitHub issue number, with one decision left to you: how to merge. It always uses the same subagent loop, but with three autonomous defaults. Every reviewer finding is fixed as it goes rather than deferred. When the loop gets stuck, it dispatches the read-only strategist for root-cause analysis on its own instead of waiting for you. And it keeps the spec current the whole way, so a fresh subagent never reads stale scope. The only decision is the merge method at the end — pass a merge verb (`/autopilot 29 squash-and-merge`) to skip even that. It also keeps experiments in a gitignored scratch folder rather than deleting them mid-run, so it never stops to ask permission for a stray `rm`; it clears that folder once when the run finishes. Reach for the interactive verbs above when you want approval gates; reach for this when you don't.
+When you trust the system to drive, `/autopilot` runs the whole lifecycle — plan, the implement-then-review loop, and ship — from a task description or a GitHub issue number, with one decision left to you: how to merge. It always uses the same subagent loop, but with three autonomous defaults. Every reviewer finding is fixed as it goes rather than deferred. When the loop gets stuck, it dispatches the read-only strategist for root-cause analysis on its own instead of waiting for you. And it keeps the spec current the whole way, so a fresh subagent never reads stale scope. The only decision is the merge method at the end — pass a merge token (`/autopilot 29 "squash merge"`) to skip even that. It also keeps experiments in a gitignored scratch folder rather than deleting them mid-run, so it never stops to ask permission for a stray `rm`; it clears that folder once when the run finishes. Reach for the interactive verbs above when you want approval gates; reach for this when you don't.
 
 
 ### What the loop costs
@@ -79,22 +79,18 @@ When something breaks, this command runs the same loop as implementation but see
 
 ## 4. Ship
 
-Pick the verb that matches where you are:
+One verb covers all ship paths:
 
-| Command | Commit | Push | Squash | PR | Merge |
-|---------|:------:|:----:|:------:|:--:|:-----:|
-| `/commit-only` | ✓ | | | | |
-| `/commit-and-push` | ✓ | ✓ | | | |
-| `/commit-and-pr` | ✓ | ✓ | | ✓ | |
-| `/commit-and-merge` | ✓ | | | | ✓ |
-| `/commit-and-squash` | ✓ | | ✓ | | |
-| `/squash-only` | | | ✓ | | |
-| `/squash-and-merge` | | | ✓ | | ✓ |
-| `/push-only` | | ✓ | | | |
-| `/pr-only` | | ✓ | | ✓ | |
-| `/merge-to-main` | | | | | ✓ |
+```
+/commit                   — stage + commit, then ask how far to ship
+/commit push              — commit + push
+/commit pr                — commit + push + PR
+/commit merge             — commit + merge to base
+/commit squash            — commit + squash branch
+/commit squash merge      — commit + squash + merge to base
+```
 
-All merge and squash commands run tests on the merged result and prompt to clean up the worktree if you used one.
+With no pending changes and commits already ahead of base, `/commit` skips straight to the ship step — so `/commit merge` on a clean branch just merges. All paths run tests on the merged/squashed result and prompt to clean up the worktree if you used one.
 
 
 ## 5. Track what's deferred
@@ -142,25 +138,13 @@ Claude Code already knows how to commit and push. The reason atomic-claude wraps
 Documentation is almost always an afterthought. These commands make it part of the flow rather than something you remember to do later.
 
 
-### Two modes
+### What runs automatically
 
-The ship commands operate in one of two modes depending on whether they produce a commit:
+Every `/commit` invocation runs signals refresh and doc-impact checks as part of the commit flow — signals are regenerated, documentation surfaces are presented for review, and the commit message is synthesized from the diff. Escalation paths that touch the base branch (`merge`, `squash merge`) also run `atomic-verify` on the merged tip before finalizing.
 
-**Full mode** — commands that create a commit (`/commit-*`, `/squash-*`) run signals refresh and doc-impact checks automatically as part of the commit flow. Signals are regenerated, documentation surfaces are presented for review, and the commit message is synthesized from the diff.
+| Path | Signals | Doc-impact | Commit msg | Verify |
+|------|:-------:|:----------:|:----------:|:------:|
+| commit (all paths) | ✓ | ✓ | ✓ | |
+| merge / squash merge | ✓ | ✓ | ✓ | ✓ |
 
-**Ask mode** — commands that do not create a commit (`/push-only`, `/pr-only`, `/merge-to-main`) run a staleness check before proceeding. If signals are stale or docs appear outdated, the command asks whether you want to address it first. Your answer is accepted either way — it is advisory, not a gate.
-
-| Command | Mode | Signals | Doc-impact | Commit msg | Verify |
-|---------|------|:-------:|:----------:|:----------:|:------:|
-| `/commit-only` | full | ✓ | ✓ | ✓ | |
-| `/commit-and-push` | full | ✓ | ✓ | ✓ | |
-| `/commit-and-pr` | full | ✓ | ✓ | ✓ | |
-| `/commit-and-merge` | full | ✓ | ✓ | ✓ | ✓ |
-| `/commit-and-squash` | full | ✓ | ✓ | ✓ | |
-| `/squash-only` | full | ✓ | ✓ | ✓ | |
-| `/squash-and-merge` | full | ✓ | ✓ | ✓ | ✓ |
-| `/push-only` | ask | ? | ? | | |
-| `/pr-only` | ask | ? | ? | | |
-| `/merge-to-main` | ask | ? | ? | | ✓ |
-
-✓ = runs automatically. ? = checks and asks.
+✓ = runs automatically.

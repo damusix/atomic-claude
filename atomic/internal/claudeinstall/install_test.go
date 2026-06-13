@@ -117,8 +117,8 @@ func TestInstallUpdatesChangedArtifact(t *testing.T) {
 		t.Fatalf("first Install: %v", err)
 	}
 
-	// Hand-edit agents/atomic-builder.md.
-	editPath := filepath.Join(target, "agents", "atomic-builder.md")
+	// Hand-edit agents/atomic-reviewer.md.
+	editPath := filepath.Join(target, "agents", "atomic-reviewer.md")
 	original, _ := os.ReadFile(editPath)
 	tampered := append(original, []byte("\ntampered\n")...)
 	if err := os.WriteFile(editPath, tampered, 0o644); err != nil {
@@ -157,7 +157,7 @@ func TestInstallUpdatesChangedArtifact(t *testing.T) {
 
 	// On-disk file must now match embedded bytes.
 	onDisk, _ := os.ReadFile(editPath)
-	embedded := readEmbedded(t, "bundle/agents/atomic-builder.md")
+	embedded := readEmbedded(t, "bundle/agents/atomic-reviewer.md")
 	if sha256hex(onDisk) != sha256hex(embedded) {
 		t.Errorf("on-disk file not restored to embedded content")
 	}
@@ -199,6 +199,14 @@ func TestInstallCLAUDEmdDiffers(t *testing.T) {
 	embeddedClaude := readEmbedded(t, "bundle/CLAUDE.md")
 	if sha256hex(proposed) != sha256hex(embeddedClaude) {
 		t.Errorf("proposed file does not match embedded CLAUDE.md")
+	}
+
+	// Report must surface the "atomic prompt claude-merge" next-step instruction
+	// so users know how to complete the merge. A regression that drops or renames
+	// this string would silently leave users with no guidance.
+	report := claudeinstall.Report(plan, target)
+	if !strings.Contains(report, "atomic prompt claude-merge") {
+		t.Errorf("Report output missing 'atomic prompt claude-merge' next-step instruction:\n%s", report)
 	}
 }
 
@@ -333,7 +341,7 @@ func TestDiffMixed(t *testing.T) {
 	}
 
 	// Remove one file to make it absent.
-	absentTarget := "agents/atomic-builder.md"
+	absentTarget := "agents/atomic-investigator.md"
 	if err := os.Remove(filepath.Join(target, absentTarget)); err != nil {
 		t.Fatalf("remove: %v", err)
 	}
@@ -429,7 +437,7 @@ func TestBackupPathContainsTimestamp(t *testing.T) {
 		t.Fatalf("first Install: %v", err)
 	}
 
-	editPath := filepath.Join(target, "agents", "atomic-builder.md")
+	editPath := filepath.Join(target, "agents", "atomic-reviewer.md")
 	original, _ := os.ReadFile(editPath)
 	_ = os.WriteFile(editPath, append(original, []byte("\ntampered\n")...), 0o644)
 

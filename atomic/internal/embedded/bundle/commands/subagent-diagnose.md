@@ -33,7 +33,7 @@ Stop. Do not proceed until mode is valid.
 | 0.1 | Resolve argument to a run ID. If no arg given: `gh run list --status failure --branch <current-branch> --limit 1 --json databaseId,name,headSha,createdAt`. Refuse if no failed run found: `no failed run found on branch <branch>. provide a run-id, pr#, or workflow.yml as argument.` |
 | 0.2 | Capture into `BRIEF.md` source-pointer section: branch, head SHA, base SHA (`git merge-base HEAD origin/main`), workflow name, failed step name (from `gh run view <id> --json jobs`), failure timestamp, provider URL. |
 | 0.3 | Topic: `<YYYY-MM-DD>-diagnose-ci-<run-id>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise `mkdir -p "$SCRATCH"`. Verify `.claude/.scratchpad/` is gitignored (add `**/.scratchpad/` to `.gitignore` if missing). |
-| 0.4 | Dispatch `atomic-haiku` (read-only, foreground) with this brief: `Fetch full logs for CI run <id>, failed step "<step-name>". Write to <SCRATCH>/CONTEXT.md. If logs exceed 64KB, truncate with footer: "[truncated, full log at <provider-url>]". Extract the primary failing assertion / panic / error line and append as a trailing YAML key: top_level_error: "<exact error string>"`. |
+| 0.4 | Dispatch a `general-purpose` subagent (`model: haiku`, foreground, read-only) with this brief: `Fetch full logs for CI run <id>, failed step "<step-name>". Write to <SCRATCH>/CONTEXT.md. If logs exceed 64KB, truncate with footer: "[truncated, full log at <provider-url>]". Extract the primary failing assertion / panic / error line and append as a trailing YAML key: top_level_error: "<exact error string>"`. |
 | 0.5 | Read `CONTEXT.md`. Copy `top_level_error` value into `STATE.md` as `## Iteration 0 — baseline` entry: `top_level_error: <value>` + `normalized_hash: <sha256 of normalized string, first 12 chars>`. |
 
 ---
@@ -78,10 +78,10 @@ Orchestrator appends the investigator's output to `BRIEF.md` as `## Phase 1 — 
 
 | Classification | Signal | → Agent |
 |---------------|--------|---------|
-| `tight` | Single logical change, ≤2 files would suffice | `atomic-surgeon` |
-| `loose` | Multi-file, multi-concern | `atomic-builder` |
+| `tight` | Single logical change, ≤2 files would suffice | `atomic-implementer (mode: surgical)` |
+| `loose` | Multi-file, multi-concern | `atomic-implementer (mode: feature)` |
 
-Record classification in `STATE.md` under `## Iteration 1`. If surgeon returns `OUT OF SCOPE: needs N files. Split: ...`, re-dispatch the same scope to `atomic-builder` immediately — do not loop on refusal.
+Record classification in `STATE.md` under `## Iteration 1`. If the surgical dispatch returns `OUT OF SCOPE: needs N files. Split: ...`, re-dispatch the same scope to `atomic-implementer (mode: feature)` immediately — do not loop on refusal.
 
 ## Phase 2 — Implementation
 
@@ -95,7 +95,7 @@ Build the implementer prompt from `commands/_templates/implementer-prompt.md`, s
 | `{REVIEWER_FEEDBACK}` | Findings from STATE.md (or `"N/A — first iteration"`) |
 | `{BASE_SHA}` | `git rev-parse HEAD` before this iteration |
 
-Dispatch via `Agent` tool with the cohesion-classified `subagent_type` (`atomic-surgeon` or `atomic-builder`).
+Dispatch via `Agent` tool with `subagent_type: "atomic-implementer"` and include `mode: surgical` or `mode: feature` in the prompt per the cohesion classification.
 
 TDD discipline applies: failing test that reproduces the bug must be written first, then the fix. The agent's signal block is the evidence.
 
@@ -194,7 +194,7 @@ Topic dir includes mode + per-mode unique suffix (run-id for `ci`, slug for `bug
 | Step | Action |
 |------|--------|
 | 4.1 | Push the fix commit if not yet pushed. Confirm with user first (per axiom 3 — push is visible to others). |
-| 4.2 | Dispatch `atomic-haiku` in background (`run_in_background: true`) with brief: `Watch CI for branch <branch> (commit <sha>) until terminal state. Report: run ID, conclusion (success/failure/cancelled/timed-out), failing step + 1-3 line error excerpt on failure. Cap at 10 minutes. Read-only — do not rerun or cancel.` |
+| 4.2 | Dispatch a `general-purpose` subagent (`model: haiku`, `run_in_background: true`) with brief: `Watch CI for branch <branch> (commit <sha>) until terminal state. Report: run ID, conclusion (success/failure/cancelled/timed-out), failing step + 1-3 line error excerpt on failure. Cap at 10 minutes. Read-only — do not rerun or cancel.` |
 | 4.3 | Return control to user immediately. Print: archive path, fix commit SHA, background watcher launched. |
 | 4.4 | When watcher completes — do **not** auto-relaunch on failure. Surface the new failure ID and instruct user to re-invoke `/subagent-diagnose ci <new-run-id>`. Prevents infinite loops on flaky infrastructure. |
 

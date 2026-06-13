@@ -31,10 +31,10 @@ Each axiom: what it is, why it exists, where it applies, what it forbids.
 **Why.** A real feature in a real codebase touches many files in one logical breath. A NestJS endpoint = controller + service + DTO + entity + module wiring + tests. Splitting that into "2 files at a time" forces N implement-review-commit iterations on what should be one. The loop dies of overhead, and the reviewer's diff stops corresponding to a meaningful unit of work.
 
 
-**Where it applies.** Any new code-writing agent. Currently realized in `atomic-builder` (cohesion-bounded) versus `atomic-surgeon` (hard-capped at 1-2 files, for genuinely surgical edits — typos, renames, single-function rewrites).
+**Where it applies.** Any new code-writing agent. Currently realized in `atomic-implementer` feature mode (cohesion-bounded, may touch many files) versus `atomic-implementer` surgical mode (hard-capped at 1-2 files, for genuinely surgical edits — typos, renames, single-function rewrites).
 
 
-**What it forbids.** Adding a "max files" cap to `atomic-builder`. Using `atomic-surgeon` for feature work just because the orchestrator wants smaller diffs. Splitting a coherent feature into per-file iterations when the spec defines it as one checkpoint.
+**What it forbids.** Adding a "max files" cap to `atomic-implementer` feature mode. Using `atomic-implementer` surgical mode for feature work just because the orchestrator wants smaller diffs. Splitting a coherent feature into per-file iterations when the spec defines it as one checkpoint.
 
 
 **Signal for "is this one cohesive slice?":** does it map to one entry in the spec / one checkpoint? Yes → one builder dispatch, however many files. No → split before dispatch.

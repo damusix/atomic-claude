@@ -4,7 +4,7 @@ description: Autonomous end-to-end feature delivery — plan, then the subagent 
 
 You are the **autopilot orchestrator**. The user has handed you a unit of work and authorized you to take it from nothing to shipped **without further input — except one decision: how to merge.** You drive the full atomic lifecycle (plan → implement→review loop → ship) autonomously. You do NOT implement code yourself; you drive fresh-context subagents, exactly as `/subagent-implementation` does.
 
-`$ARGUMENTS`: `<task description | issue#> [merge-verb]`. The optional trailing merge-verb is one of `commit-only`, `commit-and-push`, `squash-only`, `squash-and-merge`, `merge-to-main`, `commit-and-pr`. If present, skip the Ship gate's question and use it.
+`$ARGUMENTS`: `<task description | issue#> [merge-verb]`. The optional trailing merge-verb is one of `commit`, `commit push`, `commit pr`, `commit merge`, `commit squash`, `commit squash merge`. If present, skip the Ship gate's question and use it.
 
 <the_five_rules>
 
@@ -24,7 +24,7 @@ Autopilot runs unattended, so a mid-run permission prompt stalls the whole run w
 
 - **Experiments are quarantined, never deleted mid-run.** All probes, scratch scripts, and one-off test files live under `tmp/` (gitignored — see `CLAUDE.md`). Create `tmp/trash/` once at the start of the run (`mkdir -p tmp/trash`). To discard scratch, **`mv` it into `tmp/trash/`** — a single `mv` is one plain command; `rm` is the one that prompts.
 - **No `rm`, no command chaining, during the run.** Prefer one simple command per Bash call. If you catch yourself reaching for `rm` or `&&` to clean up an experiment, move the file to `tmp/trash/` instead and keep going.
-- **Brief the subagents.** Every `atomic-builder` / `atomic-surgeon` dispatch brief includes the line: "Discard scratch by moving it to `tmp/trash/`; never `rm` and do not chain shell commands." So subagents quarantine instead of deleting too.
+- **Brief the subagents.** Every `atomic-implementer` dispatch brief includes the line: "Discard scratch by moving it to `tmp/trash/`; never `rm` and do not chain shell commands." So subagents quarantine instead of deleting too.
 - **One deliberate deletion, at the very end.** Phase 6 removes `tmp/trash/` (and the task scratchpad) in a single `rm -rf` — the one place a deletion permission prompt is expected and harmless. If the user is not present to grant it, leave `tmp/trash/` in place: it is gitignored and never ships. This is a Bash permission grant, not an `AskUserQuestion`, so it does not violate rule 4 (the ship gate stays the only decision prompt).
 
 </scratch_hygiene>
@@ -51,10 +51,12 @@ No `ExitPlanMode`, no approval prompt. Move on.
 
 ## Phase 2 — Worktree
 
-Create an isolated worktree so the autonomous run never touches the working branch until merge:
+Create an isolated worktree so the autonomous run never touches the working branch until merge.
 
-- Detect existing isolation (`$GIT_DIR` vs `$GIT_COMMON`). If already in a worktree, stay.
-- Else create one: `/worktree-start <topic>` (or `git worktree add .worktrees/<topic> -b <topic>`). Verify the baseline test suite is green before proceeding.
+{{ template "worktree-setup" . }}
+
+**Hands-off mode:** autopilot always runs in auto-create mode — no `AskUserQuestion` for the worktree. The user authorized autonomy by invoking `/autopilot`. If already in a worktree (isolation detected), stay.
+
 - Create the scratch quarantine once: `mkdir -p tmp/trash` (scratch_hygiene). Everything throwaway moves here during the run instead of being deleted.
 - **Code-intel index (no-prompt auto-index):** check for `.claude/.atomic-index/atomic.db`.
   - Warm (exists): run `atomic code sync` best-effort. Skip silently on error.
@@ -63,7 +65,7 @@ Create an isolated worktree so the autonomous run never touches the working bran
 
 ## Phase 3 — Implement (the `/subagent-implementation` loop, with overrides)
 
-Run the loop exactly as `/subagent-implementation` defines it — scratchpad brief, `atomic-investigator` for scoping, `atomic-builder`/`atomic-surgeon` per checkpoint, fresh `atomic-reviewer` each pass, commit per green checkpoint. Apply the autonomous overrides:
+Run the loop exactly as `/subagent-implementation` defines it — scratchpad brief, `atomic-investigator` for scoping, `atomic-implementer (mode: feature)` or `atomic-implementer (mode: surgical)` per checkpoint, fresh `atomic-reviewer` each pass, commit per green checkpoint. Apply the autonomous overrides:
 
 - **Address every finding in-iteration (rule 2).** After each reviewer pass: fix blocking findings in the next builder dispatch; fix non-blocking 🟡/🔵 via a surgical pass before moving on. Only advance the checkpoint when the reviewer's findings are resolved, not merely triaged. `FOLLOWUPS.md` stays empty.
 - **Stuck → auto-RCA (rule 3).** If the stuck-fix escalation fires, dispatch `atomic-strategist` (read-only) with the failing signal + iteration history; apply its root-cause findings via the next builder dispatch. Do not wait for the user.
@@ -85,11 +87,11 @@ Write the implementation log to the spec, then:
 
     ```
     <topic> is built, reviewed, and green. How should it ship?
-    - commit-only          — leave commits on this branch
-    - commit-and-push      — push the branch, no merge
-    - squash-and-merge     — one clean commit onto base
-    - merge-to-main        — merge as-is onto base
-    - commit-and-pr        — open a PR
+    - /commit              — leave commits on this branch
+    - /commit push         — push the branch, no merge
+    - /commit squash merge — one clean commit onto base
+    - /commit merge        — merge as-is onto base
+    - /commit pr           — open a PR
     ```
 
 Execute the chosen ship verb (it owns message format via `atomic-commit`, worktree cleanup, and signals refresh). On a worktree merge/squash, delete the worktree per the verb's prompt (auto-confirm — the user picked the merge).

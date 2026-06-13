@@ -158,8 +158,8 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
 
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|-------------|-------|------------|----------|
-| 1 | <action>   | <paths>     | atomic-builder | ~4 | <test or signal> |
-| 2 | <action>   | <paths>     | atomic-surgeon | 1-2 | <test or signal> |
+| 1 | <action>   | <paths>     | atomic-implementer (mode: feature) | ~4 | <test or signal> |
+| 2 | <action>   | <paths>     | atomic-implementer (mode: surgical) | 1-2 | <test or signal> |
 
 ## Risks
 
@@ -179,7 +179,7 @@ The `## Change log` section ships **empty** on creation. Drafting and refinement
 Mirrors `/subagent-implementation`'s implement→review pattern, but for spec authoring instead of code.
 
 ```
-Iter 1: atomic-builder reads design (if exists) + Approaches → drafts spec.
+Iter 1: atomic-implementer (mode: feature) reads design (if exists) + Approaches → drafts spec.
 Iter 2: atomic-reviewer (spec-mode) reads design + spec → reports gaps:
         - Design intent not covered in spec?
         - Success criteria untestable / missing / vague?
@@ -286,8 +286,8 @@ If the spec writer wants to dictate the code, they should have written the code.
 
 The `Agent` column hints at dispatch:
 
-- `atomic-builder` — multi-file cohesive slice (the default).
-- `atomic-surgeon` — 1-2 file surgical edit (typo, rename, single-function rewrite).
+- `atomic-implementer (mode: feature)` — multi-file cohesive slice (the default).
+- `atomic-implementer (mode: surgical)` — 1-2 file surgical edit (typo, rename, single-function rewrite).
 
 `Est. files` is a sanity check — if a row shows `~15 files`, it's probably two checkpoints.
 

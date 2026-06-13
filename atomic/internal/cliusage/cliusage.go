@@ -346,6 +346,18 @@ var commands = []Command{
 		Flags:       []string{"--root"},
 		Description: "Snapshot bucket and rotate baseline→previous, current→baseline",
 	},
+	{
+		Path:        []string{"prompt", "git-cleanup"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the git-cleanup cold-op brief",
+	},
+	{
+		Path:        []string{"prompt", "claude-merge"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the CLAUDE.md merge cold-op brief",
+	},
 }
 
 // Commands returns the ordered command surface. The returned slice is a copy;

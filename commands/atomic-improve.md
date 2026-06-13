@@ -68,7 +68,7 @@ Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Techn
 
 Dispatch with `subagent_type: "atomic-investigator"`. Prompt: `Read $SCRATCH/discovery-brief.md and return the inventory.`
 
-### 2b. History scan — `atomic-haiku` (full scope only)
+### 2b. History scan — Haiku-backed runner (full scope only)
 
 Skip if `$SCOPE = "current-only"`.
 
@@ -102,7 +102,7 @@ Filter the extracted text for:
 
 **Atomic-meta detection (positional, not name-matching).** Do NOT search for literal mentions of atomic skill/agent/command names — users rarely complain in atomic's vocabulary. Instead:
 
-1. Identify rows where an atomic artifact was active in the preceding ~5 turns. Signals: an `assistant` row with a `tool_use` whose name matches `atomic-*` (subagent dispatch), or any user/assistant row mentioning an atomic command (`/commit-only`, `/atomic-plan`, etc.) or skill (anything under `~/.claude/skills/atomic-*` or invoked via the `Skill` tool with an atomic skill name).
+1. Identify rows where an atomic artifact was active in the preceding ~5 turns. Signals: an `assistant` row with a `tool_use` whose name matches `atomic-*` (subagent dispatch), or any user/assistant row mentioning an atomic command (`/commit`, `/atomic-plan`, etc.) or skill (anything under `~/.claude/skills/atomic-*` or invoked via the `Skill` tool with an atomic skill name).
 2. For each such window, look for frustration / correction signals in the *next* user message (within 5 turns). The frustration anchors on what came before in the conversation, not on naming the artifact.
 3. If a correction or frustration signal lands in that window, mark `atomic_meta = true` and capture the active atomic artifact name in `meta_target`.
 
@@ -129,9 +129,9 @@ Mark recurring patterns (same complaint in 2+ sessions). No raw transcripts. Rea
 Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Findings only — no preamble, no echo of this brief.
 ```
 
-Dispatch with `subagent_type: "atomic-haiku"`. Prompt: `Read $SCRATCH/history-brief.md and execute. Read-only.`
+Dispatch with `subagent_type: "general-purpose"`, `model: haiku`. Prompt: `Read $SCRATCH/history-brief.md and execute. Read-only.`
 
-### 2c. Prior-improve audit — `atomic-haiku` (full scope only, and only if `$RUNS_DIR` has entries)
+### 2c. Prior-improve audit — Haiku-backed runner (full scope only, and only if `$RUNS_DIR` has entries)
 
 Skip if no prior runs exist.
 
@@ -158,7 +158,7 @@ Plus a separate list of `drifted` and `missing` items for re-surfacing (with tar
 Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Audit table + re-surface list only — no preamble, no echo of this brief.
 ```
 
-Dispatch with `subagent_type: "atomic-haiku"`. Prompt: `Read $SCRATCH/prior-improve-brief.md.`
+Dispatch with `subagent_type: "general-purpose"`, `model: haiku`. Prompt: `Read $SCRATCH/prior-improve-brief.md.`
 
 ## Step 3 — Analyze current conversation (foreground, while agents run)
 
@@ -637,7 +637,7 @@ Drifted/missing findings from pruned runs are lost — accepted tradeoff. If a f
 Ask: `Commit the applied changes now? (y/n)` — if yes, hand off with the literal command:
 
 ```
-/commit-only
+/commit
 ```
 
 Do not auto-commit. The user reviews the diff first.
@@ -662,8 +662,8 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 - Skill budget warnings are **always Maintenance tier**, never Critical, unless the user has reported actual invisible skills. The 16K char ceiling is community-discovered, not documented by Anthropic. **Why:** false-positive Critical alarms erode trust in the audit.
 - Prior-improve drifted/missing findings re-enter the current run at tier 1. Previously skipped OR suppressed findings re-enter at tier 2 only when their `signal_keywords` match a current-run signal. **Why:** the audit-trail is itself a deliverable; users want confidence that past accepts stuck, and skipped/suppressed items shouldn't nag unless the underlying friction is still present. Suppressed re-surfaces are weighted equally with skipped re-surfaces — the user never had the chance to actively decline a suppressed item.
 - Never edit `~/.claude/settings.json` or `.claude/settings.json` without printing the JSON patch first and confirming. Delegate to `/update-config` skill when present. **Why:** settings.json changes affect tool permissions and hook execution — they need a visible diff.
-- No commits. End by suggesting `/commit-only`; let the user inspect first. **Why:** mixed audit + ship is opaque; separating them keeps the diff reviewable.
-- Read-only agents only — discovery, history scan, prior-improve audit all use read-only agents (`atomic-investigator`, `atomic-haiku`). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
+- No commits. End by suggesting `/commit`; let the user inspect first. **Why:** mixed audit + ship is opaque; separating them keeps the diff reviewable.
+- Read-only agents only — discovery, history scan, prior-improve audit all use read-only agents (`atomic-investigator`, plus Haiku-backed `general-purpose` runners). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
 - Atomic-tier carve-out for state: `improve-runs/` and `improve-learnings.md` live in `~/.claude/.atomic/`, not in memory (axiom 2 carve-out for shell-readable durable state). **Why:** the next run needs to grep past run logs deterministically; memory is conversational and not addressable from a shell.
 
 ## Open behaviors

@@ -16,10 +16,9 @@ Commands are explicit actions you invoke with a slash. They never auto-fire — 
 
 | Command | What it does |
 |---------|-------------|
-| `/autopilot` | Run the whole lifecycle hands-off: plan, the implement-then-review loop, and ship, from a task description or an issue number. Fixes every reviewer finding as it goes, dispatches a read-only strategist for root-cause analysis when stuck, and asks just one thing — how to merge. Pass a merge verb (e.g. `/autopilot 29 squash-and-merge`) to skip even that. |
-| `/subagent-implementation` | Run the implement-then-review loop from an approved spec. Builder writes code, reviewer checks it, passing checkpoints get committed. |
+| `/autopilot` | Run the whole lifecycle hands-off: plan, the implement-then-review loop, and ship, from a task description or an issue number. Fixes every reviewer finding as it goes, dispatches a read-only strategist for root-cause analysis when stuck, and asks just one thing — how to merge. Pass a merge verb (e.g. `/autopilot 29 commit squash merge`) to skip even that. |
+| `/subagent-implementation` | Run the implement-then-review loop from an approved spec. Creates an isolated worktree on request (asks if unspecified). Builder writes code, reviewer checks it, passing checkpoints get committed. |
 | `/subagent-diagnose` | Investigate and fix a failure. `ci` mode starts from a failed CI run; `bug` mode starts from a description. Same loop as implementation. |
-| `/worktree-start` | Create an isolated worktree at `.worktrees/<name>/` with its own branch. Detects your project setup (npm, cargo, pip, go) and runs a baseline test. |
 
 
 ## Shipping
@@ -28,16 +27,7 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 
 | Command | What it does |
 |---------|-------------|
-| `/commit-only` | Stage and commit. Nothing else. |
-| `/commit-and-push` | Commit, then push. No PR, no merge. |
-| `/commit-and-pr` | Commit, push, and open a PR via `gh`. |
-| `/commit-and-merge` | Commit, then merge into the base branch. |
-| `/commit-and-squash` | Commit, then squash all branch commits into one. |
-| `/push-only` | Push existing commits. No new commit, no PR. |
-| `/pr-only` | Open a PR for commits that already exist. |
-| `/squash-only` | Squash all branch commits into one. No merge. |
-| `/squash-and-merge` | Squash into one commit and merge to base. |
-| `/merge-to-main` | Merge the current branch into base. No squash. |
+| `/commit` | Stage and commit, then ask how far to ship — or skip the prompt by passing a token: `push`, `pr`, `merge`, `squash`, or `squash merge`. With no pending changes and commits ahead of base, skips straight to the ship step. |
 | `/undo-commit` | Soft-undo the last commit. Refuses merge commits, initial commits, and already-pushed commits. |
 
 
@@ -75,7 +65,6 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 | Command | What it does |
 |---------|-------------|
 | `/atomic-help` | When you are not sure what to do next. Reads git state, figures out where you are, and recommends one action. `/atomic-help tour` runs a four-stage guided walkthrough of the whole system; bare invocation offers the tour automatically on fresh repos. |
-| `/atomic-claude-merge` | Reconcile your `~/.claude/CLAUDE.md` with updates from `atomic claude install`. Keeps your instructions, deduplicates conflicts. |
 | `/report-issue` | Open a GitHub issue against your current repo. |
 | `/report-issue-with-atomic` | Open a GitHub issue against the atomic-claude repo itself. |
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	codecli "github.com/damusix/atomic-claude/atomic/internal/codeintel/cli"
+	"github.com/damusix/atomic-claude/atomic/internal/coldprompt"
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/dockerinit"
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
@@ -123,6 +125,8 @@ func main() {
 		runCode(args[1:], repoOverride)
 	case "wiki":
 		runWiki(args[1:])
+	case "prompt":
+		runPrompt(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
 		os.Exit(1)
@@ -1038,4 +1042,27 @@ func runWiki(args []string) {
 	}
 
 	os.Exit(wiki.WikiAction(args, claudeHome, cwd, os.Stdout))
+}
+
+// promptAction executes the prompt subcommand logic and returns an exit code.
+// Extracted from runPrompt so tests can exercise dispatch without os.Exit.
+// out receives the brief text on success; errOut receives error messages.
+func promptAction(args []string, out, errOut io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintf(errOut, "Usage: atomic prompt <name>\n")
+		fmt.Fprintf(errOut, "Valid names: %s\n", strings.Join(coldprompt.Names(), ", "))
+		return 1
+	}
+	text, err := coldprompt.Get(args[0])
+	if err != nil {
+		fmt.Fprintln(errOut, err.Error())
+		return 1
+	}
+	fmt.Fprint(out, text)
+	return 0
+}
+
+// runPrompt is the os.Exit-aware entry point for the prompt top-level verb.
+func runPrompt(args []string) {
+	os.Exit(promptAction(args, os.Stdout, os.Stderr))
 }

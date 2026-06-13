@@ -8,7 +8,7 @@ You need these tools on your `PATH` before installing:
 - **Claude Code CLI** — `npm install -g @anthropic-ai/claude-code` (Node.js 18+)
 - **Claude subscription or API key** — Pro, Max, or Team plan for OAuth; or set `ANTHROPIC_API_KEY` for direct billing
 - **git** 2.30+ — used by every ship verb, worktree command, and cleanup scan
-- **GitHub CLI** (`gh`) — used by `/commit-and-pr`, `/pr-only`, and `/report-issue`. Authenticate with `gh auth login`
+- **GitHub CLI** (`gh`) — used by `/commit` and `/report-issue`. Authenticate with `gh auth login`
 - **POSIX shell** — `bash` or `zsh`, plus standard utilities (`grep`, `sed`, `awk`, `find`, `jq`, etc.)
 - **Docker** — only needed for the [evaluation environment](./evaluations.md), not for normal use
 
@@ -97,9 +97,9 @@ atomic config set update.run_doctor false
 
 If your file already contains an `<atomic>...</atomic>` block from a prior install, the installer updates that block in place and leaves everything outside it alone. Your own sections are never touched, and a file whose block is current does not count as drift in `atomic claude diff` or `atomic doctor`. The previous version is backed up to `~/.claude/.atomic/backups/` before any change.
 
-If your file has no `<atomic>` block yet (a pre-block install, or hand-edited tags), the installer will not overwrite it. Instead, it writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and tells you to run `/atomic-claude-merge` from any Claude Code session.
+If your file has no `<atomic>` block yet (a pre-block install, or hand-edited tags), the installer will not overwrite it. Instead, it writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and tells you to run `atomic prompt claude-merge` inside a subagent from any Claude Code session.
 
-That command shows a diff, lets you accept or edit, and backs up your previous file. Your instructions are preserved; duplicates are resolved. After this one-time merge wraps the atomic content in `<atomic>` tags, future updates apply on their own.
+That command emits a merge brief for a disposable subagent. The subagent reads both files, writes the merged result to `~/.claude/CLAUDE.md.atomic-merged`, and returns a report with the proposed apply command. Your instructions are preserved; the `<atomic>` block is updated. After this one-time merge wraps the atomic content in `<atomic>` tags, future updates apply on their own.
 
 
 ## Manual install

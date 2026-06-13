@@ -43,7 +43,7 @@ Why this repo exists alongside it: superpowers leans hard on auto-firing skills 
 
 **[claude-improve](https://github.com/TerenceBristol/claude-improve)** by Terence Bristol. The retrospective-audit pattern behind `/atomic-improve`. claude-improve introduced the idea of treating a Claude session as a corpus to be mined — scanning `.jsonl` session history for corrections/praise/friction, cross-referencing against installed artifacts, and proposing targeted improvements one at a time with Accept/Reject/Modify. The enforcement-gap-to-hook conversion (turn a repeatedly-violated advisory rule into a deterministic `PreToolUse` gate) and the prior-run audit (verify whether past accepts actually landed) are both lifted directly from it.
 
-Why this repo's version exists alongside it: claude-improve is a standalone skill targeted at any Claude Code setup. `/atomic-improve` adapts the same pipeline to atomic-claude's primitives — reusing `atomic-investigator`, `atomic-haiku`, and `atomic-strategist` for the parallel scans, storing run logs in `~/.claude/.atomic/improve-runs/` instead of a flat learnings file, and following the indexed-selection axiom for finding presentation instead of paginated `AskUserQuestion`.
+Why this repo's version exists alongside it: claude-improve is a standalone skill targeted at any Claude Code setup. `/atomic-improve` adapts the same pipeline to atomic-claude's primitives — reusing `atomic-investigator`, Haiku-backed `general-purpose` runners, and `atomic-strategist` for the parallel scans, storing run logs in `~/.claude/.atomic/improve-runs/` instead of a flat learnings file, and following the indexed-selection axiom for finding presentation instead of paginated `AskUserQuestion`.
 
 
 ## Comparison

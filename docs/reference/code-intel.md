@@ -108,8 +108,8 @@ flowchart TD
     end
     subgraph subs["Subagents — query directly"]
         inv["atomic-investigator"]
-        haiku["atomic-haiku"]
-        impl["atomic-builder / surgeon"]
+        gp["general-purpose (model: haiku)"]
+        impl["atomic-implementer"]
         rev["atomic-reviewer"]
         sig["atomic-signals-inferrer"]
     end
@@ -117,9 +117,9 @@ flowchart TD
     grep["sg / grep / heuristics"]
 
     plan -->|dispatch, get digest| inv
-    doc -->|dispatch impact sweep| haiku
+    doc -->|dispatch impact sweep| gp
     inv --> db
-    haiku --> db
+    gp --> db
     impl -->|impact before edit| db
     rev -->|blast-radius check| db
     sig -->|real import/call edges| db
@@ -131,7 +131,7 @@ What each consumer does with the graph:
 | Consumer | Uses the index to |
 |----------|-------------------|
 | `atomic-investigator` | Answer "where is X / what calls Y / map this area" from real edges instead of grep. The keystone — parents that delegate exploration to it inherit code-intel for free. |
-| `atomic-builder` / `atomic-surgeon` | Run a bounded `impact`/`callers` on a symbol before editing it, so the change accounts for every call site. |
+| `atomic-implementer` | Run a bounded `impact`/`callers` on a symbol before editing it, so the change accounts for every call site. |
 | `atomic-reviewer` | Check that a diff's blast radius matches what actually changed — catch callers the diff missed. |
 | `atomic-signals-inferrer` | Cluster domains from actual dependency edges, not directory names. Used by `/refresh-signals` and per-repo in `/refresh-wiki`. |
 | `/atomic-plan`, `/documentation` | Delegate structural exploration to a subagent — never query inline. |
