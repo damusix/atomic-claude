@@ -1,5 +1,22 @@
 # Changelog
 
+## [5.0.0](https://github.com/damusix/atomic-claude/compare/v4.5.0...v5.0.0) (2026-06-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* consolidate artifact surface 50→35
+
+### Features
+
+* **code-intel:** realm federation for atomic code ([8be144b](https://github.com/damusix/atomic-claude/commit/8be144bcbeb7adf096eba04e2a8d5effe9290073))
+
+
+### Bug Fixes
+
+* **atomic-plan:** spec body is forward-only, no design duplication ([7f87ca7](https://github.com/damusix/atomic-claude/commit/7f87ca73c27f9d44822a44a84c9f39802997869a))
+* consolidate artifact surface 50→35 ([3252e57](https://github.com/damusix/atomic-claude/commit/3252e5772faffd034ad27050191e5153a09b6c1c))
+
 ## [4.5.0](https://github.com/damusix/atomic-claude/compare/v4.4.0...v4.5.0) (2026-06-12)
 
 
