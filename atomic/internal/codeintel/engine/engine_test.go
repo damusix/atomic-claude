@@ -349,7 +349,79 @@ func TestWatchStubs(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// 6. IndexFiles — selective indexing (F-56)
+// 6. NewWithDBPath — explicit DB path decoupled from scan root
+// --------------------------------------------------------------------------
+
+// TestNewWithDBPath_ExplicitPathWritesCorrectLocation proves that
+// NewWithDBPath places the SQLite file at the caller-supplied path, not at
+// the default <scanRoot>/.claude/.atomic-index/atomic.db location.
+//
+// This is CP1 of the realm federation: a caller that wants to store the index
+// outside the member repo (e.g. <realm>/.atomic/<key>.db) can supply an
+// explicit absolute path while still scanning the member source tree normally.
+func TestNewWithDBPath_ExplicitPathWritesCorrectLocation(t *testing.T) {
+	scanRoot := writeFixture(t) // source tree to index
+	dbDir := t.TempDir()        // separate dir — simulates <realm>/.atomic/
+	explicitDB := filepath.Join(dbDir, "mykey.db")
+
+	e, err := engine.NewWithDBPath(scanRoot, explicitDB)
+	if err != nil {
+		t.Fatal("NewWithDBPath:", err)
+	}
+	defer e.Close()
+
+	ctx := context.Background()
+	if err := e.Init(ctx); err != nil {
+		t.Fatal("Init:", err)
+	}
+
+	// DB must exist at the explicit path.
+	if _, err := os.Stat(explicitDB); err != nil {
+		t.Fatalf("DB not found at explicit path %s: %v", explicitDB, err)
+	}
+
+	// Default path inside scan root must NOT exist.
+	defaultDB := filepath.Join(scanRoot, ".claude", ".atomic-index", "atomic.db")
+	if _, err := os.Stat(defaultDB); err == nil {
+		t.Fatalf("DB should NOT exist at default scan-root path %s", defaultDB)
+	}
+
+	// Indexing and querying must still work against the explicit DB.
+	if err := e.IndexAll(ctx); err != nil {
+		t.Fatal("IndexAll:", err)
+	}
+	stats, err := e.GetStats(ctx)
+	if err != nil {
+		t.Fatal("GetStats:", err)
+	}
+	if stats.FileCount == 0 {
+		t.Error("expected indexed files in explicit-path DB, got 0")
+	}
+}
+
+// TestNewWithDBPath_DefaultUnchanged proves that engine.New still places the
+// DB at <projectRoot>/.claude/.atomic-index/atomic.db — no regression.
+func TestNewWithDBPath_DefaultUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	e, err := engine.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+
+	if err := e.Init(context.Background()); err != nil {
+		t.Fatal("Init:", err)
+	}
+
+	// Default path must be the canonical repo-scope location.
+	defaultDB := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
+	if _, err := os.Stat(defaultDB); err != nil {
+		t.Fatalf("DB not found at default path %s: %v", defaultDB, err)
+	}
+}
+
+// --------------------------------------------------------------------------
+// 7. IndexFiles — selective indexing (F-56)
 // --------------------------------------------------------------------------
 
 // TestIndexFiles_SelectiveOnly proves that IndexFiles indexes ONLY the listed

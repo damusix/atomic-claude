@@ -13,15 +13,15 @@ type Artifact struct {
 // Generated at build time by cmd/bundle-mirror; commit the result.
 func Manifest() []Artifact {
 	return []Artifact{
-		{Kind: "agent", Source: "bundle/agents/atomic-implementer.md", Target: "agents/atomic-implementer.md", SHA256: "89f9a1b6266ed77c8476fdbcb9517631cb98383d9c0acf85ac88399f648a258a"},
-		{Kind: "agent", Source: "bundle/agents/atomic-investigator.md", Target: "agents/atomic-investigator.md", SHA256: "cbcc64fed0e96526106e37897d6f5c2f000859f1c808d0d173c1160c1fbe375b"},
-		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "79e762bfc557e141158840456fcdc3f7a9fa3a8a080c2c04426221606d2fc881"},
-		{Kind: "agent", Source: "bundle/agents/atomic-signals-inferrer.md", Target: "agents/atomic-signals-inferrer.md", SHA256: "b0b4a0d9db9184fd567c4e82ddf550004da91eeb4ba20b62bbf112be07f97694"},
+		{Kind: "agent", Source: "bundle/agents/atomic-implementer.md", Target: "agents/atomic-implementer.md", SHA256: "e8d0df3e965a0385ae974c075ce96a3e8eee062a6d2a4a73018b454da238a3a2"},
+		{Kind: "agent", Source: "bundle/agents/atomic-investigator.md", Target: "agents/atomic-investigator.md", SHA256: "5508bf1bebdbcc1bb25c3037acdb52a0be758454301b60313306f3a9444c5a7f"},
+		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "45aa800a02172b60c3d604180fd5f4adc2f280a28d9495bfe97afd761f3cef27"},
+		{Kind: "agent", Source: "bundle/agents/atomic-signals-inferrer.md", Target: "agents/atomic-signals-inferrer.md", SHA256: "ff8647e34182325f8b26c5fc67a28fe4be71c28d94031cb8c1c79bcb952868d7"},
 		{Kind: "agent", Source: "bundle/agents/atomic-strategist.md", Target: "agents/atomic-strategist.md", SHA256: "77f9dc3a7ec36e37358bd76c6e8d4d675a2f380001ff0b3fc115fd481b5f3414"},
-		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "6e0d0a2fd37fc7c0580f86ab4a3d5a2ce610eb16e0e3017dd0967ee678938d7d"},
+		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "0dcc9706944d51b18b161513a1ae8c0685d3093e2da88b2af931b1230666eca4"},
 		{Kind: "command", Source: "bundle/commands/_templates/implementer-prompt.md", Target: "commands/_templates/implementer-prompt.md", SHA256: "88821c30f61b773218b90332f2060eec09979515545aaddfcb10081f1e8ce14f"},
 		{Kind: "command", Source: "bundle/commands/_templates/reviewer-prompt.md", Target: "commands/_templates/reviewer-prompt.md", SHA256: "296889105ed096f4afb9239c5931f9b900037d55e676f89bf3023daf5d62ffed"},
-		{Kind: "command", Source: "bundle/commands/atomic-help.md", Target: "commands/atomic-help.md", SHA256: "51e895f29b26198abd8e007cc7f500326b2558058f051bc8bd7a93ae40772795"},
+		{Kind: "command", Source: "bundle/commands/atomic-help.md", Target: "commands/atomic-help.md", SHA256: "51285f8cb97366f550ac83f8cc9997ef3c4edda7442eb164eafee22961c4405f"},
 		{Kind: "command", Source: "bundle/commands/atomic-improve.md", Target: "commands/atomic-improve.md", SHA256: "84368d4e5415e0f7f4355ab194305062a6d322afd53b3b73692e59dd7177ac2f"},
 		{Kind: "command", Source: "bundle/commands/atomic-plan.md", Target: "commands/atomic-plan.md", SHA256: "b482d9f5b59ddf9355f3c7ddd9d4c693ee65bbf6ea90c896a98738a6f6cb8b78"},
 		{Kind: "command", Source: "bundle/commands/atomic-setup.md", Target: "commands/atomic-setup.md", SHA256: "225c21cd84b92220045db3d11e58ffc4d6253ba1c6aa9f7ea1a2fd24561764cb"},

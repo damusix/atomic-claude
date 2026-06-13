@@ -241,7 +241,7 @@ var commands = []Command{
 	{
 		Path:        []string{"code", "index"},
 		Args:        "",
-		Flags:       []string{"--profile"},
+		Flags:       []string{"--profile", "--only", "--exclude"},
 		Description: "Index all source files",
 	},
 	{
@@ -259,25 +259,25 @@ var commands = []Command{
 	{
 		Path:        []string{"code", "search"},
 		Args:        "<query>",
-		Flags:       []string{"--json", "--limit"},
+		Flags:       []string{"--json", "--limit", "--only", "--exclude"},
 		Description: "Search indexed nodes",
 	},
 	{
 		Path:        []string{"code", "callers"},
 		Args:        "<symbol>",
-		Flags:       []string{"--depth", "--json"},
+		Flags:       []string{"--depth", "--json", "--only", "--exclude"},
 		Description: "Find callers of symbol",
 	},
 	{
 		Path:        []string{"code", "callees"},
 		Args:        "<symbol>",
-		Flags:       []string{"--depth", "--json"},
+		Flags:       []string{"--depth", "--json", "--only", "--exclude"},
 		Description: "Find callees of symbol",
 	},
 	{
 		Path:        []string{"code", "impact"},
 		Args:        "<symbol>",
-		Flags:       []string{"--depth", "--json"},
+		Flags:       []string{"--depth", "--json", "--only", "--exclude"},
 		Description: "Find impact radius of symbol",
 	},
 	{
@@ -301,7 +301,7 @@ var commands = []Command{
 	{
 		Path:        []string{"code", "explore"},
 		Args:        "<query>",
-		Flags:       []string{"--json"},
+		Flags:       []string{"--json", "--only", "--exclude"},
 		Description: "Gather context for a query",
 	},
 	{
