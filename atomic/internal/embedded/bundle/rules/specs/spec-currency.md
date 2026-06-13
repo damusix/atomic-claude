@@ -10,6 +10,16 @@ paths:
 
 **Why:** the body and the change log have different jobs. The body says what is true *now*. The log says *how it got here*. Conflating them — leaving old behavior in the body "for the record" — turns the contract into a hallucination source.
 
+## The body is forward-only
+
+This holds for a *fresh* spec as much as an amended one. The body describes only what is going to be built — Goal, Non-goals, Success criteria, Checkpoints, Risks. It never narrates how the plan got there. Three things belong in the design doc, never the spec body:
+
+- **Decision history** — "resolved during the pressure-test", "we decided that…", "after discussion". The resolution is already encoded as a success criterion or a non-goal; recounting *how* it was reached is design/audit material.
+- **Prior-version references** — "previously", "superseded", "was going to", "the earlier draft". A fresh reader has no earlier draft to compare against; the body is the only version they see.
+- **Rejected-alternative enumeration, even as a pointer** — naming which options were weighed leaks the deliberation. When a design doc exists the spec carries a one-line `## Approach` pointer that names only the chosen option and links the design; it does not list the forks.
+
+Negative scope in `## Non-goals` is fine — "no `--db` flag" is a current-truth constraint on what to build, not history. The test: a sentence that only makes sense to someone who watched the plan evolve does not belong in the body.
+
 ## Amendment rules
 
 Every spec ends with a `## Change log` section. Append a dated entry per amendment; never delete prior entries. The log is the audit trail, but it never substitutes for keeping the body current.

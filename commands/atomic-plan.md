@@ -144,15 +144,15 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
 - [ ] <verifiable check>
 - [ ] <verifiable check>
 
-## Approaches *(non-trivial; copy from design if a design doc exists)*
+## Approach
 
-| # | Approach | Sketch | Cost | Risk |
-|---|----------|--------|------|------|
-| A | … | … | … | … |
+<!-- Design doc exists (always, for non-trivial work): name the chosen approach in ONE line
+     and link the design. Do NOT copy the Approaches table or name the rejected forks —
+     that deliberation lives only in the design.
+     No design doc (trivial inline spec): replace this section with the full `## Approaches`
+     table + `## Recommendation` instead, since there's no design to hold them. -->
 
-## Recommendation
-
-<chosen approach + why, with evidence>
+<chosen approach, one line> — see `docs/design/<topic>.md`.
 
 ## Checkpoints
 
@@ -186,7 +186,8 @@ Iter 2: atomic-reviewer (spec-mode) reads design + spec → reports gaps:
         - Checkpoints not cohesive slices?
         - Spec over-prescribes implementation details?
         - Contradictions between design and spec?
-        - Approaches table or Recommendation missing evidence?
+        - Body forward-only — no decision history, prior-version refs, or rejected-fork enumeration?
+        - `## Approach` a one-line pointer to the design, not a copied Approaches/Recommendation table?
 Iter 3+: builder applies feedback; reviewer re-checks.
 Terminate on VERDICT: PASS or hard-cap (5 iters; configurable via memory).
 ```
@@ -201,6 +202,7 @@ Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md
 - Success criteria verifiable and falsifiable.
 - Checkpoints are cohesive slices, not line-by-line code.
 - Voice is evidence-backed, not prescriptive.
+- Body is forward-only — no decision history, prior-version references, or rejected-alternative enumeration; `## Approach` points to the design rather than copying its tables.
 - No contradictions between design and spec.
 - Risks table honestly enumerates likelihood + mitigation.
 
@@ -258,12 +260,14 @@ The spec loop also uses `.claude/.scratchpad/<date>-spec-<topic>/` during author
 
 **Evidence-backed, not prescriptive.** The spec captures what done looks like and where the evidence came from. It does not dictate implementation.
 
+**Forward-only.** The body describes only what is going to be built — never how the plan got here. No decision history ("resolved during the pressure-test", "we decided…"), no prior-version references ("previously", "superseded", "was going to"), no enumeration of the alternatives that were weighed, even as a pointer. All of that lives in the design. When a design doc exists, the spec carries a one-line `## Approach` pointer naming the chosen option and linking the design, not a copied Approaches/Recommendation table. Negative scope in `## Non-goals` ("no `--db` flag") is current-truth constraint, not history, and belongs. This is the fresh-spec half of `rules/specs/spec-currency.md`: that rule keeps *amended* specs from carrying superseded content; forward-only keeps *fresh* specs from narrating their own drafting.
+
 A spec SHOULD say:
 
 - What done looks like — success criteria, verifiable and falsifiable.
 - What we're not doing — non-goals, explicit scope boundary.
 - The slices — checkpoints, cohesion units the implementer can dispatch as one builder pass.
-- The evidence behind decisions — Approaches + Recommendation with file:line or signals-derived facts.
+- The chosen approach — a one-line `## Approach` pointer to the design, which holds the Approaches deliberation + evidence. Only a trivial inline spec with no design carries the Approaches + Recommendation itself.
 
 Implementation details belong in code, not specs:
 
