@@ -69,7 +69,7 @@ Skip `[generated]` entries when partitioning — generated files do not drive do
 
 ### Step 4 — Dispatch sub-agents per domain
 
-For each domain that needs writing or updating, dispatch a sub-agent. Domain writers are document authors, not code implementers — `atomic-builder` and `atomic-surgeon` are scoped to code changes, not markdown signal files — so `general-purpose` is used here:
+For each domain that needs writing or updating, dispatch a sub-agent. Domain writers are document authors, not code implementers — `atomic-implementer` is scoped to code changes, not markdown signal files — so `general-purpose` is used here:
 
 ```
 Dispatch sub-agent (general-purpose):
@@ -426,6 +426,8 @@ Add `--json` to any query verb for machine-parseable output when processing resu
 **Graceful degradation — non-negotiable.** Before querying, confirm the path is live: `atomic` on PATH, `.claude/.atomic-index/atomic.db` exists, and the query returns usable output. On any failure — binary absent, DB missing, query error — fall back silently to sg/grep/heuristics. Never print an error about the index being unavailable; never block because it is missing. The query is an enhancement; grep is the floor. This matters because the artifacts install into user repos that never ran `atomic code index`.
 
 **Why the index exists.** It reflects working-tree state at the last `atomic code sync`. It is authoritative for existing symbols at that point in time. The orchestrator (not the subagent) owns keeping the index fresh — the subagent only queries.
+
+**Wiki realm fan-out.** If a `<code-index>` block is present in CLAUDE.md, the working directory is a wiki realm with N independently indexed member repos. `atomic code` queries fan out across all members at the realm root (results grouped under `[<key>]` headers; add `--json` for a `{ "<key>": … }` object); inside a member directory, only that member is queried. Use `--only <keys>` or `--exclude <keys>` to filter the fan-out set. Graceful degradation to `sg`/`grep` applies to realm queries as well.
 
 ## Incremental vs full mode
 

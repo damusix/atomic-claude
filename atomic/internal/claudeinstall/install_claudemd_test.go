@@ -13,7 +13,7 @@ import (
 // CLAUDE.md carries an <atomic>...</atomic> block, install/update compares and
 // replaces only that block. User content outside the block must never cause
 // drift (merge_required / DiffDiffer) and must never be touched on update.
-// The LLM merge path (proposed file + /atomic-claude-merge) remains only for
+// The LLM merge path (proposed file + `atomic prompt claude-merge`) remains only for
 // files without a parseable block.
 
 // mergedCLAUDEmd returns the embedded CLAUDE.md with user content appended

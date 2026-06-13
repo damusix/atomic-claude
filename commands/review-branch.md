@@ -1,5 +1,5 @@
 ---
-description: Review the current branch's diff against base by dispatching atomic-reviewer. No orchestration loop, no spec required — pre-flight before /pr-only or /merge-to-main.
+description: Review the current branch's diff against base by dispatching atomic-reviewer. No orchestration loop, no spec required — pre-flight before /commit pr or /commit merge.
 ---
 
 Thin wrapper. Runs `atomic-reviewer` once on `<base>..HEAD`, returns its standard `## Spec compliance` + `## Code quality` + signals block + `VERDICT:` output.
@@ -109,8 +109,8 @@ Append one line at the end:
 
 ```
 suggested next step (on PASS):
-  /pr-only      → open PR for review
-  /merge-to-main → merge into <base>
+  /commit pr    → open PR for review
+  /commit merge → merge into <base>
 ```
 
 </workflow>

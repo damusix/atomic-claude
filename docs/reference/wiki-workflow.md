@@ -172,3 +172,12 @@ atomic wiki bucket promote research   # advance the baseline after synthesis
 ## Relationship to signals
 
 Signals and wikis are the same Karpathy-inspired pattern at two scales. Signals compile one repo's filesystem into a markdown model Claude reads every session. A wiki compiles a realm of repos into a markdown knowledge base one level up — pointing at the repos that already have signals, summarizing the ones that do not, writing up what they share, and synthesizing loose capture material into a knowledge layer. Neither replaces the other; the wiki points at signals, it never copies them.
+
+
+## Federated code intelligence
+
+A wiki realm can also carry a federated symbol graph. Running `atomic code index` at the realm root indexes each non-excluded member repo into a per-repo SQLite db under `<realm>/.atomic/<key>.db` — nothing is written into any member. Members whose status is `pending` or whose path is under `trash/` are seeded with `exclude = true` and skipped. Query verbs (`search`, `callers`, `callees`, `impact`, `explore`) then fan out across indexed members and group results under `[<key>]` headers. Use `--only`/`--exclude` to filter to specific members.
+
+This is a complement to the wiki layer, not a replacement: the wiki provides prose summaries and cross-cutting concerns; the code-intel layer provides a queryable symbol graph. Both live at the realm root; neither touches member repos.
+
+See [Code intelligence](/reference/code-intel#wiki-realm-federation) for the full contract: position-sensing, storage layout, fan-out output format, filtering, session-awareness block, and federation boundaries.

@@ -109,7 +109,7 @@ Print:
 ```
 undone. HEAD now at <new-sha-short>.
 prior commit's changes are staged. inspect with: git status, git diff --cached
-to re-commit: /commit-only
+to re-commit: /commit
 to discard: git restore --staged <paths> then git restore <paths>
 ```
 

@@ -8,6 +8,8 @@
 //	<projectRoot>/.claude/.atomic-index/atomic.db
 //
 // Init creates this directory tree; Uninitialize removes it.
+// NewWithDBPath overrides this default by accepting an explicit dbPath,
+// decoupling the scan root from the index location — used by realm/federated callers.
 //
 // # Lifecycle
 //
@@ -62,33 +64,64 @@ type ContextOptions = codectx.Options
 // MCP server adapter (CP22). It wraps the db, pool, orchestrator, pipeline,
 // graph manager, searcher, and context builder into one cohesive API.
 //
-// The zero-value Engine is not usable. Use New.
+// The zero-value Engine is not usable. Use New or NewWithDBPath.
 type Engine struct {
-	root    string // absolute project root
-	indexDB *db.DB // nil until Init or Open
-	pool    *extraction.Pool
-	orch    *indexer.Orchestrator
-	fwReg   *frameworks.Registry // retained for ExtractFrameworkNodes
-	pipe    *resolution.Pipeline
-	mgr     *graph.Manager
-	srch    *search.Searcher
-	bld     *codectx.Builder
+	root       string // absolute project root (source tree to scan)
+	explicitDB string // when non-empty, overrides the computed DB path
+	indexDB    *db.DB // nil until Init or Open
+	pool       *extraction.Pool
+	orch       *indexer.Orchestrator
+	fwReg      *frameworks.Registry // retained for ExtractFrameworkNodes
+	pipe       *resolution.Pipeline
+	mgr        *graph.Manager
+	srch       *search.Searcher
+	bld        *codectx.Builder
 }
 
 // New creates an Engine bound to projectRoot. Neither Init nor Open is called;
 // the engine is dormant until one of them is invoked. Close must still be
 // called to release any resources that are acquired lazily (e.g. the pool).
+//
+// The DB is placed at the canonical repo-scope path:
+//
+//	<projectRoot>/.claude/.atomic-index/atomic.db
+//
+// To decouple the DB location from the scan root (e.g. for realm federation
+// where the index lives outside the member repo), use NewWithDBPath instead.
 func New(projectRoot string) (*Engine, error) {
 	return &Engine{root: projectRoot}, nil
 }
 
-// indexPath returns the path to the SQLite file for this engine.
+// NewWithDBPath creates an Engine that scans projectRoot but stores its SQLite
+// index at the caller-supplied absolute dbPath. This is the internal seam for
+// realm federation (CP3): callers can direct the index to
+// <realm>/.atomic/<key>.db while the source tree being scanned stays at
+// projectRoot. No user-facing flag exposes this — it is callable from Go only.
+//
+// The existing repo-scope behavior (DB at
+// <projectRoot>/.claude/.atomic-index/atomic.db) is unchanged: use New for
+// that path. No meta row recording the source root is written into the DB.
+func NewWithDBPath(projectRoot, dbPath string) (*Engine, error) {
+	return &Engine{root: projectRoot, explicitDB: dbPath}, nil
+}
+
+// indexPath returns the absolute path to the SQLite file for this engine.
+// When an explicit DB path was supplied via NewWithDBPath, that path is
+// returned; otherwise the canonical repo-scope path is computed.
 func (e *Engine) indexPath() string {
+	if e.explicitDB != "" {
+		return e.explicitDB
+	}
 	return filepath.Join(e.root, indexSubDir, dbFileName)
 }
 
-// indexDir returns the path to the .atomic-index directory.
+// indexDir returns the directory that contains the SQLite file. When an
+// explicit DB path is set, this is filepath.Dir(explicitDB); otherwise it is
+// the canonical .claude/.atomic-index directory under the project root.
 func (e *Engine) indexDir() string {
+	if e.explicitDB != "" {
+		return filepath.Dir(e.explicitDB)
+	}
 	return filepath.Join(e.root, indexSubDir)
 }
 

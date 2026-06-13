@@ -55,11 +55,11 @@ Everything below is opt-in. The pieces compose into one lifecycle, and you can r
 
 ### The workflow, end to end
 
-Fresh-context subagents drive each stage. The builder writes a failing test before any code; the reviewer re-runs tests and gates the diff against the spec; work commits per green checkpoint.
+Fresh-context subagents drive each stage. The implementer writes a failing test before any code; the reviewer re-runs tests and gates the diff against the spec; work commits per green checkpoint.
 
 ```
 plan ........ /atomic-plan writes a design doc + a checkpoint spec
-implement ... atomic-builder: failing test first, then the code
+implement ... atomic-implementer: failing test first, then the code
 review ...... atomic-reviewer: re-run tests, gate against the spec
 ship ........ a commit / push / squash / PR / merge verb
 ```
@@ -126,14 +126,14 @@ atomic code impact validateToken
 
 Atomic indexes SQL as a first-class language: `.sql` files join the graph alongside your application code, so Claude can answer which procedures read a table, what a view depends on, or where a foreign key points, across Postgres, MySQL, and T-SQL, with no database connection. Most code tools treat SQL as plain text.
 
-Agents reach for the graph when an index is present and fall back to grep when it isn't. → [code-intel](docs/reference/code-intel.md)
+Agents reach for the graph when an index is present and fall back to grep when it isn't. At a wiki realm root, `atomic code index` indexes every member repo into per-repo dbs under `<realm>/.atomic/`; query verbs fan out across all members and group results under `[<key>]` headers (`--only`/`--exclude` to filter). Nothing is written into any member repo. → [code-intel](docs/reference/code-intel.md)
 
 ### Hand off the whole feature
 
 `/autopilot` takes a task description or a GitHub issue number and runs the entire lifecycle on its own:
 
 ```text
-/autopilot 142 squash-and-merge
+/autopilot 142 commit squash merge
 
    → Reads issue #142. Writes a spec: controller, service, DTO,
      queue, signature validation.
@@ -152,11 +152,11 @@ One decision is yours, how to merge. Everything else runs unattended. → [workf
 
 | Capability | What it gives you | Docs |
 |---|---|---|
-| **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. Capture buckets (`atomic wiki bucket add/list/diff/promote`) let you register loose material folders at the realm root; `/refresh-wiki` synthesizes them into topic-keyed `wiki/knowledge/` pages with SHA-256 provenance tracking. | [wiki](docs/reference/wiki-workflow.md) |
+| **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. Capture buckets (`atomic wiki bucket add/list/diff/promote`) let you register loose material folders at the realm root; `/refresh-wiki` synthesizes them into topic-keyed `wiki/knowledge/` pages with SHA-256 provenance tracking. `atomic code index` at the realm root layers in a federated symbol graph — query verbs fan out across member repos, nothing written into members. | [wiki](docs/reference/wiki-workflow.md) · [code-intel](docs/reference/code-intel.md) |
 | **Self-sharpening config** | `/atomic-improve` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
 | **Output style** | Multi-part answers shaped as tables, trees, and ASCII flows, filler cut. The most optional piece. | [output-style](docs/reference/output-style.md) |
 | **Discipline skills** | Eight that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing. | [skills](docs/reference/skills.md) |
-| **Git commands** | Ten verbs across commit / push / squash / PR / merge-to-base, plus CI watch, branch cleanup, worktrees, reminders. | [commands](docs/reference/commands.md) |
+| **Git commands** | `/commit [push\|pr\|merge\|squash\|squash merge]` covers all ship paths from one verb; ask-don't-enumerate. Plus CI watch, branch cleanup, worktrees, reminders. | [commands](docs/reference/commands.md) |
 | **Persistent profile** | `~/.claude/.atomic/profile.md`: who you are plus auto-detected dev tooling, read every session, refreshed on a staleness check. | [concepts](docs/reference/concepts.md) |
 
 ### And the replies take the right shape
@@ -188,21 +188,20 @@ A comparison becomes a table:
 
 **Default Claude Code:**
 ```
-If you just want to record work locally, use /commit-only, which stages and
-commits without pushing. When you also want it on the remote, /commit-and-push
-does both. To open a pull request as well, reach for /commit-and-pr, which
-commits, pushes, and opens the PR. And to merge straight into the base branch,
-/commit-and-merge handles the whole path.
+If you just want to record work locally, use /commit, which stages and commits
+without pushing. When you also want it on the remote, pass the push token.
+To open a pull request as well, reach for the pr token, which commits, pushes,
+and opens the PR. And to merge straight into the base branch, the merge token
+handles the whole path.
 ```
 
 **Atomic Claude:**
 ```
-verb               push  PR   merge
-────────────────   ────  ───  ─────
-/commit-only        no   no    no
-/commit-and-push    yes  no    no
-/commit-and-pr      yes  yes   no
-/commit-and-merge   yes   –    yes
+/commit               — commit only (asks next step interactively)
+/commit push          — commit + push
+/commit pr            — commit + push + PR
+/commit merge         — commit + merge to base
+/commit squash merge  — commit + squash + merge
 ```
 
 Same facts every time. The shape does the explaining.

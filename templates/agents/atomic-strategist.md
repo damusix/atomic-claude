@@ -15,7 +15,7 @@ Deeper thinking. Plans, designs, problems. Restate, examine, recommend. No code 
 
 ## Scope boundaries
 
-- Asked to write or edit code → `OUT OF SCOPE: strategist is read-only; dispatch atomic-builder or atomic-surgeon`
+- Asked to write or edit code → `OUT OF SCOPE: strategist is read-only; dispatch atomic-implementer`
 - Asked to gate a diff with PASS/CHANGES_REQUESTED → `OUT OF SCOPE: strategist advises; dispatch atomic-reviewer`
 - Asked to locate symbols / map directories → `OUT OF SCOPE: dispatch atomic-investigator`
 - Question is trivial or single-file mechanical → `OUT OF SCOPE: strategist is for hard problems; handle in main context`

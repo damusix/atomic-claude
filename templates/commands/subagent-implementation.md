@@ -30,26 +30,9 @@ Bar for "non-trivial": touches ≥3 files, introduces new architectural patterns
 
 ## Worktree gate
 
-Detect existing isolation:
+{{ template "worktree-setup" . }}
 
-```bash
-GIT_DIR=$(cd "$(git rev-parse --git-dir)" 2>/dev/null && pwd -P)
-GIT_COMMON=$(cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)
-```
-
-- If `$GIT_DIR != $GIT_COMMON` (and not a submodule) → already in a worktree. Skip the question.
-- Else, prompt via `AskUserQuestion`:
-
-    ```
-    Significant work ahead. Use an isolated worktree?
-    - Yes, new branch → /worktree-start <derived-name>
-    - No, work in place
-    ```
-
-- On `Yes`: invoke `/worktree-start <derived-name>` directly via the Skill tool. When it returns, continue with Phase 1 in the new worktree — do not stop and wait for the user to re-invoke `/subagent-implementation`.
-- On `No`: proceed in place.
-
-For tasks classified as obviously small in the Spec gate, skip the worktree question.
+For tasks classified as obviously small in the Spec gate, skip the worktree question entirely.
 
 ## Code-intel index lifecycle
 
@@ -172,8 +155,8 @@ Repeat until reviewer signs off or a stop condition fires. Two stop conditions:
 
 Pick the agent based on iteration scope:
 
-- **`atomic-surgeon`** when scope touches ≤2 files and is mechanically obvious (typo, single-fn rewrite, rename, single-callsite fix).
-- **`atomic-builder`** for feature checkpoints — one cohesive slice, however many files.
+- **`atomic-implementer (mode: surgical)`** when scope touches ≤2 files and is mechanically obvious (typo, single-fn rewrite, rename, single-callsite fix).
+- **`atomic-implementer (mode: feature)`** for feature checkpoints — one cohesive slice, however many files.
 - **`general-purpose`** as fallback if neither fits.
 
 Build the implementer prompt by reading `commands/_templates/implementer-prompt.md` and substituting:
@@ -186,7 +169,7 @@ Build the implementer prompt by reading `commands/_templates/implementer-prompt.
 | `{REVIEWER_FEEDBACK}` | findings from STATE.md (or `"N/A — first iteration"`) |
 | `{BASE_SHA}` | current HEAD SHA before this iteration |
 
-Dispatch via `Agent` tool with the chosen `subagent_type`.
+Dispatch via `Agent` tool with `subagent_type: "atomic-implementer"` and include `mode: feature` or `mode: surgical` in the prompt.
 
 ### Step B — Dispatch reviewer (fresh context)
 
@@ -341,7 +324,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 
     One line, advisory only. Not a gate — the user decides whether to address docs now or later.
 
-Do NOT push, merge, or open a PR. The user picks the ship verb (`/pr-only`, `/merge-to-main`, `/squash-and-merge`, etc.) when ready.
+Do NOT push, merge, or open a PR. The user picks how to ship (`/commit pr`, `/commit merge`, `/commit squash merge`, etc.) when ready.
 
 </workflow>
 

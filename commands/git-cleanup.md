@@ -1,8 +1,8 @@
 ---
-description: Scan and clean up stale git state — worktrees, local branches, optionally remote tracking refs. Dispatches atomic-git-scout for the inventory, presents an indexed report, asks user which to clean. No destructive ops without explicit confirmation. Defaults: 30-day staleness, local-only.
+description: Scan and clean up stale git state — worktrees, local branches, optionally remote tracking refs. Dispatches a read-only scan via `atomic prompt git-cleanup`, presents an indexed report, asks user which to clean. No destructive ops without explicit confirmation. Defaults: 30-day staleness, local-only.
 ---
 
-You orchestrate git cleanup. The `atomic-git-scout` subagent scans (read-only). You present the report. The user picks. You execute.
+You orchestrate git cleanup. A generic subagent runs `atomic prompt git-cleanup` (read-only scan). You present the report. The user picks. You execute.
 
 <workflow>
 
@@ -44,23 +44,27 @@ Options:
 
 Default to local-only if the user is ambiguous.
 
-## Step 4 — Dispatch atomic-git-scout
+## Step 4 — Dispatch read-only scan subagent
 
-Pick a scratch dir for this run: `.claude/.scratchpad/$(date +%Y-%m-%d)-git-cleanup/`. Create it.
+Dispatch a generic subagent via the `Agent` tool (omit `subagent_type` or use `general-purpose`).
 
-Write `$SCRATCH/SCOUT_BRIEF.md`:
+Prompt the subagent with:
 
-```markdown
-# Scout brief
+```
+Run `atomic prompt git-cleanup` and follow the brief it prints exactly.
+Scan params for this run:
+  staleness_days: <N>
+  target: all | .worktrees/<name>/
+  include_remote: true | false
+  base_branch: <base>
+  current_worktree_path: <absolute path>
 
-staleness_days: <N>
-target: all | .worktrees/<name>/
-include_remote: true | false
-base_branch: <base>
-current_worktree_path: <absolute path>
+Apply these params as the brief's staleness/scope/base-branch settings.
+Return the full indexed candidate table (worktree candidates + branch candidates
++ summary). Do not execute any git mutations — scan only.
 ```
 
-Dispatch via the `Agent` tool with `subagent_type: "atomic-git-scout"`. Prompt: "Read `$SCRATCH/SCOUT_BRIEF.md` and scan per your skill. Return the indexed report. Read-only."
+Wait for the subagent to return the indexed candidate report.
 
 
 ## Step 5 — Present report to the user

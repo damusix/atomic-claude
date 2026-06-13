@@ -56,8 +56,17 @@ on idiomatic Go runtime.
 - **Package home:** all engine code under `atomic/internal/codeintel/<pkg>`; the
   reference `context` package is renamed `codectx` (stdlib collision). The
   embedded `ts.wasm` blob lives in `internal/codeintel/grammars`.
-- **DB path:** `<projectRoot>/.claude/.atomic-index/atomic.db`. Project root via
-  `internal/repoctx` / `repoOverride`.
+- **DB path (repo scope):** `<projectRoot>/.claude/.atomic-index/atomic.db`.
+  Project root via `internal/repoctx` / `repoOverride`. This is the canonical
+  single-repo path — `engine.New(projectRoot)` and `engine.IndexPath(projectRoot)`
+  both derive it from these two constants, unchanged.
+- **DB path (explicit, internal only):** `engine.NewWithDBPath(projectRoot, dbPath)`
+  accepts an absolute `dbPath` independent of `projectRoot`. The scan root stays
+  `projectRoot`; the SQLite file lands at `dbPath`. No user-facing `--db` flag
+  exposes this seam — it is callable from Go only, intended for realm federation
+  (CP3 of `docs/spec/code-intel-realm.md`). No meta row recording the source root
+  is written into the DB. `engine.IndexPath(projectRoot)` is a pure function of
+  the repo-scope path and is byte-for-byte unchanged.
 - **Setup:** `atomic setup` adds `.claude/.atomic-index/` to `.gitignore`; it
   does not auto-index.
 - **Deps (go.mod):** `modernc.org/sqlite`, `github.com/tetratelabs/wazero`, the
@@ -74,6 +83,10 @@ on idiomatic Go runtime.
   `runCode`; no `cobra`/`commander`. (This is the *only* "host owns it" item that
   flipped: atomic IS the host now, so the thin arg-parsing layer is in scope —
   but it is built in atomic's existing style, not a new framework.)
+- **No `--db` flag.** The explicit-DB-path seam (`engine.NewWithDBPath`) is Go-only,
+  internal, and not surfaced as a CLI flag in `cliusage.go`, `main.go`, or
+  `cli/code.go`. Two scopes exist (repo, realm); each locates its DB
+  automatically — arbitrary detached-db scope is not a user-facing concept.
 - The reference's multi-agent installer, its docs site, its npm/release pipeline.
 - Re-tuning calibrated constants (BM25 weights, scoring, budgets) — reproduce.
 - **File watching** in v1 — sync-on-demand only. Mitigation (a stated v1 safety
@@ -758,3 +771,38 @@ Extended `sql.go` extractor (CP4 scope) to emit `types.UnresolvedReference` for:
 Added e2e test `TestSQLEdgesEndToEnd` in `engine/sql_e2e_test.go` that indexes a 7-node fixture, calls `ResolveReferences`, and asserts all 7 CP4 edges resolve and persist to DB.
 
 **Why:** CP4 spec entry for SQL cross-object edges.
+
+### 2026-06-13 — CP1 (realm federation): engine internal DB-path decouple
+
+**What changed:** Added `engine.NewWithDBPath(projectRoot, dbPath string)` to
+`atomic/internal/codeintel/engine/engine.go`. The new constructor creates an
+`Engine` that scans `projectRoot` but stores (and reads) the SQLite index at the
+caller-supplied absolute `dbPath`, not at the canonical
+`<projectRoot>/.claude/.atomic-index/atomic.db` location.
+
+Implementation: added `explicitDB string` field to `Engine`; `indexPath()` returns
+`explicitDB` when non-empty, otherwise the computed repo-scope path; `indexDir()`
+returns `filepath.Dir(explicitDB)` when set, otherwise the canonical
+`.claude/.atomic-index` directory under root. `Init`, `Open`, `IsInitialized`, and
+`Uninitialize` all flow through `indexPath()`/`indexDir()` and therefore work
+correctly for both paths without any changes.
+
+`engine.New(projectRoot)` and `engine.IndexPath(projectRoot)` are byte-for-byte
+unchanged — repo-scope default behavior is identical to pre-CP1.
+
+Two new tests in `engine/engine_test.go`:
+- `TestNewWithDBPath_ExplicitPathWritesCorrectLocation` — proves the DB lands at
+  the explicit path and NOT at the default scan-root path; verifies indexing and
+  query (`GetStats`) work against the explicit DB.
+- `TestNewWithDBPath_DefaultUnchanged` — proves `engine.New` still writes to the
+  canonical repo-scope path (regression guard).
+
+No meta row recording the source root is written. No `--db` CLI flag added.
+
+**Why:** CP1 of `docs/spec/code-intel-realm.md` — the internal seam that lets
+realm fan-out (CP3) point each member's index at `<realm>/.atomic/<key>.db` while
+scanning the member source tree normally, without touching the member repo.
+
+**Amended sections:** `## atomic CLI integration` (DB path bullet expanded to cover
+both repo-scope and explicit-path contracts); `## Non-goals` (explicit `--db` flag
+non-goal added).

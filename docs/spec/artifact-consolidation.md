@@ -66,7 +66,7 @@ Implement in 8 sequential checkpoints, each ending with a green build (render + 
 
 ## Checkpoints
 
-| # | Checkpoint | Files / areas | Agent | Est. files | Verifies |
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|-----------|---------------|-------|-----------|---------|
 | 1 | `atomic-implementer` — merge builder + surgeon into one mode-select agent; delete the two source templates + rendered outputs; update `agent-implementer-workflow` partial and all agent references | `templates/agents/atomic-builder.md`, `templates/agents/atomic-surgeon.md`, `templates/agents/atomic-implementer.md` (new), `templates/shared/agent-implementer-workflow.md`, `agents/atomic-builder.md` (delete), `agents/atomic-surgeon.md` (delete), `agents/atomic-implementer.md` (new), `CLAUDE.md`, `templates/commands/atomic-help.md`, `docs/reference/agents.md`, `README.md`; run `make render && make -C atomic bundle` | `atomic-builder` (bootstrapping note: builder/surgeon still exist at start of this CP; this CP is self-referential — use `atomic-builder` for the multi-file edit, which produces its own replacement) | 12–15 | `agents/` contains no `atomic-builder.md` or `atomic-surgeon.md`; `agents/atomic-implementer.md` exists; `grep '<surgical_mode>' agents/atomic-implementer.md` returns a match and the hard-refuse-at-3-files rule text is present inside it; `make render && git diff --exit-code`; `make -C atomic bundle && git diff --exit-code`; `/atomic-help` loop grep returns 0 MISSING lines: `for cmd in commands/*.md; do verb=$(basename "$cmd" .md); [ "$verb" = "atomic-help" ] && continue; grep -q "/$verb" templates/commands/atomic-help.md \|\| echo "MISSING: /$verb"; done` |
 | 2 | `/commit` ship verb — author ask-don't-enumerate command replacing the 9 ship verbs; delete the 9 templates + rendered outputs; update signals-gate partial usage, `/atomic-help` ship matrix, CLAUDE.md, docs | `templates/commands/commit.md` (new), `templates/commands/commit-and-push.md` … `push-only.md` (9 deletes), `commands/commit.md` (new), `commands/commit-and-push.md` … `push-only.md` (9 deletes), `templates/commands/atomic-help.md`, `CLAUDE.md`, `docs/reference/commands.md`, `README.md`; run `make render && make -C atomic bundle` | `atomic-implementer (mode: feature)` | 20–25 | `commands/` contains no `commit-and-push.md`, `commit-and-pr.md`, `commit-and-merge.md`, `commit-and-squash.md`, `squash-only.md`, `squash-and-merge.md`, `merge-to-main.md`, `pr-only.md`, `push-only.md`; `commands/commit.md` exists; `grep -i 'AskUserQuestion\|interactive.*prompt\|prompt.*interactive' commands/commit.md` returns a match (interactive prompt present) and `grep -i 'flags\|args\|--' commands/commit.md` returns a match (flags section present); orphan rule: each of the 9 deleted templates has a deleted output; `make render && git diff --exit-code`; `make -C atomic bundle && git diff --exit-code` |
@@ -98,4 +98,39 @@ Orphan rule: deleting a template without deleting its rendered output (or vice v
 
 ## Change log
 
-(none — spec born 2026-06-13)
+(none — spec body was followed as written; refinements during build are in the Implementation log)
+
+## Implementation log
+
+### shipped — 2026-06-13
+
+Built across 8 checkpoints via `/subagent-implementation` in worktree `artifact-consolidation` (branched from `22a5810`). Commits (chronological):
+
+- `d444f10` — CP1 atomic-implementer replaces builder + surgeon (mode-select; surgical hard-refuse rail preserved)
+- `ba92ab3` — CP2 /commit (ask-don't-enumerate) replaces the 9 ship verbs
+- `32ce663` — CP3 `atomic prompt` verb + `internal/coldprompt` briefs (git-cleanup, claude-merge)
+- `4e288f4` — CP4 /git-cleanup dispatches `atomic prompt git-cleanup`; atomic-git-scout removed
+- `8c8a663` — CP5 claude-merge cold-op; /atomic-claude-merge command + atomic-claude-merger agent removed; install message rewired
+- `9b85154` — CP6 atomic-haiku dissolved into per-call `model: haiku` across 4 consumers
+- `2f17027` — CP7 worktree-setup partial replaces /worktree-start command
+- `6b524f1` — CP8 docs consistency sweep + spec-header lint fix
+- `2f99e92` — signals refresh to the 5-agent / 22-command surface
+
+Final surface: agents 9→5, commands 33→22, Claude-facing artifacts 50→35. New: `atomic prompt {git-cleanup, claude-merge}` binary verb, `worktree-setup` partial.
+
+**Out-of-scope work performed during this build:**
+- CP6 discovered `atomic-haiku` had 4 consumers (the design assumed 1); dissolution still applied cleanly (the agent body was generic; each consumer carries its own brief). Corrected `watch-ci`'s stale claim that a per-call `model:` is "silently ignored" — the Agent tool contract states per-call model takes precedence.
+- CP8 fixed a pre-existing `atomic validate spec` S5 lint on this spec's table header (`Files / areas` → `Files/areas`).
+
+**Unforeseens — surprises that emerged during implementation:**
+- `make bundle` does not prune: deleting a source artifact leaves a stale tracked copy under `atomic/internal/embedded/bundle/`. Every deletion CP `git rm`'d the embedded copy explicitly.
+- `internal/claudeinstall` test fixtures hardcode artifact filenames; removing builder broke 3 install tests (repointed to surviving artifacts), and the install merge-message rewire needed a new `Report()` assertion.
+- Destructive cold-ops can't be fully executed by a generic subagent — a subagent can't interactively confirm per-item (axiom 3). Resolved: cold-op briefs are read-only/staging + return a proposal; the main agent confirms and executes (git-cleanup scan→confirm→execute; claude-merge stage→accept→cp).
+- `claude.local.md` is git-tracked despite docs labeling it "gitignored / not checked in" (pre-existing discrepancy; hygiene edits committed in CP8).
+
+**Deferred items (FOLLOWUPS triage):**
+- F-1 (🔵): rendered `commands/commit.md` duplicates the squash-flow block (~220 lines) — flat-render artifact of a partial used in two branches; template composition is correct, squash→merge chain verified sound. Optional future cleanup (factor a `squash-core` partial).
+- F-2 (🟡): RESOLVED by `2f99e92` (signals refresh).
+- F-3 (🟡): historical `docs/spec/**` + `docs/design/**` still reference removed artifacts/verbs — left as point-in-time records (not bundled, not read by the loop). Revisit only if one becomes load-bearing.
+
+**Known pre-existing failures (not introduced here):** `internal/hooks` 3 tests (`hooks-tests-read-real-home`) fail on this machine because they read the real `$HOME` `<wikis>` block. Orthogonal; filed.

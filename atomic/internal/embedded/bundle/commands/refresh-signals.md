@@ -163,7 +163,7 @@ signals <refreshed | initialized>.
 suggested next step:
   git add .claude/project/deterministic-signals.md .claude/project/signals.md
   (and CLAUDE.md if modified)
-  then: /commit-only
+  then: /commit
 ```
 
 Use "initialized" if Step 2 found no existing signals; "refreshed" otherwise.

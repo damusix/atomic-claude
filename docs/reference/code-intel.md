@@ -81,6 +81,30 @@ The index is a single SQLite file at `<project>/.claude/.atomic-index/atomic.db`
 Because the indexer reads working-tree content, a `sync` after an edit makes the graph reflect uncommitted changes — which is why the implementation loop re-syncs after each change so a reviewer's `impact` query sees current code.
 
 
+## Wiki realm federation
+
+When you work from a wiki realm — a folder that contains multiple repositories managed by `/refresh-wiki` — `atomic code` can index and query all of them without writing into any member repo.
+
+**Position-sensing.** The command figures out the right scope from your current directory:
+
+- Run from the realm root → fans out across all member repos.
+- Run from inside a member repo directory → queries that member alone.
+- Run in a standalone repo with a local index → standard single-repo behavior, unchanged.
+- Run outside any realm with no local index → error: "no index — run atomic code index".
+
+**Realm storage.** Member dbs live at `<realm>/.atomic/<key>.db` (one per repo). The realm config lives at `<realm>/.atomic/code.toml` (seeded automatically on first `atomic code index`, append-only — manual edits survive subsequent runs). Nothing is written into any member repo.
+
+**Fan-out output.** Human-readable results are grouped under `[<key>]` headers, one section per member. `--json` returns a `{ "<key>": <results> }` object. Members with no db are skipped with a `[key] not indexed` warning; the rest complete normally.
+
+**Filtering.** `--only <keys>` and `--exclude <keys>` (comma-separated) limit the fan-out to specific members. Filtering applies to which repos are queried, not to which symbols are returned.
+
+**Session awareness.** A `<code-index>` block written into the realm CLAUDE.md lists each member's key. When a session reads that block, it knows the realm scope, which repos are indexed, and how to apply the position-sensing rule. A routine `atomic code index` run produces no CLAUDE.md diff when membership is unchanged.
+
+**Doctor check 11.** In a realm, `atomic doctor` check 11 aggregates member-db health into one summary line, naming only the repos that need action — stale members, unindexed members, or a mix. A missing index is informational (opt-in), not an error.
+
+**Federation, not merger.** Each member's graph is independent — no cross-repo symbol edges or call paths span members. A call from repo A into repo B stays unresolved in A's graph. This is a deliberate scope boundary; merged graphs are a non-goal.
+
+
 ## The lifecycle
 
 Indexing is owned by orchestrator commands, never by the agents they dispatch. An agent only ever *queries* the index; keeping it fresh is somebody else's job. That separation keeps the expensive operation (a full index) out of every hot path.
@@ -108,8 +132,8 @@ flowchart TD
     end
     subgraph subs["Subagents — query directly"]
         inv["atomic-investigator"]
-        haiku["atomic-haiku"]
-        impl["atomic-builder / surgeon"]
+        gp["general-purpose (model: haiku)"]
+        impl["atomic-implementer"]
         rev["atomic-reviewer"]
         sig["atomic-signals-inferrer"]
     end
@@ -117,9 +141,9 @@ flowchart TD
     grep["sg / grep / heuristics"]
 
     plan -->|dispatch, get digest| inv
-    doc -->|dispatch impact sweep| haiku
+    doc -->|dispatch impact sweep| gp
     inv --> db
-    haiku --> db
+    gp --> db
     impl -->|impact before edit| db
     rev -->|blast-radius check| db
     sig -->|real import/call edges| db
@@ -131,7 +155,7 @@ What each consumer does with the graph:
 | Consumer | Uses the index to |
 |----------|-------------------|
 | `atomic-investigator` | Answer "where is X / what calls Y / map this area" from real edges instead of grep. The keystone — parents that delegate exploration to it inherit code-intel for free. |
-| `atomic-builder` / `atomic-surgeon` | Run a bounded `impact`/`callers` on a symbol before editing it, so the change accounts for every call site. |
+| `atomic-implementer` | Run a bounded `impact`/`callers` on a symbol before editing it, so the change accounts for every call site. |
 | `atomic-reviewer` | Check that a diff's blast radius matches what actually changed — catch callers the diff missed. |
 | `atomic-signals-inferrer` | Cluster domains from actual dependency edges, not directory names. Used by `/refresh-signals` and per-repo in `/refresh-wiki`. |
 | `/atomic-plan`, `/documentation` | Delegate structural exploration to a subagent — never query inline. |
