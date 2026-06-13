@@ -478,7 +478,7 @@ func Report(plan []FileAction, targetDir string) string {
 			absTarget := filepath.Join(targetDir, fa.Artifact.Target)
 			fmt.Fprintf(&sb, "  ⚠ %s\n", absTarget)
 			fmt.Fprintf(&sb, "    proposed at %s\n", fa.ProposedPath)
-			fmt.Fprintf(&sb, "    next step: run /atomic-claude-merge inside any Claude Code session\n")
+			fmt.Fprintf(&sb, "    next step: in a Claude Code session, run `atomic prompt claude-merge` to merge your config\n")
 		}
 	}
 

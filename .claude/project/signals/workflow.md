@@ -2,84 +2,65 @@
 
 ## What it does
 
-Plan → implement → ship lifecycle. Commands, agents, and skills that orchestrate feature work from spec to committed code. `/atomic-plan` produces specs; `/subagent-implementation` runs the implement→review loop; ship verbs commit/push/PR/merge with automatic signals refresh and doc-impact checks.
+Plan → implement → ship lifecycle. Commands, agents, and skills that orchestrate feature work from spec to committed code. `/atomic-plan` produces specs; `/subagent-implementation` runs the implement→review loop with worktree isolation via the `worktree-setup` partial; `/commit` covers all ship escalation paths (push/PR/merge/squash) in one verb with automatic signals refresh and doc-impact checks.
 
 ## Artifacts
 
 **Planning:**
 
-- [`commands/gather-evidence.md`](../../../commands/gather-evidence.md) — `/gather-evidence [<hypothesis> | @<path>]` pre-design evidence gathering. Chases a hunch through primary sources (context7, official docs, source code, ast-grep, `atomic code explore`/`callers`/`impact`, run-it experiments) before any spec is written. Returns `SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE` with cited evidence trail. The Tier-1 source-quality row for codebase claims leads with `atomic code explore "<natural-language query>"` for open-ended claims (unknown symbol), then `atomic code callers`/`atomic code impact` for named symbols. Sits before `/pressure-test` in the hunch → plan pipeline.
-- [`commands/atomic-plan.md`](../../../commands/atomic-plan.md) — `/atomic-plan` gauges triviality. Trivial → inline spec. Non-trivial → design doc + spec via subagent loop. Optionally invokes `atomic-investigator` and `atomic-strategist`. **Code-intel awareness**: when a code-intel index is present, the orchestrator tries `atomic code explore "<symptom as a natural-language query>"` for a one-shot failure-neighborhood digest before dispatching the investigator; the investigator brief then directs it to lead with `atomic code explore` and drill with targeted verbs.
-- [`commands/pressure-test.md`](../../../commands/pressure-test.md) — `/pressure-test` Socratic challenger session. Questions only, no code, no agents. Pairs with `/atomic-plan` as pre-approval gate.
-- [`commands/autopilot.md`](../../../commands/autopilot.md) — `/autopilot <task|issue#> [merge-verb]` autonomous end-to-end delivery. Drives plan→implement→review→ship without pausing except for the merge-method question. Key behaviors: always uses the subagent loop, addresses all reviewer findings in-iteration (scratchpad `FOLLOWUPS.md` ends empty), auto-dispatches `atomic-strategist` for RCA when stuck (accepted cost of autonomy), spec is currency-clean before every builder dispatch. **Code-intel lifecycle**: indexes once at task start and runs `atomic code sync` after each builder commit; degrades silently when unavailable. **Scratch hygiene**: experiments quarantined under `tmp/trash/` (never `rm` mid-run); subagent briefs include the quarantine instruction; one deliberate `rm -rf tmp/trash/` at the very end.
-- [`commands/atomic-help.md`](../../../commands/atomic-help.md) — `/atomic-help` routing assistant. Reads git state, classifies intent, recommends one next action. Never executes.
-- [`commands/atomic-setup.md`](../../../commands/atomic-setup.md) — `/atomic-setup` repo bootstrap. Audits [`.gitignore`](../../../.gitignore), [`docs/`](../../../docs) layout, [`CLAUDE.md`](../../../CLAUDE.md) presence. Checks for `@.claude/project/signals.md` @-ref (not `deterministic-signals.md`). Creates `.signalsignore` and `signals-steering.md` scaffolds if missing. Proposes only what's absent — never overwrites.
+- [`commands/gather-evidence.md`](../../../commands/gather-evidence.md) — pre-design evidence gathering against primary sources (context7, official docs, source code, `atomic code explore`/`callers`/`impact`); returns `SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE` with cited evidence trail
+- [`commands/atomic-plan.md`](../../../commands/atomic-plan.md) — gauges triviality; trivial → inline spec; non-trivial → `docs/design/<topic>.md` + `docs/spec/<topic>.md` via subagent loop; optionally dispatches `atomic-investigator` and `atomic-strategist`
+- [`commands/pressure-test.md`](../../../commands/pressure-test.md) — Socratic challenger session; questions only, no code, no agents; paired with `/atomic-plan` as pre-approval gate or surfaced by the stuck-fix escalation in `/subagent-implementation`
+- [`commands/atomic-help.md`](../../../commands/atomic-help.md) — routing assistant; reads intent, recommends one next action; never executes
+- [`commands/atomic-setup.md`](../../../commands/atomic-setup.md) — repo bootstrap; audits [`.gitignore`](../../../.gitignore), [`docs/`](../../../docs) layout, [`CLAUDE.md`](../../../CLAUDE.md) presence; proposes only what is absent, never overwrites (axiom 3)
+- [`commands/atomic-improve.md`](../../../commands/atomic-improve.md) — session retrospective audit; mines session history for corrections, friction, and atomic-meta misbehavior
 
 **Implementation loop:**
 
-- [`commands/subagent-implementation.md`](../../../commands/subagent-implementation.md) — `/subagent-implementation` reads spec, runs implement→review loop, commits per green iteration. Uses scratchpad at `.claude/.scratchpad/<date>-<desc>/` (BRIEF.md, STATE.md, FOLLOWUPS.md). **Code-intel lifecycle**: indexes at task start (`atomic code index` if cold) and runs `atomic code sync` after each builder commit so the reviewer queries current working-tree state; degrades silently when unavailable. Investigator dispatch brief directs it to lead with `atomic code explore "<surface-area query>"` (one shot orientation) before targeted verbs or sg/grep. Phase 2 / Step C carries a **stuck-fix escalation** default: after 2 consecutive `CHANGES_REQUESTED` rounds on the same blocking signal (same root failure, not verbatim match), surfaces a copyable `/pressure-test @<spec>` line + offer to dispatch `atomic-strategist` for RCA — surfaced, never auto-invoked (axiom 3). Separate 6-iteration soft-stop remains the outer bound.
-- [`commands/subagent-diagnose.md`](../../../commands/subagent-diagnose.md) — `/subagent-diagnose <ci|bug>` failure-investigation orchestrator. `ci` mode seeds from failed GitHub Actions run; `bug` mode seeds from freeform symptom. Same scratchpad + investigator + builder/surgeon + reviewer chain. Hard bail at 5 iterations (user-memory-configurable) or 3 consecutive same-failure iterations. On same-failure bail, surfaces the same stuck-fix escalation block (`/pressure-test` + `atomic-strategist` RCA options, never auto-dispatched).
-- [`commands/_templates/implementer-prompt.md`](../../../commands/_templates/implementer-prompt.md) — runtime prompt partial for the implementer turn. Consumed by both `/subagent-implementation` and `/subagent-diagnose`.
-- [`commands/_templates/reviewer-prompt.md`](../../../commands/_templates/reviewer-prompt.md) — runtime prompt partial for the reviewer turn. Same consumers. Step 5 adds a **suppression-pattern check**: flags error-catching constructs (try/catch, `.catch(() => {})`, null-guards) added solely to silence a failure without investigation (no new logging, no test exercising the failure path). Severity 🟡 by default; 🔴 when same suppression appears on the same error across 2+ iterations. Judgment call — legitimate defensive code is not flagged.
+- [`commands/subagent-implementation.md`](../../../commands/subagent-implementation.md) — orchestrates implement→review loop; dispatches `atomic-investigator` first for surface-area mapping; writes `BRIEF.md`, `STATE.md`, `FOLLOWUPS.md` to `.claude/.scratchpad/<date>-<topic>/`; loops `atomic-implementer` + `atomic-reviewer` until `VERDICT: PASS`; commits per green iteration via `atomic-commit` skill; includes worktree-setup partial (interactive: asks user; hands-off: auto-creates); Phase 2 Step C carries stuck-fix escalation (2 consecutive `CHANGES_REQUESTED` on same root signal → surfaces `/pressure-test` + `atomic-strategist` RCA offer, user-gated); 6-iteration soft-stop is the outer bound; Phase 3 runs `atomic-verify`, surfaces `FOLLOWUPS.md` for user disposition, writes implementation log to spec, invokes `/documentation`
+- [`commands/autopilot.md`](../../../commands/autopilot.md) — autonomous end-to-end delivery; takes `<task | issue#> [merge-verb]`; runs plan (no approval gate) → worktree-setup (auto-create, hands-off) → `/subagent-implementation` loop with overrides: every finding addressed in-iteration (`FOLLOWUPS.md` ends empty), `atomic-strategist` auto-dispatched on stuck (accepted autonomy cost), spec currency-clean before each dispatch; Ship gate is the only human decision; runs `atomic code index` on cold index without prompting (autonomy granted)
+- [`commands/subagent-diagnose.md`](../../../commands/subagent-diagnose.md) — failure-investigation orchestrator; `ci` mode seeds from failed GitHub Actions run; `bug` mode seeds from freeform symptom; same investigator + implementer + reviewer chain as `/subagent-implementation`
+- [`commands/review-branch.md`](../../../commands/review-branch.md) — dispatches `atomic-reviewer` once on `<base>..HEAD`; no loop
+- [`commands/session-report.md`](../../../commands/session-report.md) — writes timestamped why-context note to `.claude/.scratchpad/session-reports/<branch>/`; consumed by `/commit` before commit message synthesis, deleted after successful commit
+- [`commands/_templates/implementer-prompt.md`](../../../commands/_templates/implementer-prompt.md) — runtime prompt partial consumed by `/subagent-implementation` and `/subagent-diagnose`; placeholders: `{SCRATCH_PATH}`, `{SPEC_PATH}`, `{ITERATION_SCOPE}`, `{REVIEWER_FEEDBACK}`, `{BASE_SHA}`
+- [`commands/_templates/reviewer-prompt.md`](../../../commands/_templates/reviewer-prompt.md) — runtime prompt partial consumed by the same orchestrators; includes suppression-pattern check (Step 5)
 
 **Ship verbs:**
 
-- [`commands/commit-only.md`](../../../commands/commit-only.md) — stage + commit, nothing else.
-- [`commands/commit-and-push.md`](../../../commands/commit-and-push.md) — commit + push (no PR).
-- [`commands/commit-and-pr.md`](../../../commands/commit-and-pr.md) — commit + push + open PR.
-- [`commands/commit-and-merge.md`](../../../commands/commit-and-merge.md) — commit pending + merge.
-- [`commands/commit-and-squash.md`](../../../commands/commit-and-squash.md) — commit pending + squash branch history.
-- [`commands/push-only.md`](../../../commands/push-only.md) — push existing commits (no commit, no PR).
-- [`commands/pr-only.md`](../../../commands/pr-only.md) — open PR for existing commits.
-- [`commands/merge-to-main.md`](../../../commands/merge-to-main.md) — merge branch into base, no squash.
-- [`commands/squash-only.md`](../../../commands/squash-only.md) — squash branch commits into one.
-- [`commands/squash-and-merge.md`](../../../commands/squash-and-merge.md) — squash + merge to base in one shot.
-- [`commands/undo-commit.md`](../../../commands/undo-commit.md) — `/undo-commit` soft-resets last commit. Refuses on merge commits, initial commit, already-pushed HEAD.
-- [`commands/worktree-start.md`](../../../commands/worktree-start.md) — `/worktree-start <branch>` creates isolated `.worktrees/<branch>/`.
-- [`commands/review-branch.md`](../../../commands/review-branch.md) — `/review-branch` dispatches `atomic-reviewer` once on `<base>..HEAD`.
-- [`commands/session-report.md`](../../../commands/session-report.md) — `/session-report` writes timestamped note to `.claude/.scratchpad/session-reports/<branch>/`. Ship verbs read all branch reports before commit-message synthesis, delete after successful commit.
-- [`commands/report-issue.md`](../../../commands/report-issue.md) — `/report-issue` opens GitHub issue against user's current repo.
-- [`commands/report-issue-with-atomic.md`](../../../commands/report-issue-with-atomic.md) — `/report-issue-with-atomic` opens GitHub issue against `damusix/atomic-claude` specifically.
-- [`commands/atomic-improve.md`](../../../commands/atomic-improve.md) — `/atomic-improve [$ARGUMENTS]` session retrospective audit. Mines `.jsonl` session history and current conversation for corrections, friction, and atomic-meta misbehavior. Cross-references installed artifacts via `atomic doctor --json` and `atomic validate --json`. Presents up to 15 indexed findings across 13 priority tiers (drifted > re-surface > atomic-meta > targeted > critical > promotion > content placement > improvement > technique > maintenance > reinforcement > new skill > user coaching). Persists run logs to `~/.claude/.atomic/improve-runs/<ts>.json` and learnings to `~/.claude/.atomic/improve-learnings.md`. Never auto-commits — suggests `/commit-only` at the end.
+- [`commands/commit.md`](../../../commands/commit.md) — unified ship verb; reads `$ARGUMENTS` for escalation tokens (`push`, `pr`, `merge`, `squash`, `squash merge`); with no token commits then prompts interactively via `AskUserQuestion`; delegates message format to `atomic-commit` skill; runs doc-impact check then signals refresh on every path; push path uses `git push -u origin <branch>` or `git push`; PR path creates via `gh pr create`; merge path prefers remote path (`gh pr merge`) when PR is open; squash path collapses via `git reset --soft`; detects worktrees on merge/squash and asks to delete
+- [`commands/undo-commit.md`](../../../commands/undo-commit.md) — soft-resets last commit; refuses on merge commits, initial commit, already-pushed HEAD
 
 **Agents dispatched by workflow commands:**
 
-- [`agents/atomic-builder.md`](../../../agents/atomic-builder.md) — feature-checkpoint builder. Cohesion-bounded (one logical slice, any file count). Writes TDD: failing test first, then implementation.
-- [`agents/atomic-surgeon.md`](../../../agents/atomic-surgeon.md) — surgical 1-2 file edits. Hard refuses 3+ file scope.
-- [`agents/atomic-investigator.md`](../../../agents/atomic-investigator.md) — code locator (haiku). Returns `file:line — what` tables. Read-only. When a code-intel index is present, the brief should direct it to lead with `atomic code explore "<surface-area query>"` for a one-shot context digest before targeted symbol queries.
-- [`agents/atomic-reviewer.md`](../../../agents/atomic-reviewer.md) — diff reviewer. Re-runs typecheck/tests, emits `## Spec compliance` + `## Code quality` (includes suppression-pattern findings from Step 5), ends with `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`.
-- [`agents/atomic-strategist.md`](../../../agents/atomic-strategist.md) — heavyweight reasoning (opus). Read-only. "Is this the right approach?" not "Is this code correct?". When a code-intel index is present, grounds blast-radius and "what else does this touch" claims with `atomic code explore "<claim>"` or `atomic code impact <symbol>` — one query per claim, corroboration not location-lookup.
+- [`agents/atomic-implementer.md`](../../../agents/atomic-implementer.md) — dual-mode implementation agent; `feature` mode: cohesion-bounded (one logical slice, any file count; bounces cross-cutting or ambiguous scope); `surgical` mode: hard cap of 2 files (bounces anything larger); both modes write TDD (failing test first, confirm fails, implement, confirm green); both report `## Did / ## Tests / ## Signals / ## Failed` block; mode declared by orchestrator in dispatch prompt
+- [`agents/atomic-reviewer.md`](../../../agents/atomic-reviewer.md) — diff reviewer; verifies TDD signals were run; emits `VERDICT: PASS` or `VERDICT: CHANGES_REQUESTED`; includes suppression-pattern check
+- [`agents/atomic-investigator.md`](../../../agents/atomic-investigator.md) — read-only code locator; returns `file:line — what` tables; dispatched first in `/subagent-implementation` Phase 0 to scope the surface area before any implementation; Haiku-backed
+- [`agents/atomic-strategist.md`](../../../agents/atomic-strategist.md) — Opus-powered, read-only; "is this the right approach?" reasoning; dispatched when stuck-fix escalation fires (user-gated in `/subagent-implementation`; auto-dispatched in `/autopilot`)
 
 **Skills auto-fired during workflow:**
 
-- [`skills/atomic-tdd/SKILL.md`](../../../skills/atomic-tdd/SKILL.md) — fires on test/implementation work. Enforces TDD discipline.
-- [`skills/atomic-verify/SKILL.md`](../../../skills/atomic-verify/SKILL.md) — fires on "done", "fixed", "passing", "ready to merge" claims. Runs verification before asserting completion.
-- [`skills/atomic-commit/SKILL.md`](../../../skills/atomic-commit/SKILL.md) — fires on commit message synthesis. Enforced by all ship verbs.
-- [`skills/atomic-review/SKILL.md`](../../../skills/atomic-review/SKILL.md) — fires on review requests.
-- [`skills/atomic-debug/SKILL.md`](../../../skills/atomic-debug/SKILL.md) — fires on debugging phrases.
+- [`skills/atomic-tdd/`](../../../skills/atomic-tdd) — fires on test/implementation work; TDD discipline
+- [`skills/atomic-verify/`](../../../skills/atomic-verify) — fires on "done", "fixed", "passing", "ready to merge" claims; invoked by `/subagent-implementation` Phase 3 orchestrator and by `/commit` merge preflight
+- [`skills/atomic-commit/`](../../../skills/atomic-commit) — fires on commit message synthesis; invoked by all ship paths in `/commit` and by `/subagent-implementation` Step D per green iteration
+- [`skills/atomic-review/`](../../../skills/atomic-review) — fires on review requests; provides PR title/body tone guidance invoked by the PR path in `/commit`
+- [`skills/atomic-debug/`](../../../skills/atomic-debug) — fires on debugging/failure-investigation language; complements `/subagent-diagnose`
 
 ## CLI code
 
-None. The workflow domain is purely Claude Code artifacts — commands, agents, skills. No Go packages implement workflow logic directly (the [`atomic`](../../../atomic) binary has no "implement" or "plan" subcommands).
+None. The workflow domain is purely Claude Code artifacts (commands, agents, skills, shared partials). No Go packages implement workflow logic.
 
 ## Docs
 
-- [`docs/spec/atomic-plan.md`](../../../docs/spec/atomic-plan.md) — `/atomic-plan` behavior contract.
-- [`docs/spec/session-report.md`](../../../docs/spec/session-report.md) — `/session-report` + ship verb integration contract. Ship verbs read `.claude/.scratchpad/session-reports/<branch>/*.md` chronologically, pass to `atomic-commit` as supplemental why-context, delete after successful commit. Exempt verbs: `/pr-only`, `/push-only`, `/merge-to-main`.
-- [`docs/spec/subagent-diagnose.md`](../../../docs/spec/subagent-diagnose.md) — `/subagent-diagnose` orchestrator contract. Scratchpad layout, investigator → builder/surgeon → reviewer chain, iteration bail conditions.
-- [`docs/spec/stuck-fix-escalation.md`](../../../docs/spec/stuck-fix-escalation.md) — spec for stuck-fix escalator + suppression-pattern awareness. Defines the 2-round threshold, surfaced-never-auto-invoked rule, suppression-pattern severity tiers, and `/subagent-diagnose` bail enrichment. Closes GitHub issue #29.
-- [`docs/design/stuck-fix-escalation.md`](../../../docs/design/stuck-fix-escalation.md) — design rationale: approach A (escalator in orchestrator + suppression flag in reviewer) selected over a new skill (axiom 2) or verbatim port of the diagnose detector.
-- [`docs/design/diagnose-orchestrators.md`](../../../docs/design/diagnose-orchestrators.md) — design rationale for the diagnose orchestrator approach.
-- [`docs/reference/workflow.md`](../../../docs/reference/workflow.md) — canonical lifecycle reference (plan → implement → ship). Updated to note stuck-fix escalation as a loop default.
-- [`docs/reference/commands.md`](../../../docs/reference/commands.md) — command roster reference.
-- [`docs/reference/skills.md`](../../../docs/reference/skills.md) — skill roster reference.
-- [`docs/reference/agents.md`](../../../docs/reference/agents.md) — agent roster reference.
+- [`docs/reference/workflow.md`](../../../docs/reference/workflow.md) — canonical lifecycle reference (plan → implement → ship)
+- [`docs/reference/commands.md`](../../../docs/reference/commands.md) — command roster reference
+- [`docs/reference/agents.md`](../../../docs/reference/agents.md) — agent roster reference
+- [`docs/reference/skills.md`](../../../docs/reference/skills.md) — skill roster reference
+- [`docs/spec/stuck-fix-escalation.md`](../../../docs/spec/stuck-fix-escalation.md) — contract for stuck-fix escalation + suppression-pattern awareness in `/subagent-implementation` and `atomic-reviewer`
+- [`docs/design/stuck-fix-escalation.md`](../../../docs/design/stuck-fix-escalation.md) — design rationale for the escalation mechanic
 
 ## Coupling
 
-- **→ bundle**: all ship verb commands are rendered from [`templates/commands/`](../../../templates/commands) + [`templates/shared/`](../../../templates/shared) partials. Ship verb changes require editing template sources, running `make render`, then `make bundle`. The [`commands/_templates/`](../../../commands/_templates) prompt partials ship in the bundle and are consumed at runtime.
-- **→ bundle**: all workflow agents (`atomic-builder`, `atomic-surgeon`, etc.) ship in the bundle via `agents/atomic-*.md` bundlespec rule. Renaming or adding an agent requires `make bundle`.
-- **→ bundle**: all workflow skills ship in the bundle via `skills/atomic-*/` bundlespec rule. Adding a new skill directory requires `make bundle`.
-- **→ signals**: ship verbs dispatch `atomic-signals-inferrer` in silent mode (via signals-gate partial) after staged changes touch source files. This is a cross-cutting wiring rule — all ship verbs must fire signals refresh on source-tree changes.
-- **→ config**: `/subagent-implementation` Phase 3 `defer` block shells out to `atomic followups add`. Follow-up schema changes (config domain) affect what the defer block produces.
-- **→ docs-meta**: ship verbs trigger `atomic-documentation` on staged diffs. If the documentation skill's output contract changes, ship verb templates must be updated.
+- → **bundle**: all commands under [`commands/`](../../../commands) are rendered from [`templates/commands/`](../../../templates/commands) + [`templates/shared/`](../../../templates/shared) partials via `make render`; the worktree-setup partial at [`templates/shared/worktree-setup.md`](../../../templates/shared/worktree-setup.md) is composed into `subagent-implementation` and `autopilot`; all agents under [`agents/`](../../../agents) are rendered from [`templates/agents/`](../../../templates/agents); [`commands/_templates/`](../../../commands/_templates) partials ship in the embedded bundle (require `go:embed all:bundle`); any template change requires `make render` then `make -C atomic bundle`
+- → **signals**: `/commit` dispatches `atomic-signals-inferrer` in silent mode (via signals-gate partial) after each ship path when `atomic signals stale` exits 1; all ship escalation paths in `/commit` carry the same signals-refresh block; adding new ship paths must wire the same refresh
+- → **config**: `/subagent-implementation` Phase 3 defers follow-ups via `atomic followups add` (config domain); session-report scratchpad at `.claude/.scratchpad/session-reports/<branch>/` is consumed and deleted by `/commit`; worktrees at `.worktrees/<branch>/` are detected and cleaned up on merge/squash
+- → **docs-meta**: `/subagent-implementation` Phase 3 invokes `/documentation`; `/commit` runs doc-impact check against `## Documentation surfaces` table before committing; new commands or agents in this domain require updates to [`docs/reference/workflow.md`](../../../docs/reference/workflow.md) and the `/atomic-help` topic table

@@ -67,7 +67,7 @@ Skip `[generated]` entries when partitioning — generated files do not drive do
 
 ### Step 4 — Dispatch sub-agents per domain
 
-For each domain that needs writing or updating, dispatch a sub-agent. Domain writers are document authors, not code implementers — `atomic-builder` and `atomic-surgeon` are scoped to code changes, not markdown signal files — so `general-purpose` is used here:
+For each domain that needs writing or updating, dispatch a sub-agent. Domain writers are document authors, not code implementers — `atomic-implementer` is scoped to code changes, not markdown signal files — so `general-purpose` is used here:
 
 ```
 Dispatch sub-agent (general-purpose):

@@ -1,5 +1,5 @@
 ---
-description: Spawn a Haiku subagent in the background to watch CI for the current branch (or specified target). Provider-agnostic — the subagent inspects project signals to identify the CI system (GitHub Actions, GitLab CI, CircleCI, etc.) and picks the right CLI. Returns immediately; reports back when CI reaches a terminal state.
+description: Spawn a background Haiku-backed subagent to watch CI for the current branch (or specified target). Provider-agnostic — the subagent inspects project signals to identify the CI system (GitHub Actions, GitLab CI, CircleCI, etc.) and picks the right CLI. Returns immediately; reports back when CI reaches a terminal state.
 ---
 
 <workflow>
@@ -53,7 +53,8 @@ Don't classify in the foreground. Different providers use different shapes (GitH
 
 Invoke the `Agent` tool with:
 
-- `subagent_type: "atomic-haiku"` — generic Haiku-backed runner; model is set in the agent's frontmatter, not as a per-call parameter.
+- `subagent_type: "general-purpose"` — generic runner backed by Haiku via per-call model override.
+- `model: haiku`
 - `run_in_background: true`
 - `description: "Watch CI for <branch-or-target>"`
 - `prompt`: a self-contained brief containing:
@@ -130,7 +131,7 @@ When the agent completes, pass-through summarize its report in 1-3 lines.
 - Default to read-only. The watcher never re-runs, cancels, or modifies workflows.
 - One target per invocation. If `$ARGUMENTS` is ambiguous for the detected provider, the subagent asks via printed clarification (it can't `AskUserQuestion` from background, so it bails with a question instead).
 - Always `run_in_background: true`. The point of this command is non-blocking observation.
-- Dispatched agent is `atomic-haiku` — generic Haiku runner. Model is set in the agent's frontmatter; never pass `model:` as a per-call Agent parameter (it's silently ignored).
+- Dispatched agent is `general-purpose` with `model: haiku` as a per-call Agent parameter — the `model` parameter takes precedence over any agent definition frontmatter and runs the subagent on Haiku.
 - Cap the wait at 10 minutes. CI that exceeds that needs human investigation, not infinite polling.
 - Do not poll the background-agent's output file from the foreground. The harness notifies on completion.
 

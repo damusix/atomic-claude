@@ -21,7 +21,7 @@ The project signals workflow: deterministic project snapshot generation (`atomic
 
 ## Docs
 
-- [`docs/spec/signals-workflow.md`](../../../docs/spec/signals-workflow.md) — end-to-end lifecycle: scan → inference → @-ref wiring. Canonical for the `atomic-signals-inferrer` agent and `/refresh-signals` command. Covers: files produced, `atomic signals stale` gate, inferrer dispatch, @-ref wiring rules (only `signals.md`), fallback flow, `/commit-only` integration contract.
+- [`docs/spec/signals-workflow.md`](../../../docs/spec/signals-workflow.md) — end-to-end lifecycle: scan → inference → @-ref wiring. Canonical for the `atomic-signals-inferrer` agent and `/refresh-signals` command. Covers: files produced, `atomic signals stale` gate, inferrer dispatch, @-ref wiring rules (only `signals.md`), fallback flow, ship verb integration contract.
 - [`docs/spec/signals-router.md`](../../../docs/spec/signals-router.md) — router file shape, domain file layout, inferrer behavior, incremental vs full mode, budget model (split trigger at ~1k lines / ~5k tokens), naming continuity rule.
 - [`docs/spec/signals-project-detection.md`](../../../docs/spec/signals-project-detection.md) — project detection heuristics used by the tree walker to locate the primary source root.
 - [`docs/spec/code-intel-integration.md`](../../../docs/spec/code-intel-integration.md) — integration spec covering `/refresh-signals` code-intel lifecycle contract (sync-if-warm / offer-if-cold / degrade), inferrer code-intel query behavior.

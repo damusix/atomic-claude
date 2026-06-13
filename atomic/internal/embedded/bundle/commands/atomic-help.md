@@ -51,12 +51,12 @@ Pick **one** primary recommendation from this decision table. Show it first, the
 |-------|------------------------|-----|
 | not `in_repo` | `/atomic-setup` (after `git init`) | repo not initialized |
 | `in_repo` + `fresh_repo` | `/atomic-setup` then `/refresh-signals` | toolchain never run here |
-| `in_repo` + on_base + clean | `/worktree-start <branch>` then `/atomic-plan` | start fresh work in isolation |
-| on_base + dirty | `/worktree-start <branch>` (uncommitted carry over) or commit on base if intentional | base should stay clean |
+| `in_repo` + on_base + clean | `/atomic-plan` then `/subagent-implementation` (worktree created at start of loop) | start fresh work in isolation |
+| on_base + dirty | commit or stash first, then `/subagent-implementation` (worktree created by the loop) | base should stay clean |
 | feature branch + dirty + no spec | `/atomic-plan` (write the contract first) | plan before code |
 | feature branch + dirty + has spec | `/subagent-implementation` | spec exists, drive the loop |
 | feature branch + has_scratchpad | resume `/subagent-implementation` | loop in flight |
-| feature branch + clean + ahead > 0 | `/review-branch` then `/commit-and-pr` or `/merge-to-main` | pre-flight then ship |
+| feature branch + clean + ahead > 0 | `/review-branch` then `/commit [push\|pr\|merge\|squash]` | pre-flight then ship |
 | feature branch + clean + ahead == 0 | nothing to ship — back to `/atomic-plan` or `/subagent-implementation` | empty branch |
 
 **Tour offer.** If `fresh_repo` OR the user appears unfamiliar (signals + spec + scratchpad all absent), append one line to the output:
@@ -80,7 +80,7 @@ One-line pointer per topic. Group by category for scannability.
 | `plan` | `/atomic-plan` writes design (`docs/design/`) + spec (`docs/spec/`). Pair with `/gather-evidence` (chase the hunch) and `/pressure-test` (challenge the design) before approving. |
 | `gather-evidence` / `evidence` | `/gather-evidence [<hypothesis> \| @<path>]` — pre-design hunch verification. Primary-source evidence with cited tier. Returns SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE. |
 | `pressure-test` | `/pressure-test [<topic> \| @<path>]` — Socratic challenger, no artifacts. Pre-approval gate. |
-| `implement` | `/subagent-implementation` reads spec, runs implement→review loop with `atomic-builder`+`atomic-reviewer`, commits per green iteration. |
+| `implement` | `/subagent-implementation` reads spec, runs implement→review loop with `atomic-implementer`+`atomic-reviewer`, commits per green iteration. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
 | `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`. |
 | `ship` | Pick by intent — see `ship` matrix below. |
@@ -90,11 +90,7 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `commit` | `/commit-only` (stage + commit), `/commit-and-push` (trunk), `/commit-and-pr` (PR flow), `/commit-and-merge`, `/commit-and-squash`. |
-| `push` | `/push-only` (no commit, no PR). `/commit-and-push` if pending changes. |
-| `pr` | `/pr-only` (existing commits) or `/commit-and-pr` (commit + push + PR). |
-| `merge` | `/merge-to-main` (no squash), `/squash-and-merge` (squash + merge), `/commit-and-merge`. |
-| `squash` | `/squash-only` (no merge), `/squash-and-merge`, `/commit-and-squash`. |
+| `commit` / `push` / `pr` / `merge` / `squash` | `/commit` (ask-don't-enumerate: commits first, then prompts how far to ship). Pass a token to skip the prompt: `/commit push` (push), `/commit pr` (push + PR), `/commit merge` (merge to base), `/commit squash` (squash branch), `/commit squash merge` (squash + merge). With no changes to commit and commits ahead of base, skips straight to the ship step. `/undo-commit` soft-undoes HEAD (refuses if pushed). |
 
 **State & context**
 
@@ -103,7 +99,7 @@ One-line pointer per topic. Group by category for scannability.
 | `setup` / `install` | First-run flow: `/atomic-setup` audits conventions, then `/refresh-signals` generates project context. |
 | `signals` | `/refresh-signals` — idempotent, initializes or refreshes. Ship verbs auto-dispatch `atomic-signals-inferrer` on source-tree changes. |
 | `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, synthesizes capture-bucket material into `wiki/knowledge/` pages, refreshes only stale artifacts, offers a commit. Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/diff/promote` to manage capture folders. `atomic-wiki` skill is the conversational entry point — fires on "I want a place for notes/tickets", "add a bucket", "what does my wiki know", "is my wiki stale". |
-| `worktree` | `/worktree-start <branch>` creates `.worktrees/<branch>/`. Cleanup via `/git-cleanup`. |
+| `worktree` | Worktree creation is built into the implement loop — `/subagent-implementation` and `/autopilot` both offer (or auto-create) `.worktrees/<branch>/` via the `worktree-setup` shared partial. Cleanup via `/git-cleanup`. |
 | `session` | `/session-report [<slug>]` captures branch session. Read + deleted by next commit-message ship verb. |
 | `reminders` | `/remind-me <when> <text>` schedules. `/follow-up` reviews pending. `/follow-up review` triages stale entries. |
 
@@ -111,9 +107,9 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `cleanup` | `/git-cleanup` (stale worktrees / branches via `atomic-git-scout`). `/undo-commit` (soft-undo HEAD, refuses if pushed). |
+| `cleanup` | `/git-cleanup` (stale worktrees / branches — dispatches a read-only scan via `atomic prompt git-cleanup`, presents indexed report, you confirm). `/undo-commit` (soft-undo HEAD, refuses if pushed). |
 | `doctor` | `atomic doctor [--fix]` runs 11 integrity checks. `atomic validate` lints spec / config / bundle / artifacts. |
-| `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, then runs doctor (`--skip-claude-update` skips the refresh). `/atomic-claude-merge` merges proposed `~/.claude/CLAUDE.md` when it has no `<atomic>` block (migration). |
+| `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, then runs doctor (`--skip-claude-update` skips the refresh). When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge proposed `~/.claude/CLAUDE.md`. |
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns background Haiku to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
 | `improve` / `retrospective` / `audit` | `/atomic-improve [<targeted feedback>]` — session retrospective. Mines `.jsonl` session history + current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |
@@ -122,7 +118,7 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `agents` | 9 subagents: `atomic-builder`, `atomic-surgeon`, `atomic-investigator`, `atomic-strategist`, `atomic-reviewer`, `atomic-git-scout`, `atomic-signals-inferrer`, `atomic-claude-merger`, `atomic-haiku`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
+| `agents` | 5 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, `atomic-strategist`, `atomic-signals-inferrer`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
 | `skills` | 8 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`, `atomic-wiki`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
@@ -157,8 +153,8 @@ atomic-claude — opinionated Claude Code config. Five surfaces compose:
 
   output style    terse TUI replies (atomic — drop filler, fragments OK)
   skills          8 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing)
-  commands        30 explicit verbs (/autopilot, /atomic-plan, /commit-and-pr, ...)
-  agents          9 dispatchable subagents (builder, surgeon, reviewer, investigator, ...)
+  commands        ~22 explicit verbs (/autopilot, /atomic-plan, /commit, ...)
+  agents          5 dispatchable subagents (implementer, reviewer, investigator, ...)
   binary          atomic CLI — signals scan, doctor, validate, update, install
 
 CLAUDE knows the current repo via auto-loaded signals files. Subagents
@@ -173,10 +169,10 @@ Prompt: continue to lifecycle / show me the surfaces in detail / exit tour.
 0. Verify hunch /gather-evidence    — primary-source check before sinking a planning session
 1. Plan         /atomic-plan        — design doc + spec contract
 2. Implement    /subagent-implementation  — TDD loop, reviewer gate, commit per green
-3. Ship         pick one ship verb  — commit / push / pr / merge / squash combinations
+3. Ship         /commit [token]     — commit, then optionally push / pr / merge / squash
 4. Sync docs    /documentation      — README + CLAUDE.md + spec/design updated to match
 
-Branch isolation: /worktree-start <branch> creates .worktrees/<branch>/.
+Branch isolation: /subagent-implementation and /autopilot create .worktrees/<branch>/ at loop start.
 Diagnose failures: /subagent-diagnose ci|bug runs the same loop from a failure seed.
 Hands-off:        /autopilot <task|issue#> runs stages 1-3 autonomously; asks only how to merge.
 ```
@@ -228,10 +224,10 @@ atomic wiki bucket add|list|diff|promote  manage capture folders: register, insp
 atomic signals linkify          render signals path citations as navigable relative md links (inferrer runs it)
 atomic wiki linkify --root        same for wiki summaries/concerns/knowledge/index (/refresh-wiki runs it post-stamp)
 /refresh-wiki [root]              incremental wiki refresh — re-authors stale/pending repos + synthesizes capture buckets
-/atomic-claude-merge              merge proposed CLAUDE.md (migration: file has no <atomic> block yet)
-/git-cleanup                      stale worktrees / branches (scout reports, you confirm)
+atomic prompt claude-merge        emit claude-merge brief for use inside a subagent (migration: file has no <atomic> block)
+/git-cleanup                      stale worktrees / branches (reports, you confirm)
 /undo-commit                      soft-undo HEAD (refuses if pushed)
-/watch-ci [target]                background Haiku tails CI, notifies when terminal
+/watch-ci [target]                background agent tails CI, notifies when terminal
 /report-issue                     file issue against current repo
 /report-issue-with-atomic         file issue against atomic-claude config itself
 /atomic-improve [<hint>]          session retrospective; surfaces friction and drift

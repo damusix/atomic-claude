@@ -77,7 +77,7 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 | 3 | `CLAUDE.local.md` | Only when the new artifact changes *project-local* conventions for this repo specifically (e.g. new bundle path, new build step, new file role) | Edit the relevant section. This file is gitignored and stays in this repo. Do NOT duplicate the global registration here — `CLAUDE.local.md` is for repo-specific overlays only, not for mirroring `CLAUDE.md`. Both files load into context when cwd is this repo, so duplication = wasted tokens. |
 | 4 | `README.md` | Always — public-facing index | Add to the matching table in `docs/reference/commands.md` (or agents/skills equivalent). Keep one-line descriptions. |
 | 5 | `docs/spec/<topic>.md` | If the artifact has non-trivial behavior or cross-references | Write or extend the spec. Required for anything dispatched by another artifact or that mutates state. **Amending an existing spec: see "Spec amendment rule" below — never silently overwrite the original.** |
-| 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit-only` requires editing the command to call it AND the skill to declare itself as called from there. |
+| 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit` requires editing the command to call it AND the skill to declare itself as called from there. |
 | 7 | **`/atomic-help` topic table + tour** ⚠ | **Always** — every artifact a user might type, install, or run. Non-negotiable. | Edit `templates/commands/atomic-help.md`. Add / remove / rename the row in the right category sub-table (Lifecycle / Ship matrix / State & context / Maintenance & utilities / Reference). Material lifecycle or maintenance change → also update the matching tour stage (Stage 2 lifecycle / Stage 3 state files / Stage 4 maintenance). **Read the full contract in `<help_router_contract>` below before skipping any sub-rule.** |
 | 8 | Bundle inclusion (`atomic/internal/bundlemirror/mirror.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the inclusion rule. Existing kinds (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`) auto-include matching files. |
 | 9 | Signals refresh | After adding the file | Run `/refresh-signals` (or let ship verbs dispatch `atomic-signals-inferrer` in silent mode) so `.claude/project/deterministic-signals.md` and `signals.md` reflect the new file. |
@@ -134,10 +134,10 @@ Repo-specific note: in this repo specs are also read verbatim by fresh-context s
 ## Cross-artifact wiring rules (mandatory for cohesion)
 
 
-These rules exist because this repo is meant to be installed into *user repositories* — not just dogfooded here. Cohesion is the product. When a user runs `/commit-only` in their own repo, they expect signals to refresh and docs to stay current without typing five commands.
+These rules exist because this repo is meant to be installed into *user repositories* — not just dogfooded here. Cohesion is the product. When a user runs `/commit` in their own repo, they expect signals to refresh and docs to stay current without typing five commands.
 
 
-- **Ship verbs must trigger signals refresh on source-tree changes.** The commit/squash/merge/PR family (`/commit-only`, `/commit-and-pr`, `/commit-and-merge`, `/commit-and-squash`, `/merge-to-main`, `/squash-only`, `/squash-and-merge`, `/pr-only`) must dispatch the `atomic-signals-inferrer` agent (silent mode via signals-gate partial) whenever the staged diff touches source files. If a ship verb does not do this, the user's project signals go stale — invisible drift.
+- **Ship verbs must trigger signals refresh on source-tree changes.** `/commit` (and its internal push/pr/merge/squash flows) must dispatch the `atomic-signals-inferrer` agent (silent mode via signals-gate partial) whenever the staged diff touches source files. If a ship verb does not do this, the user's project signals go stale — invisible drift.
 - **Ship verbs must remind the user to run `/documentation` after significant changes.** "Significant" = new file, removed file, public-API change, dependency change. Surface a one-line prompt at the end of the verb. The skill is interactive and user-driven (axiom 3: destructive ops explicit confirm; doc rewrites are close enough).
 - **Symmetry within a command family.** The commit/squash/merge family must agree on shared concerns: message format (all delegate to `atomic-commit` skill), worktree detection (all detect on merge/squash and prompt to delete), signals refresh trigger (above). If you change one verb's behavior on a shared concern, change all of them.
 - **Skills that are invoked by commands must declare it.** A skill's description should mention "invoked by /foo, /bar" so the trigger surface is inspectable. Reverse holds: a command that invokes a skill must name it in the command file. No silent dependencies.
@@ -145,7 +145,7 @@ These rules exist because this repo is meant to be installed into *user reposito
 - **When in doubt, write the spec first.** `docs/spec/<topic>.md` is the canonical source for any cross-artifact contract. If two artifacts reference the same flow and the spec doesn't exist, write it before adding the second reference.
 
 
-**Why these rules apply to user repos, not just this one.** Users install these artifacts and rely on the cohesion. A user's `/commit-only` that forgets to refresh signals leaves *their* Claude session with a stale project map. The bug is invisible to us but real to them. Treat every wiring rule as a contract the user has implicitly accepted by installing.
+**Why these rules apply to user repos, not just this one.** Users install these artifacts and rely on the cohesion. A user's `/commit` that forgets to refresh signals leaves *their* Claude session with a stale project map. The bug is invisible to us but real to them. Treat every wiring rule as a contract the user has implicitly accepted by installing.
 
 
 ## ⚠ Help router coverage rule (`/atomic-help`) — CRITICAL
@@ -303,8 +303,8 @@ These live under `.claude/commands/`, load as project-scoped slash commands for 
 
 ## Naming
 
-- All custom artifacts use the `atomic-` prefix (`atomic-builder`, `atomic-tdd`, `atomic-commit`, etc.) so they're easy to spot among third-party installs.
-- Slash commands are imperative verbs (`/commit-only`, `/merge-to-main`, `/worktree-start`).
+- All custom artifacts use the `atomic-` prefix (`atomic-implementer`, `atomic-tdd`, `atomic-commit`, etc.) so they're easy to spot among third-party installs.
+- Slash commands are imperative verbs (`/commit`, `/undo-commit`, `/atomic-plan`).
 
 
 ## Install (for this repo's artifacts)

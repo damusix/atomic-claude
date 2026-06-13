@@ -55,15 +55,15 @@ For real work, you have two paths.
 ```text
 /atomic-plan add rate limiting to the login endpoint
 /subagent-implementation @docs/spec/rate-limiting.md
-/commit-and-pr
+/commit pr
 ```
 
-`/atomic-plan` writes a spec. `/subagent-implementation` runs an implement-review loop with test-first subagents and commits each green checkpoint. A ship verb (the commit / push / PR / merge command family) commits and opens the PR.
+`/atomic-plan` writes a spec. `/subagent-implementation` runs an implement-review loop with test-first subagents and commits each green checkpoint. `/commit pr` commits and opens the PR (or `/commit` alone to commit without pushing).
 
 **Hand it off.** Give `/autopilot` a task or a GitHub issue number and it runs the whole lifecycle on its own. The only decision left to you is how to merge:
 
 ```text
-/autopilot 142 squash-and-merge
+/autopilot 142 commit squash merge
 ```
 
 Start with the in-the-loop path while you build trust in the system, then reach for autopilot once you know how it works. The [workflow reference](/reference/workflow) covers both in depth.
@@ -100,7 +100,7 @@ The bundle (CLAUDE.md, agents, commands, skills, output styles, rules in `~/.cla
 atomic claude update
 ```
 
-If you have edited your own `~/.claude/CLAUDE.md`, the update writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and tells you to run `/atomic-claude-merge`, which shows a diff and preserves your changes. The full set of update flags and the merge flow are in the [install guide](/guides/install#updating).
+If you have edited your own `~/.claude/CLAUDE.md`, the update writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and tells you to run `atomic prompt claude-merge` inside a subagent, which stages a merged result and preserves your changes. The full set of update flags and the merge flow are in the [install guide](/guides/install#updating).
 
 
 ## Where to go next

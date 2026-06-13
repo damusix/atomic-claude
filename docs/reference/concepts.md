@@ -41,7 +41,7 @@ you:    /session-report
           why you skipped retry logic (follow-up), and what
           the reviewer flagged.
 
-you:    /commit-and-pr
+you:    /commit pr
         → Signals refresh (the new controller is now in the
           project map). Doc-impact check runs (new endpoint
           needs API docs — you update them). Commit message
@@ -159,9 +159,9 @@ See [output style](/reference/output-style) for details and examples.
 
 A worktree is a second checkout of the same repo in a different directory, on its own branch. Git supports this natively. Atomic Claude uses worktrees to isolate feature work from your main checkout.
 
-`/worktree-start my-feature` creates `.worktrees/my-feature/` with a new branch, detects your project setup, and runs a baseline test to make sure the isolated copy is healthy before you start working.
+Worktree creation happens automatically when `/subagent-implementation` or `/autopilot` runs via the worktree-setup partial — it creates `.worktrees/my-feature/` with a new branch, detects your project setup, and runs a baseline test before work begins.
 
-Why this matters: you keep your main branch clean in the original checkout while building a feature in the worktree. No stashing, no juggling branches. When the feature is done and you merge or squash, the ship command detects that the branch came from a worktree and offers to clean it up.
+Why this matters: you keep your main branch clean in the original checkout while building a feature in the worktree. No stashing, no juggling branches. When the feature is done and you merge or squash, `/commit` detects that the branch came from a worktree and offers to clean it up.
 
 
 ## Subagents
@@ -297,7 +297,7 @@ Both are instructions that shape Claude's behavior, but they trigger differently
 
 **Skills** fire automatically when Claude encounters matching language. You say "let's implement the auth module" and `atomic-tdd` activates — you did not invoke it. You say "looks good, ready to merge" and `atomic-verify` runs a verification check. Skills are the *how* — they enforce discipline without you remembering to ask.
 
-**Commands** fire only when you type the slash. `/atomic-plan`, `/subagent-implementation`, `/commit-and-pr` — these are explicit actions you reach for on purpose. Commands are the *when* — they orchestrate workflows at the moment you choose.
+**Commands** fire only when you type the slash. `/atomic-plan`, `/subagent-implementation`, `/commit` — these are explicit actions you reach for on purpose. Commands are the *when* — they orchestrate workflows at the moment you choose.
 
 The split exists because some behaviors should always be on (TDD, verification, debugging discipline) and others should only run when requested (planning, implementing, shipping). A skill that required explicit invocation would get forgotten. A command that auto-fired would be disruptive.
 

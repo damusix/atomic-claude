@@ -68,7 +68,7 @@ templates/agents/<name>.md    →  make render  →  agents/<name>.md
 templates/shared/<name>.md   (reusable partials composed via Go text/template)
 ```
 
-**Shared partials** contain the bodies that recur across files, in one pool both kinds draw from. Command partials cover the main flows (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`) and shared fragments within them (`doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety`). Agent partials use an `agent-` prefix (`agent-tdd-signals`, `agent-signals-output`, `agent-shared-rules`) and hold the blocks `atomic-builder` and `atomic-surgeon` share verbatim. Most agents are self-contained templates with no partial calls; they are rendered for a uniform edit path, not because they share content.
+**Shared partials** contain the bodies that recur across files, in one pool both kinds draw from. Command partials cover the main flows (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`) and shared fragments within them (`doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety`). Agent partials use an `agent-` prefix (`agent-tdd-signals`, `agent-signals-output`, `agent-shared-rules`, `agent-implementer-workflow`) and hold the blocks `atomic-implementer` consumes via the shared `agent-implementer-workflow` partial. Most agents are self-contained templates with no partial calls; they are rendered for a uniform edit path, not because they share content.
 
 Two rules:
 

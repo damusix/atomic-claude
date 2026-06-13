@@ -157,7 +157,9 @@ const goldenCommandsBlock = "" +
 	"  wiki bucket add      <name> [--root]                                                         Register a capture bucket; create index.md stub and manifest dir\n" +
 	"  wiki bucket list     [--root]                                                                List registered buckets with baseline count and pending/fresh status\n" +
 	"  wiki bucket diff     <name> [--root]                                                         Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty\n" +
-	"  wiki bucket promote  <name> [--root]                                                         Snapshot bucket and rotate baseline→previous, current→baseline\n"
+	"  wiki bucket promote  <name> [--root]                                                         Snapshot bucket and rotate baseline→previous, current→baseline\n" +
+	"  prompt git-cleanup                                                                           Emit the git-cleanup cold-op brief\n" +
+	"  prompt claude-merge                                                                          Emit the CLAUDE.md merge cold-op brief\n"
 
 // TestRenderGolden pins the rendered Commands block to the exact expected
 // string. A dropped flag, renamed verb, or formatting change is a test
@@ -236,7 +238,7 @@ func TestLookupByPath(t *testing.T) {
 // the documented top-level nouns.
 func TestTopLevelVerbs(t *testing.T) {
 	verbs := cliusage.TopLevelVerbs()
-	required := []string{"code", "signals", "validate", "wiki", "followups", "claude", "config", "docs", "doctor", "update", "profile", "hooks", "reminder", "docker"}
+	required := []string{"code", "signals", "validate", "wiki", "followups", "claude", "config", "docs", "doctor", "update", "profile", "hooks", "reminder", "docker", "prompt"}
 	for _, v := range required {
 		if !verbs[v] {
 			t.Errorf("TopLevelVerbs missing %q", v)

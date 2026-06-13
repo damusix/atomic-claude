@@ -338,7 +338,7 @@ Skipped:
 Next steps:
   - Revisit CLAUDE.md as tribal knowledge accrues — skipped sections in particular.
   - Run /atomic-plan to start your first design or spec.
-  - Commit when ready: /commit-only.
+  - Commit when ready: /commit.
 ```
 
 Delete no scratch (this command writes no scratchpad).
