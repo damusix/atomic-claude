@@ -82,7 +82,7 @@ flowchart TD
     R1 --> SYN["re-synthesize only concerns whose inputs drifted; CODE stamps reflects"]
     SUM --> SYN
     SKIP --> SYN
-    SYN --> COMMIT["offer to commit (git history = change log)"]
+    SYN --> COMMIT["commit automatically (git history = change log)"]
 ```
 
 The model never does deterministic work: not the scan, not staleness, **and not the fingerprints**. The inferrer authors prose; a code step computes `git rev-parse HEAD` and writes `reflects_rev`.
