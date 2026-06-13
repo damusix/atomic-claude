@@ -1,23 +1,25 @@
-.PHONY: build clean
+.PHONY: build fetch clean clean-src
 default: build
 
-# Build the 19-grammar ts.wasm for the atomic code-intel engine.
+# Build the 20-grammar ts.wasm for the atomic code-intel engine.
 #
-# Regen command (run from this directory):
-#   make build
+# Regen commands (run from this directory):
+#   make build          # fetches ./src if absent, then compiles lib/ts.wasm
+#   make fetch          # (re-)fetch ./src from the pins in grammars.json
+#   make clean-src      # remove the fetched ./src
 #
-# Prerequisites: zig >= 0.13.0 on PATH (build-time only; the shipped binary is CGO_ENABLED=0/wazero).
+# ./src is build-time input only: fetched on demand from grammars.json and gitignored.
+# The shipped binary depends solely on lib/ts.wasm (committed; CGO_ENABLED=0 / wazero).
+# Grammar pins, the fetch recipe, and how to add/upgrade a grammar: see CLAUDE.md.
 #
-# Grammar versions pinned in src/_gen/grammars.json (malivvan upstream grammars) and:
-#   dart:   https://github.com/UserNobody14/tree-sitter-dart  @ 311a009 (ABI 14; a9bdfa3 bumped to ABI 15)
-#   luau:   https://github.com/amaanq/tree-sitter-luau        @ a8914d6c1fc5131f8e1c13f769fa704c9f5eb02f
-#   objc:   https://github.com/amaanq/tree-sitter-objc        @ 181a81b8f23a2d593e7ab4259981f50122909fda
-#   pascal: https://github.com/Isopod/tree-sitter-pascal      @ 042119eca2e18a60e56317fb06ee3ba5c32cb447
-#
-# Malivvan upstream grammars sourced from:
-#   https://github.com/malivvan/tree-sitter  (src/ directory)
+# Prerequisites: zig >= 0.13.0 on PATH (tested with 0.15.2). `make fetch` also needs git + jq.
+
+# Fetch the pinned grammar sources into ./src (driven by grammars.json).
+fetch:
+	@./fetch-grammars.sh
 
 build:
+	@test -d src || $(MAKE) --no-print-directory fetch
 	@mkdir -p lib
 	@rm -f lib/ts.wasm
 	@zig cc --target=wasm32-wasi-musl -mexec-model=reactor \
@@ -100,3 +102,6 @@ build:
 
 clean:
 	rm -f lib/ts.wasm
+
+clean-src:
+	rm -rf src

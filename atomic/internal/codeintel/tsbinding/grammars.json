@@ -1,0 +1,54 @@
+{
+  "_comment": "Pinned tree-sitter grammar sources for lib/ts.wasm. Maintainer-only. Fetched into ./src (gitignored) by fetch-grammars.sh / `make fetch`. See CLAUDE.md and /docs/research/tsbinding-vendor-on-demand.md.",
+  "runtime": {
+    "url": "https://github.com/malivvan/tree-sitter",
+    "revision": "46b39a70b658161c3b883dfad2a95f9387905f64",
+    "_note": "Pin the commit, not the v0.0.1 tag (5aa45b3, older). Provides the tree-sitter runtime C/headers (src root) plus the grammars listed below. malivvan ships its own src/_gen/grammars.json with deeper per-grammar provenance.",
+    "grammars": [
+      "c",
+      "cpp",
+      "csharp",
+      "java",
+      "javascript",
+      "golang",
+      "kotlin",
+      "lua",
+      "php",
+      "python",
+      "ruby",
+      "rust",
+      "scala",
+      "swift",
+      "typescript"
+    ]
+  },
+  "grammar_header_from": "dart",
+  "_grammar_header_from_note": "External grammars include \"tree_sitter/parser.h\". Every external grammar repo ships src/tree_sitter/parser.h; the fetch copies it from this one grammar into src/tree_sitter/parser.h so all external grammars resolve it via -I src/.",
+  "external": [
+    {
+      "language": "dart",
+      "url": "https://github.com/UserNobody14/tree-sitter-dart",
+      "revision": "311a0093c6a70b8579ed8b1d3f69ffa78ab53bf5",
+      "files": ["parser.c", "scanner.c"],
+      "_note": "ABI 14. a9bdfa3 bumped to ABI 15 — stay on this pin unless the binding is upgraded to match."
+    },
+    {
+      "language": "luau",
+      "url": "https://github.com/amaanq/tree-sitter-luau",
+      "revision": "a8914d6c1fc5131f8e1c13f769fa704c9f5eb02f",
+      "files": ["parser.c", "scanner.c"]
+    },
+    {
+      "language": "objc",
+      "url": "https://github.com/amaanq/tree-sitter-objc",
+      "revision": "181a81b8f23a2d593e7ab4259981f50122909fda",
+      "files": ["parser.c"]
+    },
+    {
+      "language": "pascal",
+      "url": "https://github.com/Isopod/tree-sitter-pascal",
+      "revision": "042119eca2e18a60e56317fb06ee3ba5c32cb447",
+      "files": ["parser.c"]
+    }
+  ]
+}

@@ -38,3 +38,8 @@ node_modules/
 .vitepress/dist/
 .vitepress/cache/
 .claude/.atomic-index/
+
+# tree-sitter grammar sources: build-time input for lib/ts.wasm, fetched on demand
+# via atomic/internal/codeintel/tsbinding/fetch-grammars.sh (see that dir's CLAUDE.md).
+# The committed lib/ts.wasm is the runtime artifact; these C sources are not committed.
+atomic/internal/codeintel/tsbinding/src/

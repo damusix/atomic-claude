@@ -229,6 +229,26 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
 
 
+## Research notes (`docs/research/`)
+
+
+Point-in-time research and decision records: a problem investigated, the experiment that settled it,
+and the agreed plan. Committed, human-facing, terse-technical voice. Mermaid allowed (it is a `docs/` file).
+
+These are **not** maintained documentation surfaces — keep them out of the `## Documentation surfaces`
+table above so the `atomic-documentation` maintenance flow never flags them as stale. A research note
+reflects what was true when written; it is an audit trail, not a living doc. Supersede a finding with a
+new note (or a short `Status:`/update line) rather than silently rewriting the original. Distinct from
+`docs/design/` (conceptual workspace for a feature about to be built) and `docs/spec/` (implementation
+contract) — research notes capture *why a path was chosen*, including paths not taken.
+
+Current notes:
+
+- `docs/research/tsbinding-vendor-on-demand.md` — why `atomic code index` OOMs on this repo (generated
+  grammar `parser.c` indexed), the experiment proving vendor-on-demand viable, recovered upstream pins,
+  and the agreed plan to stop committing `tsbinding/src/`.
+
+
 ## VitePress docs site (public, not bundled)
 
 
