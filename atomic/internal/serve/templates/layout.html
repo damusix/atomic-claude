@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>atomic serve — {{.ScopeLabel}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+    <!-- History cache-miss restores must come back as the FULL shell, not a
+         fragment. We use the HX-Request header to return #main-pane fragments,
+         so a restore request that also carried HX-Request would get a bare
+         fragment and htmx would replace <body> with it — destroying the shell on
+         Back/Forward. Disabling historyRestoreAsHxRequest makes htmx omit
+         HX-Request on restore (so the server returns the shell); the server also
+         guards on HX-History-Restore-Request as defense in depth. -->
+    <meta name="htmx-config" content='{"historyRestoreAsHxRequest": false}'>
+    <script src="/static/vendor/htmx.min.js"></script>
+    <!-- Cytoscape+ELK — LOAD ORDER IS LOAD-BEARING: cytoscape → elk.bundled → cytoscape-elk -->
+    <!-- Powers the rail mini-graph (FE2) and the system-graph toggle (FE3). -->
+    <script src="/static/vendor/cytoscape.min.js"></script>
+    <script src="/static/vendor/elk.bundled.js"></script>
+    <script src="/static/vendor/cytoscape-elk.min.js"></script>
+    <script>cytoscape.use(cytoscapeElk);</script>
+    <!-- Shared Cytoscape style factory — used by BOTH the rail mini-graph (FE2) and
+         the system-graph toggle (FE3). One definition, two consumers. Do NOT copy
+         the style array into either consumer; call atomicCyStyle() instead. -->
+    <script>
+    function atomicCyStyle() {
+      return [
+        {
+          selector: 'node',
+          style: {
+            'label': 'data(label)',
+            'background-color': '#89b4fa',
+            'color': '#1e1e2e',
+            'font-size': '10px',
+            'text-valign': 'center',
+            'text-halign': 'center',
+            'width': '60px',
+            'height': '24px',
+            'shape': 'roundrectangle',
+            'text-max-width': '55px',
+            'text-wrap': 'ellipsis'
+          }
+        },
+        { selector: 'node[type="repo"]',      style: { 'background-color': '#a6e3a1', 'shape': 'rectangle' } },
+        { selector: 'node[type="concern"]',   style: { 'background-color': '#cba6f7' } },
+        { selector: 'node[type="knowledge"]', style: { 'background-color': '#f38ba8' } },
+        { selector: 'node[type="bucket"]',    style: { 'background-color': '#fab387' } },
+        { selector: 'node[type="external"]',  style: { 'background-color': '#6c7086', 'shape': 'diamond' } },
+        {
+          /* md-link: solid dark line */
+          selector: 'edge.md-link',
+          style: {
+            'line-color': '#585b70',
+            'line-style': 'solid',
+            'target-arrow-color': '#585b70',
+            'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
+            'width': 1.5
+          }
+        },
+        {
+          /* wikilink: dashed blue — Obsidian-style [[page]] */
+          selector: 'edge.wikilink',
+          style: {
+            'line-color': '#89b4fa',
+            'line-style': 'dashed',
+            'target-arrow-color': '#89b4fa',
+            'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
+            'width': 1.5
+          }
+        },
+        {
+          /* fingerprint: dashed orange — provenance/reflects: edges (CP10) */
+          selector: 'edge.fingerprint',
+          style: {
+            'line-color': '#fab387',
+            'line-style': 'dashed',
+            'line-dash-pattern': [4, 4],
+            'target-arrow-color': '#fab387',
+            'target-arrow-shape': 'triangle',
+            'curve-style': 'bezier',
+            'width': 1.5
+          }
+        },
+        {
+          /* fingerprint drift: red — drifted provenance edges (SC12) */
+          selector: 'edge.fingerprint.drift',
+          style: {
+            'line-color': '#f38ba8',
+            'target-arrow-color': '#f38ba8',
+            'width': 2.5
+          }
+        },
+        {
+          selector: ':selected',
+          style: { 'background-color': '#f9e2af', 'line-color': '#f9e2af' }
+        }
+      ];
+    }
+    </script>
+    <!-- FE2 rail mini-graph: delegated htmx.onLoad handler.
+         Inline <script> in OOB innerHTML swaps are not reliably executed by
+         htmx 2. The canonical pattern is htmx.onLoad, which fires for every
+         newly swapped element. When a [data-rail-graph-url] rail-graph container
+         arrives, we fetch the graph data URL and mount a Cytoscape instance.
+         Note: [data-rail-graph-url] is distinct from the #mode-system button's
+         [data-graph-url="/graph/data"] seam (FE3) — no attribute collision. -->
+    <script>
+    htmx.onLoad(function(elt) {
+      var container = elt.querySelector ? elt.querySelector('[data-rail-graph-url]') : null;
+      if (!container) { return; }
+      if (typeof cytoscape === 'undefined') { return; }
+      var graphURL = container.getAttribute('data-rail-graph-url');
+      var focusNode = container.getAttribute('data-focus-node');
+      var railStyle = atomicCyStyle();
+      // Override width/font-size for the compact rail view.
+      railStyle[0] = {
+        selector: 'node',
+        style: { 'label': 'data(label)', 'background-color': '#89b4fa', 'color': '#1e1e2e', 'font-size': '9px', 'text-valign': 'center', 'text-halign': 'center', 'width': '50px', 'height': '20px', 'shape': 'roundrectangle', 'text-max-width': '45px', 'text-wrap': 'ellipsis' }
+      };
+      railStyle.splice(1, 0, { selector: 'node[id="' + focusNode + '"]', style: { 'background-color': '#f9e2af', 'border-width': '2px', 'border-color': '#fab387' } });
+      fetch(graphURL)
+        .then(function(r) { return r.json(); })
+        .then(function(elems) {
+          cytoscape({
+            container: container,
+            elements: elems,
+            layout: { name: 'concentric', concentric: function(n){ return n.data('id') === focusNode ? 2 : 1; }, levelWidth: function(){ return 1; }, minNodeSpacing: 20 },
+            style: railStyle
+          });
+        })
+        .catch(function(e) { console.warn('rail mini-graph:', e); });
+    });
+    </script>
+    <!-- FE5 search page: SSE result streaming.
+         When a /search page fragment (carrying data-search-stream) lands in
+         #main-pane, open an EventSource to it and route events:
+           md   → fill the markdown section
+           code → append one member's results (clears loading on first arrival)
+           end  → drop remaining loading indicators; close the stream (also stops
+                  the browser auto-reconnecting and replaying the search).
+         Inline <script> in swapped content does not run reliably under htmx 2,
+         so this is a delegated htmx.onLoad — same pattern as the rail mini-graph. -->
+    <script>
+    htmx.onLoad(function(elt) {
+      var page = elt.querySelector ? elt.querySelector('[data-search-stream]') : null;
+      if (!page && elt.getAttribute && elt.getAttribute('data-search-stream')) { page = elt; }
+      if (!page) { return; }
+      if (typeof EventSource === 'undefined') { return; }
+
+      // Close any previous stream (tab switch / re-query / navigating away).
+      if (window.__atomicSearchES) { try { window.__atomicSearchES.close(); } catch (e) {} window.__atomicSearchES = null; }
+
+      var url = page.getAttribute('data-search-stream');
+      var mdSection   = page.querySelector('[data-section="md"]');
+      var codeSection = page.querySelector('[data-section="code"]');
+      var codeStarted = false;
+
+      var es = new EventSource(url);
+      window.__atomicSearchES = es;
+
+      es.addEventListener('md', function(e) {
+        if (mdSection) { mdSection.innerHTML = e.data; }
+      });
+      es.addEventListener('code', function(e) {
+        if (!codeSection) { return; }
+        if (!codeStarted) { codeSection.innerHTML = ''; codeStarted = true; }
+        codeSection.insertAdjacentHTML('beforeend', e.data);
+      });
+      es.addEventListener('end', function() {
+        [mdSection, codeSection].forEach(function(s) {
+          if (!s) { return; }
+          var l = s.querySelector('.search-loading');
+          if (l) { l.remove(); }
+          if (!s.innerHTML.trim()) { s.innerHTML = '<p class="md-search-empty">No results.</p>'; }
+        });
+        es.close();
+        if (window.__atomicSearchES === es) { window.__atomicSearchES = null; }
+      });
+      es.onerror = function() {
+        es.close();
+        if (window.__atomicSearchES === es) { window.__atomicSearchES = null; }
+      };
+    });
+    </script>
+    <!-- FE3 system-graph toggle: wires the [page|system] mode buttons.
+         Clicking #mode-system collapses the right rail, fills #main-pane with
+         #system-cy, fetches /graph/data, and mounts a Cytoscape+ELK layered
+         instance. Node tap → htmx.ajax GET /page/<id> into #main-pane, then
+         restores page mode. Clicking #mode-page restores the previous page. -->
+    <script>
+    (function() {
+      var currentPage = null; // tracks the last /page/ URL loaded
+
+      // Track the current page whenever htmx loads content into #main-pane.
+      htmx.on('htmx:afterSettle', function(evt) {
+        var tgt = evt.detail && evt.detail.target;
+        if (tgt && tgt.id === 'main-pane') {
+          var triggerPath = evt.detail.requestConfig && evt.detail.requestConfig.path;
+          if (triggerPath && triggerPath.indexOf('/page/') === 0) {
+            currentPage = triggerPath;
+          }
+        }
+      });
+
+      function setPageMode() {
+        document.getElementById('mode-page').setAttribute('aria-pressed', 'true');
+        document.getElementById('mode-page').classList.add('toggle-active');
+        document.getElementById('mode-system').setAttribute('aria-pressed', 'false');
+        document.getElementById('mode-system').classList.remove('toggle-active');
+        document.body.classList.remove('mode-system');
+        // Destroy the system graph container if present.
+        var sysCy = document.getElementById('system-cy');
+        if (sysCy) { sysCy.remove(); }
+        // Restore the previous page or the landing URL.
+        var target = currentPage || '{{.LandingURL}}';
+        htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
+      }
+
+      function setSystemMode() {
+        document.getElementById('mode-system').setAttribute('aria-pressed', 'true');
+        document.getElementById('mode-system').classList.add('toggle-active');
+        document.getElementById('mode-page').setAttribute('aria-pressed', 'false');
+        document.getElementById('mode-page').classList.remove('toggle-active');
+        document.body.classList.add('mode-system');
+
+        // Replace #main-pane content with the system-cy container plus a loading
+        // line. The line is removed when the layout finishes (large realms take a
+        // few seconds to lay out) so the user always has feedback, never a silent
+        // blank pane.
+        var mainPane = document.getElementById('main-pane');
+        mainPane.innerHTML = '<div id="system-cy"></div>' +
+          '<p class="loading system-graph-loading">Laying out graph…</p>';
+        var container = document.getElementById('system-cy');
+
+        function clearSystemLoading() {
+          var l = mainPane.querySelector('.system-graph-loading');
+          if (l) { l.remove(); }
+        }
+
+        fetch('/graph/data')
+          .then(function(r) { return r.json(); })
+          .then(function(elems) {
+            var cy = cytoscape({
+              container: container,
+              elements: elems,
+              layout: { name: 'elk', elk: { algorithm: 'layered' }, fit: true },
+              style: atomicCyStyle()
+            });
+
+            // The container was just innerHTML-swapped, so it may still report a
+            // zero size when Cytoscape initializes — which renders the graph into a
+            // 0×0 canvas (invisible). Resize + fit once the layout settles so the
+            // graph is sized to the container and centered in the viewport.
+            cy.one('layoutstop', function() {
+              clearSystemLoading();
+              cy.resize();
+              cy.fit(undefined, 24);
+            });
+            // Fallback: if no layout event fires, still clear the loader.
+            cy.ready(function() { cy.resize(); });
+
+            // Node tap: navigate to /page/<id> and restore page mode.
+            cy.on('tap', 'node', function(evt) {
+              var id = evt.target.data('id');
+              currentPage = '/page/' + encodeURIComponent(id);
+              setPageMode();
+            });
+          })
+          .catch(function(e) {
+            var l = mainPane.querySelector('.system-graph-loading');
+            if (l) { l.textContent = 'Could not render the system graph.'; }
+            console.error('system-graph /graph/data:', e);
+          });
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        var btnPage   = document.getElementById('mode-page');
+        var btnSystem = document.getElementById('mode-system');
+        if (btnPage)   { btnPage.addEventListener('click',   setPageMode); }
+        if (btnSystem) { btnSystem.addEventListener('click', setSystemMode); }
+      });
+    }());
+    </script>
+</head>
+<body>
+
+<!-- ── top bar: brand · breadcrumb · search + md|code toggle ─────────── -->
+<header id="app-header">
+    <span class="brand">◆ atomic</span>
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+        <span class="breadcrumb-scope">{{.ScopeBadge}}</span>
+        <span class="breadcrumb-sep">›</span>
+        <span class="breadcrumb-page" id="breadcrumb-page">{{.ScopeLabel}}</span>
+    </nav>
+    <div class="search-bar">
+        <!-- Search is a command-palette dialog (#search-modal), opened by this
+             trigger or ⌘K / Ctrl K. The md|code toggle and live results live in
+             the dialog; Enter / "view all" opens the dedicated /search page. -->
+        <button id="search-trigger" class="search-trigger" type="button"
+                aria-haspopup="dialog" aria-label="Open search (Command K)">
+            <span class="search-trigger-icon" aria-hidden="true">⌕</span>
+            <span class="search-trigger-label">Search…</span>
+            <kbd class="search-trigger-kbd">⌘K</kbd>
+        </button>
+    </div>
+</header>
+
+<!-- ── three-pane Obsidian shell ─────────────────────────────────────── -->
+<div id="shell">
+
+    <!-- left nav -->
+    <nav id="nav-pane" aria-label="Navigation"
+         hx-get="/nav"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+        <div class="nav-section">
+            <div class="nav-section-title">Loading…</div>
+        </div>
+    </nav>
+
+    <!-- middle content: [page | system] toggle + page content -->
+    <div id="content-column">
+        <div class="content-header">
+            <!-- [page|system] toggle — FE3 wires the click handlers above -->
+            <span class="mode-toggle" role="group" aria-label="View mode">
+                <button class="toggle-btn toggle-active" id="mode-page"
+                        type="button" aria-pressed="true">page</button>
+                <button class="toggle-btn" id="mode-system"
+                        type="button" aria-pressed="false">system</button>
+            </span>
+        </div>
+        <main id="main-pane"
+              hx-get="{{.LandingURL}}"
+              hx-trigger="load"
+              hx-swap="innerHTML">
+            <p class="loading">Loading…</p>
+        </main>
+    </div>
+
+    <!-- right rail: this-page graph ▸ OUT links ▸ IN links -->
+    <!-- FE2 fills these slots with data; seams (IDs) are the contract -->
+    <!-- Hidden in system mode via body.mode-system #right-rail { display: none } -->
+    <aside id="right-rail" aria-label="Page context">
+        <section id="rail-graph" class="rail-slot">
+            <div class="rail-slot-label">this-page graph</div>
+            <div class="rail-slot-content" id="rail-graph-content">
+                <!-- FE2: depth-1 local graph for the focused page -->
+            </div>
+        </section>
+        <section id="rail-out" class="rail-slot">
+            <div class="rail-slot-label">→ OUT links</div>
+            <div class="rail-slot-content" id="rail-out-content">
+                <!-- FE2: outbound links from ExtractLinks of the focused page -->
+            </div>
+        </section>
+        <section id="rail-in" class="rail-slot">
+            <div class="rail-slot-label">← IN links</div>
+            <div class="rail-slot-content" id="rail-in-content">
+                <!-- FE2: backlinks into the focused page -->
+            </div>
+        </section>
+    </aside>
+
+</div>
+
+<!-- ── search dialog (command palette) ──────────────────────────────────────
+     Opened by #search-trigger or ⌘K / Ctrl K (or "/" when not typing).
+     md|code toggle + debounced live results. Selecting an md result loads it
+     into #main-pane; a code result opens the code modal (FE4 watches
+     #search-results). Enter or "View all results" opens the /search page. -->
+<div id="search-modal" role="dialog" aria-modal="true" aria-label="Search">
+    <div class="search-modal-box">
+        <div class="search-modal-header">
+            <span class="search-modal-icon" aria-hidden="true">⌕</span>
+            <input id="search" type="search" class="search-modal-input"
+                   placeholder="Search markdown or code…" aria-label="Search" autocomplete="off">
+            <span class="search-toggle" role="group" aria-label="Search source">
+                <button class="toggle-btn toggle-active" id="toggle-md" type="button" aria-pressed="true">md</button>
+                <button class="toggle-btn" id="toggle-code" type="button" aria-pressed="false">code</button>
+            </span>
+        </div>
+        <div id="search-results" class="search-results" role="listbox" aria-label="Search results">
+            <p class="md-search-empty">Type to search…</p>
+        </div>
+        <div class="search-modal-footer">
+            <button id="search-viewall" type="button" class="search-viewall">View all results →</button>
+            <span class="search-modal-hint"><kbd>Enter</kbd> view all · <kbd>Esc</kbd> close</span>
+        </div>
+    </div>
+</div>
+
+<!-- ── FE4 code modal: dimmed overlay with source pane + intel pane ──────── -->
+<div id="code-modal" role="dialog" aria-modal="true" aria-label="Source file viewer">
+    <div class="code-modal-box">
+        <div class="code-modal-header">
+            <span class="code-modal-title" id="code-modal-title"></span>
+            <button class="code-modal-close" id="code-modal-close" type="button"
+                    aria-label="Close source file viewer">✕</button>
+        </div>
+        <div class="code-modal-body">
+            <div id="code-modal-source">
+                <!-- filled by htmx.ajax GET /file/<path> (HX-Request fragment) -->
+            </div>
+            <div id="code-modal-intel-pane">
+                <!-- Persistent back affordance for intel drill-downs (defines →
+                     callers → node → …). Sits OUTSIDE #code-modal-intel so it
+                     survives the hx-swap that replaces the intel content. -->
+                <button id="code-modal-intel-back" class="code-modal-intel-back"
+                        type="button" hidden aria-label="Back to previous code view">← Back</button>
+                <div id="code-modal-intel">
+                    <!-- filled by htmx.ajax GET /code/file?path=<path> -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- FE5 search dialog (command palette).
+     Trigger: #search-trigger click, ⌘K / Ctrl K, or "/" when not typing.
+     md mode  → GET /search/md?q=   (literal grep over served .md files)
+     code mode → GET /code/search?q= (federated symbol search)
+     Selecting a result:
+       md   → htmx.ajax GET /page/<file> into #main-pane + close dialog
+       code → /file/…#L link caught by the FE4 delegated handler (watches
+               #search-results) → opens the code modal; we close the dialog.
+     Enter or "View all results" → /search?q=&src= page (browse everything).
+     Esc / backdrop closes. -->
+<script>
+(function() {
+  var activeSource = 'md'; // 'md' | 'code'
+  var debounceTimer = null;
+  var debounceMs = 200;
+
+  var modal, input, results, btnMd, btnCode, trigger, viewAll;
+  var searchAbort = null; // aborts the in-flight fetch when a newer query supersedes it
+
+  function openModal() {
+    if (!modal) { return; }
+    modal.classList.add('open');
+    if (input) { input.focus(); input.select(); }
+  }
+
+  function closeModal() {
+    if (modal) { modal.classList.remove('open'); }
+  }
+
+  function renderResults(html) {
+    if (results) { results.innerHTML = html; }
+  }
+
+  function setSource(src) {
+    activeSource = src;
+    if (src === 'md') {
+      btnMd.setAttribute('aria-pressed', 'true');  btnMd.classList.add('toggle-active');
+      btnCode.setAttribute('aria-pressed', 'false'); btnCode.classList.remove('toggle-active');
+    } else {
+      btnCode.setAttribute('aria-pressed', 'true');  btnCode.classList.add('toggle-active');
+      btnMd.setAttribute('aria-pressed', 'false');   btnMd.classList.remove('toggle-active');
+    }
+    runSearch(input ? input.value : '');
+  }
+
+  function runSearch(q) {
+    q = (q || '').trim();
+    if (!q) {
+      renderResults('<p class="md-search-empty">Type to search…</p>');
+      return;
+    }
+    // Cancel any prior in-flight request so fast typing can't paint stale results.
+    if (searchAbort) { searchAbort.abort(); }
+    searchAbort = new AbortController();
+    renderResults('<p class="loading search-loading">Searching…</p>');
+    var endpoint = activeSource === 'md'
+      ? '/search/md?q=' + encodeURIComponent(q)
+      : '/code/search?q=' + encodeURIComponent(q);
+    fetch(endpoint, { headers: { 'HX-Request': 'true' }, signal: searchAbort.signal })
+      .then(function(r) { return r.text(); })
+      .then(renderResults)
+      .catch(function(e) { if (e.name !== 'AbortError') { console.warn('search:', e); } });
+  }
+
+  // gotoSearchPage opens the dedicated /search page for the current query.
+  function gotoSearchPage() {
+    var q = (input && input.value || '').trim();
+    if (!q) { return; }
+    var url = '/search?q=' + encodeURIComponent(q) + '&src=' + activeSource;
+    closeModal();
+    htmx.ajax('GET', url, { target: '#main-pane', swap: 'innerHTML' });
+    if (window.history && window.history.pushState) { window.history.pushState(null, '', url); }
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    modal   = document.getElementById('search-modal');
+    input   = document.getElementById('search');
+    results = document.getElementById('search-results');
+    btnMd   = document.getElementById('toggle-md');
+    btnCode = document.getElementById('toggle-code');
+    trigger = document.getElementById('search-trigger');
+    viewAll = document.getElementById('search-viewall');
+
+    if (trigger) { trigger.addEventListener('click', openModal); }
+    if (btnMd)   { btnMd.addEventListener('click',   function() { setSource('md');   }); }
+    if (btnCode) { btnCode.addEventListener('click', function() { setSource('code'); }); }
+    if (viewAll) { viewAll.addEventListener('click', gotoSearchPage); }
+
+    if (input) {
+      input.addEventListener('input', function() {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function() { runSearch(input.value); }, debounceMs);
+      });
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter')       { e.preventDefault(); gotoSearchPage(); }
+        else if (e.key === 'Escape') { closeModal(); }
+      });
+    }
+
+    // Result selection.
+    if (results) {
+      results.addEventListener('click', function(e) {
+        var el = e.target;
+        while (el && el !== results) {
+          if (el.tagName === 'A' || el.hasAttribute('data-page')) { break; }
+          el = el.parentElement;
+        }
+        if (!el || el === results) { return; }
+        var href = el.getAttribute('href') || el.getAttribute('data-page');
+        if (!href) { return; }
+        // md result → load the page into #main-pane and close.
+        if (href.indexOf('/page/') === 0) {
+          e.preventDefault();
+          closeModal();
+          htmx.ajax('GET', href, { target: '#main-pane', swap: 'innerHTML' });
+          if (window.history && window.history.pushState) { window.history.pushState(null, '', href); }
+          return;
+        }
+        // code result (/file/…#L) → FE4 delegated handler opens the code modal;
+        // close the search dialog so the code modal is unobstructed.
+        closeModal();
+      });
+    }
+
+    // Global shortcuts.
+    document.addEventListener('keydown', function(e) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault(); openModal(); return;
+      }
+      if (e.key === 'Escape' && modal && modal.classList.contains('open')) {
+        closeModal(); return;
+      }
+      if (e.key === '/' && modal && !modal.classList.contains('open')) {
+        var t = e.target, tag = t && t.tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !(t && t.isContentEditable)) {
+          e.preventDefault(); openModal();
+        }
+      }
+    });
+
+    // Backdrop click closes.
+    if (modal) {
+      modal.addEventListener('click', function(e) { if (e.target === modal) { closeModal(); } });
+    }
+  });
+}());
+</script>
+
+<!-- FE4 code-link delegated handler.
+     Intercepts clicks on <a> elements within #main-pane and #right-rail whose
+     href resolves to a source file (known extension set). On match: preventDefault,
+     open #code-modal, load /file/<path> fragment into #code-modal-source and
+     /code/file?path=<path> into #code-modal-intel via htmx.ajax.
+     A file:line href (/file/foo.go#L42) strips the anchor for the fetch but
+     re-applies it as a scroll anchor after swap. -->
+<script>
+(function() {
+  // Known source file extensions that open the code modal.
+  var SOURCE_EXTS = {
+    "go": true, "ts": true, "tsx": true, "js": true, "jsx": true,
+    "py": true, "rb": true, "rs": true, "java": true, "kt": true, "kts": true,
+    "c": true, "cc": true, "cpp": true, "cxx": true, "h": true, "hpp": true,
+    "cs": true, "php": true, "swift": true, "scala": true, "lua": true,
+    "dart": true, "sql": true, "sh": true, "bash": true, "zsh": true,
+    "ex": true, "exs": true, "erl": true, "hrl": true
+  };
+
+  var modal    = document.getElementById('code-modal');
+  var modalSrc = document.getElementById('code-modal-source');
+  var modalIntel = document.getElementById('code-modal-intel');
+  var modalIntelBack = document.getElementById('code-modal-intel-back');
+  var modalTitle = document.getElementById('code-modal-title');
+  var closeBtn = document.getElementById('code-modal-close');
+
+  // Intel-pane navigation stack. The intel pane drills defines → callers → node →
+  // … by swapping #code-modal-intel in place; without a stack there is no way back
+  // to the previous view. intelStack holds the URLs loaded into the pane; the
+  // persistent #code-modal-intel-back button pops one level.
+  var intelStack = [];
+  function intelTop() { return intelStack[intelStack.length - 1]; }
+  function updateIntelBack() {
+    if (modalIntelBack) { modalIntelBack.hidden = intelStack.length <= 1; }
+  }
+  function loadIntel(url) {
+    htmx.ajax('GET', url, {
+      target: '#code-modal-intel',
+      swap: 'innerHTML',
+      headers: { 'HX-Request': 'true' }
+    });
+  }
+  function intelGoBack() {
+    if (intelStack.length <= 1) { return; }
+    intelStack.pop();          // drop current
+    loadIntel(intelTop());     // reload the previous view (no push)
+    updateIntelBack();
+  }
+  if (modalIntelBack) { modalIntelBack.addEventListener('click', intelGoBack); }
+
+  // Record forward drill-downs: a click on an hx-get link inside #code-modal-intel
+  // pushes its URL so Back can return here. htmx still performs the swap.
+  document.addEventListener('click', function(e) {
+    if (!modalIntel) { return; }
+    var el = e.target;
+    while (el && el !== modalIntel) {
+      if (el.tagName === 'A' && el.getAttribute && el.getAttribute('hx-get')) { break; }
+      el = el.parentElement;
+    }
+    if (!el || el === modalIntel || el.tagName !== 'A' || !modalIntel.contains(el)) { return; }
+    var url = el.getAttribute('hx-get');
+    if (url && url !== intelTop()) { intelStack.push(url); updateIntelBack(); }
+  });
+
+  // Loading feedback: whenever a request targets the intel pane (a drill-down or
+  // Back), show a spinner immediately so the click registers before the swap.
+  document.body.addEventListener('htmx:beforeRequest', function(e) {
+    var t = e.detail && e.detail.target;
+    if (t && t.id === 'code-modal-intel') {
+      t.innerHTML = '<p class="loading">Loading…</p>';
+    }
+  });
+
+  function getExtension(href) {
+    // Strip query string and anchor, then get the file extension.
+    var clean = href.split('?')[0].split('#')[0];
+    var dot = clean.lastIndexOf('.');
+    if (dot === -1) { return ''; }
+    return clean.slice(dot + 1).toLowerCase();
+  }
+
+  // currentPageRelpath returns the realm-root-relative path of the page currently
+  // shown in #main-pane. The page fragment stamps it on #page-content[data-relpath].
+  // Returns '' when no page is loaded (system mode, 404, search-only).
+  function currentPageRelpath() {
+    var pc = document.querySelector('#main-pane #page-content[data-relpath]');
+    return pc ? pc.getAttribute('data-relpath') : '';
+  }
+
+  // resolveSourceHref turns a content-body href (which may be page-relative, e.g.
+  // "../../search.sh") into a realm-root-relative path suitable for /file/<path>.
+  // Page-relative links are resolved against the current page's URL so they don't
+  // collapse to a wrong path when handed verbatim to /file/. Returns '' when the
+  // href is external (http/https) — those must not open the source modal.
+  function resolveSourceHref(href) {
+    if (/^https?:/i.test(href)) { return ''; }
+    if (href.indexOf('/') === 0) {
+      // Already a root-absolute path (e.g. /file/<x> handled earlier, or /<x>).
+      return href.replace(/^\//, '');
+    }
+    var rel = currentPageRelpath();
+    var base = rel
+      ? window.location.origin + '/page/' + rel
+      : window.location.href;
+    try {
+      var u = new URL(href, base);
+      return u.pathname.replace(/^\/(page|file)\//, '').replace(/^\//, '') + (u.hash || '');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function openModal(filePath, anchor) {
+    modalTitle.textContent = filePath;
+    modalSrc.innerHTML = '<p class="loading">Loading…</p>';
+    modalIntel.innerHTML = '<p class="loading">Loading…</p>';
+    modal.classList.add('open');
+
+    // Load highlighted source as fragment into #code-modal-source.
+    htmx.ajax('GET', '/file/' + filePath, {
+      target: '#code-modal-source',
+      swap: 'innerHTML',
+      headers: { 'HX-Request': 'true' }
+    }).then(function() {
+      // If the original href had a line anchor, scroll to it.
+      if (anchor) {
+        var el = document.getElementById(anchor);
+        if (el) { el.scrollIntoView({ block: 'center' }); }
+      }
+    });
+
+    // Load code-intel symbols into #code-modal-intel and seed the intel stack
+    // with this file's defines view as the root (Back is hidden until a drill-down).
+    var intelURL = '/code/file?path=' + encodeURIComponent(filePath);
+    intelStack = [intelURL];
+    updateIntelBack();
+    loadIntel(intelURL);
+  }
+
+  function closeModal() {
+    modal.classList.remove('open');
+  }
+
+  // Close on ✕ button.
+  if (closeBtn) { closeBtn.addEventListener('click', closeModal); }
+
+  // Close on backdrop click (click on the modal overlay, not the box).
+  if (modal) {
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) { closeModal(); }
+    });
+  }
+
+  // Close on Esc.
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && modal && modal.classList.contains('open')) {
+      closeModal();
+    }
+  });
+
+  // Delegated click handler: intercept source-file links inside
+  // #main-pane, #right-rail, and #search-results (FE5: code results
+  // in the dropdown open the code modal instead of full-page-navigating).
+  document.addEventListener('click', function(e) {
+    // Walk up from the target to find an <a> element.
+    var el = e.target;
+    while (el && el !== document.body) {
+      if (el.tagName === 'A') { break; }
+      el = el.parentElement;
+    }
+    if (!el || el.tagName !== 'A') { return; }
+
+    var href = el.getAttribute('href');
+    if (!href) { return; }
+
+    // Only intercept links inside #main-pane, #right-rail, or #search-results.
+    var mainPane      = document.getElementById('main-pane');
+    var rightRail     = document.getElementById('right-rail');
+    var searchResults = document.getElementById('search-results');
+    if ((!mainPane      || !mainPane.contains(el)) &&
+        (!rightRail     || !rightRail.contains(el)) &&
+        (!searchResults || !searchResults.contains(el))) {
+      return;
+    }
+
+    // /file/<path> links from the existing route — open the modal.
+    if (href.indexOf('/file/') === 0) {
+      e.preventDefault();
+      var withoutPrefix = href.slice('/file/'.length);
+      var hashIdx = withoutPrefix.indexOf('#');
+      var anchor = '';
+      var filePath = withoutPrefix;
+      if (hashIdx !== -1) {
+        anchor   = withoutPrefix.slice(hashIdx + 1);
+        filePath = withoutPrefix.slice(0, hashIdx);
+      }
+      openModal(filePath, anchor);
+      return;
+    }
+
+    // Detect plain relative links to source files (e.g. [billing](billing.go)
+    // in rendered markdown, or a page-relative ../../search.sh). Resolve against
+    // the current page so the /file/ fetch targets the right realm-relative path.
+    var ext = getExtension(href);
+    if (ext && SOURCE_EXTS[ext]) {
+      var resolved = resolveSourceHref(href);
+      if (!resolved) { return; } // external or unresolvable — leave to default
+      e.preventDefault();
+      var hashIdx2 = resolved.indexOf('#');
+      var anchor2 = '';
+      var path    = resolved;
+      if (hashIdx2 !== -1) {
+        anchor2 = resolved.slice(hashIdx2 + 1);
+        path    = resolved.slice(0, hashIdx2);
+      }
+      openModal(path, anchor2);
+    }
+  });
+}());
+</script>
+<!-- Breadcrumb folder navigation: ancestor segments are <a data-nav-folder="<prefix>">.
+     Clicking one loads that folder into #main-pane (the /page handler serves a
+     folder index file or a generated listing). Without this handler the breadcrumb
+     links look clickable (styled as links) but do nothing. -->
+<script>
+(function() {
+  document.addEventListener('click', function(e) {
+    var el = e.target;
+    while (el && el !== document.body) {
+      if (el.tagName === 'A' && el.classList && el.classList.contains('breadcrumb-folder')) { break; }
+      el = el.parentElement;
+    }
+    if (!el || el.tagName !== 'A' || !el.classList.contains('breadcrumb-folder')) { return; }
+    var folder = el.getAttribute('data-nav-folder');
+    if (!folder) { return; }
+    e.preventDefault();
+    htmx.ajax('GET', '/page/' + folder + '/', { target: '#main-pane', swap: 'innerHTML' });
+  });
+}());
+</script>
+</body>
+</html>

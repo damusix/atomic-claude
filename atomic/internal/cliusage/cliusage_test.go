@@ -159,7 +159,8 @@ const goldenCommandsBlock = "" +
 	"  wiki bucket diff     <name> [--root]                                                         Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty\n" +
 	"  wiki bucket promote  <name> [--root]                                                         Snapshot bucket and rotate baseline→previous, current→baseline\n" +
 	"  prompt git-cleanup                                                                           Emit the git-cleanup cold-op brief\n" +
-	"  prompt claude-merge                                                                          Emit the CLAUDE.md merge cold-op brief\n"
+	"  prompt claude-merge                                                                          Emit the CLAUDE.md merge cold-op brief\n" +
+	"  serve                [path] [--port] [--open]                                                Start a local read-only HTTP server for exploring wiki + code-intel\n"
 
 // TestRenderGolden pins the rendered Commands block to the exact expected
 // string. A dropped flag, renamed verb, or formatting change is a test

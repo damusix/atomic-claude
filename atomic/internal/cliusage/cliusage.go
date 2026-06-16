@@ -358,6 +358,12 @@ var commands = []Command{
 		Flags:       nil,
 		Description: "Emit the CLAUDE.md merge cold-op brief",
 	},
+	{
+		Path:        []string{"serve"},
+		Args:        "[path]",
+		Flags:       []string{"--port", "--open"},
+		Description: "Start a local read-only HTTP server for exploring wiki + code-intel",
+	},
 }
 
 // Commands returns the ordered command surface. The returned slice is a copy;

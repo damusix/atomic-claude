@@ -138,6 +138,7 @@ export default defineConfig({
                     { text: 'Signals Workflow', link: '/reference/signals-workflow' },
                     { text: 'Wiki Workflow', link: '/reference/wiki-workflow' },
                     { text: 'Code Intelligence', link: '/reference/code-intel' },
+                    { text: 'Serve', link: '/reference/serve' },
                     { text: 'Conventions', link: '/reference/conventions' },
                 ],
             },

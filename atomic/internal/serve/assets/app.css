@@ -1,0 +1,1189 @@
+/* atomic serve — Obsidian shell styles (FE1 rework) */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+:root {
+    --color-bg: #0f0f0f;
+    --color-surface: #1a1a1a;
+    --color-border: #2a2a2a;
+    --color-text: #e0e0e0;
+    --color-muted: #888;
+    --color-accent: #f5a623;
+    --color-accent-dim: #a06010;
+    /* Links: one readable sky tone, applied site-wide via the base `a` rule.
+       Browser-default blue (#0000EE) / visited purple are unreadable on the dark
+       background, so every anchor inherits these unless a component overrides. */
+    --color-link: #7ab8e8;
+    --color-link-hover: #a8d4f5;
+    --color-link-visited: #9e8ec4;
+    --nav-width: 260px;
+    --rail-width: 260px;
+    --header-height: 44px;
+    --content-header-height: 36px;
+    --font-mono: "Geist Mono", "Fira Code", "Cascadia Code", ui-monospace, monospace;
+    --font-sans: system-ui, -apple-system, sans-serif;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+/* ── top header bar: brand · breadcrumb · search ─────────────────────── */
+
+#app-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--header-height);
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 12px;
+    z-index: 100;
+}
+
+#app-header .brand {
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--color-accent);
+    letter-spacing: -0.02em;
+    flex-shrink: 0;
+}
+
+/* breadcrumb: scope › member › page */
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.breadcrumb-scope {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    background: var(--color-accent-dim);
+    color: var(--color-text);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+}
+
+.breadcrumb-sep {
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
+.breadcrumb-page {
+    font-size: 12px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 320px;
+}
+
+/* search bar: input + md|code toggle */
+.search-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    max-width: 400px;
+    margin-left: auto;
+}
+
+/* search input wrapper: positions #search-results as an anchored dropdown */
+.search-input-wrap {
+    position: relative;
+    flex: 1;
+}
+
+.search-box {
+    width: 100%;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-text);
+    font-size: 13px;
+    font-family: var(--font-sans);
+    padding: 4px 10px;
+    outline: none;
+}
+
+.search-box:focus {
+    border-color: var(--color-accent-dim);
+}
+
+.search-box::placeholder {
+    color: var(--color-muted);
+}
+
+/* ── toggle buttons (shared: md|code + page|system) ───────────────────── */
+
+.search-toggle,
+.mode-toggle {
+    display: flex;
+    align-items: center;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.toggle-btn {
+    background: none;
+    border: none;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-family: var(--font-sans);
+    padding: 3px 10px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s;
+}
+
+.toggle-btn:hover {
+    background: var(--color-border);
+    color: var(--color-text);
+}
+
+.toggle-btn.toggle-active {
+    background: var(--color-accent-dim);
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+/* ── four-pane Obsidian shell ─────────────────────────────────────────── */
+
+#shell {
+    display: flex;
+    height: 100vh;
+    padding-top: var(--header-height);
+}
+
+/* left nav */
+#nav-pane {
+    width: var(--nav-width);
+    flex-shrink: 0;
+    background: var(--color-surface);
+    border-right: 1px solid var(--color-border);
+    overflow-y: auto;
+    padding: 12px 0;
+}
+
+/* middle column: content-header + main-pane */
+#content-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.content-header {
+    height: var(--content-header-height);
+    flex-shrink: 0;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 8px;
+}
+
+#main-pane {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+    min-width: 0;
+}
+
+/* right rail: three stacked slots (this-page graph ▸ OUT ▸ IN) */
+#right-rail {
+    width: var(--rail-width);
+    flex-shrink: 0;
+    background: var(--color-surface);
+    border-left: 1px solid var(--color-border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.rail-slot {
+    border-bottom: 1px solid var(--color-border);
+    padding: 10px 14px;
+    flex-shrink: 0;
+}
+
+.rail-slot:last-child {
+    border-bottom: none;
+    flex: 1;
+}
+
+.rail-slot-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+    margin-bottom: 8px;
+    user-select: none;
+}
+
+.rail-slot-content {
+    font-size: 12px;
+    color: var(--color-muted);
+    font-style: italic;
+    min-height: 40px;
+}
+
+/* ── nav items ──────────────────────────────────────────────────────────── */
+
+.nav-section {
+    margin-bottom: 8px;
+}
+
+.nav-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+    padding: 8px 16px 4px;
+    user-select: none;
+}
+
+.nav-item {
+    display: block;
+    padding: 5px 16px;
+    color: var(--color-text);
+    text-decoration: none;
+    font-size: 13px;
+    border-radius: 4px;
+    margin: 0 4px;
+    transition: background 0.1s;
+}
+
+.nav-item:hover {
+    background: var(--color-border);
+}
+
+.nav-item.active {
+    background: var(--color-accent-dim);
+    color: var(--color-accent);
+    font-weight: 600;
+}
+
+/* ── nav groups (collapsible tree via <details>/<summary>) ─────────────── */
+
+details.nav-group-wrap {
+    margin-bottom: 4px;
+}
+
+summary.nav-group,
+details > summary.nav-group {
+    list-style: none;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-muted);
+    padding: 8px 16px 4px;
+    user-select: none;
+}
+
+summary.nav-group::-webkit-details-marker { display: none; }
+
+details[open] > summary.nav-group::before { content: "▾ "; }
+details:not([open]) > summary.nav-group::before { content: "▸ "; }
+
+.nav-empty {
+    display: block;
+    padding: 4px 16px;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-style: italic;
+}
+
+.badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 4px;
+    text-transform: uppercase;
+}
+
+.badge-stale {
+    background: rgba(245, 100, 0, 0.18);
+    color: #e06a20;
+}
+
+.badge-diff {
+    background: rgba(100, 180, 255, 0.15);
+    color: #5aabf0;
+}
+
+/* ── main content ─────────────────────────────────────────────────────── */
+
+.welcome-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--color-accent);
+}
+
+.welcome-subtitle {
+    color: var(--color-muted);
+    margin: 0 0 24px;
+}
+
+.info-table {
+    border-collapse: collapse;
+    font-size: 13px;
+    width: 100%;
+    max-width: 500px;
+}
+
+.info-table td {
+    padding: 6px 12px;
+    border: 1px solid var(--color-border);
+}
+
+.info-table td:first-child {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    width: 120px;
+}
+
+/* ── code / pre ───────────────────────────────────────────────────────── */
+
+code, pre, kbd, samp {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    /* disable calt ligatures that kern -- and -> together */
+    font-variant-ligatures: none;
+    font-feature-settings: "calt" 0;
+}
+
+pre {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    overflow-x: auto;
+}
+
+/* ── loading state ─────────────────────────────────────────────────────── */
+
+.loading {
+    color: var(--color-muted);
+    font-style: italic;
+}
+
+/* ── system-graph mode (FE3) ──────────────────────────────────────────── */
+
+/* Collapse the right rail when body carries the mode-system class. */
+body.mode-system #right-rail {
+    display: none;
+}
+
+/* The system-cy container fills the entire #main-pane when in system mode.
+   #main-pane is flex: 1; overflow-y: auto; — system-cy must fill that space. */
+#system-cy {
+    width: 100%;
+    height: 100%;
+    min-height: calc(100vh - var(--header-height) - var(--content-header-height));
+    background: var(--color-bg);
+}
+
+/* System-graph layout indicator: centered over the (tall) #system-cy container
+   while elk lays the graph out. #main-pane is the positioned ancestor so the
+   overlay stays centered in the visible pane, not pushed below the fold. */
+#main-pane {
+    position: relative;
+}
+
+.system-graph-loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    margin: 0;
+}
+
+/* ── file view (chroma-highlighted source with line numbers) ─────────────
+   Moved from inline <style> in fileTmpl so the fragment mode (/file/* with
+   HX-Request) is correctly styled inside the shell without re-declaring the
+   rules. */
+
+.file-view-wrapper {
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+
+.file-view {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.file-view td {
+    padding: 0 8px;
+    vertical-align: top;
+    white-space: pre;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-variant-ligatures: none;
+    font-feature-settings: "calt" 0;
+}
+
+.file-view td.ln {
+    color: var(--color-muted);
+    user-select: none;
+    text-align: right;
+    min-width: 3em;
+    border-right: 1px solid var(--color-border);
+}
+
+.file-view td.ln a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.file-view td.ld {
+    padding-left: 12px;
+}
+
+.file-view tr:target {
+    background: rgba(245, 166, 35, 0.12);
+}
+
+/* ── code modal (FE4): dimmed overlay over the shell ─────────────────────
+   Opens when the user clicks a source-file link in #main-pane or #right-rail.
+   Left pane: chroma-highlighted source. Right pane: code-intel symbols.
+   Closed by ✕ button, Esc key, or backdrop click. */
+
+#code-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(0, 0, 0, 0.72);
+    align-items: center;
+    justify-content: center;
+}
+
+#code-modal.open {
+    display: flex;
+}
+
+.code-modal-box {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    width: min(90vw, 1200px);
+    height: min(85vh, 900px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.code-modal-header {
+    display: flex;
+    align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--color-border);
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.code-modal-title {
+    flex: 1;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.code-modal-close {
+    background: none;
+    border: none;
+    color: var(--color-muted);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.code-modal-close:hover {
+    background: var(--color-border);
+    color: var(--color-text);
+}
+
+.code-modal-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+#code-modal-source {
+    flex: 1;
+    overflow: auto;
+    border-right: 1px solid var(--color-border);
+    padding: 12px 0;
+}
+
+/* Intel pane wrapper: holds the persistent Back button + the swappable intel
+   content. Takes the fixed-width column slot in the modal body. */
+#code-modal-intel-pane {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#code-modal-intel {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 14px;
+    font-size: 12px;
+    color: var(--color-muted);
+}
+
+.code-modal-intel-back {
+    flex-shrink: 0;
+    appearance: none;
+    background: var(--color-surface);
+    color: var(--color-link);
+    border: none;
+    border-bottom: 1px solid var(--color-border);
+    padding: 8px 14px;
+    font: inherit;
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.code-modal-intel-back:hover {
+    color: var(--color-link-hover);
+    background: var(--color-bg);
+}
+
+.code-modal-intel-back[hidden] {
+    display: none;
+}
+
+/* ── code file intel (symbols defined in a file) ─────────────────────── */
+
+.code-file-intel-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0 0 10px;
+}
+
+.code-file-intel-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.code-file-intel-chip {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--color-border);
+    line-height: 1.6;
+}
+
+.code-file-intel-chip:last-child {
+    border-bottom: none;
+}
+
+.code-file-intel-name {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text);
+}
+
+.code-file-intel-line {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: 11px;
+}
+
+.code-file-intel-links {
+    display: block;
+    margin-top: 2px;
+}
+
+.code-file-intel-link {
+    font-size: 11px;
+    color: var(--color-accent-dim);
+    text-decoration: none;
+    margin-right: 6px;
+}
+
+.code-file-intel-link:hover {
+    color: var(--color-accent);
+}
+
+.code-file-intel-empty {
+    color: var(--color-muted);
+    font-style: italic;
+    font-size: 12px;
+    padding: 8px 0;
+}
+
+/* ── rail: code-file link style ─────────────────────────────────────────── */
+
+.ctx-codefile {
+    color: var(--color-accent-dim);
+    text-decoration: none;
+    font-family: var(--font-mono);
+    font-size: 12px;
+}
+
+.ctx-codefile:hover {
+    color: var(--color-accent);
+}
+
+/* ── nav folder hierarchy ─────────────────────────────────────────────────
+   Nested <details class="nav-folder"> blocks for docs/**/.  The Go renderer
+   emits inline padding-left on both summary labels and leaf items, scaled by
+   nesting depth (depth * 12px base step), so arbitrary depth reads correctly.
+   These rules set non-padding defaults; padding-left comes from inline styles. */
+
+details.nav-folder {
+    margin: 0;
+}
+
+summary.nav-folder-label {
+    list-style: none;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-muted);
+    padding-top: 4px;
+    padding-bottom: 2px;
+    padding-right: 16px;
+    user-select: none;
+    letter-spacing: 0.03em;
+}
+
+summary.nav-folder-label::-webkit-details-marker { display: none; }
+
+details[open].nav-folder > summary.nav-folder-label::before { content: "▾ "; }
+details:not([open]).nav-folder > summary.nav-folder-label::before { content: "▸ "; }
+
+/* ── links: site-wide base, dark-theme readable ────────────────────────────
+   Every anchor inherits the sky link tone by default so nothing falls back to
+   the unreadable browser blue (#0000EE) / visited purple. Component rules below
+   (and .nav-item, which intentionally uses --color-text; .file-view .ln a, which
+   stays muted) win by specificity. This is the single site-wide link treatment —
+   previously only .md-content/.ctx-link were styled, leaving breadcrumb folders,
+   code chips, search and external links on the browser default. */
+
+a {
+    color: var(--color-link);
+}
+
+a:hover {
+    color: var(--color-link-hover);
+}
+
+a:visited {
+    color: var(--color-link-visited);
+}
+
+/* Rendered markdown body links: underlined for in-prose affordance. */
+.md-content a {
+    text-decoration: underline;
+    text-decoration-color: rgba(122, 184, 232, 0.4);
+}
+
+.md-content a:hover {
+    text-decoration-color: rgba(168, 212, 245, 0.7);
+}
+
+/* Rail / code-intel links: chip/list UIs — no underline, underline on hover. */
+.ctx-link,
+.rail-link-list a {
+    text-decoration: none;
+}
+
+.ctx-link:hover,
+.rail-link-list a:hover {
+    text-decoration: underline;
+}
+
+/* ctx-external: slightly warmer tone for outbound URLs. */
+a.ctx-external {
+    color: #8fbde0;
+}
+
+a.ctx-external:hover {
+    color: #b4d5f0;
+}
+
+/* ── search: command-palette dialog + dedicated page (FE5) ──────────────────
+   Search is a dialog (#search-modal) opened from the top-bar trigger or ⌘K.
+   The results list scrolls inside the dialog box; the dedicated /search page
+   reuses the same result-item styles. */
+
+/* Top-bar trigger button — looks like a search field, opens the dialog. */
+.search-trigger {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    max-width: 320px;
+    margin-left: auto;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-muted);
+    font-size: 13px;
+    font-family: var(--font-sans);
+    padding: 5px 10px;
+    cursor: pointer;
+    transition: border-color 0.1s, color 0.1s;
+}
+
+.search-trigger:hover {
+    border-color: var(--color-accent-dim);
+    color: var(--color-text);
+}
+
+.search-trigger-icon { font-size: 13px; }
+.search-trigger-label { flex: 1; text-align: left; }
+
+.search-trigger-kbd {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-muted);
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 1px 5px;
+}
+
+/* Dialog overlay + box (mirrors #code-modal, positioned toward the top). */
+#search-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    background: rgba(0, 0, 0, 0.55);
+    align-items: flex-start;
+    justify-content: center;
+}
+
+#search-modal.open { display: flex; }
+
+.search-modal-box {
+    margin-top: 10vh;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    width: min(92vw, 720px);
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+}
+
+.search-modal-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--color-border);
+    flex-shrink: 0;
+}
+
+.search-modal-icon { color: var(--color-muted); font-size: 15px; }
+
+.search-modal-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--color-text);
+    font-size: 15px;
+    font-family: var(--font-sans);
+}
+
+.search-modal-input::placeholder { color: var(--color-muted); }
+
+.search-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 14px;
+    border-top: 1px solid var(--color-border);
+    flex-shrink: 0;
+}
+
+.search-viewall {
+    background: none;
+    border: none;
+    color: var(--color-link);
+    font-size: 12px;
+    font-family: var(--font-sans);
+    cursor: pointer;
+    padding: 0;
+}
+
+.search-viewall:hover { color: var(--color-link-hover); }
+
+.search-modal-hint { color: var(--color-muted); font-size: 11px; }
+
+.search-modal-hint kbd,
+.search-page-hint kbd {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    padding: 0 4px;
+}
+
+.search-results {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 6px;
+}
+
+.search-results ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* Result rows (md-search-* and code-search markup both use anchors). */
+.search-results a,
+.md-search-link {
+    display: block;
+    padding: 6px 8px;
+    border-radius: 4px;
+    text-decoration: none;
+    color: var(--color-text);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.search-results a:hover,
+.md-search-link:hover {
+    background: var(--color-border);
+    text-decoration: none;
+}
+
+.md-search-loc {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-link);
+}
+
+.md-search-snippet {
+    color: var(--color-muted);
+}
+
+.md-search-empty,
+.md-search-truncated {
+    padding: 8px;
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+/* code-search result rows (used in the dialog and on the /search page). */
+.code-search-result-list { list-style: none; margin: 0; padding: 0; }
+
+.code-search-name { color: var(--color-text); font-weight: 600; }
+.code-search-kind { color: var(--color-link); font-size: 11px; }
+.code-search-loc { color: var(--color-muted); font-family: var(--font-mono); font-size: 11px; }
+
+.code-search-group-header {
+    margin: 8px 8px 4px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-muted);
+}
+
+.code-search-empty,
+.code-search-not-indexed,
+.code-search-hint {
+    padding: 8px;
+    color: var(--color-muted);
+    font-size: 12px;
+}
+
+/* The /code/search fragment also ships its own search form; hide it inside the
+   dialog/page where our own input drives the query. */
+.search-results .code-search-box,
+.search-page .code-search-box { display: none; }
+
+/* ── dedicated search page (/search) ────────────────────────────────────────── */
+
+.search-page-title { margin: 0 0 4px; }
+
+.search-page-query { color: var(--color-muted); margin: 0 0 16px; }
+
+.search-page-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 16px;
+}
+
+.search-tab {
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--color-muted);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+}
+
+.search-tab:hover { color: var(--color-text); }
+
+.search-tab.active {
+    color: var(--color-accent);
+    border-bottom-color: var(--color-accent);
+}
+
+.search-page-section { margin-bottom: 24px; }
+
+.search-page-section-title {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-muted);
+    margin: 0 0 8px;
+}
+
+.search-page-form { display: flex; gap: 8px; margin: 12px 0; }
+
+.search-page-input {
+    flex: 1;
+    max-width: 480px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-text);
+    font-size: 14px;
+    padding: 6px 10px;
+    outline: none;
+}
+
+/* ── loading indicator (spinner) ────────────────────────────────────────────
+   Applied to every `.loading` placeholder (main pane, code modal, search) plus
+   the dialog/stream `.search-loading`. Gives the user feedback while a request
+   or an SSE stream is in flight. */
+
+.loading,
+.search-loading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--color-muted);
+    font-size: 12px;
+    padding: 8px;
+}
+
+.loading::before,
+.search-loading::before {
+    content: "";
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-link);
+    border-radius: 50%;
+    animation: atomic-spin 0.7s linear infinite;
+}
+
+@keyframes atomic-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ── directory listing (folder with no index file) ─────────────────────────── */
+
+.dir-listing-title {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    color: var(--color-text);
+    margin: 0 0 12px;
+}
+
+ul.dir-listing {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+ul.dir-listing .dir-entry {
+    margin: 0;
+}
+
+.dir-entry.dir-subfolder {
+    color: var(--color-link);
+    font-weight: 600;
+}
+
+.dir-empty {
+    color: var(--color-muted);
+    font-style: italic;
+}
+
+/* ── scrollbar ─────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+}
+
+/* ── FE5 search dropdown ──────────────────────────────────────────────────
+   #search-results is anchored below the search input via .search-input-wrap
+   (position: relative). Hidden attribute controls visibility; JS toggles it. */
+
+#search-results {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    max-height: 320px;
+    overflow-y: auto;
+    z-index: 300;
+    padding: 4px 0;
+}
+
+.md-search-result-list,
+.code-search-result-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.md-search-result,
+.code-search-result {
+    border-bottom: 1px solid var(--color-border);
+}
+
+.md-search-result:last-child,
+.code-search-result:last-child {
+    border-bottom: none;
+}
+
+.md-search-link,
+.code-search-link {
+    display: block;
+    padding: 7px 12px;
+    color: var(--color-text);
+    text-decoration: none;
+    font-size: 12px;
+    line-height: 1.4;
+    cursor: pointer;
+}
+
+.md-search-link:hover,
+.code-search-link:hover {
+    background: var(--color-border);
+}
+
+.md-search-loc,
+.code-search-loc {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-accent-dim);
+}
+
+.md-search-snippet {
+    color: var(--color-muted);
+    font-size: 11px;
+}
+
+.code-search-name {
+    font-family: var(--font-mono);
+    color: var(--color-text);
+}
+
+.code-search-kind {
+    color: var(--color-muted);
+    font-size: 11px;
+}
+
+.md-search-empty,
+.code-search-empty,
+.code-search-hint,
+.md-search-truncated {
+    padding: 8px 12px;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-style: italic;
+    margin: 0;
+}
+
+.code-search-group-header {
+    padding: 6px 12px 2px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--color-accent-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin: 0;
+}
+
+.code-search-not-indexed {
+    padding: 6px 12px;
+    color: var(--color-muted);
+    font-size: 11px;
+    font-style: italic;
+    margin: 0;
+}

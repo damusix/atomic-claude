@@ -69,6 +69,15 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 | `/report-issue-with-atomic` | Open a GitHub issue against the atomic-claude repo itself. |
 
 
+## Binary subcommands (`atomic serve`)
+
+`atomic serve` starts a local read-only HTTP server for exploring a wiki realm and code-intel index in the browser. No write operations; localhost only. Run `atomic serve --help` for full usage. See [serve reference](/reference/serve) for the full view and route list.
+
+| Subcommand | What it does |
+|---------|-------------|
+| `atomic serve [path] [--port N] [--open]` | Start the server. `path` defaults to `cwd`; scope (realm / member / repo) is resolved automatically. `--port 0` picks a free port. `--open` opens the browser. Shuts down cleanly on SIGINT. |
+
+
 ## Binary subcommands (`atomic wiki`)
 
 The `atomic wiki` subcommand manages the cross-repo wiki and capture buckets. Most of these are called by `/refresh-wiki`, but the `bucket` verbs are also useful on their own. Run `atomic wiki --help` for full usage.

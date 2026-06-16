@@ -186,6 +186,15 @@ func BucketDiff(wikiDir, name, dir string) (BucketDiffResult, error) {
 	return computeDiff(baseline, current), nil
 }
 
+// BucketDiffReadOnly computes the diff between the live directory state and the
+// stored baseline WITHOUT writing any manifest file.  Exported for consumers
+// such as atomic serve that need read-only bucket status (e.g. nav tree badges).
+// Identical semantics to BucketDiff except wiki/.buckets/<name>/current is
+// never created or modified.
+func BucketDiffReadOnly(wikiDir, name, dir string) (BucketDiffResult, error) {
+	return bucketDiffReadOnly(wikiDir, name, dir)
+}
+
 // bucketDiffReadOnly computes the diff between the live directory state and the
 // stored baseline WITHOUT writing the current manifest file.  It is the
 // read-only counterpart of BucketDiff: identical semantics except the

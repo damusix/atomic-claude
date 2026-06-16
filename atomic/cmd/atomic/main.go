@@ -26,6 +26,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
+	"github.com/damusix/atomic-claude/atomic/internal/serve"
 	"github.com/damusix/atomic-claude/atomic/internal/signals"
 	"github.com/damusix/atomic-claude/atomic/internal/updatedoctor"
 	"github.com/damusix/atomic-claude/atomic/internal/validate"
@@ -127,6 +128,8 @@ func main() {
 		runWiki(args[1:])
 	case "prompt":
 		runPrompt(args[1:])
+	case "serve":
+		os.Exit(serve.Run(args[1:], os.Stdout, os.Stderr))
 	default:
 		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
 		os.Exit(1)

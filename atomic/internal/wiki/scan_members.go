@@ -37,6 +37,7 @@ func ReadScanMembers(indexPath string) ([]Member, error) {
 		path := attrValue(line, "path")
 		status := attrValue(line, "status")
 		summary := attrValue(line, "summary")
+		signals := attrValue(line, "signals")
 		if path == "" || status == "" {
 			continue
 		}
@@ -46,6 +47,9 @@ func ReadScanMembers(indexPath string) ([]Member, error) {
 		}
 		if summary != "" {
 			m.SummaryPath = summary
+		}
+		if signals != "" {
+			m.SignalsPath = signals
 		}
 		members = append(members, m)
 	}

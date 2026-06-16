@@ -1,0 +1,496 @@
+// graph.go — link graph model for CP4.
+//
+// BuildLinkGraph walks all *.md files under the realm root, calls
+// mdlink.ExtractLinks on each, resolves wikilinks using the
+// nearest-then-alphabetical rule, and returns a Graph that answers backlinks,
+// outbound links, and orphan queries.
+//
+// Wikilink resolution rule (documented here as the canonical source):
+//  1. Collect all .md files under the realm whose basename (without .md) or
+//     full basename matches the wikilink page name.
+//  2. If zero matches → broken link.
+//  3. If one match → resolved.
+//  4. If multiple matches → pick the one with the shortest relative path from
+//     the linking file's directory (i.e. fewest path components, which is
+//     "nearest by depth"); ties broken alphabetically by the resolved relative
+//     path. The Ambiguous field is set to true on the returned edge so the UI
+//     can surface the ambiguity.
+//
+// All paths stored in the graph are relative to the realm root (forward slashes
+// on all platforms).
+package serve
+
+import (
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
+)
+
+// Edge is a directed link from one page to another (or to an unresolved target).
+type Edge struct {
+	// SourcePage is the realm-root-relative path of the page containing the link.
+	SourcePage string
+
+	// Target is the raw link target as written in the source (URL, path, wikilink name).
+	Target string
+
+	// Kind is MarkdownLink or Wikilink.
+	Kind mdlink.LinkKind
+
+	// ResolvedPath is the realm-root-relative path the link resolves to.
+	// Empty when Broken is true.
+	ResolvedPath string
+
+	// Broken is true when the link target cannot be resolved to a file in the realm.
+	Broken bool
+
+	// Ambiguous is true when a wikilink matched more than one file; ResolvedPath
+	// carries the nearest-then-alphabetical winner but the ambiguity is surfaced.
+	Ambiguous bool
+
+	// CodeFile is true when the link target is an existing non-.md source file
+	// (e.g. a .go, .ts, .py file). The UI renders these as clickable /file/ links
+	// that open the code modal, not as broken links.
+	CodeFile bool
+
+	// External is true when the link target is a real external URL (http://,
+	// https://, or mailto:). Anchor-only links (#section) are NOT external —
+	// they jump within the current page and must not open a new tab.
+	External bool
+}
+
+// Graph is the in-memory link graph for a realm.
+type Graph struct {
+	// nodes is the set of all .md files found in the realm (realm-root-relative).
+	nodes []string
+
+	// nodeSet is an O(1) membership index over nodes.
+	nodeSet map[string]bool
+
+	// edges are all extracted+resolved links, keyed by source page.
+	outbound map[string][]Edge
+
+	// inbound is the inverse index: target → list of source pages.
+	inbound map[string][]string
+}
+
+// Nodes returns all page paths (realm-root-relative) in the graph.
+func (g *Graph) Nodes() []string {
+	return g.nodes
+}
+
+// Has reports whether relPath is a known node in the graph (O(1)).
+func (g *Graph) Has(relPath string) bool {
+	return g.nodeSet[relPath]
+}
+
+// Outbound returns all outgoing edges from the given page (realm-root-relative).
+func (g *Graph) Outbound(relPath string) []Edge {
+	return g.outbound[relPath]
+}
+
+// Backlinks returns the realm-root-relative paths of pages that link to relPath.
+func (g *Graph) Backlinks(relPath string) []string {
+	return g.inbound[relPath]
+}
+
+// IsOrphan reports whether relPath has no inbound links from other pages.
+func (g *Graph) IsOrphan(relPath string) bool {
+	return len(g.inbound[relPath]) == 0
+}
+
+// BuildLinkGraph walks all *.md files under root, extracts links, resolves
+// wikilinks, and returns the populated Graph.
+func BuildLinkGraph(root string) *Graph {
+	g := &Graph{
+		nodeSet:  make(map[string]bool),
+		outbound: make(map[string][]Edge),
+		inbound:  make(map[string][]string),
+	}
+
+	// ── Step 1: discover all .md files and non-.md source files ─────────────
+	// sourceFiles is a realm-root-relative path set for existing non-.md files.
+	// Used by resolveMarkdownLink to mark code-file links (CodeFile=true) instead
+	// of treating them as broken.
+	var mdFiles []string
+	sourceFiles := make(map[string]bool)
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path != root && shouldSkipDir(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if hiddenFile(d.Name()) {
+			// Hidden files (backups, caches) are not navigable content.
+			return nil
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if strings.HasSuffix(d.Name(), ".md") {
+			mdFiles = append(mdFiles, rel)
+		} else {
+			sourceFiles[rel] = true
+		}
+		return nil
+	})
+	sort.Strings(mdFiles)
+	g.nodes = mdFiles
+	for _, rel := range mdFiles {
+		g.nodeSet[rel] = true
+	}
+
+	// ── Step 2: build basename index for wikilink resolution ─────────────────
+	// basenameIndex maps "page" (lowercase, without .md) → sorted list of realm-root-relative paths.
+	basenameIndex := make(map[string][]string, len(mdFiles))
+	for _, rel := range mdFiles {
+		base := filepath.ToSlash(strings.TrimSuffix(filepath.Base(rel), ".md"))
+		key := strings.ToLower(base)
+		basenameIndex[key] = append(basenameIndex[key], rel)
+	}
+	// Sort each bucket for deterministic ambiguity resolution.
+	for k := range basenameIndex {
+		sort.Strings(basenameIndex[k])
+	}
+
+	// ── Step 3: extract and resolve links per file ───────────────────────────
+	for _, relPage := range mdFiles {
+		absPath := filepath.Join(root, filepath.FromSlash(relPage))
+		data, err := os.ReadFile(absPath) //nolint:gosec // relPage is realm-relative and validated during walk
+		if err != nil {
+			continue
+		}
+
+		links := mdlink.ExtractLinks(string(data))
+		pageDir := filepath.Dir(filepath.FromSlash(relPage)) // dir of the source page (relative to root)
+
+		for _, l := range links {
+			edge := resolveLink(l, relPage, pageDir, root, basenameIndex, mdFiles, sourceFiles)
+			g.outbound[relPage] = append(g.outbound[relPage], edge)
+			if !edge.Broken && edge.ResolvedPath != "" {
+				g.inbound[edge.ResolvedPath] = append(g.inbound[edge.ResolvedPath], relPage)
+			}
+		}
+	}
+
+	// Deduplicate inbound entries (a page might link to the same target twice).
+	for k, v := range g.inbound {
+		g.inbound[k] = dedupeStrings(v)
+	}
+
+	return g
+}
+
+// resolveLink resolves a single extracted link and returns an Edge.
+// pageDir is the directory of the source page relative to root (e.g. "sub" or ".").
+func resolveLink(
+	l mdlink.Link,
+	relPage string,
+	pageDir string,
+	root string,
+	basenameIndex map[string][]string,
+	allPages []string,
+	sourceFiles map[string]bool,
+) Edge {
+	edge := Edge{
+		SourcePage: relPage,
+		Target:     l.Target,
+		Kind:       l.Kind,
+	}
+
+	switch l.Kind {
+	case mdlink.Wikilink:
+		edge = resolveWikilink(edge, l.Target, pageDir, root, basenameIndex)
+	case mdlink.MarkdownLink:
+		edge = resolveMarkdownLink(edge, l.Target, pageDir, root, allPages, sourceFiles)
+	}
+
+	return edge
+}
+
+// resolveWikilink applies the nearest-then-alphabetical resolution rule.
+func resolveWikilink(
+	edge Edge,
+	pageName string,
+	pageDir string,
+	root string,
+	basenameIndex map[string][]string,
+) Edge {
+	key := strings.ToLower(strings.TrimSpace(pageName))
+	candidates, ok := basenameIndex[key]
+	if !ok || len(candidates) == 0 {
+		edge.Broken = true
+		return edge
+	}
+
+	if len(candidates) == 1 {
+		edge.ResolvedPath = candidates[0]
+		return edge
+	}
+
+	// Multiple matches: pick nearest by path depth, then alphabetically.
+	// "Nearest" = fewest directory separators in the path from pageDir to the candidate.
+	// We measure depth as the number of '/' in the candidate's path relative to root.
+	// The candidate in the same directory or closest ancestor wins.
+	best := nearestCandidate(candidates, pageDir)
+	edge.ResolvedPath = best
+	edge.Ambiguous = true
+	return edge
+}
+
+// scoredCandidate holds a path and its computed depth score.
+type scoredCandidate struct {
+	path  string
+	depth int
+}
+
+// nearestCandidate picks the candidate with the fewest path depth relative to
+// pageDir, breaking ties alphabetically. This implements the
+// "nearest-then-alphabetical" wikilink resolution rule.
+func nearestCandidate(candidates []string, pageDir string) string {
+	items := make([]scoredCandidate, len(candidates))
+	for i, c := range candidates {
+		items[i] = scoredCandidate{path: c, depth: strings.Count(c, "/")}
+	}
+
+	// Prefer candidates closest to pageDir's depth level.
+	pageDirDepth := 0
+	if pageDir != "." && pageDir != "" {
+		pageDirDepth = strings.Count(filepath.ToSlash(pageDir), "/") + 1
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		di := abs(items[i].depth - pageDirDepth)
+		dj := abs(items[j].depth - pageDirDepth)
+		if di != dj {
+			return di < dj
+		}
+		return items[i].path < items[j].path
+	})
+
+	return items[0].path
+}
+
+// resolveMarkdownLink attempts to resolve a markdown link target to a file
+// within the realm. External URLs (http/https) and anchors (#…) are kept as-is
+// without a ResolvedPath. Relative paths are resolved from pageDir.
+//
+// When the target resolves to an existing non-.md source file (e.g. a .go, .ts,
+// .py file), the edge is marked CodeFile=true and ResolvedPath is set to the
+// realm-relative path. These are rendered in the UI as /file/ links that open
+// the code modal, not as broken links.
+func resolveMarkdownLink(
+	edge Edge,
+	target string,
+	pageDir string,
+	root string,
+	allPages []string,
+	sourceFiles map[string]bool,
+) Edge {
+	// External URLs are always valid (not broken, no realm path).
+	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") ||
+		strings.HasPrefix(target, "mailto:") {
+		// Mark as external so the UI renders target="_blank".
+		edge.External = true
+		return edge
+	}
+
+	// Strip anchor suffix for file resolution.
+	cleanTarget := target
+	if idx := strings.IndexByte(target, '#'); idx != -1 {
+		cleanTarget = target[:idx]
+	}
+	if cleanTarget == "" {
+		// Anchor-only link — not broken, no file path.
+		return edge
+	}
+
+	// Resolve the path relative to pageDir (which is relative to root).
+	if filepath.IsAbs(cleanTarget) {
+		// Absolute paths in markdown links are rare; treat as broken.
+		edge.Broken = true
+		return edge
+	}
+
+	// pageDir is relative to root. Combine with the target to get a root-relative path.
+	var combined string
+	if pageDir == "." || pageDir == "" {
+		combined = cleanTarget
+	} else {
+		combined = filepath.Join(pageDir, cleanTarget)
+	}
+	combined = filepath.ToSlash(filepath.Clean(combined))
+
+	// Check it's within the realm.
+	if strings.HasPrefix(combined, "..") {
+		edge.Broken = true
+		return edge
+	}
+
+	// Check if the resolved path is a known .md page.
+	for _, p := range allPages {
+		if p == combined {
+			edge.ResolvedPath = combined
+			return edge
+		}
+	}
+
+	// Check if the resolved path is a known non-.md source file.
+	if sourceFiles[combined] {
+		edge.ResolvedPath = combined
+		edge.CodeFile = true
+		return edge
+	}
+
+	// Filesystem fallback: the walk may have skipped the target's directory while
+	// the page/file handler can still serve it via safeResolve. Match the servable
+	// surface so such links are not falsely marked broken.
+	if abs, ok := safeResolve(root, combined); ok {
+		if info, statErr := os.Stat(abs); statErr == nil {
+			if info.IsDir() {
+				// Directory link (e.g. ../the-isles-group/): resolve to an index
+				// file inside it when one exists, otherwise leave broken (a bare
+				// directory has no servable page).
+				if idx, found := resolveDirIndex(root, combined); found {
+					edge.ResolvedPath = idx
+					if !strings.HasSuffix(idx, ".md") {
+						edge.CodeFile = true
+					}
+					return edge
+				}
+			} else if strings.HasSuffix(combined, ".md") {
+				edge.ResolvedPath = combined
+				return edge
+			} else {
+				edge.ResolvedPath = combined
+				edge.CodeFile = true
+				return edge
+			}
+		}
+	}
+
+	// Not found in any known file set.
+	edge.Broken = true
+	return edge
+}
+
+// resolvePageHref rewrites a raw in-page markdown link destination, found on a
+// page at pageRelPath (realm-root-relative), into a server route resolved
+// against the realm root. It is the render-time counterpart to
+// resolveMarkdownLink (which builds the link graph): both resolve a target the
+// same way; this one returns the URL the browser should use.
+//
+// Returns (href, htmxPage, external):
+//   - external (http/https/mailto)            → (raw, false, true)   new-tab link
+//   - empty or anchor-only (#sec)             → (raw, false, false)  left verbatim
+//   - absolute path or realm-escaping (..)    → (raw, false, false)  left verbatim
+//   - directory within realm                  → ("/page/<dir>/", true, false)
+//   - *.md within realm (or unresolved .md)   → ("/page/<rel>", true, false)
+//   - source file within realm                → ("/file/<rel>", false, false)
+//   - unresolved, non-source extension        → ("/page/<rel>", true, false)
+//
+// Routing unresolved-but-in-realm targets through /page/ keeps a dead link
+// inside the shell: the page handler serves a graceful htmx 404 fragment rather
+// than the browser doing a full-page navigation to a broken URL.
+func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, external bool) {
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") ||
+		strings.HasPrefix(raw, "mailto:") {
+		return raw, false, true
+	}
+	if raw == "" || strings.HasPrefix(raw, "#") {
+		return raw, false, false
+	}
+
+	// Split off an anchor so it survives onto the rewritten URL.
+	target, anchor := raw, ""
+	if i := strings.IndexByte(raw, '#'); i != -1 {
+		target, anchor = raw[:i], raw[i:]
+	}
+	if target == "" {
+		return raw, false, false
+	}
+	if filepath.IsAbs(target) {
+		return raw, false, false
+	}
+
+	pageDir := filepath.ToSlash(filepath.Dir(pageRelPath))
+	combined := target
+	if pageDir != "." && pageDir != "" {
+		combined = filepath.Join(pageDir, target)
+	}
+	combined = filepath.ToSlash(filepath.Clean(combined))
+	if combined == ".." || strings.HasPrefix(combined, "../") {
+		return raw, false, false
+	}
+
+	// Classify against the filesystem (the servable surface).
+	if abs, ok := safeResolve(root, combined); ok {
+		if info, statErr := os.Stat(abs); statErr == nil {
+			if info.IsDir() {
+				return "/page/" + combined + "/" + anchor, true, false
+			}
+			if strings.HasSuffix(combined, ".md") {
+				return "/page/" + combined + anchor, true, false
+			}
+			return "/file/" + combined + anchor, false, false
+		}
+	}
+
+	// Unresolved but within the realm: route by extension so the user stays in
+	// the shell (a known source extension opens the code modal; everything else
+	// goes through /page/ and gets the in-shell 404 fragment).
+	if ext := filepath.Ext(combined); ext != "" && ext != ".md" {
+		return "/file/" + combined + anchor, false, false
+	}
+	return "/page/" + combined + anchor, true, false
+}
+
+// resolveDirIndex probes a directory (realm-root-relative) for a servable index
+// file and returns its realm-root-relative path. Probe order favors a human
+// entry point, then a project signals page. Returns ("", false) when none exist.
+func resolveDirIndex(root, dirRel string) (string, bool) {
+	for _, candidate := range []string{
+		"README.md",
+		"readme.md",
+		"index.md",
+		".claude/project/signals.md",
+	} {
+		rel := filepath.ToSlash(filepath.Join(dirRel, candidate))
+		abs, ok := safeResolve(root, rel)
+		if !ok {
+			continue
+		}
+		if info, err := os.Stat(abs); err == nil && !info.IsDir() {
+			return rel, true
+		}
+	}
+	return "", false
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+func dedupeStrings(ss []string) []string {
+	seen := make(map[string]bool, len(ss))
+	out := ss[:0]
+	for _, s := range ss {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}

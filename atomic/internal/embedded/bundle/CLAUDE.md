@@ -147,4 +147,6 @@ When a repo has been indexed (`atomic code index`), the symbol graph stored at `
 
 `atomic` CLI verbs are not skills, so the harness does not list them in the slash menu. Run `atomic --help` for the full subcommand list (each with a one-liner) and `atomic <verb> --help` for flags and behavior. `/atomic-help` (topic `cli`) is the in-session discovery surface.
 
+**`atomic serve`** — read-only localhost HTTP server (`--port`, default 4500; `--open` to open browser) that renders a wiki realm (or a single repo) as a navigable graph in the browser. Composes wiki + code-intel: markdown render (goldmark + chroma + mermaid), left-nav tree, backlinks, external-link registry, realm-health front page, federated code search across realm members, per-repo Code Explorer + SQL schema view, Cytoscape+ELK graph overlay, and provenance DAG. No write operations; observe only.
+
 </atomic>

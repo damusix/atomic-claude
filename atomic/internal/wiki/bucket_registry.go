@@ -135,10 +135,22 @@ func readBucketEntries(indexPath string) ([]bucketEntry, error) {
 	return parseBucketEntries(string(data)), nil
 }
 
-// bucketEntry holds a parsed <bucket> tag from the block.
-type bucketEntry struct {
+// BucketEntry holds a parsed <bucket> tag from the <wiki-buckets> block.
+// Exported for consumers such as atomic serve (CP3 nav tree).
+type BucketEntry struct {
 	Name string
 	Path string
+}
+
+// bucketEntry is the unexported alias kept for internal use.
+type bucketEntry = BucketEntry
+
+// ReadBucketEntries parses the <wiki-buckets> block in indexPath and returns
+// the registered bucket names and paths.  Returns nil when the block is absent
+// or the file does not exist — never returns an error for those cases.
+// A genuine read failure returns a non-nil error.
+func ReadBucketEntries(indexPath string) ([]BucketEntry, error) {
+	return readBucketEntries(indexPath)
 }
 
 // parseBucketEntries extracts bucket entries from wiki/index.md content.
