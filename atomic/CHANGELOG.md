@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.1.0](https://github.com/damusix/atomic-claude/compare/v5.0.0...v5.1.0) (2026-06-16)
+
+
+### Features
+
+* **serve:** add read-only HTTP knowledge-graph browser ([a7c2ff4](https://github.com/damusix/atomic-claude/commit/a7c2ff4f14f6a5eb778ae1660ffdbceb22679de2))
+
 ## [5.0.0](https://github.com/damusix/atomic-claude/compare/v4.5.0...v5.0.0) (2026-06-13)
 
 
