@@ -58,6 +58,8 @@ Skip Ground when the surface area is already in your context from the current se
 
 ### Diverge (non-trivial only)
 
+First rung of every divergence: does this need new code at all? Check the standard library, native platform features, and already-installed dependencies before custom approaches — "reuse X" is a legitimate approach row, often the cheapest one. Don't propose a new utility that duplicates one the codebase already ships.
+
 Brainstorm 3-5 approaches. Capture in a table:
 
 ```markdown

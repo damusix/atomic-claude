@@ -10,7 +10,7 @@ These write and review code.
 | Agent | What it does | Model |
 |-------|-------------|-------|
 | `atomic-implementer` | Dual-mode implementation agent. The orchestrator declares the mode at dispatch time. **feature mode**: implements a feature checkpoint — one cohesive slice across however many files it touches (controller + service + DTO + tests, etc.); writes a failing test first; refuses cross-cutting or ambiguous scope. **surgical mode**: makes surgical 1-2 file edits (typo fixes, single-function rewrites, mechanical renames); hard refuses anything larger. | Sonnet |
-| `atomic-reviewer` | Reviews a diff after each implementer pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. | Sonnet |
+| `atomic-reviewer` | Reviews a diff after each implementer pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. Flags over-engineering — reinvented stdlib, duplicate helpers, or one-implementation abstractions. | Sonnet |
 
 
 ## Research agents

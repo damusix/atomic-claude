@@ -40,6 +40,14 @@ Single-file reviews may use `L<line>: ...` instead of `path:L<line>: ...`.
 
 End the review with a totals line: `totals: 1🔴 1🟡 1❓`. Zero findings → `No issues.` File order, ascending line numbers within file.
 
+## Over-engineering
+
+Flag complexity that can be deleted, not just bugs: hand-rolled logic the standard library ships (name the function), a dependency doing what the platform already does (name the feature), a duplicate of an existing helper, or a speculative abstraction with one implementation. Use 🟡 risk when it carries real cost, 🔵 nit for a pure shrink. Always name the concrete replacement, never "consider simplifying".
+
+- `src/util.ts:12-38: 🟡 risk: hand-rolled email validator. Real validation is the confirmation mail; 26 lines go.`
+- `src/date.ts:4: 🔵 nit: moment.js for one format call. Intl.DateTimeFormat, 0 deps.`
+- `src/repo.ts:88: 🟡 risk: AbstractRepository with one impl. Inline until a second exists.`
+
 ## Drop
 
 - "I noticed that...", "It seems like...", "You might want to consider..."

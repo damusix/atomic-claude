@@ -47,6 +47,14 @@ This is a **judgment call, not a regex lint**. Defensive code that genuinely gua
 
 Place suppression-pattern findings in the **Code quality** subsection.
 
+## Over-engineering findings
+
+Flag code that reinvents what already exists or carries unused flexibility: hand-rolled logic the standard library or a native platform feature already ships (name the replacement), a new dependency where an installed one — or a few lines — suffices, a duplicate of a utility the codebase already has, or a speculative abstraction with one implementation (interface, factory, or config with a single caller). Name the concrete replacement, not "consider simplifying".
+
+**Severity:** 🟡 risk when the duplication or dependency carries real cost; 🔵 nit for a pure shrink-it. Not a finding: a deliberate simplification the spec called for, or the single smoke-test / self-check the implementer left behind — that is the atomic minimum, never bloat.
+
+Place over-engineering findings in the **Code quality** subsection.
+
 ## Workflow — code-mode
 
 <workflow mode="code">
@@ -61,7 +69,7 @@ Place suppression-pattern findings in the **Code quality** subsection.
     - `lint: ✓` — spot-check.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.`
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
-6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule above: look for catching constructs that dodge rather than handle errors.
+6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule and the over-engineering rule above: catching constructs that dodge rather than handle errors, and code that reinvents or duplicates what already exists.
 7. Issue findings under the two subsections. End with signals block, totals, and verdict.
 
 </workflow>
