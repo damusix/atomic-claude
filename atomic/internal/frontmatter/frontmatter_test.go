@@ -222,6 +222,163 @@ func TestEmitOrdered_EmptyKVs(t *testing.T) {
 	}
 }
 
+// ── ParseOrdered tests ────────────────────────────────────────────────────────
+
+// TestParseOrdered_KeyOrder verifies that ParseOrdered preserves YAML source
+// order, not alphabetical order. A Go map would produce {generated, repo, title}
+// (alphabetical); ParseOrdered must return {title, repo, generated} (source order).
+func TestParseOrdered_KeyOrder(t *testing.T) {
+	input := "---\ntitle: \"@hapi/nes\"\nrepo: nes\ngenerated: 2026-06-13\n---\n\n# Overview\n"
+	kvs, body, err := frontmatter.ParseOrdered(input)
+	if err != nil {
+		t.Fatalf("ParseOrdered: %v", err)
+	}
+	if body != "\n# Overview\n" {
+		t.Errorf("body = %q, want %q", body, "\n# Overview\n")
+	}
+	if len(kvs) != 3 {
+		t.Fatalf("len(kvs) = %d, want 3; kvs = %v", len(kvs), kvs)
+	}
+	// Source order must be preserved: title, repo, generated — not alphabetical.
+	if kvs[0].Key != "title" {
+		t.Errorf("kvs[0].Key = %q, want %q", kvs[0].Key, "title")
+	}
+	if kvs[1].Key != "repo" {
+		t.Errorf("kvs[1].Key = %q, want %q", kvs[1].Key, "repo")
+	}
+	if kvs[2].Key != "generated" {
+		t.Errorf("kvs[2].Key = %q, want %q", kvs[2].Key, "generated")
+	}
+}
+
+// TestParseOrdered_DateAsString verifies that a date value stays a raw string,
+// not coerced to time.Time (the same guarantee Parse gives).
+func TestParseOrdered_DateAsString(t *testing.T) {
+	input := "---\ngenerated: 2026-06-13\n---\nbody\n"
+	kvs, _, err := frontmatter.ParseOrdered(input)
+	if err != nil {
+		t.Fatalf("ParseOrdered: %v", err)
+	}
+	if len(kvs) != 1 {
+		t.Fatalf("len(kvs) = %d, want 1", len(kvs))
+	}
+	if kvs[0].Value != "2026-06-13" {
+		t.Errorf("date value = %v (%T), want string %q", kvs[0].Value, kvs[0].Value, "2026-06-13")
+	}
+}
+
+// TestParseOrdered_ListValue verifies that a sequence value parses as []any.
+func TestParseOrdered_ListValue(t *testing.T) {
+	input := "---\nsources:\n  - a\n  - b\n---\nbody\n"
+	kvs, _, err := frontmatter.ParseOrdered(input)
+	if err != nil {
+		t.Fatalf("ParseOrdered: %v", err)
+	}
+	if len(kvs) != 1 || kvs[0].Key != "sources" {
+		t.Fatalf("unexpected kvs: %v", kvs)
+	}
+	list, ok := kvs[0].Value.([]any)
+	if !ok {
+		t.Fatalf("expected []any, got %T", kvs[0].Value)
+	}
+	if len(list) != 2 || list[0] != "a" || list[1] != "b" {
+		t.Errorf("list = %v, want [a b]", list)
+	}
+}
+
+// TestParseOrdered_InlineListValue verifies that an inline sequence parses correctly.
+func TestParseOrdered_InlineListValue(t *testing.T) {
+	input := "---\nsources: [a, b]\n---\nbody\n"
+	kvs, _, err := frontmatter.ParseOrdered(input)
+	if err != nil {
+		t.Fatalf("ParseOrdered: %v", err)
+	}
+	list, ok := kvs[0].Value.([]any)
+	if !ok {
+		t.Fatalf("expected []any, got %T", kvs[0].Value)
+	}
+	if len(list) != 2 {
+		t.Errorf("list len = %d, want 2", len(list))
+	}
+}
+
+// TestParseOrdered_NoFrontmatter verifies that a doc without frontmatter
+// returns nil kvs and the full input as body.
+func TestParseOrdered_NoFrontmatter(t *testing.T) {
+	input := "# Just a heading\n\nNo frontmatter here.\n"
+	kvs, body, err := frontmatter.ParseOrdered(input)
+	if err != nil {
+		t.Fatalf("ParseOrdered: %v", err)
+	}
+	if kvs != nil {
+		t.Errorf("expected nil kvs, got %v", kvs)
+	}
+	if body != input {
+		t.Errorf("body = %q, want full input", body)
+	}
+}
+
+// TestParseOrdered_EmptyBlock verifies that an empty frontmatter block (---\n---\n)
+// returns nil kvs and the remainder as body.
+func TestParseOrdered_EmptyBlock(t *testing.T) {
+	input := "---\n---\nBody after empty.\n"
+	kvs, body, err := frontmatter.ParseOrdered(input)
+	if err != nil {
+		t.Fatalf("ParseOrdered: %v", err)
+	}
+	if kvs != nil {
+		t.Errorf("expected nil kvs, got %v", kvs)
+	}
+	if body != "Body after empty.\n" {
+		t.Errorf("body = %q, want %q", body, "Body after empty.\n")
+	}
+}
+
+// TestParseOrdered_UnclosedBlock verifies that a missing closing delimiter
+// returns an error (same behaviour as Parse).
+func TestParseOrdered_UnclosedBlock(t *testing.T) {
+	input := "---\ntitle: foo\n"
+	_, _, err := frontmatter.ParseOrdered(input)
+	if err == nil {
+		t.Fatal("expected error for missing closing delimiter, got nil")
+	}
+}
+
+// ── splitFrontmatter DRY refactor tests ──────────────────────────────────────
+//
+// These tests verify that after the splitFrontmatter extraction, Parse and
+// ParseOrdered agree on the body for every splitting edge case. They are the
+// observable contract for the shared delimiter-splitting logic.
+
+// TestParseAndParseOrdered_BodyAgreement_Empty verifies that an empty document
+// passes through both Parse and ParseOrdered identically.
+func TestParseAndParseOrdered_BodyAgreement_Empty(t *testing.T) {
+	inputs := []struct {
+		name  string
+		input string
+	}{
+		{"no-frontmatter", "# Heading\nbody\n"},
+		{"empty-block", "---\n---\nremainder\n"},
+		{"eof-no-newline", "---\n---"},
+		{"standard", "---\nkey: val\n---\nbody\n"},
+	}
+	for _, tc := range inputs {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			_, body1, err1 := frontmatter.Parse(tc.input)
+			_, body2, err2 := frontmatter.ParseOrdered(tc.input)
+			// Both must agree on error/no-error.
+			if (err1 != nil) != (err2 != nil) {
+				t.Errorf("Parse err=%v vs ParseOrdered err=%v for input %q", err1, err2, tc.input)
+			}
+			// Both must agree on body when there is no error.
+			if err1 == nil && err2 == nil && body1 != body2 {
+				t.Errorf("body mismatch:\n  Parse:        %q\n  ParseOrdered: %q", body1, body2)
+			}
+		})
+	}
+}
+
 // Parse→Emit→Parse round-trip: re-parsed map must equal the original.
 func TestEmit_RoundTripParseEmitParse(t *testing.T) {
 	input := "---\nalpha: one\nbeta: two\nzebra: last\n---\nBody here.\n"

@@ -51,6 +51,9 @@ only what gets built.
       In-body Obsidian `[[page]]` / `[[page|alias]]` wikilinks render as in-shell links
       resolved through the page's link-graph edges (same resolution as the rail); broken
       wikilinks render as a visible non-navigable span.
+      YAML frontmatter (a leading `---` … `---` block) is parsed via `internal/frontmatter`
+      and stripped from the rendered body, so it never renders as a spurious `<hr>` +
+      heading. Its key/values are surfaced in the right rail (FE-SC2), not inline.
 - [ ] **SC5** — The left nav renders a collapsible tree grouped Realm / Repos / Concerns
       / Knowledge / Buckets / External, built from `wiki.ReadScanMembers` + a disk walk of
       `wiki/concerns`, `wiki/knowledge`, and the bucket registry. Stale and bucket-diff
@@ -152,6 +155,10 @@ grep. Canonical UI picture: design doc § "Frontend interaction model".
 - [ ] **FE-SC2** — Right rail tracks focus: for the focused page the rail shows its local
       link graph (depth 1), its OUT links (`mdlink.ExtractLinks` of that page), and its IN
       links (backlinks). Navigating to a new page updates all three slots to the new focus.
+      When the focused page carries a YAML frontmatter block, the rail also shows a
+      Properties slot (`#rail-props-content`) listing its key/values in **source order**
+      (parsed via `frontmatter.ParseOrdered`); a page with no frontmatter shows no
+      Properties slot. List-valued keys (e.g. `sources:`) render as a comma-joined value.
 - [ ] **FE-SC3** — System graph mode: the `[page | system]` toggle swaps the middle pane to
       the whole-realm Cytoscape/ELK graph (reusing the existing graph data); the right rail
       collapses; clicking a node returns to page view focused on it. The standalone `/graph`
@@ -214,6 +221,30 @@ None.
 
 
 ## Change log
+
+### 2026-06-17 — Frontmatter parsed out of the body, surfaced in the right rail
+
+- **Fixed:** YAML frontmatter rendered as garbage in the page body. goldmark has no
+  frontmatter syntax, so a leading `---` became a thematic break (`<hr>`) and the
+  following `key: value` lines collapsed into a bogus setext `<h2>` (which also
+  polluted the heading outline with a junk auto-id). The right rail never showed the
+  metadata at all.
+- **Added:** `renderMarkdown` now strips the frontmatter block before goldmark sees it,
+  reusing `internal/frontmatter.Parse` (body preserved byte-for-byte; malformed/unclosed
+  blocks fall through untouched so a real `<hr>` is never eaten). All body-render entry
+  points (`RenderMarkdown`, `RenderMarkdownWithLinks`, `RenderMarkdownWithGraph`) inherit
+  the strip from this one choke point.
+- **Added:** `frontmatter.ParseOrdered(input) ([]KV, body, error)` — a key-order-preserving
+  sibling of `Parse` (same yaml.Node walk, same date-as-string coercion guard). The rail
+  needs source order; `Parse`'s `map` does not preserve it.
+- **Added:** the right-rail compositor (`rail_handler.go`) reads the focused page's
+  frontmatter and emits a fourth OOB fragment, `#rail-props-content`, listing key/values
+  in source order; list values render comma-joined. A page with no frontmatter emits an
+  empty slot (CSS hides it). `layout.html` gains the `#rail-props` slot at the top of
+  `#right-rail`; `app.css` styles `.rail-props-list`.
+- **Scope note:** using `title:` for the breadcrumb/page title was considered and **not**
+  done here — the breadcrumb final segment carries folder-nav semantics, and the title is
+  already visible as a Properties row. Left as a possible follow-up.
 
 ### 2026-06-16 — In-body wikilinks render as in-shell links
 

@@ -340,10 +340,14 @@
         </main>
     </div>
 
-    <!-- right rail: this-page graph ▸ OUT links ▸ IN links -->
+    <!-- right rail: Properties ▸ this-page graph ▸ OUT links ▸ IN links -->
     <!-- FE2 fills these slots with data; seams (IDs) are the contract -->
     <!-- Hidden in system mode via body.mode-system #right-rail { display: none } -->
     <aside id="right-rail" aria-label="Page context">
+        <section id="rail-props" class="rail-slot">
+            <div class="rail-slot-label">properties</div>
+            <div class="rail-slot-content" id="rail-props-content"></div>
+        </section>
         <section id="rail-graph" class="rail-slot">
             <div class="rail-slot-label">this-page graph</div>
             <div class="rail-slot-content" id="rail-graph-content">

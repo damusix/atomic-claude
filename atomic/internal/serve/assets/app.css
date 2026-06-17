@@ -666,6 +666,54 @@ body.mode-system #right-rail {
     padding: 8px 0;
 }
 
+/* ── rail: Properties slot (FE-SC2 frontmatter key/values) ─────────────────
+   Hidden entirely when #rail-props-content is empty (page has no frontmatter).
+   Uses the CSS :has(:empty) pattern so no JS is required. */
+
+#rail-props:has(.rail-slot-content:empty) {
+    display: none;
+}
+
+.rail-props-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.rail-props-list li {
+    display: flex;
+    gap: 6px;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 11px;
+    line-height: 1.4;
+    flex-wrap: wrap;
+    align-items: baseline;
+}
+
+.rail-props-list li:last-child {
+    border-bottom: none;
+}
+
+.rail-prop-key {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.rail-prop-key::after {
+    content: ":";
+}
+
+.rail-prop-val {
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    word-break: break-word;
+    min-width: 0;
+}
+
 /* ── rail: code-file link style ─────────────────────────────────────────── */
 
 .ctx-codefile {

@@ -1,7 +1,10 @@
 // rail_handler.go — FE2: right-rail compositing handler.
 //
-// GET /rail/<relpath> renders three htmx OOB fragments for the right rail:
+// GET /rail/<relpath> renders four htmx OOB fragments for the right rail:
 //
+//   - #rail-props-content — YAML frontmatter key/values for the focused page,
+//     listed in source order (via frontmatter.ParseOrdered). Empty when the page
+//     has no frontmatter; CSS hides the slot when empty.
 //   - #rail-out-content — outbound links from the focused page (broken/ambiguous/
 //     external annotations reused from context_handler.go rendering).
 //   - #rail-in-content  — backlinks to the focused page; orphan note when the page
@@ -16,12 +19,23 @@ package serve
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"net/http"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
-// railFragmentTmplStr renders the three OOB fragments for the right rail.
+// propKV is a flattened key/value pair for the Properties slot. Value is always
+// a string: scalars pass through as-is; []any elements are comma-joined; nested
+// maps are skipped (they don't belong in a flat property list).
+type propKV struct {
+	Key   string
+	Value string
+}
+
+// railFragmentTmplStr renders the four OOB fragments for the right rail.
 // Each <div> carries hx-swap-oob="innerHTML" so htmx swaps each slot
 // independently when the fragment is received.
 //
@@ -36,7 +50,11 @@ import (
 // attribute; it is wired via a pure JS click listener. Using a separate
 // attribute name ensures the shell's htmx.onLoad selector ([data-rail-graph-url])
 // cannot collide with any click-handler seam on #mode-system.
-const railFragmentTmplStr = `<div id="rail-out-content" hx-swap-oob="innerHTML">
+
+const railFragmentTmplStr = `<div id="rail-props-content" hx-swap-oob="innerHTML">{{- if .Properties}}<ul class="rail-props-list">
+    {{range .Properties}}<li><span class="rail-prop-key">{{.Key}}</span><span class="rail-prop-val">{{.Value}}</span></li>
+    {{end}}</ul>{{- end -}}</div>
+<div id="rail-out-content" hx-swap-oob="innerHTML">
   {{if .Outbound}}
   <ul class="rail-link-list">
     {{range .Outbound}}
@@ -85,6 +103,7 @@ type railTmplData struct {
 	Orphan      bool
 	Backlinks   []string
 	Outbound    []Edge
+	Properties  []propKV // frontmatter key/values in source order; nil = no frontmatter
 }
 
 // NewRailHandler returns an http.Handler for /rail/<relpath>.
@@ -99,7 +118,7 @@ func NewRailHandler(root string, g *Graph) http.Handler {
 		}
 
 		// Path-traversal guard.
-		_, ok := safeResolve(root, relPath)
+		abs, ok := safeResolve(root, relPath)
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -110,6 +129,28 @@ func NewRailHandler(root string, g *Graph) http.Handler {
 		if !g.Has(rel) {
 			http.NotFound(w, r)
 			return
+		}
+
+		// Read the page file and parse frontmatter for the Properties slot.
+		// A read error is non-fatal: the page passed graph-membership so it exists;
+		// we degrade to "no properties" rather than returning 404 here.
+		var props []propKV
+		if fileData, readErr := readFile(abs); readErr == nil {
+			if kvs, _, fmErr := frontmatter.ParseOrdered(string(fileData)); fmErr == nil {
+				for _, kv := range kvs {
+					switch v := kv.Value.(type) {
+					case string:
+						props = append(props, propKV{Key: kv.Key, Value: v})
+					case []any:
+						parts := make([]string, 0, len(v))
+						for _, elem := range v {
+							parts = append(parts, fmt.Sprint(elem))
+						}
+						props = append(props, propKV{Key: kv.Key, Value: strings.Join(parts, ", ")})
+						// map[string]any: skip — nested maps don't belong in a flat list.
+					}
+				}
+			}
 		}
 
 		// Use the cyID to disambiguate concurrent mini-graph containers —
@@ -124,6 +165,7 @@ func NewRailHandler(root string, g *Graph) http.Handler {
 			Orphan:      g.IsOrphan(rel),
 			Backlinks:   g.Backlinks(rel),
 			Outbound:    g.Outbound(rel),
+			Properties:  props,
 		}
 
 		var buf bytes.Buffer

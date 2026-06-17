@@ -360,6 +360,132 @@ func TestShellLoadsGraphScriptsInOrder(t *testing.T) {
 	}
 }
 
+// ── FE-SC2 frontmatter Properties slot tests ─────────────────────────────────
+
+// buildFrontmatterRealm creates a small realm where one page has frontmatter
+// (with scalar and list keys) and another page has none.
+func buildFrontmatterRealm(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	// page-with-fm.md has frontmatter: repo (scalar), sources (list), generated (scalar).
+	writeFile(t, filepath.Join(root, "page-with-fm.md"),
+		"---\nrepo: nes\nsources:\n  - a\n  - b\ngenerated: 2026-06-17\n---\n\n# Page\n\nbody\n")
+	writeFile(t, filepath.Join(root, "page-no-fm.md"), "# Plain\n\nNo frontmatter.\n")
+	return root
+}
+
+// TestRailHandlerPropsFragment_WithFrontmatter verifies that GET /rail/<page>
+// for a page that HAS frontmatter returns an OOB fragment for #rail-props-content
+// populated with the frontmatter keys in source order (repo before sources before
+// generated). A list-valued key must be comma-joined.
+func TestRailHandlerPropsFragment_WithFrontmatter(t *testing.T) {
+	root := buildFrontmatterRealm(t)
+
+	baseURL, shutdown := startTestServer(t, startOpts(t, root))
+	defer shutdown()
+	waitReady(t, baseURL+"/healthz", 3*time.Second)
+
+	resp, err := http.Get(baseURL + "/rail/page-with-fm.md")
+	if err != nil {
+		t.Fatalf("GET /rail/page-with-fm.md: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/rail/page-with-fm.md returned %d, want 200", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// #rail-props-content OOB target must be present.
+	if !strings.Contains(html, `id="rail-props-content"`) {
+		t.Errorf("/rail response missing OOB target #rail-props-content; html: %s",
+			safeSnippet(html, 600))
+	}
+
+	// Keys must appear in source order: repo before sources before generated.
+	repoIdx := strings.Index(html, "repo")
+	sourcesIdx := strings.Index(html, "sources")
+	generatedIdx := strings.Index(html, "generated")
+	if repoIdx < 0 || sourcesIdx < 0 || generatedIdx < 0 {
+		t.Errorf("not all frontmatter keys present in html; html: %s", safeSnippet(html, 800))
+	} else if !(repoIdx < sourcesIdx && sourcesIdx < generatedIdx) {
+		t.Errorf("frontmatter keys not in source order (repo < sources < generated): repo@%d sources@%d generated@%d",
+			repoIdx, sourcesIdx, generatedIdx)
+	}
+
+	// Scalar value must appear.
+	if !strings.Contains(html, "nes") {
+		t.Errorf("scalar value 'nes' not found in props fragment; html: %s", safeSnippet(html, 600))
+	}
+
+	// List value must be comma-joined ("a, b" or "a,b").
+	if !strings.Contains(html, "a") || !strings.Contains(html, "b") {
+		t.Errorf("list items 'a', 'b' not found in props fragment; html: %s", safeSnippet(html, 600))
+	}
+	// Must contain a comma separator for the list.
+	if !strings.Contains(html, ",") {
+		t.Errorf("list value not comma-joined in props fragment; html: %s", safeSnippet(html, 600))
+	}
+
+	// The rail-props-list class must be present (populated, not empty).
+	if !strings.Contains(html, "rail-props-list") {
+		t.Errorf("rail-props-list missing from populated props fragment; html: %s", safeSnippet(html, 600))
+	}
+}
+
+// TestRailHandlerPropsFragment_NoFrontmatter verifies that GET /rail/<page>
+// for a page with NO frontmatter returns an EMPTY #rail-props-content — the id
+// must be present (for the CSS :has(:empty) hide rule) but the div body must be
+// byte-empty (no whitespace, no comments). :empty does NOT match whitespace text
+// nodes, so even "\n  \n" inside the div would prevent the CSS hide from firing.
+func TestRailHandlerPropsFragment_NoFrontmatter(t *testing.T) {
+	root := buildFrontmatterRealm(t)
+
+	baseURL, shutdown := startTestServer(t, startOpts(t, root))
+	defer shutdown()
+	waitReady(t, baseURL+"/healthz", 3*time.Second)
+
+	resp, err := http.Get(baseURL + "/rail/page-no-fm.md")
+	if err != nil {
+		t.Fatalf("GET /rail/page-no-fm.md: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/rail/page-no-fm.md returned %d, want 200", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// #rail-props-content must be present (the CSS depends on the id existing).
+	if !strings.Contains(html, `id="rail-props-content"`) {
+		t.Errorf("/rail response missing OOB target #rail-props-content for no-fm page; html: %s",
+			safeSnippet(html, 600))
+	}
+
+	// The div must be byte-empty: open tag immediately followed by </div> with
+	// nothing in between — not even a space or newline. CSS :empty does NOT match
+	// elements that contain whitespace text nodes, so any whitespace here would
+	// prevent the "properties" header from hiding on frontmatter-less pages.
+	const emptySlot = `id="rail-props-content" hx-swap-oob="innerHTML"></div>`
+	if !strings.Contains(html, emptySlot) {
+		t.Errorf("/rail/page-no-fm.md: #rail-props-content div is not byte-empty — "+
+			"CSS :empty cannot match; whitespace between tags prevents hiding.\n"+
+			"want substring: %q\n"+
+			"html: %s", emptySlot, safeSnippet(html, 800))
+	}
+
+	// Confirm rail-props-list is absent (redundant given byte-empty check, but
+	// explicit for diagnostics).
+	if strings.Contains(html, "rail-props-list") {
+		t.Errorf("rail-props-list should be absent for page with no frontmatter; html: %s",
+			safeSnippet(html, 600))
+	}
+}
+
 // safeSnippet returns up to n bytes of s for diagnostics.
 func safeSnippet(s string, n int) string {
 	if len(s) <= n {
