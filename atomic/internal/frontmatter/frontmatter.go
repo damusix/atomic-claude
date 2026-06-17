@@ -16,26 +16,28 @@ import (
 
 const delimiter = "---"
 
-// Parse splits a markdown document into its YAML frontmatter and body.
+// splitFrontmatter splits a markdown document into a raw YAML block and body.
 //
-// Rules:
-//   - If the document does not start with "---\n", it has no frontmatter:
-//     meta is nil, body is the full input.
-//   - If a closing "---\n" (or "---" at EOF) is missing, an error is returned.
-//   - An empty YAML block ("---\n---\n") returns nil meta and the remainder as body.
-//   - Invalid YAML returns an error.
-func Parse(input string) (meta map[string]any, body string, err error) {
+// It is the shared delimiter-splitting logic used by both Parse and ParseOrdered
+// so that any edge-case fix applies to both callers simultaneously.
+//
+// Returns:
+//   - yamlBlock: the raw text between the opening and closing delimiters.
+//   - body: everything after the closing delimiter (with a single leading newline
+//     consumed when present).
+//   - err: non-nil when the opening "---\n" is present but no closing delimiter
+//     is found.
+//   - ok: false when the document has no leading "---\n" (no frontmatter);
+//     callers must return (nil, input, nil) in that case.
+func splitFrontmatter(input string) (yamlBlock, body string, ok bool, err error) {
 	const open = delimiter + "\n"
 	if !strings.HasPrefix(input, open) {
-		return nil, input, nil
+		return "", input, false, nil
 	}
 
 	rest := input[len(open):]
 
-	// The closing delimiter may appear at position 0 (empty block) or after "\n".
-	var yamlBlock string
 	var afterClose string
-
 	if strings.HasPrefix(rest, delimiter+"\n") {
 		// Empty frontmatter block: ---\n---\n
 		yamlBlock = ""
@@ -48,7 +50,7 @@ func Parse(input string) (meta map[string]any, body string, err error) {
 		// Normal case: search for \n--- within rest.
 		idx := strings.Index(rest, "\n"+delimiter)
 		if idx < 0 {
-			return nil, "", fmt.Errorf("frontmatter: missing closing delimiter '---'")
+			return "", "", true, fmt.Errorf("frontmatter: missing closing delimiter '---'")
 		}
 		yamlBlock = rest[:idx]
 		tail := rest[idx+1+len(delimiter):]
@@ -56,6 +58,26 @@ func Parse(input string) (meta map[string]any, body string, err error) {
 			tail = tail[1:]
 		}
 		afterClose = tail
+	}
+
+	return yamlBlock, afterClose, true, nil
+}
+
+// Parse splits a markdown document into its YAML frontmatter and body.
+//
+// Rules:
+//   - If the document does not start with "---\n", it has no frontmatter:
+//     meta is nil, body is the full input.
+//   - If a closing "---\n" (or "---" at EOF) is missing, an error is returned.
+//   - An empty YAML block ("---\n---\n") returns nil meta and the remainder as body.
+//   - Invalid YAML returns an error.
+func Parse(input string) (meta map[string]any, body string, err error) {
+	yamlBlock, afterClose, ok, splitErr := splitFrontmatter(input)
+	if !ok {
+		return nil, input, nil
+	}
+	if splitErr != nil {
+		return nil, "", splitErr
 	}
 
 	body = afterClose
@@ -132,10 +154,78 @@ func nodeToValue(n *yaml.Node) (any, error) {
 	}
 }
 
-// KV is a key-value pair for ordered frontmatter emission.
+// KV is a key-value pair for ordered frontmatter emission and ordered parsing.
 type KV struct {
 	Key   string
 	Value any
+}
+
+// ParseOrdered splits a markdown document into its YAML frontmatter and body,
+// returning the frontmatter key/value pairs in source order (not alphabetically
+// sorted as a map would be). This is the order-preserving sibling of Parse.
+//
+// Rules mirror Parse exactly:
+//   - No leading "---\n" → (nil, fullInput, nil).
+//   - Missing closing delimiter → error.
+//   - Empty block ("---\n---\n") → (nil, remainder, nil).
+//   - Invalid YAML → error.
+//   - Scalar date values are returned as raw strings (no time.Time coercion).
+func ParseOrdered(input string) (kvs []KV, body string, err error) {
+	yamlBlock, afterClose, ok, splitErr := splitFrontmatter(input)
+	if !ok {
+		return nil, input, nil
+	}
+	if splitErr != nil {
+		return nil, "", splitErr
+	}
+
+	body = afterClose
+
+	if strings.TrimSpace(yamlBlock) == "" {
+		return nil, body, nil
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(yamlBlock), &doc); err != nil {
+		return nil, "", fmt.Errorf("frontmatter: invalid YAML: %w", err)
+	}
+	if doc.Kind == 0 {
+		return nil, body, nil
+	}
+
+	ordered, err := nodeToOrdered(&doc)
+	if err != nil {
+		return nil, "", fmt.Errorf("frontmatter: %w", err)
+	}
+	if len(ordered) == 0 {
+		return nil, body, nil
+	}
+	return ordered, body, nil
+}
+
+// nodeToOrdered converts a yaml.Node (document or mapping) into []KV
+// preserving the YAML source order of mapping keys. It reuses nodeToValue for
+// scalar/sequence/mapping values (same date-as-string guarantee as nodeToMap).
+func nodeToOrdered(n *yaml.Node) ([]KV, error) {
+	if n.Kind == yaml.DocumentNode {
+		if len(n.Content) == 0 {
+			return nil, nil
+		}
+		return nodeToOrdered(n.Content[0])
+	}
+	if n.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("expected mapping node, got kind %v", n.Kind)
+	}
+	kvs := make([]KV, 0, len(n.Content)/2)
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		key := n.Content[i].Value
+		val, err := nodeToValue(n.Content[i+1])
+		if err != nil {
+			return nil, err
+		}
+		kvs = append(kvs, KV{Key: key, Value: val})
+	}
+	return kvs, nil
 }
 
 // Emit serializes meta and body back into a frontmatter markdown document.

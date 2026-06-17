@@ -28,6 +28,7 @@ import (
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -292,8 +293,18 @@ func renderMarkdown(src []byte, rewrite markdownLinkRewriter, wikiResolve wikili
 		),
 	)
 
+	// Strip YAML frontmatter before goldmark sees it.  Without this, a leading
+	// "---" becomes a goldmark thematic break (<hr>) and the following key:value
+	// lines collapse into a bogus setext <h2>.  On parse error (malformed /
+	// unclosed block) we fall through with the original src so no content is
+	// ever lost due to a bad frontmatter block.
+	body := src
+	if _, bodyStr, err := frontmatter.Parse(string(src)); err == nil {
+		body = []byte(bodyStr)
+	}
+
 	var out bytes.Buffer
-	if err := md.Convert(src, &out); err != nil {
+	if err := md.Convert(body, &out); err != nil {
 		return "", false, fmt.Errorf("goldmark convert: %w", err)
 	}
 	return out.String(), hasMermaid, nil

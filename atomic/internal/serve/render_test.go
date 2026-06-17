@@ -341,6 +341,108 @@ func TestPageRouteHTMXFragmentMermaid(t *testing.T) {
 	}
 }
 
+// ── frontmatter strip tests ──────────────────────────────────────────────────
+
+// TestRenderMarkdown_FrontmatterStripped verifies that YAML frontmatter is
+// stripped before goldmark sees it. A wiki page with a leading frontmatter block
+// must NOT produce a spurious <hr> (from "---") or render YAML keys as text.
+// The real body content MUST appear in the output.
+func TestRenderMarkdown_FrontmatterStripped(t *testing.T) {
+	// Real wiki-page shape: title, repo, generated keys followed by a real body.
+	src := "---\ntitle: \"@hapi/nes\"\nrepo: nes\ngenerated: 2026-06-13\n---\n\n# Overview\n\nbody\n"
+	html, _, err := serve.RenderMarkdown([]byte(src))
+	if err != nil {
+		t.Fatalf("RenderMarkdown: %v", err)
+	}
+	// YAML keys must not appear as rendered text.
+	if strings.Contains(html, "title:") {
+		t.Errorf("frontmatter key 'title:' leaked into body HTML: %s", html)
+	}
+	if strings.Contains(html, "repo:") {
+		t.Errorf("frontmatter key 'repo:' leaked into body HTML: %s", html)
+	}
+	if strings.Contains(html, "generated:") {
+		t.Errorf("frontmatter key 'generated:' leaked into body HTML: %s", html)
+	}
+	// A spurious <hr> from the opening "---" must not appear.
+	if strings.Contains(html, "<hr") {
+		t.Errorf("spurious <hr> from frontmatter '---' in body HTML: %s", html)
+	}
+	// The real body heading must appear.
+	if !strings.Contains(html, "Overview") {
+		t.Errorf("real body heading 'Overview' missing from HTML: %s", html)
+	}
+	if !strings.Contains(html, "<h1") {
+		t.Errorf("expected <h1> for body heading, got: %s", html)
+	}
+	if !strings.Contains(html, "body") {
+		t.Errorf("expected body text in output: %s", html)
+	}
+}
+
+// TestRenderMarkdown_NoFrontmatter verifies that a doc with no frontmatter
+// renders unchanged (no content dropped).
+func TestRenderMarkdown_NoFrontmatter(t *testing.T) {
+	src := "# Plain heading\n\nPlain body.\n"
+	html, _, err := serve.RenderMarkdown([]byte(src))
+	if err != nil {
+		t.Fatalf("RenderMarkdown: %v", err)
+	}
+	if !strings.Contains(html, "Plain heading") {
+		t.Errorf("heading missing: %s", html)
+	}
+	if !strings.Contains(html, "Plain body") {
+		t.Errorf("body missing: %s", html)
+	}
+}
+
+// TestRenderMarkdown_MidDocThematicBreak verifies that a genuine thematic break
+// (---) that appears mid-document (not at byte 0) is NOT eaten by the
+// frontmatter stripper; goldmark must still render it as <hr>.
+func TestRenderMarkdown_MidDocThematicBreak(t *testing.T) {
+	// This document has real content before the "---" so it is NOT frontmatter.
+	src := "# Section A\n\nSome text.\n\n---\n\n# Section B\n"
+	html, _, err := serve.RenderMarkdown([]byte(src))
+	if err != nil {
+		t.Fatalf("RenderMarkdown: %v", err)
+	}
+	if !strings.Contains(html, "<hr") {
+		t.Errorf("expected <hr> for mid-doc thematic break, got: %s", html)
+	}
+	if !strings.Contains(html, "Section A") {
+		t.Errorf("Section A missing: %s", html)
+	}
+	if !strings.Contains(html, "Section B") {
+		t.Errorf("Section B missing: %s", html)
+	}
+}
+
+// TestRenderMarkdown_UnclosedFrontmatterFallthrough verifies that a document
+// with an unclosed frontmatter block ("---\ntitle: foo\n# Heading\nbody\n"
+// — no closing "---") is not silently dropped. frontmatter.Parse returns an
+// error; renderMarkdown must fall through to the original src so the body
+// content (the "# Heading") still renders. Nothing is silently lost.
+func TestRenderMarkdown_UnclosedFrontmatterFallthrough(t *testing.T) {
+	// No closing ---: the opening --- starts frontmatter parsing but there is no
+	// matching close, so Parse returns an error. The render must fall back to the
+	// original src (including the heading) rather than returning empty output.
+	src := "---\ntitle: foo\n# Heading\nbody\n"
+	html, _, err := serve.RenderMarkdown([]byte(src))
+	if err != nil {
+		t.Fatalf("RenderMarkdown: %v", err)
+	}
+	// The body content (# Heading) must survive in the output. The frontmatter
+	// parser errored; renderMarkdown falls back to the raw src, so goldmark sees
+	// the whole document (including the --- which becomes an <hr>). What matters
+	// is that "Heading" and "body" appear — no content is dropped.
+	if !strings.Contains(html, "Heading") {
+		t.Errorf("expected 'Heading' to survive in output after parse error; got: %s", html)
+	}
+	if !strings.Contains(html, "body") {
+		t.Errorf("expected 'body' text to survive in output; got: %s", html)
+	}
+}
+
 // TestMermaidScriptLoadedConditionally verifies that when the page route
 // serves a markdown file with a mermaid block, the response HTML includes
 // the mermaid script tag. For non-mermaid content, it must not load the script.
