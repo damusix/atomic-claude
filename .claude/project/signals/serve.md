@@ -4,7 +4,7 @@
 
 `atomic serve [path] [--port N] [--open]` starts a localhost-only, read-only HTTP server (default port 4500) that renders a wiki realm or a single repo as a navigable graph in the browser. Scope is resolved via `realm.Resolve`: registered realm root → Realm scope, inside a member → Member scope, bare repo → Repo scope. Binds to `127.0.0.1` only; no write operations of any kind. Shuts down cleanly on SIGINT/SIGTERM.
 
-The UI is a single persistent Obsidian-style shell: top bar (breadcrumb + `md|code` search), left nav tree, middle content pane with `[page|system]` toggle, right rail (this-page mini-graph + OUT/IN link lists). The standalone `/graph` full page was removed in FE3; the system view is now the middle-pane toggle loading `/graph/data` directly.
+The UI is a single persistent Obsidian-style shell: top bar (breadcrumb + `md|code` search), left nav tree, middle content pane with `[page|system]` toggle, right rail (this-page mini-graph + OUT/IN link lists). The standalone `/graph` full page was removed in FE3; the system view is now the middle-pane toggle loading `/graph/data` directly. Markdown page rendering uses `RenderMarkdownWithGraph`, which resolves Obsidian-style `[[page]]` / `[[page|alias]]` wikilinks in the body as in-shell htmx navigations using the same graph edges as the right rail; broken wikilinks render as `<span class="wikilink-broken">`.
 
 ## Artifacts
 
@@ -14,9 +14,10 @@ The UI is a single persistent Obsidian-style shell: top bar (breadcrumb + `md|co
 
 ## CLI code
 
-- [`atomic/internal/serve/`](../../../atomic/internal/serve) — leaf package; 30 files. Key files:
+- [`atomic/internal/serve/`](../../../atomic/internal/serve) — leaf package; 32 files. Key files:
   - `serve.go` — `Run(args, stdout, stderr) int` (os.Exit entry), `RunWithContext(ctx, opts) int` (testable entry), `Options` struct, `DisplayScope` enum (`DisplayScopeRepo / Realm / Member`), `ResolveDisplayScope`; `parseFlags` normalizes the positional target-dir arg to an absolute path via `filepath.Abs`; [`/`](../../..) root serves the Obsidian shell template; `/healthz` liveness probe; `/status` realm-health dashboard (was `/health` in CP6)
-  - `render.go` — goldmark + chroma markdown-to-HTML renderer; mermaid fenced-block pass-through
+  - `render.go` — goldmark + chroma markdown-to-HTML renderer; mermaid fenced-block pass-through. Three entry points: `RenderMarkdown` (bare), `RenderMarkdownWithLinks` (link rewriting), `RenderMarkdownWithGraph` (link rewriting + in-body wikilink resolution via the page's graph edges). `renderMarkdown` is the shared implementation; when `wikiResolve` is non-nil it wires the `wikilinkInlineParser` at priority 150 (above goldmark's default link parser at 200) and the matching `wikilinkRenderer`.
+  - `wikilink.go` — goldmark inline parser + renderer for Obsidian-style `[[page]]` / `[[page|alias]]` wikilinks. `wikilinkInlineParser` triggers on `[`, commits only on `[[…]]` syntax, advances the reader by `2+close+2` bytes. `wikilinkResolverFromGraph` derives a `wikilinkResolver` from the focused page's outbound `Graph.Outbound` edges filtered to `mdlink.Wikilink` kind — reuses the resolution computed in `graph.go` so the body and the right rail can never disagree. `wikilinkRenderer` emits: resolved → `<a class="wikilink" hx-get="/page/…" hx-target="#main-pane">` (or `wikilink wikilink-ambiguous` class); broken → `<span class="wikilink-broken">`.
   - `nav.go` — left-nav tree builder; calls `wiki.ReadBucketEntries` for bucket badges; calls `wiki.ReadScanMembers` for member list
   - `graph.go` — link-graph builder from `mdlink.ExtractLinks` edges; `Edge` struct with `CodeFile bool` field (non-.md source files rendered as `/file/` links, not broken); `Graph` carries `nodeSet map[string]bool` for O(1) `Has()` membership test
   - `rail_handler.go` — `NewRailHandler` for `GET /rail/<relpath>`; renders three htmx OOB fragments: `#rail-out-content` (outbound links with broken/codefile/ambiguous/external annotations), `#rail-in-content` (backlinks + orphan note), `#rail-graph-content` (Cytoscape mini-graph seeded by `/graph/data?node=<page>&depth=1`); uses `data-rail-graph-url` attribute + `htmx.onLoad` pattern (inline `<script>` in OOB swaps unreliable in htmx 2)
@@ -29,8 +30,8 @@ The UI is a single persistent Obsidian-style shell: top bar (breadcrumb + `md|co
   - `provenance.go` — provenance DAG (`/provenance`); reads `reflects:` / `sources:` frontmatter; uses `wiki.ResolveFingerprint`
   - `stale.go` — stale-badge helpers
   - `walk.go` — scoped disk walk for nav tree construction
-  - `context_handler.go` — request-context plumbing
-  - `assets/app.css` — base CSS (embedded)
+  - `context_handler.go` — production page handler; calls `RenderMarkdownWithGraph` (not `RenderMarkdownWithLinks`) so all page renders receive in-body wikilink resolution when a `*Graph` is available
+  - `assets/app.css` — base CSS (embedded); includes `.md-content a.wikilink`, `.md-content a.wikilink-ambiguous`, `.md-content .wikilink-broken` rules
   - `assets/vendor/` — vendored JS: `htmx.min.js`, `mermaid.min.js`, `cytoscape.min.js`, `elk.bundled.js`, `cytoscape-elk.min.js` (embedded via `go:embed assets templates`)
   - `templates/layout.html` — single Obsidian-style HTML shell (top bar · left nav · middle pane with page/system toggle · right rail)
 - [`atomic/cmd/atomic/main.go`](../../../atomic/cmd/atomic/main.go) — dispatches `atomic serve` at line 131–132 via `serve.Run(args[1:], ...)`
@@ -46,7 +47,7 @@ The UI is a single persistent Obsidian-style shell: top bar (breadcrumb + `md|co
 
 - **wiki domain**: `serve` calls `wiki.ReadBucketEntries`, `wiki.ReadScanMembers`, `wiki.Stale`, `wiki.CheckStaleness`, `wiki.ResolveFingerprint`, and `wiki.FileSHA256`. Changes to wiki's staleness or bucket-diff APIs break serve's health page and nav badges.
 - **code-intel domain**: `serve` imports `codeintel/realm` (for `realm.Resolve`) and opens per-member indexes via `engine.NewWithDBPath`. Changes to `realm.Resolve` scope types or `engine.NewWithDBPath` signature require matching changes in `serve.go` and `codesearch.go`. `codeexplorer.go` uses `GetNodesInFile` from `CodeEngine`; changes to that method signature propagate here.
-- **mdlink domain**: `serve` depends on `mdlink.ExtractLinks` for graph and backlink construction. `Edge.CodeFile` is populated from `mdlink.Link` fields; changes to `Link` struct or wikilink resolution rules affect `graph.go`, `rail_handler.go`, and `graphoverlay.go`.
+- **mdlink domain**: `serve` depends on `mdlink.ExtractLinks` for graph and backlink construction. `Edge.CodeFile` is populated from `mdlink.Link` fields; changes to `Link` struct or wikilink resolution rules affect `graph.go`, `rail_handler.go`, and `graphoverlay.go`. `wikilink.go` imports `mdlink` for the `mdlink.Wikilink` edge-kind constant used to filter outbound edges in `wikilinkResolverFromGraph`; a rename of that constant breaks the resolver.
 - **cliusage / doctor domain**: `atomic validate artifacts` lints `atomic serve` citations against `cliusage.go`. Adding or removing serve flags requires updating `cliusage.go` or artifact linting false-positives.
 
 ## Conventions worth knowing
@@ -61,3 +62,5 @@ The UI is a single persistent Obsidian-style shell: top bar (breadcrumb + `md|co
 - Right-rail mini-graph uses `data-rail-graph-url` attribute + `htmx.onLoad` delegation for Cytoscape init; inline `<script>` tags in OOB `innerHTML` swaps are not reliably executed by htmx 2.
 - `/healthz` is the liveness probe (plain text `ok`); `/status` is the user-facing realm-health dashboard (moved from `/health` in CP6).
 - The link graph is built once at server startup via `BuildLinkGraph(navRoot)`; the graph is passed into page and rail handlers so they remain stateless. `Graph.Has(rel)` is O(1) via `nodeSet`.
+- Wikilink resolution is single-source: `wikilinkResolverFromGraph` reads the already-computed outbound edges from `Graph.Outbound(pageRelPath)` filtered to `mdlink.Wikilink` kind. The body and the right rail use the same resolution — no second resolution pass. When `g` is nil (e.g. tests calling `RenderMarkdown` or `RenderMarkdownWithLinks`), the wikilink parser is not registered and `[[…]]` renders as literal text.
+- The `wikilinkInlineParser` priority is 150, below the goldmark default block parsers but above the default link parser (200). On a single `[` that does not form `[[`, it returns nil and does not advance the reader — the default link parser takes over.

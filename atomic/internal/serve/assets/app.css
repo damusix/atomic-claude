@@ -757,6 +757,35 @@ a.ctx-external:hover {
     color: #b4d5f0;
 }
 
+/* ── wikilinks: in-body [[page]] links rendered by the goldmark wikilink parser.
+   Distinguished from plain markdown links by a dotted underline (Obsidian
+   convention). Resolved wikilinks navigate in-shell via htmx; broken and
+   ambiguous variants are flagged visually. */
+.md-content a.wikilink {
+    text-decoration: underline dotted;
+    text-decoration-color: rgba(122, 184, 232, 0.55);
+}
+
+.md-content a.wikilink:hover {
+    text-decoration: underline solid;
+    text-decoration-color: rgba(168, 212, 245, 0.8);
+}
+
+/* Ambiguous wikilink (multiple files matched): warmer accent so the ambiguity
+   is visible while the link still works (resolves to the nearest match). */
+.md-content a.wikilink-ambiguous {
+    color: var(--color-accent);
+    text-decoration-color: rgba(245, 166, 35, 0.55);
+}
+
+/* Broken wikilink (no realm file matched): muted, dashed, non-navigable. */
+.md-content .wikilink-broken {
+    color: var(--color-muted);
+    text-decoration: underline dashed;
+    text-decoration-color: rgba(136, 136, 136, 0.6);
+    cursor: help;
+}
+
 /* ── search: command-palette dialog + dedicated page (FE5) ──────────────────
    Search is a dialog (#search-modal) opened from the top-bar trigger or ⌘K.
    The results list scrolls inside the dialog box; the dedicated /search page
