@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.2.0](https://github.com/damusix/atomic-claude/compare/v5.1.0...v5.2.0) (2026-06-17)
+
+
+### Features
+
+* reuse-first reflex in plan, build, review ([536d8fa](https://github.com/damusix/atomic-claude/commit/536d8fa8068a748e8500606bc66c4d4b58d62361))
+
 ## [5.1.0](https://github.com/damusix/atomic-claude/compare/v5.0.0...v5.1.0) (2026-06-16)
 
 
