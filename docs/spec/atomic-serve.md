@@ -48,6 +48,9 @@ only what gets built.
       syntax highlighting and client-side mermaid for ```mermaid blocks. A `file:line`
       reference opens a chroma-highlighted source view scrolled/anchored to the line.
       Path traversal outside the served root is rejected (404, not a file read).
+      In-body Obsidian `[[page]]` / `[[page|alias]]` wikilinks render as in-shell links
+      resolved through the page's link-graph edges (same resolution as the rail); broken
+      wikilinks render as a visible non-navigable span.
 - [ ] **SC5** — The left nav renders a collapsible tree grouped Realm / Repos / Concerns
       / Knowledge / Buckets / External, built from `wiki.ReadScanMembers` + a disk walk of
       `wiki/concerns`, `wiki/knowledge`, and the bucket registry. Stale and bucket-diff
@@ -211,6 +214,28 @@ None.
 
 
 ## Change log
+
+### 2026-06-16 — In-body wikilinks render as in-shell links
+
+- **Fixed:** Obsidian-style `[[page]]` / `[[page|alias]]` links in a markdown body
+  rendered as **literal text** — goldmark has no native wikilink syntax, and the
+  render-time link rewriter (`linkRewriteRenderer`) only handled standard markdown
+  `[text](url)` links. The right rail still showed the OUT/IN links (it reads the
+  link graph), so the body and the rail disagreed: the rail resolved the wikilink,
+  the body left it as prose. A new goldmark inline parser + renderer (`wikilink.go`)
+  now turns `[[…]]` into a real link. Resolution is **not** recomputed: a resolved
+  wikilink reuses the focused page's already-computed graph edges
+  (`wikilinkResolverFromGraph` reads `Graph.Outbound`), so the body and the rail
+  share the one nearest-then-alphabetical resolution in `graph.go`. Resolved links
+  become htmx navigations to `/page/<target>` (shell preserved, matching the
+  markdown-link rewriter and the rail); broken links render as a visible
+  non-navigable `<span class="wikilink-broken">`; ambiguous links resolve to the
+  nearest match with a warning class. The new `RenderMarkdownWithGraph` entry point
+  carries the graph into the render; `NewPageHandlerWithGraph` calls it. Wikilinks
+  inside inline code spans and fenced blocks stay literal (goldmark consumes those
+  as raw text), matching `mdlink.ExtractLinks` fence-awareness. The graphless paths
+  (`RenderMarkdown`, `RenderMarkdownWithLinks`) leave `[[…]]` literal — there is no
+  realm basename index to resolve against without the graph.
 
 ### 2026-06-15 — System graph: drop code-file edges (dangling-target crash)
 

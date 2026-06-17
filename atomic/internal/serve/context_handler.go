@@ -277,7 +277,7 @@ func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) htt
 					serve404(w, r, relPath, "/page/"+relPath, isHX, sh)
 					return
 				}
-				bodyHTML, hasMermaid, err = RenderMarkdownWithLinks(data, root, idxRel)
+				bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, idxRel, g)
 				if err != nil {
 					http.Error(w, "render error", http.StatusInternalServerError)
 					return
@@ -293,7 +293,7 @@ func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) htt
 				serve404(w, r, relPath, "/page/"+relPath, isHX, sh)
 				return
 			}
-			bodyHTML, hasMermaid, err = RenderMarkdownWithLinks(data, root, normRelPath(relPath))
+			bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, normRelPath(relPath), g)
 			if err != nil {
 				http.Error(w, "render error", http.StatusInternalServerError)
 				return

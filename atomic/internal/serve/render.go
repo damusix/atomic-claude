@@ -219,7 +219,7 @@ var _ goldrenderer.NodeRenderer = (*mermaidCodeRenderer)(nil)
 // Returns the HTML string, hasMermaid (true if any mermaid block is present),
 // and any error.
 func RenderMarkdown(src []byte) (string, bool, error) {
-	return renderMarkdown(src, nil)
+	return renderMarkdown(src, nil, nil)
 }
 
 // RenderMarkdownWithLinks is RenderMarkdown plus server-side link rewriting.
@@ -235,7 +235,24 @@ func RenderMarkdownWithLinks(src []byte, root, pageRelPath string) (string, bool
 	rewrite := func(raw string) (string, bool, bool) {
 		return resolvePageHref(root, pageRelPath, raw)
 	}
-	return renderMarkdown(src, rewrite)
+	return renderMarkdown(src, rewrite, nil)
+}
+
+// RenderMarkdownWithGraph is RenderMarkdownWithLinks plus in-body wikilink
+// resolution. Obsidian-style [[page]] / [[page|alias]] links in the body are
+// turned into in-shell htmx navigations, resolved through the focused page's
+// already-computed graph edges (the same resolution the right rail uses), so the
+// body and the rail can never disagree. A broken wikilink renders as a visible
+// non-navigable span.
+//
+// g may be nil; nil leaves [[…]] as literal text (the RenderMarkdownWithLinks
+// behaviour) since wikilink resolution needs the realm-wide basename index the
+// graph carries.
+func RenderMarkdownWithGraph(src []byte, root, pageRelPath string, g *Graph) (string, bool, error) {
+	rewrite := func(raw string) (string, bool, bool) {
+		return resolvePageHref(root, pageRelPath, raw)
+	}
+	return renderMarkdown(src, rewrite, wikilinkResolverFromGraph(g, pageRelPath))
 }
 
 // markdownLinkRewriter maps a raw markdown link destination to (href, htmxPage,
@@ -244,7 +261,7 @@ func RenderMarkdownWithLinks(src []byte, root, pageRelPath string) (string, bool
 // rewriting (hrefs render verbatim).
 type markdownLinkRewriter func(rawHref string) (href string, htmxPage bool, external bool)
 
-func renderMarkdown(src []byte, rewrite markdownLinkRewriter) (string, bool, error) {
+func renderMarkdown(src []byte, rewrite markdownLinkRewriter, wikiResolve wikilinkResolver) (string, bool, error) {
 	hasMermaid := false
 	codeRenderer := &mermaidCodeRenderer{hasMermaid: &hasMermaid}
 
@@ -253,11 +270,21 @@ func renderMarkdown(src []byte, rewrite markdownLinkRewriter) (string, bool, err
 		renderers = append(renderers, util.Prioritized(&linkRewriteRenderer{rewrite: rewrite}, 1))
 	}
 
+	parserOpts := []parser.Option{parser.WithAutoHeadingID()}
+	if wikiResolve != nil {
+		// Register the wikilink inline parser above goldmark's default link parser
+		// (priority 200) so [[…]] is recognised before a single '[' link, and the
+		// matching node renderer so the AST node has a renderer (goldmark errors on
+		// an unrendered node kind). The two are always wired together.
+		parserOpts = append(parserOpts, parser.WithInlineParsers(
+			util.Prioritized(&wikilinkInlineParser{}, 150),
+		))
+		renderers = append(renderers, util.Prioritized(&wikilinkRenderer{resolve: wikiResolve}, 1))
+	}
+
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.GFM),
-		goldmark.WithParserOptions(
-			parser.WithAutoHeadingID(),
-		),
+		goldmark.WithParserOptions(parserOpts...),
 		goldmark.WithRendererOptions(
 			goldhtml.WithHardWraps(),
 			goldhtml.WithXHTML(),
