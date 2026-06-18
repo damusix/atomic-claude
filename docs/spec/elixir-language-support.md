@@ -35,3 +35,8 @@ Follow the documented "Add a new grammar" procedure in `atomic/internal/codeinte
 ## Change log
 
 (empty — first version)
+
+## Implementation log
+
+- **CP1** (`42135a8`) — vendored `elixir-lang/tree-sitter-elixir` v0.3.5 (`e2d9e6e`, ABI 14, parser.c + scanner.c) into `grammars.json` + `Makefile`; rebuilt `lib/ts.wasm`; added the binding handle + a parse probe. Tree-sitter path confirmed; regex fallback not needed.
+- **CP2** (`198fcd1`) — wired Elixir through the extraction engine (`LangElixir`, pool mapping, `types.LanguageElixir`, `.ex`/`.exs` routing) and added the `elixir.go` extractor. tree-sitter-elixir models macros as `call` nodes, so the extractor matches call targets: `defmodule`→module, `def`/`defp`→function (exported/private), `defstruct`→struct, `alias`/`import`/`use`→import edges, calls→call edges. A nil-safe `GetName` hook + a `StructTypes`/`ResolveKind` guard in `visitFunctionBody` support the call-node model without affecting the other 21 languages. 8 Elixir extraction tests; full codeintel suite green.
