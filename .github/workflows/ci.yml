@@ -1,14 +1,14 @@
 name: CI
 
 on:
+  # Push-CI runs only on main (post-merge). PR branches are gated by the
+  # pull_request trigger below, so a branch with an open PR is tested once —
+  # not twice, as the previous push-on-every-branch trigger did (one run for the
+  # branch push, a duplicate for the PR). The release-please bot branch is
+  # naturally excluded (it isn't main); its merge-into-main result is still
+  # gated via pull_request, which always reflects current main.
   push:
-    # Run push-CI on every human branch, but NOT release-please's bot branch.
-    # That branch is `old-main + release-commit`; its tip in isolation is never
-    # a meaningful state and goes stale-red whenever a fix lands on main after
-    # the release PR was cut. The pull_request trigger below still gates it on
-    # the merge-into-main result, which always reflects current main.
-    branches-ignore:
-      - "release-please--branches--**"
+    branches: [main]
   pull_request:
     branches: [main]
 
