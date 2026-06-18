@@ -371,7 +371,14 @@ For each coherent topic found across the content files:
 
 4. If the file does not exist, create it. Write durable, topic-keyed knowledge content — not a raw dump, not a bullet list of file names. Synthesize facts, patterns, and relationships that persist beyond any single capture file.
 
-5. Write the frontmatter with a `title:` field. Do NOT write `sources:` or any fingerprint/hash values — those are written by `atomic wiki stamp --knowledge` after synthesis completes. Do NOT write `reflects_rev:` or `reflects:` fields. **Why:** code computes and writes every fingerprint; the model only declares which sources apply.
+   When the body links to another concept in the bundle (a repo summary, concern, or another knowledge page), use a standard bundle-relative markdown link `[text](/path.md)` — not an Obsidian `[[wikilink]]`. **Why:** OKF §5.1 recommends bundle-relative `/path.md` as the canonical cross-link form; standard markdown links are portable across all consumers (serve, Obsidian, GitHub, goldmark).
+
+5. Write the frontmatter with the following fields:
+   - `title:` — the topic name in plain English.
+   - `type: Knowledge` — required OKF field (title-case; serve maps it to the `knowledge` graph node class).
+   - `description:` — a one-line summary of the topic.
+
+   Do NOT write `sources:` or any fingerprint/hash values — those are written by `atomic wiki stamp --knowledge` after synthesis completes. Do NOT write `reflects_rev:` or `reflects:` fields. **Why:** `type` and `description` are producer-defined content (OKF §4.1) and belong to the model, just as `title:` is already model-written; code computes and writes every fingerprint, and the model never declares hash values.
 
 6. Write the file.
 
