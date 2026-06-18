@@ -307,6 +307,67 @@ end
 	}
 }
 
+// TestPhoenixExtract_ParenFormRoutes proves that paren-form route macros
+// (e.g. get("/openapi", …), post("/x", …)) are extracted identically to the
+// space form. This is the regression test for the bug found in Plausible's
+// router where `get("/openapi", …)` was silently dropped because the old regex
+// required at least one horizontal whitespace char between the verb and the
+// opening quote, making `get("` a non-match.
+func TestPhoenixExtract_ParenFormRoutes(t *testing.T) {
+	r := frameworks.NewPhoenixResolver(t.TempDir())
+	src := `defmodule PlausibleWeb.Router do
+  use PlausibleWeb, :router
+
+  scope "/", PlausibleWeb do
+    get("/openapi", PageController, :openapi)
+    get("/shared_links", SharedLinkController, :index)
+    post("/x", SomeController, :create)
+  end
+end
+`
+	nodes, refs := r.Extract("lib/plausible_web/router.ex", src)
+
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 route nodes from paren-form routes, got %d: %v", len(nodes), elixirNodeNames(nodes))
+	}
+
+	// Build lookup maps.
+	nodesByName := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		nodesByName[n.Name] = true
+	}
+	refsByName := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		refsByName[ref.ReferenceName] = true
+	}
+
+	wantRoutes := []string{"GET /openapi", "GET /shared_links", "POST /x"}
+	for _, want := range wantRoutes {
+		if !nodesByName[want] {
+			t.Errorf("paren-form route %q not extracted; got: %v", want, elixirNodeNames(nodes))
+		}
+	}
+
+	wantRefs := []string{"openapi", "index", "create"}
+	for _, want := range wantRefs {
+		if !refsByName[want] {
+			t.Errorf("expected ref %q from paren-form route; got: %v", want, elixirRefNames(refs))
+		}
+	}
+
+	// All nodes and refs must carry LanguageElixir.
+	for _, n := range nodes {
+		if n.Language != types.LanguageElixir {
+			t.Errorf("paren-form node %q language = %v, want LanguageElixir", n.Name, n.Language)
+		}
+	}
+	for _, ref := range refs {
+		if ref.Language != types.LanguageElixir {
+			t.Errorf("paren-form ref %q language = %v, want LanguageElixir", ref.ReferenceName, ref.Language)
+		}
+	}
+}
+
 // TestPhoenixLanguages_ElixirUngated proves that Languages() returns
 // LanguageElixir so getApplicableResolvers(LanguageElixir) includes
 // PhoenixResolver. This is the contract getApplicableResolvers relies on.

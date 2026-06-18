@@ -30,6 +30,8 @@
 //	put  "/path", PageController, :action
 //	patch "/path", PageController, :action
 //	delete "/path", PageController, :action
+//	get("/path", PageController, :action)
+//	post("/path", PageController, :action)
 //
 // HTTP verbs: get post put patch delete → uppercase in route node name.
 // Handler = the :action atom (strip the leading ':').
@@ -62,10 +64,12 @@ import (
 // Phoenix regexes
 // ---------------------------------------------------------------------------
 
-// phoenixVerbRe matches Phoenix router DSL verb lines:
+// phoenixVerbRe matches Phoenix router DSL verb lines in both space and paren forms:
 //
 //	get  "/path", SomeController, :action
 //	post "/path", SomeController, :action
+//	get("/path", SomeController, :action)
+//	post("/path", SomeController, :action)
 //
 // Capture groups:
 //
@@ -73,10 +77,14 @@ import (
 //	2 — route path (double-quoted)
 //	3 — :action atom (with leading ':')
 //
-// phoenixVerbRe uses [^\S\n]* (spaces/tabs only, not newline) so the match
-// starts on the correct line for accurate line-number calculation.
+// The separator between verb and opening quote is `(?:[^\S\n]+|\()[^\S\n]*`:
+//   - space form: one or more horizontal whitespace chars (tabs/spaces, not newline)
+//   - paren form: a literal '(' followed by zero or more horizontal whitespace chars
+//
+// [^\S\n]* (spaces/tabs only, not newline) anchors each match to its correct
+// line so line-number calculation via strings.Count(…, "\n") is accurate.
 var phoenixVerbRe = regexp.MustCompile(
-	`(?m)^[^\S\n]*(get|post|put|patch|delete)[^\S\n]+` +
+	`(?m)^[^\S\n]*(get|post|put|patch|delete)(?:[^\S\n]+|\()[^\S\n]*` +
 		`"([^"]+)"\s*,\s*` + // double-quoted path
 		`[A-Za-z][A-Za-z0-9_.]*\s*,\s*` + // Controller module (ignored)
 		`:([A-Za-z_][A-Za-z0-9_]*)`, // :action atom (captured without ':')
