@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
 // skipDirs is the set of directory base-names that the discovery walk skips.
@@ -537,8 +539,235 @@ func writeMembersSection(indexPath string, members []Member) error {
 	return os.WriteFile(indexPath, []byte(newContent), 0o644)
 }
 
+// deriveSummaryFilePath returns the absolute path to the primary summary file
+// for a member, given the wiki index directory and the member's metadata.
+// Returns "" when no summary file can be determined.
+func deriveSummaryFilePath(indexDir string, m Member) string {
+	switch m.Status {
+	case "summarized":
+		if m.SummaryPath == "" {
+			return ""
+		}
+		// SummaryPath is relative to the wiki dir (e.g. "repos/repoA.md" or
+		// "repos/repoA/"). For a dir form we read the index.md inside it.
+		abs := filepath.Join(indexDir, m.SummaryPath)
+		info, err := os.Lstat(abs)
+		if err != nil {
+			return ""
+		}
+		if info.IsDir() {
+			// Domain-split: use index.md if present, else first .md file.
+			candidate := filepath.Join(abs, "index.md")
+			if _, err := os.Lstat(candidate); err == nil {
+				return candidate
+			}
+			entries, err := os.ReadDir(abs)
+			if err != nil {
+				return ""
+			}
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") {
+					return filepath.Join(abs, e.Name())
+				}
+			}
+			return ""
+		}
+		return abs
+	case "indexed":
+		// No dedicated summary page — indexed repos link to signals.md which
+		// has no consumer-friendly description. Return "".
+		return ""
+	default:
+		return ""
+	}
+}
+
+// DeriveMemberDescription reads a summary file and extracts a short one-line
+// description suitable for use in an OKF §6 Members listing entry.
+//
+// Resolution order:
+//  1. frontmatter "description:" key — returned verbatim (trimmed).
+//  2. First non-structural prose line from the body — used as the description.
+//     Skipped: blank lines, headings (#), blockquotes (>), HTML/tag lines (<),
+//     table rows (|), and list items (-, *, +, N.). For each candidate line,
+//     inline markdown links [text](url) are reduced to their visible text,
+//     backtick inline-code and emphasis markers are stripped, and whitespace
+//     collapsed. The normalized line is rejected if it still contains a " | "
+//     nav separator OR has fewer than 15 letter characters. A line containing
+//     a single inline link (e.g. "Alpha depends on [Beta](x) for retries.")
+//     survives after normalization because the remaining text is clean prose.
+//  3. Empty string — emitted when neither source yields text (link-only is
+//     valid per OKF §6 SHOULD semantics).
+//
+// The result is always a single line (no embedded newlines) and is truncated
+// to at most 120 characters. Missing or unreadable files return "".
+func DeriveMemberDescription(summaryFilePath string) string {
+	data, err := os.ReadFile(summaryFilePath)
+	if err != nil {
+		return ""
+	}
+
+	meta, body, err := frontmatter.Parse(string(data))
+	if err == nil && meta != nil {
+		if v, ok := meta["description"]; ok {
+			if s, ok := v.(string); ok {
+				s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+				return truncate(s, 120)
+			}
+		}
+	}
+
+	// Fall back to first prose line in the body.
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		// Skip structural / non-prose lines.
+		if strings.HasPrefix(line, "#") ||
+			strings.HasPrefix(line, ">") ||
+			strings.HasPrefix(line, "<") ||
+			strings.HasPrefix(line, "|") {
+			continue
+		}
+		// Skip list items: -, *, + or N. (ordered list).
+		if isListItem(line) {
+			continue
+		}
+		// Normalize: strip markdown links to their visible text, strip
+		// backtick inline-code spans and emphasis markers, collapse whitespace.
+		normalized := normalizeLine(line)
+		// Reject nav/structural lines: those with a " | " separator or with
+		// too few actual letter characters to form a sentence.
+		if strings.Contains(normalized, " | ") {
+			continue
+		}
+		if letterCount(normalized) < 15 {
+			continue
+		}
+		return truncate(normalized, 120)
+	}
+	return ""
+}
+
+// isListItem reports whether line is a markdown list item: unordered (-, *, +)
+// or ordered (one-or-more digits followed by ". ").
+func isListItem(line string) bool {
+	if len(line) == 0 {
+		return false
+	}
+	switch line[0] {
+	case '-', '*', '+':
+		// Must be followed by a space (or be a lone marker) to be a list item,
+		// not an em-dash or horizontal rule.
+		return len(line) == 1 || line[1] == ' '
+	}
+	// Ordered list: digits followed by ". "
+	i := 0
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	return i > 0 && i < len(line) && line[i] == '.' && (i+1 == len(line) || line[i+1] == ' ')
+}
+
+// normalizeLine reduces a markdown inline line to plain text suitable for
+// prose detection:
+//   - [visible text](url) → visible text
+//   - `code` → code  (backtick inline-code span stripped)
+//   - *em*, **strong**, _em_, __strong__ → inner text
+//   - Collapses internal whitespace runs to a single space, trims edges.
+func normalizeLine(line string) string {
+	// Strip markdown links: [text](url) → text.
+	// We scan character-by-character to handle multiple links per line.
+	var sb strings.Builder
+	i := 0
+	for i < len(line) {
+		if line[i] == '[' {
+			// Look for ](…) following this bracket.
+			closeText := strings.Index(line[i+1:], "]")
+			if closeText >= 0 {
+				afterClose := i + 1 + closeText + 1 // index of ']'+1
+				if afterClose < len(line) && line[afterClose] == '(' {
+					closeURL := strings.Index(line[afterClose+1:], ")")
+					if closeURL >= 0 {
+						// Emit visible text only.
+						sb.WriteString(line[i+1 : i+1+closeText])
+						i = afterClose + 1 + closeURL + 1
+						continue
+					}
+				}
+			}
+		}
+		sb.WriteByte(line[i])
+		i++
+	}
+	out := sb.String()
+
+	// Strip backtick inline-code spans: `…` → inner text.
+	out = stripDelimited(out, '`', '`')
+	// Strip emphasis: **…** / __…__ → inner text.
+	out = strings.ReplaceAll(out, "**", "")
+	out = strings.ReplaceAll(out, "__", "")
+	// Strip single * and _ used for emphasis only when they appear paired —
+	// a simple approach: remove lone * and _ characters flanked by word chars.
+	// Rather than complex regex, just remove remaining * and _ after double
+	// forms are gone.
+	out = strings.ReplaceAll(out, "*", "")
+	out = strings.ReplaceAll(out, "_", "")
+
+	// Collapse whitespace.
+	fields := strings.Fields(out)
+	return strings.Join(fields, " ")
+}
+
+// stripDelimited removes all occurrences of text delimited by open/close byte
+// (same byte for both, e.g. backtick), replacing the delimited span with the
+// inner content.
+func stripDelimited(s string, open, close byte) string {
+	var sb strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == open {
+			j := strings.IndexByte(s[i+1:], close)
+			if j >= 0 {
+				// Emit inner content without the delimiters.
+				sb.WriteString(s[i+1 : i+1+j])
+				i = i + 1 + j + 1
+				continue
+			}
+		}
+		sb.WriteByte(s[i])
+		i++
+	}
+	return sb.String()
+}
+
+// letterCount counts the number of Unicode letters in s.
+func letterCount(s string) int {
+	n := 0
+	for _, r := range s {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
+			n++
+		}
+	}
+	return n
+}
+
+// truncate returns s truncated to at most n UTF-8 characters. If s is longer,
+// it returns the first n runes (no ellipsis — the caller adds context).
+func truncate(s string, n int) string {
+	runes := []rune(s)
+	if len(runes) <= n {
+		return s
+	}
+	return string(runes[:n])
+}
+
 // buildMembersSection produces the full ## Members managed section string,
-// bounded by the HTML-comment markers.
+// bounded by the HTML-comment markers. Each entry follows the OKF §6 listing
+// form: "- [Title](url) - description" when a description is derivable, or
+// "- [Title](url)" when no description can be found (link-only is valid per
+// §6 SHOULD semantics).
 func buildMembersSection(indexDir string, members []Member) string {
 	var sb strings.Builder
 	sb.WriteString("## Members\n\n")
@@ -547,7 +776,16 @@ func buildMembersSection(indexDir string, members []Member) string {
 	for _, m := range members {
 		name := filepath.Base(m.Path)
 		target := memberLinkTarget(indexDir, m)
-		fmt.Fprintf(&sb, "- [%s](%s)\n", name, target)
+		summaryFile := deriveSummaryFilePath(indexDir, m)
+		desc := ""
+		if summaryFile != "" {
+			desc = DeriveMemberDescription(summaryFile)
+		}
+		if desc != "" {
+			fmt.Fprintf(&sb, "- [%s](%s) - %s\n", name, target, desc)
+		} else {
+			fmt.Fprintf(&sb, "- [%s](%s)\n", name, target)
+		}
 	}
 	sb.WriteString(membersMarkerEnd)
 	sb.WriteString("\n")

@@ -798,3 +798,387 @@ func TestScan_MembersSectionDoesNotBreakNarrativePreservation(t *testing.T) {
 		t.Errorf("narrative lost after re-scan:\n%s", afterRescan)
 	}
 }
+
+// --- OKF §6 Members listing description tests (CP5) ---
+
+// TestDeriveMemberDescription_FrontmatterDescription asserts that a summary file
+// with a "description:" frontmatter key returns that value.
+func TestDeriveMemberDescription_FrontmatterDescription(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "repoA.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\ndescription: Handles user authentication and token lifecycle\n---\n\n## Overview\n\nSome body text here.\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	want := "Handles user authentication and token lifecycle"
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+}
+
+// TestDeriveMemberDescription_FirstBodySentence asserts that when no "description:"
+// frontmatter is present, the first non-heading prose sentence is used.
+func TestDeriveMemberDescription_FirstBodySentence(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "repoB.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "# repoB\n\n## Overview\n\nManages billing and subscription state for the SaaS platform.\n\n## Another section\n\nMore text.\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	want := "Manages billing and subscription state for the SaaS platform."
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
+	}
+}
+
+// TestDeriveMemberDescription_NoMatch asserts that a file with no usable
+// description returns an empty string (link-only entry is valid per OKF §6).
+func TestDeriveMemberDescription_NoMatch(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "repoC.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Only headings, no prose sentence.
+	content := "# repoC\n\n## Overview\n\n## Details\n\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	if got != "" {
+		t.Errorf("expected empty string, got %q", got)
+	}
+}
+
+// TestDeriveMemberDescription_MissingFile asserts that an unreadable path
+// returns an empty string without panicking.
+func TestDeriveMemberDescription_MissingFile(t *testing.T) {
+	got := wiki.DeriveMemberDescription("/nonexistent/path/that/does/not/exist.md")
+	if got != "" {
+		t.Errorf("expected empty string for missing file, got %q", got)
+	}
+}
+
+// TestDeriveMemberDescription_SingleLine asserts that the returned description
+// never contains embedded newlines.
+func TestDeriveMemberDescription_SingleLine(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "repoD.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\ndescription: \"Line one\\nLine two\"\n---\n\nBody text.\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	if strings.Contains(got, "\n") {
+		t.Errorf("description must not contain newlines, got %q", got)
+	}
+}
+
+// TestDeriveMemberDescription_LengthBound asserts that the returned description
+// is at most 120 characters.
+func TestDeriveMemberDescription_LengthBound(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "repoE.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A very long first sentence.
+	longSentence := strings.Repeat("a", 200) + "."
+	content := "# repoE\n\n## Overview\n\n" + longSentence + "\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	if len(got) > 120 {
+		t.Errorf("description must be <= 120 chars, got %d: %q", len(got), got)
+	}
+}
+
+// --- CP5 body-extraction filter tests ---
+
+// TestDeriveMemberDescription_NavLineSkipped asserts that a body whose first
+// non-heading line is a nav-bar pattern (Repo: [url] | Signal: [url]) is skipped
+// and the result does not contain "](" or " | ".
+func TestDeriveMemberDescription_NavLineSkipped(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "accept.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// First non-heading body line is a nav bar — must be skipped.
+	// Second non-heading body line is real prose.
+	content := "# accept\n\n" +
+		"Repo: [../../repos/accept/](../../repos/accept/) | Signal: [signals](../../repos/accept/.claude/project/signals.md)\n\n" +
+		"Handles incoming HTTP requests and route dispatching for the API layer.\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	if strings.Contains(got, "](") {
+		t.Errorf("result contains markdown link syntax '](': %q", got)
+	}
+	if strings.Contains(got, " | ") {
+		t.Errorf("result contains nav separator ' | ': %q", got)
+	}
+	// The real prose line should be used instead.
+	if !strings.Contains(got, "Handles incoming HTTP requests") {
+		t.Errorf("expected prose line to be returned, got: %q", got)
+	}
+}
+
+// TestDeriveMemberDescription_NavLineOnlyBody asserts that when the only body
+// line is a nav pattern and no prose follows, the result is "" (link-only).
+func TestDeriveMemberDescription_NavLineOnlyBody(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "navonly.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "# navonly\n\n" +
+		"Repo: [../../repos/navonly/](../../repos/navonly/) | Signal: [signals](./signals.md)\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	if got != "" {
+		t.Errorf("expected empty string (link-only fallback) for nav-only body, got %q", got)
+	}
+}
+
+// TestDeriveMemberDescription_ProseWithInlineLink asserts that a prose line
+// containing a single inline link survives after normalization — the link is
+// reduced to its visible text and the result has no "](" or " | ".
+func TestDeriveMemberDescription_ProseWithInlineLink(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "alpha.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := "# alpha\n\n## Overview\n\nAlpha depends on [Beta](../beta/) for retry orchestration and circuit-breaking.\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	// Must not contain raw link syntax.
+	if strings.Contains(got, "](") {
+		t.Errorf("result contains markdown link syntax '](': %q", got)
+	}
+	if strings.Contains(got, " | ") {
+		t.Errorf("result contains nav separator ' | ': %q", got)
+	}
+	// Visible link text must be included, URL must not.
+	if !strings.Contains(got, "Beta") {
+		t.Errorf("expected link visible text 'Beta' in result, got: %q", got)
+	}
+	if strings.Contains(got, "../beta/") {
+		t.Errorf("result must not contain the raw URL '../beta/': %q", got)
+	}
+	// Must be non-empty (real prose survives).
+	if got == "" {
+		t.Error("expected non-empty result for prose line with one inline link")
+	}
+}
+
+// TestDeriveMemberDescription_TableRowSkipped asserts that a body whose first
+// non-heading line is a markdown table row (leading |) is skipped.
+func TestDeriveMemberDescription_TableRowSkipped(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "tablerow.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Table row first, then real prose.
+	content := "# tablerow\n\n| Col A | Col B |\n|-------|-------|\n| val1  | val2  |\n\nReal prose description here.\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	if strings.Contains(got, "|") {
+		t.Errorf("result must not contain table-row pipe '|', got: %q", got)
+	}
+	if !strings.Contains(got, "Real prose description") {
+		t.Errorf("expected prose line after table to be returned, got: %q", got)
+	}
+}
+
+// TestDeriveMemberDescription_ListItemSkipped asserts that a body whose first
+// non-heading lines are list items (-, *, +, N.) is skipped.
+func TestDeriveMemberDescription_ListItemSkipped(t *testing.T) {
+	dir := t.TempDir()
+	summaryPath := filepath.Join(dir, "repos", "listfirst.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// List items first (all four kinds), then real prose.
+	content := "# listfirst\n\n- item one\n* item two\n+ item three\n1. ordered item\n\nActual description sentence.\n"
+	if err := os.WriteFile(summaryPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := wiki.DeriveMemberDescription(summaryPath)
+	// Must not start with a list marker.
+	if len(got) > 0 && (got[0] == '-' || got[0] == '*' || got[0] == '+') {
+		t.Errorf("result must not be a list item, got: %q", got)
+	}
+	// Digits-followed-by-dot is also rejected.
+	if strings.HasPrefix(got, "1.") {
+		t.Errorf("result must not be an ordered list item, got: %q", got)
+	}
+	if !strings.Contains(got, "Actual description sentence") {
+		t.Errorf("expected prose sentence after list items, got: %q", got)
+	}
+}
+
+// TestScan_IdempotentWithDescriptions verifies that a third Scan on a fixture
+// with summarized members that have derivable descriptions produces a byte-identical
+// Members section to the second Scan (idempotency extends to description-carrying entries).
+func TestScan_IdempotentWithDescriptions(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+
+	// First scan — scaffolds wiki/.
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	// Create a summary file with a description: frontmatter key.
+	summaryPath := filepath.Join(root, "wiki", "repos", "repoA.md")
+	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(summaryPath, []byte("---\ndescription: Manages user sessions and auth tokens\n---\n\n## Overview\n\nBody text.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mark as summarized in index.md.
+	content := readIndexMD(t, root)
+	content = strings.ReplaceAll(content, `status="pending"`, `status="summarized" summary="repos/repoA.md"`)
+	if err := os.WriteFile(indexMDPath(root), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second scan — builds Members section with descriptions.
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+	after2 := readIndexMD(t, root)
+
+	// Third scan — must produce byte-identical Members section.
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("third Scan: %v", err)
+	}
+	after3 := readIndexMD(t, root)
+
+	if after2 != after3 {
+		t.Errorf("third Scan changed the output — not idempotent\nbefore:\n%s\nafter:\n%s", after2, after3)
+	}
+
+	// Confirm the description is actually present.
+	if !strings.Contains(after3, "Manages user sessions and auth tokens") {
+		t.Errorf("expected description in Members section, got:\n%s", after3)
+	}
+}
+
+// TestBuildMembersSection_OKFListingForm is a table-driven integration test that
+// exercises the OKF §6 listing form of buildMembersSection through a full Scan,
+// verifying that entries carry " - <description>" when derivable, and link-only
+// when no description exists.
+func TestBuildMembersSection_OKFListingForm(t *testing.T) {
+	root := t.TempDir()
+
+	// repoA: git repo + summary with description: frontmatter
+	repoA := makeGitRepo(t, root, "repoA")
+	_ = repoA
+	summaryA := filepath.Join(root, "wiki", "repos", "repoA.md")
+
+	// repoB: git repo + summary with prose Overview (no frontmatter description)
+	repoB := makeGitRepo(t, root, "repoB")
+	_ = repoB
+	summaryB := filepath.Join(root, "wiki", "repos", "repoB.md")
+
+	// repoC: git repo, no summary (pending) — link-only
+	makeGitRepo(t, root, "repoC")
+
+	opts := wiki.Options{Clock: fixedClock()}
+
+	// First scan to scaffold wiki/.
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	// Create summary files after scaffolding.
+	if err := os.MkdirAll(filepath.Dir(summaryA), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(summaryA, []byte("---\ndescription: Auth service — handles tokens and sessions\n---\n\n## Overview\n\nSome body.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(summaryB), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(summaryB, []byte("# repoB\n\n## Overview\n\nBilling and subscription management platform.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Mark repos as summarized in index.md.
+	content := readIndexMD(t, root)
+	content = strings.ReplaceAll(content, `path="repoA" status="pending"`, `path="repoA" status="summarized" summary="repos/repoA.md"`)
+	content = strings.ReplaceAll(content, `path="repoB" status="pending"`, `path="repoB" status="summarized" summary="repos/repoB.md"`)
+	if err := os.WriteFile(indexMDPath(root), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second scan to regenerate Members section with descriptions.
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+
+	after := readIndexMD(t, root)
+
+	// repoA: frontmatter description present → link + description.
+	if !strings.Contains(after, "- [repoA](repos/repoA.md) - Auth service") {
+		t.Errorf("repoA Members entry missing description; content:\n%s", after)
+	}
+
+	// repoB: prose Overview sentence → link + description.
+	if !strings.Contains(after, "- [repoB](repos/repoB.md) - Billing and subscription management platform") {
+		t.Errorf("repoB Members entry missing description; content:\n%s", after)
+	}
+
+	// repoC: pending, no summary → link-only (no trailing " - ...").
+	var repoCLine string
+	for _, line := range strings.Split(after, "\n") {
+		if strings.Contains(line, "[repoC]") {
+			repoCLine = line
+			break
+		}
+	}
+	if repoCLine == "" {
+		t.Fatalf("repoC Members entry not found; content:\n%s", after)
+	}
+	if strings.Contains(repoCLine, " - ") {
+		t.Errorf("repoC is pending (no summary) — should be link-only, got: %q", repoCLine)
+	}
+}
