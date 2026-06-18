@@ -23,6 +23,19 @@ The node-type color identity from the shipped app is preserved across all three:
 repo `#a6e3a1`, concern `#cba6f7`, page `#89b4fa`, external `#6c7086`.
 
 
+## Chosen direction: B+ (`mockups/b-plus-interactions.html`)
+
+
+Direction B is the base. B+ refines it with the decisions from review:
+
+- **Light/dark theme toggle** — B's paper aesthetic plus a warm-dark variant (serif headings, type-chips, and node colors preserved). Driven by `data-theme` + CSS variables; `?theme=light|dark` sets the initial state.
+- **Network diagram** styled after Direction A (clean glowing type-colored nodes), used for the system view in B's shell.
+- **Node hover → preview card** — a small card with type chip, title, description, and a one-line snippet.
+- **Node click → content modal** — the page's rendered content over a dimmed graph backdrop, with an "Open full page →" button. Preview without leaving the graph context; the button is the explicit navigate-out.
+
+Screenshot states are driven by `?theme=light|dark` and `?overlay=tooltip|modal|none` query params.
+
+
 Open any file directly in a browser to interact, or see the rendered screenshots posted on the PR.
 These mockups are throwaway exploration aids; once a direction is chosen, the real implementation
 lands in `atomic/internal/serve/templates/layout.html` + `assets/app.css`, and this directory can be

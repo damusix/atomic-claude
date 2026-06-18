@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1680, initial-scale=1.0">
+<title>atomic serve — system graph</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     THEME: LIGHT (the Direction-B paper aesthetic)
+     ============================================================ */
+  :root, [data-theme="light"]{
+    /* Paper & ink */
+    --paper:        #fbfaf8;
+    --paper-raised: #ffffff;
+    --paper-sunk:   #f5f3ee;
+    --ink:          #211d18;
+    --ink-soft:     #57514a;
+    --ink-faint:    #8a837a;
+    --ink-ghost:    #b4ada3;
+    --hairline:     #ece8e0;
+    --hairline-2:   #e2ddd2;
+
+    /* Amber / gold brand accent */
+    --amber:        #b07d18;
+    --amber-bright: #d99a1f;
+    --amber-wash:   #fbf3e0;
+    --amber-edge:   #ecd9aa;
+
+    /* Type identity hues — exact shipped palette + deepened ink/wash for light bg */
+    --c-knowledge:  #f38ba8;  --c-knowledge-ink:#9c2f4c;  --c-knowledge-wash:#fdeef2;  --c-knowledge-edge:#f6d2dc;
+    --c-repo:       #a6e3a1;  --c-repo-ink:     #3f7a3a;  --c-repo-wash:    #ecf8ea;  --c-repo-edge:    #cdebc8;
+    --c-concern:    #cba6f7;  --c-concern-ink:  #6f4aa6;  --c-concern-wash: #f4eefd;  --c-concern-edge: #e4d3f8;
+    --c-page:       #89b4fa;  --c-page-ink:     #3a63a8;  --c-page-wash:    #ecf2fe;  --c-page-edge:    #cfdffb;
+    --c-external:   #6c7086;  --c-external-ink: #4a4e63;  --c-external-wash:#eef0f4;  --c-external-edge:#d8dae2;
+
+    /* Graph-surface specifics */
+    --graph-bg-a:   #ffffff;
+    --graph-bg-b:   #f7f4ee;
+    --graph-grid:   rgba(33,29,24,0.035);
+    --edge:         #cabfae;
+    --edge-strong:  #b1a48f;
+
+    --shadow-card:  0 18px 44px -18px rgba(33,29,24,0.34), 0 2px 8px rgba(33,29,24,0.07);
+    --shadow-modal: 0 40px 100px -28px rgba(33,29,24,0.46), 0 8px 26px rgba(33,29,24,0.14);
+    --scrim:        rgba(40,34,26,0.30);
+
+    --grain-a:      rgba(176,125,24,0.025);
+    --grain-b:      rgba(137,180,250,0.025);
+
+    color-scheme: light;
+  }
+
+  /* ============================================================
+     THEME: DARK (warm near-black charcoal — same DNA)
+     ============================================================ */
+  [data-theme="dark"]{
+    /* Warm charcoal "paper" */
+    --paper:        #17150f;
+    --paper-raised: #211e16;
+    --paper-sunk:   #131109;
+    --ink:          #f1ead9;
+    --ink-soft:     #c0b6a0;
+    --ink-faint:    #8e8473;
+    --ink-ghost:    #6a6151;
+    --hairline:     #2c2819;
+    --hairline-2:   #383322;
+
+    /* Amber pops a little hotter on dark */
+    --amber:        #e8b54a;
+    --amber-bright: #f5c860;
+    --amber-wash:   #2c2410;
+    --amber-edge:   #5a4a1f;
+
+    /* Type hues stay the bright shipped values on dark; washes go to warm-dark tints */
+    --c-knowledge:  #f38ba8;  --c-knowledge-ink:#f4a7bd;  --c-knowledge-wash:#34141d;  --c-knowledge-edge:#5e2433;
+    --c-repo:       #a6e3a1;  --c-repo-ink:     #b6e7b1;  --c-repo-wash:    #15240f;  --c-repo-edge:    #2c4a24;
+    --c-concern:    #cba6f7;  --c-concern-ink:  #d6b9f8;  --c-concern-wash: #221733;  --c-concern-edge: #3d2a59;
+    --c-page:       #89b4fa;  --c-page-ink:     #a6c6fb;  --c-page-wash:    #131f33;  --c-page-edge:    #29426b;
+    --c-external:   #9095ab;  --c-external-ink: #a3a8bd;  --c-external-wash:#1c1d24;  --c-external-edge:#34363f;
+
+    --graph-bg-a:   #1c1a12;
+    --graph-bg-b:   #131109;
+    --graph-grid:   rgba(241,234,217,0.035);
+    --edge:         #4a4330;
+    --edge-strong:  #6a5f43;
+
+    --shadow-card:  0 22px 50px -16px rgba(0,0,0,0.66), 0 2px 10px rgba(0,0,0,0.4);
+    --shadow-modal: 0 46px 120px -24px rgba(0,0,0,0.78), 0 10px 30px rgba(0,0,0,0.5);
+    --scrim:        rgba(8,6,3,0.62);
+
+    --grain-a:      rgba(232,181,74,0.04);
+    --grain-b:      rgba(137,180,250,0.035);
+
+    color-scheme: dark;
+  }
+
+  :root{
+    --sans: "Inter", -apple-system, system-ui, sans-serif;
+    --serif:"Newsreader", Georgia, serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    --topbar-h: 56px;
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+
+  html,body{ height:100%; }
+  body{
+    font-family:var(--sans);
+    background:var(--paper);
+    color:var(--ink);
+    font-size:15px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    background-image:
+      radial-gradient(circle at 18% 12%, var(--grain-a), transparent 42%),
+      radial-gradient(circle at 88% 78%, var(--grain-b), transparent 46%);
+    transition:background-color .35s ease, color .35s ease;
+  }
+
+  code, pre, kbd, samp, .mono{
+    font-family:var(--mono);
+    font-variant-ligatures:none;
+    font-feature-settings:"liga" 0, "clig" 0, "calt" 0, "ss01" 0;
+  }
+
+  a{ color:inherit; text-decoration:none; }
+
+  /* ============ APP SHELL ============ */
+  .app{
+    display:grid;
+    grid-template-columns: 244px minmax(0,1fr) 300px;
+    grid-template-rows: var(--topbar-h) 1fr;
+    grid-template-areas:
+      "top  top   top"
+      "nav  main  rail";
+    height:100vh;
+    width:1680px;
+    max-width:100%;
+  }
+
+  /* ============ TOP BAR ============ */
+  .topbar{
+    grid-area:top;
+    display:flex;
+    align-items:center;
+    gap:18px;
+    padding:0 20px 0 24px;
+    background:color-mix(in srgb, var(--paper) 82%, transparent);
+    backdrop-filter:saturate(1.1) blur(8px);
+    border-bottom:1px solid var(--hairline);
+    z-index:30;
+  }
+  .brand{
+    display:flex; align-items:center; gap:9px;
+    font-weight:600; font-size:15.5px; letter-spacing:-0.01em;
+    flex-shrink:0;
+  }
+  .brand .diamond{
+    color:var(--amber-bright);
+    font-size:13px;
+    transform:translateY(0.5px);
+    filter:drop-shadow(0 1px 2px color-mix(in srgb, var(--amber-bright) 35%, transparent));
+  }
+  .pill{
+    font-family:var(--mono);
+    font-size:9.5px; font-weight:500;
+    letter-spacing:0.13em;
+    color:var(--amber);
+    background:var(--amber-wash);
+    border:1px solid var(--amber-edge);
+    padding:2px 7px 1px;
+    border-radius:5px;
+    text-transform:uppercase;
+  }
+  .breadcrumb{
+    display:flex; align-items:center; gap:9px;
+    font-size:13px; color:var(--ink-faint);
+    flex:1; min-width:0;
+  }
+  .breadcrumb .sep{ color:var(--ink-ghost); font-size:11px; }
+  .breadcrumb .crumb-here{
+    font-family:var(--mono); font-size:12.5px;
+    color:var(--ink); font-weight:500;
+  }
+  .search{
+    display:flex; align-items:center; gap:9px;
+    width:236px;
+    background:var(--paper-raised);
+    border:1px solid var(--hairline-2);
+    border-radius:9px;
+    padding:7px 11px;
+    color:var(--ink-faint);
+    font-size:13px;
+    box-shadow:0 1px 2px rgba(0,0,0,0.025);
+    transition:border-color .15s, box-shadow .15s;
+    flex-shrink:0;
+  }
+  .search:hover{ border-color:var(--amber-edge); }
+  .search svg{ flex-shrink:0; color:var(--ink-ghost); }
+  .search .ph{ flex:1; }
+  .kbd{
+    font-family:var(--sans); font-size:11px; font-weight:500;
+    color:var(--ink-faint);
+    background:var(--paper-sunk);
+    border:1px solid var(--hairline-2);
+    border-bottom-width:2px;
+    border-radius:5px;
+    padding:1px 6px;
+    letter-spacing:0.02em;
+  }
+
+  /* theme toggle */
+  .theme-toggle{
+    flex-shrink:0;
+    width:34px; height:34px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--paper-raised);
+    border:1px solid var(--hairline-2);
+    border-radius:9px;
+    color:var(--ink-faint);
+    cursor:pointer;
+    transition:border-color .15s, color .15s, background .15s, transform .15s;
+  }
+  .theme-toggle:hover{
+    border-color:var(--amber-edge);
+    color:var(--amber);
+    transform:translateY(-1px);
+  }
+  .theme-toggle svg{ display:block; }
+  .theme-toggle .i-sun{ display:none; }
+  .theme-toggle .i-moon{ display:block; }
+  [data-theme="dark"] .theme-toggle .i-sun{ display:block; }
+  [data-theme="dark"] .theme-toggle .i-moon{ display:none; }
+
+  /* ============ LEFT NAV ============ */
+  .nav{
+    grid-area:nav;
+    background:var(--paper-sunk);
+    border-right:1px solid var(--hairline);
+    padding:22px 14px 20px;
+    overflow-y:auto;
+  }
+  .nav-section{
+    font-family:var(--mono);
+    font-size:10px; font-weight:500;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--ink-ghost);
+    padding:0 8px;
+    margin:0 0 9px;
+  }
+  .nav-section.spaced{ margin-top:26px; }
+
+  .nav-item, .tree-leaf, .tree-branch > .tree-row{
+    display:flex; align-items:center; gap:8px;
+    font-size:13.5px;
+    color:var(--ink-soft);
+    padding:5px 8px;
+    border-radius:7px;
+    cursor:pointer;
+    transition:background .12s, color .12s;
+  }
+  .nav-item:hover, .tree-leaf:hover, .tree-row:hover{
+    background:color-mix(in srgb, var(--ink) 5%, transparent);
+    color:var(--ink);
+  }
+  .nav-item .ico, .tree-leaf .ico, .tree-row .ico{
+    color:var(--ink-ghost);
+    flex-shrink:0;
+    display:flex;
+  }
+  .nav-item .lbl{ font-family:var(--mono); font-size:12.5px; }
+
+  .nav-item.active{
+    background:var(--amber-wash);
+    color:var(--amber);
+    font-weight:500;
+    box-shadow:inset 2px 0 0 var(--amber-bright);
+  }
+  .nav-item.active .ico{ color:var(--amber); }
+
+  .tree{ margin-top:2px; }
+  .tree-branch > .tree-row{
+    font-family:var(--mono); font-size:12.5px;
+    color:var(--ink); font-weight:500;
+  }
+  .tree-row .chev{ color:var(--ink-ghost); flex-shrink:0; }
+  .tree-children{ margin-left:11px; padding-left:11px; border-left:1px solid var(--hairline-2); }
+  .tree-leaf{ font-family:var(--mono); font-size:12.5px; }
+  .tree-leaf .dot{
+    width:5px; height:5px; border-radius:50%; flex-shrink:0; margin-left:2px;
+  }
+  .dot-repo{ background:var(--c-repo); }
+  .dot-concern{ background:var(--c-concern); }
+  .dot-knowledge{ background:var(--c-knowledge); }
+
+  /* ============ MAIN — GRAPH PANE ============ */
+  .main{
+    grid-area:main;
+    position:relative;
+    overflow:hidden;
+    display:flex;
+    flex-direction:column;
+    background:
+      linear-gradient(160deg, var(--graph-bg-a), var(--graph-bg-b));
+  }
+  /* dotted grid texture behind the graph */
+  .main::before{
+    content:"";
+    position:absolute; inset:0;
+    background-image:radial-gradient(var(--graph-grid) 1.2px, transparent 1.2px);
+    background-size:26px 26px;
+    pointer-events:none;
+  }
+
+  .graph-head{
+    position:relative; z-index:2;
+    display:flex; align-items:center; gap:16px;
+    padding:20px 32px 0;
+  }
+  .pane-toggle{
+    display:inline-flex;
+    align-items:center;
+    background:var(--paper-sunk);
+    border:1px solid var(--hairline-2);
+    border-radius:9px;
+    padding:3px;
+    gap:2px;
+  }
+  .pane-toggle button{
+    font-family:var(--sans);
+    font-size:12.5px; font-weight:500;
+    color:var(--ink-faint);
+    background:transparent;
+    border:none; cursor:pointer;
+    padding:5px 16px;
+    border-radius:6px;
+    letter-spacing:0.01em;
+    transition:all .14s;
+  }
+  .pane-toggle button.on{
+    color:var(--ink);
+    background:var(--paper-raised);
+    box-shadow:0 1px 2px rgba(0,0,0,0.10), 0 0 0 1px var(--hairline-2);
+  }
+  .graph-eyebrow{
+    font-family:var(--mono);
+    font-size:10.5px; letter-spacing:0.18em; text-transform:uppercase;
+    color:var(--ink-ghost);
+  }
+  .graph-eyebrow b{ color:var(--ink-soft); font-weight:500; }
+
+  .graph-stage{
+    position:relative; z-index:1;
+    flex:1;
+    display:flex; align-items:center; justify-content:center;
+    padding:8px 32px 28px;
+    min-height:0;
+  }
+  .graph-stage svg{
+    width:100%; height:100%;
+    max-width:980px;
+    display:block;
+    overflow:visible;
+  }
+
+  /* graph elements */
+  .g-edge{ stroke:var(--edge); stroke-width:1.5; fill:none; transition:stroke .35s; }
+  .g-edge.bi{ stroke:var(--edge-strong); stroke-width:1.7; }
+  .g-node-hit{ cursor:pointer; }
+  .g-ring{ transition:filter .18s, transform .18s; }
+  .g-node-hit:hover .g-ring{ filter:brightness(1.04); }
+  .g-label{
+    font-family:var(--mono);
+    font-size:12px; font-weight:500;
+    fill:var(--ink-soft);
+    transition:fill .35s;
+  }
+  .g-label.is-page{ fill:var(--ink); font-weight:600; }
+
+  /* legend chip overlaying the stage */
+  .graph-legend{
+    position:absolute;
+    left:34px; bottom:24px; z-index:3;
+    display:flex; flex-direction:column; gap:8px;
+    background:color-mix(in srgb, var(--paper-raised) 88%, transparent);
+    backdrop-filter:blur(6px);
+    border:1px solid var(--hairline-2);
+    border-radius:11px;
+    padding:13px 15px;
+    box-shadow:0 4px 16px -8px rgba(0,0,0,0.25);
+  }
+  .graph-legend .lg-title{
+    font-family:var(--mono); font-size:9px; font-weight:500;
+    letter-spacing:0.2em; text-transform:uppercase;
+    color:var(--ink-ghost); margin-bottom:2px;
+  }
+  .leg{
+    display:flex; align-items:center; gap:9px;
+    font-size:11.5px; color:var(--ink-soft);
+    font-family:var(--mono);
+  }
+  .leg .swatch{
+    width:9px; height:9px; border-radius:50%;
+    box-shadow:0 0 0 3px color-mix(in srgb, currentColor 0%, transparent);
+  }
+
+  /* count chip top-right of stage */
+  .graph-meta{
+    position:absolute;
+    right:34px; bottom:24px; z-index:3;
+    font-family:var(--mono); font-size:10.5px;
+    color:var(--ink-ghost);
+    letter-spacing:0.04em;
+  }
+  .graph-meta b{ color:var(--ink-soft); font-weight:500; }
+
+  /* ============ RIGHT RAIL ============ */
+  .rail{
+    grid-area:rail;
+    background:var(--paper-sunk);
+    border-left:1px solid var(--hairline);
+    overflow-y:auto;
+    padding:26px 22px 40px;
+  }
+  .rail-block{ margin-bottom:30px; }
+  .rail-label{
+    font-family:var(--mono);
+    font-size:9.5px; font-weight:500;
+    letter-spacing:0.2em;
+    text-transform:uppercase;
+    color:var(--ink-ghost);
+    margin-bottom:13px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .rail-label::after{
+    content:""; flex:1; height:1px; background:var(--hairline-2);
+  }
+  .rail-lede{
+    font-family:var(--serif);
+    font-style:italic;
+    font-size:15.5px;
+    line-height:1.5;
+    color:var(--ink-soft);
+  }
+  .focus-list{ display:flex; flex-direction:column; gap:3px; }
+  .focus-row{
+    display:flex; align-items:center; gap:9px;
+    padding:6px 8px;
+    border-radius:7px;
+    cursor:pointer;
+    transition:background .12s;
+  }
+  .focus-row:hover{ background:color-mix(in srgb, var(--ink) 5%, transparent); }
+  .focus-row .fdot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .focus-row .fname{ font-family:var(--mono); font-size:12px; color:var(--ink); flex:1; }
+  .focus-row .ftag{
+    font-family:var(--mono); font-size:9px; letter-spacing:0.06em;
+    text-transform:uppercase;
+    padding:1px 6px; border-radius:4px;
+  }
+  .ftag.repo{ color:var(--c-repo-ink); background:var(--c-repo-wash); }
+  .ftag.knowledge{ color:var(--c-knowledge-ink); background:var(--c-knowledge-wash); }
+  .ftag.concern{ color:var(--c-concern-ink); background:var(--c-concern-wash); }
+  .ftag.page{ color:var(--c-page-ink); background:var(--c-page-wash); }
+
+  .hint{
+    font-size:12px; line-height:1.55;
+    color:var(--ink-faint);
+    background:var(--paper-raised);
+    border:1px solid var(--hairline-2);
+    border-radius:9px;
+    padding:11px 13px;
+  }
+  .hint .k{
+    font-family:var(--mono); font-size:11px;
+    color:var(--ink-soft);
+    background:var(--paper-sunk);
+    border:1px solid var(--hairline-2);
+    border-radius:4px; padding:0 5px;
+  }
+
+  /* ============================================================
+     HOVER PREVIEW CARD (anchored near caching-patterns node)
+     ============================================================ */
+  .preview-card{
+    position:absolute;
+    z-index:40;
+    width:284px;
+    background:var(--paper-raised);
+    border:1px solid var(--hairline-2);
+    border-radius:13px;
+    box-shadow:var(--shadow-card);
+    padding:16px 17px 17px;
+    /* default anchored position; tweak via inline left/top in markup */
+    opacity:0; transform:translateY(4px) scale(0.985);
+    pointer-events:none;
+    transition:opacity .16s ease, transform .16s ease;
+  }
+  .preview-card.open{ opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+  .preview-card::after{
+    /* little pointer toward the node */
+    content:"";
+    position:absolute; left:38px; top:-7px;
+    width:13px; height:13px;
+    background:var(--paper-raised);
+    border-left:1px solid var(--hairline-2);
+    border-top:1px solid var(--hairline-2);
+    transform:rotate(45deg);
+  }
+  .pc-chip{
+    display:inline-flex; align-items:center; gap:6px;
+    font-family:var(--mono); font-size:10px; letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--c-knowledge-ink);
+    background:var(--c-knowledge-wash);
+    border:1px solid var(--c-knowledge-edge);
+    padding:2px 9px 2px 7px; border-radius:6px;
+    margin-bottom:11px;
+  }
+  .pc-chip::before{
+    content:""; width:6px; height:6px; border-radius:50%;
+    background:var(--c-knowledge);
+  }
+  .pc-title{
+    font-family:var(--serif); font-weight:600;
+    font-size:21px; line-height:1.12; letter-spacing:-0.01em;
+    color:var(--ink);
+    margin-bottom:7px;
+  }
+  .pc-desc{
+    font-family:var(--serif); font-style:italic;
+    font-size:14.5px; line-height:1.45;
+    color:var(--ink-soft);
+    margin-bottom:12px;
+  }
+  .pc-snip{
+    font-size:12.5px; line-height:1.58;
+    color:var(--ink-faint);
+    padding-top:11px;
+    border-top:1px solid var(--hairline);
+  }
+  .pc-snip b{ color:var(--ink-soft); font-weight:600; }
+
+  /* ============================================================
+     CLICK → CONTENT MODAL (dimmed/blurred graph backdrop)
+     ============================================================ */
+  .modal-scrim{
+    position:fixed; inset:0; z-index:50;
+    display:none;
+    align-items:center; justify-content:center;
+    background:var(--scrim);
+    backdrop-filter:blur(7px) saturate(0.92);
+    padding:40px;
+  }
+  .modal-scrim.open{ display:flex; animation:scrim-in .22s ease; }
+  @keyframes scrim-in{ from{opacity:0;} to{opacity:1;} }
+
+  .modal{
+    position:relative;
+    width:660px; max-width:100%;
+    max-height:86vh;
+    overflow-y:auto;
+    background:var(--paper);
+    border:1px solid var(--hairline-2);
+    border-radius:18px;
+    box-shadow:var(--shadow-modal);
+    padding:42px 48px 44px;
+    animation:modal-in .24s cubic-bezier(.2,.7,.2,1);
+  }
+  @keyframes modal-in{
+    from{ opacity:0; transform:translateY(10px) scale(0.98); }
+    to{   opacity:1; transform:translateY(0) scale(1); }
+  }
+  /* hairline edge glow to read as "elevated above the graph" */
+  .modal::before{
+    content:""; position:absolute; inset:0; border-radius:18px;
+    box-shadow:inset 0 1px 0 color-mix(in srgb, var(--ink) 6%, transparent);
+    pointer-events:none;
+  }
+
+  .modal-close{
+    position:absolute; top:18px; right:18px;
+    width:32px; height:32px;
+    display:flex; align-items:center; justify-content:center;
+    background:var(--paper-sunk);
+    border:1px solid var(--hairline-2);
+    border-radius:8px;
+    color:var(--ink-faint);
+    cursor:pointer;
+    transition:color .14s, border-color .14s;
+  }
+  .modal-close:hover{ color:var(--ink); border-color:var(--ink-ghost); }
+
+  .m-chip{
+    display:inline-flex; align-items:center; gap:7px;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--c-knowledge-ink);
+    background:var(--c-knowledge-wash);
+    border:1px solid var(--c-knowledge-edge);
+    padding:3px 11px 3px 8px; border-radius:6px;
+    margin-bottom:16px;
+  }
+  .m-chip::before{
+    content:""; width:7px; height:7px; border-radius:50%;
+    background:var(--c-knowledge);
+    box-shadow:0 0 0 3px var(--c-knowledge-wash);
+  }
+  .m-title{
+    font-family:var(--serif); font-weight:500;
+    font-size:40px; line-height:1.05; letter-spacing:-0.018em;
+    color:var(--ink);
+    margin-bottom:12px;
+  }
+  .m-desc{
+    font-family:var(--serif); font-style:italic;
+    font-size:18px; line-height:1.5;
+    color:var(--ink-soft);
+    max-width:54ch;
+    margin-bottom:22px;
+  }
+
+  /* compact properties strip */
+  .m-props{
+    display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px;
+    padding:14px 0 18px;
+    border-top:1px solid var(--hairline);
+    border-bottom:1px solid var(--hairline);
+    margin-bottom:30px;
+  }
+  .m-prop{
+    display:inline-flex; align-items:baseline; gap:7px;
+    font-size:12.5px; color:var(--ink-soft);
+  }
+  .m-prop .pk{
+    font-family:var(--mono); font-size:10px; letter-spacing:0.04em;
+    text-transform:uppercase; color:var(--ink-ghost);
+  }
+  .m-prop .pv-type{
+    font-family:var(--mono); font-size:10.5px; letter-spacing:0.05em;
+    color:var(--c-knowledge-ink);
+    background:var(--c-knowledge-wash);
+    border:1px solid var(--c-knowledge-edge);
+    padding:1px 8px; border-radius:5px;
+  }
+  .m-tag{
+    font-size:11.5px; color:var(--ink-soft);
+    background:var(--paper-raised);
+    border:1px solid var(--hairline-2);
+    padding:1px 9px; border-radius:20px;
+  }
+  .m-tag::before{ content:"#"; color:var(--ink-ghost); margin-right:1px; }
+  .m-prop a.pv-link{
+    color:var(--amber);
+    border-bottom:1px solid var(--amber-edge);
+    font-size:12px; word-break:break-all;
+  }
+  .m-divider{ width:1px; height:13px; background:var(--hairline-2); }
+
+  /* rendered body */
+  .m-body{ max-width:60ch; }
+  .m-body h2{
+    font-family:var(--serif); font-weight:600;
+    font-size:24px; line-height:1.15; letter-spacing:-0.012em;
+    color:var(--ink);
+    margin:28px 0 11px;
+    position:relative;
+  }
+  .m-body h2:first-child{ margin-top:0; }
+  .m-body h2::before{
+    content:""; position:absolute;
+    left:-20px; top:8px;
+    width:8px; height:8px; border-radius:2px;
+    background:var(--amber-bright);
+    transform:rotate(45deg);
+    box-shadow:0 0 0 4px var(--amber-wash);
+  }
+  .m-body p{
+    font-size:16px; line-height:1.7;
+    color:var(--ink-soft);
+    margin-bottom:16px;
+  }
+  .m-body a{
+    color:var(--amber);
+    border-bottom:1px solid var(--amber-edge);
+    font-weight:500;
+    transition:color .14s, border-color .14s;
+  }
+  .m-body a:hover{ color:var(--amber-bright); border-bottom-color:var(--amber-bright); }
+
+  .m-actions{
+    display:flex; align-items:center; gap:14px;
+    margin-top:34px;
+    padding-top:24px;
+    border-top:1px solid var(--hairline);
+  }
+  .btn-primary{
+    display:inline-flex; align-items:center; gap:9px;
+    font-family:var(--sans); font-size:14px; font-weight:600;
+    color:#241a05;
+    background:linear-gradient(180deg, var(--amber-bright), var(--amber));
+    border:1px solid var(--amber);
+    border-radius:10px;
+    padding:11px 20px;
+    cursor:pointer;
+    letter-spacing:0.005em;
+    box-shadow:0 2px 8px -2px color-mix(in srgb, var(--amber) 55%, transparent);
+    transition:transform .14s, box-shadow .14s, filter .14s;
+  }
+  .btn-primary:hover{ transform:translateY(-1px); filter:brightness(1.04); box-shadow:0 6px 16px -4px color-mix(in srgb, var(--amber) 60%, transparent); }
+  .btn-primary svg{ display:block; }
+  .btn-ghost{
+    font-family:var(--sans); font-size:13.5px; font-weight:500;
+    color:var(--ink-faint);
+    background:transparent;
+    border:none; cursor:pointer;
+    padding:11px 6px;
+    transition:color .14s;
+  }
+  .btn-ghost:hover{ color:var(--ink); }
+
+  /* scrollbars */
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb{ background:var(--hairline-2); border-radius:6px; border:3px solid transparent; background-clip:content-box; }
+  ::-webkit-scrollbar-thumb:hover{ background:var(--ink-ghost); background-clip:content-box; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="brand"><span class="diamond">◆</span> atomic</div>
+    <span class="pill">realm</span>
+    <nav class="breadcrumb">
+      <span>system</span>
+      <span class="sep">›</span>
+      <span class="crumb-here">graph</span>
+    </nav>
+    <div class="search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span class="ph">Search…</span>
+      <span class="kbd">⌘K</span>
+    </div>
+    <button class="theme-toggle" id="themeToggle" aria-label="Toggle theme" title="Toggle light / dark">
+      <svg class="i-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8"/></svg>
+    </button>
+  </header>
+
+  <!-- ============ LEFT NAV ============ -->
+  <aside class="nav">
+    <div class="nav-section">Docs</div>
+    <div class="nav-item">
+      <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h10l4 4v12.5a1.5 1.5 0 0 1-1.5 1.5H6a2 2 0 0 1-2-2z"/><path d="M15 3v5h5"/></svg></span>
+      <span class="lbl">index</span>
+    </div>
+    <div class="nav-item active">
+      <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.4"/><circle cx="18" cy="7" r="2.4"/><circle cx="9" cy="18" r="2.4"/><path d="M7.7 7.4l-.4 9M8 5.6l8 1M17.4 9.3l-7.8 7.3"/></svg></span>
+      <span class="lbl">system graph</span>
+    </div>
+
+    <div class="nav-section spaced">Code</div>
+    <div class="tree">
+      <div class="tree-branch">
+        <div class="tree-row">
+          <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+          <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          repos/
+        </div>
+        <div class="tree-children">
+          <div class="tree-leaf"><span class="dot dot-repo"></span>alpha-service</div>
+          <div class="tree-leaf"><span class="dot dot-repo"></span>beta-lib</div>
+        </div>
+      </div>
+      <div class="tree-branch">
+        <div class="tree-row">
+          <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+          <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          concerns/
+        </div>
+        <div class="tree-children">
+          <div class="tree-leaf"><span class="dot dot-concern"></span>auth-strategy</div>
+        </div>
+      </div>
+      <div class="tree-branch">
+        <div class="tree-row">
+          <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+          <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          knowledge/
+        </div>
+        <div class="tree-children">
+          <div class="tree-leaf"><span class="dot dot-knowledge"></span>api-conventions</div>
+          <div class="tree-leaf"><span class="dot dot-knowledge"></span>caching-patterns</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN — SYSTEM GRAPH ============ -->
+  <main class="main">
+
+    <div class="graph-head">
+      <div class="pane-toggle">
+        <button>page</button>
+        <button class="on">system</button>
+      </div>
+      <span class="graph-eyebrow">Relationship graph · <b>6 nodes</b> · <b>8 edges</b></span>
+    </div>
+
+    <div class="graph-stage">
+      <!--
+        Node coordinates on a 980×560 canvas.
+        page    index            490,90
+        repo    alpha-service    250,250
+        repo    beta-lib         210,440
+        concern auth-strategy    730,170
+        know    caching-patterns 600,380
+        know    api-conventions  790,470
+      -->
+      <svg viewBox="0 0 980 560" role="img" aria-label="System relationship graph">
+        <defs>
+          <marker id="ah" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto-start-reverse">
+            <path d="M0,0 L6.4,3 L0,6 Z" fill="var(--edge)"/>
+          </marker>
+          <marker id="ah-b" markerWidth="9" markerHeight="9" refX="7.5" refY="3" orient="auto-start-reverse">
+            <path d="M0,0 L6.4,3 L0,6 Z" fill="var(--edge-strong)"/>
+          </marker>
+          <!-- node soft glow -->
+          <filter id="nodeglow" x="-60%" y="-60%" width="220%" height="220%">
+            <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="rgba(0,0,0,0.18)"/>
+          </filter>
+        </defs>
+
+        <!-- ===== EDGES (drawn first, under nodes) ===== -->
+        <!-- index → alpha-service -->
+        <path class="g-edge" d="M468,108 L286,234" marker-end="url(#ah)"/>
+        <!-- index → auth-strategy -->
+        <path class="g-edge" d="M517,98 L706,156" marker-end="url(#ah)"/>
+        <!-- index → caching-patterns -->
+        <path class="g-edge" d="M507,114 L588,356" marker-end="url(#ah)"/>
+        <!-- index → api-conventions -->
+        <path class="g-edge" d="M518,105 L772,448" marker-end="url(#ah)"/>
+        <!-- index → beta-lib (gentle curve to avoid alpha-service) -->
+        <path class="g-edge" d="M466,104 C330,150 220,300 213,414" marker-end="url(#ah)"/>
+        <!-- alpha-service ↔ beta-lib (bidirectional) -->
+        <path class="g-edge bi" d="M243,278 L221,414" marker-start="url(#ah-b)" marker-end="url(#ah-b)"/>
+        <!-- alpha-service → caching-patterns -->
+        <path class="g-edge" d="M280,262 L573,372" marker-end="url(#ah)"/>
+        <!-- caching-patterns → api-conventions -->
+        <path class="g-edge" d="M620,402 L772,452" marker-end="url(#ah)"/>
+
+        <!-- ===== NODES ===== -->
+        <!-- index (page / blue) -->
+        <g class="g-node-hit">
+          <circle class="g-ring" cx="490" cy="90" r="24" fill="var(--c-page-wash)" stroke="var(--c-page)" stroke-width="2.6" filter="url(#nodeglow)"/>
+          <circle cx="490" cy="90" r="7" fill="var(--c-page)" stroke="var(--c-page-ink)" stroke-width="1.1"/>
+          <text class="g-label is-page" x="490" y="58" text-anchor="middle">index</text>
+        </g>
+
+        <!-- alpha-service (repo / green) -->
+        <g class="g-node-hit">
+          <circle class="g-ring" cx="250" cy="250" r="21" fill="var(--c-repo-wash)" stroke="var(--c-repo)" stroke-width="2.4" filter="url(#nodeglow)"/>
+          <circle cx="250" cy="250" r="6" fill="var(--c-repo)" stroke="var(--c-repo-ink)" stroke-width="1.1"/>
+          <text class="g-label" x="250" y="223" text-anchor="middle">alpha-service</text>
+        </g>
+
+        <!-- beta-lib (repo / green) -->
+        <g class="g-node-hit">
+          <circle class="g-ring" cx="210" cy="440" r="21" fill="var(--c-repo-wash)" stroke="var(--c-repo)" stroke-width="2.4" filter="url(#nodeglow)"/>
+          <circle cx="210" cy="440" r="6" fill="var(--c-repo)" stroke="var(--c-repo-ink)" stroke-width="1.1"/>
+          <text class="g-label" x="210" y="478" text-anchor="middle">beta-lib</text>
+        </g>
+
+        <!-- auth-strategy (concern / purple) -->
+        <g class="g-node-hit">
+          <circle class="g-ring" cx="730" cy="170" r="21" fill="var(--c-concern-wash)" stroke="var(--c-concern)" stroke-width="2.4" filter="url(#nodeglow)"/>
+          <circle cx="730" cy="170" r="6" fill="var(--c-concern)" stroke="var(--c-concern-ink)" stroke-width="1.1"/>
+          <text class="g-label" x="730" y="143" text-anchor="middle">auth-strategy</text>
+        </g>
+
+        <!-- caching-patterns (knowledge / pink) — the hover/click subject -->
+        <g class="g-node-hit" id="cachingNode">
+          <circle class="g-ring" cx="600" cy="380" r="23" fill="var(--c-knowledge-wash)" stroke="var(--c-knowledge)" stroke-width="2.6" filter="url(#nodeglow)"/>
+          <circle cx="600" cy="380" r="6.5" fill="var(--c-knowledge)" stroke="var(--c-knowledge-ink)" stroke-width="1.2"/>
+          <text class="g-label" x="600" y="419" text-anchor="middle">caching-patterns</text>
+        </g>
+
+        <!-- api-conventions (knowledge / pink) -->
+        <g class="g-node-hit">
+          <circle class="g-ring" cx="790" cy="470" r="21" fill="var(--c-knowledge-wash)" stroke="var(--c-knowledge)" stroke-width="2.4" filter="url(#nodeglow)"/>
+          <circle cx="790" cy="470" r="6" fill="var(--c-knowledge)" stroke="var(--c-knowledge-ink)" stroke-width="1.1"/>
+          <text class="g-label" x="790" y="508" text-anchor="middle">api-conventions</text>
+        </g>
+      </svg>
+    </div>
+
+    <!-- legend overlay -->
+    <div class="graph-legend">
+      <div class="lg-title">Node type</div>
+      <span class="leg"><span class="swatch" style="background:var(--c-page)"></span>page</span>
+      <span class="leg"><span class="swatch" style="background:var(--c-repo)"></span>repo</span>
+      <span class="leg"><span class="swatch" style="background:var(--c-concern)"></span>concern</span>
+      <span class="leg"><span class="swatch" style="background:var(--c-knowledge)"></span>knowledge</span>
+    </div>
+    <div class="graph-meta">hover a node to preview · <b>click</b> to open</div>
+
+    <!-- ============ HOVER PREVIEW CARD (anchored near caching-patterns) ============ -->
+    <!-- caching-patterns sits at SVG 600,380 within a ≤980-wide stage centered in main.
+         The card is positioned in main-pixel space, just below-right of that node. -->
+    <div class="preview-card" id="previewCard" style="left:560px; top:402px;">
+      <span class="pc-chip">Knowledge</span>
+      <div class="pc-title">Caching Patterns</div>
+      <div class="pc-desc">Cache-aside vs write-through tradeoffs.</div>
+      <div class="pc-snip"><b>Read-through on miss</b>, write to cache after DB. Used by Alpha Service for rate tables.</div>
+    </div>
+
+  </main>
+
+  <!-- ============ RIGHT RAIL ============ -->
+  <aside class="rail">
+    <section class="rail-block">
+      <div class="rail-label">Realm</div>
+      <p class="rail-lede">Six concepts, eight relationships. Index fans out to every member; the knowledge pages settle to the lower right.</p>
+    </section>
+
+    <section class="rail-block">
+      <div class="rail-label">In focus</div>
+      <div class="focus-list">
+        <div class="focus-row"><span class="fdot" style="background:var(--c-page)"></span><span class="fname">index</span><span class="ftag page">page</span></div>
+        <div class="focus-row"><span class="fdot" style="background:var(--c-repo)"></span><span class="fname">alpha-service</span><span class="ftag repo">repo</span></div>
+        <div class="focus-row"><span class="fdot" style="background:var(--c-repo)"></span><span class="fname">beta-lib</span><span class="ftag repo">repo</span></div>
+        <div class="focus-row"><span class="fdot" style="background:var(--c-concern)"></span><span class="fname">auth-strategy</span><span class="ftag concern">conc</span></div>
+        <div class="focus-row"><span class="fdot" style="background:var(--c-knowledge)"></span><span class="fname">caching-patterns</span><span class="ftag knowledge">know</span></div>
+        <div class="focus-row"><span class="fdot" style="background:var(--c-knowledge)"></span><span class="fname">api-conventions</span><span class="ftag knowledge">know</span></div>
+      </div>
+    </section>
+
+    <section class="rail-block">
+      <div class="rail-label">Navigate</div>
+      <p class="hint">Hover any node for a quick preview. <span class="k">click</span> opens the page in place — full reading view is one button away.</p>
+    </section>
+  </aside>
+
+</div>
+
+<!-- ============ CONTENT MODAL (over dimmed graph) ============ -->
+<div class="modal-scrim" id="modalScrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-label="Caching Patterns">
+    <button class="modal-close" id="modalClose" aria-label="Close">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+
+    <span class="m-chip">Knowledge</span>
+    <h1 class="m-title">Caching Patterns</h1>
+    <p class="m-desc">Cache-aside vs write-through tradeoffs.</p>
+
+    <div class="m-props">
+      <span class="m-prop"><span class="pk">type</span><span class="pv-type">Knowledge</span></span>
+      <span class="m-divider"></span>
+      <span class="m-prop"><span class="pk">tags</span><span class="m-tag">caching</span><span class="m-tag">performance</span></span>
+      <span class="m-divider"></span>
+      <span class="m-prop"><span class="pk">resource</span><a class="pv-link" href="https://martinfowler.com/bliki/TwoHardThings.html" target="_blank" rel="noreferrer">martinfowler.com/…/TwoHardThings</a></span>
+    </div>
+
+    <article class="m-body">
+      <h2>Cache-aside</h2>
+      <p>Read-through on miss, write to cache after DB. Used by <a href="#">Alpha Service</a> for rate tables.</p>
+      <h2>Write-through</h2>
+      <p>Write to cache and DB synchronously. See <a href="#">API Conventions</a> for the error contract when the cache write fails.</p>
+    </article>
+
+    <div class="m-actions">
+      <button class="btn-primary">
+        Open full page
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+      </button>
+      <button class="btn-ghost" id="modalCloseText">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+
+    // ----- THEME (from ?theme=, default light) + live toggle -----
+    var theme = params.get('theme') === 'dark' ? 'dark' : 'light';
+    var root = document.documentElement;
+    root.setAttribute('data-theme', theme);
+
+    document.getElementById('themeToggle').addEventListener('click', function () {
+      var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', next);
+    });
+
+    // ----- OVERLAY (from ?overlay=tooltip|modal|none, default none) -----
+    var overlay = params.get('overlay') || 'none';
+    var card = document.getElementById('previewCard');
+    var scrim = document.getElementById('modalScrim');
+
+    function openCard()  { card.classList.add('open'); }
+    function closeCard() { card.classList.remove('open'); }
+    function openModal() { scrim.classList.add('open'); }
+    function closeModal(){ scrim.classList.remove('open'); }
+
+    if (overlay === 'tooltip') openCard();
+    if (overlay === 'modal')   openModal();
+
+    // ----- Live interactions (so it works beyond the forced URL state) -----
+    var cachingNode = document.getElementById('cachingNode');
+    if (cachingNode) {
+      cachingNode.addEventListener('mouseenter', openCard);
+      cachingNode.addEventListener('mouseleave', function () {
+        if (overlay !== 'tooltip') closeCard();
+      });
+      cachingNode.addEventListener('click', function () {
+        closeCard();
+        openModal();
+      });
+    }
+
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+    document.getElementById('modalCloseText').addEventListener('click', closeModal);
+    scrim.addEventListener('click', function (e) {
+      if (e.target === scrim) closeModal();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { closeModal(); if (overlay !== 'tooltip') closeCard(); }
+    });
+  })();
+</script>
+</body>
+</html>
