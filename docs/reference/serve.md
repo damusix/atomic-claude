@@ -47,13 +47,20 @@ The middle pane renders the focused markdown page; the right rail shows that pag
 
 Markdown renders via [goldmark](https://github.com/yuin/goldmark) (GitHub Flavored Markdown) with [chroma](https://github.com/alecthomas/chroma) syntax highlighting. Fenced ` ```mermaid ` blocks render client-side via vendored `mermaid.min.js`.
 
-In-page links are resolved server-side against the realm root, not the browser's current URL. A relative link like `../concerns/x.md` becomes a real route — `/page/<relpath>` for markdown pages and folders (navigated into the middle pane via htmx, so clicking never reloads the shell or loses your place), or `/file/<relpath>` for source files (which open the code modal). External `http(s)` links open in a new tab; in-page `#anchor` links and any link that would escape the realm are left untouched. A link to a page that does not exist still routes through `/page/`, so it lands on the in-shell "not found" fragment rather than a full-page navigation to a dead URL.
+In-page links are resolved server-side against the realm root, not the browser's current URL. Three link forms are supported:
+
+- **Bundle-relative** (`/path/to/page.md`) — a leading slash is resolved against the served root (OKF §5.1 recommended form). When the target exists under root it becomes an in-shell navigable route, exactly like a relative link. This is how cross-links between OKF concept pages (`knowledge/`, `concerns/`) render.
+- **Relative** (`../concerns/x.md`, `./other.md`) — resolved from the source page's directory.
+- **Obsidian wikilinks** (`[[page]]`, `[[page|alias]]`) — resolved by nearest-then-alphabetical rule; kept for back-compat tolerance.
+
+In all three cases, resolved routes become `/page/<relpath>` for markdown pages or folders (navigated via htmx, so clicking never reloads the shell or loses your place), or `/file/<relpath>` for source files (which open the code modal). External `http(s)` links open in a new tab; in-page `#anchor` links and any link that would escape the realm are left untouched. A link to a page that does not exist still routes through `/page/`, so it lands on the in-shell "not found" fragment rather than a full-page navigation to a dead URL.
 
 ### Right rail (`/rail/<page>`)
 
-For the focused page, a single request populates three slots:
+For the focused page, a single request populates four slots:
 
-- **This-page graph** — a depth-1 local link graph rendered as a compact Cytoscape mini-graph (data from `/graph/data?node=<page>&depth=1`).
+- **Properties** — YAML frontmatter key-value pairs, rendered as a table at the top of the rail. Scalar values pass through as-is; list values are comma-joined. The slot is hidden when no frontmatter is present. A frontmatter `resource:` key (or any property whose value is an `http(s)://` URL) is rendered as a clickable link — the OKF recommended form for surfacing an underlying asset or canonical source.
+- **This-page graph** — a depth-1 local link graph rendered as a compact Cytoscape mini-graph (data from `/graph/data?node=<page>&depth=1`). Nodes are colored by type, using the same hybrid resolver as the system graph.
 - **OUT links** — outbound links the page contains, with broken / ambiguous / external annotations. Links to source files open the code modal.
 - **IN links** — backlinks; an orphan note appears when nothing links to the page.
 
@@ -63,7 +70,8 @@ Links and backlinks come from `mdlink.ExtractLinks`, which parses markdown links
 
 The `[ page | system ]` toggle swaps the middle pane to the whole-realm graph (Cytoscape + ELK, fed by `/graph/data`) and collapses the right rail. Tapping a node returns to page view focused on that node.
 
-- Nodes are pages, repos, concerns, knowledge, and buckets.
+- Nodes are colored by OKF concept type. The type is resolved via a hybrid strategy: frontmatter `type:` (title-case values `Knowledge`, `Concern`, `Repo Summary` mapped to short lowercase classes) takes priority, then path-convention fallback (`wiki/repos/` → `repo`, `wiki/concerns/` → `concern`, `wiki/knowledge/` → `knowledge`, `wiki/.buckets/` → `bucket`, `http(s)://` hrefs → `external`), then `page` as a default.
+- A **type legend** appears below the graph. Each chip shows the type name and its count of visible nodes. Clicking a chip toggles that type's nodes on or off, so you can isolate concerns, or hide repos to see only knowledge pages and the edges between them.
 - Edges are drawn in three classes: markdown links, wikilinks, and fingerprint/provenance links (dashed). A provenance edge whose recorded fingerprint differs from the live content hash is drawn red — the drift signal from the `reflects:` / `sources:` chain.
 - Code edges are per-member sub-graphs; no cross-repo edges are drawn (federation, not merging).
 

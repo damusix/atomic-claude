@@ -92,7 +92,16 @@ The scan and `/refresh-wiki` write everything here. `repos/` and `concerns/` are
 
 The wiki is its own git repository — `atomic wiki scan` runs `git init` for you. There is no in-file change log; the wiki's git history is the change log. `/refresh-wiki` ends by offering to commit, never automatically.
 
-The wiki is a navigable markdown graph. The scan writes a managed `## Members` section into `index.md` that links to each member, in place to its signals or into `repos/` for a summary. `atomic wiki linkify` then turns the inline path citations across summaries, concerns, and the index into relative links to the files they name. Open the realm in Obsidian or any markdown server and click through it. The linkifier runs after fingerprint stamping, so it never disturbs staleness, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference.
+**OKF-aligned frontmatter.** The producer writes typed frontmatter on concept pages so `atomic serve` (and any OKF consumer) can color and filter by type:
+
+- `wiki/knowledge/<topic>.md` — gets `type: Knowledge` and `description: <one-line>` when written by the inferrer's bucket-synthesis pass.
+- `wiki/concerns/<name>.md` — gets `type: Concern` and `description: <one-line>` when written by `/refresh-wiki`.
+- `wiki/repos/<name>.md` — shape unchanged; no `type:` frontmatter added. `atomic serve` colors them via a path-convention fallback, so they render as `repo`-type nodes without any frontmatter change.
+- `index.md` — no frontmatter; the managed-block writer owns its content.
+
+Cross-links between concept pages (knowledge → concern, concern → knowledge) use standard bundle-relative markdown links (`[text](/wiki/knowledge/topic.md)`) — the OKF §5.1 recommended form. `atomic serve` resolves these as in-shell navigable routes. Relative links work too; bundle-relative links are preferred for cross-directory references because they are shorter and survive file moves within the bundle.
+
+The wiki is a navigable markdown graph. The scan writes a managed `## Members` section into `index.md` in OKF §6 listing form — each entry as `- [Name](target) - description`, with a one-line description drawn from the member's signals or a brief summary. `atomic wiki linkify` then turns the inline path citations across summaries, concerns, and the index into relative links to the files they name. Open the realm in Obsidian or any markdown server and click through it. The linkifier runs after fingerprint stamping, so it never disturbs staleness, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference.
 
 
 ## Repo states
