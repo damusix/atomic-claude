@@ -335,5 +335,83 @@ func TestPageHandler_FolderListingNoIndex(t *testing.T) {
 	}
 }
 
+// TestLinkGraph_LeadingSlashMarkdownLink verifies that resolveMarkdownLink treats
+// a leading-slash target as bundle-root-relative (same semantics as resolvePageHref)
+// rather than marking it Broken.
+//
+// OKF §5.1 form: `/repos/alpha.md` means the file at <root>/repos/alpha.md — it is
+// NOT an OS absolute path. Both resolvePageHref (render path) and resolveMarkdownLink
+// (graph-build path) must agree, otherwise a link renders as an in-shell href but the
+// right-rail OUT LINKS panel shows it with a broken ❌ marker.
+func TestLinkGraph_LeadingSlashMarkdownLink(t *testing.T) {
+	root := t.TempDir()
+	// Create a page that uses a leading-slash link, and the target page.
+	writeFile(t, filepath.Join(root, "index.md"),
+		"# Index\n\nSee [alpha](/repos/alpha.md) and [beta](/concerns/beta.md).\n")
+	writeFile(t, filepath.Join(root, "repos", "alpha.md"), "# Alpha\n")
+	writeFile(t, filepath.Join(root, "concerns", "beta.md"), "# Beta\n")
+
+	g := serve.BuildLinkGraph(root)
+
+	// ── case 1: leading-slash link to an existing .md page is NOT broken ─────
+	var alphaEdge, betaEdge *serve.Edge
+	for i := range g.Outbound("index.md") {
+		e := g.Outbound("index.md")[i]
+		if strings.HasSuffix(e.Target, "alpha.md") {
+			alphaEdge = &e
+		}
+		if strings.HasSuffix(e.Target, "beta.md") {
+			betaEdge = &e
+		}
+	}
+	if alphaEdge == nil {
+		t.Fatal("expected outbound edge to /repos/alpha.md from index.md")
+	}
+	if alphaEdge.Broken {
+		t.Errorf("leading-slash link to existing page must NOT be Broken; edge=%+v", *alphaEdge)
+	}
+	if alphaEdge.ResolvedPath != "repos/alpha.md" {
+		t.Errorf("leading-slash link resolved path: got %q, want %q", alphaEdge.ResolvedPath, "repos/alpha.md")
+	}
+	if betaEdge == nil {
+		t.Fatal("expected outbound edge to /concerns/beta.md from index.md")
+	}
+	if betaEdge.Broken {
+		t.Errorf("leading-slash link to existing page must NOT be Broken; edge=%+v", *betaEdge)
+	}
+
+	// ── case 2: backlinks must record the edge (body and graph agree) ─────────
+	backlinks := g.Backlinks("repos/alpha.md")
+	if !containsPage(backlinks, "index.md") {
+		t.Errorf("repos/alpha.md should have index.md as a backlink; got %v", backlinks)
+	}
+
+	// ── case 3: leading-slash traversal attempt stays Broken ──────────────────
+	writeFile(t, filepath.Join(root, "trap.md"),
+		"# Trap\n\n[escape](/../../../etc/passwd)\n")
+	g2 := serve.BuildLinkGraph(root)
+	for _, e := range g2.Outbound("trap.md") {
+		if !strings.Contains(e.Target, "passwd") {
+			continue
+		}
+		if !e.Broken {
+			t.Errorf("traversal-escaping leading-slash link must stay Broken; edge=%+v", e)
+		}
+	}
+
+	// ── case 4: leading-slash to a non-existent path stays Broken ────────────
+	writeFile(t, filepath.Join(root, "ghost.md"),
+		"# Ghost\n\n[missing](/no-such-file.md)\n")
+	g3 := serve.BuildLinkGraph(root)
+	for _, e := range g3.Outbound("ghost.md") {
+		if !strings.Contains(e.Target, "no-such-file") {
+			continue
+		}
+		if !e.Broken {
+			t.Errorf("leading-slash to non-existent path must stay Broken; edge=%+v", e)
+		}
+	}
+}
+
 // Stub to avoid "declared and not used" issues for the OS import.
 var _ = os.DevNull

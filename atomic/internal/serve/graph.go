@@ -280,9 +280,59 @@ func nearestCandidate(candidates []string, pageDir string) string {
 	return items[0].path
 }
 
+// resolveRootRelative resolves a path that is already known to be realm-root-
+// relative (no pageDir join needed) against the graph's file sets and filesystem.
+// It is the shared core used by both resolveMarkdownLink (for leading-slash targets)
+// and resolvePageHref (for the OKF §5.1 bundle-root-relative branch) so the two
+// functions cannot diverge again.
+//
+// combined must already be clean and free of a leading slash (i.e. "repos/a.md",
+// not "/repos/a.md"). Returns (resolvedPath, codeFile, ok): ok=false means the
+// path was not found and the caller should mark the edge Broken.
+func resolveRootRelative(
+	combined string,
+	root string,
+	allPages []string,
+	sourceFiles map[string]bool,
+) (resolvedPath string, codeFile bool, ok bool) {
+	// Known .md page (fast path — no stat required).
+	for _, p := range allPages {
+		if p == combined {
+			return combined, false, true
+		}
+	}
+	// Known non-.md source file (fast path).
+	if sourceFiles[combined] {
+		return combined, true, true
+	}
+	// Filesystem fallback: walks may have skipped directories that safeResolve
+	// can still serve.
+	if absPath, canServe := safeResolve(root, combined); canServe {
+		if info, statErr := os.Stat(absPath); statErr == nil {
+			if info.IsDir() {
+				if idx, found := resolveDirIndex(root, combined); found {
+					return idx, !strings.HasSuffix(idx, ".md"), true
+				}
+				return "", false, false // bare directory with no index
+			}
+			if strings.HasSuffix(combined, ".md") {
+				return combined, false, true
+			}
+			return combined, true, true
+		}
+	}
+	return "", false, false
+}
+
 // resolveMarkdownLink attempts to resolve a markdown link target to a file
 // within the realm. External URLs (http/https) and anchors (#…) are kept as-is
 // without a ResolvedPath. Relative paths are resolved from pageDir.
+//
+// Bundle-root-relative links (OKF §5.1 form: a leading slash) are resolved the
+// same way as resolvePageHref: strip the slash, clean, traversal-guard, then
+// probe via resolveRootRelative. This keeps the link graph and the render path
+// in agreement — a `/path.md` link renders as an in-shell href AND is recorded
+// as a non-broken edge with backlink contribution.
 //
 // When the target resolves to an existing non-.md source file (e.g. a .go, .ts,
 // .py file), the edge is marked CodeFile=true and ResolvedPath is set to the
@@ -314,10 +364,24 @@ func resolveMarkdownLink(
 		return edge
 	}
 
-	// Resolve the path relative to pageDir (which is relative to root).
+	// Bundle-root-relative link (OKF §5.1 form): a leading slash means the
+	// target is relative to the served root, not to the linking page's directory.
+	// Mirrors the identical branch in resolvePageHref — both must resolve the same
+	// way so the render path and the link graph agree.
 	if filepath.IsAbs(cleanTarget) {
-		// Absolute paths in markdown links are rare; treat as broken.
-		edge.Broken = true
+		rootRel := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(cleanTarget, "/")))
+		if rootRel == ".." || strings.HasPrefix(rootRel, "../") {
+			// Traversal escape → broken (same as resolvePageHref).
+			edge.Broken = true
+			return edge
+		}
+		resolved, codeFile, ok := resolveRootRelative(rootRel, root, allPages, sourceFiles)
+		if !ok {
+			edge.Broken = true
+			return edge
+		}
+		edge.ResolvedPath = resolved
+		edge.CodeFile = codeFile
 		return edge
 	}
 
@@ -336,50 +400,13 @@ func resolveMarkdownLink(
 		return edge
 	}
 
-	// Check if the resolved path is a known .md page.
-	for _, p := range allPages {
-		if p == combined {
-			edge.ResolvedPath = combined
-			return edge
-		}
-	}
-
-	// Check if the resolved path is a known non-.md source file.
-	if sourceFiles[combined] {
-		edge.ResolvedPath = combined
-		edge.CodeFile = true
+	resolved, codeFile, ok := resolveRootRelative(combined, root, allPages, sourceFiles)
+	if !ok {
+		edge.Broken = true
 		return edge
 	}
-
-	// Filesystem fallback: the walk may have skipped the target's directory while
-	// the page/file handler can still serve it via safeResolve. Match the servable
-	// surface so such links are not falsely marked broken.
-	if abs, ok := safeResolve(root, combined); ok {
-		if info, statErr := os.Stat(abs); statErr == nil {
-			if info.IsDir() {
-				// Directory link (e.g. ../the-isles-group/): resolve to an index
-				// file inside it when one exists, otherwise leave broken (a bare
-				// directory has no servable page).
-				if idx, found := resolveDirIndex(root, combined); found {
-					edge.ResolvedPath = idx
-					if !strings.HasSuffix(idx, ".md") {
-						edge.CodeFile = true
-					}
-					return edge
-				}
-			} else if strings.HasSuffix(combined, ".md") {
-				edge.ResolvedPath = combined
-				return edge
-			} else {
-				edge.ResolvedPath = combined
-				edge.CodeFile = true
-				return edge
-			}
-		}
-	}
-
-	// Not found in any known file set.
-	edge.Broken = true
+	edge.ResolvedPath = resolved
+	edge.CodeFile = codeFile
 	return edge
 }
 
@@ -387,16 +414,19 @@ func resolveMarkdownLink(
 // page at pageRelPath (realm-root-relative), into a server route resolved
 // against the realm root. It is the render-time counterpart to
 // resolveMarkdownLink (which builds the link graph): both resolve a target the
-// same way; this one returns the URL the browser should use.
+// same way via the shared resolveRootRelative helper; this one returns the URL
+// the browser should use.
 //
 // Returns (href, htmxPage, external):
-//   - external (http/https/mailto)            → (raw, false, true)   new-tab link
-//   - empty or anchor-only (#sec)             → (raw, false, false)  left verbatim
-//   - absolute path or realm-escaping (..)    → (raw, false, false)  left verbatim
-//   - directory within realm                  → ("/page/<dir>/", true, false)
-//   - *.md within realm (or unresolved .md)   → ("/page/<rel>", true, false)
-//   - source file within realm                → ("/file/<rel>", false, false)
-//   - unresolved, non-source extension        → ("/page/<rel>", true, false)
+//   - external (http/https/mailto)                        → (raw, false, true)   new-tab link
+//   - empty or anchor-only (#sec)                         → (raw, false, false)  left verbatim
+//   - leading-slash that escapes root (/../…) or ".."     → (raw, false, false)  left verbatim
+//   - leading-slash that resolves under root (OKF §5.1)   → ("/page/<rel>", true, false) or ("/file/<rel>", false, false)
+//   - leading-slash to unresolved path within root        → ("/page/<rel>", true, false)  in-shell 404
+//   - directory within realm                              → ("/page/<dir>/", true, false)
+//   - *.md within realm (or unresolved .md)               → ("/page/<rel>", true, false)
+//   - source file within realm                            → ("/file/<rel>", false, false)
+//   - unresolved, non-source extension                    → ("/page/<rel>", true, false)
 //
 // Routing unresolved-but-in-realm targets through /page/ keeps a dead link
 // inside the shell: the page handler serves a graceful htmx 404 fragment rather
@@ -418,8 +448,37 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 	if target == "" {
 		return raw, false, false
 	}
+	// Bundle-root-relative links (OKF §5.1 form): a leading slash means the
+	// target is relative to the served root, not to the filesystem. Strip the
+	// slash and resolve from root directly — same downstream logic as a relative
+	// link. Only fall through to the raw/external branch when the cleaned path
+	// still escapes root after stripping (e.g. "/../../../etc/passwd").
 	if filepath.IsAbs(target) {
-		return raw, false, false
+		rootRel := filepath.ToSlash(filepath.Clean(strings.TrimPrefix(target, "/")))
+		if rootRel == ".." || strings.HasPrefix(rootRel, "../") {
+			return raw, false, false
+		}
+		// Re-enter the resolution logic below with the root-relative path.
+		// We assign to combined directly and skip the pageDir join since the
+		// path is already relative to root.
+		combined := rootRel
+		if abs, ok := safeResolve(root, combined); ok {
+			if info, statErr := os.Stat(abs); statErr == nil {
+				if info.IsDir() {
+					return "/page/" + combined + "/" + anchor, true, false
+				}
+				if strings.HasSuffix(combined, ".md") {
+					return "/page/" + combined + anchor, true, false
+				}
+				return "/file/" + combined + anchor, false, false
+			}
+		}
+		// Not found on disk: route in-shell by extension (same as the
+		// relative-path unresolved branch below).
+		if ext := filepath.Ext(combined); ext != "" && ext != ".md" {
+			return "/file/" + combined + anchor, false, false
+		}
+		return "/page/" + combined + anchor, true, false
 	}
 
 	pageDir := filepath.ToSlash(filepath.Dir(pageRelPath))
