@@ -9,7 +9,7 @@ Plan → implement → ship lifecycle. Commands, agents, and skills that orchest
 **Planning:**
 
 - [`commands/gather-evidence.md`](../../../commands/gather-evidence.md) — pre-design evidence gathering against primary sources (context7, official docs, source code, `atomic code explore`/`callers`/`impact`); returns `SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE` with cited evidence trail
-- [`commands/atomic-plan.md`](../../../commands/atomic-plan.md) — gauges triviality; trivial → inline spec; non-trivial → `docs/design/<topic>.md` + `docs/spec/<topic>.md` via subagent loop; optionally dispatches `atomic-investigator` and `atomic-strategist`
+- [`commands/atomic-plan.md`](../../../commands/atomic-plan.md) — gauges triviality; trivial → inline spec; non-trivial → `docs/design/<topic>.md` + `docs/spec/<topic>.md` via subagent loop; optionally dispatches `atomic-investigator` and `atomic-strategist`; in the Diverge phase, when a design question is genuinely visual (layout, color, spacing, visual hierarchy, diagram shape), invokes `atomic-visual-options` skill just-in-time to render 2–4 variants as a throwaway HTML artifact; chosen codes are recorded in the design doc
 - [`commands/pressure-test.md`](../../../commands/pressure-test.md) — Socratic challenger session; questions only, no code, no agents; paired with `/atomic-plan` as pre-approval gate or surfaced by the stuck-fix escalation in `/subagent-implementation`
 - [`commands/atomic-help.md`](../../../commands/atomic-help.md) — routing assistant; reads intent, recommends one next action; never executes
 - [`commands/atomic-setup.md`](../../../commands/atomic-setup.md) — repo bootstrap; audits [`.gitignore`](../../../.gitignore), [`docs/`](../../../docs) layout, [`CLAUDE.md`](../../../CLAUDE.md) presence; proposes only what is absent, never overwrites (axiom 3)
@@ -44,6 +44,7 @@ Plan → implement → ship lifecycle. Commands, agents, and skills that orchest
 - [`skills/atomic-commit/`](../../../skills/atomic-commit) — fires on commit message synthesis; invoked by all ship paths in `/commit` and by `/subagent-implementation` Step D per green iteration
 - [`skills/atomic-review/`](../../../skills/atomic-review) — fires on review requests; provides PR title/body tone guidance invoked by the PR path in `/commit`
 - [`skills/atomic-debug/`](../../../skills/atomic-debug) — fires on debugging/failure-investigation language; complements `/subagent-diagnose`
+- [`skills/atomic-visual-options/`](../../../skills/atomic-visual-options) — fires on visual comparison requests ("show me a few options", "mock up some variants", "let me see this side by side", "compare these layouts"); renders 2–4 side-by-side variants per decision dimension as a single throwaway self-contained HTML file; user picks by typing terminal codes (e.g. `A2 B3`); also invoked just-in-time by `/atomic-plan` when a design question passes the see-it-over-read-it gate (layout, color, spacing, visual hierarchy, diagram shape — not conceptual or text decisions)
 
 ## CLI code
 

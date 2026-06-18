@@ -269,6 +269,17 @@ For each `STALE concern <path> (<repo>)` line from Step 5:
 
 Re-synthesize the concern document. Read the cited repos' current signals files and summary files to understand the current state. Rewrite `<path>` with fresh content that reflects the current state of those repos.
 
+Every concern document (new or rewritten) **must** begin with YAML frontmatter that includes:
+
+```yaml
+---
+type: Concern
+description: <one-line summary of what this concern covers>
+---
+```
+
+`type: Concern` and `description:` are producer-defined content per OKF §4.1 — the model writes them; `atomic wiki stamp` writes the `reflects:` fingerprints separately. Do not write `reflects:` values manually; the stamp step (below) computes every fingerprint. Why: `type`/`description` describe what the concern IS (producer intent); fingerprints attest to what state was reflected when it was written (deterministic, code-computed).
+
 After rewriting, identify all repo IDs cited in the updated concern and run the stamp step:
 
 ```bash

@@ -90,7 +90,7 @@ func buildCytoElements(g *Graph) cytoElements {
 			Data: cytoNodeData{
 				ID:    n,
 				Label: label,
-				Type:  "page",
+				Type:  g.NodeType(n),
 			},
 		})
 	}
@@ -192,7 +192,7 @@ func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
 			Data: cytoNodeData{
 				ID:    n,
 				Label: label,
-				Type:  "page",
+				Type:  g.NodeType(n),
 			},
 		})
 	}

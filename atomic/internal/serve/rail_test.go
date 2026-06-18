@@ -493,3 +493,170 @@ func safeSnippet(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
+
+// ── Deliverable B: URL-valued frontmatter properties render as clickable links ──
+
+// buildURLPropRealm creates a realm where one page has a `resource` URL property,
+// another has a non-URL scalar property, and a third has a URL in a non-resource key.
+func buildURLPropRealm(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "with-resource.md"),
+		"---\nresource: https://example.com/x\ntitle: My Page\n---\n\n# Page\n\nbody\n")
+	writeFile(t, filepath.Join(root, "non-url-prop.md"),
+		"---\nauthor: Alice\nversion: 1.2.3\n---\n\n# Plain\n\nbody\n")
+	writeFile(t, filepath.Join(root, "other-url.md"),
+		"---\nhomepage: https://example.org/y\ndoc: plain text\n---\n\n# Other\n\nbody\n")
+	writeFile(t, filepath.Join(root, "xss-check.md"),
+		"---\nresource: https://good.example/path?a=1&b=2\ntitle: <script>alert(1)</script>\n---\n\n# XSS\n\nbody\n")
+	return root
+}
+
+// TestRailPropsURLRenderedAsAnchor verifies that a `resource` frontmatter value
+// that is an http(s) URL is rendered as an <a href="..."> anchor in the
+// #rail-props-content fragment, while a non-URL scalar stays as plain text.
+func TestRailPropsURLRenderedAsAnchor(t *testing.T) {
+	root := buildURLPropRealm(t)
+
+	baseURL, shutdown := startTestServer(t, startOpts(t, root))
+	defer shutdown()
+	waitReady(t, baseURL+"/healthz", 3*time.Second)
+
+	// Page with resource: https://example.com/x
+	resp, err := http.Get(baseURL + "/rail/with-resource.md")
+	if err != nil {
+		t.Fatalf("GET /rail/with-resource.md: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/rail/with-resource.md returned %d, want 200", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// Must contain an <a element for the URL.
+	if !strings.Contains(html, `<a `) {
+		t.Errorf("resource URL value must produce an <a element; html: %s", safeSnippet(html, 800))
+	}
+	// The href must equal the URL.
+	if !strings.Contains(html, `href="https://example.com/x"`) {
+		t.Errorf("anchor href must be the resource URL; html: %s", safeSnippet(html, 800))
+	}
+	// Must open in a new tab with rel=noopener for security.
+	if !strings.Contains(html, `target="_blank"`) {
+		t.Errorf("anchor must carry target=\"_blank\"; html: %s", safeSnippet(html, 800))
+	}
+	if !strings.Contains(html, `rel="noopener"`) {
+		t.Errorf("anchor must carry rel=\"noopener\"; html: %s", safeSnippet(html, 800))
+	}
+	// The non-URL key (title) must NOT produce an anchor.
+	if strings.Contains(html, `href="My Page"`) {
+		t.Errorf("non-URL value must not produce an anchor; html: %s", safeSnippet(html, 800))
+	}
+}
+
+// TestRailPropsNonURLStaysPlainText verifies that a page with only non-URL
+// scalar properties in frontmatter does NOT produce any <a href> in the props fragment.
+func TestRailPropsNonURLStaysPlainText(t *testing.T) {
+	root := buildURLPropRealm(t)
+
+	baseURL, shutdown := startTestServer(t, startOpts(t, root))
+	defer shutdown()
+	waitReady(t, baseURL+"/healthz", 3*time.Second)
+
+	resp, err := http.Get(baseURL + "/rail/non-url-prop.md")
+	if err != nil {
+		t.Fatalf("GET /rail/non-url-prop.md: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/rail/non-url-prop.md returned %d, want 200", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// Props for "author" and "version" must not produce anchors.
+	if strings.Contains(html, `href="Alice"`) || strings.Contains(html, `href="1.2.3"`) {
+		t.Errorf("non-URL values must not produce anchors; html: %s", safeSnippet(html, 600))
+	}
+	// No <a href at all in the props fragment.
+	if strings.Contains(html, `<a href=`) {
+		t.Errorf("non-URL props must not produce any <a href; html: %s", safeSnippet(html, 600))
+	}
+}
+
+// TestRailPropsOtherURLKeyRenderedAsAnchor verifies that any property value
+// (not just `resource`) that is an http(s) URL is rendered as an anchor.
+func TestRailPropsOtherURLKeyRenderedAsAnchor(t *testing.T) {
+	root := buildURLPropRealm(t)
+
+	baseURL, shutdown := startTestServer(t, startOpts(t, root))
+	defer shutdown()
+	waitReady(t, baseURL+"/healthz", 3*time.Second)
+
+	resp, err := http.Get(baseURL + "/rail/other-url.md")
+	if err != nil {
+		t.Fatalf("GET /rail/other-url.md: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/rail/other-url.md returned %d, want 200", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// homepage: https://example.org/y must produce an anchor.
+	if !strings.Contains(html, `href="https://example.org/y"`) {
+		t.Errorf("URL-valued 'homepage' prop must produce an anchor; html: %s", safeSnippet(html, 800))
+	}
+	// Non-URL 'doc' must stay plain text (no <a> for it).
+	if strings.Contains(html, `href="plain text"`) {
+		t.Errorf("non-URL 'doc' prop must not produce an anchor; html: %s", safeSnippet(html, 600))
+	}
+}
+
+// TestRailPropsURLHTMLEscaped verifies that special characters in URL query
+// strings (& → &amp;) and in non-URL prop values (<script>) are correctly
+// HTML-escaped in the output, preventing XSS via crafted frontmatter.
+func TestRailPropsURLHTMLEscaped(t *testing.T) {
+	root := buildURLPropRealm(t)
+
+	baseURL, shutdown := startTestServer(t, startOpts(t, root))
+	defer shutdown()
+	waitReady(t, baseURL+"/healthz", 3*time.Second)
+
+	resp, err := http.Get(baseURL + "/rail/xss-check.md")
+	if err != nil {
+		t.Fatalf("GET /rail/xss-check.md: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/rail/xss-check.md returned %d, want 200", resp.StatusCode)
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// html/template escapes & in href attribute values as &amp; (never &#43;).
+	// Verify the escaped form is present and raw & is absent.
+	if !strings.Contains(html, `href="https://good.example/path?a=1&amp;b=2"`) {
+		if strings.Contains(html, `href="https://good.example/path?a=1&b=2"`) {
+			t.Errorf("URL with & must be HTML-escaped in href (& → &amp;); html: %s", safeSnippet(html, 800))
+		}
+		if !strings.Contains(html, "good.example") {
+			t.Errorf("URL anchor missing from props fragment; html: %s", safeSnippet(html, 800))
+		}
+	}
+
+	// The title with <script> must be escaped — no raw <script> tag in output.
+	if strings.Contains(html, "<script>alert") {
+		t.Errorf("raw <script> in prop value must be HTML-escaped; html: %s", safeSnippet(html, 800))
+	}
+}
