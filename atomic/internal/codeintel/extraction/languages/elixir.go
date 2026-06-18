@@ -124,6 +124,35 @@ func elixirArgsFirstChild(ctx context.Context, node sitter.Node) (sitter.Node, b
 	return first, true
 }
 
+// elixirUnwrapGuard unwraps a guard-clause binary_operator node to the
+// function-head node that carries the real name.
+//
+// Guard shape: `def foo(x) when guard do...end` parses arguments[0] as a
+// binary_operator node "foo(x) when guard" whose first named child is the
+// actual function head call("foo(x)") or identifier("foo") for zero-arg heads.
+//
+// Returns (functionHead, true) when node is a binary_operator and has at least
+// one named child. Returns (node, false) otherwise (caller keeps node as-is).
+func elixirUnwrapGuard(ctx context.Context, node sitter.Node) (sitter.Node, bool) {
+	kind, _ := node.Kind(ctx)
+	if kind != "binary_operator" {
+		return node, false
+	}
+	cnt, err := node.NamedChildCount(ctx)
+	if err != nil || cnt == 0 {
+		return node, false
+	}
+	head, err := node.NamedChild(ctx, 0)
+	if err != nil {
+		return node, false
+	}
+	isNull, _ := head.IsNull(ctx)
+	if isNull {
+		return node, false
+	}
+	return head, true
+}
+
 // elixirGetName extracts the symbol name from an Elixir call node without
 // affecting body traversal. Used as the GetName hook so that ResolveBody can
 // safely return the original call node (enabling visitChildren to descend into
@@ -151,16 +180,25 @@ func elixirGetName(ctx context.Context, node sitter.Node, src string) string {
 	case "def", "defp", "defmacro":
 		// Name = "target" text of the inner call node (arguments[0]).
 		// The inner call is bar(x); its target field is identifier("bar").
+		//
+		// Guard-clause shape: `def foo(x) when guard do...end` parses arguments[0]
+		// as a binary_operator("foo(x) when guard") whose first named child is the
+		// real function head call("foo(x)"). Unwrap the binary_operator first so
+		// both guarded and plain defs share the same extraction path.
 		if first, ok := elixirArgsFirstChild(ctx, node); ok {
-			kind, _ := first.Kind(ctx)
-			if kind == "call" {
-				return elixirTargetText(ctx, first, src)
+			head, headOk := elixirUnwrapGuard(ctx, first)
+			if !headOk {
+				head = first
 			}
-			// Guard: if the args structure is flat (no-arg function like `def foo`),
-			// first child may itself be an identifier.
+			kind, _ := head.Kind(ctx)
+			if kind == "call" {
+				return elixirTargetText(ctx, head, src)
+			}
+			// Guard: no-arg function like `def foo` or `def foo when guard` —
+			// first child of the guard's binary_operator is an identifier.
 			if kind == "identifier" {
-				ts, _ := first.StartByte(ctx)
-				te, _ := first.EndByte(ctx)
+				ts, _ := head.StartByte(ctx)
+				te, _ := head.EndByte(ctx)
 				if int(te) <= len(src) {
 					return strings.TrimSpace(src[ts:te])
 				}
@@ -187,6 +225,17 @@ func ElixirExtractor() extraction.LanguageExtractor {
 		// or call reference). The ResolveKind hook reads the "target" identifier
 		// text to decide which semantic role applies.
 		StructTypes: extraction.TypeSet("call"),
+
+		// MacroDoBlockTypes enables descent into do-blocks of non-definition macro
+		// calls (e.g. `on_ee do ... end`, `if ... do ... end`). When a "call" node
+		// resolves to NodeKind("") via ResolveKind (i.e. it is a regular call, not
+		// a definition macro), the extractor normally skips its children. With this
+		// set, it additionally descends into any "do_block" named children so that
+		// def/defp/defmodule nodes nested inside macro do-blocks are still extracted.
+		// Only "do_block" is listed — "arguments" and other child kinds are not
+		// do-blocks and must not be re-walked (they are already walked as part of
+		// the call reference extraction path via extractCallArgs).
+		MacroDoBlockTypes: extraction.TypeSet("do_block"),
 
 		// NameField is intentionally empty. Name extraction is handled entirely
 		// by the GetName hook — which reads the correct inner child per macro —

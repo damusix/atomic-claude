@@ -244,3 +244,122 @@ func TestElixir_NonZeroExtraction(t *testing.T) {
 			len(result.Nodes), nodeKindList(result.Nodes))
 	}
 }
+
+// elixirGuardFixture exercises guard-clause functions — the shape that was
+// producing name="def" instead of the real function name before the fix.
+//
+// WHY: `def get(team_id) when is_integer(team_id) do...end` parses arguments[0]
+// as a binary_operator("get(team_id) when is_integer(team_id)") not a call node.
+// The extractor must unwrap the binary_operator to reach the real function head.
+const elixirGuardFixture = `defmodule MyApp.Teams do
+  def get(team_id) when is_integer(team_id) do
+    {:ok, team_id}
+  end
+
+  defp validate_id(id) when is_integer(id) and id > 0 do
+    :ok
+  end
+
+  def fetch_all when true do
+    []
+  end
+end
+`
+
+// TestElixir_GuardClause_RealNameExtracted is the regression test for Bug #1.
+// It verifies that functions with guard clauses get their real names (e.g. "get",
+// "validate_id", "fetch_all") — NOT the macro keyword "def"/"defp".
+// WHY: 313 nodes in a real Phoenix app (Plausible) had name="def"/"defp" because
+// guard-clause arguments[0] is a binary_operator, not a call — the old code fell
+// through to returning the macro keyword string.
+func TestElixir_GuardClause_RealNameExtracted(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
+	if !ok {
+		t.Fatal("Elixir not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	result := e.Extract(context.Background(), "lib/my_app/teams.ex", elixirGuardFixture, types.LanguageElixir)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	// All three functions must carry their real names, not "def"/"defp".
+	for _, wantName := range []string{"get", "validate_id", "fetch_all"} {
+		fn := findNode(result.Nodes, types.NodeKindFunction, wantName)
+		if fn == nil {
+			t.Errorf("guard-clause function %q not found; nodes: %s", wantName, nodeKindList(result.Nodes))
+		}
+	}
+
+	// Specifically: no NodeKindFunction node must be named "def" or "defp".
+	// That is the exact symptom of the bug.
+	for i := range result.Nodes {
+		n := &result.Nodes[i]
+		if n.Kind == types.NodeKindFunction && (n.Name == "def" || n.Name == "defp") {
+			t.Errorf("function node has macro-keyword name %q (guard-clause bug); all nodes: %s",
+				n.Name, nodeKindList(result.Nodes))
+		}
+	}
+}
+
+// elixirMacroDoBlockFixture exercises definitions nested inside macro do-blocks.
+//
+// WHY: `on_ee do def foo ... end` has `def foo` inside the do-block of a
+// non-definition macro call. The extractor was skipping the do-block entirely
+// because on_ee resolves to NodeKind("") (a regular call reference) and
+// skipChildren=true was returned without descending into the do_block.
+const elixirMacroDoBlockFixture = `defmodule MyApp.StatsController do
+  on_ee do
+    def exploration_next(conn, params) do
+      {:ok, params}
+    end
+
+    defp funnel(conn, params) do
+      {:ok, conn}
+    end
+  end
+
+  def index(conn, _params) do
+    :ok
+  end
+end
+`
+
+// TestElixir_MacroDoBlock_DefsExtracted is the regression test for Bug #2.
+// It verifies that def/defp inside non-definition macro do-blocks (like `on_ee`)
+// are extracted — they were completely absent before the fix.
+// WHY: Functions like `exploration_next` and `funnel` in Plausible's
+// stats_controller were missing from the index because they live inside
+// `on_ee do...end` blocks that the extractor was skipping entirely.
+func TestElixir_MacroDoBlock_DefsExtracted(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageElixir)
+	if !ok {
+		t.Fatal("Elixir not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	result := e.Extract(context.Background(), "lib/my_app/stats_controller.ex", elixirMacroDoBlockFixture, types.LanguageElixir)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	// Both defs inside the on_ee do-block must be extracted.
+	explorationNext := findNode(result.Nodes, types.NodeKindFunction, "exploration_next")
+	if explorationNext == nil {
+		t.Errorf("exploration_next (def inside on_ee do-block) not found; nodes: %s", nodeKindList(result.Nodes))
+	} else if !explorationNext.IsExported {
+		t.Errorf("exploration_next should be exported (def); got IsExported=false")
+	}
+
+	funnel := findNode(result.Nodes, types.NodeKindFunction, "funnel")
+	if funnel == nil {
+		t.Errorf("funnel (defp inside on_ee do-block) not found; nodes: %s", nodeKindList(result.Nodes))
+	} else if funnel.IsExported {
+		t.Errorf("funnel should NOT be exported (defp); got IsExported=true")
+	}
+
+	// The top-level def outside the macro block must also still work.
+	index := findNode(result.Nodes, types.NodeKindFunction, "index")
+	if index == nil {
+		t.Errorf("index (top-level def) not found; nodes: %s", nodeKindList(result.Nodes))
+	}
+}

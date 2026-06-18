@@ -67,6 +67,17 @@ type LanguageExtractor struct {
 	CallTypes          map[string]struct{}
 	InstantiationTypes map[string]struct{}
 
+	// MacroDoBlockTypes is an optional set of grammar node-type strings that
+	// represent a do-block child inside a macro call (e.g. "do_block" in Elixir).
+	// When set and a StructTypes node resolves to NodeKind("") (the call-reference
+	// sentinel via ResolveKind), the extractor still emits the call reference but
+	// ALSO descends into any named children whose kind is in this set. This allows
+	// definitions nested inside macro do-blocks (e.g. `on_ee do def foo ... end`)
+	// to be discovered without treating the macro as a definition itself.
+	//
+	// Nil for all non-Elixir languages — no behavior change when unset.
+	MacroDoBlockTypes map[string]struct{}
+
 	// JSXElementTypes lists the grammar node-type strings that represent JSX
 	// element usages: typically "jsx_element" (paired <Foo>...</Foo>) and
 	// "jsx_self_closing_element" (<Foo/>). When visitNode or visitFunctionBody
@@ -478,6 +489,30 @@ func (v *visitor) visitNode(ctx context.Context, node sitter.Node, kind string) 
 					// (e.g. User.new(params)) that happen to share the "call" node kind
 					// with definition macros (defmodule, def, …).
 					v.extractCall(ctx, node, false)
+					// If MacroDoBlockTypes is set (Elixir), descend into any do_block
+					// children of this call node. This handles macros like `on_ee do
+					// def foo ... end` where definitions are nested inside a non-
+					// definition macro's do-block. The call itself is still emitted as
+					// a call reference; only the do-block children are additionally
+					// walked for nested definitions.
+					if cfg.MacroDoBlockTypes != nil {
+						childCnt, _ := node.NamedChildCount(ctx)
+						for ci := uint64(0); ci < childCnt; ci++ {
+							ch, chErr := node.NamedChild(ctx, ci)
+							if chErr != nil {
+								continue
+							}
+							chKind, chErr := ch.Kind(ctx)
+							if chErr != nil {
+								continue
+							}
+							if _, isDoBlock := cfg.MacroDoBlockTypes[chKind]; isDoBlock {
+								if descErr := v.visitChildren(ctx, ch); descErr != nil {
+									v.result.Errors = append(v.result.Errors, fmt.Sprintf("macro do-block descent: %v", descErr))
+								}
+							}
+						}
+					}
 					return true, nil
 				default:
 					// NodeKindStruct or any unrecognised value → struct path.
