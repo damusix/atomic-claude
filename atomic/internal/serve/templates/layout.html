@@ -106,7 +106,7 @@
           style: {
             'label': 'data(label)',
             'background-color': colors['default-fill'],
-            'border-width': '2.5px',
+            'border-width': '1.5px',
             'border-color': colors['page'],
             'color': colors['default-label'],
             'font-family': '"JetBrains Mono", "Geist Mono", ui-monospace, monospace',
@@ -115,8 +115,8 @@
             'text-valign': 'bottom',
             'text-halign': 'center',
             'text-margin-y': '7px',
-            'width': '28px',
-            'height': '28px',
+            'width': '18px',
+            'height': '18px',
             'shape': 'ellipse',
             'text-max-width': '60px',
             'text-wrap': 'ellipsis',
@@ -127,9 +127,9 @@
             'text-background-padding': '2px',
             'text-background-shape': 'roundrectangle',
             // Soft drop-shadow for the glow halo.
-            'shadow-blur': '14px',
+            'shadow-blur': '8px',
             'shadow-color': colors['page'],
-            'shadow-opacity': 0.28,
+            'shadow-opacity': 0.18,
             'shadow-offset-x': 0,
             'shadow-offset-y': 0
           }
@@ -205,17 +205,24 @@
       ]);
     }
     </script>
-    <!-- FE2 rail mini-graph: delegated htmx.onLoad handler.
+    <!-- FE2 rail mini-graph: delegated htmx.onLoad handler + OOB swap fallback.
          Inline <script> in OOB innerHTML swaps are not reliably executed by
          htmx 2. The canonical pattern is htmx.onLoad, which fires for every
          newly swapped element. When a [data-rail-graph-url] rail-graph container
          arrives, we fetch the graph data URL and mount a Cytoscape instance.
          Note: [data-rail-graph-url] is distinct from the #mode-system button's
-         [data-graph-url="/graph/data"] seam (FE3) — no attribute collision. -->
+         [data-graph-url="/graph/data"] seam (FE3) — no attribute collision.
+
+         OOB swap edge-case: htmx.onLoad fires with elt = the swapped-in node
+         itself (the container), not a wrapper. querySelector only matches
+         DESCENDANTS, so we also check elt itself via .matches(). The OOB
+         afterSwap listener below covers cases where htmx:load is not fired for
+         OOB innerHTML swaps. mountRailGraph is factored as a single function
+         called from both paths; a dataset flag prevents double-mount. -->
     <script>
-    htmx.onLoad(function(elt) {
-      var container = elt.querySelector ? elt.querySelector('[data-rail-graph-url]') : null;
-      if (!container) { return; }
+    function mountRailGraph(container) {
+      // Guard: already mounted (e.g. both htmx.onLoad and htmx:oobAfterSwap fired).
+      if (container.dataset.railMounted === '1') { return; }
       if (typeof cytoscape === 'undefined') { return; }
       var graphURL = container.getAttribute('data-rail-graph-url');
       var focusNode = container.getAttribute('data-focus-node');
@@ -227,7 +234,7 @@
         style: {
           'label': 'data(label)',
           'background-color': railColors['default-fill'],
-          'border-width': '2px',
+          'border-width': '1.25px',
           'border-color': railColors['page'],
           'color': railColors['default-label'],
           'font-family': '"JetBrains Mono", "Geist Mono", ui-monospace, monospace',
@@ -235,14 +242,14 @@
           'text-valign': 'bottom',
           'text-halign': 'center',
           'text-margin-y': '5px',
-          'width': '20px',
-          'height': '20px',
+          'width': '14px',
+          'height': '14px',
           'shape': 'ellipse',
           'text-max-width': '60px',
           'text-wrap': 'ellipsis',
-          'shadow-blur': '10px',
+          'shadow-blur': '7px',
           'shadow-color': railColors['page'],
-          'shadow-opacity': 0.25,
+          'shadow-opacity': 0.18,
           'shadow-offset-x': 0,
           'shadow-offset-y': 0
         }
@@ -250,6 +257,9 @@
       // Highlight the focused node with an amber glow.
       var selColor = railColors['selected'] || '#f9e2af';
       railStyle.splice(1, 0, { selector: 'node[id="' + focusNode + '"]', style: { 'background-color': selColor, 'border-color': selColor, 'shadow-color': selColor, 'shadow-opacity': 0.4 } });
+      // Mark mounted before the async fetch so a second call during the fetch
+      // also no-ops (no double-mount on rapid navigation).
+      container.dataset.railMounted = '1';
       fetch(graphURL)
         .then(function(r) { return r.json(); })
         .then(function(elems) {
@@ -259,10 +269,43 @@
             layout: { name: 'concentric', concentric: function(n){ return n.data('id') === focusNode ? 2 : 1; }, levelWidth: function(){ return 1; }, minNodeSpacing: 20 },
             style: railStyle
           });
+          // Resize + fit once the layout settles — the container was just htmx-swapped
+          // and may report zero dimensions until the browser has laid it out.
+          railCy.one('layoutstop', function() { railCy.resize(); railCy.fit(undefined, 12); });
+          railCy.ready(function() { railCy.resize(); });
           // Expose for theme re-application on toggle.
           window.__railCy = railCy;
         })
-        .catch(function(e) { console.warn('rail mini-graph:', e); });
+        .catch(function(e) {
+          // Reset the mounted flag so a retry (e.g. re-navigate) can try again.
+          container.dataset.railMounted = '';
+          console.warn('rail mini-graph:', e);
+        });
+    }
+
+    // Path 1: htmx.onLoad — fires for most swapped elements.
+    // elt may be the container itself (OOB innerHTML swap) or a wrapper that
+    // contains it; handle both via .matches() + querySelector fallback.
+    htmx.onLoad(function(elt) {
+      var container = (elt.matches && elt.matches('[data-rail-graph-url]'))
+        ? elt
+        : (elt.querySelector ? elt.querySelector('[data-rail-graph-url]') : null);
+      if (!container) { return; }
+      mountRailGraph(container);
+    });
+
+    // Path 2: htmx:oobAfterSwap — fires specifically after an OOB swap
+    // settles; htmx 2 may not fire htmx:load for OOB innerHTML swaps.
+    document.body.addEventListener('htmx:oobAfterSwap', function(evt) {
+      var target = evt.detail && evt.detail.target;
+      if (!target) { return; }
+      // target is the element whose innerHTML was replaced; check both it and
+      // its children for the rail-graph container.
+      var container = (target.matches && target.matches('[data-rail-graph-url]'))
+        ? target
+        : (target.querySelector ? target.querySelector('[data-rail-graph-url]') : null);
+      if (!container) { return; }
+      mountRailGraph(container);
     });
     </script>
     <!-- FE5 search page: SSE result streaming.
@@ -556,7 +599,9 @@
               container: container,
               elements: elems,
               layout: { name: 'elk', elk: { algorithm: 'layered' }, fit: true },
-              style: atomicCyStyle()
+              style: atomicCyStyle(),
+              minZoom: 0.2,
+              maxZoom: 2.2
             });
 
             // Store a reference so the modal handler can look up node data by id.
@@ -632,7 +677,7 @@
 
 <!-- ── top bar: brand · breadcrumb · search · theme toggle ───────────── -->
 <header id="app-header">
-    <span class="brand"><span class="diamond">◆</span> atomic</span>
+    <span class="brand"><img class="brand-logo" src="/static/logo.png" alt="atomic"> atomic</span>
     <nav class="breadcrumb" aria-label="Breadcrumb">
         <span class="breadcrumb-scope">{{.ScopeBadge}}</span>
         <span class="breadcrumb-sep">›</span>

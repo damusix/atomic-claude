@@ -241,10 +241,14 @@ a { color: inherit; text-decoration: none; }
     flex-shrink: 0;
 }
 
-#app-header .brand .diamond {
-    color: var(--amber-bright);
-    font-size: 13px;
-    filter: drop-shadow(0 1px 2px color-mix(in srgb, var(--amber-bright) 35%, transparent));
+#app-header .brand .brand-logo {
+    display: inline-block;
+    height: 20px;
+    width: auto;
+    vertical-align: middle;
+    margin-right: 2px;
+    /* Logo has transparent bg; drop-shadow gives it a subtle amber halo on both themes */
+    filter: drop-shadow(0 1px 3px color-mix(in srgb, var(--amber-bright) 30%, transparent));
 }
 
 /* Scope badge pill */
@@ -698,6 +702,13 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
 /* Hidden when content is empty — no frontmatter on this page */
 #rail-props:has(.rail-slot-content:empty) {
     display: none;
+}
+
+/* Rail mini-graph: give the Cytoscape mount container a real height so the
+   graph is not rendered into a 0×0 box (which produces a blank graph). */
+#rail-graph-content [data-rail-graph-url] {
+    width: 100%;
+    height: 190px;
 }
 
 .rail-props-list {
