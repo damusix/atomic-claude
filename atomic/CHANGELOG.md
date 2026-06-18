@@ -1,5 +1,19 @@
 # Changelog
 
+## [5.2.0](https://github.com/damusix/atomic-claude/compare/v5.1.0...v5.2.0) (2026-06-18)
+
+
+### Features
+
+* add atomic-visual-options planning skill ([345d72b](https://github.com/damusix/atomic-claude/commit/345d72baa24661b36532e6fe71cd56f958e385d5))
+* reuse-first reflex in plan, build, review ([536d8fa](https://github.com/damusix/atomic-claude/commit/536d8fa8068a748e8500606bc66c4d4b58d62361))
+* **serve:** show page frontmatter as a right-rail Properties panel ([3aeab83](https://github.com/damusix/atomic-claude/commit/3aeab83c90a5048e234494c2a4202c36f8a2f9dc))
+
+
+### Bug Fixes
+
+* **serve:** render [[wikilinks]] as in-shell links ([0b52d95](https://github.com/damusix/atomic-claude/commit/0b52d95d557c87f5e41d87d85e3678a51f2f81c0))
+
 ## [5.1.0](https://github.com/damusix/atomic-claude/compare/v5.0.0...v5.1.0) (2026-06-16)
 
 
