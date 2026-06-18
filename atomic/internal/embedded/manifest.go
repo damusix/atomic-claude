@@ -18,12 +18,12 @@ func Manifest() []Artifact {
 		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "82d2c169847a1f9e6a7ac9b39dd1ee42042d9d16e96e57269d8d42f388a27dc2"},
 		{Kind: "agent", Source: "bundle/agents/atomic-signals-inferrer.md", Target: "agents/atomic-signals-inferrer.md", SHA256: "ff8647e34182325f8b26c5fc67a28fe4be71c28d94031cb8c1c79bcb952868d7"},
 		{Kind: "agent", Source: "bundle/agents/atomic-strategist.md", Target: "agents/atomic-strategist.md", SHA256: "77f9dc3a7ec36e37358bd76c6e8d4d675a2f380001ff0b3fc115fd481b5f3414"},
-		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "cb1b33ea8e68fc9527acd648e0e58552eac429e42a6a19a95fcc1194f2427b13"},
+		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "433230be51558f48698d60752672a7bdb2e5bb17840d8647e01bab1ee39a03e2"},
 		{Kind: "command", Source: "bundle/commands/_templates/implementer-prompt.md", Target: "commands/_templates/implementer-prompt.md", SHA256: "88821c30f61b773218b90332f2060eec09979515545aaddfcb10081f1e8ce14f"},
 		{Kind: "command", Source: "bundle/commands/_templates/reviewer-prompt.md", Target: "commands/_templates/reviewer-prompt.md", SHA256: "296889105ed096f4afb9239c5931f9b900037d55e676f89bf3023daf5d62ffed"},
-		{Kind: "command", Source: "bundle/commands/atomic-help.md", Target: "commands/atomic-help.md", SHA256: "44d50e94c3996b4a9f70f8ff6664fac229c9f3cec0de60d06fa75f94a291f5ca"},
+		{Kind: "command", Source: "bundle/commands/atomic-help.md", Target: "commands/atomic-help.md", SHA256: "784bb2e2af3b4f6febdb1e7e28d2604cfb29fb8ddde9b6452f215e6b41ca6a91"},
 		{Kind: "command", Source: "bundle/commands/atomic-improve.md", Target: "commands/atomic-improve.md", SHA256: "84368d4e5415e0f7f4355ab194305062a6d322afd53b3b73692e59dd7177ac2f"},
-		{Kind: "command", Source: "bundle/commands/atomic-plan.md", Target: "commands/atomic-plan.md", SHA256: "73f7d7a571c3e12d663e00b1aa1da9ae0467702bd722f2718d03d6ee058f600e"},
+		{Kind: "command", Source: "bundle/commands/atomic-plan.md", Target: "commands/atomic-plan.md", SHA256: "b17abc056040a1af467b34839d8dc7441629b6b67982480a23aa832e45c79705"},
 		{Kind: "command", Source: "bundle/commands/atomic-setup.md", Target: "commands/atomic-setup.md", SHA256: "225c21cd84b92220045db3d11e58ffc4d6253ba1c6aa9f7ea1a2fd24561764cb"},
 		{Kind: "command", Source: "bundle/commands/autopilot.md", Target: "commands/autopilot.md", SHA256: "576ca0fad84695aa14ee1c4ac63dc38c22f28f2be8524dc478f49151ab0bdd63"},
 		{Kind: "command", Source: "bundle/commands/commit.md", Target: "commands/commit.md", SHA256: "c66887d192653824f3d630a09dbab4521992890bc52827f070acc764dc701bd6"},
@@ -54,6 +54,7 @@ func Manifest() []Artifact {
 		{Kind: "skill", Source: "bundle/skills/atomic-review/SKILL.md", Target: "skills/atomic-review/SKILL.md", SHA256: "35324466efc08a14da604466e108044f6c481f5e16c6b29e1e3df20449c7e06e"},
 		{Kind: "skill", Source: "bundle/skills/atomic-tdd/SKILL.md", Target: "skills/atomic-tdd/SKILL.md", SHA256: "627b43f286e2c11e51c63eac3dbe337a60abc341c56ed608de5478fc83e1feb7"},
 		{Kind: "skill", Source: "bundle/skills/atomic-verify/SKILL.md", Target: "skills/atomic-verify/SKILL.md", SHA256: "5668ada68772f2ec43129305d51694d7b93deaa8577653ac7fc7b5bfcb2144e1"},
+		{Kind: "skill", Source: "bundle/skills/atomic-visual-options/SKILL.md", Target: "skills/atomic-visual-options/SKILL.md", SHA256: "c33181fb08ef20597c15b480cb932eda7a5aebded1962ce098935805b28ee19e"},
 		{Kind: "skill", Source: "bundle/skills/atomic-wiki/SKILL.md", Target: "skills/atomic-wiki/SKILL.md", SHA256: "27676dd22520dc2bb0da85010e79bb04cbf57d07384fc9de6b2b57df848f6c1e"},
 	}
 }

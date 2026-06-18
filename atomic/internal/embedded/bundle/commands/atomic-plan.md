@@ -80,6 +80,8 @@ Then a `## Recommendation` with the chosen approach and rationale referencing ev
 
 Design is the **conceptual workspace** — the place to think through feature shape, business rules, user-facing behavior, philosophy, and approaches *without* committing to technical implementation. Always write `docs/design/<topic>.md` for non-trivial work; the thinking has to happen somewhere durable so the spec can derive from it (and so future readers can see *why* the contract took its shape).
 
+**Visual design questions.** When a design question is genuinely visual — layout, color, spacing, visual hierarchy, or diagram shape — and would be better understood by seeing it than reading about it, invoke the `atomic-visual-options` skill to render 2–4 variants per dimension as a throwaway self-contained HTML file. The user picks by typing codes (e.g. `A2 B3`); record the chosen codes and what each option meant in this design doc. Skip it for conceptual or text-only choices — those stay in the terminal. The test: *would the user understand this better by seeing it?* If no, answer in prose.
+
 Design captures things the spec deliberately doesn't:
 
 - What the feature *is* in user / domain terms — not the endpoint, the *behavior*.

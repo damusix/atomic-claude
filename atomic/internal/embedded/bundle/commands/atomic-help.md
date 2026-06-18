@@ -119,7 +119,7 @@ One-line pointer per topic. Group by category for scannability.
 | Topic | Output |
 |-------|--------|
 | `agents` | 5 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, `atomic-strategist`, `atomic-signals-inferrer`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
-| `skills` | 8 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`, `atomic-wiki`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
+| `skills` | 9 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`, `atomic-wiki`, `atomic-visual-options`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
 | `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate (spec/config/bundle/artifacts)`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`, `wiki bucket add <name>` (register a capture folder + splice `<wiki-buckets>` block), `wiki bucket list` (show registered buckets + pending/fresh status), `wiki bucket diff <name>` (read-only diff vs baseline: new/changed/removed), `wiki bucket promote <name>` (advance baseline after successful synthesis), `code index/sync` (build/refresh the symbol graph — at a wiki-realm root, fans out across all member repos; `--only`/`--exclude <keys>` filter which members), `code explore "<query>"` (one-shot context digest for a question — the verb to reach for first; in realm scope, results grouped under `[<key>]` headers), `code search/callers/callees/impact <symbol>` (targeted graph queries, `--json` for machine output; `--json` returns `{ "<key>": … }` object in realm scope), `code mcp` (expose the graph as MCP tools). For manual project-scoped MCP registration of the code-intel server, see `docs/guides/code-intel-mcp.md`. `serve [path] [--port N] [--open]` — start a local read-only HTTP server (default port 4500) that renders the wiki realm (or a single repo) as a navigable, Obsidian-style graph: a page view with a live right rail (this-page graph, out/in links), a whole-system graph toggle, a code-file modal (highlighted source + code intelligence), an `md|code` search box, and federated code search. localhost only; `--open` opens the browser. |
@@ -152,7 +152,7 @@ The tour is four stages. After each stage, prompt the user via `AskUserQuestion`
 atomic-claude — opinionated Claude Code config. Five surfaces compose:
 
   output style    terse TUI replies (atomic — drop filler, fragments OK)
-  skills          8 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing)
+  skills          9 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing, visual options)
   commands        ~22 explicit verbs (/autopilot, /atomic-plan, /commit, ...)
   agents          5 dispatchable subagents (implementer, reviewer, investigator, ...)
   binary          atomic CLI — signals scan, doctor, validate, update, install
