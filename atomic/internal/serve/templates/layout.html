@@ -1,9 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>atomic serve — {{.ScopeLabel}}</title>
+    <!-- Before-paint theme init: reads localStorage first, falls back to OS prefers-color-scheme.
+         Runs synchronously before first paint to avoid a flash of wrong theme. -->
+    <script>
+    (function() {
+      var stored = null;
+      try { stored = localStorage.getItem('atomic-serve-theme'); } catch (e) {}
+      var theme = stored || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    }());
+    </script>
+    <!-- Editorial fonts: Newsreader (serif display), Inter (UI sans), JetBrains Mono (code) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/app.css">
     <!-- History cache-miss restores must come back as the FULL shell, not a
          fragment. We use the HX-Request header to return #main-pane fragments,
@@ -26,13 +40,18 @@
          legend duplicates them. -->
     <script>
     function atomicCyTypeColors() {
+      // Read from CSS custom properties so the colors respond to the active theme.
+      // The shipped palette hues (node outer stroke colors) are constant across themes;
+      // the CSS vars --c-<type> always hold the right legible value for the current theme.
+      var style = getComputedStyle(document.documentElement);
+      function v(name) { return style.getPropertyValue(name).trim(); }
       return {
-        'page':      '#89b4fa',
-        'repo':      '#a6e3a1',
-        'concern':   '#cba6f7',
-        'knowledge': '#f38ba8',
-        'bucket':    '#fab387',
-        'external':  '#6c7086'
+        'page':      v('--c-page')      || '#89b4fa',
+        'repo':      v('--c-repo')      || '#a6e3a1',
+        'concern':   v('--c-concern')   || '#cba6f7',
+        'knowledge': v('--c-knowledge') || '#f38ba8',
+        'bucket':    v('--c-bucket')    || '#fab387',
+        'external':  v('--c-external')  || '#6c7086'
       };
     }
     </script>
@@ -372,9 +391,9 @@
 </head>
 <body>
 
-<!-- ── top bar: brand · breadcrumb · search + md|code toggle ─────────── -->
+<!-- ── top bar: brand · breadcrumb · search · theme toggle ───────────── -->
 <header id="app-header">
-    <span class="brand">◆ atomic</span>
+    <span class="brand"><span class="diamond">◆</span> atomic</span>
     <nav class="breadcrumb" aria-label="Breadcrumb">
         <span class="breadcrumb-scope">{{.ScopeBadge}}</span>
         <span class="breadcrumb-sep">›</span>
@@ -386,11 +405,19 @@
              the dialog; Enter / "view all" opens the dedicated /search page. -->
         <button id="search-trigger" class="search-trigger" type="button"
                 aria-haspopup="dialog" aria-label="Open search (Command K)">
-            <span class="search-trigger-icon" aria-hidden="true">⌕</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
             <span class="search-trigger-label">Search…</span>
             <kbd class="search-trigger-kbd">⌘K</kbd>
         </button>
     </div>
+    <!-- Theme toggle: sun (dark→light) / moon (light→dark) -->
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light / dark theme" title="Toggle light / dark">
+        <!-- Moon icon — shown in light mode (click to go dark) -->
+        <svg class="i-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <!-- Sun icon — shown in dark mode (click to go light) -->
+        <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8"/></svg>
+    </button>
 </header>
 
 <!-- ── three-pane Obsidian shell ─────────────────────────────────────── -->
@@ -506,6 +533,21 @@
         </div>
     </div>
 </div>
+
+<!-- Theme toggle: persists choice to localStorage, wins over OS on subsequent loads. -->
+<script>
+(function() {
+  var btn = document.getElementById('theme-toggle');
+  if (!btn) { return; }
+  btn.addEventListener('click', function() {
+    var root = document.documentElement;
+    var current = root.getAttribute('data-theme') || 'light';
+    var next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('atomic-serve-theme', next); } catch (e) {}
+  });
+}());
+</script>
 
 <!-- FE5 search dialog (command palette).
      Trigger: #search-trigger click, ⌘K / Ctrl K, or "/" when not typing.
