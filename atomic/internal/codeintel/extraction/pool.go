@@ -256,6 +256,8 @@ func (ti *tsInstance) resolveLanguage(ctx context.Context, lang Lang) (sitter.La
 		return ts.LanguagePascal(ctx)
 	case LangElixir:
 		return ts.LanguageElixir(ctx)
+	case LangErlang:
+		return ts.LanguageErlang(ctx)
 	default:
 		return sitter.Language{}, fmt.Errorf("unknown language %d", lang)
 	}

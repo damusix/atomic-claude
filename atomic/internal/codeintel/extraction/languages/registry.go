@@ -18,11 +18,11 @@ type registryEntry struct {
 }
 
 // NewRegistry builds and returns a fully-initialised Registry containing the
-// twenty-two language configs: Go, TypeScript, JavaScript, TSX, JSX, Python, Rust,
-// Java, C, C++, C#, Swift, Kotlin, Scala, Ruby, PHP, Lua, Luau, Dart, ObjC, Pascal, Elixir.
+// twenty-three language configs: Go, TypeScript, JavaScript, TSX, JSX, Python, Rust,
+// Java, C, C++, C#, Swift, Kotlin, Scala, Ruby, PHP, Lua, Luau, Dart, ObjC, Pascal, Elixir, Erlang.
 func NewRegistry() *Registry {
 	r := &Registry{
-		entries: make(map[types.Language]registryEntry, 22),
+		entries: make(map[types.Language]registryEntry, 23),
 	}
 	r.entries[types.LanguageGo] = registryEntry{cfg: GoExtractor(), lang: extraction.LangGo}
 	r.entries[types.LanguageTypeScript] = registryEntry{cfg: TypeScriptExtractor(), lang: extraction.LangTypeScript}
@@ -46,6 +46,7 @@ func NewRegistry() *Registry {
 	r.entries[types.LanguageObjC] = registryEntry{cfg: ObjCExtractor(), lang: extraction.LangObjC}
 	r.entries[types.LanguagePascal] = registryEntry{cfg: PascalExtractor(), lang: extraction.LangPascal}
 	r.entries[types.LanguageElixir] = registryEntry{cfg: ElixirExtractor(), lang: extraction.LangElixir}
+	r.entries[types.LanguageErlang] = registryEntry{cfg: ErlangExtractor(), lang: extraction.LangErlang}
 	return r
 }
 

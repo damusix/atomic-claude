@@ -288,7 +288,7 @@ names the owning part-spec.
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
 | 0 | Build-strategy gate: 19-grammar `ts.wasm` + proven pool/recycle/traversal | code-intel-substrate (CP1) | grammars load + vocab-match; pool race-clean; RSS bounded |
-| 1 | Types contract + Go conventions | code-intel-substrate (CP2) | 31 NodeKind / 13 EdgeKind / 30 Language asserted |
+| 1 | Types contract + Go conventions | code-intel-substrate (CP2) | 31 NodeKind / 13 EdgeKind / 32 Language asserted |
 | 2 | DB connection + schema + pragmas | code-intel-substrate (CP3) | schema byte-identical; WAL + FK on; single conn |
 | 3 | Migrations v2–v4 | code-intel-substrate (CP4) | old DB migrates to v4 idempotently |
 | 4 | Query layer + FTS parity | code-intel-substrate (CP5) | CRUD; cascade delete; FTS rank order matches |
@@ -383,9 +383,10 @@ exported from the reference impl.
   references, type_of, returns, instantiates, overrides, decorates, writes`.
   (`writes` added CP5 — routine→table mutation targets; lets `code impact`
   distinguish writers from readers.)
-- **Language (30):** `typescript, javascript, tsx, jsx, python, go, rust, java,
+- **Language (32):** `typescript, javascript, tsx, jsx, python, go, rust, java,
   c, cpp, csharp, php, ruby, swift, kotlin, dart, svelte, vue, liquid, pascal,
-  scala, lua, luau, objc, yaml, twig, xml, properties, unknown, sql`.
+  scala, lua, luau, objc, yaml, twig, xml, properties, unknown, sql, elixir,
+  erlang`.
 - Mirror structs: `Node`, `Edge`, `FileRecord`, `ExtractionResult`,
   `UnresolvedReference`, `Subgraph` (`map[string]Node` + `[]Edge` + `roots
   []string` + optional `confidence` — **sort on serialize**), `TraversalOptions`,
@@ -395,7 +396,8 @@ exported from the reference impl.
 
 Non-obvious entries: `.mts/.cts`→ts, `.mjs/.cjs/.xsjs/.xsjslib`→js, `.h`→c
 (promote to cpp/objc by content heuristic), `.module/.install/.theme/.inc`→php,
-`.rake`→ruby, `.kts`→kotlin, `.pas/.dpr/.dpk/.lpr/.dfm/.fmx`→pascal, `.sc`→scala.
+`.rake`→ruby, `.kts`→kotlin, `.pas/.dpr/.dpk/.lpr/.dfm/.fmx`→pascal, `.sc`→scala,
+`.exs`→elixir, `.hrl`→erlang.
 Special non-extension: `conf/routes` + `*.routes`→yaml (Play; file-level only).
 File-level-only (no symbol extraction, file record only): `yaml`, `twig`,
 `properties`.

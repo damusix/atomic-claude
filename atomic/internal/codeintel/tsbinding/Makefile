@@ -1,7 +1,7 @@
 .PHONY: build fetch clean clean-src
 default: build
 
-# Build the 20-grammar ts.wasm for the atomic code-intel engine.
+# Build the 22-grammar ts.wasm for the atomic code-intel engine.
 #
 # Regen commands (run from this directory):
 #   make build          # fetches ./src if absent, then compiles lib/ts.wasm
@@ -46,6 +46,7 @@ build:
 		src/objc/parser.c \
 		src/pascal/parser.c \
 		src/elixir/parser.c src/elixir/scanner.c \
+		csrc/erlang_compat.c src/erlang/scanner.c \
 		-o lib/ts.wasm \
 		-Os -fPIC \
 		-Wl,--no-entry \
@@ -99,7 +100,8 @@ build:
 		-Wl,--export=tree_sitter_luau \
 		-Wl,--export=tree_sitter_objc \
 		-Wl,--export=tree_sitter_pascal \
-		-Wl,--export=tree_sitter_elixir
+		-Wl,--export=tree_sitter_elixir \
+		-Wl,--export=tree_sitter_erlang
 	@echo "Built lib/ts.wasm: $$(du -h lib/ts.wasm | cut -f1)"
 
 clean:

@@ -192,3 +192,11 @@ func (t TreeSitter) LanguageElixir(ctx context.Context) (Language, error) {
 	}
 	return NewLanguage(p[0], t), nil
 }
+
+func (t TreeSitter) LanguageErlang(ctx context.Context) (Language, error) {
+	p, err := t.languageErlang.Call(ctx)
+	if err != nil {
+		return Language{}, fmt.Errorf("initiating erlang language: %w", err)
+	}
+	return NewLanguage(p[0], t), nil
+}
