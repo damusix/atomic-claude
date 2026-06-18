@@ -3,13 +3,11 @@
 // This file implements one FrameworkResolver + FrameworkExtractor pair for
 // the Phoenix web framework (Elixir).
 //
-// # Language — IMPORTANT
+// # Language
 //
-// Elixir is NOT in the 29-language set (appendix C of the code-intel-engine
-// spec). Route nodes and handler refs use types.LanguageUnknown. Languages()
-// returns [types.LanguageUnknown]. ClaimsReference and Resolve are implemented
-// for contract completeness even though no Elixir-language refs come from
-// extraction.
+// Elixir is a supported language (types.LanguageElixir). Route nodes and
+// handler refs carry LanguageElixir. Languages() returns [types.LanguageElixir]
+// so getApplicableResolvers includes this resolver when indexing .ex files.
 //
 // # Comment stripping
 //
@@ -32,6 +30,8 @@
 //	put  "/path", PageController, :action
 //	patch "/path", PageController, :action
 //	delete "/path", PageController, :action
+//	get("/path", PageController, :action)
+//	post("/path", PageController, :action)
 //
 // HTTP verbs: get post put patch delete → uppercase in route node name.
 // Handler = the :action atom (strip the leading ':').
@@ -64,10 +64,12 @@ import (
 // Phoenix regexes
 // ---------------------------------------------------------------------------
 
-// phoenixVerbRe matches Phoenix router DSL verb lines:
+// phoenixVerbRe matches Phoenix router DSL verb lines in both space and paren forms:
 //
 //	get  "/path", SomeController, :action
 //	post "/path", SomeController, :action
+//	get("/path", SomeController, :action)
+//	post("/path", SomeController, :action)
 //
 // Capture groups:
 //
@@ -75,10 +77,14 @@ import (
 //	2 — route path (double-quoted)
 //	3 — :action atom (with leading ':')
 //
-// phoenixVerbRe uses [^\S\n]* (spaces/tabs only, not newline) so the match
-// starts on the correct line for accurate line-number calculation.
+// The separator between verb and opening quote is `(?:[^\S\n]+|\()[^\S\n]*`:
+//   - space form: one or more horizontal whitespace chars (tabs/spaces, not newline)
+//   - paren form: a literal '(' followed by zero or more horizontal whitespace chars
+//
+// [^\S\n]* (spaces/tabs only, not newline) anchors each match to its correct
+// line so line-number calculation via strings.Count(…, "\n") is accurate.
 var phoenixVerbRe = regexp.MustCompile(
-	`(?m)^[^\S\n]*(get|post|put|patch|delete)[^\S\n]+` +
+	`(?m)^[^\S\n]*(get|post|put|patch|delete)(?:[^\S\n]+|\()[^\S\n]*` +
 		`"([^"]+)"\s*,\s*` + // double-quoted path
 		`[A-Za-z][A-Za-z0-9_.]*\s*,\s*` + // Controller module (ignored)
 		`:([A-Za-z_][A-Za-z0-9_]*)`, // :action atom (captured without ':')
@@ -89,9 +95,7 @@ var phoenixVerbRe = regexp.MustCompile(
 // ---------------------------------------------------------------------------
 
 // PhoenixResolver implements FrameworkResolver + FrameworkExtractor for Phoenix.
-//
-// NOTE: Elixir is absent from the 29-language set (appendix C). All route
-// nodes and refs use types.LanguageUnknown. See package doc.
+// Route nodes and refs carry LanguageElixir. See package doc.
 type PhoenixResolver struct {
 	projectRoot string
 	claimed     map[string]bool
@@ -105,10 +109,10 @@ func NewPhoenixResolver(projectRoot string) *PhoenixResolver {
 // Name returns "phoenix".
 func (r *PhoenixResolver) Name() string { return "phoenix" }
 
-// Languages returns [LanguageUnknown] because Elixir is not in the 29-language
-// set (appendix C). Route nodes and refs use LanguageUnknown for the same reason.
+// Languages returns [LanguageElixir]. The pipeline's getApplicableResolvers
+// matches this resolver to .ex files so Extract runs on Phoenix router files.
 func (r *PhoenixResolver) Languages() []types.Language {
-	return []types.Language{types.LanguageUnknown}
+	return []types.Language{types.LanguageElixir}
 }
 
 // Detect returns true when mix.exs in projectRoot contains `:phoenix` as a
@@ -124,7 +128,7 @@ func (r *PhoenixResolver) Detect(ctx context.Context) bool {
 // Extract scans filePath/content for Phoenix router verb lines and returns
 // route nodes + handler refs. # line comments are stripped first.
 //
-// Route nodes carry LanguageUnknown (Elixir absent from appendix C).
+// Route nodes and refs carry LanguageElixir.
 func (r *PhoenixResolver) Extract(filePath, content string) ([]types.Node, []types.UnresolvedReference) {
 	stripped := stripHashLineComments(content)
 	totalLines := strings.Count(content, "\n") + 1
@@ -145,8 +149,7 @@ func (r *PhoenixResolver) Extract(filePath, content string) ([]types.Node, []typ
 			line = totalLines
 		}
 
-		// LanguageUnknown: Elixir is not in the 29-language set (appendix C).
-		node := MakeRouteNode(filePath, line, verb, routePath, types.LanguageUnknown)
+		node := MakeRouteNode(filePath, line, verb, routePath, types.LanguageElixir)
 		nodes = append(nodes, node)
 
 		if action != "" {
@@ -158,7 +161,7 @@ func (r *PhoenixResolver) Extract(filePath, content string) ([]types.Node, []typ
 				ReferenceKind: types.EdgeKindReferences,
 				Line:          line,
 				FilePath:      filePath,
-				Language:      types.LanguageUnknown,
+				Language:      types.LanguageElixir,
 			})
 		}
 	}
@@ -170,8 +173,6 @@ func (r *PhoenixResolver) Extract(filePath, content string) ([]types.Node, []typ
 func (r *PhoenixResolver) ClaimsReference(name string) bool { return r.claimed[name] }
 
 // Resolve returns confidence 0.85 for claimed action names.
-// Implemented for contract completeness (no Elixir-language refs come from
-// extraction since Elixir is absent from appendix C).
 func (r *PhoenixResolver) Resolve(ctx context.Context, ref types.UnresolvedReference) (resolution.ResolvedRef, error) {
 	if !r.claimed[ref.ReferenceName] {
 		return resolution.ResolvedRef{}, nil

@@ -1,17 +1,20 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch E (Elixir): phoenix resolver.
+// Tests for CP15 batch E (Elixir): phoenix resolver.
 //
-// NOTE ON LANGUAGE: Elixir is NOT in the 29-language set (appendix C).
-// Route nodes and refs use types.LanguageUnknown. Languages() returns
-// [types.LanguageUnknown]. This is documented in elixir.go.
+// NOTE ON LANGUAGE: Elixir is a supported language (types.LanguageElixir).
+// Route nodes and refs carry LanguageElixir. Languages() returns
+// [types.LanguageElixir]. getApplicableResolvers(LanguageElixir) includes
+// this resolver so Extract runs on indexed .ex router files.
 //
 // Coverage:
 //  1. Detect true on mix.exs with :phoenix dep + false otherwise.
 //  2. Extract: get/post/put/patch/delete → uppercase method + :action atom handler ref.
-//  3. Route nodes carry LanguageUnknown (Elixir absent from appendix C).
+//  3. Route nodes carry LanguageElixir.
 //  4. A `# get "/x"` commented-out route emits NOTHING (# line stripping).
 //  5. Resolve 0.8–0.9 + ClaimsReference.
+//  6. Representative realworld router.ex fixture: routes + refs carry LanguageElixir.
+//  7. getApplicableResolvers(LanguageElixir) includes PhoenixResolver.
 
 import (
 	"context"
@@ -100,9 +103,9 @@ end
 		t.Fatalf("no GET route found; nodes: %v", elixirNodeIDs(nodes))
 	}
 
-	// Language MUST be LanguageUnknown (Elixir absent from appendix C)
-	if found.Language != types.LanguageUnknown {
-		t.Errorf("route node Language = %v, want LanguageUnknown (Elixir absent from appendix C)", found.Language)
+	// Language MUST be LanguageElixir (Elixir is a supported language).
+	if found.Language != types.LanguageElixir {
+		t.Errorf("route node Language = %v, want LanguageElixir", found.Language)
 	}
 	if found.Kind != types.NodeKindRoute {
 		t.Errorf("route node Kind = %v, want Route", found.Kind)
@@ -123,20 +126,25 @@ end
 	}
 }
 
-func TestPhoenixExtract_LanguageIsUnknown(t *testing.T) {
-	// This test explicitly proves the LanguageUnknown contract for ALL emitted nodes.
+func TestPhoenixExtract_LanguageIsElixir(t *testing.T) {
+	// Proves LanguageElixir on ALL emitted nodes and refs now that Elixir is supported.
 	r := frameworks.NewPhoenixResolver(t.TempDir())
 	src := `  get "/users", UserController, :index
   post "/users", UserController, :create
 `
-	nodes, _ := r.Extract("lib/web/router.ex", src)
+	nodes, refs := r.Extract("lib/web/router.ex", src)
 
 	if len(nodes) == 0 {
 		t.Fatal("expected nodes, got 0")
 	}
 	for _, n := range nodes {
-		if n.Language != types.LanguageUnknown {
-			t.Errorf("node %q language = %v, want LanguageUnknown", n.ID, n.Language)
+		if n.Language != types.LanguageElixir {
+			t.Errorf("node %q language = %v, want LanguageElixir", n.ID, n.Language)
+		}
+	}
+	for _, ref := range refs {
+		if ref.Language != types.LanguageElixir {
+			t.Errorf("ref %q language = %v, want LanguageElixir", ref.ID, ref.Language)
 		}
 	}
 }
@@ -207,6 +215,180 @@ func TestPhoenixResolve(t *testing.T) {
 	}
 }
 
+// TestPhoenixExtract_ReporterRouterFixture exercises a representative
+// gothinkster-style Phoenix realworld router: scope + pipe_through + several
+// verb lines. Asserts specific routes and refs are produced with LanguageElixir.
+// The test fails if extraction regresses to 0 routes.
+func TestPhoenixExtract_ReporterRouterFixture(t *testing.T) {
+	r := frameworks.NewPhoenixResolver(t.TempDir())
+
+	// Modelled on the gothinkster elixir-phoenix realworld router.ex.
+	// scope "/api" and pipe_through are NOT expanded (documented best-effort),
+	// so paths are recorded as-is from the verb line.
+	src := `defmodule ConduitWeb.Router do
+  use ConduitWeb, :router
+
+  pipeline :api do
+    plug :accepts, ["json"]
+    plug ConduitWeb.Auth
+  end
+
+  scope "/api", ConduitWeb do
+    pipe_through :api
+
+    get  "/articles",           ArticleController, :index
+    post "/articles",           ArticleController, :create
+    get  "/articles/:slug",     ArticleController, :show
+    put  "/articles/:slug",     ArticleController, :update
+    delete "/articles/:slug",   ArticleController, :delete
+    post "/articles/:slug/comments", CommentController, :create
+    get  "/profiles/:username", ProfileController, :show
+    # get "/hidden", HiddenController, :index
+  end
+end
+`
+	filePath := "lib/conduit_web/router.ex"
+	nodes, refs := r.Extract(filePath, src)
+
+	// Must produce non-zero routes — regression guard.
+	if len(nodes) == 0 {
+		t.Fatal("router.ex fixture produced 0 route nodes; extraction regressed")
+	}
+
+	// Build lookup maps for O(1) checks.
+	nodesByNamePart := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		nodesByNamePart[n.Name] = true
+	}
+	refsByName := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		refsByName[ref.ReferenceName] = true
+	}
+
+	// Assert specific routes.
+	wantRoutes := []string{
+		"GET /articles",
+		"POST /articles",
+		"GET /articles/:slug",
+		"PUT /articles/:slug",
+		"DELETE /articles/:slug",
+		"POST /articles/:slug/comments",
+		"GET /profiles/:username",
+	}
+	for _, want := range wantRoutes {
+		if !nodesByNamePart[want] {
+			t.Errorf("expected route node %q; nodes produced: %v", want, elixirNodeNames(nodes))
+		}
+	}
+
+	// Commented-out route must NOT appear.
+	if nodesByNamePart["GET /hidden"] {
+		t.Error("commented-out route GET /hidden must not be extracted")
+	}
+
+	// Assert specific handler refs.
+	wantRefs := []string{"index", "create", "show", "update", "delete"}
+	for _, want := range wantRefs {
+		if !refsByName[want] {
+			t.Errorf("expected ref %q; refs produced: %v", want, elixirRefNames(refs))
+		}
+	}
+
+	// All nodes and refs must carry LanguageElixir.
+	for _, n := range nodes {
+		if n.Language != types.LanguageElixir {
+			t.Errorf("node %q language = %v, want LanguageElixir", n.Name, n.Language)
+		}
+	}
+	for _, ref := range refs {
+		if ref.Language != types.LanguageElixir {
+			t.Errorf("ref %q language = %v, want LanguageElixir", ref.ReferenceName, ref.Language)
+		}
+	}
+}
+
+// TestPhoenixExtract_ParenFormRoutes proves that paren-form route macros
+// (e.g. get("/openapi", …), post("/x", …)) are extracted identically to the
+// space form. This is the regression test for the bug found in Plausible's
+// router where `get("/openapi", …)` was silently dropped because the old regex
+// required at least one horizontal whitespace char between the verb and the
+// opening quote, making `get("` a non-match.
+func TestPhoenixExtract_ParenFormRoutes(t *testing.T) {
+	r := frameworks.NewPhoenixResolver(t.TempDir())
+	src := `defmodule PlausibleWeb.Router do
+  use PlausibleWeb, :router
+
+  scope "/", PlausibleWeb do
+    get("/openapi", PageController, :openapi)
+    get("/shared_links", SharedLinkController, :index)
+    post("/x", SomeController, :create)
+  end
+end
+`
+	nodes, refs := r.Extract("lib/plausible_web/router.ex", src)
+
+	if len(nodes) != 3 {
+		t.Fatalf("expected 3 route nodes from paren-form routes, got %d: %v", len(nodes), elixirNodeNames(nodes))
+	}
+
+	// Build lookup maps.
+	nodesByName := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		nodesByName[n.Name] = true
+	}
+	refsByName := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		refsByName[ref.ReferenceName] = true
+	}
+
+	wantRoutes := []string{"GET /openapi", "GET /shared_links", "POST /x"}
+	for _, want := range wantRoutes {
+		if !nodesByName[want] {
+			t.Errorf("paren-form route %q not extracted; got: %v", want, elixirNodeNames(nodes))
+		}
+	}
+
+	wantRefs := []string{"openapi", "index", "create"}
+	for _, want := range wantRefs {
+		if !refsByName[want] {
+			t.Errorf("expected ref %q from paren-form route; got: %v", want, elixirRefNames(refs))
+		}
+	}
+
+	// All nodes and refs must carry LanguageElixir.
+	for _, n := range nodes {
+		if n.Language != types.LanguageElixir {
+			t.Errorf("paren-form node %q language = %v, want LanguageElixir", n.Name, n.Language)
+		}
+	}
+	for _, ref := range refs {
+		if ref.Language != types.LanguageElixir {
+			t.Errorf("paren-form ref %q language = %v, want LanguageElixir", ref.ReferenceName, ref.Language)
+		}
+	}
+}
+
+// TestPhoenixLanguages_ElixirUngated proves that Languages() returns
+// LanguageElixir so getApplicableResolvers(LanguageElixir) includes
+// PhoenixResolver. This is the contract getApplicableResolvers relies on.
+func TestPhoenixLanguages_ElixirUngated(t *testing.T) {
+	r := frameworks.NewPhoenixResolver(t.TempDir())
+	langs := r.Languages()
+	if len(langs) == 0 {
+		t.Fatal("Languages() returned empty slice")
+	}
+	found := false
+	for _, l := range langs {
+		if l == types.LanguageElixir {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Languages() = %v; want to contain LanguageElixir so the pipeline includes this resolver on .ex files", langs)
+	}
+}
+
 // elixirNodeIDs is a test helper.
 func elixirNodeIDs(nodes []types.Node) []string {
 	ids := make([]string, len(nodes))
@@ -214,4 +396,22 @@ func elixirNodeIDs(nodes []types.Node) []string {
 		ids[i] = n.ID
 	}
 	return ids
+}
+
+// elixirNodeNames is a test helper that returns node Name fields.
+func elixirNodeNames(nodes []types.Node) []string {
+	names := make([]string, len(nodes))
+	for i, n := range nodes {
+		names[i] = n.Name
+	}
+	return names
+}
+
+// elixirRefNames is a test helper that returns ref ReferenceName fields.
+func elixirRefNames(refs []types.UnresolvedReference) []string {
+	names := make([]string, len(refs))
+	for i, r := range refs {
+		names[i] = r.ReferenceName
+	}
+	return names
 }
