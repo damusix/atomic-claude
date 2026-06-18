@@ -267,7 +267,8 @@
         function buildLegend(cy, elems) {
           // Collect distinct node types from the element list.
           var seenTypes = {};
-          (elems || []).forEach(function(el) {
+          var nodeList = Array.isArray(elems) ? elems : ((elems && elems.nodes) || []);
+          nodeList.forEach(function(el) {
             if (el.data && el.data.type) { seenTypes[el.data.type] = true; }
           });
           var types = Object.keys(seenTypes).sort();
