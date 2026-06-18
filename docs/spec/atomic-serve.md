@@ -91,6 +91,14 @@ only what gets built.
       local depth-1–2 view from a node. Three edge classes — md-link, wikilink, and
       fingerprint/provenance (dashed) — are drawn distinctly. Code edges are per-member
       sub-graphs entered from a repo node; no cross-repo edges are drawn.
+      Graph nodes glow in A-style with theme-aware colors read from CSS custom properties
+      (no hard-coded palette). `/graph/data` node objects carry `title`, `description`, and
+      `snippet` metadata (from `Graph.Meta` / `extractNodeMeta`). Hovering a node shows a
+      floating preview card (type chip, title, description, snippet). Clicking a node in
+      the system graph opens a content modal that fetches `/page/<id>`, renders the page
+      over a dimmed graph backdrop, and offers an "Open full page →" button; closing the
+      modal returns focus to the graph without navigation. The prior behavior — tap on a
+      system-graph node navigates away to the page view — is superseded.
 - [ ] **SC12** — Provenance DAG walk: a new frontmatter reader extracts `reflects:` /
       `sources:` from concern and knowledge pages; the concern → knowledge → bucket-file
       chain is walkable; a stamp whose recorded fingerprint differs from the live content
@@ -130,6 +138,53 @@ a dispatch hint, not a hard roster.
 | 9 | **Graph overlay** — vendor `cytoscape.min.js`+`elk.bundled.js`+`cytoscape-elk.min.js` (load order load-bearing) via `go:embed`; `/graph` global + local depth-1–2; 3 edge classes styled (md-link/wikilink/fingerprint-dashed); code sub-graph entered via repo node | `internal/serve/` (graph routes, JSON for cytoscape), vendored assets | builder | SC11 |
 | 10 | **Provenance DAG** — frontmatter reader for `reflects:`/`sources:`; concern→knowledge→bucket-file walk; live-hash vs stamped mismatch → red edge + node flag; reuse `wiki` fingerprint resolution | `internal/serve/`, `wiki/stamp.go` resolution (resolveFingerprint:91), new frontmatter reader | builder | SC12 |
 | 11 | **Artifact checklist + docs + parity** — cliusage flags; `CLAUDE.md` registry+workflow; `README.md`; `docs/reference/serve.md` (+ commands table); `/atomic-help` cli row + tour; `atomic validate artifacts`; `make render` + `make -C atomic bundle` clean; signals refresh | `cliusage.go`, `CLAUDE.md`, `README.md`, `docs/reference/`, `templates/commands/atomic-help.md`, `docs/reference/commands.md` | surgeon | SC13 |
+
+
+## Visual redesign — 2026-06-18
+
+
+The Obsidian shell from the 2026-06-14 FE rework is restyled and the graph interaction model
+is extended. All changes are additive to the existing shell; no engine changes.
+
+### Theme toggle + editorial restyle
+
+A light/dark theme toggle lives in the top bar (sun / moon icon). Before paint, an inline
+script reads `localStorage` key `atomic-serve-theme`, falls back to `prefers-color-scheme`,
+and sets `data-theme` on `<html>`. Toggling writes the choice back to `localStorage` and
+calls `.style()` on all live Cytoscape instances (`window.__systemCy`, `window.__railCy`)
+so the graph re-themes without a page reload.
+
+Two CSS-variable theme sets are defined in `app.css`: a warm paper light theme and a warm
+charcoal dark theme. Typography: Newsreader (serif) for display headings, Inter for UI
+text, a monospace stack with `font-variant-ligatures: none; font-feature-settings: "calt" 0`
+to prevent programming-font ligature collapse on `--`, `->`, `===` sequences (affects all
+`code, pre, kbd, samp` elements). Amber accent (`#f59e0b` family). The `type` property in
+the Properties rail slot renders as a colored type-chip rather than plain text.
+
+### A-style glowing graph nodes
+
+Graph nodes use a glow style (A-style): solid background with a colored box-shadow
+`rgba` ring. Node and edge colors are read from CSS custom properties (`getComputedStyle`)
+at render time so they track the active theme without a graph rebuild.
+
+### Node hover preview
+
+Hovering a node in either the system graph or the rail mini-graph shows a floating preview
+card anchored near the pointer. The card contains: a type chip, the node `title`, a short
+`description` (first sentence of frontmatter or inferred), and a `snippet` (the opening
+prose). These fields come from the `meta` object in the `/graph/data` JSON, populated by
+`extractNodeMeta` / `Graph.Meta` in `graph.go`. The card dismisses on pointer-leave.
+
+### Node-click content modal (system graph)
+
+Clicking a node in the **system graph** opens a content modal over a dimmed graph backdrop.
+The modal fetches `/page/<id>`, renders the returned HTML, and presents a primary "Open full
+page →" button that navigates into the page view. Close/Esc/scrim-click dismisses the modal
+and returns focus to the graph. The modal is themed for both light and dark.
+
+**Superseded:** the prior system-graph behavior — clicking a node navigated away from the
+graph to the page view, losing graph context — is replaced by this modal pattern. Clicking a
+node in the **rail mini-graph** continues to navigate directly to the page view (unchanged).
 
 
 ## Frontend rework (Obsidian shell) — 2026-06-14
@@ -221,6 +276,32 @@ None.
 
 
 ## Change log
+
+### 2026-06-18 — Serve visual redesign: themes + graph interactions
+
+**What changed:** Light/dark theme toggle added to the top bar. An inline before-paint script
+reads `localStorage` key `atomic-serve-theme` then falls back to OS `prefers-color-scheme`;
+explicit choices are persisted. Toggling calls `.style()` on `window.__systemCy` /
+`window.__railCy` so Cytoscape re-themes live. Two CSS-variable theme sets (warm paper light /
+warm charcoal dark) replace the prior single-theme stylesheet; editorial restyle adds Newsreader
+serif headings, Inter UI, ligature-disabled monospace, amber accent, and type-chip rendering for
+the `type` property. Graph nodes adopt A-style glow (solid + colored box-shadow ring); node/edge
+colors are read from `getComputedStyle` at render time so they track the theme automatically.
+`/graph/data` node objects are enriched with `title`, `description`, and `snippet` fields
+(from `extractNodeMeta` / `Graph.Meta` in `graph.go`). Hovering a node shows a floating preview
+card with a type chip, title, description, and snippet. Clicking a node in the system graph
+opens a content modal fetching `/page/<id>` over a dimmed backdrop; the modal offers "Open full
+page →" and closes on Esc / backdrop click / close button. SC11 body updated to describe
+current behavior.
+
+**Why:** The shell was functional but visually flat and interactively brittle — the system graph
+navigated away on node tap, destroying the user's place in the graph. The theme toggle,
+editorial restyle, and glowing nodes bring visual polish; node hover previews let users orient
+before committing to a page; the content modal preserves graph context on node click.
+
+**Superseded:** SC11's implicit single-theme UI is replaced by the two-theme CSS-variable
+system. The prior system-graph tap-navigates-away behavior is replaced by the content modal
+(node click → modal with "Open full page →" rather than immediate navigation).
 
 ### 2026-06-17 — Frontmatter parsed out of the body, surfaced in the right rail
 

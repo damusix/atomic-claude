@@ -1,9 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>atomic serve — {{.ScopeLabel}}</title>
+    <!-- Before-paint theme init: reads localStorage first, falls back to OS prefers-color-scheme.
+         Runs synchronously before first paint to avoid a flash of wrong theme. -->
+    <script>
+    (function() {
+      var stored = null;
+      try { stored = localStorage.getItem('atomic-serve-theme'); } catch (e) {}
+      var theme = stored || (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    }());
+    </script>
+    <!-- Editorial fonts: Newsreader (serif display), Inter (UI sans), JetBrains Mono (code) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/app.css">
     <!-- History cache-miss restores must come back as the FULL shell, not a
          fragment. We use the HX-Request header to return #main-pane fragments,
@@ -25,74 +39,161 @@
          colors. Hex values are defined ONCE here — neither atomicCyStyle() nor the
          legend duplicates them. -->
     <script>
+    // darken: multiplies each RGB channel by (1 - amount). amount=0.1 → 10% darker.
+    // Accepts a 6-digit hex string ("#rrggbb") and returns a new hex string.
+    function darken(hex, amount) {
+      var h = hex.replace('#', '');
+      if (h.length !== 6) { return hex; }
+      var f = 1 - amount;
+      var r = Math.round(parseInt(h.slice(0, 2), 16) * f);
+      var g = Math.round(parseInt(h.slice(2, 4), 16) * f);
+      var b = Math.round(parseInt(h.slice(4, 6), 16) * f);
+      return '#' + [r, g, b].map(function(c) {
+        return Math.max(0, Math.min(255, c)).toString(16).padStart(2, '0');
+      }).join('');
+    }
+
     function atomicCyTypeColors() {
+      // Read ALL graph color tokens from CSS custom properties so the graph
+      // re-themes automatically on light/dark toggle. Provides safe fallbacks.
+      var style = getComputedStyle(document.documentElement);
+      function v(name) { return style.getPropertyValue(name).trim(); }
+      var pageColor      = v('--c-page')      || '#89b4fa';
+      var repoColor      = v('--c-repo')      || '#a6e3a1';
+      var concernColor   = v('--c-concern')   || '#cba6f7';
+      var knowledgeColor = v('--c-knowledge') || '#f38ba8';
+      var bucketColor    = v('--c-bucket')    || '#fab387';
+      var externalColor  = v('--c-external')  || '#6c7086';
       return {
-        'page':      '#89b4fa',
-        'repo':      '#a6e3a1',
-        'concern':   '#cba6f7',
-        'knowledge': '#f38ba8',
-        'bucket':    '#fab387',
-        'external':  '#6c7086'
+        // Node type solid colors (used as gradient base + derived darker stop).
+        'page':      pageColor,
+        'repo':      repoColor,
+        'concern':   concernColor,
+        'knowledge': knowledgeColor,
+        'bucket':    bucketColor,
+        'external':  externalColor,
+        // Derived 10%-darker gradient stop for each type.
+        'page-dark':      darken(pageColor,      0.10),
+        'repo-dark':      darken(repoColor,      0.10),
+        'concern-dark':   darken(concernColor,   0.10),
+        'knowledge-dark': darken(knowledgeColor, 0.10),
+        'bucket-dark':    darken(bucketColor,    0.10),
+        'external-dark':  darken(externalColor,  0.10),
+        // Per-type ink colors (node label text color).
+        'page-ink':      v('--c-page-ink')      || '#3a63a8',
+        'repo-ink':      v('--c-repo-ink')      || '#3f7a3a',
+        'concern-ink':   v('--c-concern-ink')   || '#6f4aa6',
+        'knowledge-ink': v('--c-knowledge-ink') || '#9c2f4c',
+        'bucket-ink':    v('--c-bucket-ink')    || '#8a4a1a',
+        'external-ink':  v('--c-external-ink')  || '#4a4e63',
+        // Default node colors (for nodes whose type is unknown or empty).
+        'default-fill':  pageColor,
+        'default-dark':  darken(pageColor, 0.10),
+        'default-label': v('--ink-soft')    || '#57514a',
+        // Edge colors — read from CSS vars so they adapt to dark/light.
+        'edge':          v('--edge')        || '#cabfae',
+        'edge-strong':   v('--edge-strong') || '#b1a48f',
+        // Selected state — amber glow.
+        'selected':      v('--amber-bright') || '#d99a1f'
       };
     }
     </script>
     <!-- Shared Cytoscape style factory — used by BOTH the rail mini-graph (FE2) and
          the system-graph toggle (FE3). One definition, two consumers. Do NOT copy
-         the style array into either consumer; call atomicCyStyle() instead. -->
+         the style array into either consumer; call atomicCyStyle() instead.
+
+         A-style glowing nodes: circular wash fill + typed outer stroke + soft drop-shadow.
+         All colors read from atomicCyTypeColors() which reads CSS vars — so the graph
+         re-themes with light/dark toggle automatically (CP1 review finding fix). -->
     <script>
     function atomicCyStyle() {
       var colors = atomicCyTypeColors();
-      // Shape overrides per type (types without an entry use the default roundrectangle).
-      var shapes = { 'repo': 'rectangle', 'external': 'diamond' };
-      var typeSelectors = Object.keys(colors).map(function(t) {
-        var s = { 'background-color': colors[t] };
-        if (shapes[t]) { s['shape'] = shapes[t]; }
-        return { selector: 'node[type="' + t + '"]', style: s };
+      // Build per-type node selectors: solid diagonal gradient fill, hairline border.
+      // Each type selector sets the gradient stops so the color is unique per type.
+      var typeNames = ['page', 'repo', 'concern', 'knowledge', 'bucket', 'external'];
+      var typeSelectors = typeNames.map(function(t) {
+        var base   = colors[t]          || colors['default-fill'];
+        var darker = colors[t + '-dark'] || darken(base, 0.10);
+        return {
+          selector: 'node[type="' + t + '"]',
+          style: {
+            'background-fill': 'linear-gradient',
+            'background-gradient-direction': 'to-bottom-right',
+            'background-gradient-stop-colors': base + ' ' + darker,
+            'background-gradient-stop-positions': '0% 100%',
+            'border-color': darker,
+            'shadow-color': base,
+            'color': colors[t + '-ink'] || colors['default-label']
+          }
+        };
       });
       return [
         {
+          // Default node: 10px solid gradient dot, hairline border, label below.
           selector: 'node',
           style: {
             'label': 'data(label)',
-            'background-color': '#89b4fa',
-            'color': '#1e1e2e',
-            'font-size': '10px',
-            'text-valign': 'center',
+            'background-fill': 'linear-gradient',
+            'background-gradient-direction': 'to-bottom-right',
+            'background-gradient-stop-colors': colors['default-fill'] + ' ' + colors['default-dark'],
+            'background-gradient-stop-positions': '0% 100%',
+            'border-width': '1px',
+            'border-color': colors['default-dark'],
+            'color': colors['default-label'],
+            'font-family': '"JetBrains Mono", "Geist Mono", ui-monospace, monospace',
+            'font-size': '9px',
+            'font-weight': '500',
+            'text-valign': 'bottom',
             'text-halign': 'center',
-            'width': '60px',
-            'height': '24px',
-            'shape': 'roundrectangle',
-            'text-max-width': '55px',
-            'text-wrap': 'ellipsis'
+            'text-margin-y': '4px',
+            'width': '10px',
+            'height': '10px',
+            'shape': 'ellipse',
+            'text-max-width': '60px',
+            'text-wrap': 'ellipsis',
+            // Label halo: prevents labels from bleeding into edges/other nodes.
+            'text-background-color': colors['default-fill'],
+            'text-background-opacity': 0.80,
+            'text-background-padding': '2px',
+            'text-background-shape': 'roundrectangle',
+            // Softened glow appropriate for a 10px node.
+            'shadow-blur': '5px',
+            'shadow-color': colors['page'],
+            'shadow-opacity': 0.12,
+            'shadow-offset-x': 0,
+            'shadow-offset-y': 0
           }
-        },
+        }
       ].concat(typeSelectors).concat([
         {
-          /* md-link: solid dark line */
+          // md-link: solid themed line with subtle arrowhead.
           selector: 'edge.md-link',
           style: {
-            'line-color': '#585b70',
+            'line-color': colors['edge'],
             'line-style': 'solid',
-            'target-arrow-color': '#585b70',
+            'target-arrow-color': colors['edge'],
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
-            'width': 1.5
+            'width': 1.5,
+            'arrow-scale': 0.9
           }
         },
         {
-          /* wikilink: dashed blue — Obsidian-style [[page]] */
+          // wikilink: dashed with the page-type color — Obsidian [[page]] style.
           selector: 'edge.wikilink',
           style: {
-            'line-color': '#89b4fa',
+            'line-color': colors['edge-strong'],
             'line-style': 'dashed',
-            'target-arrow-color': '#89b4fa',
+            'line-dash-pattern': [5, 3],
+            'target-arrow-color': colors['edge-strong'],
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
-            'width': 1.5
+            'width': 1.5,
+            'arrow-scale': 0.9
           }
         },
         {
-          /* fingerprint: dashed orange — provenance/reflects: edges (CP10) */
+          // fingerprint: dashed orange — provenance/reflects: edges (CP10).
           selector: 'edge.fingerprint',
           style: {
             'line-color': '#fab387',
@@ -105,7 +206,7 @@
           }
         },
         {
-          /* fingerprint drift: red — drifted provenance edges (SC12) */
+          // fingerprint drift: red — drifted provenance edges (SC12).
           selector: 'edge.fingerprint.drift',
           style: {
             'line-color': '#f38ba8',
@@ -114,44 +215,139 @@
           }
         },
         {
+          // Selected: amber solid gradient (theme-aware).
           selector: ':selected',
-          style: { 'background-color': '#f9e2af', 'line-color': '#f9e2af' }
+          style: {
+            'background-fill': 'linear-gradient',
+            'background-gradient-direction': 'to-bottom-right',
+            'background-gradient-stop-colors': (colors['selected'] || '#d99a1f') + ' ' + darken(colors['selected'] || '#d99a1f', 0.10),
+            'background-gradient-stop-positions': '0% 100%',
+            'border-color': darken(colors['selected'] || '#d99a1f', 0.10),
+            'shadow-color': colors['selected'] || '#d99a1f',
+            'shadow-opacity': 0.35,
+            'line-color': colors['selected'] || '#d99a1f'
+          }
         }
       ]);
     }
     </script>
-    <!-- FE2 rail mini-graph: delegated htmx.onLoad handler.
+    <!-- FE2 rail mini-graph: delegated htmx.onLoad handler + OOB swap fallback.
          Inline <script> in OOB innerHTML swaps are not reliably executed by
          htmx 2. The canonical pattern is htmx.onLoad, which fires for every
          newly swapped element. When a [data-rail-graph-url] rail-graph container
          arrives, we fetch the graph data URL and mount a Cytoscape instance.
-         Note: [data-rail-graph-url] is distinct from the #mode-system button's
-         [data-graph-url="/graph/data"] seam (FE3) — no attribute collision. -->
+         Note: [data-rail-graph-url] is a rail-specific attribute — distinct from
+         anything the FE3 system-graph toggle uses. No attribute collision.
+
+         OOB swap edge-case: htmx.onLoad fires with elt = the swapped-in node
+         itself (the container), not a wrapper. querySelector only matches
+         DESCENDANTS, so we also check elt itself via .matches(). The OOB
+         afterSwap listener below covers cases where htmx:load is not fired for
+         OOB innerHTML swaps. mountRailGraph is factored as a single function
+         called from both paths; a dataset flag prevents double-mount. -->
     <script>
-    htmx.onLoad(function(elt) {
-      var container = elt.querySelector ? elt.querySelector('[data-rail-graph-url]') : null;
-      if (!container) { return; }
+    function mountRailGraph(container) {
+      // Guard: already mounted (e.g. both htmx.onLoad and htmx:oobAfterSwap fired).
+      if (container.dataset.railMounted === '1') { return; }
       if (typeof cytoscape === 'undefined') { return; }
       var graphURL = container.getAttribute('data-rail-graph-url');
       var focusNode = container.getAttribute('data-focus-node');
+      var railColors = atomicCyTypeColors();
       var railStyle = atomicCyStyle();
-      // Override width/font-size for the compact rail view.
+      // Override default node entry for the compact rail view — 10px gradient dot,
+      // same approach as the system graph but capped at rail size (10px is fine).
       railStyle[0] = {
         selector: 'node',
-        style: { 'label': 'data(label)', 'background-color': '#89b4fa', 'color': '#1e1e2e', 'font-size': '9px', 'text-valign': 'center', 'text-halign': 'center', 'width': '50px', 'height': '20px', 'shape': 'roundrectangle', 'text-max-width': '45px', 'text-wrap': 'ellipsis' }
+        style: {
+          'label': 'data(label)',
+          'background-fill': 'linear-gradient',
+          'background-gradient-direction': 'to-bottom-right',
+          'background-gradient-stop-colors': railColors['default-fill'] + ' ' + railColors['default-dark'],
+          'background-gradient-stop-positions': '0% 100%',
+          'border-width': '1px',
+          'border-color': railColors['default-dark'],
+          'color': railColors['default-label'],
+          'font-family': '"JetBrains Mono", "Geist Mono", ui-monospace, monospace',
+          'font-size': '9px',
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'text-margin-y': '4px',
+          'width': '10px',
+          'height': '10px',
+          'shape': 'ellipse',
+          'text-max-width': '60px',
+          'text-wrap': 'ellipsis',
+          'shadow-blur': '5px',
+          'shadow-color': railColors['page'],
+          'shadow-opacity': 0.12,
+          'shadow-offset-x': 0,
+          'shadow-offset-y': 0
+        }
       };
-      railStyle.splice(1, 0, { selector: 'node[id="' + focusNode + '"]', style: { 'background-color': '#f9e2af', 'border-width': '2px', 'border-color': '#fab387' } });
+      // Highlight the focused node with an amber solid gradient.
+      var selColor = railColors['selected'] || '#d99a1f';
+      var selDark  = darken(selColor, 0.10);
+      railStyle.splice(1, 0, {
+        selector: 'node[id="' + focusNode + '"]',
+        style: {
+          'background-fill': 'linear-gradient',
+          'background-gradient-direction': 'to-bottom-right',
+          'background-gradient-stop-colors': selColor + ' ' + selDark,
+          'background-gradient-stop-positions': '0% 100%',
+          'border-color': selDark,
+          'shadow-color': selColor,
+          'shadow-opacity': 0.35
+        }
+      });
+      // Mark mounted before the async fetch so a second call during the fetch
+      // also no-ops (no double-mount on rapid navigation).
+      container.dataset.railMounted = '1';
       fetch(graphURL)
         .then(function(r) { return r.json(); })
         .then(function(elems) {
-          cytoscape({
+          var railCy = cytoscape({
             container: container,
             elements: elems,
             layout: { name: 'concentric', concentric: function(n){ return n.data('id') === focusNode ? 2 : 1; }, levelWidth: function(){ return 1; }, minNodeSpacing: 20 },
             style: railStyle
           });
+          // Resize + fit once the layout settles — the container was just htmx-swapped
+          // and may report zero dimensions until the browser has laid it out.
+          railCy.one('layoutstop', function() { railCy.resize(); railCy.fit(undefined, 12); });
+          railCy.ready(function() { railCy.resize(); });
+          // Expose for theme re-application on toggle.
+          window.__railCy = railCy;
         })
-        .catch(function(e) { console.warn('rail mini-graph:', e); });
+        .catch(function(e) {
+          // Reset the mounted flag so a retry (e.g. re-navigate) can try again.
+          container.dataset.railMounted = '';
+          console.warn('rail mini-graph:', e);
+        });
+    }
+
+    // Path 1: htmx.onLoad — fires for most swapped elements.
+    // elt may be the container itself (OOB innerHTML swap) or a wrapper that
+    // contains it; handle both via .matches() + querySelector fallback.
+    htmx.onLoad(function(elt) {
+      var container = (elt.matches && elt.matches('[data-rail-graph-url]'))
+        ? elt
+        : (elt.querySelector ? elt.querySelector('[data-rail-graph-url]') : null);
+      if (!container) { return; }
+      mountRailGraph(container);
+    });
+
+    // Path 2: htmx:oobAfterSwap — fires specifically after an OOB swap
+    // settles; htmx 2 may not fire htmx:load for OOB innerHTML swaps.
+    document.body.addEventListener('htmx:oobAfterSwap', function(evt) {
+      var target = evt.detail && evt.detail.target;
+      if (!target) { return; }
+      // target is the element whose innerHTML was replaced; check both it and
+      // its children for the rail-graph container.
+      var container = (target.matches && target.matches('[data-rail-graph-url]'))
+        ? target
+        : (target.querySelector ? target.querySelector('[data-rail-graph-url]') : null);
+      if (!container) { return; }
+      mountRailGraph(container);
     });
     </script>
     <!-- FE5 search page: SSE result streaming.
@@ -205,14 +401,20 @@
       };
     });
     </script>
-    <!-- FE3 system-graph toggle: wires the [page|system] mode buttons.
-         Clicking #mode-system collapses the right rail, fills #main-pane with
-         #system-cy, fetches /graph/data, and mounts a Cytoscape+ELK layered
-         instance. Node tap → htmx.ajax GET /page/<id> into #main-pane, then
-         restores page mode. Clicking #mode-page restores the previous page. -->
+    <!-- FE3 system-graph toggle: the #btn-graph icon button in the top bar toggles
+         between page view and the full system graph.
+         Clicking #btn-graph while in page view → setSystemMode(): collapses the right
+         rail, fills #main-pane with #system-cy, fetches /graph/data, mounts Cytoscape+ELK.
+         Clicking #btn-graph while in system view → setPageMode(): restores the page.
+         CP2 node interactions (system graph only):
+           mouseover → show hover preview card near the node (title/description/snippet)
+           mouseout  → hide preview card
+           tap       → open content modal over blurred graph; "Open full page →" navigates
+         Active state is centralized inside setSystemMode/setPageMode so it can't drift. -->
     <script>
     (function() {
       var currentPage = null; // tracks the last /page/ URL loaded
+      var inSystemMode = false; // true when the system graph is visible
 
       // Track the current page whenever htmx loads content into #main-pane.
       htmx.on('htmx:afterSettle', function(evt) {
@@ -225,26 +427,42 @@
         }
       });
 
+      // updateGraphBtnState syncs #btn-graph aria-pressed + .toggle-active to match mode.
+      // Called at the end of every setPageMode / setSystemMode so state never drifts.
+      function updateGraphBtnState(active) {
+        var btn = document.getElementById('btn-graph');
+        if (!btn) { return; }
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        if (active) {
+          btn.classList.add('btn-graph-active');
+        } else {
+          btn.classList.remove('btn-graph-active');
+        }
+      }
+
       function setPageMode() {
-        document.getElementById('mode-page').setAttribute('aria-pressed', 'true');
-        document.getElementById('mode-page').classList.add('toggle-active');
-        document.getElementById('mode-system').setAttribute('aria-pressed', 'false');
-        document.getElementById('mode-system').classList.remove('toggle-active');
+        inSystemMode = false;
         document.body.classList.remove('mode-system');
         // Destroy the system graph container if present.
         var sysCy = document.getElementById('system-cy');
         if (sysCy) { sysCy.remove(); }
+        // Hide preview card + modal if visible.
+        var card = document.getElementById('cy-preview-card');
+        if (card) { card.classList.remove('open'); }
+        var scrim = document.getElementById('cy-page-modal-scrim');
+        if (scrim) { scrim.classList.remove('open'); }
         // Restore the previous page or the landing URL.
         var target = currentPage || '{{.LandingURL}}';
         htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
+        // Centralized button state update.
+        updateGraphBtnState(false);
       }
 
       function setSystemMode() {
-        document.getElementById('mode-system').setAttribute('aria-pressed', 'true');
-        document.getElementById('mode-system').classList.add('toggle-active');
-        document.getElementById('mode-page').setAttribute('aria-pressed', 'false');
-        document.getElementById('mode-page').classList.remove('toggle-active');
+        inSystemMode = true;
         document.body.classList.add('mode-system');
+        // Centralized button state update — set ACTIVE before the fetch.
+        updateGraphBtnState(true);
 
         // Replace #main-pane content with the system-cy container plus a loading
         // line. The line is removed when the layout finishes (large realms take a
@@ -324,15 +542,125 @@
           mainPane.appendChild(legend);
         }
 
+        // ── Preview card helpers ──────────────────────────────────────────────
+        // The card element lives in the <body> (appended once, reused). It is
+        // positioned relative to #main-pane using the node's rendered position.
+        function getOrCreatePreviewCard() {
+          var el = document.getElementById('cy-preview-card');
+          if (!el) {
+            el = document.createElement('div');
+            el.id = 'cy-preview-card';
+            document.body.appendChild(el);
+          }
+          return el;
+        }
+
+        function showPreviewCard(cyNode) {
+          var card = getOrCreatePreviewCard();
+          var type  = cyNode.data('type') || 'page';
+          var title = cyNode.data('title') || cyNode.data('label') || '';
+          var desc  = cyNode.data('description') || '';
+          var snip  = cyNode.data('snippet') || '';
+
+          // Build card content.
+          var html = '<span class="cy-pc-chip ' + type + '">' + escapeHTML(type) + '</span>' +
+                     '<div class="cy-pc-title">' + escapeHTML(title) + '</div>';
+          if (desc) { html += '<div class="cy-pc-desc">' + escapeHTML(desc) + '</div>'; }
+          if (snip) { html += '<div class="cy-pc-snip">' + escapeHTML(snip) + '</div>'; }
+          card.innerHTML = html;
+
+          // Position relative to the node's rendered position in the viewport.
+          var pos = cyNode.renderedPosition();
+          var pane = mainPane.getBoundingClientRect();
+          var cardLeft = pane.left + pos.x + 20;
+          var cardTop  = pane.top  + pos.y + 20;
+          // Clamp so the card doesn't overflow the right edge.
+          if (cardLeft + 290 > window.innerWidth) { cardLeft = pane.left + pos.x - 310; }
+          card.style.left = cardLeft + 'px';
+          card.style.top  = cardTop  + 'px';
+          card.classList.add('open');
+        }
+
+        function hidePreviewCard() {
+          var card = document.getElementById('cy-preview-card');
+          if (card) { card.classList.remove('open'); }
+        }
+
+        // ── Page modal helpers ────────────────────────────────────────────────
+        // The scrim + modal live in #cy-page-modal-scrim in the body.
+        function openPageModal(nodeID) {
+          var scrim = document.getElementById('cy-page-modal-scrim');
+          var modalBody = document.getElementById('cy-modal-body');
+          var modalChip = document.getElementById('cy-modal-chip');
+          var modalTitle = document.getElementById('cy-modal-title');
+          var modalDesc = document.getElementById('cy-modal-desc');
+          var openBtn = document.getElementById('cy-modal-open-btn');
+          if (!scrim) { return; }
+
+          // Find node data from the cy instance via the id.
+          var cyNode = window.__systemCy && window.__systemCy.getElementById(nodeID);
+          var type  = cyNode ? (cyNode.data('type') || 'page') : 'page';
+          var title = cyNode ? (cyNode.data('title') || cyNode.data('label') || nodeID) : nodeID;
+          var desc  = cyNode ? (cyNode.data('description') || '') : '';
+
+          // Set header fields.
+          if (modalChip) {
+            modalChip.className = 'cy-modal-chip ' + type;
+            modalChip.textContent = type;
+          }
+          if (modalTitle) { modalTitle.textContent = title; }
+          if (modalDesc)  { modalDesc.textContent = desc; modalDesc.style.display = desc ? '' : 'none'; }
+
+          // Wire the "Open full page" button.
+          if (openBtn) {
+            openBtn.onclick = function() {
+              closePageModal();
+              currentPage = '/page/' + encodeURIComponent(nodeID);
+              setPageMode();
+            };
+          }
+
+          // Load the page fragment into the modal body.
+          if (modalBody) {
+            modalBody.innerHTML = '<p class="loading">Loading…</p>';
+            fetch('/page/' + encodeURIComponent(nodeID), {
+              headers: { 'HX-Request': 'true' }
+            })
+              .then(function(r) { return r.text(); })
+              .then(function(html) { modalBody.innerHTML = html; })
+              .catch(function() { modalBody.innerHTML = '<p style="color:var(--ink-faint);font-style:italic">Could not load page.</p>'; });
+          }
+
+          scrim.classList.add('open');
+        }
+
+        function closePageModal() {
+          var scrim = document.getElementById('cy-page-modal-scrim');
+          if (scrim) { scrim.classList.remove('open'); }
+        }
+
+        function escapeHTML(s) {
+          return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+        }
+
         fetch('/graph/data')
           .then(function(r) { return r.json(); })
           .then(function(elems) {
             var cy = cytoscape({
               container: container,
               elements: elems,
-              layout: { name: 'elk', elk: { algorithm: 'layered' }, fit: true },
-              style: atomicCyStyle()
+              layout: { name: 'elk', elk: { 'algorithm': 'layered', 'elk.spacing.nodeNode': 90, 'elk.layered.spacing.nodeNodeBetweenLayers': 120 }, fit: true },
+              style: atomicCyStyle(),
+              minZoom: 0.2,
+              maxZoom: 2.2
             });
+
+            // Store a reference so the modal handler can look up node data by id.
+            window.__systemCy = cy;
 
             // The container was just innerHTML-swapped, so it may still report a
             // zero size when Cytoscape initializes — which renders the graph into a
@@ -347,11 +675,20 @@
             // Fallback: if no layout event fires, still clear the loader.
             cy.ready(function() { cy.resize(); });
 
-            // Node tap: navigate to /page/<id> and restore page mode.
+            // CP2: mouseover → preview card.
+            cy.on('mouseover', 'node', function(evt) {
+              showPreviewCard(evt.target);
+            });
+
+            // CP2: mouseout → hide card.
+            cy.on('mouseout', 'node', function() {
+              hidePreviewCard();
+            });
+
+            // CP2: tap → content modal (replaces direct navigation on system graph).
             cy.on('tap', 'node', function(evt) {
-              var id = evt.target.data('id');
-              currentPage = '/page/' + encodeURIComponent(id);
-              setPageMode();
+              hidePreviewCard();
+              openPageModal(evt.target.data('id'));
             });
           })
           .catch(function(e) {
@@ -362,19 +699,43 @@
       }
 
       document.addEventListener('DOMContentLoaded', function() {
-        var btnPage   = document.getElementById('mode-page');
-        var btnSystem = document.getElementById('mode-system');
-        if (btnPage)   { btnPage.addEventListener('click',   setPageMode); }
-        if (btnSystem) { btnSystem.addEventListener('click', setSystemMode); }
+        // #btn-graph toggles between page and system view.
+        var btnGraph = document.getElementById('btn-graph');
+        if (btnGraph) {
+          btnGraph.addEventListener('click', function() {
+            if (inSystemMode) { setPageMode(); } else { setSystemMode(); }
+          });
+        }
+
+        // Modal dismiss wiring — registered exactly once here.
+        // Covers: scrim backdrop click, corner ×, bottom dismiss button, Esc.
+        var scrim = document.getElementById('cy-page-modal-scrim');
+        if (scrim) {
+          scrim.addEventListener('click', function(e) {
+            if (e.target === scrim) { closePageModal(); }
+          });
+        }
+        var closeBtn = document.getElementById('cy-modal-close-btn');
+        if (closeBtn) { closeBtn.addEventListener('click', closePageModal); }
+        var dismissBtn = document.getElementById('cy-modal-dismiss-btn');
+        if (dismissBtn) { dismissBtn.addEventListener('click', closePageModal); }
+
+        // Esc closes the page modal from anywhere.
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') {
+            var s = document.getElementById('cy-page-modal-scrim');
+            if (s && s.classList.contains('open')) { s.classList.remove('open'); }
+          }
+        });
       });
     }());
     </script>
 </head>
 <body>
 
-<!-- ── top bar: brand · breadcrumb · search + md|code toggle ─────────── -->
+<!-- ── top bar: brand · breadcrumb · search · theme toggle ───────────── -->
 <header id="app-header">
-    <span class="brand">◆ atomic</span>
+    <span class="brand"><img class="brand-logo" src="/static/logo.png" alt="atomic"> atomic</span>
     <nav class="breadcrumb" aria-label="Breadcrumb">
         <span class="breadcrumb-scope">{{.ScopeBadge}}</span>
         <span class="breadcrumb-sep">›</span>
@@ -386,11 +747,40 @@
              the dialog; Enter / "view all" opens the dedicated /search page. -->
         <button id="search-trigger" class="search-trigger" type="button"
                 aria-haspopup="dialog" aria-label="Open search (Command K)">
-            <span class="search-trigger-icon" aria-hidden="true">⌕</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
             <span class="search-trigger-label">Search…</span>
             <kbd class="search-trigger-kbd">⌘K</kbd>
         </button>
     </div>
+    <!-- Network / graph view toggle: shows/hides the full system graph -->
+    <button class="theme-toggle" id="btn-graph" type="button"
+            aria-label="Network view — toggle full graph" title="Network view"
+            aria-pressed="false">
+        <!-- Nodes-and-edges network glyph -->
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="6"  cy="6"  r="2.5"/>
+            <circle cx="18" cy="6"  r="2.5"/>
+            <circle cx="6"  cy="18" r="2.5"/>
+            <circle cx="18" cy="18" r="2.5"/>
+            <circle cx="12" cy="12" r="2.5"/>
+            <line x1="8"  y1="6"  x2="15.5" y2="6"/>
+            <line x1="6"  y1="8"  x2="6"    y2="15.5"/>
+            <line x1="8"  y1="18" x2="15.5" y2="18"/>
+            <line x1="18" y1="8"  x2="18"   y2="15.5"/>
+            <line x1="7.7" y1="7.7" x2="10.2" y2="10.2"/>
+            <line x1="16.3" y1="7.7" x2="13.8" y2="10.2"/>
+            <line x1="7.7" y1="16.3" x2="10.2" y2="13.8"/>
+            <line x1="16.3" y1="16.3" x2="13.8" y2="13.8"/>
+        </svg>
+    </button>
+    <!-- Theme toggle: sun (dark→light) / moon (light→dark) -->
+    <button class="theme-toggle" id="theme-toggle" type="button"
+            aria-label="Toggle light / dark theme" title="Toggle light / dark">
+        <!-- Moon icon — shown in light mode (click to go dark) -->
+        <svg class="i-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <!-- Sun icon — shown in dark mode (click to go light) -->
+        <svg class="i-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8"/></svg>
+    </button>
 </header>
 
 <!-- ── three-pane Obsidian shell ─────────────────────────────────────── -->
@@ -406,17 +796,8 @@
         </div>
     </nav>
 
-    <!-- middle content: [page | system] toggle + page content -->
+    <!-- middle content: page content (system graph toggle is now in the top bar) -->
     <div id="content-column">
-        <div class="content-header">
-            <!-- [page|system] toggle — FE3 wires the click handlers above -->
-            <span class="mode-toggle" role="group" aria-label="View mode">
-                <button class="toggle-btn toggle-active" id="mode-page"
-                        type="button" aria-pressed="true">page</button>
-                <button class="toggle-btn" id="mode-system"
-                        type="button" aria-pressed="false">system</button>
-            </span>
-        </div>
         <main id="main-pane"
               hx-get="{{.LandingURL}}"
               hx-trigger="load"
@@ -506,6 +887,30 @@
         </div>
     </div>
 </div>
+
+<!-- Theme toggle: persists choice to localStorage, wins over OS on subsequent loads. -->
+<script>
+(function() {
+  var btn = document.getElementById('theme-toggle');
+  if (!btn) { return; }
+  btn.addEventListener('click', function() {
+    var root = document.documentElement;
+    var current = root.getAttribute('data-theme') || 'light';
+    var next = current === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('atomic-serve-theme', next); } catch (e) {}
+    // Re-apply Cytoscape styles now that CSS vars have flipped.
+    // atomicCyStyle() reads getComputedStyle at call time, so calling it
+    // AFTER the data-theme flip returns the new-theme colors.
+    if (window.__systemCy) {
+      window.__systemCy.style(atomicCyStyle());
+    }
+    if (window.__railCy) {
+      window.__railCy.style(atomicCyStyle());
+    }
+  });
+}());
+</script>
 
 <!-- FE5 search dialog (command palette).
      Trigger: #search-trigger click, ⌘K / Ctrl K, or "/" when not typing.
@@ -895,5 +1300,30 @@
   });
 }());
 </script>
+
+<!-- CP2: Page modal — static HTML, shown/hidden by setSystemMode() JS.
+     The scrim fades in via .open class; the modal slides up via @keyframes cy-modal-in.
+     Dismiss wiring (scrim-click, close ×, dismiss button, Esc) is registered once
+     in the DOMContentLoaded block in the FE3 <script> in <head>.
+     The "Open full page →" button calls setPageMode() → navigates into the normal page view. -->
+<div id="cy-page-modal-scrim">
+  <div class="cy-modal" role="dialog" aria-modal="true" aria-labelledby="cy-modal-title">
+    <button class="cy-modal-close" id="cy-modal-close-btn" aria-label="Close">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="13" y2="13"/><line x1="13" y1="1" x2="1" y2="13"/></svg>
+    </button>
+    <span class="cy-modal-chip" id="cy-modal-chip">page</span>
+    <div class="cy-modal-title" id="cy-modal-title"></div>
+    <div class="cy-modal-desc" id="cy-modal-desc" style="display:none"></div>
+    <div class="cy-modal-body" id="cy-modal-body"></div>
+    <div class="cy-modal-actions">
+      <button class="cy-modal-btn-primary" id="cy-modal-open-btn">
+        Open full page
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h10"/><polyline points="8,3 12,7 8,11"/></svg>
+      </button>
+      <button class="cy-modal-btn-ghost" id="cy-modal-dismiss-btn">Close</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
