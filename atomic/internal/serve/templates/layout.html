@@ -40,78 +40,137 @@
          legend duplicates them. -->
     <script>
     function atomicCyTypeColors() {
-      // Read from CSS custom properties so the colors respond to the active theme.
-      // The shipped palette hues (node outer stroke colors) are constant across themes;
-      // the CSS vars --c-<type> always hold the right legible value for the current theme.
+      // Read ALL graph color tokens from CSS custom properties so the graph
+      // re-themes automatically on light/dark toggle. Provides safe fallbacks.
       var style = getComputedStyle(document.documentElement);
       function v(name) { return style.getPropertyValue(name).trim(); }
       return {
+        // Node type fill colors (outer stroke / halo color).
         'page':      v('--c-page')      || '#89b4fa',
         'repo':      v('--c-repo')      || '#a6e3a1',
         'concern':   v('--c-concern')   || '#cba6f7',
         'knowledge': v('--c-knowledge') || '#f38ba8',
         'bucket':    v('--c-bucket')    || '#fab387',
-        'external':  v('--c-external')  || '#6c7086'
+        'external':  v('--c-external')  || '#6c7086',
+        // Per-type wash colors (node body fill, lighter than stroke).
+        'page-wash':      v('--c-page-wash')      || 'rgba(137,180,250,0.15)',
+        'repo-wash':      v('--c-repo-wash')      || 'rgba(166,227,161,0.15)',
+        'concern-wash':   v('--c-concern-wash')   || 'rgba(203,166,247,0.15)',
+        'knowledge-wash': v('--c-knowledge-wash') || 'rgba(243,139,168,0.15)',
+        'bucket-wash':    v('--c-bucket-wash')    || 'rgba(250,179,135,0.15)',
+        'external-wash':  v('--c-external-wash')  || 'rgba(108,112,134,0.15)',
+        // Per-type ink colors (node label text color).
+        'page-ink':      v('--c-page-ink')      || '#3a63a8',
+        'repo-ink':      v('--c-repo-ink')      || '#3f7a3a',
+        'concern-ink':   v('--c-concern-ink')   || '#6f4aa6',
+        'knowledge-ink': v('--c-knowledge-ink') || '#9c2f4c',
+        'bucket-ink':    v('--c-bucket-ink')    || '#8a4a1a',
+        'external-ink':  v('--c-external-ink')  || '#4a4e63',
+        // Default node colors (for nodes whose type is unknown or empty).
+        'default-fill':  v('--c-page-wash') || 'rgba(137,180,250,0.15)',
+        'default-label': v('--ink-soft')    || '#57514a',
+        // Edge colors — read from CSS vars so they adapt to dark/light.
+        'edge':          v('--edge')        || '#cabfae',
+        'edge-strong':   v('--edge-strong') || '#b1a48f',
+        // Selected state — amber glow.
+        'selected':      v('--amber-bright') || '#d99a1f'
       };
     }
     </script>
     <!-- Shared Cytoscape style factory — used by BOTH the rail mini-graph (FE2) and
          the system-graph toggle (FE3). One definition, two consumers. Do NOT copy
-         the style array into either consumer; call atomicCyStyle() instead. -->
+         the style array into either consumer; call atomicCyStyle() instead.
+
+         A-style glowing nodes: circular wash fill + typed outer stroke + soft drop-shadow.
+         All colors read from atomicCyTypeColors() which reads CSS vars — so the graph
+         re-themes with light/dark toggle automatically (CP1 review finding fix). -->
     <script>
     function atomicCyStyle() {
       var colors = atomicCyTypeColors();
-      // Shape overrides per type (types without an entry use the default roundrectangle).
-      var shapes = { 'repo': 'rectangle', 'external': 'diamond' };
-      var typeSelectors = Object.keys(colors).map(function(t) {
-        var s = { 'background-color': colors[t] };
-        if (shapes[t]) { s['shape'] = shapes[t]; }
-        return { selector: 'node[type="' + t + '"]', style: s };
+      // Build per-type node selectors: circular wash fill + typed stroke.
+      var typeNames = ['page', 'repo', 'concern', 'knowledge', 'bucket', 'external'];
+      var typeSelectors = typeNames.map(function(t) {
+        return {
+          selector: 'node[type="' + t + '"]',
+          style: {
+            'background-color': colors[t + '-wash'] || colors[t],
+            'border-color': colors[t],
+            'color': colors[t + '-ink'] || colors['default-label']
+          }
+        };
       });
       return [
         {
+          // Default node: A-style circular glow (wash fill, typed border, label below).
           selector: 'node',
           style: {
             'label': 'data(label)',
-            'background-color': '#89b4fa',
-            'color': '#1e1e2e',
-            'font-size': '10px',
-            'text-valign': 'center',
+            'background-color': colors['default-fill'],
+            'border-width': '2.5px',
+            'border-color': colors['page'],
+            'color': colors['default-label'],
+            'font-family': '"JetBrains Mono", "Geist Mono", ui-monospace, monospace',
+            'font-size': '9px',
+            'font-weight': '500',
+            'text-valign': 'bottom',
             'text-halign': 'center',
-            'width': '60px',
-            'height': '24px',
-            'shape': 'roundrectangle',
-            'text-max-width': '55px',
-            'text-wrap': 'ellipsis'
+            'text-margin-y': '7px',
+            'width': '28px',
+            'height': '28px',
+            'shape': 'ellipse',
+            'text-max-width': '60px',
+            'text-wrap': 'ellipsis',
+            // Label halo: prevents labels from bleeding into edges/other nodes.
+            // background reads the default-fill token so it adapts to dark/light.
+            'text-background-color': colors['default-fill'],
+            'text-background-opacity': 0.85,
+            'text-background-padding': '2px',
+            'text-background-shape': 'roundrectangle',
+            // Soft drop-shadow for the glow halo.
+            'shadow-blur': '14px',
+            'shadow-color': colors['page'],
+            'shadow-opacity': 0.28,
+            'shadow-offset-x': 0,
+            'shadow-offset-y': 0
           }
-        },
+        }
       ].concat(typeSelectors).concat([
+        // Per-type shadow glow matching the stroke color.
+        { selector: 'node[type="page"]',      style: { 'shadow-color': colors['page'],      'border-color': colors['page'] } },
+        { selector: 'node[type="repo"]',      style: { 'shadow-color': colors['repo'],      'border-color': colors['repo'] } },
+        { selector: 'node[type="concern"]',   style: { 'shadow-color': colors['concern'],   'border-color': colors['concern'] } },
+        { selector: 'node[type="knowledge"]', style: { 'shadow-color': colors['knowledge'], 'border-color': colors['knowledge'] } },
+        { selector: 'node[type="bucket"]',    style: { 'shadow-color': colors['bucket'],    'border-color': colors['bucket'] } },
+        { selector: 'node[type="external"]',  style: { 'shadow-color': colors['external'],  'border-color': colors['external'] } },
         {
-          /* md-link: solid dark line */
+          // md-link: solid themed line with subtle arrowhead.
           selector: 'edge.md-link',
           style: {
-            'line-color': '#585b70',
+            'line-color': colors['edge'],
             'line-style': 'solid',
-            'target-arrow-color': '#585b70',
+            'target-arrow-color': colors['edge'],
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
-            'width': 1.5
+            'width': 1.5,
+            'arrow-scale': 0.9
           }
         },
         {
-          /* wikilink: dashed blue — Obsidian-style [[page]] */
+          // wikilink: dashed with the page-type color — Obsidian [[page]] style.
           selector: 'edge.wikilink',
           style: {
-            'line-color': '#89b4fa',
+            'line-color': colors['edge-strong'],
             'line-style': 'dashed',
-            'target-arrow-color': '#89b4fa',
+            'line-dash-pattern': [5, 3],
+            'target-arrow-color': colors['edge-strong'],
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
-            'width': 1.5
+            'width': 1.5,
+            'arrow-scale': 0.9
           }
         },
         {
-          /* fingerprint: dashed orange — provenance/reflects: edges (CP10) */
+          // fingerprint: dashed orange — provenance/reflects: edges (CP10).
           selector: 'edge.fingerprint',
           style: {
             'line-color': '#fab387',
@@ -124,7 +183,7 @@
           }
         },
         {
-          /* fingerprint drift: red — drifted provenance edges (SC12) */
+          // fingerprint drift: red — drifted provenance edges (SC12).
           selector: 'edge.fingerprint.drift',
           style: {
             'line-color': '#f38ba8',
@@ -133,8 +192,15 @@
           }
         },
         {
+          // Selected: amber glow from CSS var (theme-aware).
           selector: ':selected',
-          style: { 'background-color': '#f9e2af', 'line-color': '#f9e2af' }
+          style: {
+            'background-color': colors['selected'] || '#f9e2af',
+            'border-color': colors['selected'] || '#f9e2af',
+            'shadow-color': colors['selected'] || '#f9e2af',
+            'shadow-opacity': 0.4,
+            'line-color': colors['selected'] || '#f9e2af'
+          }
         }
       ]);
     }
@@ -153,22 +219,48 @@
       if (typeof cytoscape === 'undefined') { return; }
       var graphURL = container.getAttribute('data-rail-graph-url');
       var focusNode = container.getAttribute('data-focus-node');
+      var railColors = atomicCyTypeColors();
       var railStyle = atomicCyStyle();
-      // Override width/font-size for the compact rail view.
+      // Override size for the compact rail view — keep A-style glow/shape intact.
       railStyle[0] = {
         selector: 'node',
-        style: { 'label': 'data(label)', 'background-color': '#89b4fa', 'color': '#1e1e2e', 'font-size': '9px', 'text-valign': 'center', 'text-halign': 'center', 'width': '50px', 'height': '20px', 'shape': 'roundrectangle', 'text-max-width': '45px', 'text-wrap': 'ellipsis' }
+        style: {
+          'label': 'data(label)',
+          'background-color': railColors['default-fill'],
+          'border-width': '2px',
+          'border-color': railColors['page'],
+          'color': railColors['default-label'],
+          'font-family': '"JetBrains Mono", "Geist Mono", ui-monospace, monospace',
+          'font-size': '9px',
+          'text-valign': 'bottom',
+          'text-halign': 'center',
+          'text-margin-y': '5px',
+          'width': '20px',
+          'height': '20px',
+          'shape': 'ellipse',
+          'text-max-width': '60px',
+          'text-wrap': 'ellipsis',
+          'shadow-blur': '10px',
+          'shadow-color': railColors['page'],
+          'shadow-opacity': 0.25,
+          'shadow-offset-x': 0,
+          'shadow-offset-y': 0
+        }
       };
-      railStyle.splice(1, 0, { selector: 'node[id="' + focusNode + '"]', style: { 'background-color': '#f9e2af', 'border-width': '2px', 'border-color': '#fab387' } });
+      // Highlight the focused node with an amber glow.
+      var selColor = railColors['selected'] || '#f9e2af';
+      railStyle.splice(1, 0, { selector: 'node[id="' + focusNode + '"]', style: { 'background-color': selColor, 'border-color': selColor, 'shadow-color': selColor, 'shadow-opacity': 0.4 } });
       fetch(graphURL)
         .then(function(r) { return r.json(); })
         .then(function(elems) {
-          cytoscape({
+          var railCy = cytoscape({
             container: container,
             elements: elems,
             layout: { name: 'concentric', concentric: function(n){ return n.data('id') === focusNode ? 2 : 1; }, levelWidth: function(){ return 1; }, minNodeSpacing: 20 },
             style: railStyle
           });
+          // Expose for theme re-application on toggle.
+          window.__railCy = railCy;
         })
         .catch(function(e) { console.warn('rail mini-graph:', e); });
     });
@@ -227,8 +319,12 @@
     <!-- FE3 system-graph toggle: wires the [page|system] mode buttons.
          Clicking #mode-system collapses the right rail, fills #main-pane with
          #system-cy, fetches /graph/data, and mounts a Cytoscape+ELK layered
-         instance. Node tap → htmx.ajax GET /page/<id> into #main-pane, then
-         restores page mode. Clicking #mode-page restores the previous page. -->
+         instance.
+         CP2 node interactions (system graph only):
+           mouseover → show hover preview card near the node (title/description/snippet)
+           mouseout  → hide preview card
+           tap       → open content modal over blurred graph; "Open full page →" navigates
+         Clicking #mode-page restores the previous page. -->
     <script>
     (function() {
       var currentPage = null; // tracks the last /page/ URL loaded
@@ -253,6 +349,11 @@
         // Destroy the system graph container if present.
         var sysCy = document.getElementById('system-cy');
         if (sysCy) { sysCy.remove(); }
+        // Hide preview card + modal if visible.
+        var card = document.getElementById('cy-preview-card');
+        if (card) { card.classList.remove('open'); }
+        var scrim = document.getElementById('cy-page-modal-scrim');
+        if (scrim) { scrim.classList.remove('open'); }
         // Restore the previous page or the landing URL.
         var target = currentPage || '{{.LandingURL}}';
         htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
@@ -343,6 +444,111 @@
           mainPane.appendChild(legend);
         }
 
+        // ── Preview card helpers ──────────────────────────────────────────────
+        // The card element lives in the <body> (appended once, reused). It is
+        // positioned relative to #main-pane using the node's rendered position.
+        function getOrCreatePreviewCard() {
+          var el = document.getElementById('cy-preview-card');
+          if (!el) {
+            el = document.createElement('div');
+            el.id = 'cy-preview-card';
+            document.body.appendChild(el);
+          }
+          return el;
+        }
+
+        function showPreviewCard(cyNode) {
+          var card = getOrCreatePreviewCard();
+          var type  = cyNode.data('type') || 'page';
+          var title = cyNode.data('title') || cyNode.data('label') || '';
+          var desc  = cyNode.data('description') || '';
+          var snip  = cyNode.data('snippet') || '';
+
+          // Build card content.
+          var html = '<span class="cy-pc-chip ' + type + '">' + escapeHTML(type) + '</span>' +
+                     '<div class="cy-pc-title">' + escapeHTML(title) + '</div>';
+          if (desc) { html += '<div class="cy-pc-desc">' + escapeHTML(desc) + '</div>'; }
+          if (snip) { html += '<div class="cy-pc-snip">' + escapeHTML(snip) + '</div>'; }
+          card.innerHTML = html;
+
+          // Position relative to the node's rendered position in the viewport.
+          var pos = cyNode.renderedPosition();
+          var pane = mainPane.getBoundingClientRect();
+          var cardLeft = pane.left + pos.x + 20;
+          var cardTop  = pane.top  + pos.y + 20;
+          // Clamp so the card doesn't overflow the right edge.
+          if (cardLeft + 290 > window.innerWidth) { cardLeft = pane.left + pos.x - 310; }
+          card.style.left = cardLeft + 'px';
+          card.style.top  = cardTop  + 'px';
+          card.classList.add('open');
+        }
+
+        function hidePreviewCard() {
+          var card = document.getElementById('cy-preview-card');
+          if (card) { card.classList.remove('open'); }
+        }
+
+        // ── Page modal helpers ────────────────────────────────────────────────
+        // The scrim + modal live in #cy-page-modal-scrim in the body.
+        function openPageModal(nodeID) {
+          var scrim = document.getElementById('cy-page-modal-scrim');
+          var modalBody = document.getElementById('cy-modal-body');
+          var modalChip = document.getElementById('cy-modal-chip');
+          var modalTitle = document.getElementById('cy-modal-title');
+          var modalDesc = document.getElementById('cy-modal-desc');
+          var openBtn = document.getElementById('cy-modal-open-btn');
+          if (!scrim) { return; }
+
+          // Find node data from the cy instance via the id.
+          var cyNode = window.__systemCy && window.__systemCy.getElementById(nodeID);
+          var type  = cyNode ? (cyNode.data('type') || 'page') : 'page';
+          var title = cyNode ? (cyNode.data('title') || cyNode.data('label') || nodeID) : nodeID;
+          var desc  = cyNode ? (cyNode.data('description') || '') : '';
+
+          // Set header fields.
+          if (modalChip) {
+            modalChip.className = 'cy-modal-chip ' + type;
+            modalChip.textContent = type;
+          }
+          if (modalTitle) { modalTitle.textContent = title; }
+          if (modalDesc)  { modalDesc.textContent = desc; modalDesc.style.display = desc ? '' : 'none'; }
+
+          // Wire the "Open full page" button.
+          if (openBtn) {
+            openBtn.onclick = function() {
+              closePageModal();
+              currentPage = '/page/' + encodeURIComponent(nodeID);
+              setPageMode();
+            };
+          }
+
+          // Load the page fragment into the modal body.
+          if (modalBody) {
+            modalBody.innerHTML = '<p class="loading">Loading…</p>';
+            fetch('/page/' + encodeURIComponent(nodeID), {
+              headers: { 'HX-Request': 'true' }
+            })
+              .then(function(r) { return r.text(); })
+              .then(function(html) { modalBody.innerHTML = html; })
+              .catch(function() { modalBody.innerHTML = '<p style="color:var(--ink-faint);font-style:italic">Could not load page.</p>'; });
+          }
+
+          scrim.classList.add('open');
+        }
+
+        function closePageModal() {
+          var scrim = document.getElementById('cy-page-modal-scrim');
+          if (scrim) { scrim.classList.remove('open'); }
+        }
+
+        function escapeHTML(s) {
+          return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+        }
+
         fetch('/graph/data')
           .then(function(r) { return r.json(); })
           .then(function(elems) {
@@ -352,6 +558,9 @@
               layout: { name: 'elk', elk: { algorithm: 'layered' }, fit: true },
               style: atomicCyStyle()
             });
+
+            // Store a reference so the modal handler can look up node data by id.
+            window.__systemCy = cy;
 
             // The container was just innerHTML-swapped, so it may still report a
             // zero size when Cytoscape initializes — which renders the graph into a
@@ -366,11 +575,20 @@
             // Fallback: if no layout event fires, still clear the loader.
             cy.ready(function() { cy.resize(); });
 
-            // Node tap: navigate to /page/<id> and restore page mode.
+            // CP2: mouseover → preview card.
+            cy.on('mouseover', 'node', function(evt) {
+              showPreviewCard(evt.target);
+            });
+
+            // CP2: mouseout → hide card.
+            cy.on('mouseout', 'node', function() {
+              hidePreviewCard();
+            });
+
+            // CP2: tap → content modal (replaces direct navigation on system graph).
             cy.on('tap', 'node', function(evt) {
-              var id = evt.target.data('id');
-              currentPage = '/page/' + encodeURIComponent(id);
-              setPageMode();
+              hidePreviewCard();
+              openPageModal(evt.target.data('id'));
             });
           })
           .catch(function(e) {
@@ -385,6 +603,27 @@
         var btnSystem = document.getElementById('mode-system');
         if (btnPage)   { btnPage.addEventListener('click',   setPageMode); }
         if (btnSystem) { btnSystem.addEventListener('click', setSystemMode); }
+
+        // Modal dismiss wiring — registered exactly once here.
+        // Covers: scrim backdrop click, corner ×, bottom dismiss button, Esc.
+        var scrim = document.getElementById('cy-page-modal-scrim');
+        if (scrim) {
+          scrim.addEventListener('click', function(e) {
+            if (e.target === scrim) { closePageModal(); }
+          });
+        }
+        var closeBtn = document.getElementById('cy-modal-close-btn');
+        if (closeBtn) { closeBtn.addEventListener('click', closePageModal); }
+        var dismissBtn = document.getElementById('cy-modal-dismiss-btn');
+        if (dismissBtn) { dismissBtn.addEventListener('click', closePageModal); }
+
+        // Esc closes the page modal from anywhere.
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') {
+            var s = document.getElementById('cy-page-modal-scrim');
+            if (s && s.classList.contains('open')) { s.classList.remove('open'); }
+          }
+        });
       });
     }());
     </script>
@@ -545,6 +784,15 @@
     var next = current === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
     try { localStorage.setItem('atomic-serve-theme', next); } catch (e) {}
+    // Re-apply Cytoscape styles now that CSS vars have flipped.
+    // atomicCyStyle() reads getComputedStyle at call time, so calling it
+    // AFTER the data-theme flip returns the new-theme colors.
+    if (window.__systemCy) {
+      window.__systemCy.style(atomicCyStyle());
+    }
+    if (window.__railCy) {
+      window.__railCy.style(atomicCyStyle());
+    }
   });
 }());
 </script>
@@ -937,5 +1185,30 @@
   });
 }());
 </script>
+
+<!-- CP2: Page modal — static HTML, shown/hidden by setSystemMode() JS.
+     The scrim fades in via .open class; the modal slides up via @keyframes cy-modal-in.
+     Dismiss wiring (scrim-click, close ×, dismiss button, Esc) is registered once
+     in the DOMContentLoaded block in the FE3 <script> in <head>.
+     The "Open full page →" button calls setPageMode() → navigates into the normal page view. -->
+<div id="cy-page-modal-scrim">
+  <div class="cy-modal" role="dialog" aria-modal="true" aria-labelledby="cy-modal-title">
+    <button class="cy-modal-close" id="cy-modal-close-btn" aria-label="Close">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="13" y2="13"/><line x1="13" y1="1" x2="1" y2="13"/></svg>
+    </button>
+    <span class="cy-modal-chip" id="cy-modal-chip">page</span>
+    <div class="cy-modal-title" id="cy-modal-title"></div>
+    <div class="cy-modal-desc" id="cy-modal-desc" style="display:none"></div>
+    <div class="cy-modal-body" id="cy-modal-body"></div>
+    <div class="cy-modal-actions">
+      <button class="cy-modal-btn-primary" id="cy-modal-open-btn">
+        Open full page
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7h10"/><polyline points="8,3 12,7 8,11"/></svg>
+      </button>
+      <button class="cy-modal-btn-ghost" id="cy-modal-dismiss-btn">Close</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

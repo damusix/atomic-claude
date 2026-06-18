@@ -413,5 +413,64 @@ func TestLinkGraph_LeadingSlashMarkdownLink(t *testing.T) {
 	}
 }
 
+// TestNodeMeta_SnippetSkipsDashLine verifies that a body whose first non-heading
+// non-blank line is a setext underline or horizontal rule (---/===) is not taken
+// as the snippet. The scanner must fall through to the next prose line (or return
+// an empty snippet when none follows). The critical case is a bare `---` used as
+// a horizontal rule — isSetextUnderline catches it (all same character, length ≥ 2)
+// so it is never mistaken for prose.
+func TestNodeMeta_SnippetSkipsDashLine(t *testing.T) {
+	cases := []struct {
+		name        string
+		content     string
+		wantSnippet string
+	}{
+		{
+			// Bare --- horizontal rule as the first body line after a heading —
+			// must be skipped and fall through to the actual prose.
+			name:        "bare horizontal rule --- followed by prose",
+			content:     "# Heading\n\n---\n\nActual prose.\n",
+			wantSnippet: "Actual prose.",
+		},
+		{
+			// Long dash line (6 dashes) — isSetextUnderline covers multi-char runs.
+			name:        "long dash line is also skipped",
+			content:     "# Heading\n\n------\n\nProse below.\n",
+			wantSnippet: "Prose below.",
+		},
+		{
+			// === equals underline — all same character, also caught by isSetextUnderline.
+			name:        "setext equals line",
+			content:     "# Heading\n\n===\n\nFollowing prose.\n",
+			wantSnippet: "Following prose.",
+		},
+		{
+			// Only a horizontal rule with no prose after — snippet is empty.
+			name:        "only horizontal rule no prose",
+			content:     "# Heading\n\n---\n",
+			wantSnippet: "",
+		},
+		{
+			// Mixed body: heading → blank → --- → blank → prose.
+			// Verifies the scanner skips the --- and finds the prose line.
+			name:        "heading then blank then --- then prose",
+			content:     "# Title\n\n---\n\nThis is the description.\n",
+			wantSnippet: "This is the description.",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeFile(t, filepath.Join(root, "page.md"), tc.content)
+			g := serve.BuildLinkGraph(root)
+			meta := g.Meta("page.md")
+			if meta.Snippet != tc.wantSnippet {
+				t.Errorf("Snippet: got %q, want %q", meta.Snippet, tc.wantSnippet)
+			}
+		})
+	}
+}
+
 // Stub to avoid "declared and not used" issues for the OS import.
 var _ = os.DevNull

@@ -38,9 +38,12 @@ type cytoNode struct {
 }
 
 type cytoNodeData struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Type  string `json:"type"`
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Type        string `json:"type"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Snippet     string `json:"snippet,omitempty"`
 }
 
 // cytoEdge is a Cytoscape edge element.
@@ -86,11 +89,15 @@ func buildCytoElements(g *Graph) cytoElements {
 		}
 		label = strings.TrimSuffix(label, ".md")
 
+		meta := g.Meta(n)
 		elems.Nodes = append(elems.Nodes, cytoNode{
 			Data: cytoNodeData{
-				ID:    n,
-				Label: label,
-				Type:  g.NodeType(n),
+				ID:          n,
+				Label:       label,
+				Type:        g.NodeType(n),
+				Title:       meta.Title,
+				Description: meta.Description,
+				Snippet:     meta.Snippet,
 			},
 		})
 	}
@@ -188,11 +195,15 @@ func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
 			label = n[idx+1:]
 		}
 		label = strings.TrimSuffix(label, ".md")
+		meta := g.Meta(n)
 		elems.Nodes = append(elems.Nodes, cytoNode{
 			Data: cytoNodeData{
-				ID:    n,
-				Label: label,
-				Type:  g.NodeType(n),
+				ID:          n,
+				Label:       label,
+				Type:        g.NodeType(n),
+				Title:       meta.Title,
+				Description: meta.Description,
+				Snippet:     meta.Snippet,
 			},
 		})
 	}

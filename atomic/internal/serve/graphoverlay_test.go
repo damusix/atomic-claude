@@ -448,6 +448,135 @@ func TestGraphDataNoDanglingCodeFileEdge(t *testing.T) {
 	}
 }
 
+// TestGraphDataNodePreviewFields verifies that /graph/data nodes carry
+// title, description, and snippet fields for pages that have them, and that
+// the snippet is the first prose line (not a heading or blank line).
+//
+// WHY: The hover preview card and click modal both read these fields from
+// node.data(). If they are missing, the card renders empty content. This test
+// ensures the Go layer populates them correctly regardless of JS behaviour.
+func TestGraphDataNodePreviewFields(t *testing.T) {
+	root := t.TempDir()
+	// Page with full frontmatter: title + description + body paragraph.
+	writeFile(t, filepath.Join(root, "api-conventions.md"), `---
+title: API Conventions
+description: Rules for REST endpoint design.
+type: Knowledge
+---
+
+# API Conventions
+
+These conventions apply to all REST endpoints.
+`)
+	// Page with no frontmatter: title falls back to humanized filename; snippet
+	// from first prose line.
+	writeFile(t, filepath.Join(root, "auth-strategy.md"), `# Auth Strategy
+
+OAuth2 with PKCE for browser clients.
+`)
+	// Page whose body starts with a heading then blank then prose — snippet must
+	// skip the heading and find the prose.
+	writeFile(t, filepath.Join(root, "caching.md"), `---
+description: Cache patterns.
+---
+
+## Cache-aside
+
+Read-through on miss.
+`)
+
+	baseURL, shutdown := startTestServer(t, startOpts(t, root))
+	defer shutdown()
+	waitReady(t, baseURL+"/healthz", 3*time.Second)
+
+	resp, err := http.Get(baseURL + "/graph/data")
+	if err != nil {
+		t.Fatalf("GET /graph/data: %v", err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	// Parse into a richer struct that captures the new fields.
+	var elems struct {
+		Nodes []struct {
+			Data struct {
+				ID          string `json:"id"`
+				Label       string `json:"label"`
+				Type        string `json:"type"`
+				Title       string `json:"title"`
+				Description string `json:"description"`
+				Snippet     string `json:"snippet"`
+			} `json:"data"`
+		} `json:"nodes"`
+	}
+	if err := json.Unmarshal(body, &elems); err != nil {
+		t.Fatalf("JSON unmarshal: %v\nbody: %s", err, body)
+	}
+
+	byID := make(map[string]struct {
+		Title       string
+		Description string
+		Snippet     string
+	}, len(elems.Nodes))
+	for _, n := range elems.Nodes {
+		byID[n.Data.ID] = struct {
+			Title       string
+			Description string
+			Snippet     string
+		}{n.Data.Title, n.Data.Description, n.Data.Snippet}
+	}
+
+	// api-conventions.md: frontmatter title + description; snippet is the prose paragraph.
+	if m, ok := byID["api-conventions.md"]; !ok {
+		t.Error("api-conventions.md missing from /graph/data nodes")
+	} else {
+		if m.Title != "API Conventions" {
+			t.Errorf("api-conventions.md title: want %q, got %q", "API Conventions", m.Title)
+		}
+		if m.Description != "Rules for REST endpoint design." {
+			t.Errorf("api-conventions.md description: want %q, got %q", "Rules for REST endpoint design.", m.Description)
+		}
+		if m.Snippet == "" {
+			t.Error("api-conventions.md snippet must not be empty")
+		}
+		// The snippet must not be a heading.
+		if strings.HasPrefix(m.Snippet, "#") {
+			t.Errorf("api-conventions.md snippet must not start with '#', got %q", m.Snippet)
+		}
+	}
+
+	// auth-strategy.md: no frontmatter — title humanized from filename; snippet from body.
+	if m, ok := byID["auth-strategy.md"]; !ok {
+		t.Error("auth-strategy.md missing from /graph/data nodes")
+	} else {
+		if m.Title == "" {
+			t.Error("auth-strategy.md title must not be empty (humanized fallback)")
+		}
+		if m.Snippet == "" {
+			t.Error("auth-strategy.md snippet must not be empty")
+		}
+		// Snippet must not start with '#'.
+		if strings.HasPrefix(m.Snippet, "#") {
+			t.Errorf("auth-strategy.md snippet starts with '#' — heading must be skipped, got %q", m.Snippet)
+		}
+	}
+
+	// caching.md: description from frontmatter; snippet skips the h2 and finds prose.
+	if m, ok := byID["caching.md"]; !ok {
+		t.Error("caching.md missing from /graph/data nodes")
+	} else {
+		if m.Description != "Cache patterns." {
+			t.Errorf("caching.md description: want %q, got %q", "Cache patterns.", m.Description)
+		}
+		if m.Snippet == "" {
+			t.Error("caching.md snippet must not be empty (prose exists past the h2)")
+		}
+		if strings.HasPrefix(m.Snippet, "#") {
+			t.Errorf("caching.md snippet starts with '#' — heading must be skipped, got %q", m.Snippet)
+		}
+	}
+}
+
 // startOpts returns default Options for a test server pointed at root.
 func startOpts(t *testing.T, root string) serve.Options {
 	t.Helper()

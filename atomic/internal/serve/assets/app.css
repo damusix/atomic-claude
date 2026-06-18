@@ -1765,6 +1765,303 @@ ul.dir-listing .dir-entry { margin: 0; }
 }
 
 /* ============================================================
+   GRAPH NODE HOVER PREVIEW CARD (CP2)
+   A floating card near hovered Cytoscape nodes on the system graph.
+   Positioned absolutely within #main-pane by the JS handler.
+   ============================================================ */
+
+#cy-preview-card {
+    position: fixed;
+    z-index: 40;
+    width: 284px;
+    background: var(--paper-raised);
+    border: 1px solid var(--hairline-2);
+    border-radius: 13px;
+    box-shadow: var(--shadow-card);
+    padding: 16px 17px 17px;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+    transition: opacity .16s ease, transform .16s ease;
+}
+
+#cy-preview-card.open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+#cy-preview-card::after {
+    content: "";
+    position: absolute;
+    left: 38px;
+    top: -7px;
+    width: 13px;
+    height: 13px;
+    background: var(--paper-raised);
+    border-left: 1px solid var(--hairline-2);
+    border-top: 1px solid var(--hairline-2);
+    transform: rotate(45deg);
+}
+
+.cy-pc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 9px 2px 7px;
+    border-radius: 6px;
+    margin-bottom: 11px;
+}
+
+.cy-pc-chip::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* Per-type chip colors reuse the ttag palette vars */
+.cy-pc-chip.knowledge { color: var(--c-knowledge-ink); background: var(--c-knowledge-wash); border: 1px solid var(--c-knowledge-edge); }
+.cy-pc-chip.knowledge::before { background: var(--c-knowledge); }
+.cy-pc-chip.repo      { color: var(--c-repo-ink);      background: var(--c-repo-wash);      border: 1px solid var(--c-repo-edge); }
+.cy-pc-chip.repo::before      { background: var(--c-repo); }
+.cy-pc-chip.concern   { color: var(--c-concern-ink);   background: var(--c-concern-wash);   border: 1px solid var(--c-concern-edge); }
+.cy-pc-chip.concern::before   { background: var(--c-concern); }
+.cy-pc-chip.page      { color: var(--c-page-ink);      background: var(--c-page-wash);      border: 1px solid var(--c-page-edge); }
+.cy-pc-chip.page::before      { background: var(--c-page); }
+.cy-pc-chip.external  { color: var(--c-external-ink);  background: var(--c-external-wash);  border: 1px solid var(--c-external-edge); }
+.cy-pc-chip.external::before  { background: var(--c-external); }
+.cy-pc-chip.bucket    { color: var(--c-bucket-ink);    background: var(--c-bucket-wash);    border: 1px solid var(--c-bucket-edge); }
+.cy-pc-chip.bucket::before    { background: var(--c-bucket); }
+
+.cy-pc-title {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin-bottom: 6px;
+}
+
+.cy-pc-desc {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--ink-soft);
+    margin-bottom: 10px;
+}
+
+.cy-pc-snip {
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--ink-faint);
+    padding-top: 10px;
+    border-top: 1px solid var(--hairline);
+}
+
+/* ============================================================
+   GRAPH NODE CLICK → PAGE MODAL (CP2)
+   Opens over a blurred graph backdrop; replaces tap-navigates
+   on the system graph. Keep-reading button stays in graph.
+   ============================================================ */
+
+#cy-page-modal-scrim {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    align-items: center;
+    justify-content: center;
+    background: var(--scrim);
+    backdrop-filter: blur(7px) saturate(0.92);
+    padding: 40px;
+}
+
+#cy-page-modal-scrim.open {
+    display: flex;
+    animation: cy-scrim-in .22s ease;
+}
+
+@keyframes cy-scrim-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.cy-modal {
+    position: relative;
+    width: 660px;
+    max-width: 100%;
+    max-height: 86vh;
+    overflow-y: auto;
+    background: var(--paper-raised);
+    color: var(--ink);
+    border: 1px solid var(--hairline-2);
+    border-radius: 18px;
+    box-shadow: 0 40px 100px -28px rgba(0,0,0,0.46), 0 8px 26px rgba(0,0,0,0.14);
+    padding: 42px 48px 44px;
+    animation: cy-modal-in .24s cubic-bezier(.2,.7,.2,1);
+}
+
+[data-theme="dark"] .cy-modal {
+    box-shadow: 0 46px 120px -24px rgba(0,0,0,0.78), 0 10px 30px rgba(0,0,0,0.5);
+}
+
+@keyframes cy-modal-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* hairline elevation glow */
+.cy-modal::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 18px;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ink) 6%, transparent);
+    pointer-events: none;
+}
+
+.cy-modal-close {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--paper-sunk);
+    border: 1px solid var(--hairline-2);
+    border-radius: 8px;
+    color: var(--ink-faint);
+    cursor: pointer;
+    transition: color .14s, border-color .14s;
+}
+
+.cy-modal-close:hover {
+    color: var(--ink);
+    border-color: var(--ink-ghost);
+}
+
+.cy-modal-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 11px 3px 8px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+}
+
+.cy-modal-chip::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+}
+
+/* Per-type modal chip colors */
+.cy-modal-chip.knowledge { color: var(--c-knowledge-ink); background: var(--c-knowledge-wash); border: 1px solid var(--c-knowledge-edge); }
+.cy-modal-chip.knowledge::before { background: var(--c-knowledge); box-shadow: 0 0 0 3px var(--c-knowledge-wash); }
+.cy-modal-chip.repo      { color: var(--c-repo-ink);      background: var(--c-repo-wash);      border: 1px solid var(--c-repo-edge); }
+.cy-modal-chip.repo::before      { background: var(--c-repo);      box-shadow: 0 0 0 3px var(--c-repo-wash); }
+.cy-modal-chip.concern   { color: var(--c-concern-ink);   background: var(--c-concern-wash);   border: 1px solid var(--c-concern-edge); }
+.cy-modal-chip.concern::before   { background: var(--c-concern);   box-shadow: 0 0 0 3px var(--c-concern-wash); }
+.cy-modal-chip.page      { color: var(--c-page-ink);      background: var(--c-page-wash);      border: 1px solid var(--c-page-edge); }
+.cy-modal-chip.page::before      { background: var(--c-page);      box-shadow: 0 0 0 3px var(--c-page-wash); }
+.cy-modal-chip.external  { color: var(--c-external-ink);  background: var(--c-external-wash);  border: 1px solid var(--c-external-edge); }
+.cy-modal-chip.external::before  { background: var(--c-external);  box-shadow: 0 0 0 3px var(--c-external-wash); }
+.cy-modal-chip.bucket    { color: var(--c-bucket-ink);    background: var(--c-bucket-wash);    border: 1px solid var(--c-bucket-edge); }
+.cy-modal-chip.bucket::before    { background: var(--c-bucket);    box-shadow: 0 0 0 3px var(--c-bucket-wash); }
+
+.cy-modal-title {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 36px;
+    line-height: 1.07;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    margin-bottom: 12px;
+}
+
+.cy-modal-desc {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 17px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 54ch;
+    margin-bottom: 22px;
+}
+
+/* rendered body fragment */
+.cy-modal-body {
+    max-width: 60ch;
+    border-top: 1px solid var(--hairline);
+    padding-top: 24px;
+    color: var(--ink-soft);
+    font-size: 15px;
+    line-height: 1.7;
+}
+
+.cy-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 30px;
+    padding-top: 22px;
+    border-top: 1px solid var(--hairline);
+}
+
+.cy-modal-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    color: #241a05;
+    background: linear-gradient(180deg, var(--amber-bright), var(--amber));
+    border: 1px solid var(--amber);
+    border-radius: 10px;
+    padding: 11px 20px;
+    cursor: pointer;
+    letter-spacing: 0.005em;
+    box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--amber) 55%, transparent);
+    transition: transform .14s, box-shadow .14s, filter .14s;
+}
+
+.cy-modal-btn-primary:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.04);
+    box-shadow: 0 6px 16px -4px color-mix(in srgb, var(--amber) 60%, transparent);
+}
+
+.cy-modal-btn-ghost {
+    font-family: var(--sans);
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink-faint);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 11px 6px;
+    transition: color .14s;
+}
+
+.cy-modal-btn-ghost:hover { color: var(--ink); }
+
+/* ============================================================
    SCROLLBARS
    ============================================================ */
 

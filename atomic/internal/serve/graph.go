@@ -63,6 +63,17 @@ type Edge struct {
 	External bool
 }
 
+// NodeMeta holds per-page preview metadata for the hover card and modal.
+type NodeMeta struct {
+	// Title is the frontmatter `title:` value; falls back to the humanized filename.
+	Title string
+	// Description is the frontmatter `description:` value (may be empty).
+	Description string
+	// Snippet is the first prose line of the body, truncated to ~120 chars.
+	// Headings, blank lines, list items, and table rows are skipped.
+	Snippet string
+}
+
 // Graph is the in-memory link graph for a realm.
 type Graph struct {
 	// nodes is the set of all .md files found in the realm (realm-root-relative).
@@ -82,6 +93,10 @@ type Graph struct {
 	// Populated once during BuildLinkGraph from frontmatter + path conventions.
 	// Non-.md source files are not .md nodes and are never inserted here.
 	nodeTypes map[string]string
+
+	// nodeMeta maps realm-root-relative page path → preview metadata.
+	// Populated once during BuildLinkGraph alongside nodeTypes.
+	nodeMeta map[string]NodeMeta
 }
 
 // Nodes returns all page paths (realm-root-relative) in the graph.
@@ -107,6 +122,12 @@ func (g *Graph) Backlinks(relPath string) []string {
 // IsOrphan reports whether relPath has no inbound links from other pages.
 func (g *Graph) IsOrphan(relPath string) bool {
 	return len(g.inbound[relPath]) == 0
+}
+
+// Meta returns per-page preview metadata for relPath (title, description, snippet).
+// Returns a zero NodeMeta (empty strings) for paths not in the graph.
+func (g *Graph) Meta(relPath string) NodeMeta {
+	return g.nodeMeta[relPath]
 }
 
 // NodeType returns the short lowercase FE class for relPath:
@@ -177,6 +198,129 @@ func resolveNodeType(relPath string, fileContent []byte) string {
 	return "page"
 }
 
+// extractNodeMeta derives per-page preview metadata from raw file content.
+//
+// title     — frontmatter `title:` string; else the basename without .md,
+//
+//	with hyphens/underscores replaced by spaces and capitalized.
+//
+// description — frontmatter `description:` string (empty when absent).
+// snippet   — first prose paragraph line in the body (after stripping frontmatter):
+//
+//	skips blank lines, ATX headings (#…), setext underlines (---/===),
+//	list markers (-, *, +, 1.), table rows (|…), fenced-code fences
+//	(``` / ~~~), HTML comment lines (<!--…), and blockquote leaders (>).
+//	Truncated to 120 chars; empty when none found.
+func extractNodeMeta(relPath string, fileContent []byte) NodeMeta {
+	var title, description, snippet string
+
+	// ── frontmatter ──────────────────────────────────────────────────────────
+	meta, body, err := frontmatter.Parse(string(fileContent))
+	if err != nil || meta == nil {
+		// No frontmatter — body is the whole file content.
+		body = string(fileContent)
+	}
+	if meta != nil {
+		if raw, ok := meta["title"]; ok {
+			if s, ok := raw.(string); ok {
+				title = strings.TrimSpace(s)
+			}
+		}
+		if raw, ok := meta["description"]; ok {
+			if s, ok := raw.(string); ok {
+				description = strings.TrimSpace(s)
+			}
+		}
+	}
+
+	// ── title fallback: humanize the filename ─────────────────────────────────
+	if title == "" {
+		base := filepath.Base(relPath)
+		base = strings.TrimSuffix(base, ".md")
+		base = strings.ReplaceAll(base, "-", " ")
+		base = strings.ReplaceAll(base, "_", " ")
+		if len(base) > 0 {
+			title = strings.ToUpper(base[:1]) + base[1:]
+		}
+	}
+
+	// ── snippet: first prose line of the body ────────────────────────────────
+	for _, rawLine := range strings.Split(body, "\n") {
+		line := strings.TrimRight(rawLine, "\r")
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		// ATX heading
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		// Setext underline (all dashes or all equals)
+		if isSetextUnderline(trimmed) {
+			continue
+		}
+		// List item (-, *, +, or N.)
+		if isListItem(trimmed) {
+			continue
+		}
+		// Table row
+		if strings.HasPrefix(trimmed, "|") {
+			continue
+		}
+		// Fenced code block
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			continue
+		}
+		// HTML comment
+		if strings.HasPrefix(trimmed, "<!--") {
+			continue
+		}
+		// Blockquote
+		if strings.HasPrefix(trimmed, ">") {
+			continue
+		}
+		// Found a prose line.
+		if len(trimmed) > 120 {
+			trimmed = trimmed[:120]
+		}
+		snippet = trimmed
+		break
+	}
+
+	return NodeMeta{Title: title, Description: description, Snippet: snippet}
+}
+
+// isSetextUnderline returns true for lines that are entirely '=' or '-'
+// (setext heading underlines). At least 2 chars required.
+func isSetextUnderline(s string) bool {
+	if len(s) < 2 {
+		return false
+	}
+	c := s[0]
+	if c != '=' && c != '-' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] != c {
+			return false
+		}
+	}
+	return true
+}
+
+// isListItem returns true for ordered (1.) and unordered (-, *, +) list items.
+func isListItem(s string) bool {
+	if strings.HasPrefix(s, "- ") || strings.HasPrefix(s, "* ") || strings.HasPrefix(s, "+ ") {
+		return true
+	}
+	// Ordered list: digit(s) followed by '.' and a space.
+	i := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		i++
+	}
+	return i > 0 && i < len(s) && s[i] == '.' && i+1 < len(s) && s[i+1] == ' '
+}
+
 // BuildLinkGraph walks all *.md files under root, extracts links, resolves
 // wikilinks, and returns the populated Graph.
 func BuildLinkGraph(root string) *Graph {
@@ -185,6 +329,7 @@ func BuildLinkGraph(root string) *Graph {
 		outbound:  make(map[string][]Edge),
 		inbound:   make(map[string][]string),
 		nodeTypes: make(map[string]string),
+		nodeMeta:  make(map[string]NodeMeta),
 	}
 
 	// ── Step 1: discover all .md files and non-.md source files ─────────────
@@ -249,6 +394,8 @@ func BuildLinkGraph(root string) *Graph {
 		// Resolve and cache this page's node type (frontmatter → path → default).
 		// The file content is already in `data`; no second read needed.
 		g.nodeTypes[relPage] = resolveNodeType(relPage, data)
+		// Extract per-page preview metadata (title, description, snippet).
+		g.nodeMeta[relPage] = extractNodeMeta(relPage, data)
 
 		links := mdlink.ExtractLinks(string(data))
 		pageDir := filepath.Dir(filepath.FromSlash(relPage)) // dir of the source page (relative to root)
