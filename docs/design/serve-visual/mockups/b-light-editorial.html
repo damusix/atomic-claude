@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1680, initial-scale=1.0">
+<title>atomic serve — caching-patterns.md</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Paper & ink */
+    --paper:        #fbfaf8;
+    --paper-raised: #ffffff;
+    --paper-sunk:   #f5f3ee;
+    --ink:          #211d18;
+    --ink-soft:     #57514a;
+    --ink-faint:    #8a837a;
+    --ink-ghost:    #b4ada3;
+    --hairline:     #ece8e0;
+    --hairline-2:   #e2ddd2;
+
+    /* Amber / gold brand accent */
+    --amber:        #b07d18;   /* deep amber — links, active text */
+    --amber-bright: #d99a1f;   /* brighter brand mark */
+    --amber-wash:   #fbf3e0;   /* active row / chip wash */
+    --amber-edge:   #ecd9aa;
+
+    /* Type identity hues (shipped palette) — deepened text variants for light bg */
+    --c-knowledge:  #f38ba8;  --c-knowledge-ink:#9c2f4c;  --c-knowledge-wash:#fdeef2;
+    --c-repo:       #a6e3a1;  --c-repo-ink:     #3f7a3a;  --c-repo-wash:    #ecf8ea;
+    --c-concern:    #cba6f7;  --c-concern-ink:  #6f4aa6;  --c-concern-wash: #f4eefd;
+    --c-page:       #89b4fa;  --c-page-ink:     #3a63a8;  --c-page-wash:    #ecf2fe;
+    --c-external:   #6c7086;  --c-external-ink: #4a4e63;  --c-external-wash:#eef0f4;
+
+    --sans: "Inter", -apple-system, system-ui, sans-serif;
+    --serif:"Newsreader", Georgia, serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+
+    --topbar-h: 56px;
+  }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+
+  html,body{ height:100%; }
+  body{
+    font-family:var(--sans);
+    background:var(--paper);
+    color:var(--ink);
+    font-size:15px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    /* faint warm paper grain */
+    background-image:
+      radial-gradient(circle at 18% 12%, rgba(176,125,24,0.025), transparent 42%),
+      radial-gradient(circle at 88% 78%, rgba(137,180,250,0.025), transparent 46%);
+  }
+
+  code, pre, kbd, samp, .mono{
+    font-family:var(--mono);
+    font-variant-ligatures:none;
+    font-feature-settings:"liga" 0, "clig" 0, "ss01" 0;
+  }
+
+  a{ color:inherit; text-decoration:none; }
+
+  /* ============ APP SHELL ============ */
+  .app{
+    display:grid;
+    grid-template-columns: 244px minmax(0,1fr) 324px;
+    grid-template-rows: var(--topbar-h) 1fr;
+    grid-template-areas:
+      "top  top   top"
+      "nav  main  rail";
+    height:100vh;
+    width:1680px;
+    max-width:100%;
+  }
+
+  /* ============ TOP BAR ============ */
+  .topbar{
+    grid-area:top;
+    display:flex;
+    align-items:center;
+    gap:18px;
+    padding:0 24px;
+    background:rgba(251,250,248,0.82);
+    backdrop-filter:saturate(1.1) blur(8px);
+    border-bottom:1px solid var(--hairline);
+  }
+  .brand{
+    display:flex; align-items:center; gap:9px;
+    font-weight:600; font-size:15.5px; letter-spacing:-0.01em;
+    flex-shrink:0;
+  }
+  .brand .diamond{
+    color:var(--amber-bright);
+    font-size:13px;
+    transform:translateY(0.5px);
+    filter:drop-shadow(0 1px 2px rgba(217,154,31,0.35));
+  }
+  .pill{
+    font-family:var(--mono);
+    font-size:9.5px; font-weight:500;
+    letter-spacing:0.13em;
+    color:var(--amber);
+    background:var(--amber-wash);
+    border:1px solid var(--amber-edge);
+    padding:2px 7px 1px;
+    border-radius:5px;
+    text-transform:uppercase;
+  }
+  .breadcrumb{
+    display:flex; align-items:center; gap:9px;
+    font-size:13px; color:var(--ink-faint);
+    flex:1; min-width:0;
+  }
+  .breadcrumb .sep{ color:var(--ink-ghost); font-size:11px; }
+  .breadcrumb .crumb-file{
+    font-family:var(--mono); font-size:12.5px;
+    color:var(--ink); font-weight:500;
+  }
+  .search{
+    display:flex; align-items:center; gap:9px;
+    width:280px;
+    background:var(--paper-raised);
+    border:1px solid var(--hairline-2);
+    border-radius:9px;
+    padding:7px 11px;
+    color:var(--ink-faint);
+    font-size:13px;
+    box-shadow:0 1px 2px rgba(33,29,24,0.025);
+    transition:border-color .15s, box-shadow .15s;
+    flex-shrink:0;
+  }
+  .search:hover{ border-color:var(--amber-edge); }
+  .search svg{ flex-shrink:0; color:var(--ink-ghost); }
+  .search .ph{ flex:1; }
+  .kbd{
+    font-family:var(--sans); font-size:11px; font-weight:500;
+    color:var(--ink-faint);
+    background:var(--paper-sunk);
+    border:1px solid var(--hairline-2);
+    border-bottom-width:2px;
+    border-radius:5px;
+    padding:1px 6px;
+    letter-spacing:0.02em;
+  }
+
+  /* ============ LEFT NAV ============ */
+  .nav{
+    grid-area:nav;
+    background:var(--paper-sunk);
+    border-right:1px solid var(--hairline);
+    padding:22px 14px 20px;
+    overflow-y:auto;
+  }
+  .nav-section{
+    font-family:var(--mono);
+    font-size:10px; font-weight:500;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--ink-ghost);
+    padding:0 8px;
+    margin:0 0 9px;
+  }
+  .nav-section.spaced{ margin-top:26px; }
+
+  .nav-item, .tree-leaf, .tree-branch > .tree-row{
+    display:flex; align-items:center; gap:8px;
+    font-size:13.5px;
+    color:var(--ink-soft);
+    padding:5px 8px;
+    border-radius:7px;
+    cursor:pointer;
+    transition:background .12s, color .12s;
+  }
+  .nav-item:hover, .tree-leaf:hover, .tree-row:hover{
+    background:rgba(33,29,24,0.04);
+    color:var(--ink);
+  }
+  .nav-item .ico, .tree-leaf .ico, .tree-row .ico{
+    color:var(--ink-ghost);
+    flex-shrink:0;
+    display:flex;
+  }
+  .nav-item .lbl{ font-family:var(--mono); font-size:12.5px; }
+
+  .tree{ margin-top:2px; }
+  .tree-branch > .tree-row{
+    font-family:var(--mono); font-size:12.5px;
+    color:var(--ink); font-weight:500;
+  }
+  .tree-row .chev{ color:var(--ink-ghost); flex-shrink:0; transition:transform .12s; }
+  .tree-children{ margin-left:11px; padding-left:11px; border-left:1px solid var(--hairline-2); }
+  .tree-leaf{ font-family:var(--mono); font-size:12.5px; }
+  .tree-leaf .dot{
+    width:5px; height:5px; border-radius:50%; flex-shrink:0; margin-left:2px;
+  }
+  .dot-repo{ background:var(--c-repo); }
+  .dot-concern{ background:var(--c-concern); }
+  .dot-knowledge{ background:var(--c-knowledge); }
+
+  .tree-leaf.active{
+    background:var(--amber-wash);
+    color:var(--amber);
+    font-weight:500;
+    box-shadow:inset 2px 0 0 var(--amber-bright);
+  }
+  .tree-leaf.active .dot-knowledge{ box-shadow:0 0 0 2px var(--amber-wash); }
+
+  /* ============ MAIN ============ */
+  .main{
+    grid-area:main;
+    overflow-y:auto;
+    padding:34px 0 80px;
+    background:
+      linear-gradient(var(--paper), var(--paper));
+  }
+  .main-inner{
+    max-width:760px;
+    margin:0 auto;
+    padding:0 56px;
+  }
+
+  .toggle{
+    display:inline-flex;
+    align-items:center;
+    background:var(--paper-sunk);
+    border:1px solid var(--hairline-2);
+    border-radius:9px;
+    padding:3px;
+    margin-bottom:38px;
+    gap:2px;
+  }
+  .toggle button{
+    font-family:var(--sans);
+    font-size:12.5px; font-weight:500;
+    color:var(--ink-faint);
+    background:transparent;
+    border:none; cursor:pointer;
+    padding:5px 16px;
+    border-radius:6px;
+    letter-spacing:0.01em;
+    transition:all .14s;
+  }
+  .toggle button.on{
+    color:var(--ink);
+    background:var(--paper-raised);
+    box-shadow:0 1px 2px rgba(33,29,24,0.08), 0 0 0 1px var(--hairline-2);
+  }
+
+  /* page title block */
+  .page-eyebrow{
+    font-family:var(--mono);
+    font-size:11px; letter-spacing:0.16em; text-transform:uppercase;
+    color:var(--c-knowledge-ink);
+    margin-bottom:14px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .page-eyebrow::before{
+    content:""; width:7px; height:7px; border-radius:50%;
+    background:var(--c-knowledge);
+    box-shadow:0 0 0 3px var(--c-knowledge-wash);
+  }
+  .doc-title{
+    font-family:var(--serif);
+    font-weight:500;
+    font-size:46px;
+    line-height:1.06;
+    letter-spacing:-0.018em;
+    color:var(--ink);
+    margin-bottom:14px;
+  }
+  .doc-lede{
+    font-family:var(--serif);
+    font-style:italic;
+    font-size:19px;
+    line-height:1.55;
+    color:var(--ink-soft);
+    max-width:62ch;
+    margin-bottom:34px;
+  }
+  .rule{
+    border:none;
+    height:1px;
+    background:linear-gradient(90deg, var(--hairline-2), transparent);
+    margin:0 0 38px;
+  }
+
+  /* markdown body */
+  .md{ max-width:70ch; }
+  .md h2{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:28px;
+    line-height:1.15;
+    letter-spacing:-0.012em;
+    color:var(--ink);
+    margin:42px 0 14px;
+    position:relative;
+  }
+  .md h2:first-child{ margin-top:0; }
+  .md h2::before{
+    content:"";
+    position:absolute;
+    left:-22px; top:9px;
+    width:9px; height:9px;
+    border-radius:2px;
+    background:var(--amber-bright);
+    transform:rotate(45deg);
+    box-shadow:0 0 0 4px var(--amber-wash);
+  }
+  .md p{
+    font-size:16.5px;
+    line-height:1.72;
+    color:var(--ink-soft);
+    margin-bottom:18px;
+  }
+  .md a{
+    color:var(--amber);
+    text-decoration:none;
+    border-bottom:1px solid var(--amber-edge);
+    font-weight:500;
+    transition:border-color .14s, color .14s;
+  }
+  .md a:hover{
+    color:var(--amber-bright);
+    border-bottom-color:var(--amber-bright);
+  }
+
+  /* ============ RIGHT RAIL ============ */
+  .rail{
+    grid-area:rail;
+    background:var(--paper-sunk);
+    border-left:1px solid var(--hairline);
+    overflow-y:auto;
+    padding:26px 22px 40px;
+  }
+  .rail-block{ margin-bottom:30px; }
+  .rail-label{
+    font-family:var(--mono);
+    font-size:9.5px; font-weight:500;
+    letter-spacing:0.2em;
+    text-transform:uppercase;
+    color:var(--ink-ghost);
+    margin-bottom:13px;
+    display:flex; align-items:center; gap:8px;
+  }
+  .rail-label::after{
+    content:""; flex:1; height:1px; background:var(--hairline-2);
+  }
+
+  /* properties */
+  .props{ display:flex; flex-direction:column; gap:0; }
+  .prop{
+    display:grid;
+    grid-template-columns:84px 1fr;
+    gap:12px;
+    padding:8px 0;
+    border-bottom:1px solid var(--hairline);
+    align-items:baseline;
+  }
+  .prop:last-child{ border-bottom:none; }
+  .prop .k{
+    font-family:var(--mono);
+    font-size:11px;
+    color:var(--ink-faint);
+    letter-spacing:0.01em;
+  }
+  .prop .v{
+    font-size:13px;
+    color:var(--ink);
+    line-height:1.45;
+    word-break:break-word;
+  }
+  .prop .v.type-knowledge{
+    display:inline-flex; align-self:start;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:0.06em;
+    color:var(--c-knowledge-ink);
+    background:var(--c-knowledge-wash);
+    border:1px solid #f6d2dc;
+    padding:2px 8px; border-radius:5px;
+  }
+  .prop .v a{
+    color:var(--amber);
+    border-bottom:1px solid var(--amber-edge);
+    word-break:break-all;
+    font-size:12px;
+  }
+  .prop .v a:hover{ color:var(--amber-bright); }
+
+  .tags{ display:flex; flex-wrap:wrap; gap:6px; }
+  .tag{
+    font-size:11.5px;
+    color:var(--ink-soft);
+    background:var(--paper-raised);
+    border:1px solid var(--hairline-2);
+    padding:2px 10px;
+    border-radius:20px;
+    letter-spacing:0.01em;
+  }
+  .tag::before{ content:"#"; color:var(--ink-ghost); margin-right:1px; }
+
+  /* graph */
+  .graph-wrap{
+    background:var(--paper-raised);
+    border:1px solid var(--hairline-2);
+    border-radius:11px;
+    padding:6px;
+    box-shadow:0 1px 3px rgba(33,29,24,0.03);
+  }
+  .graph-wrap svg{ display:block; width:100%; height:auto; }
+  .g-node-label{
+    font-family:var(--mono);
+    font-size:9.5px;
+    font-weight:500;
+  }
+  .graph-legend{
+    display:flex; flex-wrap:wrap; gap:10px 14px;
+    margin-top:11px; padding:0 4px;
+  }
+  .leg{
+    display:flex; align-items:center; gap:6px;
+    font-size:10.5px; color:var(--ink-faint);
+  }
+  .leg .swatch{ width:8px; height:8px; border-radius:50%; }
+
+  /* link lists */
+  .links{ display:flex; flex-direction:column; gap:3px; }
+  .link-row{
+    display:flex; align-items:center; gap:9px;
+    padding:6px 8px;
+    border-radius:7px;
+    cursor:pointer;
+    transition:background .12s;
+  }
+  .link-row:hover{ background:rgba(33,29,24,0.04); }
+  .link-row .arrow{ color:var(--ink-ghost); font-size:11px; flex-shrink:0; }
+  .link-row .lname{
+    font-family:var(--mono); font-size:12px; color:var(--ink); flex:1;
+  }
+  .link-row .ttag{
+    font-family:var(--mono); font-size:9px; letter-spacing:0.06em;
+    text-transform:uppercase;
+    padding:1px 6px; border-radius:4px;
+  }
+  .ttag.repo{ color:var(--c-repo-ink); background:var(--c-repo-wash); }
+  .ttag.knowledge{ color:var(--c-knowledge-ink); background:var(--c-knowledge-wash); }
+  .ttag.page{ color:var(--c-page-ink); background:var(--c-page-wash); }
+
+  /* scrollbars */
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb{ background:var(--hairline-2); border-radius:6px; border:3px solid transparent; background-clip:content-box; }
+  ::-webkit-scrollbar-thumb:hover{ background:var(--ink-ghost); background-clip:content-box; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="brand"><span class="diamond">◆</span> atomic</div>
+    <span class="pill">repo</span>
+    <nav class="breadcrumb">
+      <span>knowledge</span>
+      <span class="sep">›</span>
+      <span class="crumb-file">caching-patterns.md</span>
+    </nav>
+    <div class="search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span class="ph">Search…</span>
+      <span class="kbd">⌘K</span>
+    </div>
+  </header>
+
+  <!-- ============ LEFT NAV ============ -->
+  <aside class="nav">
+    <div class="nav-section">Docs</div>
+    <div class="nav-item">
+      <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h10l4 4v12.5a1.5 1.5 0 0 1-1.5 1.5H6a2 2 0 0 1-2-2z"/><path d="M15 3v5h5"/></svg></span>
+      <span class="lbl">index</span>
+    </div>
+
+    <div class="nav-section spaced">Code</div>
+    <div class="tree">
+      <!-- repos/ -->
+      <div class="tree-branch">
+        <div class="tree-row">
+          <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+          <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          repos/
+        </div>
+        <div class="tree-children">
+          <div class="tree-leaf"><span class="dot dot-repo"></span>alpha-service</div>
+          <div class="tree-leaf"><span class="dot dot-repo"></span>beta-lib</div>
+        </div>
+      </div>
+      <!-- concerns/ -->
+      <div class="tree-branch">
+        <div class="tree-row">
+          <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+          <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          concerns/
+        </div>
+        <div class="tree-children">
+          <div class="tree-leaf"><span class="dot dot-concern"></span>auth-strategy</div>
+        </div>
+      </div>
+      <!-- knowledge/ -->
+      <div class="tree-branch">
+        <div class="tree-row">
+          <span class="chev"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+          <span class="ico"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+          knowledge/
+        </div>
+        <div class="tree-children">
+          <div class="tree-leaf"><span class="dot dot-knowledge"></span>api-conventions</div>
+          <div class="tree-leaf active"><span class="dot dot-knowledge"></span>caching-patterns</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN CONTENT ============ -->
+  <main class="main">
+    <div class="main-inner">
+
+      <div class="toggle">
+        <button class="on">page</button>
+        <button>system</button>
+      </div>
+
+      <div class="page-eyebrow">Knowledge</div>
+      <h1 class="doc-title">Caching Patterns</h1>
+      <p class="doc-lede">Cache-aside vs write-through tradeoffs.</p>
+      <hr class="rule">
+
+      <article class="md">
+        <h2>Cache-aside</h2>
+        <p>Read-through on miss, write to cache after DB. Used by <a href="#">Alpha Service</a> for rate tables.</p>
+
+        <h2>Write-through</h2>
+        <p>Write to cache and DB synchronously. See <a href="#">API Conventions</a> for the error contract when the cache write fails.</p>
+      </article>
+
+    </div>
+  </main>
+
+  <!-- ============ RIGHT RAIL ============ -->
+  <aside class="rail">
+
+    <!-- PROPERTIES -->
+    <section class="rail-block">
+      <div class="rail-label">Properties</div>
+      <div class="props">
+        <div class="prop">
+          <span class="k">type</span>
+          <span class="v type-knowledge">Knowledge</span>
+        </div>
+        <div class="prop">
+          <span class="k">title</span>
+          <span class="v">Caching Patterns</span>
+        </div>
+        <div class="prop">
+          <span class="k">description</span>
+          <span class="v">Cache-aside vs write-through tradeoffs.</span>
+        </div>
+        <div class="prop">
+          <span class="k">resource</span>
+          <span class="v"><a href="https://martinfowler.com/bliki/TwoHardThings.html" target="_blank" rel="noreferrer">martinfowler.com/bliki/TwoHardThings.html</a></span>
+        </div>
+        <div class="prop">
+          <span class="k">tags</span>
+          <span class="v">
+            <span class="tags">
+              <span class="tag">caching</span>
+              <span class="tag">performance</span>
+            </span>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- THIS-PAGE GRAPH -->
+    <section class="rail-block">
+      <div class="rail-label">This-page graph</div>
+      <div class="graph-wrap">
+        <svg viewBox="0 0 280 188" role="img" aria-label="This-page relationship graph">
+          <defs>
+            <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3" orient="auto">
+              <path d="M0,0 L6,3 L0,6 Z" fill="#cfc8bd"/>
+            </marker>
+          </defs>
+
+          <!-- edges -->
+          <line x1="140" y1="94" x2="62"  y2="44"  stroke="#cfc8bd" stroke-width="1.4" marker-end="url(#arrow)"/>
+          <line x1="140" y1="94" x2="216" y2="148" stroke="#cfc8bd" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+          <!-- alpha-service (repo / green) -->
+          <g>
+            <circle cx="54" cy="40" r="17" fill="#ecf8ea" stroke="#7fc878" stroke-width="2"/>
+            <circle cx="54" cy="40" r="5.5" fill="#a6e3a1" stroke="#5fa758" stroke-width="1"/>
+            <text class="g-node-label" x="54" y="16" text-anchor="middle" fill="#3f7a3a">alpha-service</text>
+          </g>
+
+          <!-- api-conventions (knowledge / pink) -->
+          <g>
+            <circle cx="224" cy="152" r="17" fill="#fdeef2" stroke="#ec7c9b" stroke-width="2"/>
+            <circle cx="224" cy="152" r="5.5" fill="#f38ba8" stroke="#cf5e7c" stroke-width="1"/>
+            <text class="g-node-label" x="224" y="180" text-anchor="middle" fill="#9c2f4c">api-conventions</text>
+          </g>
+
+          <!-- caching-patterns (center / knowledge / pink, current) -->
+          <g>
+            <circle cx="140" cy="94" r="22" fill="#fdeef2" stroke="#f38ba8" stroke-width="2.6"/>
+            <circle cx="140" cy="94" r="22" fill="none" stroke="#d99a1f" stroke-width="1.3" stroke-dasharray="3 3" opacity="0.85"/>
+            <circle cx="140" cy="94" r="6.5" fill="#f38ba8" stroke="#cf5e7c" stroke-width="1.2"/>
+            <text class="g-node-label" x="140" y="128" text-anchor="middle" fill="#9c2f4c" font-weight="600">caching-patterns</text>
+          </g>
+        </svg>
+        <div class="graph-legend">
+          <span class="leg"><span class="swatch" style="background:#f38ba8"></span>knowledge</span>
+          <span class="leg"><span class="swatch" style="background:#a6e3a1"></span>repo</span>
+          <span class="leg"><span class="swatch" style="background:#cba6f7"></span>concern</span>
+          <span class="leg"><span class="swatch" style="background:#89b4fa"></span>page</span>
+          <span class="leg"><span class="swatch" style="background:#6c7086"></span>external</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- OUT LINKS -->
+    <section class="rail-block">
+      <div class="rail-label">Out links</div>
+      <div class="links">
+        <div class="link-row">
+          <span class="arrow">→</span>
+          <span class="lname">alpha-service</span>
+          <span class="ttag repo">repo</span>
+        </div>
+        <div class="link-row">
+          <span class="arrow">→</span>
+          <span class="lname">api-conventions</span>
+          <span class="ttag knowledge">know</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- IN LINKS -->
+    <section class="rail-block">
+      <div class="rail-label">In links</div>
+      <div class="links">
+        <div class="link-row">
+          <span class="arrow">←</span>
+          <span class="lname">index</span>
+          <span class="ttag page">page</span>
+        </div>
+        <div class="link-row">
+          <span class="arrow">←</span>
+          <span class="lname">api-conventions</span>
+          <span class="ttag knowledge">know</span>
+        </div>
+      </div>
+    </section>
+
+  </aside>
+
+</div>
+</body>
+</html>
