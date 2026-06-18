@@ -21,8 +21,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/languages"
+	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
 // elixirFixture exercises:
