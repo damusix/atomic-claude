@@ -23,9 +23,9 @@ Switch the resolver from `LanguageUnknown` to `types.LanguageElixir` — the reg
 
 ## Checkpoints
 
-| # | Checkpoint | Done when |
-|---|-----------|-----------|
-| 1 | Un-gate Phoenix to Elixir | `Languages()` + route nodes + refs use `LanguageElixir`; stale comments fixed; existing test updated; a router.ex fixture test proves non-zero route extraction with `LanguageElixir`; `resolution/...` suite green. |
+| # | Checkpoint | Files/areas | Verifies |
+|---|-----------|-------------|----------|
+| 1 | Un-gate Phoenix to Elixir | `resolution/frameworks/elixir.go` + `elixir_test.go` | `Languages()` + route nodes + refs use `LanguageElixir`; stale comments fixed; existing test updated; a router.ex fixture test proves non-zero route extraction with `LanguageElixir`; `resolution/...` suite green. |
 
 ## Change log
 
