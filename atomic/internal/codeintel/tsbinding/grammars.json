@@ -49,6 +49,13 @@
       "url": "https://github.com/Isopod/tree-sitter-pascal",
       "revision": "042119eca2e18a60e56317fb06ee3ba5c32cb447",
       "files": ["parser.c"]
+    },
+    {
+      "language": "elixir",
+      "url": "https://github.com/elixir-lang/tree-sitter-elixir",
+      "revision": "e2d9e6e0e76b0c436fa48a0b8c32a031d0cbdf49",
+      "files": ["parser.c", "scanner.c"],
+      "_note": "ABI 14 (LANGUAGE_VERSION 14 in parser.c). v0.3.5. Ships external scanner.c. Symbol: tree_sitter_elixir."
     }
   ]
 }

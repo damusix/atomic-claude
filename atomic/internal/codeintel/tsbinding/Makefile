@@ -45,6 +45,7 @@ build:
 		src/luau/parser.c src/luau/scanner.c \
 		src/objc/parser.c \
 		src/pascal/parser.c \
+		src/elixir/parser.c src/elixir/scanner.c \
 		-o lib/ts.wasm \
 		-Os -fPIC \
 		-Wl,--no-entry \
@@ -97,7 +98,8 @@ build:
 		-Wl,--export=tree_sitter_dart \
 		-Wl,--export=tree_sitter_luau \
 		-Wl,--export=tree_sitter_objc \
-		-Wl,--export=tree_sitter_pascal
+		-Wl,--export=tree_sitter_pascal \
+		-Wl,--export=tree_sitter_elixir
 	@echo "Built lib/ts.wasm: $$(du -h lib/ts.wasm | cut -f1)"
 
 clean:

@@ -51,7 +51,7 @@ type TreeSitter struct {
 	nodeChildByFieldName api.Function
 	nodePrevNamedSibling api.Function
 
-	// Grammar language functions (19 languages)
+	// Grammar language functions (20 languages)
 	languageC          api.Function
 	languageCpp        api.Function
 	languageCSharp     api.Function
@@ -72,6 +72,7 @@ type TreeSitter struct {
 	languageLuau       api.Function
 	languageObjC       api.Function
 	languagePascal     api.Function
+	languageElixir     api.Function
 }
 
 func New(ctx context.Context) (TreeSitter, error) {
@@ -138,6 +139,7 @@ func New(ctx context.Context) (TreeSitter, error) {
 		languageLuau:       mod.ExportedFunction("tree_sitter_luau"),
 		languageObjC:       mod.ExportedFunction("tree_sitter_objc"),
 		languagePascal:     mod.ExportedFunction("tree_sitter_pascal"),
+		languageElixir:     mod.ExportedFunction("tree_sitter_elixir"),
 	}, nil
 }
 
