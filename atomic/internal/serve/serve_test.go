@@ -241,12 +241,10 @@ func TestRootRouteRendersShell(t *testing.T) {
 		}
 	}
 
-	// Middle content: [page|system] toggle — assert by button IDs (the substrings
-	// "page" and "system" appear in other contexts, so ID matching is the real seam).
-	for _, id := range []string{"mode-page", "mode-system"} {
-		if !strings.Contains(html, `id="`+id+`"`) {
-			t.Errorf("HTML missing page|system toggle button with id=%q", id)
-		}
+	// Top-bar network/graph toggle — the [page|system] segmented control was
+	// replaced by a single icon button (#btn-graph) in the top bar.
+	if !strings.Contains(html, `id="btn-graph"`) {
+		t.Error("HTML missing top-bar network/graph toggle button with id=\"btn-graph\"")
 	}
 
 	// Right rail: three stacked slots.

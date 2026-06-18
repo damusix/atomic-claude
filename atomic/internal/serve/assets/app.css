@@ -386,6 +386,13 @@ a { color: inherit; text-decoration: none; }
 [data-theme="dark"] .theme-toggle .i-sun  { display: block; }
 [data-theme="dark"] .theme-toggle .i-moon { display: none; }
 
+/* Network/graph toggle button — active state (system graph visible) */
+#btn-graph.btn-graph-active {
+    border-color: var(--amber-edge);
+    color: var(--amber);
+    background: var(--amber-wash);
+}
+
 /* ============================================================
    FOUR-PANE OBSIDIAN SHELL
    ============================================================ */
@@ -566,7 +573,7 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
     color: var(--badge-diff-ink);
 }
 
-/* ── middle column: content header + main pane ──────────────── */
+/* ── middle column: main pane (no content-header bar) ───────── */
 
 #content-column {
     flex: 1;
@@ -574,18 +581,6 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
     flex-direction: column;
     min-width: 0;
     overflow: hidden;
-}
-
-.content-header {
-    height: var(--content-header-height);
-    flex-shrink: 0;
-    background: var(--paper-sunk);
-    border-bottom: 1px solid var(--hairline);
-    display: flex;
-    align-items: center;
-    padding: 0 20px;
-    gap: 12px;
-    transition: background-color .35s ease, border-color .35s ease;
 }
 
 #main-pane {
@@ -606,10 +601,9 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
     padding: 0 56px;
 }
 
-/* ── mode toggle (page | system) ─────────────────────────────── */
+/* ── search toggle (md | code in the search dialog) ─────────── */
 
-.search-toggle,
-.mode-toggle {
+.search-toggle {
     display: inline-flex;
     align-items: center;
     background: var(--paper-sunk);
@@ -1163,11 +1157,11 @@ body.mode-system #right-rail {
     display: none;
 }
 
-/* System-cy container fills #main-pane */
+/* System-cy container fills #main-pane (no content-header row above it) */
 #system-cy {
     width: 100%;
     height: 100%;
-    min-height: calc(100vh - var(--header-height) - var(--content-header-height));
+    min-height: calc(100vh - var(--header-height));
     background: var(--graph-bg);
     transition: background-color .35s ease;
 }

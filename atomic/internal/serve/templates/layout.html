@@ -39,26 +39,46 @@
          colors. Hex values are defined ONCE here — neither atomicCyStyle() nor the
          legend duplicates them. -->
     <script>
+    // darken: multiplies each RGB channel by (1 - amount). amount=0.1 → 10% darker.
+    // Accepts a 6-digit hex string ("#rrggbb") and returns a new hex string.
+    function darken(hex, amount) {
+      var h = hex.replace('#', '');
+      if (h.length !== 6) { return hex; }
+      var f = 1 - amount;
+      var r = Math.round(parseInt(h.slice(0, 2), 16) * f);
+      var g = Math.round(parseInt(h.slice(2, 4), 16) * f);
+      var b = Math.round(parseInt(h.slice(4, 6), 16) * f);
+      return '#' + [r, g, b].map(function(c) {
+        return Math.max(0, Math.min(255, c)).toString(16).padStart(2, '0');
+      }).join('');
+    }
+
     function atomicCyTypeColors() {
       // Read ALL graph color tokens from CSS custom properties so the graph
       // re-themes automatically on light/dark toggle. Provides safe fallbacks.
       var style = getComputedStyle(document.documentElement);
       function v(name) { return style.getPropertyValue(name).trim(); }
+      var pageColor      = v('--c-page')      || '#89b4fa';
+      var repoColor      = v('--c-repo')      || '#a6e3a1';
+      var concernColor   = v('--c-concern')   || '#cba6f7';
+      var knowledgeColor = v('--c-knowledge') || '#f38ba8';
+      var bucketColor    = v('--c-bucket')    || '#fab387';
+      var externalColor  = v('--c-external')  || '#6c7086';
       return {
-        // Node type fill colors (outer stroke / halo color).
-        'page':      v('--c-page')      || '#89b4fa',
-        'repo':      v('--c-repo')      || '#a6e3a1',
-        'concern':   v('--c-concern')   || '#cba6f7',
-        'knowledge': v('--c-knowledge') || '#f38ba8',
-        'bucket':    v('--c-bucket')    || '#fab387',
-        'external':  v('--c-external')  || '#6c7086',
-        // Per-type wash colors (node body fill, lighter than stroke).
-        'page-wash':      v('--c-page-wash')      || 'rgba(137,180,250,0.15)',
-        'repo-wash':      v('--c-repo-wash')      || 'rgba(166,227,161,0.15)',
-        'concern-wash':   v('--c-concern-wash')   || 'rgba(203,166,247,0.15)',
-        'knowledge-wash': v('--c-knowledge-wash') || 'rgba(243,139,168,0.15)',
-        'bucket-wash':    v('--c-bucket-wash')    || 'rgba(250,179,135,0.15)',
-        'external-wash':  v('--c-external-wash')  || 'rgba(108,112,134,0.15)',
+        // Node type solid colors (used as gradient base + derived darker stop).
+        'page':      pageColor,
+        'repo':      repoColor,
+        'concern':   concernColor,
+        'knowledge': knowledgeColor,
+        'bucket':    bucketColor,
+        'external':  externalColor,
+        // Derived 10%-darker gradient stop for each type.
+        'page-dark':      darken(pageColor,      0.10),
+        'repo-dark':      darken(repoColor,      0.10),
+        'concern-dark':   darken(concernColor,   0.10),
+        'knowledge-dark': darken(knowledgeColor, 0.10),
+        'bucket-dark':    darken(bucketColor,    0.10),
+        'external-dark':  darken(externalColor,  0.10),
         // Per-type ink colors (node label text color).
         'page-ink':      v('--c-page-ink')      || '#3a63a8',
         'repo-ink':      v('--c-repo-ink')      || '#3f7a3a',
@@ -67,7 +87,8 @@
         'bucket-ink':    v('--c-bucket-ink')    || '#8a4a1a',
         'external-ink':  v('--c-external-ink')  || '#4a4e63',
         // Default node colors (for nodes whose type is unknown or empty).
-        'default-fill':  v('--c-page-wash') || 'rgba(137,180,250,0.15)',
+        'default-fill':  pageColor,
+        'default-dark':  darken(pageColor, 0.10),
         'default-label': v('--ink-soft')    || '#57514a',
         // Edge colors — read from CSS vars so they adapt to dark/light.
         'edge':          v('--edge')        || '#cabfae',
@@ -87,61 +108,63 @@
     <script>
     function atomicCyStyle() {
       var colors = atomicCyTypeColors();
-      // Build per-type node selectors: circular wash fill + typed stroke.
+      // Build per-type node selectors: solid diagonal gradient fill, hairline border.
+      // Each type selector sets the gradient stops so the color is unique per type.
       var typeNames = ['page', 'repo', 'concern', 'knowledge', 'bucket', 'external'];
       var typeSelectors = typeNames.map(function(t) {
+        var base   = colors[t]          || colors['default-fill'];
+        var darker = colors[t + '-dark'] || darken(base, 0.10);
         return {
           selector: 'node[type="' + t + '"]',
           style: {
-            'background-color': colors[t + '-wash'] || colors[t],
-            'border-color': colors[t],
+            'background-fill': 'linear-gradient',
+            'background-gradient-direction': 'to-bottom-right',
+            'background-gradient-stop-colors': base + ' ' + darker,
+            'background-gradient-stop-positions': '0% 100%',
+            'border-color': darker,
+            'shadow-color': base,
             'color': colors[t + '-ink'] || colors['default-label']
           }
         };
       });
       return [
         {
-          // Default node: A-style circular glow (wash fill, typed border, label below).
+          // Default node: 10px solid gradient dot, hairline border, label below.
           selector: 'node',
           style: {
             'label': 'data(label)',
-            'background-color': colors['default-fill'],
-            'border-width': '1.5px',
-            'border-color': colors['page'],
+            'background-fill': 'linear-gradient',
+            'background-gradient-direction': 'to-bottom-right',
+            'background-gradient-stop-colors': colors['default-fill'] + ' ' + colors['default-dark'],
+            'background-gradient-stop-positions': '0% 100%',
+            'border-width': '1px',
+            'border-color': colors['default-dark'],
             'color': colors['default-label'],
             'font-family': '"JetBrains Mono", "Geist Mono", ui-monospace, monospace',
             'font-size': '9px',
             'font-weight': '500',
             'text-valign': 'bottom',
             'text-halign': 'center',
-            'text-margin-y': '7px',
-            'width': '18px',
-            'height': '18px',
+            'text-margin-y': '4px',
+            'width': '10px',
+            'height': '10px',
             'shape': 'ellipse',
             'text-max-width': '60px',
             'text-wrap': 'ellipsis',
             // Label halo: prevents labels from bleeding into edges/other nodes.
-            // background reads the default-fill token so it adapts to dark/light.
             'text-background-color': colors['default-fill'],
-            'text-background-opacity': 0.85,
+            'text-background-opacity': 0.80,
             'text-background-padding': '2px',
             'text-background-shape': 'roundrectangle',
-            // Soft drop-shadow for the glow halo.
-            'shadow-blur': '8px',
+            // Softened glow appropriate for a 10px node.
+            'shadow-blur': '5px',
             'shadow-color': colors['page'],
-            'shadow-opacity': 0.18,
+            'shadow-opacity': 0.12,
             'shadow-offset-x': 0,
             'shadow-offset-y': 0
           }
         }
       ].concat(typeSelectors).concat([
-        // Per-type shadow glow matching the stroke color.
-        { selector: 'node[type="page"]',      style: { 'shadow-color': colors['page'],      'border-color': colors['page'] } },
-        { selector: 'node[type="repo"]',      style: { 'shadow-color': colors['repo'],      'border-color': colors['repo'] } },
-        { selector: 'node[type="concern"]',   style: { 'shadow-color': colors['concern'],   'border-color': colors['concern'] } },
-        { selector: 'node[type="knowledge"]', style: { 'shadow-color': colors['knowledge'], 'border-color': colors['knowledge'] } },
-        { selector: 'node[type="bucket"]',    style: { 'shadow-color': colors['bucket'],    'border-color': colors['bucket'] } },
-        { selector: 'node[type="external"]',  style: { 'shadow-color': colors['external'],  'border-color': colors['external'] } },
         {
           // md-link: solid themed line with subtle arrowhead.
           selector: 'edge.md-link',
@@ -192,14 +215,17 @@
           }
         },
         {
-          // Selected: amber glow from CSS var (theme-aware).
+          // Selected: amber solid gradient (theme-aware).
           selector: ':selected',
           style: {
-            'background-color': colors['selected'] || '#f9e2af',
-            'border-color': colors['selected'] || '#f9e2af',
-            'shadow-color': colors['selected'] || '#f9e2af',
-            'shadow-opacity': 0.4,
-            'line-color': colors['selected'] || '#f9e2af'
+            'background-fill': 'linear-gradient',
+            'background-gradient-direction': 'to-bottom-right',
+            'background-gradient-stop-colors': (colors['selected'] || '#d99a1f') + ' ' + darken(colors['selected'] || '#d99a1f', 0.10),
+            'background-gradient-stop-positions': '0% 100%',
+            'border-color': darken(colors['selected'] || '#d99a1f', 0.10),
+            'shadow-color': colors['selected'] || '#d99a1f',
+            'shadow-opacity': 0.35,
+            'line-color': colors['selected'] || '#d99a1f'
           }
         }
       ]);
@@ -210,8 +236,8 @@
          htmx 2. The canonical pattern is htmx.onLoad, which fires for every
          newly swapped element. When a [data-rail-graph-url] rail-graph container
          arrives, we fetch the graph data URL and mount a Cytoscape instance.
-         Note: [data-rail-graph-url] is distinct from the #mode-system button's
-         [data-graph-url="/graph/data"] seam (FE3) — no attribute collision.
+         Note: [data-rail-graph-url] is a rail-specific attribute — distinct from
+         anything the FE3 system-graph toggle uses. No attribute collision.
 
          OOB swap edge-case: htmx.onLoad fires with elt = the swapped-in node
          itself (the container), not a wrapper. querySelector only matches
@@ -228,35 +254,51 @@
       var focusNode = container.getAttribute('data-focus-node');
       var railColors = atomicCyTypeColors();
       var railStyle = atomicCyStyle();
-      // Override size for the compact rail view — keep A-style glow/shape intact.
+      // Override default node entry for the compact rail view — 10px gradient dot,
+      // same approach as the system graph but capped at rail size (10px is fine).
       railStyle[0] = {
         selector: 'node',
         style: {
           'label': 'data(label)',
-          'background-color': railColors['default-fill'],
-          'border-width': '1.25px',
-          'border-color': railColors['page'],
+          'background-fill': 'linear-gradient',
+          'background-gradient-direction': 'to-bottom-right',
+          'background-gradient-stop-colors': railColors['default-fill'] + ' ' + railColors['default-dark'],
+          'background-gradient-stop-positions': '0% 100%',
+          'border-width': '1px',
+          'border-color': railColors['default-dark'],
           'color': railColors['default-label'],
           'font-family': '"JetBrains Mono", "Geist Mono", ui-monospace, monospace',
           'font-size': '9px',
           'text-valign': 'bottom',
           'text-halign': 'center',
-          'text-margin-y': '5px',
-          'width': '14px',
-          'height': '14px',
+          'text-margin-y': '4px',
+          'width': '10px',
+          'height': '10px',
           'shape': 'ellipse',
           'text-max-width': '60px',
           'text-wrap': 'ellipsis',
-          'shadow-blur': '7px',
+          'shadow-blur': '5px',
           'shadow-color': railColors['page'],
-          'shadow-opacity': 0.18,
+          'shadow-opacity': 0.12,
           'shadow-offset-x': 0,
           'shadow-offset-y': 0
         }
       };
-      // Highlight the focused node with an amber glow.
-      var selColor = railColors['selected'] || '#f9e2af';
-      railStyle.splice(1, 0, { selector: 'node[id="' + focusNode + '"]', style: { 'background-color': selColor, 'border-color': selColor, 'shadow-color': selColor, 'shadow-opacity': 0.4 } });
+      // Highlight the focused node with an amber solid gradient.
+      var selColor = railColors['selected'] || '#d99a1f';
+      var selDark  = darken(selColor, 0.10);
+      railStyle.splice(1, 0, {
+        selector: 'node[id="' + focusNode + '"]',
+        style: {
+          'background-fill': 'linear-gradient',
+          'background-gradient-direction': 'to-bottom-right',
+          'background-gradient-stop-colors': selColor + ' ' + selDark,
+          'background-gradient-stop-positions': '0% 100%',
+          'border-color': selDark,
+          'shadow-color': selColor,
+          'shadow-opacity': 0.35
+        }
+      });
       // Mark mounted before the async fetch so a second call during the fetch
       // also no-ops (no double-mount on rapid navigation).
       container.dataset.railMounted = '1';
@@ -359,18 +401,20 @@
       };
     });
     </script>
-    <!-- FE3 system-graph toggle: wires the [page|system] mode buttons.
-         Clicking #mode-system collapses the right rail, fills #main-pane with
-         #system-cy, fetches /graph/data, and mounts a Cytoscape+ELK layered
-         instance.
+    <!-- FE3 system-graph toggle: the #btn-graph icon button in the top bar toggles
+         between page view and the full system graph.
+         Clicking #btn-graph while in page view → setSystemMode(): collapses the right
+         rail, fills #main-pane with #system-cy, fetches /graph/data, mounts Cytoscape+ELK.
+         Clicking #btn-graph while in system view → setPageMode(): restores the page.
          CP2 node interactions (system graph only):
            mouseover → show hover preview card near the node (title/description/snippet)
            mouseout  → hide preview card
            tap       → open content modal over blurred graph; "Open full page →" navigates
-         Clicking #mode-page restores the previous page. -->
+         Active state is centralized inside setSystemMode/setPageMode so it can't drift. -->
     <script>
     (function() {
       var currentPage = null; // tracks the last /page/ URL loaded
+      var inSystemMode = false; // true when the system graph is visible
 
       // Track the current page whenever htmx loads content into #main-pane.
       htmx.on('htmx:afterSettle', function(evt) {
@@ -383,11 +427,21 @@
         }
       });
 
+      // updateGraphBtnState syncs #btn-graph aria-pressed + .toggle-active to match mode.
+      // Called at the end of every setPageMode / setSystemMode so state never drifts.
+      function updateGraphBtnState(active) {
+        var btn = document.getElementById('btn-graph');
+        if (!btn) { return; }
+        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        if (active) {
+          btn.classList.add('btn-graph-active');
+        } else {
+          btn.classList.remove('btn-graph-active');
+        }
+      }
+
       function setPageMode() {
-        document.getElementById('mode-page').setAttribute('aria-pressed', 'true');
-        document.getElementById('mode-page').classList.add('toggle-active');
-        document.getElementById('mode-system').setAttribute('aria-pressed', 'false');
-        document.getElementById('mode-system').classList.remove('toggle-active');
+        inSystemMode = false;
         document.body.classList.remove('mode-system');
         // Destroy the system graph container if present.
         var sysCy = document.getElementById('system-cy');
@@ -400,14 +454,15 @@
         // Restore the previous page or the landing URL.
         var target = currentPage || '{{.LandingURL}}';
         htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
+        // Centralized button state update.
+        updateGraphBtnState(false);
       }
 
       function setSystemMode() {
-        document.getElementById('mode-system').setAttribute('aria-pressed', 'true');
-        document.getElementById('mode-system').classList.add('toggle-active');
-        document.getElementById('mode-page').setAttribute('aria-pressed', 'false');
-        document.getElementById('mode-page').classList.remove('toggle-active');
+        inSystemMode = true;
         document.body.classList.add('mode-system');
+        // Centralized button state update — set ACTIVE before the fetch.
+        updateGraphBtnState(true);
 
         // Replace #main-pane content with the system-cy container plus a loading
         // line. The line is removed when the layout finishes (large realms take a
@@ -598,7 +653,7 @@
             var cy = cytoscape({
               container: container,
               elements: elems,
-              layout: { name: 'elk', elk: { algorithm: 'layered' }, fit: true },
+              layout: { name: 'elk', elk: { 'algorithm': 'layered', 'elk.spacing.nodeNode': 90, 'elk.layered.spacing.nodeNodeBetweenLayers': 120 }, fit: true },
               style: atomicCyStyle(),
               minZoom: 0.2,
               maxZoom: 2.2
@@ -644,10 +699,13 @@
       }
 
       document.addEventListener('DOMContentLoaded', function() {
-        var btnPage   = document.getElementById('mode-page');
-        var btnSystem = document.getElementById('mode-system');
-        if (btnPage)   { btnPage.addEventListener('click',   setPageMode); }
-        if (btnSystem) { btnSystem.addEventListener('click', setSystemMode); }
+        // #btn-graph toggles between page and system view.
+        var btnGraph = document.getElementById('btn-graph');
+        if (btnGraph) {
+          btnGraph.addEventListener('click', function() {
+            if (inSystemMode) { setPageMode(); } else { setSystemMode(); }
+          });
+        }
 
         // Modal dismiss wiring — registered exactly once here.
         // Covers: scrim backdrop click, corner ×, bottom dismiss button, Esc.
@@ -694,6 +752,27 @@
             <kbd class="search-trigger-kbd">⌘K</kbd>
         </button>
     </div>
+    <!-- Network / graph view toggle: shows/hides the full system graph -->
+    <button class="theme-toggle" id="btn-graph" type="button"
+            aria-label="Network view — toggle full graph" title="Network view"
+            aria-pressed="false">
+        <!-- Nodes-and-edges network glyph -->
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="6"  cy="6"  r="2.5"/>
+            <circle cx="18" cy="6"  r="2.5"/>
+            <circle cx="6"  cy="18" r="2.5"/>
+            <circle cx="18" cy="18" r="2.5"/>
+            <circle cx="12" cy="12" r="2.5"/>
+            <line x1="8"  y1="6"  x2="15.5" y2="6"/>
+            <line x1="6"  y1="8"  x2="6"    y2="15.5"/>
+            <line x1="8"  y1="18" x2="15.5" y2="18"/>
+            <line x1="18" y1="8"  x2="18"   y2="15.5"/>
+            <line x1="7.7" y1="7.7" x2="10.2" y2="10.2"/>
+            <line x1="16.3" y1="7.7" x2="13.8" y2="10.2"/>
+            <line x1="7.7" y1="16.3" x2="10.2" y2="13.8"/>
+            <line x1="16.3" y1="16.3" x2="13.8" y2="13.8"/>
+        </svg>
+    </button>
     <!-- Theme toggle: sun (dark→light) / moon (light→dark) -->
     <button class="theme-toggle" id="theme-toggle" type="button"
             aria-label="Toggle light / dark theme" title="Toggle light / dark">
@@ -717,17 +796,8 @@
         </div>
     </nav>
 
-    <!-- middle content: [page | system] toggle + page content -->
+    <!-- middle content: page content (system graph toggle is now in the top bar) -->
     <div id="content-column">
-        <div class="content-header">
-            <!-- [page|system] toggle — FE3 wires the click handlers above -->
-            <span class="mode-toggle" role="group" aria-label="View mode">
-                <button class="toggle-btn toggle-active" id="mode-page"
-                        type="button" aria-pressed="true">page</button>
-                <button class="toggle-btn" id="mode-system"
-                        type="button" aria-pressed="false">system</button>
-            </span>
-        </div>
         <main id="main-pane"
               hx-get="{{.LandingURL}}"
               hx-trigger="load"

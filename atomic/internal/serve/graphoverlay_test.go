@@ -339,9 +339,10 @@ func TestShellSystemModeToggleWiring(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	html := string(body)
 
-	// mode-system button must be present (seam from FE2 shell).
-	if !strings.Contains(html, `id="mode-system"`) {
-		t.Error("shell missing #mode-system button")
+	// #btn-graph (top-bar icon toggle) must be present — it replaced the old
+	// [page|system] segmented control and is the FE3 entry point.
+	if !strings.Contains(html, `id="btn-graph"`) {
+		t.Error("shell missing #btn-graph — top-bar network/graph toggle must be present")
 	}
 
 	// #system-cy must be referenced in JS (the container for the system graph).
