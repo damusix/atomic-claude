@@ -1,9 +1,15 @@
 # tsbinding: vendor-on-demand for grammar sources
 
 
-Status: researched, plan agreed (no spec needed). Date: 2026-06-13.
+Status: **RESOLVED 2026-06-18** — the plan below was implemented. `tsbinding/src/` is gitignored and
+vendored on demand (`grammars.json` + `fetch-grammars.sh`); only `lib/ts.wasm` is committed. The indexer
+also respects `.gitignore` (`scanFiles` → `git ls-files --cached --others --exclude-standard`), so even a
+worktree that has run `make fetch` is safe to index — the generated `parser.c` files are skipped.
+`atomic code index` no longer OOMs. (Latent edge: the non-git `walkDirFallback` does not skip `src/`, so
+the OOM could only recur if git were unavailable in a post-`make-fetch` tree.) Originally researched
+2026-06-13; the problem statement below is the point-in-time record of what was true before the fix.
 
-Captures why `atomic code index` blows up on this repo, the experiment that proved the fix,
+Captures why `atomic code index` blew up on this repo, the experiment that proved the fix,
 and the agreed plan to vendor the tree-sitter grammar sources on demand instead of committing them.
 
 
