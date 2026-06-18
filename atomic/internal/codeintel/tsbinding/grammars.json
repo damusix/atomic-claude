@@ -56,6 +56,13 @@
       "revision": "e2d9e6e0e76b0c436fa48a0b8c32a031d0cbdf49",
       "files": ["parser.c", "scanner.c"],
       "_note": "ABI 14 (LANGUAGE_VERSION 14 in parser.c). v0.3.5. Ships external scanner.c. Symbol: tree_sitter_elixir."
+    },
+    {
+      "language": "erlang",
+      "url": "https://github.com/WhatsApp/tree-sitter-erlang",
+      "revision": "836aa2b6c3af2c7cef3f84049b0ed6d44485a870",
+      "files": ["parser.c", "scanner.c"],
+      "_note": "tag 0.19, ABI 14 — inside the binding ceiling. C scanner (no scanner.cc). Exports tree_sitter_erlang."
     }
   ]
 }

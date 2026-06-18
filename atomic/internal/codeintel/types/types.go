@@ -197,6 +197,7 @@ const (
 	LanguageUnknown    Language = "unknown"
 	LanguageSQL        Language = "sql"
 	LanguageElixir     Language = "elixir"
+	LanguageErlang     Language = "erlang"
 )
 
 // AllLanguages is the complete set of Language values, ordered as in
@@ -233,6 +234,7 @@ var AllLanguages = []Language{
 	LanguageUnknown,
 	LanguageSQL,
 	LanguageElixir,
+	LanguageErlang,
 }
 
 // ---------------------------------------------------------------------------

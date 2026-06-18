@@ -56,10 +56,17 @@ for i in $(seq 0 $((count - 1))); do
   while IFS= read -r f; do
     cp "$work/$lang/src/$f" "$src/$lang/$f"
   done < <(jq -r ".external[$i].files[]" "$manifest")
-  # grammar-facing header: external grammars include "tree_sitter/parser.h"
+  # grammar-facing headers: external grammars include "tree_sitter/parser.h",
+  # "tree_sitter/array.h", "tree_sitter/alloc.h". Populate all three from the
+  # grammar_header_from grammar's tree_sitter/ dir plus the runtime-root copies.
   if [ "$lang" = "$hdr_from" ]; then
     mkdir -p "$src/tree_sitter"
     cp "$work/$lang/src/tree_sitter/parser.h" "$src/tree_sitter/parser.h"
+    # Copy runtime-root public headers into tree_sitter/ so grammars that
+    # #include "tree_sitter/array.h" (e.g. Erlang) resolve correctly.
+    for hdr in array.h alloc.h ts_assert.h; do
+      [ -f "$src/$hdr" ] && cp "$src/$hdr" "$src/tree_sitter/$hdr"
+    done
   fi
 done
 

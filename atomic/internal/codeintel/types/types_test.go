@@ -127,7 +127,7 @@ func TestEdgeKindCount(t *testing.T) {
 	}
 }
 
-// TestLanguageCount asserts exactly 31 Language entries per appendix C.
+// TestLanguageCount asserts exactly 32 Language entries per appendix C.
 func TestLanguageCount(t *testing.T) {
 	want := []types.Language{
 		types.LanguageTypeScript,
@@ -161,10 +161,11 @@ func TestLanguageCount(t *testing.T) {
 		types.LanguageUnknown,
 		types.LanguageSQL,
 		types.LanguageElixir,
+		types.LanguageErlang,
 	}
 
-	if len(types.AllLanguages) != 31 {
-		t.Errorf("AllLanguages: got %d entries, want 31", len(types.AllLanguages))
+	if len(types.AllLanguages) != 32 {
+		t.Errorf("AllLanguages: got %d entries, want 32", len(types.AllLanguages))
 	}
 
 	got := make(map[types.Language]bool, len(types.AllLanguages))

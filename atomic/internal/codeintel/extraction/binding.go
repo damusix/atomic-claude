@@ -53,6 +53,7 @@ const (
 	LangObjC            // Objective-C
 	LangPascal          // Pascal
 	LangElixir          // Elixir
+	LangErlang          // Erlang
 )
 
 // ---------------------------------------------------------------------------

@@ -112,6 +112,9 @@ var extToLanguage = map[string]types.Language{
 	// Elixir
 	".ex":  types.LanguageElixir,
 	".exs": types.LanguageElixir, // Elixir script (mix.exs, config.exs, test files)
+	// Erlang
+	".erl": types.LanguageErlang,
+	".hrl": types.LanguageErlang, // Erlang header
 	// Pascal / Delphi
 	".pas": types.LanguagePascal,
 	".dpr": types.LanguagePascal, // Delphi project
