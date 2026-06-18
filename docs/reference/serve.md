@@ -35,7 +35,7 @@ The resolved scope is shown in the top-bar breadcrumb.
 
 The UI is a single persistent shell — navigating never reloads it; only the focused content and its surrounding context change.
 
-- **Top bar** — a breadcrumb (`realm › member › page`) and a search trigger that opens the command-palette dialog (`⌘K`).
+- **Top bar** — a breadcrumb (`realm › member › page`), a search trigger that opens the command-palette dialog (`⌘K`), and a light/dark theme toggle.
 - **Left nav** — the collapsible tree (`/nav`).
 - **Middle** — the focused page, or the whole-system graph. A `[ page | system ]` toggle switches between them.
 - **Right rail** — three slots tracking the focused page: its local link graph, its outbound links, and its inbound links (backlinks).
@@ -68,12 +68,17 @@ Links and backlinks come from `mdlink.ExtractLinks`, which parses markdown links
 
 ### System graph
 
-The `[ page | system ]` toggle swaps the middle pane to the whole-realm graph (Cytoscape + ELK, fed by `/graph/data`) and collapses the right rail. Tapping a node returns to page view focused on that node.
+The `[ page | system ]` toggle swaps the middle pane to the whole-realm graph (Cytoscape + ELK, fed by `/graph/data`) and collapses the right rail.
 
 - Nodes are colored by OKF concept type. The type is resolved via a hybrid strategy: frontmatter `type:` (title-case values `Knowledge`, `Concern`, `Repo Summary` mapped to short lowercase classes) takes priority, then path-convention fallback (`wiki/repos/` → `repo`, `wiki/concerns/` → `concern`, `wiki/knowledge/` → `knowledge`, `wiki/.buckets/` → `bucket`, `http(s)://` hrefs → `external`), then `page` as a default.
+- Nodes render in **A-style**: a solid background with a colored glow ring. Colors are read from CSS custom properties at render time and track the active theme automatically.
 - A **type legend** appears below the graph. Each chip shows the type name and its count of visible nodes. Clicking a chip toggles that type's nodes on or off, so you can isolate concerns, or hide repos to see only knowledge pages and the edges between them.
 - Edges are drawn in three classes: markdown links, wikilinks, and fingerprint/provenance links (dashed). A provenance edge whose recorded fingerprint differs from the live content hash is drawn red — the drift signal from the `reflects:` / `sources:` chain.
 - Code edges are per-member sub-graphs; no cross-repo edges are drawn (federation, not merging).
+
+**Node hover preview.** Hovering a node in the system graph (or the rail mini-graph) shows a floating card near the pointer with a type chip, title, short description, and a snippet. These come from `title`, `description`, and `snippet` fields in the `/graph/data` JSON payload. The card dismisses on pointer-leave.
+
+**Node-click content modal.** Clicking a node in the system graph opens a modal over the dimmed graph — not a navigation away. The modal fetches the page's rendered HTML from `/page/<id>`, displays it inline, and offers an "Open full page →" button to navigate into the full page view when you want more context. The modal closes on Esc, the close button, or a click on the dimmed backdrop. Graph state is preserved; clicking a node no longer loses your place in the graph.
 
 The vendored graph scripts (`cytoscape.min.js`, `elk.bundled.js`, `cytoscape-elk.min.js`) load once in the shell, in that load-bearing order, and power both the rail mini-graph and the system view.
 
@@ -120,6 +125,21 @@ Lists every outbound `http(s)` URL across the realm: the URL, the source pages t
 ### Status (`/status`)
 
 The realm-health view, reachable but no longer the landing page. Renders `wiki.Stale` / `wiki.CheckStaleness` (DRIFT / STALE / STALE bucket) plus aggregate code-index health (worst severity across member repos, naming only repos that need action). No new staleness computation — staleness also surfaces ambiently as badges in the nav. `/healthz` is a separate plain-text liveness probe.
+
+
+## Theme and visual design
+
+`atomic serve` ships with a light and dark theme, both derived from the same CSS custom-property set.
+
+**Theme toggle.** The top-bar sun / moon button switches themes. Before any page content paints, an inline script reads the `atomic-serve-theme` key from `localStorage` and falls back to the OS `prefers-color-scheme` media query. Toggling writes the choice back to `localStorage` and re-applies the Cytoscape styles on the live graph instances (`window.__systemCy`, `window.__railCy`) so the graph colors update immediately without a page reload.
+
+**Light theme.** Warm paper background, charcoal text, amber accent.
+
+**Dark theme.** Warm charcoal background, off-white text, amber accent.
+
+**Typography.** Newsreader (serif) for display headings; Inter for UI text; a monospace stack with ligatures explicitly disabled (`font-variant-ligatures: none; font-feature-settings: "calt" 0`) on all `code`, `pre`, `kbd`, and `samp` elements. This prevents programming-font contextual alternates (e.g. `calt`-ligated `--`, `->`, `===`) from collapsing adjacent characters visually.
+
+**Type chip.** The `type` property in the right-rail Properties slot renders as a small colored chip rather than plain text, matching the color used for that node type in the graph.
 
 
 ## Static assets
