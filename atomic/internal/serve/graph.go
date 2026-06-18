@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
 )
 
@@ -75,6 +76,12 @@ type Graph struct {
 
 	// inbound is the inverse index: target → list of source pages.
 	inbound map[string][]string
+
+	// nodeTypes maps realm-root-relative page path → short lowercase FE class
+	// ("repo"/"concern"/"knowledge"/"bucket"/"external"/"page").
+	// Populated once during BuildLinkGraph from frontmatter + path conventions.
+	// Non-.md source files are not .md nodes and are never inserted here.
+	nodeTypes map[string]string
 }
 
 // Nodes returns all page paths (realm-root-relative) in the graph.
@@ -102,13 +109,82 @@ func (g *Graph) IsOrphan(relPath string) bool {
 	return len(g.inbound[relPath]) == 0
 }
 
+// NodeType returns the short lowercase FE class for relPath:
+// "repo" / "concern" / "knowledge" / "bucket" / "external" / "page".
+// Non-.md source files that are not graph nodes return "external".
+func (g *Graph) NodeType(relPath string) string {
+	if t, ok := g.nodeTypes[relPath]; ok {
+		return t
+	}
+	// Non-.md nodes (source files added by injectProvenanceEdges or similar)
+	// that are not in the nodeTypes map default to "external".
+	if !strings.HasSuffix(relPath, ".md") {
+		return "external"
+	}
+	return "page"
+}
+
+// frontmatterTypeToClass maps human-readable title-case OKF type values
+// (as written by the producer) to the short lowercase FE node class used by
+// the Cytoscape CSS selectors in layout.html.
+//
+// Matching is case-insensitive (normalised to lower before lookup).
+var frontmatterTypeToClass = map[string]string{
+	"knowledge":    "knowledge",
+	"concern":      "concern",
+	"repo summary": "repo",
+	"repo":         "repo",
+	"bucket":       "bucket",
+}
+
+// resolveNodeType derives the short lowercase FE class for a .md page.
+//
+// Resolution order:
+//  1. Frontmatter `type` key (case-insensitive, mapped via frontmatterTypeToClass).
+//  2. Path-convention fallback: path segment `repos/` → "repo",
+//     `concerns/` → "concern", `knowledge/` → "knowledge".
+//  3. Default: "page".
+//
+// fileContent is the raw content of the .md file (already read by the caller).
+func resolveNodeType(relPath string, fileContent []byte) string {
+	// Step 1: frontmatter type.
+	if len(fileContent) > 0 {
+		meta, _, err := frontmatter.Parse(string(fileContent))
+		if err == nil && meta != nil {
+			if raw, ok := meta["type"]; ok {
+				if s, ok := raw.(string); ok {
+					if class, known := frontmatterTypeToClass[strings.ToLower(strings.TrimSpace(s))]; known {
+						return class
+					}
+				}
+			}
+		}
+	}
+
+	// Step 2: path-convention fallback. Check for `/repos/`, `/concerns/`,
+	// `/knowledge/` as path segments (forward-slash normalised).
+	slashed := filepath.ToSlash(relPath)
+	switch {
+	case strings.Contains(slashed, "/repos/") || strings.HasPrefix(slashed, "repos/"):
+		return "repo"
+	case strings.Contains(slashed, "/concerns/") || strings.HasPrefix(slashed, "concerns/"):
+		return "concern"
+	case strings.Contains(slashed, "/knowledge/") || strings.HasPrefix(slashed, "knowledge/"):
+		return "knowledge"
+	}
+
+	// Step 3: default.
+	return "page"
+}
+
 // BuildLinkGraph walks all *.md files under root, extracts links, resolves
 // wikilinks, and returns the populated Graph.
 func BuildLinkGraph(root string) *Graph {
 	g := &Graph{
-		nodeSet:  make(map[string]bool),
-		outbound: make(map[string][]Edge),
-		inbound:  make(map[string][]string),
+		nodeSet:   make(map[string]bool),
+		outbound:  make(map[string][]Edge),
+		inbound:   make(map[string][]string),
+		nodeTypes: make(map[string]string),
 	}
 
 	// ── Step 1: discover all .md files and non-.md source files ─────────────
@@ -169,6 +245,10 @@ func BuildLinkGraph(root string) *Graph {
 		if err != nil {
 			continue
 		}
+
+		// Resolve and cache this page's node type (frontmatter → path → default).
+		// The file content is already in `data`; no second read needed.
+		g.nodeTypes[relPage] = resolveNodeType(relPage, data)
 
 		links := mdlink.ExtractLinks(string(data))
 		pageDir := filepath.Dir(filepath.FromSlash(relPage)) // dir of the source page (relative to root)
