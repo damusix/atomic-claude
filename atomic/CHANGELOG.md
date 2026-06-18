@@ -1,5 +1,15 @@
 # Changelog
 
+## [5.4.0](https://github.com/damusix/atomic-claude/compare/v5.3.0...v5.4.0) (2026-06-18)
+
+
+### Features
+
+* **codeintel:** Elixir tree-sitter language support ([#77](https://github.com/damusix/atomic-claude/issues/77)) ([3f659a2](https://github.com/damusix/atomic-claude/commit/3f659a29a75c87ba80d52e5b0a4069758dc37bb5))
+* **codeintel:** Erlang tree-sitter language support ([#80](https://github.com/damusix/atomic-claude/issues/80)) ([50118f8](https://github.com/damusix/atomic-claude/commit/50118f8454cb37af7d94901092cee25e7c93b7ae))
+* **codeintel:** wire Phoenix route resolver to Elixir ([#83](https://github.com/damusix/atomic-claude/issues/83)) ([ca3eac0](https://github.com/damusix/atomic-claude/commit/ca3eac09616296d1d478911d31b55c97492a75fc))
+* **serve:** visual redesign — light/dark themes + graph interactions ([4d82d35](https://github.com/damusix/atomic-claude/commit/4d82d35cc65220788d0a12f62678db747174dfd1))
+
 ## [5.3.0](https://github.com/damusix/atomic-claude/compare/v5.2.0...v5.3.0) (2026-06-18)
 
 
