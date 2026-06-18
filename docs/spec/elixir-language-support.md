@@ -21,8 +21,8 @@ Follow the documented "Add a new grammar" procedure in `atomic/internal/codeinte
 
 ## Checkpoints
 
-| # | Checkpoint | Scope | Done when |
-|---|-----------|-------|-----------|
+| # | Checkpoint | Files/areas | Verifies |
+|---|-----------|-------------|----------|
 | 1 | Grammar into the wasm | Add an `external[]` entry to `tsbinding/grammars.json` pinning tree-sitter-elixir at the verified ABI-14 commit (`files: ["parser.c","scanner.c"]`); add the source paths + `-Wl,--export=tree_sitter_elixir` to the `Makefile` `build` recipe; `make fetch` then `make build` to regenerate `lib/ts.wasm`. | `lib/ts.wasm` rebuilt; a probe confirms the binding can load `tree_sitter_elixir` and parse a sample `.ex` into named nodes. `src/` left untracked. |
 | 2 | Engine wiring + extractor + test | Add the `Lang`/`types.Language` Elixir entries, the `SetLanguage` (pool) mapping to `tree_sitter_elixir`, the `.ex`/`.exs` → Elixir entries in the indexer's `extToLanguage`, and an Elixir extractor config in `extraction/languages/` (registered). Probe the grammar's real node-type strings before writing the config — do not guess node names. Add an Elixir fixture + an extraction test. | `go test -count=1 ./internal/codeintel/extraction/...` green; the Elixir fixture extracts module + public/private functions + struct per the success criteria. |
 
