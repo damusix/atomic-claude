@@ -51,7 +51,7 @@ type TreeSitter struct {
 	nodeChildByFieldName api.Function
 	nodePrevNamedSibling api.Function
 
-	// Grammar language functions (20 languages)
+	// Grammar language functions (21 languages)
 	languageC          api.Function
 	languageCpp        api.Function
 	languageCSharp     api.Function

@@ -109,6 +109,9 @@ var extToLanguage = map[string]types.Language{
 	// Objective-C
 	".m":  types.LanguageObjC,
 	".mm": types.LanguageObjC,
+	// Elixir
+	".ex":  types.LanguageElixir,
+	".exs": types.LanguageElixir, // Elixir script (mix.exs, config.exs, test files)
 	// Pascal / Delphi
 	".pas": types.LanguagePascal,
 	".dpr": types.LanguagePascal, // Delphi project
