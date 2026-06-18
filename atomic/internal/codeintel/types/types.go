@@ -157,7 +157,7 @@ var AllEdgeKinds = []EdgeKind{
 }
 
 // ---------------------------------------------------------------------------
-// Language — the 30 language strings (appendix C, verbatim)
+// Language — the 31 language strings (appendix C, verbatim)
 // ---------------------------------------------------------------------------
 
 // Language identifies the programming language of a file or node.
@@ -196,6 +196,7 @@ const (
 	LanguageProperties Language = "properties"
 	LanguageUnknown    Language = "unknown"
 	LanguageSQL        Language = "sql"
+	LanguageElixir     Language = "elixir"
 )
 
 // AllLanguages is the complete set of Language values, ordered as in
@@ -231,6 +232,7 @@ var AllLanguages = []Language{
 	LanguageProperties,
 	LanguageUnknown,
 	LanguageSQL,
+	LanguageElixir,
 }
 
 // ---------------------------------------------------------------------------

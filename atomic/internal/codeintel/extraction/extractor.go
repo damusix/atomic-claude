@@ -67,6 +67,17 @@ type LanguageExtractor struct {
 	CallTypes          map[string]struct{}
 	InstantiationTypes map[string]struct{}
 
+	// MacroDoBlockTypes is an optional set of grammar node-type strings that
+	// represent a do-block child inside a macro call (e.g. "do_block" in Elixir).
+	// When set and a StructTypes node resolves to NodeKind("") (the call-reference
+	// sentinel via ResolveKind), the extractor still emits the call reference but
+	// ALSO descends into any named children whose kind is in this set. This allows
+	// definitions nested inside macro do-blocks (e.g. `on_ee do def foo ... end`)
+	// to be discovered without treating the macro as a definition itself.
+	//
+	// Nil for all non-Elixir languages — no behavior change when unset.
+	MacroDoBlockTypes map[string]struct{}
+
 	// JSXElementTypes lists the grammar node-type strings that represent JSX
 	// element usages: typically "jsx_element" (paired <Foo>...</Foo>) and
 	// "jsx_self_closing_element" (<Foo/>). When visitNode or visitFunctionBody
@@ -131,6 +142,14 @@ type LanguageExtractor struct {
 	// NodeKindInterface; if it returns NodeKindTypeAlias, extractTypeAlias is
 	// called; for NodeKindStruct (or any other value), extractStruct is called.
 	ResolveKind func(ctx context.Context, node sitter.Node, source string) types.NodeKind
+
+	// GetName returns the name string for a node, overriding the normal NameField
+	// fallback path in nameFromNode. It is called with the original (pre-ResolveBody)
+	// grammar node. Returns "" to fall through to the normal name extraction.
+	// Use this when the grammar requires looking at sibling children to determine
+	// the symbol name (e.g. Elixir, where def/defmodule macros encode the name
+	// in a different child than what ResolveBody navigates to for body traversal).
+	GetName func(ctx context.Context, node sitter.Node, source string) string
 
 	// GetSignature returns the human-readable signature string for a node.
 	// Returns "" when not applicable.
@@ -455,6 +474,46 @@ func (v *visitor) visitNode(ctx context.Context, node sitter.Node, kind string) 
 					return true, v.extractTypeAlias(ctx, node)
 				case types.NodeKindEnum:
 					return true, v.extractEnum(ctx, node)
+				// Extended dispatch paths for grammars (e.g. Elixir) where definitions
+				// and regular calls share a single node kind and are differentiated by
+				// child-node text inside ResolveKind.
+				case types.NodeKindFunction:
+					return true, v.extractFunction(ctx, node)
+				case types.NodeKindModule:
+					return true, v.extractClass(ctx, node, types.NodeKindModule)
+				case types.NodeKindImport:
+					return true, v.extractImport(ctx, node)
+				case types.NodeKind(""):
+					// Empty sentinel: ResolveKind signals "emit as call reference,
+					// not a declaration". Used by Elixir to handle regular call nodes
+					// (e.g. User.new(params)) that happen to share the "call" node kind
+					// with definition macros (defmodule, def, …).
+					v.extractCall(ctx, node, false)
+					// If MacroDoBlockTypes is set (Elixir), descend into any do_block
+					// children of this call node. This handles macros like `on_ee do
+					// def foo ... end` where definitions are nested inside a non-
+					// definition macro's do-block. The call itself is still emitted as
+					// a call reference; only the do-block children are additionally
+					// walked for nested definitions.
+					if cfg.MacroDoBlockTypes != nil {
+						childCnt, _ := node.NamedChildCount(ctx)
+						for ci := uint64(0); ci < childCnt; ci++ {
+							ch, chErr := node.NamedChild(ctx, ci)
+							if chErr != nil {
+								continue
+							}
+							chKind, chErr := ch.Kind(ctx)
+							if chErr != nil {
+								continue
+							}
+							if _, isDoBlock := cfg.MacroDoBlockTypes[chKind]; isDoBlock {
+								if descErr := v.visitChildren(ctx, ch); descErr != nil {
+									v.result.Errors = append(v.result.Errors, fmt.Sprintf("macro do-block descent: %v", descErr))
+								}
+							}
+						}
+					}
+					return true, nil
 				default:
 					// NodeKindStruct or any unrecognised value → struct path.
 				}
@@ -664,9 +723,18 @@ func (v *visitor) extractFunction(ctx context.Context, node sitter.Node) error {
 		}
 	}
 
-	name, err := v.nameFromNode(ctx, resolved)
-	if err != nil || name == "" {
-		name, _ = v.nameFromNode(ctx, node)
+	// GetName hook overrides nameFromNode when set. Called with the original
+	// unresolved node so the hook can navigate to the right child (e.g. Elixir
+	// def macros encode the function name in a different child than the body).
+	var name string
+	if v.cfg.GetName != nil {
+		name = v.cfg.GetName(ctx, node, v.src)
+	}
+	if name == "" {
+		name, err = v.nameFromNode(ctx, resolved)
+		if err != nil || name == "" {
+			name, _ = v.nameFromNode(ctx, node)
+		}
 	}
 
 	n, err := v.createNode(ctx, node, nodeKind, name)
@@ -701,9 +769,15 @@ func (v *visitor) extractClass(ctx context.Context, node sitter.Node, kind types
 		resolved = node
 	}
 
-	name, err := v.nameFromNode(ctx, resolved)
-	if err != nil || name == "" {
-		name, _ = v.nameFromNode(ctx, node)
+	var name string
+	if v.cfg.GetName != nil {
+		name = v.cfg.GetName(ctx, node, v.src)
+	}
+	if name == "" {
+		name, err = v.nameFromNode(ctx, resolved)
+		if err != nil || name == "" {
+			name, _ = v.nameFromNode(ctx, node)
+		}
 	}
 
 	n, err := v.createNode(ctx, node, kind, name)
@@ -748,9 +822,15 @@ func (v *visitor) extractStruct(ctx context.Context, node sitter.Node) error {
 		resolved = node
 	}
 
-	name, err := v.nameFromNode(ctx, resolved)
-	if err != nil || name == "" {
-		name, _ = v.nameFromNode(ctx, node)
+	var name string
+	if v.cfg.GetName != nil {
+		name = v.cfg.GetName(ctx, node, v.src)
+	}
+	if name == "" {
+		name, err = v.nameFromNode(ctx, resolved)
+		if err != nil || name == "" {
+			name, _ = v.nameFromNode(ctx, node)
+		}
 	}
 
 	n, err := v.createNode(ctx, node, types.NodeKindStruct, name)
@@ -1321,6 +1401,26 @@ func (v *visitor) visitFunctionBody(ctx context.Context, body sitter.Node) {
 		// Check for calls.
 		if v.cfg.CallTypes != nil {
 			if _, ok := v.cfg.CallTypes[kind]; ok {
+				// When this node kind is ALSO in StructTypes and ResolveKind is set,
+				// check whether ResolveKind classifies it as a definition (non-empty
+				// non-"" kind) or as a call reference (empty ""). This is required for
+				// grammars like Elixir where definition macros and regular function calls
+				// share the same "call" node kind: defmodule/def/defp are definitions
+				// (ResolveKind returns a real NodeKind), while User.new() is a call
+				// (ResolveKind returns ""). Without this check, all "call" nodes in a
+				// function body would be treated as call references, incorrectly emitting
+				// def/defmodule nodes as EdgeKindCalls entries.
+				if v.cfg.StructTypes != nil && v.cfg.ResolveKind != nil {
+					if _, inStruct := v.cfg.StructTypes[kind]; inStruct {
+						resolved := v.cfg.ResolveKind(ctx, child, v.src)
+						if resolved != types.NodeKind("") {
+							// It's a definition node — skip the extractCall path.
+							// visitChildren (called by the parent extractClass) handles
+							// it via the StructTypes/ResolveKind dispatch in visitNode.
+							continue
+						}
+					}
+				}
 				v.extractCall(ctx, child, false)
 				continue
 			}
