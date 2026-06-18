@@ -30,9 +30,14 @@ import (
 // propKV is a flattened key/value pair for the Properties slot. Value is always
 // a string: scalars pass through as-is; []any elements are comma-joined; nested
 // maps are skipped (they don't belong in a flat property list).
+//
+// When IsURL is true, Value is an http(s) URL and the template renders it as
+// an <a href=...> anchor (target=_blank rel=noopener). html/template handles
+// escaping of both the href attribute and the link text automatically.
 type propKV struct {
 	Key   string
 	Value string
+	IsURL bool
 }
 
 // railFragmentTmplStr renders the four OOB fragments for the right rail.
@@ -52,7 +57,7 @@ type propKV struct {
 // cannot collide with any click-handler seam on #mode-system.
 
 const railFragmentTmplStr = `<div id="rail-props-content" hx-swap-oob="innerHTML">{{- if .Properties}}<ul class="rail-props-list">
-    {{range .Properties}}<li><span class="rail-prop-key">{{.Key}}</span><span class="rail-prop-val">{{.Value}}</span></li>
+    {{range .Properties}}<li><span class="rail-prop-key">{{.Key}}</span><span class="rail-prop-val">{{if .IsURL}}<a href="{{.Value}}" target="_blank" rel="noopener">{{.Value}}</a>{{else}}{{.Value}}{{end}}</span></li>
     {{end}}</ul>{{- end -}}</div>
 <div id="rail-out-content" hx-swap-oob="innerHTML">
   {{if .Outbound}}
@@ -85,6 +90,15 @@ const railFragmentTmplStr = `<div id="rail-props-content" hx-swap-oob="innerHTML
        data-rail-graph-url="/graph/data?node={{.PageEncoded}}&amp;depth=1"
        data-focus-node="{{.Page}}"></div>
 </div>`
+
+// isHTTPURL reports whether s is an http:// or https:// URL. Used to detect
+// frontmatter values that should render as clickable anchors in the Properties
+// slot. We deliberately choose model-free detection (prefix check) rather than
+// url.Parse: frontmatter values that look like URLs but are not valid RFC-3986
+// URIs are still useful to render as links (the browser validates on click).
+func isHTTPURL(s string) bool {
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
 
 // railTmplFuncs provides the "not" helper used in the template.
 var railTmplFuncs = template.FuncMap{
@@ -140,7 +154,7 @@ func NewRailHandler(root string, g *Graph) http.Handler {
 				for _, kv := range kvs {
 					switch v := kv.Value.(type) {
 					case string:
-						props = append(props, propKV{Key: kv.Key, Value: v})
+						props = append(props, propKV{Key: kv.Key, Value: v, IsURL: isHTTPURL(v)})
 					case []any:
 						parts := make([]string, 0, len(v))
 						for _, elem := range v {

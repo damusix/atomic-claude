@@ -20,11 +20,35 @@
     <script src="/static/vendor/elk.bundled.js"></script>
     <script src="/static/vendor/cytoscape-elk.min.js"></script>
     <script>cytoscape.use(cytoscapeElk);</script>
+    <!-- Single-source type→color map. atomicCyStyle() reads it to build per-type
+         node selectors; the system-graph legend (Deliverable A) reads it for swatch
+         colors. Hex values are defined ONCE here — neither atomicCyStyle() nor the
+         legend duplicates them. -->
+    <script>
+    function atomicCyTypeColors() {
+      return {
+        'page':      '#89b4fa',
+        'repo':      '#a6e3a1',
+        'concern':   '#cba6f7',
+        'knowledge': '#f38ba8',
+        'bucket':    '#fab387',
+        'external':  '#6c7086'
+      };
+    }
+    </script>
     <!-- Shared Cytoscape style factory — used by BOTH the rail mini-graph (FE2) and
          the system-graph toggle (FE3). One definition, two consumers. Do NOT copy
          the style array into either consumer; call atomicCyStyle() instead. -->
     <script>
     function atomicCyStyle() {
+      var colors = atomicCyTypeColors();
+      // Shape overrides per type (types without an entry use the default roundrectangle).
+      var shapes = { 'repo': 'rectangle', 'external': 'diamond' };
+      var typeSelectors = Object.keys(colors).map(function(t) {
+        var s = { 'background-color': colors[t] };
+        if (shapes[t]) { s['shape'] = shapes[t]; }
+        return { selector: 'node[type="' + t + '"]', style: s };
+      });
       return [
         {
           selector: 'node',
@@ -42,11 +66,7 @@
             'text-wrap': 'ellipsis'
           }
         },
-        { selector: 'node[type="repo"]',      style: { 'background-color': '#a6e3a1', 'shape': 'rectangle' } },
-        { selector: 'node[type="concern"]',   style: { 'background-color': '#cba6f7' } },
-        { selector: 'node[type="knowledge"]', style: { 'background-color': '#f38ba8' } },
-        { selector: 'node[type="bucket"]',    style: { 'background-color': '#fab387' } },
-        { selector: 'node[type="external"]',  style: { 'background-color': '#6c7086', 'shape': 'diamond' } },
+      ].concat(typeSelectors).concat([
         {
           /* md-link: solid dark line */
           selector: 'edge.md-link',
@@ -97,7 +117,7 @@
           selector: ':selected',
           style: { 'background-color': '#f9e2af', 'line-color': '#f9e2af' }
         }
-      ];
+      ]);
     }
     </script>
     <!-- FE2 rail mini-graph: delegated htmx.onLoad handler.
@@ -240,6 +260,69 @@
           if (l) { l.remove(); }
         }
 
+        // buildLegend constructs the type-filter chip bar from the types actually
+        // present in the graph. Colors come from atomicCyTypeColors() — single
+        // source of truth, no hex duplication. Each chip toggles visibility of the
+        // matching nodes in the live Cytoscape instance.
+        function buildLegend(cy, elems) {
+          // Collect distinct node types from the element list.
+          var seenTypes = {};
+          (elems || []).forEach(function(el) {
+            if (el.data && el.data.type) { seenTypes[el.data.type] = true; }
+          });
+          var types = Object.keys(seenTypes).sort();
+          if (!types.length) { return; }
+
+          var colorMap = atomicCyTypeColors();
+          var hiddenTypes = {}; // tracks which types are currently filtered out
+
+          var legend = document.createElement('div');
+          legend.id = 'graph-legend';
+          legend.className = 'graph-legend';
+
+          types.forEach(function(type) {
+            var color = colorMap[type] || '#89b4fa';
+
+            var chip = document.createElement('button');
+            chip.className = 'graph-legend-chip graph-legend-chip-active';
+            chip.type = 'button';
+            chip.setAttribute('data-type', type);
+            chip.setAttribute('aria-pressed', 'true');
+
+            var swatch = document.createElement('span');
+            swatch.className = 'graph-legend-swatch';
+            swatch.style.background = color;
+
+            var label = document.createElement('span');
+            label.textContent = type;
+
+            chip.appendChild(swatch);
+            chip.appendChild(label);
+
+            chip.addEventListener('click', function() {
+              if (!cy) { return; }
+              if (hiddenTypes[type]) {
+                // Re-show: restore display and mark active.
+                cy.nodes('[type="' + type + '"]').style('display', 'element');
+                delete hiddenTypes[type];
+                chip.classList.add('graph-legend-chip-active');
+                chip.setAttribute('aria-pressed', 'true');
+              } else {
+                // Hide: remove from display and mark inactive.
+                cy.nodes('[type="' + type + '"]').style('display', 'none');
+                hiddenTypes[type] = true;
+                chip.classList.remove('graph-legend-chip-active');
+                chip.setAttribute('aria-pressed', 'false');
+              }
+            });
+
+            legend.appendChild(chip);
+          });
+
+          // Append legend inside #main-pane (above #system-cy via absolute positioning).
+          mainPane.appendChild(legend);
+        }
+
         fetch('/graph/data')
           .then(function(r) { return r.json(); })
           .then(function(elems) {
@@ -258,6 +341,7 @@
               clearSystemLoading();
               cy.resize();
               cy.fit(undefined, 24);
+              buildLegend(cy, elems);
             });
             // Fallback: if no layout event fires, still clear the loader.
             cy.ready(function() { cy.resize(); });

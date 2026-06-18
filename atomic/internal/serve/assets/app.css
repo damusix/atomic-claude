@@ -404,6 +404,60 @@ pre {
     font-style: italic;
 }
 
+/* ── system-graph legend/filter (Deliverable A) ──────────────────────────
+   The legend is an absolutely positioned chip bar anchored to the bottom-left
+   corner of #main-pane. It appears after the ELK layout settles (buildLegend
+   fires in cy.one('layoutstop')). Chips toggle node-type visibility. */
+
+.graph-legend {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: 480px;
+    pointer-events: auto;
+}
+
+.graph-legend-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px 4px 7px;
+    border-radius: 20px;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 11px;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 0.15s, border-color 0.15s;
+    user-select: none;
+}
+
+.graph-legend-chip.graph-legend-chip-active {
+    opacity: 1;
+    border-color: rgba(255, 255, 255, 0.18);
+    color: var(--color-text);
+}
+
+.graph-legend-chip:hover {
+    border-color: var(--color-accent-dim);
+}
+
+.graph-legend-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
 /* ── system-graph mode (FE3) ──────────────────────────────────────────── */
 
 /* Collapse the right rail when body carries the mode-system class. */
