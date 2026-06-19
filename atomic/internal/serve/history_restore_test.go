@@ -2,12 +2,13 @@ package serve_test
 
 // history_restore_test.go — Back/Forward must not destroy the nav shell.
 //
-// On an htmx history cache miss, htmx re-requests the pushed URL and replaces the
+// htmx 4 keeps no localStorage history cache, so every Back/Forward is a fresh GET
+// of the pushed URL carrying HX-History-Restore-Request, and htmx replaces the
 // whole <body> with the response. Because we use the HX-Request header to return
-// bare #main-pane fragments, a restore that also carried HX-Request would get a
-// fragment and wipe the shell. The server treats a HX-History-Restore-Request as
-// a document load (returns the full shell); the shell also sets
-// htmx.config.historyRestoreAsHxRequest=false so htmx omits HX-Request on restore.
+// bare #main-pane fragments, the server must treat a HX-History-Restore-Request as
+// a document load and return the full shell — otherwise a restore wipes the shell.
+// This is enforced purely server-side (fragmentRequest); htmx 4 removed the
+// historyRestoreAsHxRequest config the v2 shell used as belt-and-suspenders.
 
 import (
 	"io"
@@ -52,27 +53,5 @@ func TestHistoryRestore_ReturnsShellNotFragment(t *testing.T) {
 	// The restored shell must re-load the requested page into #main-pane.
 	if !strings.Contains(html, `hx-get="/page/docs/reference/serve.md"`) {
 		t.Errorf("restored shell must boot the requested page into #main-pane; html:\n%s", html)
-	}
-}
-
-func TestShell_DisablesHistoryRestoreAsHxRequest(t *testing.T) {
-	root := buildPageHierarchyRealm(t)
-	baseURL, shutdown := startTestServer(t, startOpts(t, root))
-	defer shutdown()
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	resp, err := http.Get(baseURL + "/")
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// The htmx-config meta must disable historyRestoreAsHxRequest so htmx omits
-	// HX-Request on restore (belt with the server's HX-History-Restore-Request
-	// suspenders).
-	if !strings.Contains(html, "historyRestoreAsHxRequest") {
-		t.Errorf("shell must set htmx historyRestoreAsHxRequest=false; html head missing the config")
 	}
 }

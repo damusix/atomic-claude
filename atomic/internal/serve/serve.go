@@ -308,7 +308,17 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		}
 	}
 
-	srv := &http.Server{Handler: mux}
+	// Page routes content-negotiate on the HX-Request header (htmx fragment vs
+	// full shell), so every response varies by it. Without Vary, a shared or
+	// browser cache could serve a bare fragment to a direct navigation, or a full
+	// document to an htmx swap. Set it once for all routes; it is harmless on the
+	// routes that do not negotiate.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Vary", "HX-Request")
+		mux.ServeHTTP(w, r)
+	})
+
+	srv := &http.Server{Handler: handler}
 
 	// Serve in a background goroutine.
 	serveErr := make(chan error, 1)

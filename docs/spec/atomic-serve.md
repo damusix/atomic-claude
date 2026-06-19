@@ -277,6 +277,31 @@ None.
 
 ## Change log
 
+### 2026-06-19 — htmx upgraded 2.0.10 → 4.0.0-beta4 (native, no compat shim)
+
+**What changed:** Vendored htmx bumped to the v4 beta, migrated natively (no `htmx-2-compat`
+shim). The delta is small because serve's usage is inheritance-safe (every triggering element
+repeats its own hx-attributes; no `hx-boost`, no parent-only `hx-target`/`hx-swap` a child
+depends on). Event listeners moved to v4 colon-format reading `detail.ctx`, attached to
+`document` (v4 dispatches on `document` when the source element was detached by the swap, so
+`document.body` listeners miss those): `htmx:afterSettle`→`htmx:after:swap` (current-page
+tracking via `ctx.target`/`ctx.request.action`), `htmx:oobAfterSwap`→`htmx:after:settle` (rail
+mini-graph re-scan — v4 merged OOB into the unified swap/settle events),
+`htmx:beforeRequest`→`htmx:before:request` (code-modal-intel spinner). Added `Vary: HX-Request`
+to all responses via a single middleware in `serve.go`. `htmx.onLoad` and
+`htmx.ajax({target,swap,headers})` are unchanged in v4. Verified in a headless browser on
+4.0.0-beta4: page/nav load, current-page tracking, rail mount+hover+click, system-graph modal
+open/close, ⌘K search, and Back/Forward shell-restore all pass.
+
+**Why:** dependency currency — the latest htmx release (beta channel) requested explicitly;
+plus the missing `Vary` header was a content-negotiation correctness gap (htmx best practice).
+
+**Superseded:** the v2 shell set `htmx-config` `historyRestoreAsHxRequest=false` as belt-and-
+suspenders for Back/Forward; that key is removed in v4. v4 keeps no localStorage history cache,
+so a restore is a server round-trip carrying `HX-History-Restore-Request`, which `fragmentRequest`
+already answers with the full shell. The obsolete `TestShell_DisablesHistoryRestoreAsHxRequest`
+was dropped (intent covered by `TestHistoryRestore_ReturnsShellNotFragment`).
+
 ### 2026-06-18 — Serve visual redesign: themes + graph interactions
 
 **What changed:** Light/dark theme toggle added to the top bar. An inline before-paint script

@@ -19,14 +19,12 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/app.css">
-    <!-- History cache-miss restores must come back as the FULL shell, not a
-         fragment. We use the HX-Request header to return #main-pane fragments,
-         so a restore request that also carried HX-Request would get a bare
-         fragment and htmx would replace <body> with it — destroying the shell on
-         Back/Forward. Disabling historyRestoreAsHxRequest makes htmx omit
-         HX-Request on restore (so the server returns the shell); the server also
-         guards on HX-History-Restore-Request as defense in depth. -->
-    <meta name="htmx-config" content='{"historyRestoreAsHxRequest": false}'>
+    <!-- History restores must come back as the FULL shell, not a #main-pane
+         fragment. htmx 4 keeps no localStorage history cache, so every Back/Forward
+         is a fresh GET carrying HX-History-Restore-Request (alongside HX-Request);
+         the server guards on that header (fragmentRequest in context_handler.go)
+         and returns the shell, which htmx swaps into <body>. No client config is
+         needed — htmx 4 removed the htmx-config historyRestoreAsHxRequest key. -->
     <script src="/static/vendor/htmx.min.js"></script>
     <!-- Cytoscape+ELK — LOAD ORDER IS LOAD-BEARING: cytoscape → elk.bundled → cytoscape-elk -->
     <!-- Powers the rail mini-graph (FE2) and the system-graph toggle (FE3). -->
@@ -400,7 +398,7 @@
          called from both paths; a dataset flag prevents double-mount. -->
     <script>
     function mountRailGraph(container) {
-      // Guard: already mounted (e.g. both htmx.onLoad and htmx:oobAfterSwap fired).
+      // Guard: already mounted (e.g. both htmx.onLoad and htmx:after:settle fired).
       if (container.dataset.railMounted === '1') { return; }
       if (typeof cytoscape === 'undefined') { return; }
       var graphURL = container.getAttribute('data-rail-graph-url');
@@ -507,18 +505,14 @@
       mountRailGraph(container);
     });
 
-    // Path 2: htmx:oobAfterSwap — fires specifically after an OOB swap
-    // settles; htmx 2 may not fire htmx:load for OOB innerHTML swaps.
-    document.body.addEventListener('htmx:oobAfterSwap', function(evt) {
-      var target = evt.detail && evt.detail.target;
-      if (!target) { return; }
-      // target is the element whose innerHTML was replaced; check both it and
-      // its children for the rail-graph container.
-      var container = (target.matches && target.matches('[data-rail-graph-url]'))
-        ? target
-        : (target.querySelector ? target.querySelector('[data-rail-graph-url]') : null);
-      if (!container) { return; }
-      mountRailGraph(container);
+    // Path 2: htmx:after:settle — htmx 4 merged the old htmx:oobAfterSwap into the
+    // unified swap/settle events, so re-scan for the rail-graph container once a
+    // swap has settled (covers the OOB innerHTML swap that arrives with a page
+    // load). mountRailGraph's dataset guard makes the repeated scan a no-op once
+    // mounted. Listen on document — a detached source dispatches there, not body.
+    document.addEventListener('htmx:after:settle', function() {
+      var container = document.querySelector('#rail-graph-content [data-rail-graph-url]');
+      if (container) { mountRailGraph(container); }
     });
     </script>
     <!-- FE5 search page: SSE result streaming.
@@ -528,7 +522,7 @@
            code → append one member's results (clears loading on first arrival)
            end  → drop remaining loading indicators; close the stream (also stops
                   the browser auto-reconnecting and replaying the search).
-         Inline <script> in swapped content does not run reliably under htmx 2,
+         Inline <script> in swapped content does not run reliably under htmx,
          so this is a delegated htmx.onLoad — same pattern as the rail mini-graph. -->
     <script>
     htmx.onLoad(function(elt) {
@@ -587,15 +581,15 @@
       var currentPage = null; // tracks the last /page/ URL loaded
       var inSystemMode = false; // true when the system graph is visible
 
-      // Track the current page whenever htmx loads content into #main-pane.
-      htmx.on('htmx:afterSettle', function(evt) {
-        var tgt = evt.detail && evt.detail.target;
-        if (tgt && tgt.id === 'main-pane') {
-          var triggerPath = evt.detail.requestConfig && evt.detail.requestConfig.path;
-          if (triggerPath && triggerPath.indexOf('/page/') === 0) {
-            currentPage = triggerPath;
-          }
-        }
+      // Track the current page whenever htmx loads a /page/ into #main-pane.
+      // htmx 4: events are colon-format and carry detail.ctx (ctx.target is the
+      // resolved swap target, ctx.request.action is the request path). Listen on
+      // document — a detached source element dispatches there, not on body.
+      document.addEventListener('htmx:after:swap', function(evt) {
+        var ctx = evt.detail && evt.detail.ctx;
+        if (!ctx || !ctx.target || ctx.target.id !== 'main-pane') { return; }
+        var path = ctx.request && ctx.request.action;
+        if (path && path.indexOf('/page/') === 0) { currentPage = path; }
       });
 
       // updateGraphBtnState syncs #btn-graph aria-pressed + .toggle-active to match mode.
@@ -1182,8 +1176,9 @@
 
   // Loading feedback: whenever a request targets the intel pane (a drill-down or
   // Back), show a spinner immediately so the click registers before the swap.
-  document.body.addEventListener('htmx:beforeRequest', function(e) {
-    var t = e.detail && e.detail.target;
+  document.addEventListener('htmx:before:request', function(e) {
+    var ctx = e.detail && e.detail.ctx;
+    var t = ctx && ctx.target;
     if (t && t.id === 'code-modal-intel') {
       t.innerHTML = '<p class="loading">Loading…</p>';
     }
