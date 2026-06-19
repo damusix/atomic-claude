@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.4.1](https://github.com/damusix/atomic-claude/compare/v5.4.0...v5.4.1) (2026-06-19)
+
+
+### Bug Fixes
+
+* **serve:** make graph modal closable and rail graph interactive ([683fb97](https://github.com/damusix/atomic-claude/commit/683fb97b70414fe010d4a4a9dd7c946febefd9d4))
+
 ## [5.4.0](https://github.com/damusix/atomic-claude/compare/v5.3.0...v5.4.0) (2026-06-18)
 
 
