@@ -231,6 +231,159 @@
       ]);
     }
     </script>
+    <!-- Shared graph-interaction UI: hover preview card + page modal + navigation.
+         Used by BOTH the rail mini-graph (this-page graph) and the system-graph
+         toggle — exposed on window.AtomicGraphUI so the two separate <script>
+         blocks share one implementation. These helpers used to be nested inside
+         setSystemMode(), which made them unreachable from (a) the top-level
+         modal-dismiss wiring (so the modal could never be closed) and (b) the
+         rail graph's script (so the rail graph had no hover/click). Extracting
+         them here is the fix for both. -->
+    <script>
+    window.AtomicGraphUI = (function() {
+      // Optional system-mode-aware navigator, injected by the system-graph script.
+      // When in system mode, navigating to a page needs teardown (destroy the
+      // system-cy container, clear the mode, reset the toggle) before the swap —
+      // the system script registers that here. The rail graph leaves it null and
+      // gets a plain htmx swap.
+      var navigateHook = null;
+
+      function escapeHTML(s) {
+        return String(s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      // ── Preview card ──────────────────────────────────────────────────────────
+      // The card element lives in the <body> (appended once, reused).
+      function getOrCreatePreviewCard() {
+        var el = document.getElementById('cy-preview-card');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'cy-preview-card';
+          document.body.appendChild(el);
+        }
+        return el;
+      }
+
+      // Show the hover preview for a node, positioned relative to anchorEl — the
+      // pane the graph renders in (#main-pane for the system graph, the rail
+      // container for the mini-graph).
+      function showPreviewCard(cyNode, anchorEl) {
+        var card = getOrCreatePreviewCard();
+        var type  = cyNode.data('type') || 'page';
+        var title = cyNode.data('title') || cyNode.data('label') || '';
+        var desc  = cyNode.data('description') || '';
+        var snip  = cyNode.data('snippet') || '';
+
+        var html = '<span class="cy-pc-chip ' + type + '">' + escapeHTML(type) + '</span>' +
+                   '<div class="cy-pc-title">' + escapeHTML(title) + '</div>';
+        if (desc) { html += '<div class="cy-pc-desc">' + escapeHTML(desc) + '</div>'; }
+        if (snip) { html += '<div class="cy-pc-snip">' + escapeHTML(snip) + '</div>'; }
+        card.innerHTML = html;
+
+        var pos  = cyNode.renderedPosition();
+        var pane = (anchorEl || document.getElementById('main-pane')).getBoundingClientRect();
+        var cardLeft = pane.left + pos.x + 20;
+        var cardTop  = pane.top  + pos.y + 20;
+        // Clamp so the card doesn't overflow the right edge.
+        if (cardLeft + 290 > window.innerWidth) { cardLeft = pane.left + pos.x - 310; }
+        card.style.left = cardLeft + 'px';
+        card.style.top  = cardTop  + 'px';
+        card.classList.add('open');
+      }
+
+      function hidePreviewCard() {
+        var card = document.getElementById('cy-preview-card');
+        if (card) { card.classList.remove('open'); }
+      }
+
+      // ── Page modal ────────────────────────────────────────────────────────────
+      // Look up node metadata from the passed cy instance, load the /page/ fragment
+      // into the modal body, wire "Open full page", and show the scrim.
+      function openPageModal(nodeID, cy) {
+        var scrim = document.getElementById('cy-page-modal-scrim');
+        if (!scrim) { return; }
+        var modalBody  = document.getElementById('cy-modal-body');
+        var modalChip  = document.getElementById('cy-modal-chip');
+        var modalTitle = document.getElementById('cy-modal-title');
+        var modalDesc  = document.getElementById('cy-modal-desc');
+        var openBtn    = document.getElementById('cy-modal-open-btn');
+
+        var cyNode  = cy && cy.getElementById(nodeID);
+        var hasNode = cyNode && cyNode.length;
+        var type  = hasNode ? (cyNode.data('type') || 'page') : 'page';
+        var title = hasNode ? (cyNode.data('title') || cyNode.data('label') || nodeID) : nodeID;
+        var desc  = hasNode ? (cyNode.data('description') || '') : '';
+
+        if (modalChip)  { modalChip.className = 'cy-modal-chip ' + type; modalChip.textContent = type; }
+        if (modalTitle) { modalTitle.textContent = title; }
+        if (modalDesc)  { modalDesc.textContent = desc; modalDesc.style.display = desc ? '' : 'none'; }
+        if (openBtn)    { openBtn.onclick = function() { navigateToPage(nodeID); }; }
+
+        if (modalBody) {
+          modalBody.innerHTML = '<p class="loading">Loading…</p>';
+          fetch('/page/' + encodeURIComponent(nodeID), { headers: { 'HX-Request': 'true' } })
+            .then(function(r) { return r.text(); })
+            .then(function(html) { modalBody.innerHTML = html; })
+            .catch(function() { modalBody.innerHTML = '<p style="color:var(--ink-faint);font-style:italic">Could not load page.</p>'; });
+        }
+
+        scrim.classList.add('open');
+      }
+
+      function closePageModal() {
+        var scrim = document.getElementById('cy-page-modal-scrim');
+        if (scrim) { scrim.classList.remove('open'); }
+      }
+
+      // Navigate to a page. Closes the modal + preview card first. Delegates to the
+      // registered system navigator when present (system mode needs teardown);
+      // otherwise a plain htmx swap into #main-pane (the rail case).
+      function navigateToPage(nodeID) {
+        closePageModal();
+        hidePreviewCard();
+        if (navigateHook) { navigateHook(nodeID); return; }
+        htmx.ajax('GET', '/page/' + encodeURIComponent(nodeID), { target: '#main-pane', swap: 'innerHTML' });
+      }
+
+      function setNavigator(fn) { navigateHook = fn; }
+
+      // Register modal-dismiss wiring exactly once: scrim backdrop, corner ×,
+      // bottom Close button, and Esc.
+      var dismissWired = false;
+      function wireDismiss() {
+        if (dismissWired) { return; }
+        dismissWired = true;
+        var scrim = document.getElementById('cy-page-modal-scrim');
+        if (scrim) {
+          scrim.addEventListener('click', function(e) { if (e.target === scrim) { closePageModal(); } });
+        }
+        var closeBtn = document.getElementById('cy-modal-close-btn');
+        if (closeBtn) { closeBtn.addEventListener('click', closePageModal); }
+        var dismissBtn = document.getElementById('cy-modal-dismiss-btn');
+        if (dismissBtn) { dismissBtn.addEventListener('click', closePageModal); }
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') {
+            var s = document.getElementById('cy-page-modal-scrim');
+            if (s && s.classList.contains('open')) { s.classList.remove('open'); }
+          }
+        });
+      }
+
+      return {
+        showPreviewCard: showPreviewCard,
+        hidePreviewCard: hidePreviewCard,
+        openPageModal: openPageModal,
+        closePageModal: closePageModal,
+        navigateToPage: navigateToPage,
+        setNavigator: setNavigator,
+        wireDismiss: wireDismiss
+      };
+    }());
+    </script>
     <!-- FE2 rail mini-graph: delegated htmx.onLoad handler + OOB swap fallback.
          Inline <script> in OOB innerHTML swaps are not reliably executed by
          htmx 2. The canonical pattern is htmx.onLoad, which fires for every
@@ -315,6 +468,24 @@
           // and may report zero dimensions until the browser has laid it out.
           railCy.one('layoutstop', function() { railCy.resize(); railCy.fit(undefined, 12); });
           railCy.ready(function() { railCy.resize(); });
+
+          // Node interactions, shared with the system graph via AtomicGraphUI:
+          //   hover → preview card (positioned within the rail container)
+          //   click → navigate to that page (the rail is a this-page neighbor map,
+          //           so clicking a neighbor visits it — not in system mode, so
+          //           navigateToPage does a plain htmx swap into #main-pane).
+          if (window.AtomicGraphUI) {
+            railCy.on('mouseover', 'node', function(evt) {
+              AtomicGraphUI.showPreviewCard(evt.target, container);
+            });
+            railCy.on('mouseout', 'node', function() {
+              AtomicGraphUI.hidePreviewCard();
+            });
+            railCy.on('tap', 'node', function(evt) {
+              AtomicGraphUI.navigateToPage(evt.target.data('id'));
+            });
+          }
+
           // Expose for theme re-application on toggle.
           window.__railCy = railCy;
         })
@@ -447,10 +618,8 @@
         var sysCy = document.getElementById('system-cy');
         if (sysCy) { sysCy.remove(); }
         // Hide preview card + modal if visible.
-        var card = document.getElementById('cy-preview-card');
-        if (card) { card.classList.remove('open'); }
-        var scrim = document.getElementById('cy-page-modal-scrim');
-        if (scrim) { scrim.classList.remove('open'); }
+        AtomicGraphUI.hidePreviewCard();
+        AtomicGraphUI.closePageModal();
         // Restore the previous page or the landing URL.
         var target = currentPage || '{{.LandingURL}}';
         htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
@@ -542,111 +711,6 @@
           mainPane.appendChild(legend);
         }
 
-        // ── Preview card helpers ──────────────────────────────────────────────
-        // The card element lives in the <body> (appended once, reused). It is
-        // positioned relative to #main-pane using the node's rendered position.
-        function getOrCreatePreviewCard() {
-          var el = document.getElementById('cy-preview-card');
-          if (!el) {
-            el = document.createElement('div');
-            el.id = 'cy-preview-card';
-            document.body.appendChild(el);
-          }
-          return el;
-        }
-
-        function showPreviewCard(cyNode) {
-          var card = getOrCreatePreviewCard();
-          var type  = cyNode.data('type') || 'page';
-          var title = cyNode.data('title') || cyNode.data('label') || '';
-          var desc  = cyNode.data('description') || '';
-          var snip  = cyNode.data('snippet') || '';
-
-          // Build card content.
-          var html = '<span class="cy-pc-chip ' + type + '">' + escapeHTML(type) + '</span>' +
-                     '<div class="cy-pc-title">' + escapeHTML(title) + '</div>';
-          if (desc) { html += '<div class="cy-pc-desc">' + escapeHTML(desc) + '</div>'; }
-          if (snip) { html += '<div class="cy-pc-snip">' + escapeHTML(snip) + '</div>'; }
-          card.innerHTML = html;
-
-          // Position relative to the node's rendered position in the viewport.
-          var pos = cyNode.renderedPosition();
-          var pane = mainPane.getBoundingClientRect();
-          var cardLeft = pane.left + pos.x + 20;
-          var cardTop  = pane.top  + pos.y + 20;
-          // Clamp so the card doesn't overflow the right edge.
-          if (cardLeft + 290 > window.innerWidth) { cardLeft = pane.left + pos.x - 310; }
-          card.style.left = cardLeft + 'px';
-          card.style.top  = cardTop  + 'px';
-          card.classList.add('open');
-        }
-
-        function hidePreviewCard() {
-          var card = document.getElementById('cy-preview-card');
-          if (card) { card.classList.remove('open'); }
-        }
-
-        // ── Page modal helpers ────────────────────────────────────────────────
-        // The scrim + modal live in #cy-page-modal-scrim in the body.
-        function openPageModal(nodeID) {
-          var scrim = document.getElementById('cy-page-modal-scrim');
-          var modalBody = document.getElementById('cy-modal-body');
-          var modalChip = document.getElementById('cy-modal-chip');
-          var modalTitle = document.getElementById('cy-modal-title');
-          var modalDesc = document.getElementById('cy-modal-desc');
-          var openBtn = document.getElementById('cy-modal-open-btn');
-          if (!scrim) { return; }
-
-          // Find node data from the cy instance via the id.
-          var cyNode = window.__systemCy && window.__systemCy.getElementById(nodeID);
-          var type  = cyNode ? (cyNode.data('type') || 'page') : 'page';
-          var title = cyNode ? (cyNode.data('title') || cyNode.data('label') || nodeID) : nodeID;
-          var desc  = cyNode ? (cyNode.data('description') || '') : '';
-
-          // Set header fields.
-          if (modalChip) {
-            modalChip.className = 'cy-modal-chip ' + type;
-            modalChip.textContent = type;
-          }
-          if (modalTitle) { modalTitle.textContent = title; }
-          if (modalDesc)  { modalDesc.textContent = desc; modalDesc.style.display = desc ? '' : 'none'; }
-
-          // Wire the "Open full page" button.
-          if (openBtn) {
-            openBtn.onclick = function() {
-              closePageModal();
-              currentPage = '/page/' + encodeURIComponent(nodeID);
-              setPageMode();
-            };
-          }
-
-          // Load the page fragment into the modal body.
-          if (modalBody) {
-            modalBody.innerHTML = '<p class="loading">Loading…</p>';
-            fetch('/page/' + encodeURIComponent(nodeID), {
-              headers: { 'HX-Request': 'true' }
-            })
-              .then(function(r) { return r.text(); })
-              .then(function(html) { modalBody.innerHTML = html; })
-              .catch(function() { modalBody.innerHTML = '<p style="color:var(--ink-faint);font-style:italic">Could not load page.</p>'; });
-          }
-
-          scrim.classList.add('open');
-        }
-
-        function closePageModal() {
-          var scrim = document.getElementById('cy-page-modal-scrim');
-          if (scrim) { scrim.classList.remove('open'); }
-        }
-
-        function escapeHTML(s) {
-          return String(s)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-        }
-
         fetch('/graph/data')
           .then(function(r) { return r.json(); })
           .then(function(elems) {
@@ -675,20 +739,20 @@
             // Fallback: if no layout event fires, still clear the loader.
             cy.ready(function() { cy.resize(); });
 
-            // CP2: mouseover → preview card.
+            // CP2: mouseover → preview card (positioned within #main-pane).
             cy.on('mouseover', 'node', function(evt) {
-              showPreviewCard(evt.target);
+              AtomicGraphUI.showPreviewCard(evt.target, mainPane);
             });
 
             // CP2: mouseout → hide card.
             cy.on('mouseout', 'node', function() {
-              hidePreviewCard();
+              AtomicGraphUI.hidePreviewCard();
             });
 
             // CP2: tap → content modal (replaces direct navigation on system graph).
             cy.on('tap', 'node', function(evt) {
-              hidePreviewCard();
-              openPageModal(evt.target.data('id'));
+              AtomicGraphUI.hidePreviewCard();
+              AtomicGraphUI.openPageModal(evt.target.data('id'), cy);
             });
           })
           .catch(function(e) {
@@ -697,6 +761,15 @@
             console.error('system-graph /graph/data:', e);
           });
       }
+
+      // Register the system-mode-aware navigator: the modal's "Open full page"
+      // (and any in-system navigation) must tear the system graph down via
+      // setPageMode before swapping the page in. The rail graph leaves the hook
+      // unset and gets a plain htmx swap instead.
+      AtomicGraphUI.setNavigator(function(nodeID) {
+        currentPage = '/page/' + encodeURIComponent(nodeID);
+        setPageMode();
+      });
 
       document.addEventListener('DOMContentLoaded', function() {
         // #btn-graph toggles between page and system view.
@@ -707,26 +780,9 @@
           });
         }
 
-        // Modal dismiss wiring — registered exactly once here.
-        // Covers: scrim backdrop click, corner ×, bottom dismiss button, Esc.
-        var scrim = document.getElementById('cy-page-modal-scrim');
-        if (scrim) {
-          scrim.addEventListener('click', function(e) {
-            if (e.target === scrim) { closePageModal(); }
-          });
-        }
-        var closeBtn = document.getElementById('cy-modal-close-btn');
-        if (closeBtn) { closeBtn.addEventListener('click', closePageModal); }
-        var dismissBtn = document.getElementById('cy-modal-dismiss-btn');
-        if (dismissBtn) { dismissBtn.addEventListener('click', closePageModal); }
-
-        // Esc closes the page modal from anywhere.
-        document.addEventListener('keydown', function(e) {
-          if (e.key === 'Escape') {
-            var s = document.getElementById('cy-page-modal-scrim');
-            if (s && s.classList.contains('open')) { s.classList.remove('open'); }
-          }
-        });
+        // Modal dismiss wiring (scrim backdrop, corner ×, Close button, Esc) —
+        // registered once via the shared module.
+        AtomicGraphUI.wireDismiss();
       });
     }());
     </script>
