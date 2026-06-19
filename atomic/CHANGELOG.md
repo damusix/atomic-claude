@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.4.1](https://github.com/damusix/atomic-claude/compare/v5.4.0...v5.4.1) (2026-06-19)
+
+
+### Bug Fixes
+
+* **serve:** make graph modal closable and rail graph interactive ([683fb97](https://github.com/damusix/atomic-claude/commit/683fb97b70414fe010d4a4a9dd7c946febefd9d4))
+* **serve:** upgrade htmx 2.0.10 → 4.0.0-beta4 + add Vary: HX-Request ([94a119d](https://github.com/damusix/atomic-claude/commit/94a119d994f779ceae22dc9853ad6fb9877f227a))
+
 ## [5.4.0](https://github.com/damusix/atomic-claude/compare/v5.3.0...v5.4.0) (2026-06-18)
 
 
