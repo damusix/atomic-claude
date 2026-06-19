@@ -30,7 +30,7 @@ Download the binary:
 curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
 ```
 
-This puts `atomic` in `~/.local/bin/` (override with `ATOMIC_INSTALL_DIR`). To pin a version: `ATOMIC_VERSION=v1.0.0 curl ... | bash`.
+This puts `atomic` in `~/.local/bin/` (override with `ATOMIC_INSTALL_DIR`). To pin a version: `ATOMIC_VERSION=v5.4.0 curl ... | bash`.
 
 Install the artifact bundle (CLAUDE.md, agents, commands, skills, output styles, rules) into `~/.claude/`:
 

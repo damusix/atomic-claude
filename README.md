@@ -34,7 +34,7 @@
 ## 🌟 Highlights
 
 - **Repo-aware from the first message.** One scan builds a standing map of your codebase that Claude reads before your code, so it stops inventing `npm` scripts.
-- **A queryable map of your code.** A tree-sitter symbol graph across 29 languages and 15 web frameworks answers callers, call sites, and blast radius, no compiler required.
+- **A queryable map of your code.** A tree-sitter symbol graph across 31 languages and 23 web frameworks answers callers, call sites, and blast radius, no compiler required.
 - **SQL is a first-class language in the graph.** Procedures, views, and foreign keys across Postgres, MySQL, and T-SQL, read from your `.sql` files with no database connection.
 - **Issue to merged PR, hands-off.** `/autopilot` plans, tests first, reviews its own diff, and ships. Your only decision is how to merge.
 - **A config that learns from you.** It mines your corrections for friction and edits its own skills and rules, only with your say-so.
@@ -156,7 +156,7 @@ One decision is yours, how to merge. Everything else runs unattended. → [workf
 | **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. Wiki pages are OKF-aligned: concern and knowledge pages carry `type:` + `description:` frontmatter; the realm `index.md` `## Members` section lists each member with a description. Capture buckets (`atomic wiki bucket add/list/diff/promote`) let you register loose material folders at the realm root; `/refresh-wiki` synthesizes them into topic-keyed `wiki/knowledge/` pages with SHA-256 provenance tracking. `atomic code index` at the realm root layers in a federated symbol graph — query verbs fan out across member repos, nothing written into members. | [wiki](docs/reference/wiki-workflow.md) · [code-intel](docs/reference/code-intel.md) |
 | **Self-sharpening config** | `/atomic-improve` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
 | **Output style** | Multi-part answers shaped as tables, trees, and ASCII flows, filler cut. The most optional piece. | [output-style](docs/reference/output-style.md) |
-| **Discipline skills** | Eight that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing. | [skills](docs/reference/skills.md) |
+| **Discipline skills** | Nine that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing, visual-options. | [skills](docs/reference/skills.md) |
 | **Git commands** | `/commit [push\|pr\|merge\|squash\|squash merge]` covers all ship paths from one verb; ask-don't-enumerate. Plus CI watch, branch cleanup, worktrees, reminders. | [commands](docs/reference/commands.md) |
 | **Persistent profile** | `~/.claude/.atomic/profile.md`: who you are plus auto-detected dev tooling, read every session, refreshed on a staleness check. | [concepts](docs/reference/concepts.md) |
 

@@ -1,4 +1,23 @@
 import { defineConfig } from 'vitepress'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+// Read the latest released version from the changelog release-please maintains.
+// The docs site rebuilds on every push to main, so this nav badge always tracks
+// the newest release without a manual bump.
+function latestVersion(): string {
+    try {
+        const here = dirname(fileURLToPath(import.meta.url))
+        const changelog = readFileSync(resolve(here, '../atomic/CHANGELOG.md'), 'utf-8')
+        const match = changelog.match(/##\s*\[?(\d+\.\d+\.\d+)\]?/)
+        return match ? `v${match[1]}` : ''
+    } catch {
+        return ''
+    }
+}
+
+const version = latestVersion()
 
 const defined_html_tags = new Set([
     'a', 'abbr', 'address', 'area', 'article', 'aside', 'audio', 'b', 'base',
@@ -113,6 +132,9 @@ export default defineConfig({
                     { text: 'Credits', link: '/credits' },
                 ],
             },
+            ...(version
+                ? [{ text: version, link: `https://github.com/damusix/atomic-claude/releases/tag/${version}` }]
+                : []),
         ],
         sidebar: [
             {

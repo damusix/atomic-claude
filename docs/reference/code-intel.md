@@ -11,8 +11,8 @@ The engine runs without CGO. Tree-sitter grammars are compiled to WebAssembly an
 
 | Layer | Coverage |
 |-------|----------|
-| Languages | 29 — 20 via tree-sitter grammars, 6 via standalone regex extractors (including SQL), 3 file-level (YAML, Twig, properties) |
-| Frameworks | 15 web route resolvers: gin, chi, echo, fiber, gorilla (Go); express, nestjs (Node); fastapi, flask, django (Python); laravel (PHP); rails (Ruby); actix (Rust); spring (Java); phoenix (Elixir) |
+| Languages | 31 — 23 via tree-sitter grammars, 5 via standalone regex extractors (including SQL), 3 file-level (YAML, Twig, properties) |
+| Frameworks | 23 web route resolvers: gin, chi, echo, fiber, gorilla (Go); express, nestjs, koa, hapi, fastify, sails, adonisjs (Node); fastapi, flask, django (Python); laravel, symfony (PHP); rails (Ruby); actix, axum, rocket (Rust); spring (Java); phoenix (Elixir) |
 | SQL | Schema relationship graph — tables, views, columns, procedures, triggers, constraints, foreign-key edges, write edges, and RLS policies across Postgres, MySQL, SQLite, and T-SQL/MSSQL |
 
 The indexer enumerates files with `git ls-files` (tracked and untracked, respecting `.gitignore`) and reads working-tree content. The target must be a git repository.
