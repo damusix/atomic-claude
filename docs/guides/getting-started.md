@@ -84,17 +84,15 @@ Once the index exists, the investigator, reviewer, and signals agents query the 
 ## Keeping atomic current
 
 
-Atomic has two parts that update separately. Update both when a new release lands.
-
-The binary:
+One command updates both the binary and the bundle:
 
 ```text
 atomic update
 ```
 
-This fetches the latest release, verifies its checksum, replaces the binary, and runs a health check. Use `atomic update --check` to see whether an update exists without applying it.
+This fetches the latest release, verifies its checksum, replaces the binary, runs a health check, and then refreshes the bundle (CLAUDE.md, agents, commands, skills, output styles, rules in `~/.claude/`) automatically. Use `atomic update --check` to see whether an update exists without applying it, or `atomic update --skip-claude-update` to update only the binary.
 
-The bundle (CLAUDE.md, agents, commands, skills, output styles, rules in `~/.claude/`):
+To refresh the bundle on its own, without touching the binary:
 
 ```text
 atomic claude update

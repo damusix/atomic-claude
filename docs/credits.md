@@ -58,7 +58,6 @@ Grouped by capability. Atomic borrows visibly from both caveman and superpowers.
 | Commit message format | ✓ | — | ✓ |
 | Code review tone | ✓ | ✓ | ✓ |
 | Narrative doc voice | ✓ | — | — |
-| Compress a markdown file | ✓ | — | ✓ |
 
 ### Engineering discipline
 
@@ -78,7 +77,7 @@ Grouped by capability. Atomic borrows visibly from both caveman and superpowers.
 | Parallel subagents | ✓ | ✓ | ✓ |
 | Heavyweight reasoning (Opus) | ✓ | — | — |
 | Worktree isolation | ✓ | ✓ | — |
-| Ship verbs (10 variants) | ✓ | ✓ | — |
+| Unified ship verb (`/commit` + tokens) | ✓ | ✓ | — |
 
 ### Tooling
 

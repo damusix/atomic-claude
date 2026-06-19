@@ -28,7 +28,7 @@ you:    /atomic-plan I need a POST /api/webhooks endpoint that
           for now, and approve without it.
 
 you:    /subagent-implementation
-        → Builder agent implements each checkpoint. atomic-tdd
+        → Implementer agent implements each checkpoint. atomic-tdd
           fires on each one — failing test first, then code.
           Reviewer agent re-runs tests independently and checks
           against the spec. Non-blocking findings accumulate
@@ -60,7 +60,7 @@ you:    /follow-up review
           to a GitHub issue.
 ```
 
-Every concept below plays a role in that flow. Signals gave Claude the project map. Evidence-gathering settled an assumption before planning around it. The spec kept implementation on track. TDD fired during each builder checkpoint. Session reports preserved the why. Ship commands handled signals, docs, and the commit message. Follow-ups caught what was deferred.
+Every concept below plays a role in that flow. Signals gave Claude the project map. Evidence-gathering settled an assumption before planning around it. The spec kept implementation on track. TDD fired during each implementer checkpoint. Session reports preserved the why. Ship commands handled signals, docs, and the commit message. Follow-ups caught what was deferred.
 
 
 ## Signals
@@ -81,7 +81,7 @@ Signals auto-refresh when you commit through the ship commands, so they stay cur
 
 ## Code intelligence
 
-Signals describe the shape of your project from the outside: directories, manifests, framework names. The code-intelligence index goes one level deeper. `atomic code index` parses every source file with tree-sitter and builds a symbol graph stored at `.claude/.atomic-index/atomic.db`. The graph records what calls what, what imports what, and where every symbol is defined, across 29 languages and with no compiler or language server required.
+Signals describe the shape of your project from the outside: directories, manifests, framework names. The code-intelligence index goes one level deeper. `atomic code index` parses every source file with tree-sitter and builds a symbol graph stored at `.claude/.atomic-index/atomic.db`. The graph records what calls what, what imports what, and where every symbol is defined, across 31 languages and with no compiler or language server required.
 
 The highest-value query is `atomic code explore "<natural-language question>"`. It returns a bundled context digest, the relevant symbols and files and the relationships between them, in one shot. Reach for it first when scoping unfamiliar code. Once it points you at a symbol, the targeted verbs drill into that symbol: `callers` lists everything that calls it, `callees` lists what it calls, and `impact` reports the blast radius of changing it.
 
@@ -168,9 +168,9 @@ Why this matters: you keep your main branch clean in the original checkout while
 
 Claude Code can spawn specialized agents that run in a fresh context with their own system prompts. Atomic Claude defines a roster of these, each scoped to one job.
 
-The split exists because a single agent doing everything produces worse results. A builder writes code without second-guessing itself. A reviewer catches what the builder missed because it has fresh eyes and re-runs the evidence. An investigator maps the codebase cheaply on Haiku before the more expensive Sonnet agents start writing.
+The split exists because a single agent doing everything produces worse results. An implementer writes code without second-guessing itself. A reviewer catches what the implementer missed because it has fresh eyes and re-runs the evidence. An investigator maps the codebase cheaply on Haiku before the more expensive Sonnet agents start writing.
 
-The separation also lets you constrain scope. A surgeon that hard-refuses 3+ file changes cannot accidentally rewrite half your codebase. A strategist that is read-only cannot introduce bugs while reasoning about architecture.
+The separation also lets you constrain scope. The implementer's surgical mode hard-refuses changes beyond two files, so it cannot accidentally rewrite half your codebase. A strategist that is read-only cannot introduce bugs while reasoning about architecture.
 
 See [agents](/reference/agents) for the full roster and their scopes.
 
@@ -195,16 +195,16 @@ During `/subagent-implementation`, the scratchpad holds a brief (what to build n
 
 ## Ship verbs
 
-Atomic Claude has ten commands for shipping code. Each is a specific combination of commit, push, squash, PR, and merge — you pick the one that matches your intent. See [commands](/reference/commands) for the matrix.
+Atomic Claude ships code through a single `/commit` verb. Run it bare and it stages, commits, then asks how far to go; pass an escalation token to skip the prompt — `/commit push`, `/commit pr`, `/commit merge`, `/commit squash`, or `/commit squash merge`. One verb, escalated by intent. See [commands](/reference/commands) for the full set of escalation tokens.
 
-The reason these exist — instead of just asking Claude to "commit and push" — is what happens *around* the git operation:
+The reason this exists — instead of just asking Claude to "commit and push" — is what happens *around* the git operation:
 
-- Commands that produce a commit refresh signals and check for stale documentation automatically
-- Commands that do not produce a commit check for staleness and ask you before proceeding
-- Merge commands run verification and tests on the merged result before completing
-- All commands generate commit messages from the diff via the `atomic-commit` skill
+- A run that produces a commit refreshes signals and checks for stale documentation automatically
+- A run that does not produce a commit checks for staleness and asks you before proceeding
+- The merge tokens run verification and tests on the merged result before completing
+- Every run generates the commit message from the diff via the `atomic-commit` skill
 
-You could do all of this manually. The ship verbs make it the default so nothing slips through when you are moving fast.
+You could do all of this manually. `/commit` makes it the default so nothing slips through when you are moving fast.
 
 
 ## The atomic binary

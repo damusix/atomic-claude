@@ -27,12 +27,12 @@ features:
     - icon: "\uF5DC"
       title: A config that learns from you
       details: After a rough session, /atomic-improve mines your history for friction, corrections, and misbehavior, then proposes fixes to your own skills and rules. The setup gets sharper the more you use it.
-    - icon: "\uF066"
-      title: The right shape for the answer
-      details: "A paragraph is one instrument, not the only one. The output style gives a multi-part reply the form that explains it fastest: a table to compare, a tree to nest, an ASCII flow to sequence. It cuts filler too, but the point is structure, not brevity."
     - icon: "\uF0E8"
       title: A queryable map of your code
-      details: "One command parses your repo into a symbol graph across 29 languages and 15 web frameworks, no compiler required: definitions, callers, call sites, and the blast radius of any change. SQL is included, graphed from .sql across Postgres, MySQL, and T-SQL. Claude queries the graph instead of grepping."
+      details: "One command parses your repo into a symbol graph across 31 languages and 23 web frameworks, no compiler required: definitions, callers, call sites, and the blast radius of any change. SQL is included, graphed from .sql across Postgres, MySQL, and T-SQL. Claude queries the graph instead of grepping."
+    - icon: "\uE4E2"
+      title: Browse the whole graph
+      details: "`atomic serve` renders your wiki realm or a single repo as a navigable, Obsidian-style graph on localhost: pages with a live right rail, a whole-system view colored by concept type, federated code search, and a source viewer wired to the code graph. Read-only, no auth, nothing leaves your machine."
 ---
 
 <div class="vp-doc home-extra">
@@ -50,7 +50,7 @@ Claude reads that model before it reads your code, so it knows what it's looking
 
 ## And it can query your code's structure
 
-Signals give Claude a prose map of your repo. The code-intel engine gives it a precise one. `atomic code index` parses your code into a symbol graph of every definition, call edge, and import across 29 languages, using tree-sitter compiled to WebAssembly. It runs without a compiler or a language server.
+Signals give Claude a prose map of your repo. The code-intel engine gives it a precise one. `atomic code index` parses your code into a symbol graph of every definition, call edge, and import across 31 languages, using tree-sitter compiled to WebAssembly. It runs without a compiler or a language server.
 
 Once the graph exists, Claude stops grepping for structure and starts querying it:
 
@@ -152,14 +152,12 @@ A comparison becomes a table:
 **Default Claude Code**
 
 ```text
-If you just want to record work locally, use
-/commit-only, which stages and commits without
-pushing. When you also want it on the remote,
-/commit-and-push does both. To open a pull
-request as well, reach for /commit-and-pr, which
-commits, pushes, and opens the PR. And to merge
-straight into the base branch, /commit-and-merge
-handles the whole path.
+If you just want to record work locally, run
+/commit, which stages and commits, then asks how
+far to ship. Add a token to skip the prompt: with
+/commit push it also pushes; /commit pr opens a
+pull request; and /commit merge takes it straight
+into the base branch. One verb, escalated by intent.
 ```
 
 </div>
@@ -168,12 +166,12 @@ handles the whole path.
 **Atomic Claude**
 
 ```text
-verb               push  PR   merge
-────────────────   ────  ───  ─────
-/commit-only        no   no    no
-/commit-and-push    yes  no    no
-/commit-and-pr      yes  yes   no
-/commit-and-merge   yes   –    yes
+verb            push  PR    merge
+─────────────   ────  ───   ─────
+/commit          no   no     no
+/commit push     yes  no     no
+/commit pr       yes  yes    no
+/commit merge    yes   –     yes
 ```
 
 </div>
