@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.5.0](https://github.com/damusix/atomic-claude/compare/v5.4.1...v5.5.0) (2026-06-20)
+
+
+### Features
+
+* **serve:** network view page + graph caching + viewer polish ([e39c4b6](https://github.com/damusix/atomic-claude/commit/e39c4b699d90b80e0465e2c69747027a665a140c))
+
 ## [5.4.1](https://github.com/damusix/atomic-claude/compare/v5.4.0...v5.4.1) (2026-06-19)
 
 
