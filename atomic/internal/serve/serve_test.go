@@ -8,11 +8,33 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
+
+// syncBuffer is a goroutine-safe text buffer. startTestServer runs the server in
+// a goroutine that writes its startup URL to opts.Stdout while the test goroutine
+// polls String() for that line — a concurrent write+read that a plain
+// strings.Builder does not allow. The mutex makes the harness race-free under -race.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf strings.Builder
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 // writeFile writes content to path, creating parent dirs as needed.
 func writeFile(t *testing.T, path, content string) {
@@ -74,7 +96,7 @@ func startTestServer(t *testing.T, opts serve.Options) (baseURL string, shutdown
 		t.Fatal("startTestServer: opts.Port must be 0 (let OS pick)")
 	}
 
-	var stdout strings.Builder
+	var stdout syncBuffer
 	opts.Port = 0
 	opts.Stdout = &stdout
 

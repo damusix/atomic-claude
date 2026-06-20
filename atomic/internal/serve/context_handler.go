@@ -174,10 +174,8 @@ const pageWithGraphFragmentTmplStr = `<div id="page-content" class="md-content" 
 <script src="/static/vendor/mermaid.min.js"></script>
 <script>
 (function() {
-  if (window.mermaid) {
-    mermaid.initialize({ startOnLoad: false });
-    mermaid.run();
-  }
+  if (window.atomicMermaidInit) { window.atomicMermaidInit(); }
+  else if (window.mermaid) { mermaid.initialize({ startOnLoad: false }); mermaid.run(); }
 })();
 </script>
 {{- end}}

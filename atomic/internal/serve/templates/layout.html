@@ -14,6 +14,83 @@
       document.documentElement.setAttribute('data-theme', theme);
     }());
     </script>
+    <!-- Mermaid theming. Diagrams are rendered with theme:'base' + themeVariables
+         pulled LIVE from the site's CSS custom properties, so a diagram matches the
+         active light/dark palette with no per-theme branch (the active theme's vars
+         are read at call time). The raw diagram source is stashed on each
+         <pre class="mermaid"> the first time it renders, so a later theme toggle can
+         restore it and re-render (mermaid replaces the <pre> with an <svg> on run).
+         Defined here in the shell head so every page fragment can call it; the
+         mermaid library itself is loaded lazily by fragments that contain diagrams. -->
+    <script>
+    function atomicMermaidThemeVars() {
+      var s = getComputedStyle(document.documentElement);
+      function v(name, fallback) { var x = s.getPropertyValue(name).trim(); return x || fallback; }
+      var ink     = v('--ink', '#211d18');
+      var surface = v('--paper-raised', '#ffffff');
+      var sunk    = v('--paper-sunk', '#f5f3ee');
+      var paper   = v('--paper', '#fbfaf8');
+      var border  = v('--hairline-2', '#e2ddd2');
+      var line    = v('--edge-strong', '#b1a48f');
+      var sans    = v('--sans', '"Inter", system-ui, sans-serif');
+      return {
+        background:           paper,
+        mainBkg:              surface,
+        primaryColor:         surface,
+        primaryTextColor:     ink,
+        primaryBorderColor:   border,
+        secondaryColor:       sunk,
+        secondaryTextColor:   ink,
+        secondaryBorderColor: border,
+        tertiaryColor:        paper,
+        tertiaryTextColor:    ink,
+        tertiaryBorderColor:  border,
+        nodeBorder:           border,
+        nodeTextColor:        ink,
+        lineColor:            line,
+        textColor:            ink,
+        titleColor:           ink,
+        edgeLabelBackground:  surface,
+        clusterBkg:           sunk,
+        clusterBorder:        border,
+        fontFamily:           sans,
+        fontSize:             '14px'
+      };
+    }
+
+    function atomicMermaidConfig() {
+      return {
+        startOnLoad: false,
+        securityLevel: 'loose',
+        theme: 'base',
+        themeVariables: atomicMermaidThemeVars()
+      };
+    }
+
+    // Initial render: stash each diagram's source, then initialize + run.
+    window.atomicMermaidInit = function() {
+      if (!window.mermaid) { return; }
+      document.querySelectorAll('pre.mermaid').forEach(function(el) {
+        if (!el.dataset.mermaidSrc) { el.dataset.mermaidSrc = el.textContent; }
+      });
+      window.mermaid.initialize(atomicMermaidConfig());
+      try { window.mermaid.run(); } catch (e) {}
+    };
+
+    // Re-theme on light/dark toggle: restore each diagram's stashed source, drop
+    // the processed flag, re-initialize with the new palette, and re-run.
+    window.atomicMermaidRetheme = function() {
+      if (!window.mermaid) { return; }
+      var nodes = document.querySelectorAll('pre.mermaid[data-mermaid-src]');
+      if (!nodes.length) { return; }
+      nodes.forEach(function(el) {
+        el.removeAttribute('data-processed');
+        el.innerHTML = el.dataset.mermaidSrc;
+      });
+      window.mermaid.initialize(atomicMermaidConfig());
+      try { window.mermaid.run({ nodes: nodes }); } catch (e) {}
+    };
+    </script>
     <!-- Editorial fonts: Newsreader (serif display), Inter (UI sans), JetBrains Mono (code) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -26,12 +103,16 @@
          and returns the shell, which htmx swaps into <body>. No client config is
          needed — htmx 4 removed the htmx-config historyRestoreAsHxRequest key. -->
     <script src="/static/vendor/htmx.min.js"></script>
-    <!-- Cytoscape+ELK — LOAD ORDER IS LOAD-BEARING: cytoscape → elk.bundled → cytoscape-elk -->
-    <!-- Powers the rail mini-graph (FE2) and the system-graph toggle (FE3). -->
+    <!-- Cytoscape + cola — LOAD ORDER IS LOAD-BEARING: cytoscape → cola → cytoscape-cola.
+         Powers the rail mini-graph (FE2) and the Network View (FE3). cola is the
+         force-directed layout engine (one-shot). webcola exports window.cola while
+         cytoscape-cola's browser path reads window.webcola, so bridge the name
+         before registering. -->
     <script src="/static/vendor/cytoscape.min.js"></script>
-    <script src="/static/vendor/elk.bundled.js"></script>
-    <script src="/static/vendor/cytoscape-elk.min.js"></script>
-    <script>cytoscape.use(cytoscapeElk);</script>
+    <script src="/static/vendor/cola.min.js"></script>
+    <script>window.webcola = window.cola;</script>
+    <script src="/static/vendor/cytoscape-cola.js"></script>
+    <script>try { if (window.cytoscapeCola) { cytoscape.use(cytoscapeCola); } } catch (e) {}</script>
     <!-- Single-source type→color map. atomicCyStyle() reads it to build per-type
          node selectors; the system-graph legend (Deliverable A) reads it for swatch
          colors. Hex values are defined ONCE here — neither atomicCyStyle() nor the
@@ -87,7 +168,12 @@
         // Default node colors (for nodes whose type is unknown or empty).
         'default-fill':  pageColor,
         'default-dark':  darken(pageColor, 0.10),
-        'default-label': v('--ink-soft')    || '#57514a',
+        'default-label': v('--ink')         || '#211d18',
+        // Label chip: a paper-surface pill behind each label so text stays legible
+        // over the graph canvas in both themes (was hardcoded to the page color,
+        // which made every label a pale-blue pill — unreadable on dark).
+        'label-bg':      v('--paper-raised') || '#ffffff',
+        'label-border':  v('--hairline-2')   || '#e2ddd2',
         // Edge colors — read from CSS vars so they adapt to dark/light.
         'edge':          v('--edge')        || '#cabfae',
         'edge-strong':   v('--edge-strong') || '#b1a48f',
@@ -139,23 +225,33 @@
             'border-color': colors['default-dark'],
             'color': colors['default-label'],
             'font-family': '"JetBrains Mono", "Geist Mono", ui-monospace, monospace',
-            'font-size': '9px',
+            'font-size': '11px',
             'font-weight': '500',
+            // Fade labels out when zoomed far out (rendered font < this many px) so
+            // the graph declutters at a distance — Obsidian's "text fade threshold".
+            'min-zoomed-font-size': 7,
             'text-valign': 'bottom',
             'text-halign': 'center',
-            'text-margin-y': '4px',
-            'width': '10px',
-            'height': '10px',
+            'text-margin-y': '7px',
+            // Size by degree (link count) — hubs are bigger, leaves smaller. 'deg' is
+            // injected per node from the edge list before mount; capped so a single
+            // mega-hub can't dwarf everything. The rail graph overrides this entry.
+            'width': 'mapData(deg, 0, 16, 16, 54)',
+            'height': 'mapData(deg, 0, 16, 16, 54)',
             'shape': 'ellipse',
-            'text-max-width': '60px',
+            'text-max-width': '120px',
             'text-wrap': 'ellipsis',
-            // Label halo: prevents labels from bleeding into edges/other nodes.
-            'text-background-color': colors['default-fill'],
-            'text-background-opacity': 0.80,
-            'text-background-padding': '2px',
+            // Label chip: a paper-surface pill + hairline so text stays legible over
+            // the graph canvas (and never bleeds into edges/other nodes), both themes.
+            'text-background-color': colors['label-bg'],
+            'text-background-opacity': 0.94,
+            'text-background-padding': '4px',
             'text-background-shape': 'roundrectangle',
-            // Softened glow appropriate for a 10px node.
-            'shadow-blur': '5px',
+            'text-border-color': colors['label-border'],
+            'text-border-width': 1,
+            'text-border-opacity': 0.9,
+            // Soft outer glow giving each node presence on the system graph.
+            'shadow-blur': '10px',
             'shadow-color': colors['page'],
             'shadow-opacity': 0.12,
             'shadow-offset-x': 0,
@@ -282,14 +378,27 @@
         if (snip) { html += '<div class="cy-pc-snip">' + escapeHTML(snip) + '</div>'; }
         card.innerHTML = html;
 
+        // renderedPosition() is relative to the Cytoscape CONTAINER element, so anchor
+        // to that exact element's viewport rect — not a passed-in pane, which may not
+        // share the container's origin. The card is position:fixed on <body>, so
+        // rect.left/top (viewport coords) + the rendered offset land it on the node.
         var pos  = cyNode.renderedPosition();
-        var pane = (anchorEl || document.getElementById('main-pane')).getBoundingClientRect();
-        var cardLeft = pane.left + pos.x + 20;
-        var cardTop  = pane.top  + pos.y + 20;
-        // Clamp so the card doesn't overflow the right edge.
-        if (cardLeft + 290 > window.innerWidth) { cardLeft = pane.left + pos.x - 310; }
-        card.style.left = cardLeft + 'px';
-        card.style.top  = cardTop  + 'px';
+        var container = (cyNode.cy().container && cyNode.cy().container())
+          || anchorEl || document.getElementById('main-pane');
+        var rect = container.getBoundingClientRect();
+        var cardW = 284;
+        var cardH = card.offsetHeight || 170;
+        var gap = 14;
+        var left = rect.left + pos.x + gap;
+        var top  = rect.top  + pos.y + gap;
+        // Flip to the node's left if the card would overflow the right edge, then
+        // clamp fully on-screen on both axes (no off-viewport corners).
+        if (left + cardW + 8 > window.innerWidth) { left = rect.left + pos.x - cardW - gap; }
+        if (left < 8) { left = 8; }
+        if (top + cardH + 8 > window.innerHeight) { top = window.innerHeight - cardH - 8; }
+        if (top < 8) { top = 8; }
+        card.style.left = left + 'px';
+        card.style.top  = top + 'px';
         card.classList.add('open');
       }
 
@@ -344,7 +453,11 @@
         closePageModal();
         hidePreviewCard();
         if (navigateHook) { navigateHook(nodeID); return; }
-        htmx.ajax('GET', '/page/' + encodeURIComponent(nodeID), { target: '#main-pane', swap: 'innerHTML' });
+        // Swap the page in, then push the URL so Back/Forward work and a refresh
+        // reloads this page (htmx 4 restores history via a fresh server GET).
+        var url = '/page/' + encodeURIComponent(nodeID);
+        htmx.ajax('GET', url, { target: '#main-pane', swap: 'innerHTML' });
+        if (window.history && window.history.pushState) { window.history.pushState(null, '', url); }
       }
 
       function setNavigator(fn) { navigateHook = fn; }
@@ -422,12 +535,20 @@
           'font-size': '9px',
           'text-valign': 'bottom',
           'text-halign': 'center',
-          'text-margin-y': '4px',
+          'text-margin-y': '5px',
           'width': '10px',
           'height': '10px',
           'shape': 'ellipse',
-          'text-max-width': '60px',
+          'text-max-width': '74px',
           'text-wrap': 'ellipsis',
+          // Same paper-surface label chip as the system graph, for legibility.
+          'text-background-color': railColors['label-bg'],
+          'text-background-opacity': 0.94,
+          'text-background-padding': '3px',
+          'text-background-shape': 'roundrectangle',
+          'text-border-color': railColors['label-border'],
+          'text-border-width': 1,
+          'text-border-opacity': 0.9,
           'shadow-blur': '5px',
           'shadow-color': railColors['page'],
           'shadow-opacity': 0.12,
@@ -566,184 +687,293 @@
       };
     });
     </script>
-    <!-- FE3 system-graph toggle: the #btn-graph icon button in the top bar toggles
-         between page view and the full system graph.
-         Clicking #btn-graph while in page view → setSystemMode(): collapses the right
-         rail, fills #main-pane with #system-cy, fetches /graph/data, mounts Cytoscape+ELK.
-         Clicking #btn-graph while in system view → setPageMode(): restores the page.
-         CP2 node interactions (system graph only):
-           mouseover → show hover preview card near the node (title/description/snippet)
-           mouseout  → hide preview card
-           tap       → open content modal over blurred graph; "Open full page →" navigates
-         Active state is centralized inside setSystemMode/setPageMode so it can't drift. -->
+    <!-- FE3 Network View — its own page (/graph), not a client-only toggle.
+         The #btn-graph button in the top bar navigates to /graph (htmx, push:url), so
+         the view is URL-addressable, history-tracked, and refresh-survivable. The
+         /graph fragment carries a [data-system-graph] container; the htmx.onLoad
+         handler below mounts Cytoscape+ELK into it (same delegated pattern as the rail
+         mini-graph), restores zoom/pan from the URL, and records subsequent zoom/pan
+         changes back into the URL (?z=&px=&py=) via replaceState.
+         Node interactions: mouseover → preview card · mouseout → hide · tap → content
+         modal over the blurred graph ("Open full page →" navigates to the page). -->
     <script>
     (function() {
-      var currentPage = null; // tracks the last /page/ URL loaded
-      var inSystemMode = false; // true when the system graph is visible
+      var currentPage = null;       // last /page/ URL loaded (for the "back to page" toggle)
+      var VIEW_DEBOUNCE_MS = 250;   // how long after the last zoom/pan before writing the URL
 
-      // Track the current page whenever htmx loads a /page/ into #main-pane.
-      // htmx 4: events are colon-format and carry detail.ctx (ctx.target is the
-      // resolved swap target, ctx.request.action is the request path). Listen on
-      // document — a detached source element dispatches there, not on body.
-      document.addEventListener('htmx:after:swap', function(evt) {
-        var ctx = evt.detail && evt.detail.ctx;
-        if (!ctx || !ctx.target || ctx.target.id !== 'main-pane') { return; }
-        var path = ctx.request && ctx.request.action;
-        if (path && path.indexOf('/page/') === 0) { currentPage = path; }
-      });
+      function inSystemMode() { return document.body.classList.contains('mode-system'); }
 
-      // updateGraphBtnState syncs #btn-graph aria-pressed + .toggle-active to match mode.
-      // Called at the end of every setPageMode / setSystemMode so state never drifts.
+      // updateGraphBtnState syncs #btn-graph aria-pressed + active class to the mode.
       function updateGraphBtnState(active) {
         var btn = document.getElementById('btn-graph');
         if (!btn) { return; }
         btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        if (active) {
-          btn.classList.add('btn-graph-active');
-        } else {
-          btn.classList.remove('btn-graph-active');
-        }
+        if (active) { btn.classList.add('btn-graph-active'); }
+        else { btn.classList.remove('btn-graph-active'); }
       }
 
-      function setPageMode() {
-        inSystemMode = false;
+      // Leaving the graph: destroy the instance, drop system mode, reset the button,
+      // dismiss any open card/modal. Called when #main-pane settles with non-graph
+      // content (nav click, node "open full page", Back to a page, etc.).
+      function teardownSystemGraph() {
+        if (window.__systemCy) { try { window.__systemCy.destroy(); } catch (e) {} window.__systemCy = null; }
         document.body.classList.remove('mode-system');
-        // Destroy the system graph container if present.
-        var sysCy = document.getElementById('system-cy');
-        if (sysCy) { sysCy.remove(); }
-        // Hide preview card + modal if visible.
+        updateGraphBtnState(false);
         AtomicGraphUI.hidePreviewCard();
         AtomicGraphUI.closePageModal();
-        // Restore the previous page or the landing URL.
-        var target = currentPage || '{{.LandingURL}}';
-        htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
-        // Centralized button state update.
-        updateGraphBtnState(false);
       }
 
-      function setSystemMode() {
-        inSystemMode = true;
-        document.body.classList.add('mode-system');
-        // Centralized button state update — set ACTIVE before the fetch.
-        updateGraphBtnState(true);
+      // Track current page + clean up system mode whenever #main-pane swaps. htmx 4:
+      // colon-format events carry detail.ctx (ctx.target = resolved swap target,
+      // ctx.request.action = request path); listen on document — a detached source
+      // element dispatches there, not on body.
+      document.addEventListener('htmx:after:swap', function(evt) {
+        var ctx = evt.detail && evt.detail.ctx;
+        var tgt = ctx && ctx.target;
+        if (!tgt || tgt.id !== 'main-pane') { return; }
+        var path = ctx.request && ctx.request.action;
+        if (path && path.indexOf('/page/') === 0) { currentPage = path; }
+        // Anything that isn't the system graph means we're no longer in system mode.
+        if (!tgt.querySelector('[data-system-graph]') && inSystemMode()) {
+          teardownSystemGraph();
+        }
+      });
 
-        // Replace #main-pane content with the system-cy container plus a loading
-        // line. The line is removed when the layout finishes (large realms take a
-        // few seconds to lay out) so the user always has feedback, never a silent
-        // blank pane.
+      // ── URL view-state (zoom + pan) ──────────────────────────────────────────
+      // /graph?z=<zoom>&px=<panX>&py=<panY>. Restored on mount; written with
+      // replaceState (never push) so dragging/zooming can't flood the history.
+      function readViewFromURL() {
+        var p = new URLSearchParams(window.location.search);
+        var z = parseFloat(p.get('z')), px = parseFloat(p.get('px')), py = parseFloat(p.get('py'));
+        if (isFinite(z) && isFinite(px) && isFinite(py)) { return { zoom: z, pan: { x: px, y: py } }; }
+        return null;
+      }
+      function writeViewToURL(cy) {
+        if (window.location.pathname !== '/graph') { return; }
+        var pan = cy.pan();
+        var qs = 'z=' + cy.zoom().toFixed(4) + '&px=' + pan.x.toFixed(2) + '&py=' + pan.y.toFixed(2);
+        try { window.history.replaceState(window.history.state, '', '/graph?' + qs); } catch (e) {}
+      }
+
+      // buildLegend constructs the type-filter chip bar from the types present in the
+      // graph. Colors come from atomicCyTypeColors() (single source of truth). Each
+      // chip toggles visibility of the matching nodes in the live instance.
+      function buildLegend(cy, elems, mainPane) {
+        var seenTypes = {};
+        var nodeList = Array.isArray(elems) ? elems : ((elems && elems.nodes) || []);
+        nodeList.forEach(function(el) { if (el.data && el.data.type) { seenTypes[el.data.type] = true; } });
+        var types = Object.keys(seenTypes).sort();
+        if (!types.length) { return; }
+
+        var colorMap = atomicCyTypeColors();
+        var hiddenTypes = {};
+
+        var legend = document.createElement('div');
+        legend.id = 'graph-legend';
+        legend.className = 'graph-legend';
+
+        types.forEach(function(type) {
+          var color = colorMap[type] || '#89b4fa';
+          var chip = document.createElement('button');
+          chip.className = 'graph-legend-chip graph-legend-chip-active';
+          chip.type = 'button';
+          chip.setAttribute('data-type', type);
+          chip.setAttribute('aria-pressed', 'true');
+
+          var swatch = document.createElement('span');
+          swatch.className = 'graph-legend-swatch';
+          swatch.style.background = color;
+          var label = document.createElement('span');
+          label.textContent = type;
+          chip.appendChild(swatch);
+          chip.appendChild(label);
+
+          chip.addEventListener('click', function() {
+            if (!cy) { return; }
+            if (hiddenTypes[type]) {
+              cy.nodes('[type="' + type + '"]').style('display', 'element');
+              delete hiddenTypes[type];
+              chip.classList.add('graph-legend-chip-active');
+              chip.setAttribute('aria-pressed', 'true');
+            } else {
+              cy.nodes('[type="' + type + '"]').style('display', 'none');
+              hiddenTypes[type] = true;
+              chip.classList.remove('graph-legend-chip-active');
+              chip.setAttribute('aria-pressed', 'false');
+            }
+          });
+          legend.appendChild(chip);
+        });
+        mainPane.appendChild(legend);
+      }
+
+      // ── Layout cache (IndexedDB, keyed by the realm sha256 fingerprint) ────────
+      // The ELK 'stress' layout is the real cost of opening the Network View — it
+      // recomputes node positions every mount (the Cytoscape instance is destroyed
+      // on exit). We cache the computed positions in IndexedDB keyed by the server's
+      // filesystem fingerprint (the X-Graph-Fingerprint header — a sha256 over the
+      // realm that changes on ANY edit, so it invalidates correctly). Subsequent
+      // opens replay the saved positions with a 'preset' layout (no algorithm) so
+      // the graph appears instantly, and IndexedDB persists across browser sessions.
+      var LAYOUT_DB = 'atomic-serve', LAYOUT_STORE = 'graph-layout';
+
+      function idbOpen() {
+        return new Promise(function(resolve, reject) {
+          if (!window.indexedDB) { reject(new Error('no indexedDB')); return; }
+          var req = indexedDB.open(LAYOUT_DB, 1);
+          req.onupgradeneeded = function() {
+            if (!req.result.objectStoreNames.contains(LAYOUT_STORE)) {
+              req.result.createObjectStore(LAYOUT_STORE);
+            }
+          };
+          req.onsuccess = function() { resolve(req.result); };
+          req.onerror = function() { reject(req.error); };
+        });
+      }
+      function loadCachedLayout(key) {
+        if (!key) { return Promise.resolve(null); }
+        return idbOpen().then(function(db) {
+          return new Promise(function(resolve) {
+            var rq = db.transaction(LAYOUT_STORE, 'readonly').objectStore(LAYOUT_STORE).get(key);
+            rq.onsuccess = function() { resolve(rq.result || null); };
+            rq.onerror = function() { resolve(null); };
+          });
+        }).catch(function() { return null; });
+      }
+      function saveCachedLayout(key, positions) {
+        if (!key) { return; }
+        idbOpen().then(function(db) {
+          db.transaction(LAYOUT_STORE, 'readwrite').objectStore(LAYOUT_STORE).put(positions, key);
+        }).catch(function() {});
+      }
+
+      // Mount the system graph into the [data-system-graph] container delivered by
+      // the /graph fragment. Guarded against double-mount (a dataset flag).
+      function mountSystemGraph(container) {
+        if (container.dataset.systemMounted === '1') { return; }
+        if (typeof cytoscape === 'undefined') { return; }
+        container.dataset.systemMounted = '1';
+
         var mainPane = document.getElementById('main-pane');
-        mainPane.innerHTML = '<div id="system-cy"></div>' +
-          '<p class="loading system-graph-loading">Laying out graph…</p>';
-        var container = document.getElementById('system-cy');
+        document.body.classList.add('mode-system');
+        updateGraphBtnState(true);
 
         function clearSystemLoading() {
           var l = mainPane.querySelector('.system-graph-loading');
           if (l) { l.remove(); }
         }
 
-        // buildLegend constructs the type-filter chip bar from the types actually
-        // present in the graph. Colors come from atomicCyTypeColors() — single
-        // source of truth, no hex duplication. Each chip toggles visibility of the
-        // matching nodes in the live Cytoscape instance.
-        function buildLegend(cy, elems) {
-          // Collect distinct node types from the element list.
-          var seenTypes = {};
-          var nodeList = Array.isArray(elems) ? elems : ((elems && elems.nodes) || []);
-          nodeList.forEach(function(el) {
-            if (el.data && el.data.type) { seenTypes[el.data.type] = true; }
-          });
-          var types = Object.keys(seenTypes).sort();
-          if (!types.length) { return; }
+        var graphFP = null; // realm fingerprint from the response header (cache key)
+        fetch('/graph/data')
+          .then(function(r) { graphFP = r.headers.get('X-Graph-Fingerprint'); return r.json(); })
+          .then(function(elems) {
+            // Look up a cached layout for this exact realm state, then mount.
+            return loadCachedLayout(graphFP).then(function(cachedPos) { return { elems: elems, cachedPos: cachedPos }; });
+          })
+          .then(function(bundle) {
+            var elems = bundle.elems;
+            var cachedPos = bundle.cachedPos;
 
-          var colorMap = atomicCyTypeColors();
-          var hiddenTypes = {}; // tracks which types are currently filtered out
-
-          var legend = document.createElement('div');
-          legend.id = 'graph-legend';
-          legend.className = 'graph-legend';
-
-          types.forEach(function(type) {
-            var color = colorMap[type] || '#89b4fa';
-
-            var chip = document.createElement('button');
-            chip.className = 'graph-legend-chip graph-legend-chip-active';
-            chip.type = 'button';
-            chip.setAttribute('data-type', type);
-            chip.setAttribute('aria-pressed', 'true');
-
-            var swatch = document.createElement('span');
-            swatch.className = 'graph-legend-swatch';
-            swatch.style.background = color;
-
-            var label = document.createElement('span');
-            label.textContent = type;
-
-            chip.appendChild(swatch);
-            chip.appendChild(label);
-
-            chip.addEventListener('click', function() {
-              if (!cy) { return; }
-              if (hiddenTypes[type]) {
-                // Re-show: restore display and mark active.
-                cy.nodes('[type="' + type + '"]').style('display', 'element');
-                delete hiddenTypes[type];
-                chip.classList.add('graph-legend-chip-active');
-                chip.setAttribute('aria-pressed', 'true');
-              } else {
-                // Hide: remove from display and mark inactive.
-                cy.nodes('[type="' + type + '"]').style('display', 'none');
-                hiddenTypes[type] = true;
-                chip.classList.remove('graph-legend-chip-active');
-                chip.setAttribute('aria-pressed', 'false');
-              }
+            // Degree (link count) per node → 'deg' data, capped, which drives the
+            // degree-based node sizing in atomicCyStyle (hubs bigger, leaves smaller).
+            var deg = {};
+            (elems.edges || []).forEach(function(e) {
+              var s = e.data && e.data.source, t = e.data && e.data.target;
+              if (s != null) { deg[s] = (deg[s] || 0) + 1; }
+              if (t != null) { deg[t] = (deg[t] || 0) + 1; }
+            });
+            (elems.nodes || []).forEach(function(n) {
+              if (n.data) { n.data.deg = Math.min(deg[n.data.id] || 0, 16); }
             });
 
-            legend.appendChild(chip);
-          });
+            // Cached positions → 'preset' (instant). Fresh → cola, the force-directed
+            // layout engine (one-shot, Obsidian-like organic arrangement).
+            var layout = cachedPos
+              ? { name: 'preset', positions: cachedPos, fit: false }
+              : { name: 'cola', animate: true, fit: true, maxSimulationTime: 2500, avoidOverlap: true, nodeSpacing: function() { return 8; }, edgeLength: 100, randomize: false, infinite: false };
 
-          // Append legend inside #main-pane (above #system-cy via absolute positioning).
-          mainPane.appendChild(legend);
-        }
-
-        fetch('/graph/data')
-          .then(function(r) { return r.json(); })
-          .then(function(elems) {
             var cy = cytoscape({
               container: container,
               elements: elems,
-              layout: { name: 'elk', elk: { 'algorithm': 'layered', 'elk.spacing.nodeNode': 90, 'elk.layered.spacing.nodeNodeBetweenLayers': 120 }, fit: true },
+              layout: layout,
               style: atomicCyStyle(),
-              minZoom: 0.2,
+              // Wide bound at construction so the initial fit (which can need a small
+              // zoom for a big graph) isn't clamped; finishMount tightens it below.
+              minZoom: 0.02,
               maxZoom: 2.2
             });
-
-            // Store a reference so the modal handler can look up node data by id.
             window.__systemCy = cy;
 
-            // The container was just innerHTML-swapped, so it may still report a
-            // zero size when Cytoscape initializes — which renders the graph into a
-            // 0×0 canvas (invisible). Resize + fit once the layout settles so the
-            // graph is sized to the container and centered in the viewport.
-            cy.one('layoutstop', function() {
+            var saved = readViewFromURL();
+            var recording = false; // ignore programmatic initial view; record user changes after
+
+            // finishMount applies the initial view, builds the legend, caches a
+            // freshly computed layout, and turns on zoom/pan→URL recording.
+            // Idempotent so it runs exactly once whether fired by layoutstop (ELK,
+            // async) or the preset fallback below. A 'preset' layout (cached
+            // positions) settles synchronously during construction — before this
+            // listener attaches — so without the fallback layoutstop is missed and
+            // recording would stay off, killing the URL params on cached opens.
+            var finished = false;
+            function finishMount() {
+              if (finished) { return; }
+              finished = true;
               clearSystemLoading();
               cy.resize();
+              // Fit once to measure the "whole graph fills the viewport" zoom, then cap
+              // zoom-out at half that (graph can shrink to ~half size, no further — no
+              // zooming into an unreadable speck) and keep a sane zoom-in ceiling.
               cy.fit(undefined, 24);
-              buildLegend(cy, elems);
-            });
-            // Fallback: if no layout event fires, still clear the loader.
+              var fitZoom = cy.zoom();
+              cy.minZoom(fitZoom * 0.5);
+              cy.maxZoom(2.2);
+              // Restore the saved view from the URL if present (else keep the fit).
+              if (saved) { cy.zoom(saved.zoom); cy.pan(saved.pan); }
+              buildLegend(cy, elems, mainPane);
+              // Persist the freshly computed layout (debounced) so the next open
+              // replays it instantly. Cached opens haven't changed anything yet.
+              if (!cachedPos) { scheduleSave(); }
+              setTimeout(function() { recording = true; }, 60);
+            }
+            cy.one('layoutstop', finishMount);
+            // Preset settles immediately; ensure finishMount still runs even if
+            // layoutstop fired before the listener attached. Force layouts are async
+            // and rely on layoutstop alone (no premature fit before they complete).
+            if (cachedPos) { setTimeout(finishMount, 0); }
             cy.ready(function() { cy.resize(); });
 
-            // CP2: mouseover → preview card (positioned within #main-pane).
-            cy.on('mouseover', 'node', function(evt) {
-              AtomicGraphUI.showPreviewCard(evt.target, mainPane);
+            // Debounced position save: continuous physics keeps nudging positions,
+            // so writes to IndexedDB are coalesced rather than thrashed (this is what
+            // lets continuous physics and the layout cache coexist).
+            var saveTimer = null;
+            function scheduleSave() {
+              if (!graphFP) { return; }
+              clearTimeout(saveTimer);
+              saveTimer = setTimeout(function() {
+                var positions = {};
+                cy.nodes().forEach(function(n) { var p = n.position(); positions[n.id()] = { x: p.x, y: p.y }; });
+                saveCachedLayout(graphFP, positions);
+              }, 800);
+            }
+
+            // Dragging moves only the grabbed node (its own edges follow); the rest
+            // of the graph stays put. An on-drag force sim was tried but any global
+            // simulation repositions other nodes — and moving a neighbouring hub
+            // swings all ITS edges, so unrelated edges lurch. The force-directed look
+            // comes from the one-shot initial layout; manual drags just refine it and
+            // persist on release.
+            cy.on('dragfree', 'node', function() { scheduleSave(); });
+
+            // Record user zoom/pan into the URL (debounced, replaceState).
+            var viewTimer = null;
+            cy.on('viewport', function() {
+              if (!recording) { return; }
+              clearTimeout(viewTimer);
+              viewTimer = setTimeout(function() { writeViewToURL(cy); }, VIEW_DEBOUNCE_MS);
             });
 
-            // CP2: mouseout → hide card.
-            cy.on('mouseout', 'node', function() {
-              AtomicGraphUI.hidePreviewCard();
-            });
-
-            // CP2: tap → content modal (replaces direct navigation on system graph).
+            cy.on('mouseover', 'node', function(evt) { AtomicGraphUI.showPreviewCard(evt.target, mainPane); });
+            cy.on('mouseout', 'node', function() { AtomicGraphUI.hidePreviewCard(); });
             cy.on('tap', 'node', function(evt) {
               AtomicGraphUI.hidePreviewCard();
               AtomicGraphUI.openPageModal(evt.target.data('id'), cy);
@@ -756,26 +986,28 @@
           });
       }
 
-      // Register the system-mode-aware navigator: the modal's "Open full page"
-      // (and any in-system navigation) must tear the system graph down via
-      // setPageMode before swapping the page in. The rail graph leaves the hook
-      // unset and gets a plain htmx swap instead.
-      AtomicGraphUI.setNavigator(function(nodeID) {
-        currentPage = '/page/' + encodeURIComponent(nodeID);
-        setPageMode();
+      // Delegated mount: fires whenever the /graph fragment ([data-system-graph])
+      // lands in #main-pane (button click, refresh, Back/Forward).
+      htmx.onLoad(function(elt) {
+        var c = (elt.matches && elt.matches('[data-system-graph]'))
+          ? elt
+          : (elt.querySelector ? elt.querySelector('[data-system-graph]') : null);
+        if (c) { mountSystemGraph(c); }
       });
 
       document.addEventListener('DOMContentLoaded', function() {
-        // #btn-graph toggles between page and system view.
+        // #btn-graph: in page view → open /graph; in graph view → back to the page.
         var btnGraph = document.getElementById('btn-graph');
         if (btnGraph) {
           btnGraph.addEventListener('click', function() {
-            if (inSystemMode) { setPageMode(); } else { setSystemMode(); }
+            // In graph view → back to the last page (or landing); in page view → /graph.
+            var target = inSystemMode() ? (currentPage || '{{.LandingURL}}') : '/graph';
+            htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
+            if (window.history && window.history.pushState) { window.history.pushState(null, '', target); }
           });
         }
 
-        // Modal dismiss wiring (scrim backdrop, corner ×, Close button, Esc) —
-        // registered once via the shared module.
+        // Modal dismiss wiring (scrim backdrop, corner ×, Close button, Esc).
         AtomicGraphUI.wireDismiss();
       });
     }());
@@ -854,6 +1086,11 @@
               hx-swap="innerHTML">
             <p class="loading">Loading…</p>
         </main>
+        <footer id="app-footer">
+            <span>© Atomic Claude via <a href="https://alonso.network" target="_blank" rel="noopener">Alonso Network</a></span>
+            <span class="footer-sep">·</span>
+            <span>MIT License</span>
+        </footer>
     </div>
 
     <!-- right rail: Properties ▸ this-page graph ▸ OUT links ▸ IN links -->
@@ -957,6 +1194,10 @@
     }
     if (window.__railCy) {
       window.__railCy.style(atomicCyStyle());
+    }
+    // Re-render any mermaid diagrams with the flipped palette.
+    if (window.atomicMermaidRetheme) {
+      window.atomicMermaidRetheme();
     }
   });
 }());
@@ -1362,9 +1603,11 @@
     <button class="cy-modal-close" id="cy-modal-close-btn" aria-label="Close">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="1" y1="1" x2="13" y2="13"/><line x1="13" y1="1" x2="1" y2="13"/></svg>
     </button>
-    <span class="cy-modal-chip" id="cy-modal-chip">page</span>
-    <div class="cy-modal-title" id="cy-modal-title"></div>
-    <div class="cy-modal-desc" id="cy-modal-desc" style="display:none"></div>
+    <div class="cy-modal-header">
+      <span class="cy-modal-chip" id="cy-modal-chip">page</span>
+      <div class="cy-modal-title" id="cy-modal-title"></div>
+      <div class="cy-modal-desc" id="cy-modal-desc" style="display:none"></div>
+    </div>
     <div class="cy-modal-body" id="cy-modal-body"></div>
     <div class="cy-modal-actions">
       <button class="cy-modal-btn-primary" id="cy-modal-open-btn">

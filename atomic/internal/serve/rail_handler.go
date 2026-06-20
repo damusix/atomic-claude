@@ -19,6 +19,7 @@ package serve
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -27,17 +28,21 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
-// propKV is a flattened key/value pair for the Properties slot. Value is always
-// a string: scalars pass through as-is; []any elements are comma-joined; nested
-// maps are skipped (they don't belong in a flat property list).
+// propKV is a key/value pair for the Properties slot.
+//
+// Scalars (frontmatter.ParseOrdered returns them as strings) pass through as text.
+// Non-primitive values — arrays and nested objects — are pretty-printed as JSON
+// and rendered in a highlighted code block (IsJSON), instead of the unreadable
+// fmt default ("map[Key:val ...]").
 //
 // When IsURL is true, Value is an http(s) URL and the template renders it as
 // an <a href=...> anchor (target=_blank rel=noopener). html/template handles
 // escaping of both the href attribute and the link text automatically.
 type propKV struct {
-	Key   string
-	Value string
-	IsURL bool
+	Key    string
+	Value  string
+	IsURL  bool
+	IsJSON bool
 }
 
 // railFragmentTmplStr renders the four OOB fragments for the right rail.
@@ -57,7 +62,7 @@ type propKV struct {
 // cannot collide with any click-handler seam on #mode-system.
 
 const railFragmentTmplStr = `<div id="rail-props-content" hx-swap-oob="innerHTML">{{- if .Properties}}<ul class="rail-props-list">
-    {{range .Properties}}<li><span class="rail-prop-key">{{.Key}}</span><span class="rail-prop-val">{{if .IsURL}}<a href="{{.Value}}" target="_blank" rel="noopener">{{.Value}}</a>{{else}}{{.Value}}{{end}}</span></li>
+    {{range .Properties}}<li{{if .IsJSON}} class="rail-prop-li-json"{{end}}><span class="rail-prop-key">{{.Key}}</span><span class="rail-prop-val">{{if .IsJSON}}<pre class="rail-prop-json"><code>{{.Value}}</code></pre>{{else if .IsURL}}<a href="{{.Value}}" target="_blank" rel="noopener">{{.Value}}</a>{{else}}{{.Value}}{{end}}</span></li>
     {{end}}</ul>{{- end -}}</div>
 <div id="rail-out-content" hx-swap-oob="innerHTML">
   {{if .Outbound}}
@@ -152,16 +157,19 @@ func NewRailHandler(root string, g *Graph) http.Handler {
 		if fileData, readErr := readFile(abs); readErr == nil {
 			if kvs, _, fmErr := frontmatter.ParseOrdered(string(fileData)); fmErr == nil {
 				for _, kv := range kvs {
-					switch v := kv.Value.(type) {
-					case string:
-						props = append(props, propKV{Key: kv.Key, Value: v, IsURL: isHTTPURL(v)})
-					case []any:
-						parts := make([]string, 0, len(v))
-						for _, elem := range v {
-							parts = append(parts, fmt.Sprint(elem))
-						}
-						props = append(props, propKV{Key: kv.Key, Value: strings.Join(parts, ", ")})
-						// map[string]any: skip — nested maps don't belong in a flat list.
+					// Primitive scalar (ParseOrdered yields these as strings): plain text.
+					if s, ok := kv.Value.(string); ok {
+						props = append(props, propKV{Key: kv.Key, Value: s, IsURL: isHTTPURL(s)})
+						continue
+					}
+					// Non-primitive (array / object): pretty-print as JSON in a
+					// highlighted block. ParseOrdered values are JSON-safe
+					// (string / []any / map[string]any), so marshal cannot hit an
+					// unsupported type; degrade to fmt only on the unexpected.
+					if b, jerr := json.MarshalIndent(kv.Value, "", "  "); jerr == nil {
+						props = append(props, propKV{Key: kv.Key, Value: string(b), IsJSON: true})
+					} else {
+						props = append(props, propKV{Key: kv.Key, Value: fmt.Sprint(kv.Value)})
 					}
 				}
 			}

@@ -30,6 +30,12 @@ import (
 //go:embed assets templates
 var embeddedFS embed.FS
 
+// systemGraphFragmentHTML is the htmx fragment for the /graph (Network View) page.
+// The [data-system-graph] container is the seam the shell's onLoad handler keys on
+// to mount Cytoscape; the loading line is removed once the layout settles.
+const systemGraphFragmentHTML = `<div id="system-cy" data-system-graph></div>
+<p class="loading system-graph-loading">Laying out graph…</p>`
+
 // DisplayScope is the serve-level scope label derived from the realm resolver.
 type DisplayScope int
 
@@ -80,6 +86,9 @@ func ResolveDisplayScope(cwd, claudeMDPath string) (DisplayScope, error) {
 type Options struct {
 	// Port is the TCP port to bind. 0 = OS-assigned.
 	Port int
+	// Host is the bind address. Empty defaults to 127.0.0.1 (loopback only).
+	// Set to "0.0.0.0" to expose the (read-only) viewer on all interfaces / the LAN.
+	Host string
 	// Open triggers a best-effort browser launch after startup.
 	Open bool
 	// TargetDir is the directory being served (positional arg, default cwd).
@@ -246,10 +255,24 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	}))
 
 	// /graph/data — Cytoscape elements JSON (CP9, SC11).
-	// The standalone /graph page was removed in FE3; the system-graph toggle in
-	// layout.html fetches /graph/data directly from within the shell.
 	// FE8: pass the startup-built linkGraph so /graph/data does not rebuild per-request.
 	mux.Handle("/graph/data", NewGraphDataHandlerWithGraph(navRoot, linkGraph))
+
+	// /graph — the Network View as its own page (URL-addressable, history-tracked,
+	// refresh-survivable). htmx requests get the #system-cy mount fragment; the
+	// shell's onLoad handler mounts Cytoscape and restores zoom/pan from the URL
+	// (?z=&px=&py=). Document loads (refresh / share / Back) get the full shell with
+	// LandingURL=/graph so it boots straight into the graph.
+	mux.HandleFunc("/graph", func(w http.ResponseWriter, r *http.Request) {
+		if fragmentRequest(r) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = io.WriteString(w, systemGraphFragmentHTML)
+			return
+		}
+		if err := shell.Render(w, "/graph", http.StatusOK); err != nil {
+			fmt.Fprintf(opts.Stderr, "atomic serve: graph shell render: %v\n", err)
+		}
+	})
 
 	// /code/* — per-repo Code Explorer (CP8, SC10).
 	// Routes: /code/node, /code/callers, /code/callees, /code/impact, /code/files, /code/schema.
@@ -283,18 +306,35 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		}
 	})
 
-	// Bind listener.
-	addr := fmt.Sprintf("127.0.0.1:%d", opts.Port)
+	// Bind listener. Default to loopback; an explicit Host (e.g. 0.0.0.0) opts into
+	// exposing the read-only viewer on other interfaces / the LAN.
+	bindHost := opts.Host
+	if bindHost == "" {
+		bindHost = "127.0.0.1"
+	}
+	addr := fmt.Sprintf("%s:%d", bindHost, opts.Port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		fmt.Fprintf(opts.Stderr, "atomic serve: listen %s: %v\n", addr, err)
 		return 1
 	}
 
-	// Resolve actual address (important when Port == 0).
+	// Resolve actual address (important when Port == 0). A wildcard bind isn't a
+	// usable URL, so the primary line shows loopback (works locally + for --open);
+	// reachable LAN addresses are listed below it for other devices.
 	actualAddr := ln.Addr().(*net.TCPAddr)
-	url := fmt.Sprintf("http://127.0.0.1:%d", actualAddr.Port)
+	wildcard := bindHost == "0.0.0.0" || bindHost == "::"
+	displayHost := bindHost
+	if wildcard {
+		displayHost = "127.0.0.1"
+	}
+	url := fmt.Sprintf("http://%s:%d", displayHost, actualAddr.Port)
 	fmt.Fprintln(opts.Stdout, url)
+	if wildcard {
+		for _, ip := range lanIPv4s() {
+			fmt.Fprintf(opts.Stdout, "http://%s:%d\n", ip, actualAddr.Port)
+		}
+	}
 
 	// Best-effort browser open.
 	if opts.Open {
@@ -345,6 +385,26 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		}
 		return 0
 	}
+}
+
+// lanIPv4s returns the non-loopback IPv4 addresses of the host's interfaces, so a
+// wildcard (0.0.0.0) bind can print URLs reachable from other devices on the LAN.
+func lanIPv4s() []string {
+	var out []string
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return out
+	}
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok || ipnet.IP.IsLoopback() {
+			continue
+		}
+		if ip4 := ipnet.IP.To4(); ip4 != nil {
+			out = append(out, ip4.String())
+		}
+	}
+	return out
 }
 
 // defaultBrowserOpen opens url in the system browser. Best-effort only.
@@ -417,8 +477,10 @@ func parseFlags(args []string, stdout, stderr io.Writer) (Options, error) {
 
 	var port int
 	var open bool
+	var host string
 	fs.IntVar(&port, "port", 4500, "TCP port to listen on (0 = OS-assigned free port)")
 	fs.BoolVar(&open, "open", false, "open the browser after startup (best-effort)")
+	fs.StringVar(&host, "host", "127.0.0.1", "bind address (use 0.0.0.0 to expose the read-only viewer on the LAN)")
 
 	if err := fs.Parse(args); err != nil {
 		return Options{}, err
@@ -456,6 +518,7 @@ func parseFlags(args []string, stdout, stderr io.Writer) (Options, error) {
 
 	return Options{
 		Port:         port,
+		Host:         host,
 		Open:         open,
 		TargetDir:    targetDir,
 		ClaudeMDPath: fmt.Sprintf("%s/.claude/CLAUDE.md", home),

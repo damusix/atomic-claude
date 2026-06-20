@@ -300,15 +300,14 @@ func TestRailGraphContainerCarriesDataRailGraphURL(t *testing.T) {
 }
 
 // TestShellLoadsGraphScriptsInOrder verifies that the root shell (GET /)
-// includes the three Cytoscape scripts in the load-bearing order:
+// includes the Cytoscape scripts in the load-bearing order:
 //
 //  1. cytoscape.min.js
-//  2. elk.bundled.js
-//  3. cytoscape-elk.min.js
+//  2. cola.min.js        (webcola — the cola layout's force engine)
+//  3. cytoscape-cola.js  (the cytoscape adapter)
 //
-// AND that cytoscape.use( appears after all three. This mirrors the /graph page
-// test but targets the shell — FE3 (system-graph toggle) reuses these same
-// scripts via the shell-loaded infra without adding new <script> tags.
+// AND that cytoscape.use( appears after all three. The graph (rail mini-graph +
+// the Network View) uses cola for layout; the dead ELK engine was removed.
 func TestShellLoadsGraphScriptsInOrder(t *testing.T) {
 	root := buildRailRealm(t)
 
@@ -332,31 +331,38 @@ func TestShellLoadsGraphScriptsInOrder(t *testing.T) {
 	// All three scripts must be present in the shell.
 	scripts := []string{
 		"/static/vendor/cytoscape.min.js",
-		"/static/vendor/elk.bundled.js",
-		"/static/vendor/cytoscape-elk.min.js",
+		"/static/vendor/cola.min.js",
+		"/static/vendor/cytoscape-cola.js",
 	}
 	for _, s := range scripts {
 		if !strings.Contains(html, s) {
-			t.Errorf("shell missing graph script %q — FE3 system-graph toggle requires all three in shell", s)
+			t.Errorf("shell missing graph script %q — the cola layout requires all three in shell", s)
+		}
+	}
+
+	// The dead ELK engine must be gone (scripts + registration).
+	for _, gone := range []string{"elk.bundled.js", "cytoscape-elk", "cytoscapeElk"} {
+		if strings.Contains(html, gone) {
+			t.Errorf("shell still references removed ELK artifact %q", gone)
 		}
 	}
 
 	// Confirm load ORDER by byte position.
 	posC := strings.Index(html, scripts[0])
-	posE := strings.Index(html, scripts[1])
-	posCE := strings.Index(html, scripts[2])
-	if !(posC < posE && posE < posCE) {
-		t.Errorf("shell script load order violated: cytoscape@%d elk@%d cytoscape-elk@%d — want C < E < CE",
-			posC, posE, posCE)
+	posCola := strings.Index(html, scripts[1])
+	posCC := strings.Index(html, scripts[2])
+	if !(posC < posCola && posCola < posCC) {
+		t.Errorf("shell script load order violated: cytoscape@%d cola@%d cytoscape-cola@%d — want C < cola < CC",
+			posC, posCola, posCC)
 	}
 
-	// cytoscape.use( must appear after cytoscape-elk.min.js reference.
-	posUse := strings.Index(html, "cytoscape.use(")
+	// cytoscape.use(cytoscapeCola) must appear after cytoscape-cola.js reference.
+	posUse := strings.Index(html, "cytoscape.use(cytoscapeCola)")
 	if posUse == -1 {
-		t.Error("shell missing cytoscape.use( call — rail mini-graph will not initialise")
-	} else if posUse < posCE {
-		t.Errorf("shell: cytoscape.use( at %d appears before cytoscape-elk.min.js at %d — wrong order",
-			posUse, posCE)
+		t.Error("shell missing cytoscape.use(cytoscapeCola) — cola layout will not register")
+	} else if posUse < posCC {
+		t.Errorf("shell: cytoscape.use(cytoscapeCola) at %d appears before cytoscape-cola.js at %d — wrong order",
+			posUse, posCC)
 	}
 }
 

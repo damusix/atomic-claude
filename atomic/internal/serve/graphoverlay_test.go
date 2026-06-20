@@ -225,24 +225,52 @@ func TestGraphDataLocalViewDepth1ExcludesDepth2(t *testing.T) {
 	}
 }
 
-// TestGraphStandalonePageRemoved verifies that GET /graph returns 404 — the
-// standalone graph page is superseded by the in-shell system-graph toggle (FE3).
-// /graph/data must still return 200 (it is the data source for the toggle).
-func TestGraphStandalonePageRemoved(t *testing.T) {
+// TestGraphPageServesNetworkView verifies the Network View is its own page:
+//   - GET /graph (document load) returns the full shell, booting LandingURL=/graph
+//     so a refresh / shared link / Back lands straight in the graph.
+//   - GET /graph with HX-Request returns the bare [data-system-graph] mount
+//     fragment (the shell's onLoad handler mounts Cytoscape into it).
+//   - /graph/data must still return 200 (the data source for the mount).
+func TestGraphPageServesNetworkView(t *testing.T) {
 	root := buildGraphOverlayRealm(t)
 
 	baseURL, shutdown := startTestServer(t, startOpts(t, root))
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	// /graph must be gone.
+	// Document load → the full shell, wired to boot the graph into #main-pane.
 	resp, err := http.Get(baseURL + "/graph")
 	if err != nil {
 		t.Fatalf("GET /graph: %v", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("/graph must return 404 (standalone page removed in FE3), got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("/graph document load must return 200, got %d", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+	if !strings.Contains(html, "<!DOCTYPE") {
+		t.Errorf("/graph document load must return the full shell, got a fragment:\n%s", html)
+	}
+	if !strings.Contains(html, `hx-get="/graph"`) {
+		t.Errorf("/graph shell must boot the graph into #main-pane (hx-get=\"/graph\"); html:\n%s", html)
+	}
+
+	// htmx request → the bare mount fragment, NOT the shell.
+	req, _ := http.NewRequest(http.MethodGet, baseURL+"/graph", nil)
+	req.Header.Set("HX-Request", "true")
+	fragResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /graph (htmx): %v", err)
+	}
+	defer fragResp.Body.Close()
+	frag, _ := io.ReadAll(fragResp.Body)
+	fragStr := string(frag)
+	if strings.Contains(fragStr, "<!DOCTYPE") {
+		t.Errorf("/graph htmx request must return a bare fragment, got a full document:\n%s", fragStr)
+	}
+	if !strings.Contains(fragStr, "data-system-graph") {
+		t.Errorf("/graph fragment must carry the [data-system-graph] mount seam; got:\n%s", fragStr)
 	}
 
 	// /graph/data must still be alive.
@@ -316,11 +344,12 @@ func TestShellContainsFingerprintStyleInSharedFunction(t *testing.T) {
 }
 
 // TestShellSystemModeToggleWiring verifies that the shell contains the FE3
-// system-mode toggle click handler:
-//   - A click on #mode-system hides #right-rail and shows #system-cy.
-//   - /graph/data is fetched by the toggle handler (not /graph, which is removed).
-//   - Node tap navigates to /page/ and restores page mode (htmx.ajax call).
-//   - Page mode restores #right-rail.
+// Network View wiring:
+//   - #btn-graph (top-bar icon) is the entry point; it navigates to the /graph page.
+//   - The mount keys on the [data-system-graph] seam (delivered by the /graph
+//     fragment) and fetches /graph/data for the elements.
+//   - Node tap navigates to /page/ via htmx.ajax.
+//   - #right-rail is referenced (hidden in system mode via body.mode-system).
 //
 // Only structure (presence of identifiers and URL strings) is testable server-side;
 // live JS execution is out of scope for Go tests.
@@ -345,14 +374,20 @@ func TestShellSystemModeToggleWiring(t *testing.T) {
 		t.Error("shell missing #btn-graph — top-bar network/graph toggle must be present")
 	}
 
-	// #system-cy must be referenced in JS (the container for the system graph).
-	if !strings.Contains(html, "system-cy") {
-		t.Error("shell missing 'system-cy' — system-graph Cytoscape container must be in the toggle wiring")
+	// The mount must key on the [data-system-graph] seam delivered by the /graph
+	// fragment (the delegated onLoad pattern).
+	if !strings.Contains(html, "data-system-graph") {
+		t.Error("shell missing 'data-system-graph' — the onLoad mount seam for the Network View")
 	}
 
-	// The toggle handler must fetch /graph/data (the data endpoint, not the removed page).
+	// #btn-graph must navigate to the /graph page (its own URL, history-tracked).
+	if !strings.Contains(html, "'/graph'") && !strings.Contains(html, `"/graph"`) {
+		t.Error("shell #btn-graph must navigate to the /graph page")
+	}
+
+	// The mount must fetch /graph/data for the elements.
 	if !strings.Contains(html, "'/graph/data'") && !strings.Contains(html, `"/graph/data"`) {
-		t.Error("shell toggle wiring must reference /graph/data (the data endpoint, not the removed /graph page)")
+		t.Error("shell graph mount must reference /graph/data (the elements endpoint)")
 	}
 
 	// Node tap must navigate to /page/.
