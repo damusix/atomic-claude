@@ -244,9 +244,11 @@ contract) — research notes capture *why a path was chosen*, including paths no
 
 Current notes:
 
-- `docs/research/tsbinding-vendor-on-demand.md` — why `atomic code index` OOMs on this repo (generated
-  grammar `parser.c` indexed), the experiment proving vendor-on-demand viable, recovered upstream pins,
-  and the agreed plan to stop committing `tsbinding/src/`.
+- `docs/research/tsbinding-vendor-on-demand.md` — why `atomic code index` **used to** OOM (committed
+  generated `parser.c` indexed), the experiment proving vendor-on-demand viable, recovered upstream pins,
+  and the now-implemented fix. **RESOLVED:** `tsbinding/src/` is gitignored / vendor-on-demand, and the
+  indexer respects `.gitignore` (`git ls-files --exclude-standard`), so indexing is safe — do not skip
+  it citing OOM. (Latent edge: the non-git `walkDirFallback` does not skip `src/`.)
 
 
 ## VitePress docs site (public, not bundled)

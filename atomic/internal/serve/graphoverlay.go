@@ -250,6 +250,10 @@ type GraphDataHandler struct {
 	// When nil, BuildLinkGraph is called per-request (original behaviour, kept for
 	// NewGraphDataHandler callers that do not have a pre-built graph).
 	graph *Graph
+	// cache caches the full-view (no ?node=) assembly — provenance walk + element
+	// build + marshal — keyed by a filesystem fingerprint, warmed in the background
+	// at startup. nil for the per-request NewGraphDataHandler constructor.
+	cache *graphDataCache
 }
 
 // NewGraphDataHandler returns an http.Handler for /graph/data that builds the
@@ -264,10 +268,33 @@ func NewGraphDataHandler(root string) http.Handler {
 // g must not be nil. This is the preferred constructor when the caller already
 // builds a link graph at startup (as serve.go does via BuildLinkGraph).
 func NewGraphDataHandlerWithGraph(root string, g *Graph) http.Handler {
-	return &GraphDataHandler{root: root, graph: g}
+	cache := newGraphDataCache(root, g)
+	// Warm the full-view assembly in the background so the first Network View open
+	// serves cached bytes instead of waiting on the provenance walk.
+	go cache.warm()
+	return &GraphDataHandler{root: root, graph: g, cache: cache}
 }
 
 func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	nodeParam := r.URL.Query().Get("node")
+
+	// Full view (no ?node=): serve the cached, fingerprint-invalidated assembly.
+	// The expensive provenance walk + whole-realm element build runs once per realm
+	// state, warmed in the background at startup, instead of on every open.
+	if nodeParam == "" && h.cache != nil {
+		if b, fp, err := h.cache.fullJSON(); err == nil {
+			w.Header().Set("Content-Type", "application/json")
+			// Surface the realm fingerprint so the client can key its layout cache
+			// (IndexedDB) off the exact realm state.
+			if fp != "" {
+				w.Header().Set("X-Graph-Fingerprint", fp)
+			}
+			_, _ = w.Write(b)
+			return
+		}
+		// On assemble error, fall through to the live path below.
+	}
+
 	// Use the injected graph when available; fall back to per-request build.
 	g := h.graph
 	if g == nil {
@@ -281,7 +308,6 @@ func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	var elems cytoElements
 
-	nodeParam := r.URL.Query().Get("node")
 	if nodeParam != "" {
 		depth := 2 // default depth for local view
 		if dStr := r.URL.Query().Get("depth"); dStr != "" {

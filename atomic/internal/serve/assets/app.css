@@ -169,6 +169,7 @@
     --rail-width:            300px;
     --header-height:         56px;
     --content-header-height: 40px;
+    --footer-height:         34px;
 
     /* Kept for any Go template that references old font vars */
     --font-mono: var(--mono);
@@ -601,6 +602,37 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
     padding: 0 56px;
 }
 
+/* ── content-column footer (copyright / license) ────────────── */
+/* Sits below #main-pane in the flex column, so it stays pinned to the bottom of
+   the reading area on every page (and below the system graph) without overlaying
+   the nav/rail chrome. */
+#app-footer {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    height: var(--footer-height);
+    padding: 0 24px;
+    border-top: 1px solid var(--hairline);
+    background: var(--paper);
+    color: var(--ink-ghost);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.03em;
+    user-select: none;
+    transition: background-color .35s ease, border-color .35s ease;
+}
+
+#app-footer a {
+    color: var(--ink-faint);
+    transition: color .14s;
+}
+
+#app-footer a:hover { color: var(--amber); }
+
+#app-footer .footer-sep { color: var(--ink-ghost); opacity: 0.55; }
+
 /* ── search toggle (md | code in the search dialog) ─────────── */
 
 .search-toggle {
@@ -703,6 +735,11 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
 #rail-graph-content [data-rail-graph-url] {
     width: 100%;
     height: 190px;
+    background: var(--graph-bg);
+    border: 1px solid var(--hairline-2);
+    border-radius: 10px;
+    box-shadow: inset 0 1px 3px color-mix(in srgb, var(--ink) 4%, transparent);
+    transition: background-color .35s ease, border-color .35s ease;
 }
 
 .rail-props-list {
@@ -738,6 +775,37 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
     color: var(--ink);
     word-break: break-word;
     min-width: 0;
+}
+
+/* Non-primitive frontmatter (array / object) → full-width block: key on its own
+   line above a pretty-printed JSON code block. The grid 2-col layout is too narrow
+   for structured values, so these rows go block-level. */
+.rail-props-list li.rail-prop-li-json {
+    display: block;
+}
+
+.rail-props-list li.rail-prop-li-json .rail-prop-key {
+    display: block;
+    margin-bottom: 7px;
+}
+
+.rail-prop-json {
+    margin: 0;
+    padding: 10px 12px;
+    background: var(--paper-sunk);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    overflow-x: auto;
+}
+
+.rail-prop-json code {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    white-space: pre;
+    background: none;
+    padding: 0;
 }
 
 /* Type chip — colored per OKF type */
@@ -1149,6 +1217,34 @@ pre {
 }
 
 /* ============================================================
+   MERMAID DIAGRAMS
+   Colors are supplied at render time from CSS vars (theme:'base' +
+   themeVariables in layout.html), so only layout/flash styling lives here.
+   ============================================================ */
+
+.md-content pre.mermaid {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 26px 0;
+    text-align: center;
+    line-height: normal;
+    font-family: var(--sans);
+    /* Hide the raw diagram source until mermaid swaps in the <svg>
+       (data-processed is set by mermaid.run()). */
+    color: transparent;
+}
+
+.md-content pre.mermaid[data-processed="true"] {
+    color: inherit;
+}
+
+.md-content pre.mermaid svg {
+    max-width: 100%;
+    height: auto;
+}
+
+/* ============================================================
    SYSTEM GRAPH MODE (FE3)
    ============================================================ */
 
@@ -1157,12 +1253,27 @@ body.mode-system #right-rail {
     display: none;
 }
 
+/* Network View fills the content area edge to edge (drop the reading padding).
+   overflow:hidden stops the auto-scrollbar feedback loop — the live layout nudges
+   the canvas box by a pixel, a scrollbar appears, that resizes the canvas, which
+   re-fits, which toggles the scrollbar again → constant flicker. The graph pans
+   and zooms on its own, so it never needs the pane's scrollbars. */
+body.mode-system #main-pane {
+    padding: 0;
+    overflow: hidden;
+}
+
 /* System-cy container fills #main-pane (no content-header row above it) */
 #system-cy {
     width: 100%;
     height: 100%;
-    min-height: calc(100vh - var(--header-height));
-    background: var(--graph-bg);
+    min-height: calc(100vh - var(--header-height) - var(--footer-height));
+    background-color: var(--graph-bg);
+    /* Faint editorial grain (same accents as <body>) so the canvas reads as part
+       of the site rather than a bare white plane. */
+    background-image:
+        radial-gradient(circle at 28% 18%, var(--grain-b), transparent 52%),
+        radial-gradient(circle at 82% 84%, var(--grain-a), transparent 56%);
     transition: background-color .35s ease;
 }
 
@@ -1796,19 +1907,6 @@ ul.dir-listing .dir-entry { margin: 0; }
     pointer-events: auto;
 }
 
-#cy-preview-card::after {
-    content: "";
-    position: absolute;
-    left: 38px;
-    top: -7px;
-    width: 13px;
-    height: 13px;
-    background: var(--paper-raised);
-    border-left: 1px solid var(--hairline-2);
-    border-top: 1px solid var(--hairline-2);
-    transform: rotate(45deg);
-}
-
 .cy-pc-chip {
     display: inline-flex;
     align-items: center;
@@ -1904,14 +2002,23 @@ ul.dir-listing .dir-entry { margin: 0; }
     width: 660px;
     max-width: 100%;
     max-height: 86vh;
-    overflow-y: auto;
+    /* Flex column: the content region scrolls, the footer is a non-shrinking
+       sibling pinned at the bottom by layout (no sticky/overlap). */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     background: var(--paper-raised);
     color: var(--ink);
     border: 1px solid var(--hairline-2);
     border-radius: 18px;
     box-shadow: 0 40px 100px -28px rgba(0,0,0,0.46), 0 8px 26px rgba(0,0,0,0.14);
-    padding: 42px 48px 44px;
     animation: cy-modal-in .24s cubic-bezier(.2,.7,.2,1);
+}
+
+/* Fixed header row (chip · title · desc) — stays put while the body scrolls. */
+.cy-modal-header {
+    flex-shrink: 0;
+    padding: 42px 48px 20px;
 }
 
 [data-theme="dark"] .cy-modal {
@@ -2009,23 +2116,40 @@ ul.dir-listing .dir-entry { margin: 0; }
     margin-bottom: 22px;
 }
 
-/* rendered body fragment */
+/* Rendered body fragment — the only scroll region (between fixed header and
+   fixed footer). The full-width top divider matches the footer's. */
 .cy-modal-body {
-    max-width: 60ch;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 26px 48px 30px;
     border-top: 1px solid var(--hairline);
-    padding-top: 24px;
     color: var(--ink-soft);
     font-size: 15px;
     line-height: 1.7;
 }
 
+/* The fetched fragment wraps content in #page-content.md-content, which carries
+   its own reading-measure padding/max-width meant for the main pane. Inside the
+   modal the body already supplies inset + scroll, so neutralize that wrapper to
+   avoid double padding and a too-narrow measure. */
+.cy-modal-body #page-content {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* Footer pinned to the bottom of the dialog by flex layout — a non-shrinking
+   sibling below the scroll region, so it never overlaps content. */
 .cy-modal-actions {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 14px;
-    margin-top: 30px;
-    padding-top: 22px;
+    padding: 18px 48px 20px;
     border-top: 1px solid var(--hairline);
+    border-radius: 0 0 18px 18px;
+    background: var(--paper-raised);
 }
 
 .cy-modal-btn-primary {

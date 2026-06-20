@@ -11,16 +11,17 @@ require github.com/tailscale/hujson v0.0.0-20260302212456-ecc657c15afd
 require github.com/yuin/goldmark v1.8.2
 
 require (
+	github.com/alecthomas/chroma/v2 v2.26.1
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/x/term v0.2.1
 	github.com/malivvan/tree-sitter v0.0.1
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/pelletier/go-toml/v2 v2.3.1
+	golang.org/x/sync v0.20.0
 	modernc.org/sqlite v1.51.0
 )
 
 require (
-	github.com/alecthomas/chroma/v2 v2.26.1 // indirect
 	github.com/atotto/clipboard v0.1.4 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/catppuccin/go v0.3.0 // indirect
@@ -53,7 +54,6 @@ require (
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	modernc.org/libc v1.72.3 // indirect
