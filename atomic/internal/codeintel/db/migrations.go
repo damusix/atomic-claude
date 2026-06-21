@@ -59,6 +59,16 @@ var migrations = []Migration{
 		Version: 2,
 		Up:      `ALTER TABLE unresolved_refs ADD COLUMN arguments TEXT`,
 	},
+	{
+		// v3 (call-resolution fix): add callee_expr TEXT column to unresolved_refs.
+		// ReferenceName now stores the bare invoked segment (resolvable by the name
+		// matcher); callee_expr preserves the full callee expression ("emitter.on",
+		// "DeviceEventEmitter.addListener") that the callback synthesizers match on.
+		// NULL default leaves existing rows unaffected — synthesizers fall back to
+		// ReferenceName when callee_expr is absent.
+		Version: 3,
+		Up:      `ALTER TABLE unresolved_refs ADD COLUMN callee_expr TEXT`,
+	},
 }
 
 // createSchemaVersionsTable creates the schema_versions ledger if it does not

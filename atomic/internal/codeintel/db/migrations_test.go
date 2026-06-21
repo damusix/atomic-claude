@@ -75,11 +75,11 @@ func TestMigrationBaselineRecorded(t *testing.T) {
 	d, cleanup := tempDB(t)
 	defer cleanup()
 
-	// The production migrations slice currently has v2 (EE2 arguments column),
-	// so a fresh DB records v1 (baseline) + v2 = 2 rows.
+	// The production migrations slice currently has v2 (EE2 arguments column) and
+	// v3 (callee_expr column), so a fresh DB records v1 (baseline) + v2 + v3 = 3 rows.
 	// Update this comment and the constants below when new migrations are added.
-	const wantRows = 2   // baseline (v1) + v2
-	const wantMaxVer = 2 // highest registered production migration
+	const wantRows = 3   // baseline (v1) + v2 + v3
+	const wantMaxVer = 3 // highest registered production migration
 
 	n := countSchemaVersionRows(t, d)
 	if n != wantRows {

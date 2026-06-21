@@ -296,7 +296,7 @@ var canonicalSchema = []schemaEntry{
 	{typ: "table", name: "schema_versions", sql: "CREATE TABLE schema_versions ( version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL )"},
 	// unresolved_refs DDL reflects migration v2 (arguments column appended via ALTER TABLE).
 	// The normalized form has the extra column at the end, separated by " , ".
-	{typ: "table", name: "unresolved_refs", sql: "CREATE TABLE unresolved_refs ( id TEXT PRIMARY KEY, from_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE, reference_name TEXT NOT NULL, reference_kind TEXT NOT NULL, line INTEGER NOT NULL DEFAULT 0, col INTEGER NOT NULL DEFAULT 0, candidates TEXT, file_path TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT 'unknown' , arguments TEXT)"},
+	{typ: "table", name: "unresolved_refs", sql: "CREATE TABLE unresolved_refs ( id TEXT PRIMARY KEY, from_node_id TEXT NOT NULL REFERENCES nodes(id) ON DELETE CASCADE, reference_name TEXT NOT NULL, reference_kind TEXT NOT NULL, line INTEGER NOT NULL DEFAULT 0, col INTEGER NOT NULL DEFAULT 0, candidates TEXT, file_path TEXT NOT NULL DEFAULT '', language TEXT NOT NULL DEFAULT 'unknown' , arguments TEXT, callee_expr TEXT)"},
 }
 
 type schemaEntry struct {

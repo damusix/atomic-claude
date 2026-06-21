@@ -339,6 +339,13 @@ type UnresolvedReference struct {
 	FilePath      string          `json:"file_path"`
 	Language      Language        `json:"language"`
 	Arguments     []string        `json:"arguments,omitempty"`
+	// CalleeExpr is the full callee expression as written for a call/instantiation
+	// ref (e.g. "emitter.on", "DeviceEventEmitter.addListener", "pkg.Func"), while
+	// ReferenceName holds only the bare invoked segment ("on", "addListener",
+	// "Func") that resolution matches against. Empty for non-call refs and for refs
+	// from pre-v3 indexes; consumers that need the receiver (the callback
+	// synthesizers) fall back to ReferenceName when this is empty.
+	CalleeExpr string `json:"callee_expr,omitempty"`
 }
 
 // Subgraph is a self-contained view of a portion of the knowledge graph:
