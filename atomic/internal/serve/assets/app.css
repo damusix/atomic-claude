@@ -239,8 +239,11 @@ a { color: inherit; text-decoration: none; }
     font-size: 15.5px;
     letter-spacing: -0.01em;
     color: var(--ink);
+    text-decoration: none;
     flex-shrink: 0;
 }
+
+#app-header a.brand:hover { color: var(--ink); }
 
 #app-header .brand .brand-logo {
     display: inline-block;
@@ -436,8 +439,14 @@ a { color: inherit; text-decoration: none; }
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 8px;
-    color: var(--ink-soft);
+    /* Left inset nests flat leaves under their group header (whose label sits at
+       ~8px) so they read as inside the section, not flush against the pane edge.
+       Folder-tree leaves carry an inline padding-left that overrides this. */
+    padding: 5px 8px 5px 20px;
+    /* Amber, matching the right-rail OUT/IN links (.ctx-link) — sidebar leaves
+       are links and read as links. Section headers stay muted (--ink-soft), so
+       the hierarchy still reads: quiet headers, amber leaves. */
+    color: var(--amber);
     text-decoration: none;
     font-size: 13.5px;
     border-radius: 7px;
@@ -448,7 +457,7 @@ a { color: inherit; text-decoration: none; }
 
 .nav-item:hover {
     background: color-mix(in srgb, var(--ink) 5%, transparent);
-    color: var(--ink);
+    color: var(--amber-bright);
 }
 
 .nav-item.active {
@@ -459,6 +468,13 @@ a { color: inherit; text-decoration: none; }
 }
 
 .nav-item.active .ico { color: var(--amber); }
+
+/* Pin visited nav links to the same amber as unvisited ones. Without this the
+   site-wide `a:visited { color: amber }` happens to agree, but stating it keeps
+   the nav independent of that global and immune to a visited-color change. */
+.nav-item:visited { color: var(--amber); }
+.nav-item:hover, .nav-item:hover:visited { color: var(--amber-bright); }
+.nav-item.active, .nav-item.active:visited { color: var(--amber); }
 
 .nav-item .ico {
     color: var(--ink-ghost);
