@@ -55,10 +55,12 @@ func chromaHighlight(lang, code string) string {
 	if style == nil {
 		style = styles.Fallback
 	}
+	// Resolve by the explicit fence language only. Do NOT fall back to
+	// lexers.Analyse (content-based guessing): an unlabeled or non-code fence
+	// (e.g. a terminal transcript) would otherwise be mis-detected as some
+	// language and rendered with spurious keyword highlighting. An unknown or
+	// absent language falls through to the plaintext lexer (no token colors).
 	lexer := lexers.Get(lang)
-	if lexer == nil {
-		lexer = lexers.Analyse(code)
-	}
 	if lexer == nil {
 		lexer = lexers.Fallback
 	}
@@ -88,9 +90,10 @@ func chromaHighlightLines(lang, code string) string {
 		lexer = lexers.Match("file." + lang)
 	}
 	if lexer == nil {
-		lexer = lexers.Analyse(code)
-	}
-	if lexer == nil {
+		// No lexer maps to this extension. Do NOT fall back to lexers.Analyse
+		// (content-based guessing) — a plain-text file (.txt, .mod, LICENSE, …)
+		// would otherwise be mis-detected and get spurious highlighting. The
+		// plaintext fallback renders the source verbatim with no token colors.
 		lexer = lexers.Fallback
 	}
 	lexer = chroma.Coalesce(lexer)
