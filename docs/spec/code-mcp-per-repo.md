@@ -29,7 +29,7 @@ Resolve the db from the explicit path and spawn a cwd-independent daemon that se
 
 ## Checkpoints
 
-| # | Checkpoint | Files / areas | Agent | Est. files | Verifies |
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|-----------|--------------|-------|-----------|---------|
 | 1 | Reproduce + fix: cwd-independent daemon serving the explicit db, socket next to the db, no member pollution | `atomic/internal/codeintel/cli/code.go` (`runMCP`, `runServe`), `atomic/internal/codeintel/cli/realm.go` (`--repo`/`__serve` path resolution; the explicit-path single target must not hit the mcp/`__serve` realm reject), `atomic/internal/codeintel/mcp/proxy.go` (spawn explicit source+db, cwd-independent), `atomic/internal/codeintel/mcp/daemon.go` (`RunDaemon` takes source+db, `NewWithDBPath`; `SocketPath`/`LockPath` derive from the db dir), `atomic/cmd/atomic/main.go` (`--repo` resolves member→realm db); new test in `mcp/` or `cli/` | atomic-implementer (feature) | 5–9 | new regression test is RED before the fix, GREEN after: daemon launched with cwd at a non-git dir binds its socket and answers `initialize`; member path → realm db, standalone → local index; member source tree stays clean; repo-mode socket path unchanged |
 | 2 | In-daemon periodic self-sync (10s) | `atomic/internal/codeintel/mcp/daemon.go` (poller goroutine on daemon ctx), small poller helper if needed; `cli/code.go` (`--watch-interval`/`--no-watch` flags) | atomic-implementer (feature) | 3–5 | sync fires on a clock-injected interval and stops on ctx cancel (test); named const default 10s asserted by test |
