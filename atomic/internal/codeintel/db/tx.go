@@ -59,6 +59,16 @@ func (t *Tx) DeleteNodesByFile(ctx context.Context, filePath string) error {
 	return nil
 }
 
+// DeleteFile deletes the file record with the given path within the
+// transaction.
+func (t *Tx) DeleteFile(ctx context.Context, path string) error {
+	_, err := t.tx.ExecContext(ctx, "DELETE FROM files WHERE path = ?", path)
+	if err != nil {
+		return fmt.Errorf("codeintel/db: Tx.DeleteFile %s: %w", path, err)
+	}
+	return nil
+}
+
 // UpsertNodeAt inserts or replaces a node within the transaction with an
 // explicit updatedAt Unix timestamp.
 func (t *Tx) UpsertNodeAt(ctx context.Context, n types.Node, updatedAt int64) error {

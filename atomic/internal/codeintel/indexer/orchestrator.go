@@ -220,7 +220,10 @@ func (o *Orchestrator) IndexAll(ctx context.Context, projectRoot string) error {
 		return fmt.Errorf("orchestrator: scan: %w", err)
 	}
 
-	return o.indexFiles(ctx, projectRoot, files)
+	if err := o.indexFiles(ctx, projectRoot, files); err != nil {
+		return err
+	}
+	return o.pruneDeleted(ctx, projectRoot, files)
 }
 
 // IndexPaths indexes exactly the files in paths. Each path must be absolute.
@@ -235,13 +238,71 @@ func (o *Orchestrator) IndexPaths(ctx context.Context, projectRoot string, paths
 // It uses size+mtime as a pre-filter, then confirms with a content hash.
 // Files that have not changed are skipped (dedup). Changed files have their old
 // nodes deleted (cascade clears edges) before re-extraction (R-E invariant).
+// Files that have vanished from disk since the last run are pruned from the
+// index (pruneDeleted) so a delete or rename does not leave stale symbols.
 func (o *Orchestrator) Sync(ctx context.Context, projectRoot string) error {
 	files, err := scanFiles(projectRoot)
 	if err != nil {
 		return fmt.Errorf("orchestrator: sync scan: %w", err)
 	}
 
-	return o.indexFiles(ctx, projectRoot, files)
+	if err := o.indexFiles(ctx, projectRoot, files); err != nil {
+		return err
+	}
+	return o.pruneDeleted(ctx, projectRoot, files)
+}
+
+// pruneDeleted removes index rows for files that exist in the DB but no longer
+// exist on disk. scanFiles only returns paths that currently exist, so a
+// whole-file delete or rename leaves the file's nodes, edges, unresolved refs,
+// and file record stranded — queries would keep returning symbols and call
+// edges from code that is gone. This reconciles the DB's file set against the
+// on-disk set and reclaims the orphans.
+//
+// onDisk is the full scanned path list (absolute, pre-extension-filter); any DB
+// file path absent from it is genuinely gone. filepath.Rel reproduces the same
+// relative key indexOneFile stored, so the comparison is exact. Each orphan is
+// pruned in one transaction — DeleteNodesByFile cascades the file's edges (and
+// any inbound edge whose target node lived in the deleted file) — so a crash
+// never leaves a half-pruned file.
+//
+// Scoped to whole-tree callers (IndexAll, Sync). IndexPaths must NOT prune: it
+// is handed an explicit subset and would wrongly delete every file outside it.
+func (o *Orchestrator) pruneDeleted(ctx context.Context, projectRoot string, onDisk []string) error {
+	// O(1) membership set of relative paths that exist on disk.
+	present := make(map[string]bool, len(onDisk))
+	for _, p := range onDisk {
+		rel, err := filepath.Rel(projectRoot, p)
+		if err != nil {
+			rel = p // mirrors indexOneFile's fallback when Rel fails
+		}
+		present[rel] = true
+	}
+
+	dbFiles, err := o.db.GetAllFiles(ctx)
+	if err != nil {
+		return fmt.Errorf("orchestrator: prune: list files: %w", err)
+	}
+
+	var errs []error
+	for _, fr := range dbFiles {
+		if present[fr.Path] {
+			continue
+		}
+		// Orphan: indexed but gone from disk. Reclaim its rows atomically.
+		if err := o.db.WithTx(ctx, func(tx *db.Tx) error {
+			if err := tx.DeleteNodesByFile(ctx, fr.Path); err != nil {
+				return err
+			}
+			if err := tx.DeleteUnresolvedRefsByFile(ctx, fr.Path); err != nil {
+				return err
+			}
+			return tx.DeleteFile(ctx, fr.Path)
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("orchestrator: prune %s: %w", fr.Path, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // indexFiles processes a list of absolute file paths. It is the shared inner

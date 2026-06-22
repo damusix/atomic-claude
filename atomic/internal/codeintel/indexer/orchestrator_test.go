@@ -181,6 +181,99 @@ export default {
 }
 
 // ---------------------------------------------------------------------------
+// TestSyncPrunesDeletedFiles — deleted-file pruning
+// ---------------------------------------------------------------------------
+
+// TestSyncPrunesDeletedFiles verifies that Sync removes a file's index rows
+// (file record, nodes, and the edges cascaded from them) once the file is
+// deleted from disk. A whole-file delete disappears from scanFiles, so the
+// only thing that can reclaim its rows is an explicit prune pass — without it,
+// the index keeps returning symbols and call-edges from code that no longer
+// exists.
+//
+// The companion sub-test proves the surviving file is untouched: pruning must
+// be scoped to vanished paths only, never collateral.
+func TestSyncPrunesDeletedFiles(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	// Two files: a caller in main.go and a callee in greet.go. The call edge
+	// crosses files, so deleting greet.go must also reclaim the resolved edge
+	// via the node cascade.
+	writeFile(t, dir, "main.go", `package main
+
+func main() {
+	Hello()
+}
+`)
+	writeFile(t, dir, "greet.go", `package main
+
+func Hello() string {
+	return "hi"
+}
+`)
+	gitAdd(t, dir, ".")
+	gitCommit(t, dir, "init")
+
+	orch := indexer.NewOrchestrator(database, pool)
+	if err := orch.IndexAll(ctx, dir); err != nil {
+		t.Fatalf("IndexAll: %v", err)
+	}
+
+	// Sanity: greet.go is indexed before deletion.
+	if _, err := database.GetFile(ctx, "greet.go"); err != nil {
+		t.Fatalf("precondition: greet.go should be indexed: %v", err)
+	}
+	greetNodes, err := database.GetNodesInFile(ctx, "greet.go")
+	if err != nil {
+		t.Fatalf("GetNodesInFile(greet.go): %v", err)
+	}
+	if len(greetNodes) == 0 {
+		t.Fatal("precondition: greet.go should have nodes")
+	}
+
+	// Delete greet.go from disk (and stage the removal so git ls-files agrees).
+	if err := os.Remove(filepath.Join(dir, "greet.go")); err != nil {
+		t.Fatalf("remove greet.go: %v", err)
+	}
+	gitAdd(t, dir, "-A")
+	gitCommit(t, dir, "rm greet.go")
+
+	if err := orch.Sync(ctx, dir); err != nil {
+		t.Fatalf("Sync after delete: %v", err)
+	}
+
+	// The deleted file's record must be gone.
+	if _, err := database.GetFile(ctx, "greet.go"); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("greet.go file record still present after Sync (err=%v) — deleted code not pruned", err)
+	}
+
+	// Its nodes must be gone.
+	afterNodes, err := database.GetNodesInFile(ctx, "greet.go")
+	if err != nil {
+		t.Fatalf("GetNodesInFile(greet.go) after delete: %v", err)
+	}
+	if len(afterNodes) != 0 {
+		t.Errorf("greet.go has %d nodes after delete+Sync; want 0 (pruning failed)", len(afterNodes))
+	}
+
+	// The surviving file must be untouched — prune is scoped to vanished paths.
+	if _, err := database.GetFile(ctx, "main.go"); err != nil {
+		t.Errorf("main.go file record was wrongly pruned: %v", err)
+	}
+	mainNodes, err := database.GetNodesInFile(ctx, "main.go")
+	if err != nil {
+		t.Fatalf("GetNodesInFile(main.go) after delete: %v", err)
+	}
+	if len(mainNodes) == 0 {
+		t.Error("main.go nodes were wrongly pruned")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // TestOrphanInvariant — the R-E headline test
 // ---------------------------------------------------------------------------
 
