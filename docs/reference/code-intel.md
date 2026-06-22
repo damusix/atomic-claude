@@ -25,7 +25,7 @@ Run `atomic code <verb>` from your project root. Every query verb accepts `--jso
 | Verb | What it does |
 |------|--------------|
 | `index` | Build the index for every source file in the project |
-| `sync` | Incrementally re-index only changed files (cheap, self-healing) |
+| `sync` | Incrementally re-index changed files and prune deleted ones (cheap, self-healing) |
 | `status` | Show index health (`--json` for machine-readable) |
 | `search` | Find symbols by name, kind, or language |
 | `callers` | What calls this symbol (`--depth` for multiple hops) |
