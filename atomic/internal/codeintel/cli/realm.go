@@ -106,9 +106,12 @@ func runRealmMember(args []string, res realm.Resolution, stdout, stderr io.Write
 		return indexRealmAll(res.RealmRoot, []realm.MemberEntry{m}, args[1:], stdout, stderr)
 	}
 
-	// Unsupported single-root verbs: give a clear message.
-	if verb == "mcp" || verb == "__serve" || verb == "sync" || verb == "status" {
-		fmt.Fprintf(stderr, "atomic code %s: not available in realm scope; cd into a member repo or pass --repo <member>\n", verb)
+	// mcp / __serve start a long-lived server over a whole tree; they have no
+	// per-member meaning. sync and status DO operate on a single member — against
+	// its realm db (the NewWithDBPath engine below), writing nothing into the
+	// member repo — so they fall through to dispatchVerb like the query verbs.
+	if verb == "mcp" || verb == "__serve" {
+		fmt.Fprintf(stderr, "atomic code %s: not available in realm-member scope; run from a standalone repo\n", verb)
 		return 1
 	}
 
@@ -131,9 +134,11 @@ func runRealmAll(args []string, cwd string, res realm.Resolution, claudeMDPath s
 	verb := args[0]
 	restArgs := args[1:]
 
-	// Verbs that operate on a single root and cannot fan out: give a clear message.
+	// Server verbs bind to a single tree and cannot fan out across members.
+	// sync and status are NOT in this set — they fan out per member like the
+	// query verbs (sync updates each member's realm db; status reports each).
 	switch verb {
-	case "mcp", "__serve", "sync", "status":
+	case "mcp", "__serve":
 		fmt.Fprintf(stderr, "atomic code %s: not available in realm scope; cd into a member repo or pass --repo <member>\n", verb)
 		return 1
 	}
@@ -266,7 +271,9 @@ func indexRealmAll(realmRoot string, members []realm.MemberEntry, extraArgs []st
 	return 0
 }
 
-// fanOutQuery runs a non-index query verb across the filtered member list.
+// fanOutQuery runs a non-index verb across the filtered member list — the
+// query verbs plus sync/status (sync mutates each member's realm db; both are
+// safe per-member). Un-indexed members are skipped with a clear message.
 // Human output: each member under a [key] header.
 // JSON output: {key: raw_json, ...} assembled from each member's captured output.
 func fanOutQuery(verb string, args []string, members []realm.MemberEntry, res realm.Resolution, stdout, stderr io.Writer, stdin io.Reader) int {

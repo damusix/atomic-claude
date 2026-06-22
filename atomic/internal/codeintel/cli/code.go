@@ -337,7 +337,9 @@ func runStatus(ctx context.Context, eng *engine.Engine, args []string, projectRo
 		fmt.Fprintf(stderr, "atomic code status: pending changes: %v (non-fatal)\n", err)
 	}
 
-	indexPath := filepath.Join(projectRoot, ".claude/.atomic-index/atomic.db")
+	// Use the engine's bound db path (correct in realm scope, where the db lives
+	// at <realm>/.atomic/<key>.db, not under projectRoot).
+	indexPath := eng.IndexPath()
 
 	if asJSON {
 		byKind := make(map[string]int, len(stats.NodesByKind))

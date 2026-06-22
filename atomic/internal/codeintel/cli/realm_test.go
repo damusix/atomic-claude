@@ -636,3 +636,93 @@ func TestRunCodeRealm_Index_OnlyFilter_BlockContainsAllMembers(t *testing.T) {
 			"block must reflect full realm membership, not just the --only target;\ncontent:\n%s", content)
 	}
 }
+
+// ─── 13. sync / status are available in realm scope ──────────────────────────
+//
+// Regression for the "sync incorrectly detects a wiki" report: from inside a
+// member repo, `atomic code sync`/`status` were rejected with "not available in
+// realm scope; cd into a member repo" — advice the user had already followed.
+// sync/status operate on the member's realm db (written nowhere near the member
+// repo), so they must work in both realm-member and realm-root (fan-out) scope.
+// Before the fix all three of these returned exit 1 with the rejection message.
+
+func TestRunCodeRealm_ScopeRealmMember_Sync(t *testing.T) {
+	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
+
+	var idx bytes.Buffer
+	if code := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &idx, &idx, noStdin()); code != 0 {
+		t.Fatalf("index failed: %s", idx.String())
+	}
+
+	alphaCWD := filepath.Join(realmRoot, "repos", "alpha")
+	var stdout, stderr bytes.Buffer
+	code := codecli.RunCodeWithRealm([]string{"sync"}, alphaCWD, claudeMD, &stdout, &stderr, noStdin())
+	if code != 0 {
+		t.Fatalf("member sync failed (exit %d); stderr: %s", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "not available") {
+		t.Errorf("member sync was rejected as 'not available'; the user is already in the member repo;\nstderr: %s", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "synced:") {
+		t.Errorf("expected 'synced:' in member sync output; got stdout: %s\nstderr: %s", stdout.String(), stderr.String())
+	}
+	// SC 3: sync must write to the realm db, never create a local index in the member repo.
+	if _, err := os.Stat(filepath.Join(alphaCWD, ".claude", ".atomic-index")); err == nil {
+		t.Errorf("member sync created .claude/.atomic-index/ inside the member repo — must write to the realm db only")
+	}
+}
+
+func TestRunCodeRealm_ScopeRealmMember_StatusReportsRealmDB(t *testing.T) {
+	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha"})
+
+	var idx bytes.Buffer
+	if code := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &idx, &idx, noStdin()); code != 0 {
+		t.Fatalf("index failed: %s", idx.String())
+	}
+
+	alphaCWD := filepath.Join(realmRoot, "repos", "alpha")
+	var stdout, stderr bytes.Buffer
+	code := codecli.RunCodeWithRealm([]string{"status"}, alphaCWD, claudeMD, &stdout, &stderr, noStdin())
+	if code != 0 {
+		t.Fatalf("member status failed (exit %d); stderr: %s", code, stderr.String())
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "initialized:") {
+		t.Errorf("expected status report; got: %s", out)
+	}
+	// The reported index path must be the realm db, not a path inside the member repo.
+	realmDB := filepath.Join(realmRoot, ".atomic", "alpha.db")
+	if !strings.Contains(out, realmDB) {
+		t.Errorf("member status should report the realm db path %q; got: %s", realmDB, out)
+	}
+	if strings.Contains(out, filepath.Join(alphaCWD, ".claude")) {
+		t.Errorf("member status reported a member-local index path; it must report the realm db; got: %s", out)
+	}
+}
+
+func TestRunCodeRealm_ScopeRealmAll_SyncFansOut(t *testing.T) {
+	realmRoot, claudeMD := buildRealmFixture(t, []string{"alpha", "beta"})
+
+	var idx bytes.Buffer
+	if code := codecli.RunCodeWithRealm([]string{"index"}, realmRoot, claudeMD, &idx, &idx, noStdin()); code != 0 {
+		t.Fatalf("index failed: %s", idx.String())
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := codecli.RunCodeWithRealm([]string{"sync"}, realmRoot, claudeMD, &stdout, &stderr, noStdin())
+	if code != 0 {
+		t.Fatalf("realm-root sync failed (exit %d); stderr: %s", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "not available") {
+		t.Errorf("realm-root sync was rejected; it should fan out across members;\nstderr: %s", stderr.String())
+	}
+	out := stdout.String()
+	for _, key := range []string{"[alpha]", "[beta]"} {
+		if !strings.Contains(out, key) {
+			t.Errorf("expected %s header in fan-out sync output; got: %s", key, out)
+		}
+	}
+	if !strings.Contains(out, "synced:") {
+		t.Errorf("expected 'synced:' lines in fan-out output; got: %s", out)
+	}
+}
