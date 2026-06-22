@@ -1,5 +1,15 @@
 # Changelog
 
+## [5.5.1](https://github.com/damusix/atomic-claude/compare/v5.5.0...v5.5.1) (2026-06-22)
+
+
+### Bug Fixes
+
+* **code-intel:** index past unreadable files; aggregate multi-def callers ([c27ce5f](https://github.com/damusix/atomic-claude/commit/c27ce5f751662ffe00980037df919c6e3fee1831))
+* **code-intel:** make call-graph queries return correct results ([7eae7f9](https://github.com/damusix/atomic-claude/commit/7eae7f9b842df481aa777fd0c9394b022922915a))
+* **code-intel:** repair call-graph edge resolution ([46b16c4](https://github.com/damusix/atomic-claude/commit/46b16c4d0cd80d1504d1aa05cd3e6beaa97bfcab))
+* **serve:** highlighting, scroll, nav, search ([67ff19a](https://github.com/damusix/atomic-claude/commit/67ff19a2dfc741b8e1b47b7e487920405ce8d319))
+
 ## [5.5.0](https://github.com/damusix/atomic-claude/compare/v5.4.1...v5.5.0) (2026-06-20)
 
 
