@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.6.1](https://github.com/damusix/atomic-claude/compare/v5.6.0...v5.6.1) (2026-06-22)
+
+
+### Bug Fixes
+
+* **code-intel:** prune deleted files from the index on sync ([b5e7eec](https://github.com/damusix/atomic-claude/commit/b5e7eecd3bdeacf35f05079fb1e90615730c0f3c))
+* **code-intel:** prune deleted files from the index on sync ([0532b58](https://github.com/damusix/atomic-claude/commit/0532b5822f85e3c30d1bec0197f3231cf6ccb06f))
+
 ## [5.6.0](https://github.com/damusix/atomic-claude/compare/v5.5.0...v5.6.0) (2026-06-22)
 
 
