@@ -21,29 +21,46 @@ import (
 	"time"
 )
 
+// WatchOptions controls the background sync poller passed to the daemon on spawn.
+type WatchOptions struct {
+	// Disable disables the sync poller when true (--no-watch).
+	Disable bool
+	// Interval overrides the default SyncInterval when non-zero (--watch-interval).
+	Interval time.Duration
+}
+
 // ---------------------------------------------------------------------------
 // Spawn seam (injectable for tests)
 // ---------------------------------------------------------------------------
 
 // SpawnFunc is the function called by the proxy to start the daemon when the
 // socket is absent or dead. The real implementation forks a detached
-// `atomic code __serve --source SRC --db DB` subprocess. Tests inject an
-// in-process stub that starts a goroutine daemon instead.
+// `atomic code __serve --source SRC --db DB [--watch-interval T | --no-watch]`
+// subprocess. Tests inject an in-process stub that starts a goroutine daemon
+// instead.
 //
 // sourceRoot is the directory containing the source files to serve.
 // dbPath is the absolute path to the SQLite index file.
-type SpawnFunc func(sourceRoot, dbPath string) error
+// opts controls the sync-poller flags forwarded to the daemon.
+type SpawnFunc func(sourceRoot, dbPath string, opts WatchOptions) error
 
 // DefaultSpawn starts `atomic code __serve --source <sourceRoot> --db <dbPath>`
 // detached (no TTY, stdout/stderr to devnull so the parent can exit immediately).
 // Passing explicit paths makes the daemon cwd-independent: it never re-resolves
 // scope from the process working directory.
-func DefaultSpawn(sourceRoot, dbPath string) error {
+// opts is forwarded as --watch-interval / --no-watch flags to the daemon.
+func DefaultSpawn(sourceRoot, dbPath string, opts WatchOptions) error {
 	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("spawn daemon: locate executable: %w", err)
 	}
-	cmd := exec.Command(self, "code", "__serve", "--source", sourceRoot, "--db", dbPath)
+	argv := []string{"code", "__serve", "--source", sourceRoot, "--db", dbPath}
+	if opts.Disable {
+		argv = append(argv, "--no-watch")
+	} else if opts.Interval > 0 {
+		argv = append(argv, "--watch-interval", opts.Interval.String())
+	}
+	cmd := exec.Command(self, argv...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		// Detach from the parent's process group so the daemon survives the proxy exit.
 		Setsid: true,
@@ -65,15 +82,15 @@ func DefaultSpawn(sourceRoot, dbPath string) error {
 //  2. Acquire the flock.
 //  3. Re-check the socket (another goroutine/process may have won).
 //  4. Remove stale socket file if present.
-//  5. Invoke spawn(sourceRoot, dbPath).
+//  5. Invoke spawn(sourceRoot, dbPath, opts).
 //  6. Retry connect with bounded backoff.
 //
 // Exported so tests can exercise the auto-start logic directly.
 func EnsureRunning(ctx context.Context, sourceRoot, dbPath string, spawn SpawnFunc) error {
-	return ensureRunning(ctx, sourceRoot, dbPath, spawn)
+	return ensureRunning(ctx, sourceRoot, dbPath, WatchOptions{}, spawn)
 }
 
-func ensureRunning(ctx context.Context, sourceRoot, dbPath string, spawn SpawnFunc) error {
+func ensureRunning(ctx context.Context, sourceRoot, dbPath string, opts WatchOptions, spawn SpawnFunc) error {
 	sockPath := SocketPathFromDB(dbPath)
 
 	// Fast path: daemon already running.
@@ -107,7 +124,7 @@ func ensureRunning(ctx context.Context, sourceRoot, dbPath string, spawn SpawnFu
 	_ = os.Remove(sockPath)
 
 	// Spawn the daemon detached with explicit source+db (cwd-independent).
-	if err := spawn(sourceRoot, dbPath); err != nil {
+	if err := spawn(sourceRoot, dbPath, opts); err != nil {
 		return fmt.Errorf("ensure daemon: spawn: %w", err)
 	}
 
@@ -154,16 +171,17 @@ func waitLive(ctx context.Context, sockPath string) error {
 //
 // sourceRoot is the directory containing the source files to serve.
 // dbPath is the absolute path to the SQLite index file.
+// opts controls watch-poller flags forwarded to the daemon on spawn.
 // The socket is derived from dbPath so proxy and daemon always agree.
 //
 // When the MCP client disconnects (stdin closes), the proxy exits. The daemon
 // stays alive so a second `atomic code mcp` invocation reuses the warm engine.
-func RunProxy(ctx context.Context, sourceRoot, dbPath string, spawn SpawnFunc, stdin io.Reader, stdout io.Writer) error {
+func RunProxy(ctx context.Context, sourceRoot, dbPath string, opts WatchOptions, spawn SpawnFunc, stdin io.Reader, stdout io.Writer) error {
 	if spawn == nil {
 		spawn = DefaultSpawn
 	}
 
-	if err := ensureRunning(ctx, sourceRoot, dbPath, spawn); err != nil {
+	if err := ensureRunning(ctx, sourceRoot, dbPath, opts, spawn); err != nil {
 		return fmt.Errorf("atomic code mcp: %w", err)
 	}
 

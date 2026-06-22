@@ -32,6 +32,9 @@ const (
 	ConnIdleTTL   = 30 * time.Minute
 	ServerIdleTTL = 30 * time.Minute
 	ReapTick      = 60 * time.Second
+	// SyncInterval is the default interval at which the daemon re-syncs the
+	// served symbol graph against the working tree. 0 disables the poller.
+	SyncInterval = 10 * time.Second
 )
 
 // Keep unexported aliases for internal use so existing code compiles unchanged.
@@ -176,6 +179,11 @@ func (r *registry) idle(ttl time.Duration) []string {
 // Daemon
 // ---------------------------------------------------------------------------
 
+// SyncFunc is the function the sync poller calls on each tick.
+// Injected as a field so tests can substitute a spy without needing a real engine.
+// In production RunDaemon wires it to eng.Sync.
+type SyncFunc func(ctx context.Context) error
+
 // Daemon is the per-project unix-socket MCP singleton daemon.
 //
 // Use RunDaemon to start it from the `atomic code __serve` internal verb.
@@ -192,6 +200,11 @@ type Daemon struct {
 	// injectable durations — real constants in production, short values in tests
 	idleD time.Duration
 	reapD time.Duration
+	// syncD is the background sync interval; 0 disables the poller.
+	syncD time.Duration
+	// syncFn is called by the sync poller on each tick.
+	// In production it is eng.Sync; in tests it may be a spy.
+	syncFn SyncFunc
 
 	// connClosers maps connID → close function; used by reaper to force-close
 	mu          sync.Mutex
@@ -219,7 +232,8 @@ func (d *Daemon) RegistryCount() int {
 // before binding its socket.
 //
 // now is injectable for tests; pass nil for real time.
-func RunDaemon(ctx context.Context, sourceRoot, dbPath string, now func() time.Time) error {
+// watchInterval controls the background sync poller; 0 disables it.
+func RunDaemon(ctx context.Context, sourceRoot, dbPath string, now func() time.Time, watchInterval time.Duration) error {
 	if now == nil {
 		now = time.Now
 	}
@@ -272,6 +286,8 @@ func RunDaemon(ctx context.Context, sourceRoot, dbPath string, now func() time.T
 		now:         now,
 		idleD:       serverIdleTTL,
 		reapD:       reapTick,
+		syncD:       watchInterval,
+		syncFn:      eng.Sync,
 		connClosers: make(map[string]func()),
 		done:        make(chan struct{}),
 	}
@@ -279,17 +295,22 @@ func RunDaemon(ctx context.Context, sourceRoot, dbPath string, now func() time.T
 	return d.Run(ctx)
 }
 
-// NewTestDaemon constructs a Daemon with injectable idle and reap durations for
-// tests. It creates the unix listener on sockPath itself so the socket is
-// live as soon as this call returns — callers can safely poll IsLive
+// NewTestDaemon constructs a Daemon with injectable idle, reap, and sync
+// durations for tests. It creates the unix listener on sockPath itself so the
+// socket is live as soon as this call returns — callers can safely poll IsLive
 // immediately after NewTestDaemon without waiting for a goroutine to start.
 //
 // idleDuration controls how long the daemon waits with no connections before
 // shutting down. reapDuration controls the reaper tick interval.
+// syncDuration controls the background sync interval; 0 disables the poller.
+// syncFn is called by the poller on each tick; pass nil to use a no-op.
 // Pass nil for now to use real time.
-func NewTestDaemon(sockPath string, srv *sdk.Server, now func() time.Time, idleDuration, reapDuration time.Duration) *Daemon {
+func NewTestDaemon(sockPath string, srv *sdk.Server, now func() time.Time, idleDuration, reapDuration, syncDuration time.Duration, syncFn SyncFunc) *Daemon {
 	if now == nil {
 		now = time.Now
+	}
+	if syncFn == nil {
+		syncFn = func(_ context.Context) error { return nil }
 	}
 	// Remove stale socket if present (mirrors RunDaemon behaviour).
 	_ = os.Remove(sockPath)
@@ -306,6 +327,8 @@ func NewTestDaemon(sockPath string, srv *sdk.Server, now func() time.Time, idleD
 		now:         now,
 		idleD:       idleDuration,
 		reapD:       reapDuration,
+		syncD:       syncDuration,
+		syncFn:      syncFn,
 		connClosers: make(map[string]func()),
 		done:        make(chan struct{}),
 	}
@@ -354,13 +377,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 	reaperDone := make(chan struct{})
 	go d.reapLoop(ctx, reaperDone)
 
-	// Cleanup in reverse order: first close done (unblocks reaper), then wait
-	// for reaper to exit, then clean up listener and socket file.
+	// Start sync poller goroutine if enabled (syncD > 0).
+	syncDone := make(chan struct{})
+	if d.syncD > 0 {
+		go d.syncLoop(ctx, syncDone)
+	} else {
+		close(syncDone)
+	}
+
+	// Cleanup in reverse order: first close done (unblocks reaper + sync poller),
+	// then wait for both goroutines to exit, then clean up listener and socket file.
 	// Defers execute LIFO so declare them in reverse execution order.
 	defer func() {
 		_ = d.listener.Close()
 		_ = os.Remove(d.socketPath)
 	}()
+	defer func() { <-syncDone }()
 	defer func() { <-reaperDone }()
 	defer close(d.done)
 
@@ -498,7 +530,7 @@ func (d *Daemon) handleConn(ctx context.Context, conn net.Conn, onEmpty func()) 
 			// context.Canceled is the normal close path (daemon shutting down);
 			// other errors indicate an unexpected transport or protocol failure.
 			if ctx.Err() == nil {
-				fmt.Printf("daemon: srv.Connect %s: %v\n", connID, err)
+				fmt.Fprintf(os.Stderr, "daemon: srv.Connect %s: %v\n", connID, err)
 			}
 			return
 		}
@@ -533,6 +565,36 @@ func (d *Daemon) reapInterval() time.Duration {
 		return d.reapD
 	}
 	return reapTick
+}
+
+// syncLoop ticks at syncD intervals and calls syncFn. It is single-flight:
+// it never starts a new sync while one is already in progress.
+// Stops when ctx is cancelled or d.done is closed.
+func (d *Daemon) syncLoop(ctx context.Context, done chan struct{}) {
+	defer close(done)
+
+	ticker := time.NewTicker(d.syncD)
+	defer ticker.Stop()
+
+	var inFlight sync.Mutex
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.done:
+			return
+		case <-ticker.C:
+			// Single-flight: skip if a sync is already running.
+			if !inFlight.TryLock() {
+				continue
+			}
+			go func() {
+				defer inFlight.Unlock()
+				_ = d.syncFn(ctx)
+			}()
+		}
+	}
 }
 
 // reapOnce force-closes all connections idle longer than connIdleTTL.

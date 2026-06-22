@@ -991,12 +991,20 @@ func EnsureGitignore(projectRoot string) error {
 func runMCP(ctx context.Context, projectRoot, dbPath string, args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code mcp", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	cliutil.SetUsage(fs, "atomic code mcp")
+	cliutil.SetUsage(fs, "atomic code mcp [--watch-interval <dur>] [--no-watch]")
+	var watchInterval time.Duration
+	var noWatch bool
+	fs.DurationVar(&watchInterval, "watch-interval", 0, "override the daemon's sync interval (default 10s)")
+	fs.BoolVar(&noWatch, "no-watch", false, "disable background sync poller in the daemon")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
-	if err := codemcp.RunProxy(ctx, projectRoot, dbPath, nil, os.Stdin, os.Stdout); err != nil {
+	opts := codemcp.WatchOptions{
+		Disable:  noWatch,
+		Interval: watchInterval,
+	}
+	if err := codemcp.RunProxy(ctx, projectRoot, dbPath, opts, nil, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(stderr, "atomic code mcp: %v\n", err)
 		return 1
 	}
@@ -1010,8 +1018,12 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code __serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var sourceRoot, dbPath string
+	var watchInterval time.Duration
+	var noWatch bool
 	fs.StringVar(&sourceRoot, "source", "", "source root to serve (required)")
 	fs.StringVar(&dbPath, "db", "", "absolute path to the SQLite index db (required)")
+	fs.DurationVar(&watchInterval, "watch-interval", 0, "override the daemon's sync interval (default 10s)")
+	fs.BoolVar(&noWatch, "no-watch", false, "disable background sync poller")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -1020,7 +1032,14 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) int {
 		return 1
 	}
 
-	if err := codemcp.RunDaemon(ctx, sourceRoot, dbPath, nil); err != nil {
+	interval := codemcp.SyncInterval
+	if noWatch {
+		interval = 0
+	} else if watchInterval > 0 {
+		interval = watchInterval
+	}
+
+	if err := codemcp.RunDaemon(ctx, sourceRoot, dbPath, nil, interval); err != nil {
 		fmt.Fprintf(stderr, "atomic code __serve: %v\n", err)
 		return 1
 	}

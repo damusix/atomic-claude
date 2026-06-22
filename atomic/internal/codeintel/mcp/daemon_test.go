@@ -41,6 +41,165 @@ func TestDaemonConstants(t *testing.T) {
 	if codemcp.ReapTick != 60*time.Second {
 		t.Errorf("ReapTick = %v, want 60s", codemcp.ReapTick)
 	}
+	// R6: SyncInterval must be exactly 10s.
+	if codemcp.SyncInterval != 10*time.Second {
+		t.Errorf("SyncInterval = %v, want 10s", codemcp.SyncInterval)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestSyncPoller — background self-sync goroutine
+// ---------------------------------------------------------------------------
+
+// TestSyncPoller_SyncCalledOnInterval verifies that after the sync interval
+// elapses the daemon calls Sync on its engine.
+//
+// Why: the daemon is meant to keep the served symbol graph fresh; without this
+// test a no-op syncLoop or a disabled poller would silently pass.
+func TestSyncPoller_SyncCalledOnInterval(t *testing.T) {
+	dir := tmpShortDir(t, "sync")
+	sockPath := codemcp.SocketPath(dir)
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	eng := newEmptyEngine(t, dir)
+	defer eng.Close()
+	stats, _ := eng.GetStats(ctx)
+	srv := codemcp.NewServer(eng, stats.FileCount)
+
+	// Short idle so daemon stays alive even with 0 connections during the test.
+	const shortIdle = 5 * time.Second
+	const shortSync = 50 * time.Millisecond
+
+	syncCalled := make(chan struct{}, 10)
+	syncFn := func(_ context.Context) error {
+		select {
+		case syncCalled <- struct{}{}:
+		default:
+		}
+		return nil
+	}
+
+	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, shortIdle, shortIdle, shortSync, syncFn)
+	go func() { _ = d.Run(ctx) }()
+	waitForSocket(t, sockPath, 3*time.Second)
+
+	// Wait for at least one Sync call within a reasonable deadline.
+	select {
+	case <-syncCalled:
+		// pass: poller fired and invoked Sync
+	case <-time.After(3 * time.Second):
+		t.Fatal("syncFn was not called within 3s — poller did not fire")
+	}
+}
+
+// TestSyncPoller_StopsOnCtxCancel verifies the poller goroutine stops when
+// the context is cancelled.
+//
+// Why: a goroutine that outlives the daemon leaks resources and may call Sync
+// on a closed engine.
+func TestSyncPoller_StopsOnCtxCancel(t *testing.T) {
+	dir := tmpShortDir(t, "synccancel")
+	sockPath := codemcp.SocketPath(dir)
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	eng := newEmptyEngine(t, dir)
+	defer eng.Close()
+	stats, _ := eng.GetStats(ctx)
+	srv := codemcp.NewServer(eng, stats.FileCount)
+
+	const shortIdle = 5 * time.Second
+	const shortSync = 50 * time.Millisecond
+
+	// cancelFired is set to 1 just before ctx is cancelled so the spy can
+	// distinguish pre-cancel syncs (expected) from post-cancel ones (leak).
+	var cancelFired atomic.Int32
+	var syncAfterCancel atomic.Bool
+	syncFn := func(_ context.Context) error {
+		if cancelFired.Load() == 1 {
+			syncAfterCancel.Store(true)
+		}
+		return nil
+	}
+
+	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, shortIdle, shortIdle, shortSync, syncFn)
+	daemonDone := make(chan struct{})
+	go func() {
+		defer close(daemonDone)
+		_ = d.Run(ctx)
+	}()
+	waitForSocket(t, sockPath, 3*time.Second)
+
+	// Let at least one sync fire so we know the poller is running.
+	time.Sleep(shortSync * 3)
+
+	// Mark cancel-boundary then cancel — poller must not fire after this.
+	cancelFired.Store(1)
+	cancel()
+	select {
+	case <-daemonDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("daemon did not stop after ctx cancel")
+	}
+
+	// Wait an extra poller interval to catch any late fires from an escaped goroutine.
+	time.Sleep(shortSync * 3)
+	if syncAfterCancel.Load() {
+		t.Fatal("syncFn was called after ctx cancel — poller goroutine leaked past shutdown")
+	}
+}
+
+// TestSyncPoller_NoWatch verifies that when syncD==0 (no-watch mode), the
+// syncFn is never called.
+//
+// Why: --no-watch must disable the poller entirely; without this test a
+// zero-interval ticker would fire immediately and bypass the guard.
+func TestSyncPoller_NoWatch(t *testing.T) {
+	dir := tmpShortDir(t, "nowatch")
+	sockPath := codemcp.SocketPath(dir)
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	eng := newEmptyEngine(t, dir)
+	defer eng.Close()
+	stats, _ := eng.GetStats(ctx)
+	srv := codemcp.NewServer(eng, stats.FileCount)
+
+	const shortIdle = 5 * time.Second
+
+	syncCalled := make(chan struct{}, 1)
+	syncFn := func(_ context.Context) error {
+		select {
+		case syncCalled <- struct{}{}:
+		default:
+		}
+		return nil
+	}
+
+	// syncD == 0 disables the poller.
+	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, shortIdle, shortIdle, 0, syncFn)
+	go func() { _ = d.Run(ctx) }()
+	waitForSocket(t, sockPath, 3*time.Second)
+
+	// Wait 200ms — syncFn should never be called.
+	select {
+	case <-syncCalled:
+		t.Fatal("syncFn was called with syncD==0 — --no-watch mode broken")
+	case <-time.After(200 * time.Millisecond):
+		// pass: poller is disabled
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +319,7 @@ func TestAutoStart_SpawnCalledOnce(t *testing.T) {
 
 	// Spawn stub: starts an in-process listener daemon on the socket.
 	var spawnCount atomic.Int32
-	stub := func(sourceRoot, db string) error {
+	stub := func(sourceRoot, db string, _ codemcp.WatchOptions) error {
 		spawnCount.Add(1)
 		return startInProcessDaemonWithDB(t, sourceRoot, db)
 	}
@@ -215,7 +374,7 @@ func TestAutoStart_StaleSocketRemoved(t *testing.T) {
 	}
 
 	var spawned atomic.Bool
-	stub := func(sourceRoot, db string) error {
+	stub := func(sourceRoot, db string, _ codemcp.WatchOptions) error {
 		spawned.Store(true)
 		return startInProcessDaemonWithDB(t, sourceRoot, db)
 	}
@@ -254,7 +413,7 @@ func TestWarmReuse(t *testing.T) {
 
 	// Use a long idle duration so the daemon stays alive throughout the test.
 	const longIdle = 30 * time.Second
-	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, longIdle, longIdle)
+	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, longIdle, longIdle, 0, nil)
 	go func() {
 		_ = d.Run(ctx)
 	}()
@@ -321,7 +480,7 @@ func TestAutoShutdown_SocketRemovedAfterIdle(t *testing.T) {
 	// to wait 30 real minutes. NewTestDaemon calls net.Listen synchronously so
 	// the socket is live before the goroutine starts.
 	const shortIdle = 100 * time.Millisecond
-	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, shortIdle, shortIdle)
+	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, shortIdle, shortIdle, 0, nil)
 	daemonDone := make(chan error, 1)
 	go func() {
 		daemonDone <- d.Run(ctx)
@@ -367,7 +526,7 @@ func TestAutoShutdown_LiveConnBlocksShutdown(t *testing.T) {
 	srv := codemcp.NewServer(eng, stats.FileCount)
 
 	const shortIdle = 150 * time.Millisecond
-	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, shortIdle, shortIdle)
+	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, shortIdle, shortIdle, 0, nil)
 	daemonDone := make(chan error, 1)
 	go func() {
 		daemonDone <- d.Run(ctx)
@@ -447,7 +606,7 @@ func TestAutoShutdown_ConnectionCancelsTimer(t *testing.T) {
 	// NewTestDaemon binds the socket synchronously so polling starts immediately.
 	const shortIdle = 200 * time.Millisecond
 	// NewTestDaemon binds the socket synchronously; the file exists immediately.
-	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, shortIdle, shortIdle)
+	d := codemcp.NewTestDaemon(sockPath, srv, time.Now, shortIdle, shortIdle, 0, nil)
 	go func() {
 		_ = d.Run(ctx)
 	}()
