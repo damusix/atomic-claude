@@ -554,13 +554,19 @@ func (v *visitor) visitNode(ctx context.Context, node sitter.Node, kind string) 
 	if cfg.CallTypes != nil {
 		if _, ok := cfg.CallTypes[kind]; ok {
 			v.extractCall(ctx, node, false)
-			return true, nil
+			// Do NOT skip the subtree: a call's callee and argument list can hold
+			// further calls (method chains like a.b().c(), nested calls like
+			// f(g()), and callbacks). Descending visits each so the call graph is
+			// complete rather than only capturing the outermost call per statement.
+			return false, nil
 		}
 	}
 	if cfg.InstantiationTypes != nil {
 		if _, ok := cfg.InstantiationTypes[kind]; ok {
 			v.extractCall(ctx, node, true)
-			return true, nil
+			// Descend for the same reason — constructor arguments may contain calls
+			// (new Foo(bar())).
+			return false, nil
 		}
 	}
 	if cfg.JSXElementTypes != nil {
@@ -1002,10 +1008,17 @@ func (v *visitor) extractImport(ctx context.Context, node sitter.Node) error {
 // This is language-agnostic at the call_expression level — the same walk works
 // for JS, TS, and any grammar that uses "string" / "string_fragment" node types.
 func (v *visitor) extractCall(ctx context.Context, node sitter.Node, isInstantiation bool) {
-	// Determine the callee name.
-	calleeName := v.calleeNameFromNode(ctx, node)
+	// Determine the callee name. calleeName is the bare invoked segment (what
+	// resolution matches); calleeExpr is the full callee expression (what the
+	// callback synthesizers match on, e.g. "emitter.on").
+	calleeName, calleeExpr := v.calleeNameAndExpr(ctx, node)
 	if calleeName == "" {
 		return
+	}
+	// Only retain calleeExpr when it carries more than the bare name (a receiver);
+	// for a plain "foo()" call it equals calleeName, so store nothing (NULL).
+	if calleeExpr == calleeName {
+		calleeExpr = ""
 	}
 
 	sb, _ := node.StartByte(ctx)
@@ -1021,6 +1034,7 @@ func (v *visitor) extractCall(ctx context.Context, node sitter.Node, isInstantia
 		ID:            GenerateRefID(fromID, calleeName, string(refKind), startLine, 0),
 		FromNodeID:    fromID,
 		ReferenceName: calleeName,
+		CalleeExpr:    calleeExpr,
 		ReferenceKind: refKind,
 		Line:          startLine,
 		FilePath:      v.filePath,
@@ -1135,24 +1149,71 @@ func (v *visitor) extractCallArgs(ctx context.Context, callNode sitter.Node) []s
 // calleeNameFromNode extracts the callee name from a call_expression node.
 // For "foo()" → "foo"; for "pkg.Bar()" → "pkg.Bar"; for "obj.method()" →
 // "obj.method". Returns "" when the name cannot be determined.
-func (v *visitor) calleeNameFromNode(ctx context.Context, node sitter.Node) string {
+func (v *visitor) calleeNameAndExpr(ctx context.Context, node sitter.Node) (bare, expr string) {
 	// The "function" field of call_expression holds the callee.
 	fnNode, err := childByField(ctx, node, "function")
 	if err != nil || fnNode == nil {
 		// Fallback: try first named child.
 		cnt, _ := node.NamedChildCount(ctx)
 		if cnt == 0 {
-			return ""
+			return "", ""
 		}
 		ch, err := node.NamedChild(ctx, 0)
 		if err != nil {
-			return ""
+			return "", ""
 		}
 		fnNode = &ch
 	}
 	sb, _ := fnNode.StartByte(ctx)
 	eb, _ := fnNode.EndByte(ctx)
-	return nodeText(sb, eb, v.src)
+	expr = nodeText(sb, eb, v.src)
+	// bare is the final invoked segment — the method/function actually called.
+	// When the callee is a member/selector access (obj.method, a.b.c.method,
+	// pkg.Func), the name matcher resolves the bare segment; the full "a.b.method"
+	// subtree text never matches a node and is permanently unresolvable. expr keeps
+	// the full callee for consumers that need the receiver (callback synthesizers).
+	// The JSX tag handler does the same last-segment reduction (see extractJSXRef).
+	bare = finalCalleeSegment(ctx, *fnNode, v.src)
+	if bare == "" {
+		bare = expr // plain identifier callee (e.g. "foo") — bare == full.
+	}
+	return bare, expr
+}
+
+// memberAccessFields maps a callee grammar node kind to the field that holds the
+// final invoked segment (the property/method on the right of a member access).
+// Probed against the live grammars; extend per language as call resolution is
+// validated for it (see scripts/code-eval corpus). Keyed by node kind because
+// kinds are distinct enough across grammars that a kind→field map needs no
+// language discriminator.
+var memberAccessFields = map[string]string{
+	"member_expression":   "property", // JavaScript, TypeScript, JSX, TSX
+	"selector_expression": "field",    // Go
+}
+
+// finalCalleeSegment returns the text of the final invoked segment when the
+// callee node is a recognised member-access kind (e.g. "a.b.method" → "method"),
+// or "" when it is not — in which case the caller uses the full node text
+// (correct for a plain identifier callee like "foo").
+func finalCalleeSegment(ctx context.Context, callee sitter.Node, src string) string {
+	kind, err := callee.Kind(ctx)
+	if err != nil {
+		return ""
+	}
+	field, ok := memberAccessFields[kind]
+	if !ok {
+		return ""
+	}
+	seg, err := childByField(ctx, callee, field)
+	if err != nil || seg == nil {
+		return ""
+	}
+	if isNull, _ := seg.IsNull(ctx); isNull {
+		return ""
+	}
+	sb, _ := seg.StartByte(ctx)
+	eb, _ := seg.EndByte(ctx)
+	return nodeText(sb, eb, src)
 }
 
 // extractJSXRef emits a "references" UnresolvedReference for a JSX element node
@@ -1422,12 +1483,19 @@ func (v *visitor) visitFunctionBody(ctx context.Context, body sitter.Node) {
 					}
 				}
 				v.extractCall(ctx, child, false)
+				// Recurse: a call's callee and arguments can hold further calls
+				// (method chains a.b().c(), nested calls f(g())). Without this only
+				// the outermost call per statement is captured. Mirrors the JSX arm
+				// below.
+				v.visitFunctionBody(ctx, child)
 				continue
 			}
 		}
 		if v.cfg.InstantiationTypes != nil {
 			if _, ok := v.cfg.InstantiationTypes[kind]; ok {
 				v.extractCall(ctx, child, true)
+				// Recurse for calls nested in constructor arguments (new Foo(bar())).
+				v.visitFunctionBody(ctx, child)
 				continue
 			}
 		}

@@ -315,6 +315,86 @@ func TestExtractor_CallEmitsUnresolvedReference(t *testing.T) {
 	}
 }
 
+// TestExtractor_CalleeNameIsBareFinalSegment_Go proves a member/selector call
+// (fmt.Sprintf, strings.TrimSpace) emits the BARE final invoked segment
+// (Sprintf, TrimSpace) as the call ref name — not the dotted "fmt.Sprintf"
+// receiver-chain text. The resolution name matcher resolves bare symbol names;
+// storing the whole callee subtree text makes the ref permanently unresolvable.
+func TestExtractor_CalleeNameIsBareFinalSegment_Go(t *testing.T) {
+	ctx := context.Background()
+	e := newGoExtractor(t)
+	result := e.Extract(ctx, goFixturePath, goFixture, types.LanguageGo)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	names := map[string]bool{}
+	for _, r := range result.UnresolvedReferences {
+		if r.ReferenceKind != types.EdgeKindCalls {
+			continue
+		}
+		names[r.ReferenceName] = true
+		if strings.Contains(r.ReferenceName, ".") {
+			t.Errorf("call ref name %q contains '.'; expected the bare final callee segment", r.ReferenceName)
+		}
+	}
+	if !names["Sprintf"] {
+		t.Errorf("expected bare callee 'Sprintf' (from fmt.Sprintf); got %v", mapKeys(names))
+	}
+	if !names["TrimSpace"] {
+		t.Errorf("expected bare callee 'TrimSpace' (from strings.TrimSpace); got %v", mapKeys(names))
+	}
+}
+
+// TestExtractor_CalleeNameIsBareFinalSegment_TS proves the same for a TypeScript
+// member-call chain: each invoked segment is stored bare, never as the whole
+// "db.connect().query(...).execute" subtree text.
+func TestExtractor_CalleeNameIsBareFinalSegment_TS(t *testing.T) {
+	ctx := context.Background()
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
+	if !ok {
+		t.Fatal("no TypeScript extractor in registry")
+	}
+	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{Size: 1})
+	if err != nil {
+		t.Fatalf("NewPool: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+	e := extraction.NewTreeSitterExtractor(pool, extLang, cfg)
+
+	const src = `function run(db: any) {
+  return db.connect().query("SELECT 1").execute();
+}`
+	result := e.Extract(ctx, "src/run.ts", src, types.LanguageTypeScript)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	names := map[string]bool{}
+	for _, r := range result.UnresolvedReferences {
+		if r.ReferenceKind != types.EdgeKindCalls {
+			continue
+		}
+		names[r.ReferenceName] = true
+		if strings.Contains(r.ReferenceName, ".") || strings.Contains(r.ReferenceName, "(") {
+			t.Errorf("call ref name %q is not a bare segment; expected the final invoked method name", r.ReferenceName)
+		}
+	}
+	for _, want := range []string{"connect", "query", "execute"} {
+		if !names[want] {
+			t.Errorf("expected bare callee %q in the member chain; got %v", want, mapKeys(names))
+		}
+	}
+}
+
+func mapKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // TestExtractor_BestEffortBrokenSource
 // WHY: The brief mandates best-effort extraction — a broken file must record

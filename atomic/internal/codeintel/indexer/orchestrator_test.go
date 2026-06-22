@@ -1249,3 +1249,60 @@ export function ProductList() {
 		t.Fatalf("FAIL: no table node 'products' from plain-string DDL in .tsx file — CP4 not wired for .tsx")
 	}
 }
+
+// TestIndexSkipsUnreadableFileAndContinues proves that a single unreadable file
+// in the index set (e.g. a git-tracked-but-missing file: a broken symlink or a
+// deleted-but-staged path) does NOT abort the whole index. The other files must
+// still be indexed, and the run must report the skip count rather than failing.
+//
+// WHY: a real-world repo (taxgentic/server) had 188 git-tracked-but-missing
+// skill-reference files. The old code returned a fatal error on the FIRST
+// unreadable file, so IndexAll returned non-nil, the CLI aborted before the
+// resolution phase, and the entire index was effectively empty — `callers`
+// queries returned nothing. The reference engine (codegraph) isolates the bad
+// file and indexes the rest; this test pins that same resilience. The
+// IndexAll docstring already promises "errors from individual files ... do not
+// abort the run" — this encodes that contract.
+func TestIndexSkipsUnreadableFileAndContinues(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+
+	dir := t.TempDir()
+	writeFile(t, dir, "main.go", `package main
+
+func Hello() string {
+	return "hello"
+}
+
+func main() {
+	Hello()
+}
+`)
+	real := filepath.Join(dir, "main.go")
+	// A path that is in the index set but does not exist on disk — os.ReadFile
+	// will fail with ENOENT, exactly like a git-tracked-but-missing file.
+	missing := filepath.Join(dir, "ghost.go")
+
+	orch := indexer.NewOrchestrator(database, pool)
+
+	// The missing file must not abort the run. Order it first so the old
+	// fail-fast behaviour would have aborted before reaching main.go.
+	if err := orch.IndexPaths(ctx, dir, []string{missing, real}); err != nil {
+		t.Fatalf("IndexPaths must skip an unreadable file, not abort; got: %v", err)
+	}
+
+	// The real file must still be fully indexed (file node + Hello + main).
+	nodes, err := database.GetNodesInFile(ctx, "main.go")
+	if err != nil {
+		t.Fatalf("GetNodesInFile(main.go): %v", err)
+	}
+	if len(nodes) < 3 {
+		t.Errorf("main.go must be indexed despite the unreadable sibling: got %d nodes, want >=3", len(nodes))
+	}
+
+	// The skip must be reported, not silently swallowed (fail loud).
+	if got := orch.SkippedFiles(); got != 1 {
+		t.Errorf("SkippedFiles() = %d, want 1 (the missing file)", got)
+	}
+}

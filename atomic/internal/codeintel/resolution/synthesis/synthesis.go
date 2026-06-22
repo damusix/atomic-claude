@@ -246,6 +246,18 @@ const unresolvedRefsBatchSize = 5000
 // loadAllUnresolvedRefs pages through the unresolved_refs table in bounded
 // batches and returns the full set. This avoids loading the entire table into
 // memory in a single query (OOM risk on large repos).
+// calleeOf returns the full callee expression a ref was written with
+// ("emitter.on", "this.setState", "router.Use") — the form the callback
+// synthesizers pattern-match on, including the receiver. It prefers CalleeExpr
+// (set by the extractor for member/selector calls) and falls back to
+// ReferenceName for plain calls, refs from pre-v3 indexes, and seeded test refs.
+func calleeOf(ref types.UnresolvedReference) string {
+	if ref.CalleeExpr != "" {
+		return ref.CalleeExpr
+	}
+	return ref.ReferenceName
+}
+
 func loadAllUnresolvedRefs(ctx context.Context, d *db.DB) ([]types.UnresolvedReference, error) {
 	var all []types.UnresolvedReference
 	offset := 0
@@ -349,7 +361,7 @@ func (r *ReactRenderSynthesizer) Synthesize(ctx context.Context, d *db.DB) ([]ty
 		if ref.ReferenceKind != types.EdgeKindCalls {
 			continue
 		}
-		if !strings.HasSuffix(ref.ReferenceName, ".setState") {
+		if !strings.HasSuffix(calleeOf(ref), ".setState") {
 			continue
 		}
 		fromID := ref.FromNodeID
@@ -751,7 +763,7 @@ func synthesizeEventEdges(
 			continue // no event name captured — skip
 		}
 		eventName := ref.Arguments[0]
-		callee := ref.ReferenceName
+		callee := calleeOf(ref)
 
 		switch {
 		case isRegistration(callee):
@@ -897,7 +909,7 @@ func (c *CallbackSynthesizer) Synthesize(ctx context.Context, d *db.DB) ([]types
 		if ref.ReferenceKind != types.EdgeKindCalls {
 			continue
 		}
-		name := ref.ReferenceName
+		name := calleeOf(ref)
 		// Match "this.fieldName" (suffix match) or bare "fieldName" (exact match).
 		for fieldName, targets := range fieldTargets {
 			if name != fieldName && !strings.HasSuffix(name, "."+fieldName) {
@@ -1002,7 +1014,7 @@ func (c *ClosureCollectionSynthesizer) Synthesize(ctx context.Context, d *db.DB)
 		if ref.ReferenceKind != types.EdgeKindCalls {
 			continue
 		}
-		callee := ref.ReferenceName
+		callee := calleeOf(ref)
 		dotIdx := strings.LastIndex(callee, ".")
 		if dotIdx < 0 {
 			continue
@@ -1484,7 +1496,7 @@ func (g *GinMiddlewareChainSynthesizer) Synthesize(ctx context.Context, d *db.DB
 		if ref.ReferenceKind != types.EdgeKindCalls {
 			continue
 		}
-		if !strings.HasSuffix(ref.ReferenceName, ".Use") {
+		if !strings.HasSuffix(calleeOf(ref), ".Use") {
 			continue
 		}
 		if ref.Language != types.LanguageGo {

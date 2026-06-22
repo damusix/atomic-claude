@@ -249,6 +249,14 @@ func (e *Engine) IndexAll(ctx context.Context) error {
 	return e.orch.IndexAll(ctx, e.root)
 }
 
+// SkippedFiles returns the number of files skipped (unreadable / un-stat-able)
+// during the most recent IndexAll / Sync / IndexFiles run. The CLI reports this
+// so a skipped file (e.g. a git-tracked-but-missing path) is visible rather than
+// silently dropped.
+func (e *Engine) SkippedFiles() int {
+	return e.orch.SkippedFiles()
+}
+
 // ExtractFrameworkNodes scans the project's source files, runs the framework
 // route-extraction seam (frameworks.Registry.ExtractAndPersist), and returns
 // the number of NodeKindRoute nodes now in the DB.

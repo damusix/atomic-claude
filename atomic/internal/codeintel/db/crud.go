@@ -501,6 +501,16 @@ func rawOrNil(r []byte) any {
 	return string(r)
 }
 
+// nullIfEmpty returns nil for an empty string (stored as SQL NULL) and the
+// string otherwise. Used for optional TEXT columns like callee_expr so absent
+// values are NULL rather than empty strings.
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
 // nullableString converts an empty string to nil (stored as NULL) and a
 // non-empty string to the value itself.
 func nullableString(s string) any {

@@ -154,6 +154,13 @@ func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoo
 	}
 	extractDur := time.Since(extractStart)
 
+	// Report files skipped because they could not be read (git-tracked-but-missing
+	// paths, broken symlinks, permission errors). These do not abort the index;
+	// surfacing the count keeps the skip visible instead of silent.
+	if skipped := eng.SkippedFiles(); skipped > 0 {
+		fmt.Fprintf(stderr, "atomic code index: skipped %d unreadable file(s)\n", skipped)
+	}
+
 	// Emit extract profile line immediately (before resolve starts) so a killed
 	// process still shows extract time. Capture stats here and reuse for the
 	// final summary so we avoid a second GetStats round-trip.
@@ -240,6 +247,9 @@ func runSync(ctx context.Context, eng *engine.Engine, args []string, stdout, std
 	if err := eng.Sync(ctx); err != nil {
 		fmt.Fprintf(stderr, "atomic code sync: %v\n", err)
 		return 1
+	}
+	if skipped := eng.SkippedFiles(); skipped > 0 {
+		fmt.Fprintf(stderr, "atomic code sync: skipped %d unreadable file(s)\n", skipped)
 	}
 	if _, err := eng.ExtractFrameworkNodes(ctx); err != nil {
 		fmt.Fprintf(stderr, "atomic code sync: extract framework nodes: %v\n", err)
@@ -501,9 +511,13 @@ func runSymbolGraph(ctx context.Context, eng *engine.Engine, args []string, stdo
 
 	var sg types.Subgraph
 	if direction == "callers" {
-		sg, err = eng.GetCallers(ctx, nodes[0].ID, depth)
+		sg, err = aggregateSymbolGraph(nodes, func(id string) (types.Subgraph, error) {
+			return eng.GetCallers(ctx, id, depth)
+		})
 	} else {
-		sg, err = eng.GetCallees(ctx, nodes[0].ID, depth)
+		sg, err = aggregateSymbolGraph(nodes, func(id string) (types.Subgraph, error) {
+			return eng.GetCallees(ctx, id, depth)
+		})
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "atomic code %s: %v\n", direction, err)
@@ -511,6 +525,29 @@ func runSymbolGraph(ctx context.Context, eng *engine.Engine, args []string, stdo
 	}
 
 	return printSubgraph(sg, asJSON, stdout, stderr)
+}
+
+// aggregateSymbolGraph runs query for every node matching the symbol name and
+// merges the results into one subgraph (union of nodes by ID, edges deduped by
+// source/target/kind/line/col, union of roots).
+//
+// A symbol name routinely maps to several definitions: overloads, an interface
+// and its implementation, or two classes that each declare a same-named method.
+// Querying only the first match silently drops the callers/callees that live on
+// the siblings — e.g. `callers $proc` returned nothing because the first `$proc`
+// node (an accessor with zero callers) was chosen while 37 caller edges sat on
+// the second `$proc` definition. The reference engine aggregates across all
+// same-name matches; this restores parity.
+func aggregateSymbolGraph(nodes []types.Node, query func(id string) (types.Subgraph, error)) (types.Subgraph, error) {
+	sgs := make([]types.Subgraph, 0, len(nodes))
+	for _, n := range nodes {
+		sg, err := query(n.ID)
+		if err != nil {
+			return types.Subgraph{}, err
+		}
+		sgs = append(sgs, sg)
+	}
+	return types.MergeSubgraphs(sgs), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -549,7 +586,9 @@ func runImpact(ctx context.Context, eng *engine.Engine, args []string, stdout, s
 		return 1
 	}
 
-	sg, err := eng.GetImpactRadius(ctx, nodes[0].ID, depth)
+	sg, err := aggregateSymbolGraph(nodes, func(id string) (types.Subgraph, error) {
+		return eng.GetImpactRadius(ctx, id, depth)
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "atomic code impact: %v\n", err)
 		return 1

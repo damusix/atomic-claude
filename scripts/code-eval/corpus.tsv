@@ -31,6 +31,7 @@ luarocks	lang	lua	https://github.com/luarocks/luarocks	v3.11.1	Lua package manag
 luau	lang	luau	https://github.com/luau-lang/luau	0.640	Luau (+C++)
 afnetworking	lang	objc	https://github.com/AFNetworking/AFNetworking	4.0.1	Objective-C networking
 freepascal-fpgui	lang	pascal	https://github.com/graemeg/fpGUI	release-1_4_1	Object Pascal GUI toolkit
+cowboy	lang	erlang	https://github.com/ninenines/cowboy	2.12.0	Erlang HTTP server, real gen_server callbacks (erlang lang coverage)
 
 # ---- framework route detection (real apps with route definitions) ----
 rw-express	framework	javascript	https://github.com/gothinkster/node-express-realworld-example-app	main	express routes

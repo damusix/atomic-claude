@@ -24,13 +24,14 @@ import (
 func (d *DB) InsertUnresolvedRef(ctx context.Context, r types.UnresolvedReference) error {
 	_, err := d.db.ExecContext(ctx, `
 		INSERT OR IGNORE INTO unresolved_refs
-		  (id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		  (id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments, callee_expr)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.FromNodeID, r.ReferenceName, string(r.ReferenceKind),
 		r.Line, r.Column,
 		rawOrNil(r.Candidates),
 		r.FilePath, string(r.Language),
 		stringSliceToJSON(r.Arguments),
+		nullIfEmpty(r.CalleeExpr),
 	)
 	if err != nil {
 		return fmt.Errorf("codeintel/db: InsertUnresolvedRef %s: %w", r.ID, err)
@@ -46,16 +47,35 @@ func (d *DB) GetUnresolvedRefs(ctx context.Context, limit, offset int) ([]types.
 	var q string
 	var args []any
 	if limit > 0 {
-		q = `SELECT id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments
+		q = `SELECT id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments, callee_expr
 		     FROM unresolved_refs ORDER BY id LIMIT ? OFFSET ?`
 		args = []any{limit, offset}
 	} else {
-		q = `SELECT id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments
+		q = `SELECT id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments, callee_expr
 		     FROM unresolved_refs ORDER BY id`
 	}
 	rows, err := d.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, fmt.Errorf("codeintel/db: GetUnresolvedRefs: %w", err)
+	}
+	return collectUnresolvedRefs(rows)
+}
+
+// GetUnresolvedRefsAfter returns up to limit unresolved_refs rows whose id sorts
+// strictly after afterID, in id order. Passing afterID="" starts from the
+// beginning. This is the keyset-pagination primitive used by
+// ResolveAndPersistBatched (CP13): it advances by the last id seen rather than a
+// numeric offset, so refs left behind unresolved (intentionally not deleted)
+// never stall the scan and every ref is visited exactly once.
+func (d *DB) GetUnresolvedRefsAfter(ctx context.Context, afterID string, limit int) ([]types.UnresolvedReference, error) {
+	if limit <= 0 {
+		limit = 1
+	}
+	rows, err := d.db.QueryContext(ctx, `
+		SELECT id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments, callee_expr
+		FROM unresolved_refs WHERE id > ? ORDER BY id LIMIT ?`, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("codeintel/db: GetUnresolvedRefsAfter: %w", err)
 	}
 	return collectUnresolvedRefs(rows)
 }
@@ -123,10 +143,11 @@ func collectUnresolvedRefs(rows *sql.Rows) ([]types.UnresolvedReference, error) 
 			lang       string
 			candidates []byte
 			arguments  []byte
+			calleeExpr sql.NullString
 		)
 		err := rows.Scan(
 			&r.ID, &r.FromNodeID, &r.ReferenceName, &refKind,
-			&r.Line, &r.Column, &candidates, &r.FilePath, &lang, &arguments,
+			&r.Line, &r.Column, &candidates, &r.FilePath, &lang, &arguments, &calleeExpr,
 		)
 		if err != nil {
 			return nil, err
@@ -135,6 +156,7 @@ func collectUnresolvedRefs(rows *sql.Rows) ([]types.UnresolvedReference, error) 
 		r.Language = types.Language(lang)
 		r.Candidates = nullBytesToRaw(candidates)
 		r.Arguments = jsonToStringSlice(arguments)
+		r.CalleeExpr = calleeExpr.String
 		result = append(result, r)
 	}
 	return result, rows.Err()
@@ -213,13 +235,14 @@ func (d *DB) GetFileByPath(ctx context.Context, path string) (*types.FileRecord,
 func (t *Tx) InsertUnresolvedRef(ctx context.Context, r types.UnresolvedReference) error {
 	_, err := t.tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO unresolved_refs
-		  (id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		  (id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments, callee_expr)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		r.ID, r.FromNodeID, r.ReferenceName, string(r.ReferenceKind),
 		r.Line, r.Column,
 		rawOrNil(r.Candidates),
 		r.FilePath, string(r.Language),
 		stringSliceToJSON(r.Arguments),
+		nullIfEmpty(r.CalleeExpr),
 	)
 	if err != nil {
 		return fmt.Errorf("codeintel/db: Tx.InsertUnresolvedRef %s: %w", r.ID, err)

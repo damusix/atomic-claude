@@ -307,3 +307,44 @@ func TestSubgraphSortedNodes(t *testing.T) {
 		}
 	}
 }
+
+// TestMergeSubgraphs_UnionsDedupsAndUnionsRoots pins the shared merge primitive
+// behind the callers/callees/impact multi-definition fix: nodes union by ID,
+// edges dedup by source/target/kind/line/col, roots dedup preserving order.
+// A symbol name that maps to several definitions must surface the relationships
+// on EVERY definition, not just the first.
+func TestMergeSubgraphs_UnionsDedupsAndUnionsRoots(t *testing.T) {
+	shared := types.Edge{Source: "caller", Target: "proc", Kind: types.EdgeKindCalls, Line: 7}
+	sgs := []types.Subgraph{
+		{
+			Nodes: map[string]types.Node{"proc": {ID: "proc"}},
+			Roots: []string{"proc"},
+		},
+		{
+			Nodes: map[string]types.Node{"proc": {ID: "proc"}, "caller": {ID: "caller"}},
+			Edges: []types.Edge{shared, shared}, // same edge twice → must collapse to one
+			Roots: []string{"proc", "proc2"},
+		},
+	}
+
+	got := types.MergeSubgraphs(sgs)
+
+	if len(got.Nodes) != 2 {
+		t.Errorf("nodes union: got %d, want 2 (proc, caller)", len(got.Nodes))
+	}
+	if _, ok := got.Nodes["caller"]; !ok {
+		t.Error("caller node from the second subgraph was dropped")
+	}
+	if len(got.Edges) != 1 {
+		t.Errorf("duplicate edges must dedup: got %d, want 1", len(got.Edges))
+	}
+	if len(got.Roots) != 2 {
+		t.Errorf("roots dedup: got %d, want 2 (proc, proc2)", len(got.Roots))
+	}
+
+	// Empty input is a well-defined empty subgraph (non-nil map).
+	empty := types.MergeSubgraphs(nil)
+	if empty.Nodes == nil {
+		t.Error("MergeSubgraphs(nil) must return a usable (non-nil) Nodes map")
+	}
+}

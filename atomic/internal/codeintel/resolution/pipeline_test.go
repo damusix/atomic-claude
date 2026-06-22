@@ -452,6 +452,82 @@ func TestBatchLoopTerminatesOnUnresolvableRefs(t *testing.T) {
 	}
 }
 
+// TestResolvableRefBehindUnresolvableWall proves the batch loop does NOT abandon
+// a resolvable reference just because lower-id references ahead of it are
+// permanently unresolvable.
+//
+// Why this is the regression gate: the loop reads GetUnresolvedRefs(batch, 0)
+// every iteration and relied on deletion to advance the window. Unresolvable
+// non-builtin refs are intentionally NOT deleted (they might resolve after more
+// files are indexed), so they form a permanent "wall" at the front of the
+// id-ordered scan. The old `len(resolvedIDs)==0 → break` then terminated
+// resolution the moment a batch was all-wall, abandoning every resolvable ref
+// behind it. In a real repo the wall is every os.*/fmt.* style external call, so
+// the bulk of the call graph (callers/callees/impact) silently never resolved.
+//
+// Setup: a 2-ref unresolvable wall with LOW ids + one resolvable ref with a HIGH
+// id, batch size 2. The first batch reads exactly the wall (resolves nothing);
+// the resolvable ref must still be reached and turned into a calls edge.
+func TestResolvableRefBehindUnresolvableWall(t *testing.T) {
+	d := openPipelineTestDB(t)
+	ctx := context.Background()
+
+	callerID := "function:src/wall.ts:caller:1"
+	calleeID := "function:src/wall.ts:realCallee:50"
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: callerID, Kind: types.NodeKindFunction, Name: "caller",
+		FilePath: "src/wall.ts", Language: types.LanguageTypeScript, StartLine: 1, EndLine: 9,
+	}); err != nil {
+		t.Fatalf("UpsertNode caller: %v", err)
+	}
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: calleeID, Kind: types.NodeKindFunction, Name: "realCallee",
+		FilePath: "src/wall.ts", Language: types.LanguageTypeScript, StartLine: 50, EndLine: 60,
+		IsExported: true,
+	}); err != nil {
+		t.Fatalf("UpsertNode callee: %v", err)
+	}
+
+	// Wall: 2 unresolvable, non-builtin call refs with the LOWEST ids (sort first).
+	for i, name := range []string{"NoSuchSymbolA", "NoSuchSymbolB"} {
+		seedUnresolvedRef(t, d, types.UnresolvedReference{
+			ID:            fmt.Sprintf("ref-wall-%d", i),
+			FromNodeID:    callerID,
+			ReferenceName: name,
+			ReferenceKind: types.EdgeKindCalls,
+			FilePath:      "src/wall.ts",
+			Language:      types.LanguageTypeScript,
+			Line:          i + 2,
+		})
+	}
+	// Resolvable ref with a HIGH id — sorts AFTER the wall, so a batch of 2 reads
+	// only the wall first.
+	seedUnresolvedRef(t, d, types.UnresolvedReference{
+		ID:            "ref-zzz-real",
+		FromNodeID:    callerID,
+		ReferenceName: "realCallee",
+		ReferenceKind: types.EdgeKindCalls,
+		FilePath:      "src/wall.ts",
+		Language:      types.LanguageTypeScript,
+		Line:          40,
+	})
+
+	if _, _, err := resolution.NewPipeline(d).ResolveAndPersistBatched(ctx, 2, nil); err != nil {
+		t.Fatalf("ResolveAndPersistBatched: %v", err)
+	}
+
+	// The resolvable ref MUST have become a calls edge, despite sitting behind
+	// the unresolvable wall.
+	if edges := edgesWithKind(t, d, callerID, types.EdgeKindCalls); len(edges) == 0 {
+		t.Errorf("resolvable ref behind unresolvable wall was abandoned: expected a calls edge from %s, got none", callerID)
+	}
+
+	// The wall stays (still unresolvable); only the resolved ref is deleted.
+	if remaining := countUnresolvedRefs(t, d); remaining != 2 {
+		t.Errorf("expected 2 unresolvable wall refs to remain, got %d", remaining)
+	}
+}
+
 // TestBuiltinSkip proves that a built-in/stdlib reference (e.g. "console" in
 // JavaScript) is skipped — no edge is inserted, and the ref is removed from
 // unresolved_refs (built-in skip policy: drop silently, do not retain).

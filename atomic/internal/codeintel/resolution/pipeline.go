@@ -855,20 +855,36 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 	totalEdges := 0
 
 	// Phase 2: batch loop (resolve.match).
+	//
+	// Keyset pagination by id: each window reads refs with id > cursor, and the
+	// cursor advances to the last id in the window BEFORE any deletes. This visits
+	// every ref exactly once. The earlier design re-read at offset 0 every
+	// iteration and relied on deletion to advance — but unresolvable non-builtin
+	// refs are intentionally NOT deleted (they might resolve after more files are
+	// indexed), so they accumulated as a permanent "wall" at the front of the
+	// id-ordered scan. A `len(resolvedIDs)==0 → break` then terminated the moment a
+	// window was all-wall, abandoning every resolvable ref behind it (the bulk of
+	// the call graph in any repo with many external/stdlib calls). Keyset advance
+	// removes both the wall and the premature break: the loop ends only when the
+	// table has been fully scanned (an empty window).
 	matchStart := time.Now()
+	var cursor string // last id seen; "" starts from the beginning
 	for {
-		// Read at offset 0 every iteration (re-read after delete).
-		refs, err := p.db.GetUnresolvedRefs(ctx, batchSize, 0)
+		refs, err := p.db.GetUnresolvedRefsAfter(ctx, cursor, batchSize)
 		if err != nil {
 			prof.MatchDur = time.Since(matchStart)
 			return prof, totalEdges, err
 		}
 		if len(refs) == 0 {
-			// No more refs — done.
+			// Whole table scanned — done.
 			break
 		}
 
 		prof.RefCount += len(refs)
+		// Advance the cursor before resolving/deleting so refs left behind
+		// (unresolved, not deleted) are not re-read, and resolved/deleted refs are
+		// not skipped — every ref is visited exactly once.
+		cursor = refs[len(refs)-1].ID
 
 		var edges []types.Edge
 		var resolvedIDs []string // ref ids to delete (resolved + skipped built-ins)
@@ -899,11 +915,11 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 			resolvedIDs = append(resolvedIDs, ref.ID)
 		}
 
-		// If nothing in this batch resolved (and nothing was skipped as built-in),
-		// break — all remaining refs are unresolvable for now. Guards against
-		// infinite loops when a set of refs is permanently unresolvable.
+		// Nothing resolved in this window — the refs stay; the cursor already
+		// advanced past them, so continue to the next window (do NOT break: later
+		// windows may hold resolvable refs).
 		if len(resolvedIDs) == 0 {
-			break
+			continue
 		}
 
 		// Persist edges AND delete resolved refs in ONE transaction.
