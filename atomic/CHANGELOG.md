@@ -1,5 +1,29 @@
 # Changelog
 
+## [5.6.0](https://github.com/damusix/atomic-claude/compare/v5.5.0...v5.6.0) (2026-06-22)
+
+
+### Features
+
+* **code-intel:** self-sync the MCP daemon every 10s ([5caedef](https://github.com/damusix/atomic-claude/commit/5caedef639e397014f3afce09d0416147090172a))
+
+
+### Bug Fixes
+
+* **code-intel:** allow sync/status in realm scope ([79aba39](https://github.com/damusix/atomic-claude/commit/79aba39d2e56bc8b3240153f0bb69a2f9aa0df98))
+* **code-intel:** graceful MCP self-sync shutdown; document per-repo MCP ([9a89db5](https://github.com/damusix/atomic-claude/commit/9a89db5726ff5702784c8b4fef8c6792919a4468))
+* **code-intel:** index past unreadable files; aggregate multi-def callers ([c27ce5f](https://github.com/damusix/atomic-claude/commit/c27ce5f751662ffe00980037df919c6e3fee1831))
+* **code-intel:** make call-graph queries return correct results ([7eae7f9](https://github.com/damusix/atomic-claude/commit/7eae7f9b842df481aa777fd0c9394b022922915a))
+* **code-intel:** per-repo MCP (cwd-independent) + 10s self-sync + lazy-pool perf ([7e1c59e](https://github.com/damusix/atomic-claude/commit/7e1c59e6078cc067bfde6c73718f0f16daaacced))
+* **code-intel:** repair call-graph edge resolution ([46b16c4](https://github.com/damusix/atomic-claude/commit/46b16c4d0cd80d1504d1aa05cd3e6beaa97bfcab))
+* **code-intel:** serve MCP by explicit path, not cwd ([144269c](https://github.com/damusix/atomic-claude/commit/144269cabba57891e38f7b2ec4bbf1273dad0f5c))
+* **serve:** highlighting, scroll, nav, search ([67ff19a](https://github.com/damusix/atomic-claude/commit/67ff19a2dfc741b8e1b47b7e487920405ce8d319))
+
+
+### Performance Improvements
+
+* **code-intel:** lazy-boot extraction pool on read queries ([e989d93](https://github.com/damusix/atomic-claude/commit/e989d933bd0217598e25cd2f7ee54dfae1dfc5f1))
+
 ## [5.5.0](https://github.com/damusix/atomic-claude/compare/v5.4.1...v5.5.0) (2026-06-20)
 
 
