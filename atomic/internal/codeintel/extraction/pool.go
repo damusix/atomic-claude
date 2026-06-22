@@ -21,9 +21,16 @@ const RecycleInterval = 500
 //
 // Pool is safe for concurrent use (all state is accessed via a buffered
 // channel; no mutexes needed).
+//
+// The channel holds a fixed number of tokens equal to the pool size. A token
+// is either a live *tsInstance or nil — a nil token is an unbooted permit: the
+// right to create one instance on first borrow. This keeps concurrency bounded
+// at exactly `size` while deferring the expensive wazero-runtime + grammar
+// compile to the moment a parse actually needs it (lazy instantiation).
 type Pool struct {
 	ch           chan *tsInstance
 	recycleCount atomic.Int64
+	nextID       atomic.Int64
 }
 
 // PoolOptions configures a Pool. Zero-value fields use defaults.
@@ -33,8 +40,13 @@ type PoolOptions struct {
 	Size int
 }
 
-// NewPool creates and fills a pool. All instances are initialised eagerly so
-// the first borrow does not pay instantiation cost.
+// NewPool creates a pool of the given size. No wazero runtime is booted here:
+// the pool is filled with `size` unbooted permits (nil tokens), and each is
+// upgraded to a live instance on its first Borrow. This defers the per-instance
+// grammar-compile cost (~0.5 s each) to actual parse demand, so a pool that is
+// never borrowed from — e.g. a no-op sync where every file is unchanged — boots
+// nothing, and a small incremental sync boots only as many instances as it has
+// concurrent parsers.
 func NewPool(ctx context.Context, opts PoolOptions) (*Pool, error) {
 	size := opts.Size
 	if size <= 0 {
@@ -46,32 +58,35 @@ func NewPool(ctx context.Context, opts PoolOptions) (*Pool, error) {
 
 	ch := make(chan *tsInstance, size)
 	for i := 0; i < size; i++ {
-		inst, err := newTSInstance(ctx, i)
-		if err != nil {
-			// Drain and return any already-created instances before failing.
-			close(ch)
-			for inst := range ch {
-				inst.close(ctx)
-			}
-			return nil, fmt.Errorf("initialising pool instance %d: %w", i, err)
-		}
-		ch <- inst
+		ch <- nil // unbooted permit; Borrow instantiates on first use
 	}
 	return &Pool{ch: ch}, nil
 }
 
-// Borrow takes an instance from the pool. It blocks until one is available
-// or ctx is cancelled. The caller must call Return when done — failure to
-// return leaks the pool. The returned Instance is ready to parse (language
-// defaults to Go; callers may call SetLanguage before use).
+// Borrow takes a token from the pool. It blocks until one is available or ctx
+// is cancelled. The caller must call Return when done — failure to return leaks
+// the pool. The returned Instance is ready to parse (language defaults to Go;
+// callers may call SetLanguage before use).
 //
-// ctx is used only for the blocking wait, not for the lifetime of the
-// instance. A cancelled ctx returns a wrapped ctx error so callers can
-// handle graceful shutdown.
+// If the token is an unbooted permit (nil), Borrow instantiates a fresh
+// instance here — so Borrow can now also fail with an instantiation error, not
+// only a ctx error. On instantiation failure the permit is returned to the pool
+// so the slot is not lost.
+//
+// ctx is used both for the blocking wait and for the lazy instantiation. A
+// cancelled ctx returns a wrapped ctx error so callers can handle shutdown.
 func (p *Pool) Borrow(ctx context.Context) (Instance, error) {
 	select {
 	case inst := <-p.ch:
-		return inst, nil
+		if inst != nil {
+			return inst, nil
+		}
+		created, err := newTSInstance(ctx, int(p.nextID.Add(1)-1))
+		if err != nil {
+			p.ch <- nil // restore the permit; the slot must not vanish
+			return nil, fmt.Errorf("extraction.Pool.Borrow: instantiate: %w", err)
+		}
+		return created, nil
 	case <-ctx.Done():
 		return nil, fmt.Errorf("extraction.Pool.Borrow: %w", ctx.Err())
 	}
@@ -125,7 +140,9 @@ func (p *Pool) RecycleCount() int {
 func (p *Pool) Close() {
 	ctx := context.Background()
 	for len(p.ch) > 0 {
-		(<-p.ch).close(ctx)
+		if inst := <-p.ch; inst != nil {
+			inst.close(ctx)
+		}
 	}
 }
 
