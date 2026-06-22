@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,14 +45,40 @@ const (
 // Socket and lock path helpers
 // ---------------------------------------------------------------------------
 
+// SocketPathFromDB returns the unix-socket path derived from the db file path.
+// The socket lives in the same directory as the db — not inside the source tree.
+//
+// For a standalone repo (dbPath = <repo>/.claude/.atomic-index/atomic.db), the
+// socket is at <repo>/.claude/.atomic-index/mcp.sock — the same location as
+// before the fix. For a realm member (dbPath = <realm>/.atomic/<key>.db), the
+// socket is at <realm>/.atomic/<key>.mcp.sock — inside the realm's .atomic dir,
+// not inside the member's source tree.
+func SocketPathFromDB(dbPath string) string {
+	dir := filepath.Dir(dbPath)
+	stem := strings.TrimSuffix(filepath.Base(dbPath), filepath.Ext(dbPath))
+	return filepath.Join(dir, stem+".mcp.sock")
+}
+
+// LockPathFromDB returns the flock lock path derived from the db file path.
+// Mirrors SocketPathFromDB: same directory, same stem, .mcp.lock extension.
+func LockPathFromDB(dbPath string) string {
+	dir := filepath.Dir(dbPath)
+	stem := strings.TrimSuffix(filepath.Base(dbPath), filepath.Ext(dbPath))
+	return filepath.Join(dir, stem+".mcp.lock")
+}
+
 // SocketPath returns the unix-socket path for the given project root.
+// Deprecated: use SocketPathFromDB for new code. Retained for tests that
+// use a standalone project root where db lives at the canonical position.
 func SocketPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".claude", ".atomic-index", "mcp.sock")
+	return SocketPathFromDB(filepath.Join(projectRoot, ".claude", ".atomic-index", "atomic.db"))
 }
 
 // LockPath returns the flock lock path for the given project root.
+// Deprecated: use LockPathFromDB for new code. Retained for tests that
+// use a standalone project root where db lives at the canonical position.
 func LockPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".claude", ".atomic-index", "mcp.lock")
+	return LockPathFromDB(filepath.Join(projectRoot, ".claude", ".atomic-index", "atomic.db"))
 }
 
 // ---------------------------------------------------------------------------
@@ -182,17 +209,22 @@ func (d *Daemon) RegistryCount() int {
 	return d.reg.count()
 }
 
-// RunDaemon opens or inits the engine, creates the MCP server, binds the
-// socket, and runs the accept loop until auto-shutdown. The socket file is
-// removed on clean exit (or on start if stale).
+// RunDaemon opens or inits the engine at sourceRoot with the index at dbPath,
+// creates the MCP server, binds the socket (next to dbPath), and runs the
+// accept loop until auto-shutdown. The socket file is removed on clean exit.
+//
+// Using explicit (sourceRoot, dbPath) makes the daemon cwd-independent: it
+// never consults the process working directory or the realm resolver, so it
+// can be spawned from a realm root (or any non-git directory) without exiting
+// before binding its socket.
 //
 // now is injectable for tests; pass nil for real time.
-func RunDaemon(ctx context.Context, projectRoot string, now func() time.Time) error {
+func RunDaemon(ctx context.Context, sourceRoot, dbPath string, now func() time.Time) error {
 	if now == nil {
 		now = time.Now
 	}
 
-	eng, err := engine.New(projectRoot)
+	eng, err := engine.NewWithDBPath(sourceRoot, dbPath)
 	if err != nil {
 		return fmt.Errorf("daemon: create engine: %w", err)
 	}
@@ -215,7 +247,14 @@ func RunDaemon(ctx context.Context, projectRoot string, now func() time.Time) er
 	}
 
 	srv := NewServer(eng, fileCount)
-	sockPath := SocketPath(projectRoot)
+	sockPath := SocketPathFromDB(dbPath)
+
+	// Ensure the db directory exists before writing the socket (the engine's
+	// Init already creates it via MkdirAll; this is a safety net for callers
+	// that pass a pre-existing db without going through Init first).
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
+		return fmt.Errorf("daemon: mkdir socket dir: %w", err)
+	}
 
 	// Remove stale socket if present.
 	_ = os.Remove(sockPath)

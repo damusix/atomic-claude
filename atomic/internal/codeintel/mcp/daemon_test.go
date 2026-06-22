@@ -156,12 +156,13 @@ func TestRegistry_Reap_DropsIdleNotFresh(t *testing.T) {
 // exactly one spawn is invoked even under concurrent proxy calls.
 func TestAutoStart_SpawnCalledOnce(t *testing.T) {
 	dir := tmpShortDir(t, "as")
+	dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
 
 	// Spawn stub: starts an in-process listener daemon on the socket.
 	var spawnCount atomic.Int32
-	stub := func(projectRoot string) error {
+	stub := func(sourceRoot, db string) error {
 		spawnCount.Add(1)
-		return startInProcessDaemon(t, projectRoot)
+		return startInProcessDaemonWithDB(t, sourceRoot, db)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -176,7 +177,7 @@ func TestAutoStart_SpawnCalledOnce(t *testing.T) {
 		i := i
 		go func() {
 			defer wg.Done()
-			errs[i] = codemcp.EnsureRunning(ctx, dir, stub)
+			errs[i] = codemcp.EnsureRunning(ctx, dir, dbPath, stub)
 		}()
 	}
 	wg.Wait()
@@ -196,6 +197,7 @@ func TestAutoStart_SpawnCalledOnce(t *testing.T) {
 // listener is dead) is removed before spawning.
 func TestAutoStart_StaleSocketRemoved(t *testing.T) {
 	dir := tmpShortDir(t, "stale")
+	dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
 
 	sockPath := codemcp.SocketPath(dir)
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
@@ -213,15 +215,15 @@ func TestAutoStart_StaleSocketRemoved(t *testing.T) {
 	}
 
 	var spawned atomic.Bool
-	stub := func(projectRoot string) error {
+	stub := func(sourceRoot, db string) error {
 		spawned.Store(true)
-		return startInProcessDaemon(t, projectRoot)
+		return startInProcessDaemonWithDB(t, sourceRoot, db)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if err := codemcp.EnsureRunning(ctx, dir, stub); err != nil {
+	if err := codemcp.EnsureRunning(ctx, dir, dbPath, stub); err != nil {
 		t.Fatalf("ensureRunning: %v", err)
 	}
 	if !spawned.Load() {
@@ -693,9 +695,18 @@ func newEmptyEngine(t *testing.T, dir string) *engine.Engine {
 
 // startInProcessDaemon starts an in-process daemon on projectRoot's socket.
 // Used as the spawn seam stub in auto-start tests so no subprocess is needed.
+// Assumes the canonical db location: <projectRoot>/.claude/.atomic-index/atomic.db.
 func startInProcessDaemon(t *testing.T, projectRoot string) error {
 	t.Helper()
-	sockPath := codemcp.SocketPath(projectRoot)
+	dbPath := filepath.Join(projectRoot, ".claude", ".atomic-index", "atomic.db")
+	return startInProcessDaemonWithDB(t, projectRoot, dbPath)
+}
+
+// startInProcessDaemonWithDB starts an in-process daemon with explicit source+db.
+// Used as the spawn seam stub in auto-start tests so no subprocess is needed.
+func startInProcessDaemonWithDB(t *testing.T, sourceRoot, dbPath string) error {
+	t.Helper()
+	sockPath := codemcp.SocketPathFromDB(dbPath)
 	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir: %w", err)
 	}
@@ -713,7 +724,7 @@ func startInProcessDaemon(t *testing.T, projectRoot string) error {
 		_ = os.Remove(sockPath)
 	})
 
-	eng := newEmptyEngine(t, projectRoot)
+	eng := newEmptyEngine(t, sourceRoot)
 	t.Cleanup(func() { eng.Close() })
 
 	stats, _ := eng.GetStats(ctx)

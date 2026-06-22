@@ -36,6 +36,14 @@ func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, s
 		return 0
 	}
 
+	// __serve is an internal verb spawned by the proxy with explicit --source/--db
+	// flags. Route it directly to RunCode (which dispatches to runServe) before
+	// realm resolution, so the daemon never hits the realm-verb-reject gate
+	// regardless of the process cwd. This is what makes the daemon cwd-independent.
+	if args[0] == "__serve" {
+		return RunCode(args, projectRoot, stdout, stderr, stdin)
+	}
+
 	res, err := realm.Resolve(projectRoot, claudeMDPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "atomic code: realm resolve: %v\n", err)
@@ -54,13 +62,19 @@ func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, s
 
 	case realm.ScopeNoIndex:
 		// No local index at projectRoot and not under a realm. Resolve the git root
-		// of projectRoot so a subdir invocation targets the whole repo: a query from
-		// a subdir of an indexed repo must find the git-root index, and
-		// `atomic code index` from a subdir must index the git root. projectRoot ==
-		// cwd in production (main.go passes os.Getwd), so repoctx.Resolve("") runs
-		// `git rev-parse --show-toplevel` against the right tree, exactly as today's
-		// single-repo path does (SC 2).
-		root, err := repoctx.Resolve("")
+		// so a subdir invocation targets the whole repo.
+		//
+		// When main.go passes os.Getwd() as projectRoot (no --repo), repoctx.Resolve("")
+		// runs `git rev-parse` against the cwd — the same as before CP3 (SC 2).
+		// When --repo was given (projectRoot is an explicit path), try that path first
+		// so the command works even when the cwd is a non-git directory (e.g. a realm root).
+		root, err := repoctx.Resolve(projectRoot)
+		if err != nil {
+			// projectRoot itself is not a git repo (or path doesn't exist). Try cwd as
+			// a last resort — this covers the case where projectRoot is a git subdir
+			// whose --show-toplevel is above projectRoot.
+			root, err = repoctx.Resolve("")
+		}
 		if err != nil {
 			// Not inside a git repo (and not a realm) — surface the same error the
 			// user would have seen before CP3.
@@ -106,12 +120,20 @@ func runRealmMember(args []string, res realm.Resolution, stdout, stderr io.Write
 		return indexRealmAll(res.RealmRoot, []realm.MemberEntry{m}, args[1:], stdout, stderr)
 	}
 
-	// mcp / __serve start a long-lived server over a whole tree; they have no
-	// per-member meaning. sync and status DO operate on a single member — against
-	// its realm db (the NewWithDBPath engine below), writing nothing into the
-	// member repo — so they fall through to dispatchVerb like the query verbs.
-	if verb == "mcp" || verb == "__serve" {
-		fmt.Fprintf(stderr, "atomic code %s: not available in realm-member scope; run from a standalone repo\n", verb)
+	// mcp in realm-member scope: start the proxy with explicit (memberAbs, dbPath)
+	// so the daemon serves the member's realm db without writing into the member
+	// source tree (SC 3).
+	if verb == "mcp" {
+		ctx := context.Background()
+		return runMCP(ctx, memberAbs, dbPath, args[1:], stderr)
+	}
+
+	// __serve is an internal verb invoked by the proxy subprocess with explicit
+	// --source/--db flags. It must never reach this routing layer (the proxy
+	// spawns it as a top-level `atomic code __serve` command, bypassing realm
+	// dispatch entirely via main.go's special-casing).
+	if verb == "__serve" {
+		fmt.Fprintf(stderr, "atomic code __serve: not available in realm-member scope (internal verb)\n")
 		return 1
 	}
 
@@ -138,8 +160,14 @@ func runRealmAll(args []string, cwd string, res realm.Resolution, claudeMDPath s
 	// sync and status are NOT in this set — they fan out per member like the
 	// query verbs (sync updates each member's realm db; status reports each).
 	switch verb {
-	case "mcp", "__serve":
-		fmt.Fprintf(stderr, "atomic code %s: not available in realm scope; cd into a member repo or pass --repo <member>\n", verb)
+	case "mcp":
+		// No single target — tell the user to use --repo to pick one.
+		fmt.Fprintf(stderr, "atomic code mcp: not available in realm scope; pass --repo <member> to serve a specific repo\n")
+		return 1
+	case "__serve":
+		// Internal verb spawned by the proxy with explicit --source/--db; should
+		// never reach realm routing (main.go handles it before calling RunCodeWithRealm).
+		fmt.Fprintf(stderr, "atomic code __serve: internal verb not available in realm scope\n")
 		return 1
 	}
 

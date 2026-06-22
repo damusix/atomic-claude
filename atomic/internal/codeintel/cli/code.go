@@ -51,8 +51,10 @@ func RunCode(args []string, projectRoot string, stdout, stderr io.Writer, stdin 
 
 	// `atomic code mcp` is the proxy path (CP23): connect-or-start the daemon,
 	// then pipe stdin↔socket. Does not need the pre-created engine.
+	// dbPath for standalone repo: <projectRoot>/.claude/.atomic-index/atomic.db.
 	if verb == "mcp" {
-		return runMCP(ctx, projectRoot, rest, stderr)
+		dbPath := engine.IndexPath(projectRoot)
+		return runMCP(ctx, projectRoot, dbPath, rest, stderr)
 	}
 
 	// All other verbs need an open engine.
@@ -983,7 +985,10 @@ func EnsureGitignore(projectRoot string) error {
 // It connect-or-starts the singleton daemon (flock-guarded auto-start) and
 // then bidirectionally pipes stdin↔socket / stdout↔socket.
 // The daemon stays alive when the proxy exits; a second call reuses the warm engine.
-func runMCP(ctx context.Context, projectRoot string, args []string, stderr io.Writer) int {
+//
+// projectRoot is the source tree root; dbPath is where the index lives. Both
+// are resolved by main.go (realm-aware) before calling here.
+func runMCP(ctx context.Context, projectRoot, dbPath string, args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code mcp", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cliutil.SetUsage(fs, "atomic code mcp")
@@ -991,7 +996,7 @@ func runMCP(ctx context.Context, projectRoot string, args []string, stderr io.Wr
 		return 2
 	}
 
-	if err := codemcp.RunProxy(ctx, projectRoot, nil, os.Stdin, os.Stdout); err != nil {
+	if err := codemcp.RunProxy(ctx, projectRoot, dbPath, nil, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(stderr, "atomic code mcp: %v\n", err)
 		return 1
 	}
@@ -999,15 +1004,23 @@ func runMCP(ctx context.Context, projectRoot string, args []string, stderr io.Wr
 }
 
 // runServe is the internal daemon entry point, invoked only by the auto-start
-// proxy via `atomic code __serve <projectRoot>`. Not user-facing; not in help.
+// proxy via `atomic code __serve --source SRC --db DB`. Not user-facing; not in help.
+// Explicit source+db make the daemon cwd-independent (the key fix).
 func runServe(ctx context.Context, args []string, stderr io.Writer) int {
-	if len(args) < 1 {
-		fmt.Fprintln(stderr, "atomic code __serve: missing projectRoot argument")
+	fs := flag.NewFlagSet("code __serve", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var sourceRoot, dbPath string
+	fs.StringVar(&sourceRoot, "source", "", "source root to serve (required)")
+	fs.StringVar(&dbPath, "db", "", "absolute path to the SQLite index db (required)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if sourceRoot == "" || dbPath == "" {
+		fmt.Fprintln(stderr, "atomic code __serve: --source and --db are required")
 		return 1
 	}
-	projectRoot := args[0]
 
-	if err := codemcp.RunDaemon(ctx, projectRoot, nil); err != nil {
+	if err := codemcp.RunDaemon(ctx, sourceRoot, dbPath, nil); err != nil {
 		fmt.Fprintf(stderr, "atomic code __serve: %v\n", err)
 		return 1
 	}
