@@ -156,6 +156,9 @@ func (e *Engine) open(ctx context.Context) error {
 		e.pool.Close()
 		e.pool = nil
 	}
+	// orch holds the (now-closed) pool + db; drop it so ensureIndexer rebuilds
+	// it against the fresh DB on the next indexing call.
+	e.orch = nil
 	if e.indexDB != nil {
 		_ = e.indexDB.Close()
 		e.indexDB = nil
@@ -167,15 +170,11 @@ func (e *Engine) open(ctx context.Context) error {
 	}
 	e.indexDB = database
 
-	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{})
-	if err != nil {
-		database.Close()
-		e.indexDB = nil
-		return err
-	}
-	e.pool = pool
-
-	e.orch = indexer.NewOrchestrator(database, pool)
+	// The extraction pool + orchestrator are NOT built here. NewPool spins up
+	// one wazero runtime per CPU and compiles every tree-sitter WASM grammar
+	// (measured ~4.7 s of CPU and ~1.9 GB peak RSS); read-only queries never
+	// parse source, so they must not pay that cost. ensureIndexer boots them
+	// lazily on the first call to an indexing method (IndexAll/IndexFiles/Sync).
 	e.mgr = graph.NewManager(database)
 	e.srch = search.New(database)
 	e.bld = codectx.New(database)
@@ -189,6 +188,42 @@ func (e *Engine) open(ctx context.Context) error {
 	e.pipe = resolution.NewPipelineWithSeams(database, e.root, reg.FrameworkRegistry(), synth)
 
 	return nil
+}
+
+// ensureIndexer lazily boots the extraction pool + orchestrator. It is called
+// by every method that parses source (IndexAll / IndexFiles / Sync). The pool
+// instantiates one wazero runtime per CPU and compiles every tree-sitter WASM
+// grammar — measured at ~4.7 s of CPU and ~1.9 GB peak RSS — so it is built on
+// demand, never during open(). Read-only queries (search, callers, callees,
+// impact, explore, context) bypass this entirely and stay pure SQLite reads.
+//
+// Idempotent: a second call while the pool is live is a no-op. open() resets
+// e.orch to nil, so a re-open followed by an index correctly rebuilds against
+// the fresh DB.
+func (e *Engine) ensureIndexer(ctx context.Context) error {
+	if err := e.requireDB(); err != nil {
+		return err
+	}
+	if e.orch != nil {
+		return nil
+	}
+	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{})
+	if err != nil {
+		return err
+	}
+	e.pool = pool
+	e.orch = indexer.NewOrchestrator(e.indexDB, pool)
+	return nil
+}
+
+// IndexPath returns the absolute path to the SQLite database this engine is
+// bound to: the explicit realm db path when constructed via NewWithDBPath,
+// otherwise the canonical <root>/.claude/.atomic-index/atomic.db. Callers that
+// report the active index location (e.g. `atomic code status`) must use this
+// rather than recomputing from the project root — the latter is wrong in realm
+// scope, where the db lives at <realm>/.atomic/<key>.db, not under the member.
+func (e *Engine) IndexPath() string {
+	return e.indexPath()
 }
 
 // IsInitialized returns true if the index directory and atomic.db file exist
@@ -217,6 +252,9 @@ func (e *Engine) Close() {
 		e.pool.Close()
 		e.pool = nil
 	}
+	// orch references the pool we just closed; drop it so a later ensureIndexer
+	// rebuilds rather than reusing a dead pool.
+	e.orch = nil
 	if e.indexDB != nil {
 		_ = e.indexDB.Close()
 		e.indexDB = nil
@@ -243,7 +281,7 @@ func (e *Engine) Uninitialize() error {
 
 // IndexAll indexes all source files under the project root.
 func (e *Engine) IndexAll(ctx context.Context) error {
-	if err := e.requireDB(); err != nil {
+	if err := e.ensureIndexer(ctx); err != nil {
 		return err
 	}
 	return e.orch.IndexAll(ctx, e.root)
@@ -254,6 +292,9 @@ func (e *Engine) IndexAll(ctx context.Context) error {
 // so a skipped file (e.g. a git-tracked-but-missing path) is visible rather than
 // silently dropped.
 func (e *Engine) SkippedFiles() int {
+	if e.orch == nil {
+		return 0
+	}
 	return e.orch.SkippedFiles()
 }
 
@@ -309,7 +350,7 @@ func (e *Engine) ExtractFrameworkNodes(ctx context.Context) (int, error) {
 // the real selective-indexing implementation (F-56 fix — the prior stub
 // incorrectly delegated to IndexAll, re-indexing the entire project root).
 func (e *Engine) IndexFiles(ctx context.Context, paths []string) error {
-	if err := e.requireDB(); err != nil {
+	if err := e.ensureIndexer(ctx); err != nil {
 		return err
 	}
 	return e.orch.IndexPaths(ctx, e.root, paths)
@@ -317,7 +358,7 @@ func (e *Engine) IndexFiles(ctx context.Context, paths []string) error {
 
 // Sync re-indexes files that have changed since the last index run.
 func (e *Engine) Sync(ctx context.Context) error {
-	if err := e.requireDB(); err != nil {
+	if err := e.ensureIndexer(ctx); err != nil {
 		return err
 	}
 	return e.orch.Sync(ctx, e.root)

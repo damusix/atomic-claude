@@ -168,6 +168,19 @@ Every consumer degrades the same way: if the binary is absent, the database does
 
 The subagents above shell out to `atomic code … --json` and need no MCP. MCP is a separate, opt-in convenience for *your* interactive session: register `atomic code mcp` as a project-scoped server and you can ask "what calls this?" in natural language and Claude answers from the graph. Setup and the tool list are in [Code-intel MCP](/guides/code-intel-mcp).
 
+**Per-repo serving with `--repo`.** `atomic --repo <abs-path> code mcp` starts a daemon for any repo regardless of the current working directory — cwd-independent. A realm member path (`<realm>/server`) resolves to its realm db (`<realm>/.atomic/server.db`) automatically; a standalone repo path resolves to its local index. The socket and lock files live next to the db, so multiple daemons for different repos never collide. Configure N entries in `.mcp.json` to serve multiple repos concurrently:
+
+```json
+{
+  "mcpServers": {
+    "atomic-code-server": { "command": "atomic", "args": ["--repo", "/abs/path/server", "code", "mcp"] },
+    "atomic-code-gui":    { "command": "atomic", "args": ["--repo", "/abs/path/gui",    "code", "mcp"] }
+  }
+}
+```
+
+**Self-sync.** The daemon re-syncs its index every 10 seconds (named constant `SyncInterval`). Use `--no-watch` to disable background sync, or `--watch-interval <dur>` to override the interval. The poller is single-flight — if a sync is already in progress the next tick is skipped.
+
 
 ## Embedded SQL extraction
 

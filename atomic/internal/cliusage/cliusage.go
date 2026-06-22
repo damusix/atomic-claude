@@ -305,6 +305,12 @@ var commands = []Command{
 		Description: "Gather context for a query",
 	},
 	{
+		Path:        []string{"code", "mcp"},
+		Args:        "",
+		Flags:       []string{"--watch-interval", "--no-watch"},
+		Description: "Run the MCP server over stdio (proxy + daemon; --no-watch disables sync poller)",
+	},
+	{
 		Path:        []string{"wiki", "scan"},
 		Args:        "",
 		Flags:       []string{"--root"},

@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,6 +32,9 @@ const (
 	ConnIdleTTL   = 30 * time.Minute
 	ServerIdleTTL = 30 * time.Minute
 	ReapTick      = 60 * time.Second
+	// SyncInterval is the default interval at which the daemon re-syncs the
+	// served symbol graph against the working tree. 0 disables the poller.
+	SyncInterval = 10 * time.Second
 )
 
 // Keep unexported aliases for internal use so existing code compiles unchanged.
@@ -44,14 +48,40 @@ const (
 // Socket and lock path helpers
 // ---------------------------------------------------------------------------
 
+// SocketPathFromDB returns the unix-socket path derived from the db file path.
+// The socket lives in the same directory as the db — not inside the source tree.
+//
+// For a standalone repo (dbPath = <repo>/.claude/.atomic-index/atomic.db), the
+// socket is at <repo>/.claude/.atomic-index/mcp.sock — the same location as
+// before the fix. For a realm member (dbPath = <realm>/.atomic/<key>.db), the
+// socket is at <realm>/.atomic/<key>.mcp.sock — inside the realm's .atomic dir,
+// not inside the member's source tree.
+func SocketPathFromDB(dbPath string) string {
+	dir := filepath.Dir(dbPath)
+	stem := strings.TrimSuffix(filepath.Base(dbPath), filepath.Ext(dbPath))
+	return filepath.Join(dir, stem+".mcp.sock")
+}
+
+// LockPathFromDB returns the flock lock path derived from the db file path.
+// Mirrors SocketPathFromDB: same directory, same stem, .mcp.lock extension.
+func LockPathFromDB(dbPath string) string {
+	dir := filepath.Dir(dbPath)
+	stem := strings.TrimSuffix(filepath.Base(dbPath), filepath.Ext(dbPath))
+	return filepath.Join(dir, stem+".mcp.lock")
+}
+
 // SocketPath returns the unix-socket path for the given project root.
+// Deprecated: use SocketPathFromDB for new code. Retained for tests that
+// use a standalone project root where db lives at the canonical position.
 func SocketPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".claude", ".atomic-index", "mcp.sock")
+	return SocketPathFromDB(filepath.Join(projectRoot, ".claude", ".atomic-index", "atomic.db"))
 }
 
 // LockPath returns the flock lock path for the given project root.
+// Deprecated: use LockPathFromDB for new code. Retained for tests that
+// use a standalone project root where db lives at the canonical position.
 func LockPath(projectRoot string) string {
-	return filepath.Join(projectRoot, ".claude", ".atomic-index", "mcp.lock")
+	return LockPathFromDB(filepath.Join(projectRoot, ".claude", ".atomic-index", "atomic.db"))
 }
 
 // ---------------------------------------------------------------------------
@@ -149,6 +179,11 @@ func (r *registry) idle(ttl time.Duration) []string {
 // Daemon
 // ---------------------------------------------------------------------------
 
+// SyncFunc is the function the sync poller calls on each tick.
+// Injected as a field so tests can substitute a spy without needing a real engine.
+// In production RunDaemon wires it to eng.Sync.
+type SyncFunc func(ctx context.Context) error
+
 // Daemon is the per-project unix-socket MCP singleton daemon.
 //
 // Use RunDaemon to start it from the `atomic code __serve` internal verb.
@@ -165,6 +200,11 @@ type Daemon struct {
 	// injectable durations — real constants in production, short values in tests
 	idleD time.Duration
 	reapD time.Duration
+	// syncD is the background sync interval; 0 disables the poller.
+	syncD time.Duration
+	// syncFn is called by the sync poller on each tick.
+	// In production it is eng.Sync; in tests it may be a spy.
+	syncFn SyncFunc
 
 	// connClosers maps connID → close function; used by reaper to force-close
 	mu          sync.Mutex
@@ -182,17 +222,23 @@ func (d *Daemon) RegistryCount() int {
 	return d.reg.count()
 }
 
-// RunDaemon opens or inits the engine, creates the MCP server, binds the
-// socket, and runs the accept loop until auto-shutdown. The socket file is
-// removed on clean exit (or on start if stale).
+// RunDaemon opens or inits the engine at sourceRoot with the index at dbPath,
+// creates the MCP server, binds the socket (next to dbPath), and runs the
+// accept loop until auto-shutdown. The socket file is removed on clean exit.
+//
+// Using explicit (sourceRoot, dbPath) makes the daemon cwd-independent: it
+// never consults the process working directory or the realm resolver, so it
+// can be spawned from a realm root (or any non-git directory) without exiting
+// before binding its socket.
 //
 // now is injectable for tests; pass nil for real time.
-func RunDaemon(ctx context.Context, projectRoot string, now func() time.Time) error {
+// watchInterval controls the background sync poller; 0 disables it.
+func RunDaemon(ctx context.Context, sourceRoot, dbPath string, now func() time.Time, watchInterval time.Duration) error {
 	if now == nil {
 		now = time.Now
 	}
 
-	eng, err := engine.New(projectRoot)
+	eng, err := engine.NewWithDBPath(sourceRoot, dbPath)
 	if err != nil {
 		return fmt.Errorf("daemon: create engine: %w", err)
 	}
@@ -215,7 +261,14 @@ func RunDaemon(ctx context.Context, projectRoot string, now func() time.Time) er
 	}
 
 	srv := NewServer(eng, fileCount)
-	sockPath := SocketPath(projectRoot)
+	sockPath := SocketPathFromDB(dbPath)
+
+	// Ensure the db directory exists before writing the socket (the engine's
+	// Init already creates it via MkdirAll; this is a safety net for callers
+	// that pass a pre-existing db without going through Init first).
+	if err := os.MkdirAll(filepath.Dir(sockPath), 0o755); err != nil {
+		return fmt.Errorf("daemon: mkdir socket dir: %w", err)
+	}
 
 	// Remove stale socket if present.
 	_ = os.Remove(sockPath)
@@ -233,6 +286,8 @@ func RunDaemon(ctx context.Context, projectRoot string, now func() time.Time) er
 		now:         now,
 		idleD:       serverIdleTTL,
 		reapD:       reapTick,
+		syncD:       watchInterval,
+		syncFn:      eng.Sync,
 		connClosers: make(map[string]func()),
 		done:        make(chan struct{}),
 	}
@@ -240,17 +295,22 @@ func RunDaemon(ctx context.Context, projectRoot string, now func() time.Time) er
 	return d.Run(ctx)
 }
 
-// NewTestDaemon constructs a Daemon with injectable idle and reap durations for
-// tests. It creates the unix listener on sockPath itself so the socket is
-// live as soon as this call returns — callers can safely poll IsLive
+// NewTestDaemon constructs a Daemon with injectable idle, reap, and sync
+// durations for tests. It creates the unix listener on sockPath itself so the
+// socket is live as soon as this call returns — callers can safely poll IsLive
 // immediately after NewTestDaemon without waiting for a goroutine to start.
 //
 // idleDuration controls how long the daemon waits with no connections before
 // shutting down. reapDuration controls the reaper tick interval.
+// syncDuration controls the background sync interval; 0 disables the poller.
+// syncFn is called by the poller on each tick; pass nil to use a no-op.
 // Pass nil for now to use real time.
-func NewTestDaemon(sockPath string, srv *sdk.Server, now func() time.Time, idleDuration, reapDuration time.Duration) *Daemon {
+func NewTestDaemon(sockPath string, srv *sdk.Server, now func() time.Time, idleDuration, reapDuration, syncDuration time.Duration, syncFn SyncFunc) *Daemon {
 	if now == nil {
 		now = time.Now
+	}
+	if syncFn == nil {
+		syncFn = func(_ context.Context) error { return nil }
 	}
 	// Remove stale socket if present (mirrors RunDaemon behaviour).
 	_ = os.Remove(sockPath)
@@ -267,6 +327,8 @@ func NewTestDaemon(sockPath string, srv *sdk.Server, now func() time.Time, idleD
 		now:         now,
 		idleD:       idleDuration,
 		reapD:       reapDuration,
+		syncD:       syncDuration,
+		syncFn:      syncFn,
 		connClosers: make(map[string]func()),
 		done:        make(chan struct{}),
 	}
@@ -315,13 +377,22 @@ func (d *Daemon) Run(ctx context.Context) error {
 	reaperDone := make(chan struct{})
 	go d.reapLoop(ctx, reaperDone)
 
-	// Cleanup in reverse order: first close done (unblocks reaper), then wait
-	// for reaper to exit, then clean up listener and socket file.
+	// Start sync poller goroutine if enabled (syncD > 0).
+	syncDone := make(chan struct{})
+	if d.syncD > 0 {
+		go d.syncLoop(ctx, syncDone)
+	} else {
+		close(syncDone)
+	}
+
+	// Cleanup in reverse order: first close done (unblocks reaper + sync poller),
+	// then wait for both goroutines to exit, then clean up listener and socket file.
 	// Defers execute LIFO so declare them in reverse execution order.
 	defer func() {
 		_ = d.listener.Close()
 		_ = os.Remove(d.socketPath)
 	}()
+	defer func() { <-syncDone }()
 	defer func() { <-reaperDone }()
 	defer close(d.done)
 
@@ -459,7 +530,7 @@ func (d *Daemon) handleConn(ctx context.Context, conn net.Conn, onEmpty func()) 
 			// context.Canceled is the normal close path (daemon shutting down);
 			// other errors indicate an unexpected transport or protocol failure.
 			if ctx.Err() == nil {
-				fmt.Printf("daemon: srv.Connect %s: %v\n", connID, err)
+				fmt.Fprintf(os.Stderr, "daemon: srv.Connect %s: %v\n", connID, err)
 			}
 			return
 		}
@@ -494,6 +565,49 @@ func (d *Daemon) reapInterval() time.Duration {
 		return d.reapD
 	}
 	return reapTick
+}
+
+// syncLoop ticks at syncD intervals and calls syncFn. It is single-flight:
+// it never starts a new sync while one is already in progress.
+// Stops when ctx is cancelled or d.done is closed.
+// A WaitGroup ensures the in-flight sync goroutine finishes before syncLoop
+// returns, so no sync ever runs against a closed engine.
+func (d *Daemon) syncLoop(ctx context.Context, done chan struct{}) {
+	var wg sync.WaitGroup
+	defer func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	ticker := time.NewTicker(d.syncD)
+	defer ticker.Stop()
+
+	var inFlight sync.Mutex
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.done:
+			return
+		case <-ticker.C:
+			// Single-flight: skip if a sync is already running.
+			if !inFlight.TryLock() {
+				continue
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer inFlight.Unlock()
+				// Re-check ctx before executing: if cancellation raced with the
+				// ticker fire, the sync would touch a closing engine for no benefit.
+				if ctx.Err() != nil {
+					return
+				}
+				_ = d.syncFn(ctx)
+			}()
+		}
+	}
 }
 
 // reapOnce force-closes all connections idle longer than connIdleTTL.

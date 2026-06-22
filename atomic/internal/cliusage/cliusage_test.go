@@ -151,6 +151,7 @@ const goldenCommandsBlock = "" +
 	"  code files           [pattern] [--json]                                                      List indexed files\n" +
 	"  code affected        [--depth] [--test-glob] [--stdin] [--json]                              Find affected test files\n" +
 	"  code explore         <query> [--json] [--only] [--exclude]                                   Gather context for a query\n" +
+	"  code mcp             [--watch-interval] [--no-watch]                                         Run the MCP server over stdio (proxy + daemon; --no-watch disables sync poller)\n" +
 	"  wiki scan            [--root]                                                                Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md\n" +
 	"  wiki stale           [--root]                                                                Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)\n" +
 	"  wiki linkify         [--root]                                                                Linkify path tokens in wiki artifacts in-place\n" +

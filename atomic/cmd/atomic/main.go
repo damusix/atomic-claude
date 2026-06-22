@@ -1045,15 +1045,23 @@ func runCode(args []string, repoOverride string) {
 		os.Exit(codecli.RunCodeWithRealm(args, cwd, claudeMDPath, os.Stdout, os.Stderr, os.Stdin))
 	}
 
-	// --repo override: user explicitly specified a repo root, so we resolve it
-	// via repoctx (which normalises the path and handles worktree detection)
-	// and use single-repo scope unchanged (SC 2).
-	root, err := repoctx.Resolve(repoOverride)
+	// --repo override: user explicitly specified a path. Normalise it to an
+	// absolute path, then use the realm-aware dispatcher so a member path gets
+	// its realm db and a standalone repo gets its local index. We avoid
+	// repoctx.Resolve here because it runs `git rev-parse --show-toplevel` which
+	// fails when the cwd is a realm root (no git repo there).
+	absRepo, err := filepath.Abs(repoOverride)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic code: %v\n", err)
+		fmt.Fprintf(os.Stderr, "atomic code: resolve --repo path: %v\n", err)
 		os.Exit(1)
 	}
-	os.Exit(codecli.RunCode(args, root, os.Stdout, os.Stderr, os.Stdin))
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic code: get home dir: %v\n", err)
+		os.Exit(1)
+	}
+	claudeMDPath := filepath.Join(home, ".claude", "CLAUDE.md")
+	os.Exit(codecli.RunCodeWithRealm(args, absRepo, claudeMDPath, os.Stdout, os.Stderr, os.Stdin))
 }
 
 func runWiki(args []string) {
