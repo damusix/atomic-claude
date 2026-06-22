@@ -29,6 +29,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/db"
@@ -184,6 +185,18 @@ type Orchestrator struct {
 	// extraction from host-language string literals. It is stateless and safe
 	// for concurrent use across goroutines (no parser pool involved).
 	sqlExt *standalone.SQLExtractor
+	// skippedFiles counts files that could not be read or stat'd during the most
+	// recent indexFiles run. A single unreadable file (a git-tracked-but-missing
+	// path: broken symlink, deleted-but-staged) is skipped, not fatal — but the
+	// count is surfaced so the skip is visible (fail loud, not silent).
+	skippedFiles atomic.Int64
+}
+
+// SkippedFiles returns the number of files skipped (unreadable / un-stat-able)
+// during the most recent IndexAll / Sync / IndexPaths run. Reset at the start of
+// each run. Used by the CLI to report skips instead of silently dropping files.
+func (o *Orchestrator) SkippedFiles() int {
+	return int(o.skippedFiles.Load())
 }
 
 // NewOrchestrator creates an Orchestrator. pool must be non-nil and already
@@ -234,6 +247,10 @@ func (o *Orchestrator) Sync(ctx context.Context, projectRoot string) error {
 // indexFiles processes a list of absolute file paths. It is the shared inner
 // loop for IndexAll and Sync.
 func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, filePaths []string) error {
+	// Reset the per-run skip counter; indexOneFile increments it for files that
+	// cannot be read or stat'd (skipped, not fatal).
+	o.skippedFiles.Store(0)
+
 	// Filter to files with a known extension.
 	var toIndex []string
 	for _, p := range filePaths {
@@ -284,13 +301,21 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 
 	src, err := os.ReadFile(filePath)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", filePath, err)
+		// A git-tracked-but-missing file (broken symlink, deleted-but-staged) or
+		// a permission error on one file must not abort the whole index. Skip it,
+		// count it, and continue — the rest of the tree still indexes and the
+		// resolution phase still runs. (Matches the IndexAll docstring contract.)
+		o.skippedFiles.Add(1)
+		return nil
 	}
 
 	contentHash := hashContent(src)
 	stat, err := os.Stat(filePath)
 	if err != nil {
-		return fmt.Errorf("stat %s: %w", filePath, err)
+		// The file vanished between read and stat, or is otherwise un-stat-able.
+		// Same policy: skip and continue rather than fail the run.
+		o.skippedFiles.Add(1)
+		return nil
 	}
 
 	ext := strings.ToLower(filepath.Ext(relPath))

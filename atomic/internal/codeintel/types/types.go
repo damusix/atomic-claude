@@ -28,6 +28,7 @@ package types
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 )
 
@@ -377,6 +378,45 @@ func SubgraphSortedNodes(sg Subgraph) []Node {
 		return nodes[i].ID < nodes[j].ID
 	})
 	return nodes
+}
+
+// MergeSubgraphs unions several subgraphs into one: nodes are keyed by ID
+// (last write wins for duplicates), edges are deduped by
+// source/target/kind/line/col, and roots are deduped preserving first-seen
+// order.
+//
+// This exists because a single symbol name routinely maps to several definition
+// nodes (overloads, an interface and its implementation, two classes that each
+// declare a same-named method). A callers/callees/impact query must run for
+// every matching node and merge the results; querying only the first match
+// silently drops the relationships that live on the siblings — the bug that made
+// `callers $proc` return nothing while 37 caller edges sat on the second `$proc`
+// definition.
+func MergeSubgraphs(sgs []Subgraph) Subgraph {
+	merged := Subgraph{Nodes: make(map[string]Node)}
+	seenEdge := make(map[string]bool)
+	seenRoot := make(map[string]bool)
+	for _, sg := range sgs {
+		for id, n := range sg.Nodes {
+			merged.Nodes[id] = n
+		}
+		for _, e := range sg.Edges {
+			key := fmt.Sprintf("%s\x00%s\x00%s\x00%d\x00%d", e.Source, e.Target, e.Kind, e.Line, e.Column)
+			if seenEdge[key] {
+				continue
+			}
+			seenEdge[key] = true
+			merged.Edges = append(merged.Edges, e)
+		}
+		for _, r := range sg.Roots {
+			if seenRoot[r] {
+				continue
+			}
+			seenRoot[r] = true
+			merged.Roots = append(merged.Roots, r)
+		}
+	}
+	return merged
 }
 
 // TraversalOptions controls how the graph traversal engine follows edges.

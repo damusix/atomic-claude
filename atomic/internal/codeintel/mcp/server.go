@@ -321,11 +321,13 @@ func addToolCallers(srv *sdk.Server, eng *engine.Engine) {
 		if limit <= 0 {
 			limit = 20
 		}
-		nodeID, err := resolveSymbolToID(ctx, eng, in.Symbol)
+		ids, err := resolveSymbolToIDs(ctx, eng, in.Symbol)
 		if err != nil {
 			return errorResult("callers: %v", err), nil, nil
 		}
-		sg, err := eng.GetCallers(ctx, nodeID, 2)
+		sg, err := aggregateSubgraphByIDs(ids, func(id string) (types.Subgraph, error) {
+			return eng.GetCallers(ctx, id, 2)
+		})
 		if err != nil {
 			return errorResult("callers: %v", err), nil, nil
 		}
@@ -359,11 +361,13 @@ func addToolCallees(srv *sdk.Server, eng *engine.Engine) {
 		if limit <= 0 {
 			limit = 20
 		}
-		nodeID, err := resolveSymbolToID(ctx, eng, in.Symbol)
+		ids, err := resolveSymbolToIDs(ctx, eng, in.Symbol)
 		if err != nil {
 			return errorResult("callees: %v", err), nil, nil
 		}
-		sg, err := eng.GetCallees(ctx, nodeID, 2)
+		sg, err := aggregateSubgraphByIDs(ids, func(id string) (types.Subgraph, error) {
+			return eng.GetCallees(ctx, id, 2)
+		})
 		if err != nil {
 			return errorResult("callees: %v", err), nil, nil
 		}
@@ -397,11 +401,13 @@ func addToolImpact(srv *sdk.Server, eng *engine.Engine) {
 		if depth <= 0 {
 			depth = 3
 		}
-		nodeID, err := resolveSymbolToID(ctx, eng, in.Symbol)
+		ids, err := resolveSymbolToIDs(ctx, eng, in.Symbol)
 		if err != nil {
 			return errorResult("impact: %v", err), nil, nil
 		}
-		sg, err := eng.GetImpactRadius(ctx, nodeID, depth)
+		sg, err := aggregateSubgraphByIDs(ids, func(id string) (types.Subgraph, error) {
+			return eng.GetImpactRadius(ctx, id, depth)
+		})
 		if err != nil {
 			return errorResult("impact: %v", err), nil, nil
 		}
@@ -1070,21 +1076,44 @@ func addToolFiles(srv *sdk.Server, eng *engine.Engine) {
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-// resolveSymbolToID resolves a symbol string to a node ID. If the input
-// already looks like a node ID (starts with "node:"), it is returned as-is.
-// Otherwise GetNodesByName is called and the first result is used.
-func resolveSymbolToID(ctx context.Context, eng *engine.Engine, symbol string) (string, error) {
+// resolveSymbolToIDs resolves a symbol string to all matching node IDs. If the
+// input already looks like a node ID (starts with "node:"), it resolves to
+// exactly that node. Otherwise GetNodesByName is called and EVERY match is
+// returned — a name routinely maps to several definitions (overloads, an
+// interface and its implementation, two same-named methods), and the caller must
+// aggregate across all of them. Using only the first match silently drops the
+// callers/callees that live on the siblings (the `$proc` bug).
+func resolveSymbolToIDs(ctx context.Context, eng *engine.Engine, symbol string) ([]string, error) {
 	if strings.HasPrefix(symbol, "node:") {
-		return symbol, nil
+		return []string{symbol}, nil
 	}
 	nodes, err := eng.GetNodesByName(ctx, symbol, "")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if len(nodes) == 0 {
-		return "", fmt.Errorf("no node found for symbol %q", symbol)
+		return nil, fmt.Errorf("no node found for symbol %q", symbol)
 	}
-	return nodes[0].ID, nil
+	ids := make([]string, len(nodes))
+	for i, n := range nodes {
+		ids[i] = n.ID
+	}
+	return ids, nil
+}
+
+// aggregateSubgraphByIDs runs query for every node ID and merges the results.
+// Shared by the callers/callees/impact MCP tools so a multi-definition symbol
+// returns the union of relationships across all its definitions.
+func aggregateSubgraphByIDs(ids []string, query func(id string) (types.Subgraph, error)) (types.Subgraph, error) {
+	sgs := make([]types.Subgraph, 0, len(ids))
+	for _, id := range ids {
+		sg, err := query(id)
+		if err != nil {
+			return types.Subgraph{}, err
+		}
+		sgs = append(sgs, sg)
+	}
+	return types.MergeSubgraphs(sgs), nil
 }
 
 // formatSearchResults formats a slice of SearchResult as markdown.
