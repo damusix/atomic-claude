@@ -32,18 +32,18 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Go | 130098 | 378 | 67% |
-| Markdown | 46712 | 280 | 24% |
-| JavaScript | 10034 | 5 | 5% |
-| JSON | 2349 | 6 | 1% |
-| CSS | 2015 | 2 | 1% |
-| Shell | 903 | 8 | 0% |
-| HTML | 899 | 1 | 0% |
+| Go | 132868 | 385 | 68% |
+| Markdown | 47009 | 283 | 24% |
+| JavaScript | 4179 | 5 | 2% |
+| CSS | 2922 | 2 | 1% |
+| JSON | 2363 | 6 | 1% |
+| HTML | 1653 | 1 | 0% |
+| Shell | 910 | 8 | 0% |
 | YAML | 210 | 6 | 0% |
 | TypeScript | 205 | 3 | 0% |
 | Vue | 183 | 1 | 0% |
 
-Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed; JavaScript LOC include vendored JS assets in `atomic/internal/serve/assets/vendor/` (htmx, mermaid, cytoscape, elk).
+Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed. JavaScript LOC dropped significantly (10034 → 4179) after htmx upgrade to 4.0.0-beta4 (smaller bundle). CSS LOC increased (2015 → 2922) reflecting FE polish additions to [`atomic/internal/serve/assets/app.css`](../../atomic/internal/serve/assets/app.css). HTML LOC increased (899 → 1653) from layout.html additions.
 
 ## DevOps & CI
 
@@ -135,8 +135,10 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 
 **YAML frontmatter Properties slot (serve domain)**: [`atomic/internal/frontmatter/frontmatter.go`](../../atomic/internal/frontmatter/frontmatter.go) gained `ParseOrdered(input []byte) ([]KV, body []byte, error)` — a key-order-preserving sibling of `Parse`; both now call the shared private `splitFrontmatter` helper. `render.go`:`renderMarkdown` strips the frontmatter block via `frontmatter.Parse` before goldmark (falls through to original src on parse error). `rail_handler.go` calls `frontmatter.ParseOrdered` to emit `#rail-props-content` as the first of four OOB fragments; scalars pass through as-is, `[]any` list values are comma-joined, nested maps are skipped; the slot is CSS-hidden (`#rail-props:has(.rail-slot-content:empty){display:none}`) when no frontmatter is present. `templates/layout.html` has `#rail-props` at the top of `#right-rail`. Spec SC4 + FE-SC2 clauses + change-log entry 2026-06-17 in [`docs/spec/atomic-serve.md`](../../docs/spec/atomic-serve.md).
 
-**Language breakdown updated (serve branch)**: C LOC no longer present — `tsbinding/src/` tree-sitter grammars are vendored-on-demand, not committed. JavaScript LOC (10034) now appear from vendored JS in `atomic/internal/serve/assets/vendor/`.
+**Language breakdown updated (5.5.0)**: C LOC absent — `tsbinding/src/` vendored-on-demand. JavaScript LOC dropped from 10034 → 4179 (htmx 2→4 is a smaller bundle). CSS LOC up to 2922 (FE polish). HTML LOC up to 1653 (layout.html additions). Go up to 132868 / 385 files (elixir/erlang/phoenix spec files, tsbinding sub-module additions).
 
 **OKF-alignment (serve + wiki domains)**: `graph.go` gained `Graph.nodeTypes map[string]string` populated by `resolveNodeType` (frontmatter `type` key case-insensitive via `frontmatterTypeToClass` → path-convention `/repos/`|`/concerns/`|`/knowledge/` → default "page"); `g.NodeType(relPath)` is O(1). `/graph/data` JSON carries `type` on each node element; Cytoscape CSS selectors in `layout.html` color nodes by OKF concept type with a type legend/filter on the system graph. `resolveRootRelative` is a new shared helper called by both `resolveMarkdownLink` and `resolvePageHref` for bundle-root-relative `/path.md` links (OKF §5.1 form) — prevents the link graph and render path from diverging. `rail_handler.go` `propKV.IsURL bool` makes http(s) frontmatter values (including `resource:`) render as `<a target="_blank">` anchors in the Properties slot. `wiki.go` `buildMembersSection` now emits OKF §6 listing form (`- [name](target) - description`) via `DeriveMemberDescription` (exported, resolution: frontmatter `description:` → first prose line → ""; 120-char truncation). [`commands/refresh-wiki.md`](../../commands/refresh-wiki.md) concern authoring writes `type: Concern` + `description`. [`agents/atomic-signals-inferrer.md`](../../agents/atomic-signals-inferrer.md) bucket-synthesis B3 writes `type: Knowledge` + `description` + bundle-relative cross-links on knowledge pages. [`docs/design/okf-alignment.md`](../../docs/design/okf-alignment.md) and [`docs/spec/okf-alignment.md`](../../docs/spec/okf-alignment.md) document the design and contract.
+
+**`atomic serve` FE polish (serve domain)**: nav-item links now render amber (`var(--amber)`) to match right-rail OUT/IN links; left inset set to 20px (section headers stay at 8px, leaves indent inside them); visited/hover/active states pinned explicitly — independent of global `a:visited` color. Brand element upgraded from `<span>` to `<a href={{.LandingURL}}>` with htmx nav attributes (clicking the logo navigates home without a full reload). `chromaHighlight` and `chromaHighlightLines` no longer call `lexers.Analyse` (content-based guessing) — unknown fence language falls through to plaintext (no spurious highlighting). Search JS in `layout.html` now boots with a `window.__atomicSearchBooted` guard and uses delegated `document.addEventListener('click')` listeners so they survive htmx 4 history-restore body swaps; `btn-graph` click similarly migrated to a delegated listener. `htmx:after:swap` handler resets `#main-pane.scrollTop = 0` on content swaps; modal resets `scrollTop = 0` on open.
 
 **`atomic-visual-options` skill (workflow domain)**: [`skills/atomic-visual-options/SKILL.md`](../../skills/atomic-visual-options/SKILL.md) auto-fires on visual-comparison phrases ("show me a few options", "mock up some variants", "compare these layouts", etc.) and is invoked just-in-time by `/atomic-plan` Diverge phase when a design question passes the see-it-over-read-it gate. Renders 2–4 side-by-side variants per dimension as a single throwaway self-contained HTML file; user picks by typing terminal codes (e.g. `A2 B3`); chosen codes recorded in the design doc. Scope: visual choices (layout, color, spacing, hierarchy, diagram) — not conceptual or text decisions.

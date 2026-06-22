@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-22T01:35:34Z
+generated_at: 2026-06-21T20:38:02Z
 atomic_version: 5.5.0
 ---
 # Deterministic signals
@@ -265,7 +265,7 @@ atomic_version: 5.5.0
 │   │   │   ├── provenance_test.go (8ddc426, 415L, 13582ch, 13626B)
 │   │   │   ├── rail_handler.go (79c4d2f, 201L, 8839ch, 8861B)
 │   │   │   ├── rail_test.go (ad0a76b, 668L, 25466ch, 25612B)
-│   │   │   ├── render.go (05fb1cb, 628L, 22062ch, 22978B)
+│   │   │   ├── render.go (c8af1d6, 631L, 22620ch, 23540B)
 │   │   │   ├── render_test.go (82a6f61, 477L, 18127ch, 18241B)
 │   │   │   ├── search_md.go (2d85f70, 201L, 5889ch, 5909B)
 │   │   │   ├── search_md_test.go (de884d5, 440L, 15027ch, 15863B)
@@ -596,12 +596,12 @@ atomic_version: 5.5.0
 
 ## Languages
 
-- Go: 133504 LOC (69%), 386 files (54%)
+- Go: 132868 LOC (68%), 385 files (54%)
 - Markdown: 47009 LOC (24%), 283 files (39%)
 - JavaScript: 4179 LOC (2%), 5 files (0%)
-- CSS: 2906 LOC (1%), 2 files (0%)
+- CSS: 2922 LOC (1%), 2 files (0%)
 - JSON: 2363 LOC (1%), 6 files (0%)
-- HTML: 1623 LOC (0%), 1 file (0%)
+- HTML: 1653 LOC (0%), 1 file (0%)
 - Shell: 910 LOC (0%), 8 files (1%)
 - YAML: 210 LOC (0%), 6 files (0%)
 - TypeScript: 205 LOC (0%), 3 files (0%)

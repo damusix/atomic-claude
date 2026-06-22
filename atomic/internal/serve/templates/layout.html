@@ -434,7 +434,7 @@
           modalBody.innerHTML = '<p class="loading">Loading…</p>';
           fetch('/page/' + encodeURIComponent(nodeID), { headers: { 'HX-Request': 'true' } })
             .then(function(r) { return r.text(); })
-            .then(function(html) { modalBody.innerHTML = html; })
+            .then(function(html) { modalBody.innerHTML = html; modalBody.scrollTop = 0; })
             .catch(function() { modalBody.innerHTML = '<p style="color:var(--ink-faint);font-style:italic">Could not load page.</p>'; });
         }
 
@@ -997,15 +997,15 @@
 
       document.addEventListener('DOMContentLoaded', function() {
         // #btn-graph: in page view → open /graph; in graph view → back to the page.
-        var btnGraph = document.getElementById('btn-graph');
-        if (btnGraph) {
-          btnGraph.addEventListener('click', function() {
-            // In graph view → back to the last page (or landing); in page view → /graph.
-            var target = inSystemMode() ? (currentPage || '{{.LandingURL}}') : '/graph';
-            htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
-            if (window.history && window.history.pushState) { window.history.pushState(null, '', target); }
-          });
-        }
+        // Delegated on document so it survives htmx history-restore body swaps —
+        // a direct element listener would be lost when #btn-graph is replaced.
+        document.addEventListener('click', function(e) {
+          if (!e.target.closest || !e.target.closest('#btn-graph')) { return; }
+          // In graph view → back to the last page (or landing); in page view → /graph.
+          var target = inSystemMode() ? (currentPage || '{{.LandingURL}}') : '/graph';
+          htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
+          if (window.history && window.history.pushState) { window.history.pushState(null, '', target); }
+        });
 
         // Modal dismiss wiring (scrim backdrop, corner ×, Close button, Esc).
         AtomicGraphUI.wireDismiss();
@@ -1017,7 +1017,7 @@
 
 <!-- ── top bar: brand · breadcrumb · search · theme toggle ───────────── -->
 <header id="app-header">
-    <span class="brand"><img class="brand-logo" src="/static/logo.png" alt="atomic"> atomic</span>
+    <a class="brand" href="{{.LandingURL}}" hx-get="{{.LandingURL}}" hx-target="#main-pane" hx-push-url="true" aria-label="atomic — home"><img class="brand-logo" src="/static/logo.png" alt="atomic"> atomic</a>
     <nav class="breadcrumb" aria-label="Breadcrumb">
         <span class="breadcrumb-scope">{{.ScopeBadge}}</span>
         <span class="breadcrumb-sep">›</span>
@@ -1203,6 +1203,20 @@
 }());
 </script>
 
+<!-- Reset the content pane to the top after every htmx navigation. htmx swaps
+     #main-pane's innerHTML without touching the scroll container, so a page
+     opened from a scrolled position would otherwise land mid-document. Keyed on
+     the swap target so only content swaps reset (intel/rail swaps are left
+     alone); history restores swap <body>, not #main-pane, so Back/Forward keep
+     their restored position. -->
+<script>
+document.addEventListener('htmx:after:swap', function(evt) {
+  var ctx = evt.detail && evt.detail.ctx;
+  var tgt = ctx && ctx.target;
+  if (tgt && tgt.id === 'main-pane') { tgt.scrollTop = 0; }
+});
+</script>
+
 <!-- FE5 search dialog (command palette).
      Trigger: #search-trigger click, ⌘K / Ctrl K, or "/" when not typing.
      md mode  → GET /search/md?q=   (literal grep over served .md files)
@@ -1215,36 +1229,57 @@
      Esc / backdrop closes. -->
 <script>
 (function() {
+  // Bind exactly once. On a history-cache-miss restore (Back/Forward) htmx 4
+  // replaces the whole <body>, which re-executes this inline script; the guard
+  // stops it stacking duplicate listeners. Every listener below is delegated on
+  // `document` (never swapped) and every element is looked up fresh by id at use
+  // time, so the single binding keeps driving whatever #search-* elements the
+  // current body holds — search survives history restores instead of going dead.
+  // (The previous version bound in DOMContentLoaded, which never re-fires after a
+  // body swap, so the trigger/input/results listeners were orphaned.)
+  if (window.__atomicSearchBooted) { return; }
+  window.__atomicSearchBooted = true;
+
   var activeSource = 'md'; // 'md' | 'code'
   var debounceTimer = null;
   var debounceMs = 200;
-
-  var modal, input, results, btnMd, btnCode, trigger, viewAll;
   var searchAbort = null; // aborts the in-flight fetch when a newer query supersedes it
 
+  function byId(id) { return document.getElementById(id); }
+  function isOpen() {
+    var modal = byId('search-modal');
+    return !!(modal && modal.classList.contains('open'));
+  }
+
   function openModal() {
+    var modal = byId('search-modal');
     if (!modal) { return; }
     modal.classList.add('open');
+    var input = byId('search');
     if (input) { input.focus(); input.select(); }
   }
 
   function closeModal() {
+    var modal = byId('search-modal');
     if (modal) { modal.classList.remove('open'); }
   }
 
   function renderResults(html) {
+    var results = byId('search-results');
     if (results) { results.innerHTML = html; }
   }
 
   function setSource(src) {
     activeSource = src;
+    var btnMd = byId('toggle-md'), btnCode = byId('toggle-code');
     if (src === 'md') {
-      btnMd.setAttribute('aria-pressed', 'true');  btnMd.classList.add('toggle-active');
-      btnCode.setAttribute('aria-pressed', 'false'); btnCode.classList.remove('toggle-active');
+      if (btnMd)   { btnMd.setAttribute('aria-pressed', 'true');    btnMd.classList.add('toggle-active'); }
+      if (btnCode) { btnCode.setAttribute('aria-pressed', 'false'); btnCode.classList.remove('toggle-active'); }
     } else {
-      btnCode.setAttribute('aria-pressed', 'true');  btnCode.classList.add('toggle-active');
-      btnMd.setAttribute('aria-pressed', 'false');   btnMd.classList.remove('toggle-active');
+      if (btnCode) { btnCode.setAttribute('aria-pressed', 'true');  btnCode.classList.add('toggle-active'); }
+      if (btnMd)   { btnMd.setAttribute('aria-pressed', 'false');   btnMd.classList.remove('toggle-active'); }
     }
+    var input = byId('search');
     runSearch(input ? input.value : '');
   }
 
@@ -1269,6 +1304,7 @@
 
   // gotoSearchPage opens the dedicated /search page for the current query.
   function gotoSearchPage() {
+    var input = byId('search');
     var q = (input && input.value || '').trim();
     if (!q) { return; }
     var url = '/search?q=' + encodeURIComponent(q) + '&src=' + activeSource;
@@ -1277,75 +1313,66 @@
     if (window.history && window.history.pushState) { window.history.pushState(null, '', url); }
   }
 
-  document.addEventListener('DOMContentLoaded', function() {
-    modal   = document.getElementById('search-modal');
-    input   = document.getElementById('search');
-    results = document.getElementById('search-results');
-    btnMd   = document.getElementById('toggle-md');
-    btnCode = document.getElementById('toggle-code');
-    trigger = document.getElementById('search-trigger');
-    viewAll = document.getElementById('search-viewall');
+  // ── Delegated interactions (all on document, so they outlive body swaps) ──
+  document.addEventListener('click', function(e) {
+    var t = e.target;
+    if (t.closest && t.closest('#search-trigger')) { openModal(); return; }
+    if (t.closest && t.closest('#toggle-md'))      { setSource('md');   return; }
+    if (t.closest && t.closest('#toggle-code'))    { setSource('code'); return; }
+    if (t.closest && t.closest('#search-viewall')) { gotoSearchPage();  return; }
 
-    if (trigger) { trigger.addEventListener('click', openModal); }
-    if (btnMd)   { btnMd.addEventListener('click',   function() { setSource('md');   }); }
-    if (btnCode) { btnCode.addEventListener('click', function() { setSource('code'); }); }
-    if (viewAll) { viewAll.addEventListener('click', gotoSearchPage); }
+    // Backdrop click (the modal overlay itself, not its box) closes.
+    var modal = byId('search-modal');
+    if (modal && t === modal) { closeModal(); return; }
 
-    if (input) {
-      input.addEventListener('input', function() {
-        clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(function() { runSearch(input.value); }, debounceMs);
-      });
-      input.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter')       { e.preventDefault(); gotoSearchPage(); }
-        else if (e.key === 'Escape') { closeModal(); }
-      });
-    }
-
-    // Result selection.
-    if (results) {
-      results.addEventListener('click', function(e) {
-        var el = e.target;
-        while (el && el !== results) {
-          if (el.tagName === 'A' || el.hasAttribute('data-page')) { break; }
-          el = el.parentElement;
-        }
-        if (!el || el === results) { return; }
-        var href = el.getAttribute('href') || el.getAttribute('data-page');
-        if (!href) { return; }
-        // md result → load the page into #main-pane and close.
-        if (href.indexOf('/page/') === 0) {
-          e.preventDefault();
-          closeModal();
-          htmx.ajax('GET', href, { target: '#main-pane', swap: 'innerHTML' });
-          if (window.history && window.history.pushState) { window.history.pushState(null, '', href); }
-          return;
-        }
-        // code result (/file/…#L) → FE4 delegated handler opens the code modal;
-        // close the search dialog so the code modal is unobstructed.
+    // Result selection inside #search-results.
+    var results = byId('search-results');
+    if (results && results.contains(t)) {
+      var el = t;
+      while (el && el !== results) {
+        if (el.tagName === 'A' || el.hasAttribute('data-page')) { break; }
+        el = el.parentElement;
+      }
+      if (!el || el === results) { return; }
+      var href = el.getAttribute('href') || el.getAttribute('data-page');
+      if (!href) { return; }
+      // md result → load the page into #main-pane and close.
+      if (href.indexOf('/page/') === 0) {
+        e.preventDefault();
         closeModal();
-      });
+        htmx.ajax('GET', href, { target: '#main-pane', swap: 'innerHTML' });
+        if (window.history && window.history.pushState) { window.history.pushState(null, '', href); }
+        return;
+      }
+      // code result (/file/…#L) → FE4 delegated handler opens the code modal;
+      // close the search dialog so the code modal is unobstructed.
+      closeModal();
     }
+  });
 
-    // Global shortcuts.
-    document.addEventListener('keydown', function(e) {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault(); openModal(); return;
-      }
-      if (e.key === 'Escape' && modal && modal.classList.contains('open')) {
-        closeModal(); return;
-      }
-      if (e.key === '/' && modal && !modal.classList.contains('open')) {
-        var t = e.target, tag = t && t.tagName;
-        if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !(t && t.isContentEditable)) {
-          e.preventDefault(); openModal();
-        }
-      }
-    });
+  // Debounced live search as the user types (delegated input event).
+  document.addEventListener('input', function(e) {
+    if (!e.target || e.target.id !== 'search') { return; }
+    var val = e.target.value;
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(function() { runSearch(val); }, debounceMs);
+  });
 
-    // Backdrop click closes.
-    if (modal) {
-      modal.addEventListener('click', function(e) { if (e.target === modal) { closeModal(); } });
+  // Per-field keys (Enter/Esc in the search box) + global shortcuts (⌘K, "/", Esc).
+  document.addEventListener('keydown', function(e) {
+    if (e.target && e.target.id === 'search') {
+      if (e.key === 'Enter')  { e.preventDefault(); gotoSearchPage(); return; }
+      if (e.key === 'Escape') { closeModal(); return; }
+    }
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault(); openModal(); return;
+    }
+    if (e.key === 'Escape' && isOpen()) { closeModal(); return; }
+    if (e.key === '/' && !isOpen()) {
+      var t = e.target, tag = t && t.tagName;
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !(t && t.isContentEditable)) {
+        e.preventDefault(); openModal();
+      }
     }
   });
 }());
@@ -1476,10 +1503,13 @@
       swap: 'innerHTML',
       headers: { 'HX-Request': 'true' }
     }).then(function() {
-      // If the original href had a line anchor, scroll to it.
+      // If the original href had a line anchor, scroll to it; otherwise reset to
+      // the top so a file opened after scrolling another one starts at line 1.
       if (anchor) {
         var el = document.getElementById(anchor);
         if (el) { el.scrollIntoView({ block: 'center' }); }
+      } else {
+        modalSrc.scrollTop = 0;
       }
     });
 
