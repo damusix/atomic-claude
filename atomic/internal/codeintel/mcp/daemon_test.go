@@ -102,6 +102,12 @@ func TestSyncPoller_SyncCalledOnInterval(t *testing.T) {
 //
 // Why: a goroutine that outlives the daemon leaks resources and may call Sync
 // on a closed engine.
+//
+// Boundary: daemonStopped is set ONLY after <-daemonDone succeeds (i.e. after
+// Run has returned and the WaitGroup in syncLoop has drained). Any syncFn call
+// that happens between cancel() and Run's return is legitimate — syncLoop's
+// deferred wg.Wait() guarantees those goroutines complete before done is closed.
+// The only invariant that must hold: no syncFn runs after Run has returned.
 func TestSyncPoller_StopsOnCtxCancel(t *testing.T) {
 	dir := tmpShortDir(t, "synccancel")
 	sockPath := codemcp.SocketPath(dir)
@@ -119,13 +125,15 @@ func TestSyncPoller_StopsOnCtxCancel(t *testing.T) {
 	const shortIdle = 5 * time.Second
 	const shortSync = 50 * time.Millisecond
 
-	// cancelFired is set to 1 just before ctx is cancelled so the spy can
-	// distinguish pre-cancel syncs (expected) from post-cancel ones (leak).
-	var cancelFired atomic.Int32
-	var syncAfterCancel atomic.Bool
+	// daemonStopped is set to true only after daemonDone is received — i.e. after
+	// Run has returned. The WaitGroup inside syncLoop guarantees no syncFn goroutine
+	// outlives Run, so any syncFn call observed while daemonStopped==true is a real
+	// goroutine leak.
+	var daemonStopped atomic.Bool
+	var syncAfterDaemonStopped atomic.Bool
 	syncFn := func(_ context.Context) error {
-		if cancelFired.Load() == 1 {
-			syncAfterCancel.Store(true)
+		if daemonStopped.Load() {
+			syncAfterDaemonStopped.Store(true)
 		}
 		return nil
 	}
@@ -141,8 +149,7 @@ func TestSyncPoller_StopsOnCtxCancel(t *testing.T) {
 	// Let at least one sync fire so we know the poller is running.
 	time.Sleep(shortSync * 3)
 
-	// Mark cancel-boundary then cancel — poller must not fire after this.
-	cancelFired.Store(1)
+	// Cancel the context and wait for the daemon to fully stop.
 	cancel()
 	select {
 	case <-daemonDone:
@@ -150,10 +157,15 @@ func TestSyncPoller_StopsOnCtxCancel(t *testing.T) {
 		t.Fatal("daemon did not stop after ctx cancel")
 	}
 
-	// Wait an extra poller interval to catch any late fires from an escaped goroutine.
+	// Run has returned — mark the boundary. From this point the WaitGroup in
+	// syncLoop has already drained, so no syncFn goroutine should ever fire.
+	daemonStopped.Store(true)
+
+	// Sleep a few poller intervals to catch any escaped goroutine that somehow
+	// outlived Run (which the WaitGroup should make impossible).
 	time.Sleep(shortSync * 3)
-	if syncAfterCancel.Load() {
-		t.Fatal("syncFn was called after ctx cancel — poller goroutine leaked past shutdown")
+	if syncAfterDaemonStopped.Load() {
+		t.Fatal("syncFn was called after daemon fully stopped — poller goroutine leaked past shutdown")
 	}
 }
 

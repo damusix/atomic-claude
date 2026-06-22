@@ -570,8 +570,14 @@ func (d *Daemon) reapInterval() time.Duration {
 // syncLoop ticks at syncD intervals and calls syncFn. It is single-flight:
 // it never starts a new sync while one is already in progress.
 // Stops when ctx is cancelled or d.done is closed.
+// A WaitGroup ensures the in-flight sync goroutine finishes before syncLoop
+// returns, so no sync ever runs against a closed engine.
 func (d *Daemon) syncLoop(ctx context.Context, done chan struct{}) {
-	defer close(done)
+	var wg sync.WaitGroup
+	defer func() {
+		wg.Wait()
+		close(done)
+	}()
 
 	ticker := time.NewTicker(d.syncD)
 	defer ticker.Stop()
@@ -589,8 +595,15 @@ func (d *Daemon) syncLoop(ctx context.Context, done chan struct{}) {
 			if !inFlight.TryLock() {
 				continue
 			}
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				defer inFlight.Unlock()
+				// Re-check ctx before executing: if cancellation raced with the
+				// ticker fire, the sync would touch a closing engine for no benefit.
+				if ctx.Err() != nil {
+					return
+				}
 				_ = d.syncFn(ctx)
 			}()
 		}

@@ -28,21 +28,51 @@ atomic code sync
 
 ## Register the MCP server
 
-Create or update `.mcp.json` at your project root. This is a project-scoped MCP registration that applies to all Claude Code sessions in this directory.
+Create or update `.mcp.json`. Use `atomic --repo <abs-path> code mcp` for each repo you want to serve — this is cwd-independent, so the server works correctly from a realm root, a different directory, or any non-git location.
+
+**Single repo:**
 
 ```json
 {
   "mcpServers": {
     "atomic-code": {
       "command": "atomic",
-      "args": ["code", "mcp"],
+      "args": ["--repo", "/absolute/path/to/your/project", "code", "mcp"],
       "type": "stdio"
     }
   }
 }
 ```
 
-Restart Claude Code after saving `.mcp.json`. The server starts on demand when Claude first uses a code-intel tool.
+**Multiple repos (realm or workspace):**
+
+```json
+{
+  "mcpServers": {
+    "atomic-code-server": {
+      "command": "atomic",
+      "args": ["--repo", "/path/to/server", "code", "mcp"],
+      "type": "stdio"
+    },
+    "atomic-code-gui": {
+      "command": "atomic",
+      "args": ["--repo", "/path/to/gui", "code", "mcp"],
+      "type": "stdio"
+    },
+    "atomic-code-apps": {
+      "command": "atomic",
+      "args": ["--repo", "/path/to/apps", "code", "mcp"],
+      "type": "stdio"
+    }
+  }
+}
+```
+
+Each entry starts an independent daemon. Daemons for different repos never collide — sockets and locks live next to each repo's db file. For realm members (`<realm>/server`), the db resolves to `<realm>/.atomic/server.db` automatically; nothing is written into the member's source tree.
+
+Restart Claude Code after saving `.mcp.json`. Each server starts on demand when Claude first uses a code-intel tool for that repo.
+
+The daemon keeps the graph fresh automatically — it re-syncs every 10 seconds in the background. Pass `--no-watch` to disable background sync, or `--watch-interval <dur>` (e.g. `30s`) to override the interval.
 
 
 ## Available tools
