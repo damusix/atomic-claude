@@ -1,6 +1,6 @@
 # Signals workflow
 
-Signals teach Claude the shape of your project so it stops guessing. Instead of hallucinating build commands or inventing framework conventions, Claude reads two files that describe what is actually in the repo.
+Signals are [context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) for your repo: the project's working knowledge, kept as files the agent reads rather than facts you re-type each session. They teach Claude the shape of your project so it stops guessing. Instead of hallucinating build commands or inventing framework conventions, Claude reads two files that describe what is actually in the repo.
 
 Run `/refresh-signals` to generate (or update) them:
 

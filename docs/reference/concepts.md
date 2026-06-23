@@ -2,6 +2,8 @@
 
 Key ideas behind Atomic Claude, explained plainly. This page covers the *why* — for detailed usage, follow the links to reference pages.
 
+You may know the broader idea as *loop engineering*: designing the system that finds work, hands it to the agent, checks the result, and records state, rather than prompting by hand. The concepts below are the parts of that loop.
+
 
 ## How it flows
 
@@ -65,7 +67,7 @@ Every concept below plays a role in that flow. Signals gave Claude the project m
 
 ## Signals
 
-Claude does not know your project. Every session starts fresh — no idea what framework you use, what your build command is, or how your code is organized. Without help, it guesses. Those guesses show up as hallucinated `npm run` scripts, invented `make` targets, and wrong assumptions about your architecture.
+Signals are context engineering: the curated knowledge Claude works from, kept as an artifact instead of re-derived each session. Claude does not know your project. Every session starts fresh — no idea what framework you use, what your build command is, or how your code is organized. Without help, it guesses. Those guesses show up as hallucinated `npm run` scripts, invented `make` targets, and wrong assumptions about your architecture.
 
 You might maintain a `CLAUDE.md` by hand, and that helps — but it inevitably drifts. You add a new service, rename a package, switch from Jest to Vitest, and forget to update the instructions. Now Claude is working from a stale map.
 
@@ -168,7 +170,7 @@ Why this matters: you keep your main branch clean in the original checkout while
 
 Claude Code can spawn specialized agents that run in a fresh context with their own system prompts. Atomic Claude defines a roster of these, each scoped to one job.
 
-The split exists because a single agent doing everything produces worse results. An implementer writes code without second-guessing itself. A reviewer catches what the implementer missed because it has fresh eyes and re-runs the evidence. An investigator maps the codebase cheaply on Haiku before the more expensive Sonnet agents start writing.
+The split is the [evaluator-optimizer pattern](https://www.anthropic.com/engineering/building-effective-agents) from Anthropic's *Building Effective Agents*: one model generates, a separate one critiques. It exists because a single agent doing everything produces worse results — the author is too generous grading its own work. An implementer writes code without second-guessing itself. A reviewer catches what the implementer missed because it has fresh eyes and re-runs the evidence. An investigator maps the codebase cheaply on Haiku before the more expensive Sonnet agents start writing.
 
 The separation also lets you constrain scope. The implementer's surgical mode hard-refuses changes beyond two files, so it cannot accidentally rewrite half your codebase. A strategist that is read-only cannot introduce bugs while reasoning about architecture.
 
@@ -190,7 +192,7 @@ A spec has two parts with two jobs. The body states what is true now, the contra
 
 `.claude/.scratchpad/` is Claude's working memory during a task. It is gitignored and not meant for human consumption.
 
-During `/subagent-implementation`, the scratchpad holds a brief (what to build now), a state log (what happened each iteration), and a follow-ups ledger (non-blocking findings that accumulate). The scratchpad is how the implement-then-review loop survives context compaction — Claude does not need to remember what happened, it reads the file. When the task is done, the scratchpad is deleted.
+During `/subagent-implementation`, the scratchpad holds a brief (what to build now), a state log (what happened each iteration), and a follow-ups ledger (non-blocking findings that accumulate). The scratchpad is how the implement-then-review loop survives context compaction. The agent forgets between runs; the file does not — Claude does not need to remember what happened, it reads the file. When the task is done, the scratchpad is deleted.
 
 
 ## Ship verbs

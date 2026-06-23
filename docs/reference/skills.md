@@ -5,7 +5,7 @@ Skills fire automatically when Claude encounters matching phrases in conversatio
 
 ## Discipline
 
-These enforce good engineering habits without you having to ask.
+These enforce good engineering habits without you having to ask. Together, `atomic-tdd` and `atomic-verify` are the loop's objective gate: a test that passes or fails, not a second opinion. That is the difference between a loop that catches its own mistakes and one that talks itself into "done".
 
 | Skill | Fires when you say... | What it does |
 |-------|----------------------|-------------|

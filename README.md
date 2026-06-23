@@ -55,7 +55,7 @@ Everything below is opt-in. The pieces compose into one lifecycle, and you can r
 
 ### The workflow, end to end
 
-Fresh-context subagents drive each stage. The implementer writes a failing test before any code; the reviewer re-runs tests and gates the diff against the spec; work commits per green checkpoint.
+Fresh-context subagents drive each stage as a maker/checker split (Anthropic's evaluator-optimizer pattern): the implementer writes a failing test before any code; the reviewer re-runs tests and gates the diff against the spec; work commits per green checkpoint.
 
 ```
 plan ........ /atomic-plan writes a design doc + a checkpoint spec
@@ -266,6 +266,7 @@ Atomic Claude dogfoods itself: the root artifacts are both the live config and t
 | Contributing | [docs/guides/contributing.md](docs/guides/contributing.md) |
 | Credits | [docs/credits.md](docs/credits.md) |
 | Specs | [docs/spec/](docs/spec/) |
+| Anthropic patterns behind it | [Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents), [Effective context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) |
 
 
 ## License

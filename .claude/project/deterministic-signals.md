@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-06-22T18:50:55Z
-atomic_version: 5.6.0
+generated_at: 2026-06-23T07:04:17Z
+atomic_version: 5.6.2
 ---
 # Deterministic signals
 
@@ -32,7 +32,7 @@ atomic_version: 5.6.0
 ├── .vitepress/ (2)
 │   ├── theme/ (4)
 │   │   ├── AutopilotDemo.vue (227ba76, 183L, 4111ch, 4125B)
-│   │   ├── custom.css (451bbf6, 695L, 18518ch, 22336B)
+│   │   ├── custom.css (fbefe91, 716L, 18981ch, 22801B)
 │   │   ├── index.ts (4ab2211, 37L, 1407ch, 1407B)
 │   │   └── scroll-animate.ts (cbee3e4, 68L, 2647ch, 2659B)
 │   └── config.mts (e5eff7f, 178L, 7708ch, 7712B)
@@ -168,7 +168,7 @@ atomic_version: 5.6.0
 │   │   ├── embedded/ (3)
 │   │   │   ├── bundle/ (1 file, 5 dirs)
 │   │   │   ├── bundle.go (73b79e7, 13L, 437ch, 437B)
-│   │   │   └── manifest.go (184fa96, 60L, 8424ch, 8424B)
+│   │   │   └── manifest.go (43c858f, 60L, 8424ch, 8424B)
 │   │   ├── followups/ (15)
 │   │   │   ├── testdata/ (1 file, 2 dirs)
 │   │   │   ├── add.go (2d5d059, 132L, 3590ch, 3590B)
@@ -224,8 +224,8 @@ atomic_version: 5.6.0
 │   │   │   ├── reminder.go (5889368, 334L, 8946ch, 8954B)
 │   │   │   └── reminder_test.go (7f98ec2, 513L, 15624ch, 15630B)
 │   │   ├── repoctx/ (2)
-│   │   │   ├── repoctx.go (6fde7eb, 44L, 1381ch, 1381B)
-│   │   │   └── repoctx_test.go (560fe5b, 100L, 2725ch, 2727B)
+│   │   │   ├── repoctx.go (17f3743, 64L, 2177ch, 2183B)
+│   │   │   └── repoctx_test.go (edefb29, 117L, 3360ch, 3364B)
 │   │   ├── selfupdate/ (4)
 │   │   │   ├── cache.go (6c93723, 65L, 1662ch, 1662B)
 │   │   │   ├── selfupdate.go (b0e14e6, 496L, 14374ch, 14382B)
@@ -339,7 +339,7 @@ atomic_version: 5.6.0
 │   │       └── wiki_test.go (89f17e0, 1184L, 39619ch, 39702B)
 │   ├── test/ (1)
 │   │   └── install_sh_test.go (dfa131f, 229L, 6304ch, 6310B)
-│   ├── CHANGELOG.md (60b89cd, 405L, 23810ch, 23832B)
+│   ├── CHANGELOG.md (9478b1d, 421L, 24644ch, 24666B)
 │   ├── Makefile (d68669b, 31L, 751ch, 751B)
 │   ├── go.mod (d77ad34, 62L, 2621ch, 2621B)
 │   └── go.sum (6208e65, 155L, 14051ch, 14051B)
@@ -359,7 +359,7 @@ atomic_version: 5.6.0
 │   ├── git-cleanup.md (848d8ab, 196L, 8036ch, 8110B)
 │   ├── pressure-test.md (b4d7fcf, 170L, 13598ch, 13696B)
 │   ├── refresh-signals.md (c2e5fb2, 202L, 6409ch, 6459B)
-│   ├── refresh-wiki.md (7213214, 376L, 20156ch, 20307B)
+│   ├── refresh-wiki.md (4bb57d9, 376L, 20543ch, 20698B)
 │   ├── remind-me.md (41433cb, 184L, 7226ch, 7275B)
 │   ├── report-issue-with-atomic.md (b68d3a8, 111L, 4559ch, 4597B)
 │   ├── report-issue.md (6bb1180, 98L, 2742ch, 2772B)
@@ -410,17 +410,17 @@ atomic_version: 5.6.0
 │   │   ├── logo.png (071e23b, 101L, 18608ch, 19120B)
 │   │   └── share-image.png (1c1b293, 7762L, 2365661ch, 2461198B)
 │   ├── reference/ (11)
-│   │   ├── agents.md (5b8d661, 32L, 2579ch, 2589B)
+│   │   ├── agents.md (7f8f76f, 32L, 2853ch, 2863B)
 │   │   ├── code-intel.md (3f4f079, 226L, 17713ch, 17795B)
 │   │   ├── commands.md (b484161, 113L, 10383ch, 10399B)
-│   │   ├── concepts.md (3923274, 306L, 23208ch, 23342B)
+│   │   ├── concepts.md (fe8fcf0, 308L, 23868ch, 24004B)
 │   │   ├── conventions.md (b3c569e, 10L, 908ch, 912B)
 │   │   ├── output-style.md (16a144f, 46L, 2729ch, 2737B)
 │   │   ├── serve.md (a946e85, 154L, 14503ch, 14600B)
-│   │   ├── signals-workflow.md (84ba111, 109L, 5314ch, 5334B)
-│   │   ├── skills.md (43c4055, 36L, 2582ch, 2586B)
+│   │   ├── signals-workflow.md (d6b5e36, 109L, 5550ch, 5570B)
+│   │   ├── skills.md (30b35df, 36L, 2814ch, 2818B)
 │   │   ├── wiki-workflow.md (1ec6d2b, 192L, 17912ch, 18156B)
-│   │   └── workflow.md (1d5ef31, 150L, 10111ch, 10179B)
+│   │   └── workflow.md (c9d1479, 152L, 10363ch, 10433B)
 │   ├── research/ (1)
 │   │   └── tsbinding-vendor-on-demand.md (f4ddb35, 149L, 8150ch, 8180B)
 │   ├── spec/ (49)
@@ -474,7 +474,7 @@ atomic_version: 5.6.0
 │   │   ├── wiki-buckets.md (93c551c, 253L, 31772ch, 31944B)
 │   │   └── wiki.md (898710a, 226L, 31728ch, 31950B)
 │   ├── credits.md (75c0486, 104L, 8612ch, 8782B)
-│   └── index.md (9c9ad3e, 238L, 10125ch, 10221B)
+│   └── index.md (33c9d75, 265L, 12656ch, 12758B)
 ├── output-styles/ (1)
 │   └── atomic.md (7e171b7, 73L, 3358ch, 3428B)
 ├── rules/ (3)
@@ -537,7 +537,7 @@ atomic_version: 5.6.0
 │   │   ├── git-cleanup.md (848d8ab, 196L, 8036ch, 8110B)
 │   │   ├── pressure-test.md (b4d7fcf, 170L, 13598ch, 13696B)
 │   │   ├── refresh-signals.md (c2e5fb2, 202L, 6409ch, 6459B)
-│   │   ├── refresh-wiki.md (7213214, 376L, 20156ch, 20307B)
+│   │   ├── refresh-wiki.md (4bb57d9, 376L, 20543ch, 20698B)
 │   │   ├── remind-me.md (41433cb, 184L, 7226ch, 7275B)
 │   │   ├── report-issue-with-atomic.md (b68d3a8, 111L, 4559ch, 4597B)
 │   │   ├── report-issue.md (6bb1180, 98L, 2742ch, 2772B)
@@ -579,7 +579,7 @@ atomic_version: 5.6.0
 ├── Dockerfile (0e5b6e5, 61L, 2316ch, 2592B)
 ├── LICENSE (42eaf96, 21L, 1070ch, 1070B)
 ├── Makefile (2114399, 40L, 1550ch, 1550B)
-├── README.md (296830f, 273L, 15023ch, 15644B)
+├── README.md (e69d263, 274L, 15334ch, 15955B)
 ├── claude.local.md (978616b, 334L, 34017ch, 34180B)
 ├── docker-compose.yml (8e77524, 12L, 261ch, 261B)
 ├── docker-entrypoint.sh (fc1c1d6, 19L, 465ch, 467B)
@@ -587,7 +587,7 @@ atomic_version: 5.6.0
 ├── package-lock.json (6fe371e, 2254L, 91385ch, 91385B)
 ├── package.json (df17f35, 15L, 373ch, 373B)
 ├── release-please-config.json (fc8b307, 15L, 419ch, 419B)
-└── release-please-manifest.json (f39c811, 3L, 24ch, 24B)
+└── release-please-manifest.json (8040e2d, 3L, 24ch, 24B)
 
 ## Manifests
 
@@ -598,10 +598,10 @@ atomic_version: 5.6.0
 
 ## Languages
 
-- Go: 134797 LOC (69%), 390 files (54%)
-- Markdown: 47199 LOC (24%), 285 files (39%)
+- Go: 134834 LOC (69%), 390 files (54%)
+- Markdown: 47247 LOC (24%), 285 files (39%)
 - JavaScript: 4179 LOC (2%), 5 files (0%)
-- CSS: 2922 LOC (1%), 2 files (0%)
+- CSS: 2943 LOC (1%), 2 files (0%)
 - JSON: 2363 LOC (1%), 6 files (0%)
 - HTML: 1653 LOC (0%), 1 file (0%)
 - Shell: 910 LOC (0%), 8 files (1%)
