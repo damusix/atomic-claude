@@ -24,7 +24,10 @@ func makeMemorySetup(t *testing.T, project, content string) string {
 }
 
 // TestProjectMemoryDirDerivation verifies the project name from cwd path.
-// Rule: absolute path with "/" replaced by "-" (leading "/" stripped first → leading "-").
+// Rule: mirror Claude Code's slugification — every non-alphanumeric character
+// (path separators "/" and "\", the Windows drive colon ":", dots, etc.) is
+// replaced by "-", per character. A POSIX leading "/" yields a leading "-";
+// existing hyphens and letter case are preserved.
 func TestProjectMemoryDirDerivation(t *testing.T) {
 	tests := []struct {
 		cwd  string
@@ -33,6 +36,13 @@ func TestProjectMemoryDirDerivation(t *testing.T) {
 		{"/Users/alonso/projects/github/claude-code-setup", "-Users-alonso-projects-github-claude-code-setup"},
 		{"/home/user/repo", "-home-user-repo"},
 		{"/tmp/x", "-tmp-x"},
+		// Dotted segment: "/.claude" → "--claude" (both "/" and "." become "-").
+		// Matches Claude Code's real dir name for ~/.claude (-Users-alonso--claude).
+		{"/Users/alonso/.claude", "-Users-alonso--claude"},
+		{"/Users/alonso/projects/pi-os/.worktrees/x", "-Users-alonso-projects-pi-os--worktrees-x"},
+		// Windows path (issue #43): drive colon and backslashes slugify too, with
+		// no stray leading "-". C:\...\vibe-core → C--Users-...-vibe-core.
+		{`C:\Users\master-user\Documents\Projects\vibe0\vibe-core`, "C--Users-master-user-Documents-Projects-vibe0-vibe-core"},
 	}
 	for _, tc := range tests {
 		got := doctor.ProjectNameFromCWD(tc.cwd)

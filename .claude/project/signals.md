@@ -32,7 +32,7 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Go | 134834 | 390 | 69% |
+| Go | 134855 | 390 | 69% |
 | Markdown | 47253 | 285 | 24% |
 | JavaScript | 4179 | 5 | 2% |
 | CSS | 2943 | 2 | 1% |
@@ -43,7 +43,7 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 | TypeScript | 205 | 3 | 0% |
 | Vue | 183 | 1 | 0% |
 
-Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed. Go LOC increased 132868 → 134834 (390 files) from new code-intel test files and per-repo MCP additions in 5.6.0–5.6.2. JavaScript LOC dropped significantly (10034 → 4179) after htmx upgrade to 4.0.0-beta4 (smaller bundle). CSS LOC increased (2015 → 2943) reflecting FE polish additions to [`atomic/internal/serve/assets/app.css`](../../atomic/internal/serve/assets/app.css) and VitePress theme updates. HTML LOC increased (899 → 1653) from layout.html additions. Markdown LOC increased (47199 → 47253) from homepage video + docs/reference updates in 5.6.2.
+Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed. Go LOC increased 132868 → 134855 (390 files) from new code-intel test files and per-repo MCP additions in 5.6.0–5.6.2, plus 21 LOC for the memory-check project-slug fix (issue #43) in `checks_memory.go` (per-char `[^a-zA-Z0-9]→-` slugification + Windows/dotted-path tests). JavaScript LOC dropped significantly (10034 → 4179) after htmx upgrade to 4.0.0-beta4 (smaller bundle). CSS LOC increased (2015 → 2943) reflecting FE polish additions to [`atomic/internal/serve/assets/app.css`](../../atomic/internal/serve/assets/app.css) and VitePress theme updates. HTML LOC increased (899 → 1653) from layout.html additions. Markdown LOC increased (47199 → 47253) from homepage video + docs/reference updates in 5.6.2.
 
 ## DevOps & CI
 
