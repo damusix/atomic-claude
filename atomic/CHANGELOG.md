@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.6.3](https://github.com/damusix/atomic-claude/compare/v5.6.2...v5.6.3) (2026-06-23)
+
+
+### Bug Fixes
+
+* **cli:** surface --host and wiki verbs in --help ([63ae3fd](https://github.com/damusix/atomic-claude/commit/63ae3fd1da853bd08dbb2b7977d4b75129d0cd8f))
+
 ## [5.6.2](https://github.com/damusix/atomic-claude/compare/v5.6.1...v5.6.2) (2026-06-23)
 
 
