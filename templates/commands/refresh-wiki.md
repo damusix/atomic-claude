@@ -2,7 +2,7 @@
 description: Refresh the project wiki incrementally. Runs atomic wiki scan, checks freshness with atomic wiki stale, re-authors only stale or pending artifacts, stamps fingerprints via code, and commits the wiki when done.
 ---
 
-`/refresh-wiki [root]` — refresh the wiki rooted at `[root]` (default: `./wiki/` relative to cwd). Run this to keep the wiki current after repos are added, signals are updated, or the drift marker appears.
+`/refresh-wiki [root]` — refresh the wiki for the realm rooted at `[root]` (default: cwd). `[root]` is the **realm root** — the directory that contains `wiki/`, not the `wiki/` directory itself. Run this to keep the wiki current after repos are added, signals are updated, or the drift marker appears.
 
 <workflow>
 
@@ -10,7 +10,7 @@ description: Refresh the project wiki incrementally. Runs atomic wiki scan, chec
 
 Resolve the wiki root:
 
-- If `[root]` was supplied, use it. Otherwise default to `./wiki/` relative to cwd.
+- If `[root]` was supplied, use it as the realm root. Otherwise default to the current working directory. `[root]` is the realm root (the parent of `wiki/`), never the `wiki/` directory itself — `atomic wiki scan --root <resolved-root>` creates `wiki/` underneath it, and the rest of this workflow appends `wiki/` to `<resolved-root>` (e.g. `<resolved-root>/wiki/index.md`).
 
 Check that the `atomic` binary is available:
 
