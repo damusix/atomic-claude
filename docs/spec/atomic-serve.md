@@ -28,10 +28,11 @@ only what gets built.
 
 ## Success criteria
 
-- [ ] **SC1** — `atomic serve [path]` starts an HTTP server bound to `127.0.0.1:<port>`
-      (`--port`, default 4500), prints the URL, opens the browser when `--open` is set
-      (best-effort; never fatal), and shuts down cleanly on SIGINT. `--port 0` picks a
-      free port and prints the chosen one.
+- [ ] **SC1** — `atomic serve [path]` starts an HTTP server bound to `<host>:<port>`
+      (`--port`, default 4500; `--host`, default `127.0.0.1`), prints the URL, opens the
+      browser when `--open` is set (best-effort; never fatal), and shuts down cleanly on
+      SIGINT. `--port 0` picks a free port and prints the chosen one. `--host 0.0.0.0` (or
+      `::`) exposes the read-only viewer on the LAN and prints every reachable address.
 - [ ] **SC2** — Scope is resolved by `realm.Resolve`: a registered `<wikis>` realm root →
       realm scope; inside a member → member scope; a bare repo with no wiki → repo scope.
       The resolved scope is shown in the UI header. A bare repo with a code index but no
@@ -105,7 +106,7 @@ only what gets built.
       hash flags the node and draws its edge red. Reuses `wiki` fingerprint resolution; no
       re-stamping.
 - [ ] **SC13** — Artifact checklist complete: `serve` registered in
-      `cliusage/cliusage.go` (flags `--port`, `--open`); `CLAUDE.md` workflow + registry
+      `cliusage/cliusage.go` (flags `--port`, `--host`, `--open`); `CLAUDE.md` workflow + registry
       mention; `README.md` + `docs/reference/` updated; `/atomic-help` cli topic row +
       tour stage updated; `atomic validate artifacts` passes; `make render` +
       `make -C atomic bundle` produce zero `git diff --exit-code`; signals refreshed.
@@ -276,6 +277,17 @@ None.
 
 
 ## Change log
+
+### 2026-06-23 — `--host` flag for LAN exposure
+
+**What changed:** Documented the `--host` flag (default `127.0.0.1`). `--host 0.0.0.0` (or
+`::`) binds all interfaces, exposing the read-only viewer on the LAN; the startup banner then
+prints every reachable non-loopback address alongside the loopback URL. SC1 and the SC13
+cliusage flag list updated to current truth.
+
+**Why:** The flag shipped in `serve.go` but was absent from the spec body, from
+`cliusage.go` (so `atomic --help` and `atomic validate` did not advertise it), and from the
+reference docs. Surfaced by the 2026-06-23 wiki / MCP / code-intel doc-accuracy audit.
 
 ### 2026-06-19 — htmx upgraded 2.0.10 → 4.0.0-beta4 (native, no compat shim)
 

@@ -6,16 +6,17 @@
 ## Usage
 
 ```bash
-atomic serve [path] [--port <N>] [--open]
+atomic serve [path] [--port <N>] [--host <addr>] [--open]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `path` | current directory | Wiki realm root, member repo, or bare repo. A relative path is resolved to an absolute one. |
-| `--port` | `4500` | Port to bind on `127.0.0.1`. `--port 0` picks a free port and prints the chosen one. |
+| `--port` | `4500` | Port to bind. `--port 0` picks a free port and prints the chosen one. |
+| `--host` | `127.0.0.1` | Interface to bind. `0.0.0.0` (or `::`) exposes the server on the LAN and prints every reachable address. Still read-only, still no auth. |
 | `--open` | off | Open the browser automatically after the server starts (best-effort; never fatal). |
 
-The server shuts down cleanly on SIGINT. It prints the URL on start.
+The server shuts down cleanly on SIGINT. It prints the URL on start; under a wildcard bind (`--host 0.0.0.0`) it prints the loopback URL plus every reachable LAN address.
 
 
 ## Scope resolution
@@ -38,7 +39,7 @@ The UI is a single persistent shell — navigating never reloads it; only the fo
 - **Top bar** — a breadcrumb (`realm › member › page`), a search trigger that opens the command-palette dialog (`⌘K`), and a light/dark theme toggle.
 - **Left nav** — the collapsible tree (`/nav`).
 - **Middle** — the focused page, or the whole-system graph. A `[ page | system ]` toggle switches between them.
-- **Right rail** — three slots tracking the focused page: its local link graph, its outbound links, and its inbound links (backlinks).
+- **Right rail** — four slots tracking the focused page: its YAML frontmatter properties, its local link graph, its outbound links, and its inbound links (backlinks).
 - **Code modal** — a source file opens in an overlay: highlighted source on the left, code intelligence on the right.
 
 ### Page view (the default)
@@ -149,6 +150,6 @@ All assets (htmx, base CSS, the html/template layout, vendored JS) are embedded 
 
 ## Security
 
-- Binds to `127.0.0.1` only. Not an API surface; no auth.
+- Binds to `127.0.0.1` by default; `--host 0.0.0.0` opts into LAN exposure. Read-only either way, and never an auth surface.
 - Every served path is resolved against the scope root and rejected (404) if it escapes via path traversal (`../` or absolute). `os.ReadFile` is never called on an unvalidated request path. The markdown-search query is treated purely as a substring, never a path.
 - No write operations of any kind. Serve observes; mutation stays in `/refresh-wiki`, `atomic code index`, and `atomic wiki` subcommands.

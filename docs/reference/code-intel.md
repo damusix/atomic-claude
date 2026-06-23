@@ -31,9 +31,9 @@ Run `atomic code <verb>` from your project root. Every query verb accepts `--jso
 | `callers` | What calls this symbol (`--depth` for multiple hops) |
 | `callees` | What this symbol calls (`--depth`) |
 | `impact` | Blast radius of changing this symbol (`--depth`) |
-| `node` | Detailed info for one symbol |
+| `node` | Detailed info for one symbol (`--file`/`--line` disambiguate same-named symbols) |
 | `files` | List indexed files (optional path/pattern filter) |
-| `affected` | Test files transitively affected by a set of changed files |
+| `affected` | Test files transitively affected by a set of changed files (`--test-glob` to scope tests, `--stdin` to read paths) |
 | `explore` | Gather context for a natural-language query (markdown output) |
 | `mcp` | Run the MCP server over stdio (see [Code-intel MCP](/guides/code-intel-mcp)) |
 

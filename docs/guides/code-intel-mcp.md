@@ -108,7 +108,7 @@ The `agent-code-intel` partial instructs each subagent when and how to use these
 
 ## Degradation
 
-The MCP server requires an existing index. If `.claude/.atomic-index/atomic.db` does not exist, `atomic code mcp` exits immediately with an error. Build the index first with `atomic code index`.
+The MCP server does not require a pre-built index. If `.claude/.atomic-index/atomic.db` does not exist, the daemon initializes an empty index on first run rather than erroring. An empty graph answers nothing useful, though, so build the index first with `atomic code index` and keep it warm with `atomic code sync`.
 
 `atomic doctor` check 11 (`code-index`) reports index health:
 

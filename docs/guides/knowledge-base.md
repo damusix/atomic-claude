@@ -1,16 +1,14 @@
 # Knowledge base
 
 
-Atomic documents code. A [wiki](/reference/wiki-workflow) compiles a folder of repositories into one map: it points at the repos that already have signals, summarizes the ones that do not, and writes up the concerns they share. That covers the code side of a realm.
+Atomic documents code. A [wiki](/reference/wiki-workflow) compiles a folder of repositories into one map: it points at the repos that already have signals, summarizes the ones that do not, and writes up the concerns they share. That is the code side of a realm.
 
-Real work is not only code. A client engagement accumulates tickets, research you wrote chasing a problem, an email thread with the one detail that explains a bug, a PDF someone sent, a Slack export, scraped pages. Atomic does not manage that material, by design. The line it draws is deliberate: atomic stays on the code side, and the non-code side is yours to direct.
+Real work is not only code. A client engagement accumulates tickets, research you wrote chasing a problem, an email thread with the one detail that explains a bug, a PDF someone sent, a Slack export. This material is the knowledge side, and atomic manages it the same way it manages code. You drop the material into folders and register them as capture buckets; `/refresh-wiki` fingerprints what changed and synthesizes it into `wiki/knowledge/`. You provide the material and the conventions, atomic runs the pipeline.
 
-This guide shows how to extend the same realm into a knowledge base that holds both. One thing to keep straight as you read: almost everything below is a suggested pattern you build yourself, not a feature atomic provides. Atomic ships the code wiki and the realm walk. The rest is an example of what you can layer on top, in the same plain-markdown, deterministic-diff-plus-LLM-judgment style atomic uses, and you should adapt the folder names, scripts, and commands to your own work rather than copy them literally.
-
-| | Provided by atomic | Yours to build |
+| | Provided by atomic | Yours to provide |
 |---|---|---|
-| **Code side** | `/refresh-wiki` documents the repos and writes everything under `wiki/` except `knowledge/`; `atomic wiki` subcommands (`linkify`, `scan`, `stale`, `mark-dirty`) maintain it. | — |
-| **Knowledge side** | — | The capture folders and their conventions, the fingerprint script, the synthesis commands, and everything in `wiki/knowledge/`. |
+| **Code side** | `/refresh-wiki` documents the repos and writes `wiki/` (summaries, concerns, knowledge pages); the `atomic wiki` subcommands (`scan`, `stale`, `linkify`, `bucket`) maintain it. | The member repos. |
+| **Knowledge side** | Bucket registration (`atomic wiki bucket add`), the SHA-256 fingerprint engine (`diff`/`promote`), and the synthesis pass that writes `wiki/knowledge/`. | The capture folders, the material in them, and each bucket's `index.md` conventions. |
 | **Glue** | The realm `CLAUDE.md` walk is a Claude Code behavior atomic relies on. | The contents of that `CLAUDE.md`: your rules, paths, and conventions. |
 
 The result is a Karpathy-style wiki: a knowledge base you compile with Claude instead of maintaining by hand.
@@ -19,43 +17,44 @@ The result is a Karpathy-style wiki: a knowledge base you compile with Claude in
 ## The realm layout
 
 
-A realm is a folder that holds repositories and the loose material around them. It is not itself a git repository. Each member repo is one, and so is the wiki. The layout below is one arrangement that works, not a required structure: atomic only cares about the member repos and the `wiki/` folder. The capture folders and their names are a convention you pick, so rename or drop them to fit how you already organize work.
+A realm is a folder that holds repositories and the loose material around them. It is not itself a git repository. Each member repo is one, and so is the wiki.
 
 ```text
-~/work/acme/                    the realm — not a git repo
-├─ CLAUDE.md             realm rules, loaded from anywhere inside
-├─ .mcp.json            ticket / tool servers for the whole realm
-├─ billing-api/          repo · signals → indexed
-├─ gateway/              repo · signals → indexed
-├─ vendor-sdk/           repo · no signals → summarized
-├─ research/             findings you write · one file per topic
-├─ raw/                  unprocessed dumps · PDFs, emails, exports
-├─ history/              scraped pages, time-stamped captures
-└─ wiki/                 the map atomic compiles — its own git repo
-   ├─ index.md           member registry + your narrative
-   ├─ repos/             summaries of no-signals repos
-   ├─ concerns/          what cuts across repos
-   └─ knowledge/         digests distilled from research/ and raw/
+~/work/acme/                 the realm — not a git repo
+├─ CLAUDE.md          realm rules, loaded from anywhere inside
+├─ .mcp.json          ticket / tool servers for the whole realm
+├─ billing-api/       repo · signals → indexed
+├─ gateway/           repo · signals → indexed
+├─ vendor-sdk/        repo · no signals → summarized
+├─ research/          capture bucket · findings you write
+├─ raw/               capture bucket · unprocessed dumps
+├─ history/           capture bucket · scraped / time-stamped captures
+└─ wiki/              the map atomic compiles — its own git repo
+   ├─ index.md        member registry + <wiki-buckets> block
+   ├─ repos/          summaries of no-signals repos
+   ├─ concerns/       what cuts across repos
+   ├─ knowledge/      digests synthesized from the buckets
+   └─ .buckets/       SHA-256 manifests, one dir per bucket
 ```
 
-The repos and the `wiki/` folder are git repositories. The realm root and the capture folders (`research/`, `raw/`, `history/`) are not. You commit inside each member and inside `wiki/`, never at the realm root.
+The repos and the `wiki/` folder are git repositories. The realm root and the capture folders are not. You commit inside each member and inside `wiki/`, never at the realm root. The capture folder names are your convention: `research`, `raw`, and `history` are examples, so register whatever folders fit how you already organize work.
 
-The realm `CLAUDE.md` is what makes this cohere. Claude Code walks up the directory tree when it loads `CLAUDE.md`, and the walk crosses repo boundaries, so a realm-root file stays in context from any session you start inside the realm, including one inside a member repo. Put your realm rules there: where each capture folder lives, what convention each follows, and a pointer to the wiki. That file is the control panel for everything below.
+The realm `CLAUDE.md` is what makes this cohere. Claude Code walks up the directory tree when it loads `CLAUDE.md`, and the walk crosses repo boundaries, so a realm-root file stays in context from any session inside the realm, including one started inside a member repo. Put your realm rules there: where each capture folder lives, what convention each follows, and a pointer to the wiki.
 
 
 ## Capture surfaces
 
 
-Different material enters through different doors. Sort it by how processed it is when it arrives.
+Different material enters through different doors. Sort it by how processed it is when it arrives, then register each folder with `atomic wiki bucket add <name>`. The `atomic-wiki` skill does this for you when you say you want a place for notes, research, or tickets.
 
-| Surface | Holds | Who writes it | Naming |
-|---------|-------|---------------|--------|
-| `research/` | Findings you produce: a vendor evaluation, an API investigation, a design tradeoff you worked out. | You, via Claude or by hand. | `YYYY-MM-DD-<slug>.md`, one file per topic. |
-| `raw/` | Unprocessed dumps: PDFs, email exports, Slack exports, meeting transcripts, pasted notes, screenshots. | You drop them in as-is. | Whatever they arrive as. |
-| `history/` | Scraped pages and time-stamped captures of source documents. | A scraper or a manual save. | Timestamp-named. |
-| Tickets | Live issue tracker state. | Your tracker, read through MCP. | Not a folder. |
+| Surface | Holds | Naming |
+|---------|-------|--------|
+| `research/` | Findings you produce: a vendor evaluation, an API investigation, a design tradeoff you worked out. | `YYYY-MM-DD-<slug>.md`, one file per topic. |
+| `raw/` | Unprocessed dumps: PDFs, email and Slack exports, meeting transcripts, pasted notes, screenshots. | Whatever they arrive as. |
+| `history/` | Scraped pages and time-stamped captures of source documents. | Timestamp-named. |
+| Tickets | Live issue tracker state. | Not a folder — read through MCP. |
 
-Each folder carries an `index.md` that lists what is in it. For `research/`, track the date, topic, file, and a status of `open` or `synthesized`. For `raw/`, track when each artifact arrived, what it is, and whether it has been indexed yet. The index files are what make the realm browsable and what a synthesis pass reads to find its work.
+Each bucket carries an `index.md` describing what it holds and the convention its files follow. `atomic wiki bucket add` creates the stub; you fill it in (or let the `/refresh-wiki` offer flow guide you on first use). The synthesis pass reads this file as context before it distills anything.
 
 Tickets are the one surface that does not need a folder. Wire your tracker as an MCP server in the realm `.mcp.json` and Claude reads issues live:
 
@@ -73,65 +72,57 @@ GitHub, Jira, and Linear all expose MCP servers. With one wired at the realm roo
 ## The synthesis flow
 
 
-Capture surfaces collect material. Knowledge is what you distill from them. The flow is one-way:
+Capture surfaces collect material. Knowledge is what atomic distills from them. The flow is one-way:
 
 ```text
-research/ + raw/   →   (synthesis with Claude)   →   wiki/knowledge/
+research/ + raw/   →   /refresh-wiki bucket synthesis   →   wiki/knowledge/
 ```
 
-A digest in `wiki/knowledge/` is the durable artifact: the thing you read later instead of re-reading the four sources behind it. The sources stay where they are. Synthesis reads them and writes a compressed, cross-linked result into the wiki.
-
-The naive version is manual: point Claude at a file in `raw/`, tell it to distill the result into `wiki/knowledge/`, commit the wiki. That works and is the right place to start. It does not scale, because on the tenth run you cannot remember which dumps you have already folded in.
+A digest in `wiki/knowledge/` is the durable artifact: the thing you read later instead of re-reading the four sources behind it. The sources stay where they are. Synthesis reads them and writes a compressed, cross-linked result into the wiki, with `sources:` provenance stamped on each page so you can trace a digest back to the files that produced it.
 
 
-## Only reprocess what changed
+## Only synthesize what changed
 
 
-Atomic does not provide this step; it is a pattern you implement, borrowing the same idea atomic uses internally for signals and wiki staleness. The move is a fingerprint. Snapshot a SHA-256 hash of every file in a capture folder, store it as a baseline, and on the next run diff the current hashes against the baseline. Only the new and changed files need synthesis. The baseline advances only after a synthesis succeeds, so running the diff twice without synthesizing never loses the work list, and an aborted run leaves the work pending instead of marking it done.
+`/refresh-wiki` reprocesses only the material that changed since the last run. That deduplication is the bucket fingerprint engine, and you do not build it:
 
-One layout that works, though the details are yours to decide:
-
-```text
-research/.fingerprints/
-├─ baseline.sha256     hashes as of the last successful synthesis
-├─ current.sha256      hashes now
-└─ previous.sha256     one rotation back, for recovery
+```bash
+atomic wiki bucket diff research      # new / changed / removed since last synthesis (read-only)
+atomic wiki bucket promote research   # advance the baseline, after synthesis lands
 ```
 
-The script computes `current.sha256`, diffs it against `baseline.sha256`, and reports new, changed, and removed files. A `--promote` flag rotates `current` into `baseline`, run only after the synthesis it covers has landed. Keep the script out of the diff by ignoring `index.md` and the `.fingerprints/` directory itself.
+`diff` computes a SHA-256 manifest of the folder and compares it to the stored baseline, reporting new, changed, and removed files. `promote` advances the baseline to the current manifest. `/refresh-wiki` runs `diff` to find the work, synthesizes only the new and changed files, and `promote`s after each bucket succeeds, so an aborted run leaves the work pending instead of marking it done. The manifests live in `wiki/.buckets/<name>/` (`baseline`, `previous`, `current`) and are versioned with the wiki, so a clone is self-describing.
+
+`atomic wiki stale` reports `STALE bucket <name>` for any bucket with a non-empty diff, alongside its repo and concern staleness lines.
 
 
-## Wiring it into commands
+## Running it
 
 
-Wrap the flow in commands of your own so it is one keystroke, not a recited procedure. These are commands you write and put in the realm's `.claude/commands/`; atomic does not ship them. A research-synthesis command could do this:
+The whole pipeline is one command:
 
-1. Run the fingerprint script against `research/` and read the new and changed files.
-2. Distill each into `wiki/knowledge/<slug>.md`, cross-linking related entries and the repo signals they touch.
-3. Mark each source `synthesized` in `research/index.md`.
-4. Promote the fingerprint baseline.
-5. Offer to commit the wiki repo, never committing automatically.
+1. `atomic wiki bucket add research` — register the folder once. It creates the bucket's `index.md` stub and its manifest directory.
+2. Drop material into `research/`, `raw/`, and the rest as work happens.
+3. `/refresh-wiki` — scans the repos, then for each bucket with a non-empty diff dispatches `atomic-signals-inferrer` to synthesize the changed files into `wiki/knowledge/<topic>.md`, stamps `sources:` provenance, promotes the baseline, and offers to commit the wiki.
 
-A second command does the same for `raw/`, with one extra step at the front: read each artifact (text directly, PDFs and images through tools), index it in `raw/index.md` with a one-line description, then distill. Removals are surfaced for your confirmation rather than deleting derived knowledge silently.
-
-These commands are not shipped by atomic. They are the example of going past what atomic provides: atomic gives you the code wiki and the realm walk, and you add the knowledge pipeline on top in the same plain-markdown, deterministic-diff-plus-LLM-judgment style atomic uses everywhere else.
+No fingerprint script, no custom synthesis command. On first run in a realm with no buckets, `/refresh-wiki` offers to create them.
 
 
 ## Browsing the result
 
 
-Everything in a realm is markdown in folders, which means an Obsidian vault or any markdown server renders it as a navigable graph. Three things make it click together:
+Everything in a realm is markdown in folders, so an Obsidian vault, any markdown server, or `atomic serve` renders it as a navigable graph. Three things make it click together:
 
-- **An `index.md` in every surface**, listing its contents with links. These are the entry points.
-- **Cross-links written during synthesis.** When a knowledge digest cites the research and the repo signals behind it, those become links you can follow.
-- **`atomic wiki linkify`** on the code side, which turns the path citations in repo summaries and concern docs into relative markdown links. Run it after `/refresh-wiki`.
+- An `index.md` in every surface, listing its contents with links. These are the entry points.
+- Cross-links written during synthesis. When a knowledge digest cites the research and the repo signals behind it, those become links you can follow.
+- `atomic wiki linkify`, which turns the path citations in repo summaries and concern docs into relative markdown links. `/refresh-wiki` runs it for you.
 
-Open the realm root in your markdown tool and click from a concern, to the repo it touches, to the signals for that repo, to the research that explains a decision in it. The realm becomes one graph instead of a folder you grep.
+`atomic serve` renders the realm read-only in the browser, colored by concept type, with federated code search across members. Open it and click from a concern, to the repo it touches, to the signals for that repo, to the research that explains a decision in it.
 
 
 ## Where the line is
 
 
-Atomic owns the code layer. `/refresh-wiki` walks the realm, documents the repos, and keeps the summaries and concerns current. It writes everything under `wiki/` except `knowledge/`.
+Atomic owns the pipeline on both sides. On the code side, `/refresh-wiki` walks the realm, documents the repos, and keeps the summaries and concerns current. On the knowledge side, it fingerprints your capture buckets and synthesizes their changes into `wiki/knowledge/`.
 
-You own the knowledge layer. Atomic never touches `research/`, `raw/`, `history/`, or `wiki/knowledge/`. The capture conventions, the synthesis commands, the fingerprint script, and the realm `CLAUDE.md` are yours to shape. The [wiki workflow reference](/reference/wiki-workflow) documents the code side in full; this guide is the pattern for the side that is yours.
+You own the material and the conventions: what goes in each bucket, the bucket's `index.md`, and the realm `CLAUDE.md`. Atomic writes only the `index.md` stub when you register a bucket and the manifests under `wiki/.buckets/`; the material you drop in is yours and untouched. The [wiki workflow reference](/reference/wiki-workflow) documents the full mechanism.

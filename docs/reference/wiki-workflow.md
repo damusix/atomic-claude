@@ -156,7 +156,7 @@ The wiki is nudge-driven, not guaranteed-fresh, by design. Acting on the nudge i
 
 ## Capture buckets
 
-A capture bucket is a user-named folder at the realm root that holds loose material: research notes, raw email threads, ticket exports, PDFs, meeting notes. Registering it with `atomic wiki bucket add <name>` wires it into the wiki pipeline without changing anything inside the folder.
+A capture bucket is a user-named folder at the realm root that holds loose material: research notes, raw email threads, ticket exports, PDFs, meeting notes. Registering it with `atomic wiki bucket add <name>` wires it into the wiki pipeline without changing anything inside the folder. The `atomic-wiki` skill is the conversational front door: tell Claude you want a place for notes, research, or tickets and it runs `bucket add` for you.
 
 ```
 atomic wiki bucket add research    # register ~/work/acme/research/
@@ -175,7 +175,7 @@ atomic wiki bucket promote research   # advance the baseline after synthesis
 
 **Staleness.** `atomic wiki stale` reports `STALE bucket <name>` for any bucket whose diff is non-empty. These lines appear after the existing `DRIFT`/`STALE` repo and concern lines, and the same exit-code contract applies: exit `1` if any line is emitted.
 
-**Knowledge-page citations.** Concern docs can cite a knowledge page as `knowledge/<topic>.md@<sha256>`. `atomic wiki stale` resolves this as a content hash of the knowledge page file, the same fingerprint mechanism used for repo summaries. A knowledge page that has changed since the concern was authored triggers a `STALE concern` line.
+**Knowledge-page citations.** Concern docs can cite a knowledge page as `knowledge/<topic>.md@<sha256>`. `atomic wiki stale` resolves this as a content hash of the knowledge page file, the same fingerprint mechanism used for repo summaries. A knowledge page that has changed since the concern was authored triggers a `STALE concern <path> (knowledge/<topic>.md)` line.
 
 
 ## Relationship to signals
