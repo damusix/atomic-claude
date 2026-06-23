@@ -368,6 +368,12 @@ var bodyMergeIntoRE = regexp.MustCompile(`(?i)\bMERGE\s+INTO\s+(` + sqlQNameRaw 
 // Group 1 = routine name.
 var bodyExecCallRE = regexp.MustCompile(`(?i)\b(?:EXEC(?:UTE)?\s+|CALL\s+)(` + sqlQNameRaw + `)\s*[\s(]`)
 
+// bodyApplyRE matches CROSS APPLY or OUTER APPLY <tvf>( in a routine/view body.
+// The trailing \s*\( restricts to table-valued-function invocations — a
+// correlated derived-table apply (CROSS APPLY (SELECT ...)) cannot match because
+// sqlQNameRaw requires an identifier, not '('. Group 1 = TVF name.
+var bodyApplyRE = regexp.MustCompile(`(?i)\b(?:CROSS|OUTER)\s+APPLY\s+(` + sqlQNameRaw + `)\s*\(`)
+
 // bodyFlattenRE matches FLATTEN ( [INPUT =>] <expr> ) inside a body scan.
 // F3: used in scanBodyEdges to emit a references edge to <expr> ONLY when
 // <expr> is a single unqualified identifier (no dot). Dotted expressions are
@@ -2479,6 +2485,15 @@ func scanBodyEdges(
 			if stageName != "" {
 				addRef(stageName, types.EdgeKindReferences, m[4])
 			}
+		}
+	}
+
+	// CROSS APPLY / OUTER APPLY <tvf>( → calls
+	for _, m := range bodyApplyRE.FindAllStringSubmatchIndex(body, -1) {
+		rawName := body[m[2]:m[3]]
+		_, name := parseQName(rawName)
+		if name != "" {
+			addRef(name, types.EdgeKindCalls, m[2])
 		}
 	}
 

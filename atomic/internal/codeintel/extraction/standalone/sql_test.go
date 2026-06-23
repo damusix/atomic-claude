@@ -3465,3 +3465,198 @@ func TestF4CopyInsideTaskNotScript(t *testing.T) {
 		t.Error("task node must own references edge to 'stg' (COPY INTO inside task body)")
 	}
 }
+
+// TestTSQLCrossApplyCalls verifies that CROSS APPLY <tvf>(...) in a T-SQL
+// procedure body emits a calls edge to the invoked table-valued function.
+// WHY (issue #70): APPLY is the canonical T-SQL idiom for correlated TVF joins.
+// Without this, proc→TVF lineage is invisible to the code-intel graph.
+const tsqlCrossApplyFixture = `
+CREATE TABLE [dbo].[Orders] ([OrderId] INT);
+CREATE FUNCTION [dbo].[GetLines](@id INT) RETURNS TABLE AS RETURN SELECT 1 AS x;
+CREATE PROCEDURE [dbo].[ProcessOrders]
+AS
+BEGIN
+  SELECT o.OrderId, l.x
+  FROM [dbo].[Orders] o
+  CROSS APPLY [dbo].[GetLines](o.OrderId) l;
+END;
+GO
+`
+
+func TestTSQLCrossApplyCalls(t *testing.T) {
+	// criterion 1: CROSS APPLY <tvf>(...) → calls edge to bare function name
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_cross_apply.sql", tsqlCrossApplyFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// GetLines is CROSS APPLY target → calls
+	if !hasUnresolvedRef(refs, "GetLines", types.EdgeKindCalls) {
+		t.Error("expected calls edge to 'GetLines' from CROSS APPLY [dbo].[GetLines](...)")
+	}
+	// Orders is also referenced in FROM → references (criterion 4 combined check)
+	if !hasUnresolvedRef(refs, "Orders", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'Orders' from FROM clause alongside CROSS APPLY")
+	}
+}
+
+// TestTSQLOuterApplyCalls verifies that OUTER APPLY <tvf>(...) also emits a
+// calls edge — both flavors must be covered.
+// WHY (criterion 2): OUTER APPLY is a left-join variant; same lineage semantics.
+const tsqlOuterApplyFixture = `
+CREATE TABLE [dbo].[Tags] ([TagId] INT);
+CREATE FUNCTION [dbo].[GetTags](@id INT) RETURNS TABLE AS RETURN SELECT 1 AS x;
+CREATE PROCEDURE [dbo].[ReadTags]
+AS
+BEGIN
+  SELECT t.TagId, g.x
+  FROM [dbo].[Tags] t
+  OUTER APPLY [dbo].[GetTags](t.TagId) g;
+END;
+GO
+`
+
+func TestTSQLOuterApplyCalls(t *testing.T) {
+	// criterion 2: OUTER APPLY <tvf>(...) → calls edge
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_outer_apply.sql", tsqlOuterApplyFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// GetTags is OUTER APPLY target → calls
+	if !hasUnresolvedRef(refs, "GetTags", types.EdgeKindCalls) {
+		t.Error("expected calls edge to 'GetTags' from OUTER APPLY [dbo].[GetTags](...)")
+	}
+}
+
+// TestTSQLApplySchemaStripped verifies that a schema-qualified APPLY target
+// emits a calls edge to the bare function name with schema stripped.
+// WHY (criterion 3): parseQName strips schema prefix so all edges match the
+// node's unqualified name — consistent with every other body edge kind.
+const tsqlApplySchemaFixture = `
+CREATE SCHEMA analytics;
+CREATE FUNCTION analytics.fn_rollup(@x INT) RETURNS TABLE AS RETURN SELECT 1 AS v;
+CREATE PROCEDURE dbo.Run
+AS
+BEGIN
+  SELECT v FROM analytics.fn_rollup(1) r
+  CROSS APPLY analytics.fn_rollup(r.v) q;
+END;
+GO
+`
+
+func TestTSQLApplySchemaStripped(t *testing.T) {
+	// criterion 3: schema-qualified target → calls edge to bare name
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_apply_schema.sql", tsqlApplySchemaFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// fn_rollup is the bare name after parseQName strips "analytics."
+	if !hasUnresolvedRef(refs, "fn_rollup", types.EdgeKindCalls) {
+		t.Error("expected calls edge to 'fn_rollup' with schema stripped from CROSS APPLY analytics.fn_rollup(...)")
+	}
+	// no edge to the schema prefix itself
+	if countUnresolvedRefs(refs, "analytics") > 0 {
+		t.Error("schema prefix 'analytics' must not appear as a ref target")
+	}
+}
+
+// TestTSQLApplyKeywordsNotEdges verifies that CROSS, OUTER, and APPLY never
+// appear as reference or call targets.
+// WHY (criterion 5): bodyApplyRE captures only the identifier after APPLY and
+// before '(' — the CROSS/OUTER/APPLY keywords themselves are never in group 1.
+// The fixture uses valid T-SQL: a table source precedes CROSS/OUTER APPLY.
+const tsqlApplyKeywordsFixture = `
+CREATE TABLE dbo.items (id INT);
+CREATE FUNCTION dbo.fn(@x INT) RETURNS TABLE AS RETURN SELECT 1 AS v;
+CREATE PROCEDURE dbo.P
+AS
+BEGIN
+  SELECT v
+  FROM dbo.items i
+  CROSS APPLY dbo.fn(i.id) x
+  UNION ALL
+  SELECT v
+  FROM dbo.items i
+  OUTER APPLY dbo.fn(i.id) y;
+END;
+GO
+`
+
+func TestTSQLApplyKeywordsNotEdges(t *testing.T) {
+	// criterion 5: CROSS / OUTER / APPLY are never reference or call targets
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_apply_kw.sql", tsqlApplyKeywordsFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	for _, kw := range []string{"CROSS", "cross", "OUTER", "outer", "APPLY", "apply"} {
+		if countUnresolvedRefs(refs, kw) > 0 {
+			t.Errorf("keyword %q must not appear as a ref target", kw)
+		}
+	}
+	// fn IS a real TVF → should get a calls edge
+	if !hasUnresolvedRef(refs, "fn", types.EdgeKindCalls) {
+		t.Error("expected calls edge to 'fn' from CROSS APPLY dbo.fn(...)")
+	}
+}
+
+// TestTSQLApplyDerivedTableNoCallEdge verifies that a correlated derived-table
+// apply (FROM dbo.src s CROSS APPLY (SELECT col FROM real_inner) sub) does NOT
+// emit an APPLY-derived calls edge to the subquery alias, but the inner
+// FROM real_inner still emits a references edge and the left source dbo.src
+// emits a references edge.
+// WHY (criterion 6): bodyApplyRE requires a sqlQNameRaw identifier immediately
+// after APPLY, followed by '('. A derived-table apply starts with '(' after
+// APPLY — not an identifier — so the regex cannot match. The inner FROM clause
+// is caught by the existing viewBodyFROMRE scan, preserving that lineage.
+const tsqlApplyDerivedTableFixture = `
+CREATE TABLE dbo.src (id INT);
+CREATE TABLE dbo.real_inner (col INT);
+CREATE PROCEDURE dbo.Q
+AS
+BEGIN
+  SELECT s.id, sub.col
+  FROM dbo.src s
+  CROSS APPLY (SELECT col FROM dbo.real_inner WHERE col > s.id) sub;
+END;
+GO
+`
+
+func TestTSQLApplyDerivedTableNoCallEdge(t *testing.T) {
+	// criterion 6: derived-table apply → no APPLY calls edge; inner FROM → references
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_apply_derived.sql", tsqlApplyDerivedTableFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// The derived-table alias 'sub' must never appear as a calls target.
+	if hasUnresolvedRef(refs, "sub", types.EdgeKindCalls) {
+		t.Error("derived-table alias 'sub' must not produce a calls edge from APPLY")
+	}
+	// Nothing should get a calls edge from this APPLY at all (no TVF invocation).
+	for _, r := range refs {
+		if r.ReferenceKind == types.EdgeKindCalls {
+			t.Errorf("no calls edge expected from a derived-table APPLY, got calls to %q", r.ReferenceName)
+		}
+	}
+	// The left source dbo.src → references edge (schema stripped to bare name).
+	if !hasUnresolvedRef(refs, "src", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'src' from the left-hand FROM source")
+	}
+	// The inner FROM dbo.real_inner → references edge (schema stripped).
+	if !hasUnresolvedRef(refs, "real_inner", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'real_inner' from inner FROM inside derived-table APPLY")
+	}
+}
