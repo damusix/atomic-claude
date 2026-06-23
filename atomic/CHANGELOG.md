@@ -1,5 +1,13 @@
 # Changelog
 
+## [5.6.2](https://github.com/damusix/atomic-claude/compare/v5.6.1...v5.6.2) (2026-06-23)
+
+
+### Bug Fixes
+
+* fall back to cwd outside a git repo ([334e3c3](https://github.com/damusix/atomic-claude/commit/334e3c3c5f326bbbbab7eae5d916103c9ed28639))
+* **refresh-wiki:** default root to cwd not wiki/ ([49aa9f3](https://github.com/damusix/atomic-claude/commit/49aa9f30564c906cdda2c5e4894b076370b37c77))
+
 ## [5.6.1](https://github.com/damusix/atomic-claude/compare/v5.6.0...v5.6.1) (2026-06-22)
 
 
