@@ -68,13 +68,17 @@ func TestResolve_GitRepo(t *testing.T) {
 	}
 }
 
-// No override, outside a git repo: should return an error.
+// No override, outside a git repo: falls back to the current working directory.
+//
+// Git is a history substrate, not a precondition for atomic. When `git rev-parse`
+// fails (no repo), Resolve returns the cwd so commands operate on the cwd tree
+// instead of hard-failing.
 //
 // Assumption: t.TempDir() returns a path that is not inside any git repository.
 // On some CI setups the temp directory may live under /home or /tmp which could
 // be inside a git tree; in that case the test is skipped rather than producing a
 // false negative.
-func TestResolve_NotInGitRepo(t *testing.T) {
+func TestResolve_NotInGitRepo_FallsBackToCwd(t *testing.T) {
 	dir := t.TempDir()
 
 	// Verify the assumption: the temp dir must not be inside a git repo.
@@ -93,8 +97,21 @@ func TestResolve_NotInGitRepo(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(orig) })
 
-	_, err = repoctx.Resolve("")
-	if err == nil {
-		t.Fatal("expected error when not in a git repo, got nil")
+	// The cwd Resolve should report — both Resolve and this test call os.Getwd()
+	// after the Chdir, so they resolve to the same canonical path.
+	wantCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := repoctx.Resolve("")
+	if err != nil {
+		t.Fatalf("Resolve(\"\") outside a git repo error: %v (want cwd fallback)", err)
+	}
+	if !filepath.IsAbs(got) {
+		t.Errorf("Resolve returned non-absolute path: %q", got)
+	}
+	if got != wantCwd {
+		t.Errorf("Resolve(\"\") = %q, want cwd %q", got, wantCwd)
 	}
 }

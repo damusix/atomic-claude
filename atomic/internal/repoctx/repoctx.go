@@ -1,5 +1,6 @@
-// Package repoctx resolves the repository root for the current invocation.
-// It calls "git rev-parse --show-toplevel" when no explicit override is given.
+// Package repoctx resolves the working root for the current invocation.
+// It calls "git rev-parse --show-toplevel" when no explicit override is given,
+// and falls back to the current working directory when not inside a git repo.
 package repoctx
 
 import (
@@ -10,12 +11,15 @@ import (
 	"strings"
 )
 
-// Resolve returns the absolute path of the repository root.
+// Resolve returns the absolute path of the working root.
 //
 //   - If override is non-empty, it is resolved to an absolute path and returned
 //     after verifying the directory exists.
 //   - If override is empty, the git toplevel is resolved from the process cwd.
-//     Returns an error when not inside a git repository.
+//   - If override is empty and the cwd is not inside a git repository, Resolve
+//     falls back to the current working directory. Git is a history substrate,
+//     not a precondition for atomic — commands operate on the cwd tree, and the
+//     LLM handles saving history separately when a repo exists.
 func Resolve(override string) (string, error) {
 	if override != "" {
 		abs, err := filepath.Abs(override)
@@ -30,15 +34,31 @@ func Resolve(override string) (string, error) {
 
 	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
-		return "", fmt.Errorf("repoctx: not inside a git repository (git rev-parse failed): %w", err)
+		// Not inside a git repository — fall back to the cwd rather than failing.
+		return resolveCwd()
 	}
 	root := strings.TrimSpace(string(out))
 	if root == "" {
-		return "", fmt.Errorf("repoctx: git rev-parse returned empty path")
+		// git reported success but an empty path — treat as no-repo, fall back.
+		return resolveCwd()
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return "", fmt.Errorf("repoctx: cannot make git root absolute: %w", err)
+	}
+	return abs, nil
+}
+
+// resolveCwd returns the absolute current working directory, used as the
+// fallback when the invocation is not inside a git repository.
+func resolveCwd() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("repoctx: not in a git repo and cannot resolve cwd: %w", err)
+	}
+	abs, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", fmt.Errorf("repoctx: cannot make cwd absolute: %w", err)
 	}
 	return abs, nil
 }
