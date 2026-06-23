@@ -367,7 +367,7 @@ var commands = []Command{
 	{
 		Path:        []string{"serve"},
 		Args:        "[path]",
-		Flags:       []string{"--port", "--open"},
+		Flags:       []string{"--port", "--host", "--open"},
 		Description: "Start a local read-only HTTP server for exploring wiki + code-intel",
 	},
 }

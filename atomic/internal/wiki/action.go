@@ -28,7 +28,7 @@ func WikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 // Returns an exit code: 0 on success, 1 on usage/soft error, 2 on hard error.
 func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki <scan> [flags]\n")
+		fmt.Fprintf(os.Stderr, "Usage: atomic wiki <scan|stale|linkify|bucket> [flags]\n")
 		return 1
 	}
 
