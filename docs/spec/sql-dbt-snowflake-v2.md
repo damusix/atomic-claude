@@ -220,7 +220,23 @@ package-level `const <name>Fixture`). At minimum one fixture per success criteri
 
 ## Implementation log
 
-(to be written during implementation)
+- 2026-06-24 — Implemented on branch `feat/sql-dbt-snowflake` (autopilot hands-off, full v1-deferred menu), six
+  review-gated checkpoint groups: `46e00c6` taxonomy (file_format/macro/script, AllNodeKinds 35→38); `6441dcc` D1/D2
+  `.sql.jinja` ingestion (compound-ext routing + double-ext basename); `78a6070` E1/E2/E3 dbt macros (path-role, macro
+  nodes + call edges with builtin/package denylist, macro-body ref ownership via byte-span on comment-stripped source);
+  `0017bfb` E4/E5 versioned refs (`m_v<N>`) + config(alias) capture; `5a89450` F1/F2 CREATE FILE FORMAT + column typing
+  (VARIANT/OBJECT/ARRAY into column Metadata, merged with generated flag); `1778e56` F3/F4 LATERAL FLATTEN argument
+  (unqualified-only) + standalone top-level COPY with a lazy `script` owner (body-span dedup against routine/task COPY).
+  Each group passed `atomic-reviewer` (code-mode); findings fixed in-iteration — notably a real UTF-8 span/offset
+  misalignment in E3 (macro spans were computed on `source` but harvested from the comment-stripped string; a unicode
+  Jinja comment shifted the coordinate systems and mis-attributed macro-body refs), the alias Metadata moved from raw
+  string-concat to `json.Marshal`, a column type-guard denylist to stop attribute keywords reading as types, and a
+  fragile slice-backing pointer replaced with a captured ID. Verified: standalone + types suites green; module-wide
+  `go vet` / `gofmt` / `go build` / `atomic validate` (exit 0) clean. End-to-end `atomic code index` on a sample dbt +
+  Snowflake corpus confirms all three new node kinds, column type Metadata, alias Metadata, the versioned-ref target
+  (`dim_customer_v2`), the cross-file macro `calls` edge, the FLATTEN unqualified/dotted split, and the COPY body-vs-
+  top-level ownership split all extract, persist, and query correctly. Pre-existing `internal/hooks` env-dependent test
+  failures are unrelated (`hooks-tests-read-real-home`, untouched by this branch).
 
 ## Change log
 
