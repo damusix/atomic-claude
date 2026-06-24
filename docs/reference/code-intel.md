@@ -209,7 +209,7 @@ Line numbers on embedded nodes and edges are file-absolute: each harvester maps 
 
 **Known limitations.** Multi-fragment queries assembled by concatenation (`"SELECT " + cols + " FROM t"`) are not reconstructed — only the first fragment is seen. For languages whose grammars carry string content inline rather than in a dedicated child node (Lua, Pascal, Dart, Scala, and C# verbatim strings), a DML literal that ends with an embedded quoted SQL string may have its trailing characters clipped during delimiter stripping; this affects only tokens after the table reference and never produces a spurious edge.
 
-**Standalone SQL files are unchanged.** Files with `.sql`, `.ddl`, `.pgsql`, or `.mysql` extensions route through the standalone SQL extractor as before. Embedded extraction only runs on host-language files.
+**Standalone SQL files.** Files with `.sql`, `.ddl`, `.pgsql`, `.mysql`, or `.sql.jinja` extensions route through the standalone SQL extractor. Beyond ANSI/Postgres/MySQL/T-SQL DDL, it covers Snowflake constructs — stages, streams, tasks (with `AFTER` dependency edges), file formats, `COPY INTO` lineage, and clones — and dbt models: the `ref()`/`source()` DAG, `{% macro %}` definitions with macro-scoped lineage, versioned refs (`ref('m', v=2)` → `m_v2`), and `config(alias=…)`. It emits `stage`, `stream`, `task`, `file_format`, `model`, `macro`, and `script` nodes alongside the usual table/view/column/constraint kinds. Embedded extraction only runs on host-language files.
 
 
 ## Getting started

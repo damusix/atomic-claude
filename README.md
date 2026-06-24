@@ -35,7 +35,7 @@
 
 - **Repo-aware from the first message.** One scan builds a standing map of your codebase that Claude reads before your code, so it stops inventing `npm` scripts.
 - **A queryable map of your code.** A tree-sitter symbol graph across 31 languages and 23 web frameworks answers callers, call sites, and blast radius, no compiler required.
-- **SQL is a first-class language in the graph.** Procedures, views, and foreign keys across Postgres, MySQL, and T-SQL, read from your `.sql` files with no database connection.
+- **SQL is a first-class language in the graph.** Procedures, views, foreign keys, and lineage across Postgres, MySQL, T-SQL, and Snowflake — plus dbt models, `ref()`/`source()` lineage, and macros — read from your `.sql` files with no database connection.
 - **Issue to merged PR, hands-off.** `/autopilot` plans, tests first, reviews its own diff, and ships. Your only decision is how to merge.
 - **A config that learns from you.** It mines your corrections for friction and edits its own skills and rules, only with your say-so.
 - **Replies with structure.** Tables, trees, and ASCII flows replace walls of prose when they explain faster, filler cut.
@@ -124,7 +124,7 @@ atomic code impact validateToken
    → every caller that breaks if you change it, transitively.
 ```
 
-Atomic indexes SQL as a first-class language: `.sql` files join the graph alongside your application code, so Claude can answer which procedures read a table, what a view depends on, or where a foreign key points, across Postgres, MySQL, and T-SQL, with no database connection. Most code tools treat SQL as plain text.
+Atomic indexes SQL as a first-class language: `.sql` files join the graph alongside your application code, so Claude can answer which procedures read a table, what a view depends on, or where a foreign key points, across Postgres, MySQL, T-SQL, and Snowflake. It also follows the dbt DAG — `ref()`/`source()` lineage and macros across your models — with no database connection. Most code tools treat SQL as plain text.
 
 Agents reach for the graph when an index is present and fall back to grep when it isn't. At a wiki realm root, `atomic code index` indexes every member repo into per-repo dbs under `<realm>/.atomic/`; query verbs fan out across all members and group results under `[<key>]` headers (`--only`/`--exclude` to filter). Nothing is written into any member repo. → [code-intel](docs/reference/code-intel.md)
 
