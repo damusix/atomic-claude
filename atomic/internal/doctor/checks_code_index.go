@@ -20,9 +20,16 @@ import (
 // When the doctor runs at a wiki realm root (detected via realm.Resolve), it
 // aggregates across all non-excluded member dbs instead of the single local db.
 func checkCodeIndex(opts Opts) Result {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not get cwd: %v", err)}
+	// Use the pre-resolved repo root from opts when available; fall back to
+	// resolving from cwd (preserves the behaviour for callers that invoke
+	// RunCheckCodeIndex directly without going through Run).
+	repoRoot := opts.RepoRoot
+	if repoRoot == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return Result{Severity: WARN, Detail: fmt.Sprintf("could not get cwd: %v", err)}
+		}
+		repoRoot = gitToplevelFn(cwd)
 	}
 
 	// Derive claudeMDPath: prefer the injected value in opts, fall back to $HOME.
@@ -31,18 +38,23 @@ func checkCodeIndex(opts Opts) Result {
 		home, herr := os.UserHomeDir()
 		if herr != nil {
 			// Can't locate CLAUDE.md — degrade to single-repo path.
-			root := gitToplevel(cwd)
-			return RunCheckCodeIndexWith(root, opts.StaleDays)
+			return RunCheckCodeIndexWith(repoRoot, opts.StaleDays)
 		}
 		claudeMDPath = filepath.Join(home, ".claude", "CLAUDE.md")
 	}
 
-	// Attempt realm detection.
+	// Attempt realm detection. realm.Resolve needs the actual cwd for scope
+	// detection (ScopeRealmMember vs ScopeRealmAll), but repoRoot is already
+	// available for the single-repo fall-through paths.
+	cwd, cwdErr := os.Getwd()
+	if cwdErr != nil {
+		// Can't determine cwd for realm detection — degrade to single-repo path.
+		return RunCheckCodeIndexWith(repoRoot, opts.StaleDays)
+	}
 	res, rerr := realm.Resolve(cwd, claudeMDPath)
 	if rerr != nil {
 		// Registry read error: fall through to single-repo path.
-		root := gitToplevel(cwd)
-		return RunCheckCodeIndexWith(root, opts.StaleDays)
+		return RunCheckCodeIndexWith(repoRoot, opts.StaleDays)
 	}
 
 	if res.Scope == realm.ScopeRealmAll || res.Scope == realm.ScopeRealmMember {
@@ -54,8 +66,7 @@ func checkCodeIndex(opts Opts) Result {
 	}
 
 	// Single-repo path (ScopeRepo, ScopeNoIndex).
-	root := gitToplevel(cwd)
-	return RunCheckCodeIndexWith(root, opts.StaleDays)
+	return RunCheckCodeIndexWith(repoRoot, opts.StaleDays)
 }
 
 // RunCheckCodeIndex is the exported entry point for the dispatcher. It delegates

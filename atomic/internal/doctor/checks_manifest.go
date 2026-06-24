@@ -15,26 +15,40 @@ import (
 // Maps result:
 //   - OK=true  → PASS
 //   - OK=false → FAIL with count summary
-func checkManifest(_ Opts) Result {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("getwd: %v", err)}
+func checkManifest(opts Opts) Result {
+	root := opts.RepoRoot
+	if root == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return Result{Severity: WARN, Detail: fmt.Sprintf("getwd: %v", err)}
+		}
+		root = gitToplevelFn(cwd)
 	}
-	return RunCheckManifest(cwd)
+	return RunCheckManifestWith(root)
 }
 
 // RunCheckManifest runs the manifest parity check using cwd to determine the
 // repo root. Exported for testing.
+//
+// Deprecated: prefer RunCheckManifestWith(root) which avoids a redundant git
+// subprocess when the toplevel has already been resolved. Note: this shim
+// calls gitToplevelFn (the injectable resolver variable), not the underlying
+// gitToplevel function directly — a test that has swapped gitToplevelFn will
+// intercept this call.
 func RunCheckManifest(cwd string) Result {
-	repoDev, err := IsRepoDev(cwd)
+	return RunCheckManifestWith(gitToplevelFn(cwd))
+}
+
+// RunCheckManifestWith runs the manifest parity check against an explicit repo root.
+// Exported for testing; production callers use checkManifest.
+func RunCheckManifestWith(root string) Result {
+	repoDev, err := isRepoDevRoot(root)
 	if err != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("repo-dev detection: %v", err)}
 	}
 	if !repoDev {
 		return Result{Severity: SKIP, Detail: "not in atomic-claude repo"}
 	}
-
-	root := gitToplevel(cwd)
 
 	res, err := manifestcheck.Compare(root, embedded.Manifest())
 	if err != nil {

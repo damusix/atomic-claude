@@ -4,8 +4,8 @@
 // pattern described in appendix E of the spec.
 //
 // Formats:
-//   - Vue SFC (.vue)     — component node + JS/TS script extraction with line offset
-//   - Svelte (.svelte)   — component node + JS script extraction with line offset
+//   - Vue SFC (.vue)     — component node + JS/TS script extraction; content pre-padded so sub-extractor line numbers and node IDs are file-absolute
+//   - Svelte (.svelte)   — component node + JS script extraction; content pre-padded so sub-extractor line numbers and node IDs are file-absolute
 //   - Liquid (.liquid)   — template node + render/include references
 //   - Delphi DFM (.dfm)  — form + nested object nodes
 //   - MyBatis XML (.xml) — mapper + statement nodes + namespace reference
@@ -174,32 +174,34 @@ func (e *VueExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		attrs := source[m[2]:m[3]]
 		content := source[m[4]:m[5]]
 
-		// contentLineOffset is the number of newlines in source before the
-		// first byte of script content (m[4]). Adding this to a script-relative
-		// line number (1-based) yields the file-relative line number.
+		// Pad content with leading newlines so the sub-extractor computes
+		// file-absolute line numbers from the start. This ensures that
+		// GenerateNodeID hashes the file-absolute line — matching StartLine —
+		// rather than the script-relative line. The approach mirrors what
+		// ExtractEmbeddedSQL does (embedded_sql.go: "pad with leading newlines
+		// so line numbers are file-absolute"). No post-hoc line shift is applied
+		// to nodes, edges, or refs: the padding already encodes the offset.
 		//
-		// Example: source has 7 newlines before content (6 before <script> + 1
-		// for the \n after the closing >). Script-relative line 1 → file line
-		// 1 + 7 = 8. This is the load-bearing offset property (appendix E).
+		// contentLineOffset = number of newlines in source before the first
+		// byte of script content. Prepending that many newlines makes
+		// script-relative line N become file-absolute line N+contentLineOffset.
 		contentLineOffset := strings.Count(source[:m[4]], "\n")
+		paddedContent := strings.Repeat("\n", contentLineOffset) + content
 
-		// Run the appropriate extractor on the script content.
+		// Run the appropriate extractor on the padded script content.
 		isTS := strings.Contains(attrs, `lang="ts"`) || strings.Contains(attrs, `lang='ts'`)
 		var scriptResult types.ExtractionResult
 		if isTS {
 			ctx := context.Background()
-			scriptResult = e.tsExt.Extract(ctx, filePath, content, types.LanguageTypeScript)
+			scriptResult = e.tsExt.Extract(ctx, filePath, paddedContent, types.LanguageTypeScript)
 		} else {
 			ctx := context.Background()
-			scriptResult = e.jsExt.Extract(ctx, filePath, content, types.LanguageJavaScript)
+			scriptResult = e.jsExt.Extract(ctx, filePath, paddedContent, types.LanguageJavaScript)
 		}
 
-		// Record where new nodes begin so the offset loop below targets only
-		// the nodes added in this script block iteration.
-		startIdx := len(result.Nodes)
-
 		// Strip the file: node that the tree-sitter extractor emits (we have
-		// our component node already).
+		// our component node already). No line-offset loop needed: padding
+		// makes all positions file-absolute.
 		for _, n := range scriptResult.Nodes {
 			if n.Kind == types.NodeKindFile {
 				continue
@@ -207,13 +209,7 @@ func (e *VueExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			result.Nodes = append(result.Nodes, n)
 		}
 
-		// Apply line offset to the nodes added in this iteration only.
-		for i := startIdx; i < len(result.Nodes); i++ {
-			result.Nodes[i].StartLine += contentLineOffset
-			result.Nodes[i].EndLine += contentLineOffset
-		}
-
-		// Append edges with offset.
+		// Append edges. No line-offset needed: positions are already file-absolute.
 		for _, edge := range scriptResult.Edges {
 			// Re-wire: if edge source is the file: node, replace with component ID.
 			src := edge.Source
@@ -221,15 +217,11 @@ func (e *VueExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				src = comp.ID
 			}
 			edge.Source = src
-			if edge.Line > 0 {
-				edge.Line += contentLineOffset
-			}
 			result.Edges = append(result.Edges, edge)
 		}
 
-		// Append unresolved refs with offset.
+		// Append unresolved refs. No line-offset needed: positions are file-absolute.
 		for _, ref := range scriptResult.UnresolvedReferences {
-			ref.Line += contentLineOffset
 			result.UnresolvedReferences = append(result.UnresolvedReferences, ref)
 		}
 
@@ -387,23 +379,22 @@ func (e *SvelteExtractor) Extract(filePath, source string) (types.ExtractionResu
 			continue
 		}
 		content := source[m[4]:m[5]]
-		// Same offset logic as Vue: count newlines before the content start byte.
+		// Pad content with leading newlines so the sub-extractor computes
+		// file-absolute line numbers from the start (mirrors Vue and the
+		// embedded-SQL approach in embedded_sql.go). No post-hoc line shift
+		// is applied to nodes, edges, or refs.
 		contentLineOffset := strings.Count(source[:m[4]], "\n")
+		paddedContent := strings.Repeat("\n", contentLineOffset) + content
 
 		ctx := context.Background()
-		scriptResult := e.jsExt.Extract(ctx, filePath, content, types.LanguageJavaScript)
+		scriptResult := e.jsExt.Extract(ctx, filePath, paddedContent, types.LanguageJavaScript)
 
-		startIdx := len(result.Nodes)
+		// No line-offset loop: padding makes all positions file-absolute.
 		for _, n := range scriptResult.Nodes {
 			if n.Kind == types.NodeKindFile {
 				continue
 			}
 			result.Nodes = append(result.Nodes, n)
-		}
-		// Offset nodes added in this iteration only.
-		for i := startIdx; i < len(result.Nodes); i++ {
-			result.Nodes[i].StartLine += contentLineOffset
-			result.Nodes[i].EndLine += contentLineOffset
 		}
 		for _, edge := range scriptResult.Edges {
 			src := edge.Source
@@ -411,13 +402,9 @@ func (e *SvelteExtractor) Extract(filePath, source string) (types.ExtractionResu
 				src = comp.ID
 			}
 			edge.Source = src
-			if edge.Line > 0 {
-				edge.Line += contentLineOffset
-			}
 			result.Edges = append(result.Edges, edge)
 		}
 		for _, ref := range scriptResult.UnresolvedReferences {
-			ref.Line += contentLineOffset
 			result.UnresolvedReferences = append(result.UnresolvedReferences, ref)
 		}
 		result.Errors = append(result.Errors, scriptResult.Errors...)

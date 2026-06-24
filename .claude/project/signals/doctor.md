@@ -10,13 +10,14 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 
 ## CLI code
 
-**Core doctor suite ([`atomic/internal/doctor/`](../../../atomic/internal/doctor) — 43 files):**
+**Core doctor suite ([`atomic/internal/doctor/`](../../../atomic/internal/doctor) — 45 files):**
 
-- `doctor.go` — orchestrator. Runs all 11 checks in index order, applies `--only` / `--skip` filters, collects results, returns exit code (0 = PASS/WARN/SKIP, 1 = FAIL, 2 = usage error).
+- `doctor.go` — orchestrator. Runs all 11 checks in index order, applies `--only` / `--skip` filters, collects results, returns exit code (0 = PASS/WARN/SKIP, 1 = FAIL, 2 = usage error). `Opts.RepoRoot` is resolved once per `RunWith` call via lazy-fill — when empty, `gitToplevelFn` is called exactly once and the result is stored in `opts.RepoRoot`; all check functions read `opts.RepoRoot` rather than spawning their own git subprocesses. Tested in `gitcallcount_internal_test.go`.
 - `flags.go` — CLI flag parsing for `atomic doctor [--fix] [--json] [--only] [--skip] [--stale-days] [--verbose]`.
 - `format.go` — exports `FormatResultLine(r Result) string`. **Shared** by `FormatHuman` (full doctor output) and [`atomic/internal/updatedoctor/updatedoctor.go`](../../../atomic/internal/updatedoctor/updatedoctor.go) (post-update FAIL-only lines). Changing this function affects both surfaces.
-- `fix.go` + `fix_impls.go` — per-category repair functions invoked by `atomic doctor --fix`. Interactively prompts via `stdin_prompter.go`.
-- `stdin_prompter.go` — adapts `prompt.ErrAborted` → `DecisionAbort`, `prompt.ErrNonInteractive` → `DecisionSkip`.
+- `fix.go` — `Repairer` struct with injectable function fields (`ManifestBundleFn`, `ManifestRenderFn`, `RepoRootFn`, etc.). `DefaultRepairer()` wires production implementations. `Repair` is now a method on `Repairer`; the package-level `Repair` func is a thin wrapper calling `DefaultRepairer().Repair(...)`. `RepairSummary` has `Applied`, `Skipped`, `NonFixable` fields — `FixApplied` and `FixSummary` fields removed.
+- `fix_impls.go` — per-category repair implementations. `applyManifestRepairWithGuard` and folloup/refs repair functions stream make/command output directly to `out io.Writer` via `cmd.Stdout = out; cmd.Stderr = out` — no output buffering.
+- `stdin_prompter.go` — `stdinPrompter` struct implementing `Prompter` interface. Adapts `prompt.ErrAborted` → `DecisionAbort`, `prompt.ErrNonInteractive` → `DecisionSkip`. `NewStdinPrompter(r, w)` is the constructor; tested in `stdin_prompter_internal_test.go`.
 - `exit.go` — exit code constants and determination logic.
 - `shortcircuit.go` — early-exit conditions (e.g., not in a git repo).
 - `repodev.go` — dev-mode detection (running inside this repo itself).

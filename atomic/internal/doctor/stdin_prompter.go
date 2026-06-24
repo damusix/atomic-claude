@@ -18,20 +18,25 @@ import (
 type stdinPrompter struct {
 	scanner *bufio.Scanner
 	out     io.Writer
+	// confirmFn is the huh-backed confirm call; defaults to prompt.Confirm.
+	// Tests inject a stub here to exercise the ErrAborted → DecisionAbort
+	// mapping without requiring a real TTY.
+	confirmFn func(title, desc string, def bool) (bool, error)
 }
 
 // NewStdinPrompter constructs a Prompter that reads from r and writes to w.
 // Production callers pass os.Stdin and os.Stdout.
 func NewStdinPrompter(r io.Reader, w io.Writer) Prompter {
 	return &stdinPrompter{
-		scanner: bufio.NewScanner(r),
-		out:     w,
+		scanner:   bufio.NewScanner(r),
+		out:       w,
+		confirmFn: prompt.Confirm,
 	}
 }
 
 func (p *stdinPrompter) Confirm(promptText string) Decision {
 	// Try the huh-backed prompt when we have a real TTY.
-	result, err := prompt.Confirm(promptText, "", false)
+	result, err := p.confirmFn(promptText, "", false)
 	if err == nil {
 		if result {
 			return DecisionYes

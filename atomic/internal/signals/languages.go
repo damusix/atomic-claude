@@ -74,6 +74,12 @@ var extToLang = map[string]string{
 	".xml":        "XML",
 }
 
+// langStats accumulates LOC and file count for one language.
+type langStats struct {
+	loc   int
+	files int
+}
+
 // ScanLanguages counts LOC and file count per language by extension across the
 // repo. Uses enumerateFiles as the source of truth. Returns top 10 by LOC
 // (tie-break: file count descending), sorted descending.
@@ -85,12 +91,7 @@ func ScanLanguages(root string) (string, error) {
 		return "", err
 	}
 
-	type langStats struct {
-		loc   int
-		files int
-	}
 	byLang := make(map[string]*langStats)
-
 	for _, rel := range files {
 		ext := strings.ToLower(filepath.Ext(rel))
 		lang, ok := extToLang[ext]
@@ -109,6 +110,56 @@ func ScanLanguages(root string) (string, error) {
 		byLang[lang].files++
 	}
 
+	return formatLangStats(byLang), nil
+}
+
+// scanLanguagesFromCache counts LOC per language using metadata from the tree
+// pass where available (metaCache), falling back to os.ReadFile only for files
+// that were beyond the depth cap and therefore not read during the tree pass.
+// This eliminates the double os.ReadFile for every non-beyond file (f-2 fix).
+// The output is identical to ScanLanguages — same format, same top-10 cap.
+func scanLanguagesFromCache(root string, metaCache map[string]fileMeta) (string, error) {
+	files, err := enumerateFiles(root)
+	if err != nil {
+		return "", err
+	}
+
+	byLang := make(map[string]*langStats)
+
+	for _, rel := range files {
+		ext := strings.ToLower(filepath.Ext(rel))
+		lang, ok := extToLang[ext]
+		if !ok {
+			continue
+		}
+
+		var loc int
+		if m, cached := metaCache[rel]; cached {
+			// Already read during the tree pass — reuse the line count.
+			loc = m.lines
+		} else {
+			// File was beyond the tree depth cap; read it now.
+			absPath := filepath.Join(root, filepath.FromSlash(rel))
+			l, err := countLines(absPath)
+			if err != nil {
+				continue
+			}
+			loc = l
+		}
+
+		if byLang[lang] == nil {
+			byLang[lang] = &langStats{}
+		}
+		byLang[lang].loc += loc
+		byLang[lang].files++
+	}
+
+	return formatLangStats(byLang), nil
+}
+
+// formatLangStats formats the per-language stats into the signals output string.
+// Extracted so both ScanLanguages and scanLanguagesFromCache produce identical output.
+func formatLangStats(byLang map[string]*langStats) string {
 	// Totals across all matched files (for percentage computation).
 	totalLOC := 0
 	totalFiles := 0
@@ -158,7 +209,7 @@ func ScanLanguages(root string) (string, error) {
 		}
 		lines = append(lines, fmt.Sprintf("- %s: %d LOC (%d%%), %d %s (%d%%)", e.name, e.loc, locPct, e.files, fileWord, filesPct))
 	}
-	return strings.Join(lines, "\n"), nil
+	return strings.Join(lines, "\n")
 }
 
 // readFileMeta reads the file at path once and computes all per-file metadata:

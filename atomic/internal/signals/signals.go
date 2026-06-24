@@ -122,33 +122,38 @@ func resolveConfigPath() string {
 // MaxDepth that a scan uses, so callers that assemble a body (Scan and Stale)
 // produce identical output for identical source. Reading .signalsignore also
 // lets the tree scanner flag matching paths as [generated].
+//
+// The caller's *Options value is never mutated: resolveScanOptions works on a
+// copy and returns the resolved copy.
 func resolveScanOptions(root string, opts *Options) (*Options, error) {
-	if opts == nil {
-		opts = &Options{}
+	// Clone into a local copy so the caller's struct is never written.
+	var resolved Options
+	if opts != nil {
+		resolved = *opts
 	}
 
 	// Resolve MaxDepth from config when not explicitly set by the caller.
-	if opts.MaxDepth == 0 {
-		cfgPath := opts.ConfigPath
+	if resolved.MaxDepth == 0 {
+		cfgPath := resolved.ConfigPath
 		if cfgPath == "" {
 			cfgPath = resolveConfigPath()
 		}
 		cfg, _, _ := config.Load(cfgPath) // lenient: ignore warnings and errors
 		if cfg != nil {
-			opts.MaxDepth = cfg.Output.Signals.MaxDepth
+			resolved.MaxDepth = cfg.Output.Signals.MaxDepth
 		}
 		// Final fallback handled inside ScanTreeWithOptions (defaultMaxDepth).
 	}
 
-	if len(opts.ExcludeGlobs) == 0 && len(opts.GeneratedGlobs) == 0 {
+	if len(resolved.ExcludeGlobs) == 0 && len(resolved.GeneratedGlobs) == 0 {
 		excl, gen, err := readSignalsIgnore(root)
 		if err != nil {
 			return nil, err
 		}
-		opts.ExcludeGlobs = excl
-		opts.GeneratedGlobs = gen
+		resolved.ExcludeGlobs = excl
+		resolved.GeneratedGlobs = gen
 	}
-	return opts, nil
+	return &resolved, nil
 }
 
 // ScanWithOptions is like Scan but accepts Options for dependency injection.
@@ -225,8 +230,12 @@ func ScanWithOptions(root string, opts *Options) error {
 }
 
 // assembleBody builds the body of the signals document (without frontmatter).
+// It performs a single shared enumeration and file-read pass: the tree scanner
+// populates a metaCache (rel → fileMeta) for all non-beyond files, and the
+// language counter draws from that cache — only files beyond the tree depth cap
+// require a second read for their line count.
 func assembleBody(root string, opts *Options) (string, error) {
-	tree, err := ScanTreeWithOptions(root, opts)
+	tree, metaCache, err := scanTreeWithMetaCache(root, opts)
 	if err != nil {
 		return "", fmt.Errorf("tree scanner: %w", err)
 	}
@@ -236,7 +245,7 @@ func assembleBody(root string, opts *Options) (string, error) {
 		return "", fmt.Errorf("manifests scanner: %w", err)
 	}
 
-	langs, err := ScanLanguages(root)
+	langs, err := scanLanguagesFromCache(root, metaCache)
 	if err != nil {
 		return "", fmt.Errorf("languages scanner: %w", err)
 	}

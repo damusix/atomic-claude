@@ -101,5 +101,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "bundle-mirror: wrote %d artifacts to %s\n", len(artifacts), outDir)
+	fmt.Fprintf(os.Stdout, "bundle-mirror: wrote %d artifacts to %s\n", len(artifacts), outDir)
 }

@@ -11,12 +11,15 @@ import (
 )
 
 // checkFollowups implements category 6: followups folder integrity.
-func checkFollowups(_ Opts) Result {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not get cwd: %v", err)}
+func checkFollowups(opts Opts) Result {
+	root := opts.RepoRoot
+	if root == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return Result{Severity: WARN, Detail: fmt.Sprintf("could not get cwd: %v", err)}
+		}
+		root = gitToplevelFn(cwd)
 	}
-	root := gitToplevel(cwd)
 	return RunCheckFollowupsWith(root)
 }
 

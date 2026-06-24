@@ -79,24 +79,6 @@ func RunCheckConfigWith(claudeHome string) Result {
 	}
 }
 
-// configRepairFn applies the config repair. Default re-renders config.resolved.md.
-var configRepairFn func(claudeHome string) error = defaultConfigRepair
-
-// SetConfigRepairFn replaces the config repair function (testing only).
-// Pass nil to restore the default.
-func SetConfigRepairFn(fn func(claudeHome string) error) {
-	if fn == nil {
-		configRepairFn = defaultConfigRepair
-	} else {
-		configRepairFn = fn
-	}
-}
-
-// defaultConfigRepair re-renders config.resolved.md from the current TOML.
-func defaultConfigRepair(claudeHome string) error {
-	return RunConfigRepairWith(claudeHome)
-}
-
 // RunConfigRepairWith performs the config repair against an explicit claudeHome.
 // Exported for testing.
 //

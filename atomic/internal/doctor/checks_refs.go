@@ -24,12 +24,15 @@ const signalsRef = "@.claude/project/signals.md"
 // git repo toplevel (falls back to cwd if not in a repo). Only signals.md
 // needs to be @-ref'd — deterministic-signals.md is too large for context
 // and is read on demand by the inferrer. Severity: FAIL.
-func checkRefs(_ Opts) Result {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return Result{Severity: FAIL, Detail: fmt.Sprintf("could not determine cwd: %v", err)}
+func checkRefs(opts Opts) Result {
+	searchRoot := opts.RepoRoot
+	if searchRoot == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return Result{Severity: FAIL, Detail: fmt.Sprintf("could not determine cwd: %v", err)}
+		}
+		searchRoot = gitToplevelFn(cwd)
 	}
-	searchRoot := gitToplevel(cwd)
 	return RunCheckRefsWith(searchRoot)
 }
 

@@ -58,5 +58,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "render-templates: done\n")
+	fmt.Fprintln(os.Stdout, "render-templates: done")
 }

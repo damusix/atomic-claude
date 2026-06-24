@@ -273,16 +273,16 @@ func TestRepairPlan_configFAIL_notFixable(t *testing.T) {
 	// repairPlan is not exported; drive it through Repair with a fake prompter
 	// that should never be called (because non-fixable items skip the prompt).
 	var repairCalled bool
-	doctor.SetConfigRepairFn(func(_ string) error {
+	rp := doctor.DefaultRepairer()
+	rp.ConfigFn = func(_ string) error {
 		repairCalled = true
 		return nil
-	})
-	defer doctor.SetConfigRepairFn(nil)
+	}
 
 	nopPrompter := &alwaysYesPrompter{}
 	var buf strings.Builder
 	// Pass the single FAIL result — Repair should report it as NonFixable.
-	summary := doctor.Repair([]doctor.Result{r}, doctor.Opts{}, nopPrompter, &buf)
+	summary := rp.Repair([]doctor.Result{r}, doctor.Opts{}, nopPrompter, &buf)
 	if summary.NonFixable != 1 {
 		t.Errorf("NonFixable = %d, want 1; output:\n%s", summary.NonFixable, buf.String())
 	}
@@ -306,16 +306,16 @@ func TestRepairPlan_configWARN_fixable(t *testing.T) {
 	r.Name = "config"
 
 	var repairCalled bool
-	doctor.SetConfigRepairFn(func(home string) error {
+	rp := doctor.DefaultRepairer()
+	rp.ConfigFn = func(home string) error {
 		repairCalled = true
 		// Actually do the repair so the summary says Applied=1.
 		return doctor.RunConfigRepairWith(home)
-	})
-	defer doctor.SetConfigRepairFn(nil)
+	}
 
 	nopPrompter := &alwaysYesPrompter{}
 	var buf strings.Builder
-	summary := doctor.Repair([]doctor.Result{r}, doctor.Opts{}, nopPrompter, &buf)
+	summary := rp.Repair([]doctor.Result{r}, doctor.Opts{}, nopPrompter, &buf)
 	if summary.Applied != 1 {
 		t.Errorf("Applied = %d, want 1; output:\n%s", summary.Applied, buf.String())
 	}

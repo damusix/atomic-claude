@@ -2,7 +2,9 @@
 // integrity check for atomic-claude install + project state coherence.
 package doctor
 
-import "os"
+import (
+	"os"
+)
 
 // Severity represents the outcome of a single check.
 type Severity string
@@ -24,8 +26,6 @@ type Result struct {
 	// Rich fields — populated by checks and rendered by FormatHuman.
 	Findings    []string // per-item detail lines; printed only when Verbose=true
 	Remediation string   // fix hint; printed on Warn/Fail regardless of Verbose
-	FixApplied  bool     // set by repair path after a fix succeeds
-	FixSummary  string   // human description of what was fixed; printed when FixApplied=true
 }
 
 // Opts holds the parsed CLI flags passed to Run.
@@ -41,6 +41,12 @@ type Opts struct {
 	// check 11 (code-index). When empty, check 11 derives it from $HOME. Inject
 	// in tests to avoid reading the real user's CLAUDE.md.
 	ClaudeMDPath string
+
+	// RepoRoot is the git repository toplevel resolved once per Run. All check
+	// functions read this field instead of spawning a new git subprocess. Run
+	// populates it automatically; tests that call RunWith directly may set it
+	// explicitly to avoid git process invocations altogether.
+	RepoRoot string
 }
 
 // CheckFunc is the signature every check implementation must satisfy.
@@ -88,12 +94,39 @@ func Categories() []Category {
 // results in index order. Repo-dev-only checks are auto-omitted outside the
 // atomic-claude repo (detected from cwd) unless explicitly requested via --only.
 func Run(opts Opts) ([]Result, error) {
-	return RunWith(opts, isRepoDevCwd())
+	// Resolve the git repository root once for the entire Run. All check
+	// functions receive this via opts.RepoRoot instead of spawning their own
+	// git subprocess. IsRepoDev uses the same root for the repo-dev verdict.
+	if opts.RepoRoot == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			opts.RepoRoot = gitToplevelFn(cwd)
+		}
+	}
+
+	repoDev := false
+	if opts.RepoRoot != "" {
+		ok, err := isRepoDevRoot(opts.RepoRoot)
+		if err == nil {
+			repoDev = ok
+		}
+	}
+
+	return RunWith(opts, repoDev)
 }
 
 // RunWith is Run with the repo-dev verdict injected, exported for testing so a
 // repo-dev / non-repo-dev tree can be simulated without chdir.
 func RunWith(opts Opts, repoDev bool) ([]Result, error) {
+	// Ensure RepoRoot is set so check functions can read it without spawning git.
+	// Tests that call RunWith directly may set opts.RepoRoot explicitly; if they
+	// leave it empty we resolve it here as a fallback (mirrors the pre-change
+	// per-check behaviour for test callers that don't set the field).
+	if opts.RepoRoot == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			opts.RepoRoot = gitToplevelFn(cwd)
+		}
+	}
+
 	onlySet := indexSet(opts.Only)
 	skipSet := indexSet(opts.Skip)
 
@@ -117,21 +150,6 @@ func RunWith(opts Opts, repoDev bool) ([]Result, error) {
 		results = append(results, r)
 	}
 	return results, nil
-}
-
-// isRepoDevCwd reports whether the current working directory is inside the
-// atomic-claude development repo. Best-effort: a getwd or detection error
-// resolves to false (treat as a normal user repo).
-func isRepoDevCwd() bool {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return false
-	}
-	ok, err := IsRepoDev(cwd)
-	if err != nil {
-		return false
-	}
-	return ok
 }
 
 // indexSet converts a slice of indices to a presence map for O(1) lookup.

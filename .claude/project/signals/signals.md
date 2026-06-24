@@ -11,7 +11,7 @@ The project signals workflow: deterministic project snapshot generation (`atomic
 
 ## CLI code
 
-- [`atomic/internal/signals/signals.go`](../../../atomic/internal/signals/signals.go) — top-level scan orchestrator. Writes [`.claude/project/deterministic-signals.md`](../deterministic-signals.md). Keeps `.deterministic-signals.prev.md` for diff. Entry point for `atomic signals scan`.
+- [`atomic/internal/signals/signals.go`](../../../atomic/internal/signals/signals.go) — top-level scan orchestrator. Writes [`.claude/project/deterministic-signals.md`](../deterministic-signals.md). Keeps `.deterministic-signals.prev.md` for diff. Entry point for `atomic signals scan`. `resolveScanOptions` returns a cloned `*Options` — the caller's value is never mutated. `assembleBody` reads each file once via the pre-populated tree entries; there is no second file-read pass.
 - [`atomic/internal/signals/tree.go`](../../../atomic/internal/signals/tree.go) — directory tree walker. `max_depth` default 3 (shell-settable via `output.signals.max_depth`). Beyond cutoff: folder name + child count + folder SHA, no contents.
 - [`atomic/internal/signals/languages.go`](../../../atomic/internal/signals/languages.go) — extension-to-language map. 51 extensions, 26 languages. Deterministic — map is the single source of truth, no content sniffing.
 - [`atomic/internal/signals/manifests.go`](../../../atomic/internal/signals/manifests.go) — package manifest scanner (go.mod, package.json, Cargo.toml, etc.).

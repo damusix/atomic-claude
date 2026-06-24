@@ -23,3 +23,20 @@
 - 2026-06-10 autopilot-verify-omits-atomic-validate — "Verify gate omits atomic validate (autopilot shipped S5-failing spec)" — *(closed 2026-06-10)*
 - 2026-06-10 validate-artifact-cli-flag-lint — "Add atomic validate check: flag artifacts that cite atomic CLI verbs/flags the binary doesn't define (the --format-json class)" — *(closed 2026-06-10)*
 - 2026-06-18 artifact-templates-f-8 — "doc-impact-why has 1 consumer (commit-flow only)" — *(closed 2026-06-18)*
+- 2026-06-24 dbt-jinja-extraction — "Add dbt (Jinja+SQL) extraction" — *(closed 2026-06-24)*
+- 2026-06-24 snowflake-sql-extraction — "Add Snowflake SQL dialect extraction" — *(closed 2026-06-24)*
+- 2026-06-24 artifact-templates-f-7 — "worktree-cleanup-prompt has 1 consumer (merge-flow only)" — *(closed 2026-06-24)*
+- 2026-06-24 hooks-tests-read-real-home — "hooks tests read real HOME — user's <wikis> block leaks into empty-output expectations" — *(closed 2026-06-24)*
+- 2026-06-24 artifact-templates-f-2 — "Renderer success message on stderr (matches bundle-mirror)" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-1 — "`bundlemirror.Run` double-reads files via path reconstruction" — *(closed 2026-06-24)*
+- 2026-06-24 followup-hardening-f-4 — "Vue/Svelte node-ID staleness (inline contentLineOffset, no ID regen)" — *(closed 2026-06-24)*
+- 2026-06-24 signals-router-f-2 — "Double file reads across assembleBody" — *(closed 2026-06-24)*
+- 2026-06-24 signals-router-f-4 — "ScanWithOptions mutates caller-passed opts pointer" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-3 — "Repair seam globals are exported `Set*` mutators" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-4 — "`defaultManifestRepair` does not stream `make` output" — *(closed 2026-06-24)*
+- 2026-06-24 doctor-verbose-f-2 — "FixApplied/FixSummary render but no repair path populates them" — *(closed 2026-06-24)*
+- 2026-06-24 nits-encode-skill-trigger-boundary-f-1 — "Encode skill trigger boundary in atomic-tdd and atomic-debug descriptions" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-2 — "`gitToplevel` called 3× per doctor run" — *(closed 2026-06-24)*
+- 2026-06-24 doctor-verbose-f-1 — "manifest verbose Findings: only drifted: prefix is tested" — *(closed 2026-06-24)*
+- 2026-06-24 install-output-style-f-5 — "`defaultRunConfirm` huh-abort mapping is test-dead" — *(closed 2026-06-24)*
+- 2026-06-24 install-output-style-f-1 — "`prompt.Confirm` default-value plumbing is untested" — *(closed 2026-06-24)*

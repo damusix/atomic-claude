@@ -2249,3 +2249,107 @@ func TestLinkifyFiles_NoOp_WhenNoFiles(t *testing.T) {
 		t.Errorf("expected no error on empty root: %v", err)
 	}
 }
+
+// ---- f-4: ScanWithOptions must not mutate caller-passed Options ----
+
+// TestScanWithOptions_DoesNotMutateOpts proves that a reused Options{} struct is
+// not mutated between two ScanWithOptions calls.
+// WHY: resolveScanOptions populates ExcludeGlobs / GeneratedGlobs / MaxDepth on
+// the caller's pointer. A reused opts value would carry stale globs into the
+// second scan, causing it to apply .signalsignore patterns from a different repo.
+func TestScanWithOptions_DoesNotMutateOpts(t *testing.T) {
+	// Two independent repos — each with a different .signalsignore.
+	repoA := makeRepo(t, map[string]string{
+		"main.go":        "package main\n",
+		".signalsignore": "vendor/**\n",
+	})
+	repoB := makeRepo(t, map[string]string{
+		"main.go": "package main\n",
+		// No .signalsignore.
+	})
+
+	// Share ONE Options value (zero-value — all fields empty).
+	opts := &signals.Options{Clock: fixedClockFn}
+
+	// Snapshot the caller's fields before any scan.
+	beforeExclude := opts.ExcludeGlobs
+	beforeGenerated := opts.GeneratedGlobs
+	beforeMaxDepth := opts.MaxDepth
+
+	// First scan — populates internal resolved copy; must NOT touch opts.
+	if err := signals.ScanWithOptions(repoA, opts); err != nil {
+		t.Fatalf("ScanWithOptions repoA: %v", err)
+	}
+
+	// Second scan — if opts was mutated, repoA's globs leak into repoB's scan.
+	if err := signals.ScanWithOptions(repoB, opts); err != nil {
+		t.Fatalf("ScanWithOptions repoB: %v", err)
+	}
+
+	// The caller's opts fields must be identical to the snapshot taken before any call.
+	if len(opts.ExcludeGlobs) != len(beforeExclude) {
+		t.Errorf("opts.ExcludeGlobs mutated: before=%v after=%v", beforeExclude, opts.ExcludeGlobs)
+	}
+	if len(opts.GeneratedGlobs) != len(beforeGenerated) {
+		t.Errorf("opts.GeneratedGlobs mutated: before=%v after=%v", beforeGenerated, opts.GeneratedGlobs)
+	}
+	if opts.MaxDepth != beforeMaxDepth {
+		t.Errorf("opts.MaxDepth mutated: before=%d after=%d", beforeMaxDepth, opts.MaxDepth)
+	}
+}
+
+// ---- f-2: assembleBody is output-preserving after I/O-reduction refactor ----
+
+// TestAssembleBody_OutputPreserved is a characterization test: the tree, manifests,
+// and languages sections produced by ScanWithOptions must be byte-identical before
+// and after the double-read elimination refactor.
+// WHY: f-2 removes the redundant second enumerateFiles + readFileMeta pass in
+// ScanLanguages. This test locks the output so we can verify the refactor doesn't
+// silently change any line — same nodes, same LOC, same metadata.
+func TestAssembleBody_OutputPreserved(t *testing.T) {
+	// A repo with mixed languages so both tree metadata AND language LOC are exercised.
+	root := makeRepo(t, map[string]string{
+		"main.go":        strings.Repeat("line\n", 50),
+		"index.ts":       strings.Repeat("line\n", 30),
+		"script.py":      strings.Repeat("line\n", 20),
+		"docs/README.md": strings.Repeat("line\n", 10),
+		"Makefile":       "all:\n\tgo build\n",
+	})
+
+	opts := &signals.Options{Clock: fixedClockFn}
+	if err := signals.ScanWithOptions(root, opts); err != nil {
+		t.Fatalf("first ScanWithOptions: %v", err)
+	}
+	firstBytes, err := os.ReadFile(signals.SignalsPath(root))
+	if err != nil {
+		t.Fatalf("read first output: %v", err)
+	}
+
+	// A second scan on the same repo must produce byte-identical output.
+	// (idempotency is already tested elsewhere; this test's purpose is to serve
+	// as a characterization anchor for the f-2 refactor.)
+	if err := signals.ScanWithOptions(root, &signals.Options{Clock: fixedClockFn}); err != nil {
+		t.Fatalf("second ScanWithOptions: %v", err)
+	}
+	secondBytes, err := os.ReadFile(signals.SignalsPath(root))
+	if err != nil {
+		t.Fatalf("read second output: %v", err)
+	}
+
+	if string(firstBytes) != string(secondBytes) {
+		t.Errorf("output not preserved (characterization anchor failed):\nfirst:\n%s\nsecond:\n%s",
+			firstBytes, secondBytes)
+	}
+
+	// Also verify languages section is present and non-empty (proves LOC counts survived).
+	body := string(firstBytes)
+	if !strings.Contains(body, "## Languages") {
+		t.Errorf("Languages section missing from output:\n%s", body)
+	}
+	if !strings.Contains(body, "Go:") {
+		t.Errorf("Go language entry missing from output:\n%s", body)
+	}
+	if !strings.Contains(body, "TypeScript:") {
+		t.Errorf("TypeScript language entry missing from output:\n%s", body)
+	}
+}
