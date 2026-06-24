@@ -2190,3 +2190,176 @@ func TestA3CreateTaskCallBody(t *testing.T) {
 		t.Error("expected calls edge to 'load_proc' from AS CALL in task body")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Part C — O3 syntax-tolerance guards
+// ---------------------------------------------------------------------------
+
+// TestC1QualifyDoesNotTruncateOrEmitRef verifies that a QUALIFY clause in a
+// view body does NOT truncate body-edge scanning or emit a 'QUALIFY' reference.
+// WHY (C1): QUALIFY is a Snowflake window-filter clause placed after WHERE. A
+// naive scanner might treat QUALIFY as a keyword that breaks statement parsing,
+// causing FROM-clause edges that follow to be dropped. The extractor must scan
+// past QUALIFY transparently and still emit the FROM edge.
+const c1QualifyFixture = `
+CREATE VIEW ranked_orders AS
+SELECT
+    id,
+    amount,
+    ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY created_at DESC) AS rn
+FROM orders o
+WHERE amount > 0
+QUALIFY ROW_NUMBER() OVER (PARTITION BY customer_id ORDER BY created_at DESC) = 1;
+`
+
+func TestC1QualifyDoesNotTruncateOrEmitRef(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_c1.sql", c1QualifyFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// FROM edge to 'orders' must be emitted — QUALIFY must not truncate scanning.
+	if !hasUnresolvedRef(refs, "orders", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'orders' from FROM clause; QUALIFY must not truncate body-edge scanning")
+	}
+
+	// No 'QUALIFY' reference must appear — it is a SQL clause keyword, not a table.
+	if countUnresolvedRefs(refs, "QUALIFY") > 0 || countUnresolvedRefs(refs, "qualify") > 0 {
+		t.Error("QUALIFY must not produce a references edge (it is a Snowflake window-filter clause, not a table name)")
+	}
+}
+
+// TestC2ColonColonCastNoSpuriousRef verifies that Snowflake :: cast syntax does
+// NOT emit a spurious reference to the cast type and does NOT corrupt the
+// identifier that precedes the cast operator.
+// WHY (C2): 'col::VARIANT' is read as identifier 'col' followed by the Snowflake
+// cast operator '::' and the type name 'VARIANT'. A regex that greedily matches
+// identifier characters after FROM could capture 'VARIANT' or 'NUMBER' as a
+// table-like name. The extractor must emit only the real FROM source table.
+const c2ColonColonCastFixture = `
+CREATE VIEW cast_view AS
+SELECT col::VARIANT, x::NUMBER(10,2), raw::TEXT
+FROM src_tbl;
+`
+
+func TestC2ColonColonCastNoSpuriousRef(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_c2.sql", c2ColonColonCastFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// The real FROM source must still appear.
+	if !hasUnresolvedRef(refs, "src_tbl", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'src_tbl' from FROM clause in cast_view")
+	}
+
+	// Cast type names must NOT appear as reference targets.
+	for _, badName := range []string{"VARIANT", "variant", "NUMBER", "number", "TEXT", "text"} {
+		if countUnresolvedRefs(refs, badName) > 0 {
+			t.Errorf("cast type %q must not appear as a reference target (it is a type name, not a table)", badName)
+		}
+	}
+
+	// 'col' itself must NOT appear as a reference target (it is a column, not a FROM source).
+	if countUnresolvedRefs(refs, "col") > 0 {
+		t.Error("column name 'col' must not appear as a reference target")
+	}
+}
+
+// TestC3DollarColumnNoRef verifies that Snowflake positional column references
+// ($1, $2, …) in a SELECT/WHERE list do NOT produce spurious reference edges.
+// A real table is the FROM source so the positive anchor proves the extractor
+// actually processed the statement; the $N negatives are then meaningful.
+// WHY (C3): sqlQNameRaw starts with [A-Za-z_] so bare '$1' already cannot match
+// the FROM/JOIN name capture group. This test locks that guarantee in.
+const c3DollarColumnFixture = `
+CREATE VIEW staged_view AS
+SELECT t.$1, t.$2
+FROM real_tbl t
+WHERE t.$3 > 0;
+`
+
+func TestC3DollarColumnNoRef(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_c3.sql", c3DollarColumnFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// Positive anchor: real_tbl must appear as a references edge, proving the
+	// body scan ran and is not trivially empty.
+	if !hasUnresolvedRef(refs, "real_tbl", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'real_tbl' from FROM clause (positive anchor — proves scan ran)")
+	}
+
+	// Negatives: no reference named $1, $2, $3, or their bare digit forms.
+	for _, badName := range []string{"$1", "$2", "$3", "1", "2", "3"} {
+		if countUnresolvedRefs(refs, badName) > 0 {
+			t.Errorf("positional column ref %q must not produce a reference edge", badName)
+		}
+	}
+}
+
+// TestC4FlattenNoEdge verifies that LATERAL FLATTEN and TABLE(FLATTEN(...))
+// patterns in a FROM/JOIN list do NOT produce edges to 'FLATTEN', 'LATERAL',
+// or 'TABLE', and DO produce a references edge to the real source table.
+// WHY (C4): 'LATERAL' is already in sqlKeywordsForRef (F-6 guard). 'FLATTEN'
+// is a Snowflake table function, not a real table — it must be suppressed by
+// the keyword filter. 'TABLE' is also a SQL keyword, not a table name.
+// This test complements TestF6LateralNoEdge (Postgres LATERAL/unnest) for the
+// Snowflake FLATTEN variant.
+const c4FlattenFixture = `
+CREATE VIEW flatten_view AS
+SELECT t.col_val, f.value, f.index
+FROM src_tbl t, LATERAL FLATTEN(INPUT => t.col_val) f;
+`
+
+const c4TableFlattenFixture = `
+CREATE VIEW table_flatten_view AS
+SELECT t.col_val, f.value
+FROM src_tbl t
+JOIN TABLE(FLATTEN(INPUT => t.col_val)) f ON true;
+`
+
+func TestC4FlattenNoEdge(t *testing.T) {
+	ext := newSQL()
+
+	// Sub-test 1: LATERAL FLATTEN(...) form.
+	result, err := ext.Extract("/db/snowflake_c4_lateral.sql", c4FlattenFixture)
+	if err != nil {
+		t.Fatalf("Extract (lateral flatten): %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// src_tbl must be referenced (it is a real table in the FROM list).
+	if !hasUnresolvedRef(refs, "src_tbl", types.EdgeKindReferences) {
+		t.Error("(lateral flatten) expected references edge to 'src_tbl' from FROM clause")
+	}
+	// FLATTEN, LATERAL, TABLE must NOT appear as reference targets.
+	for _, badName := range []string{"FLATTEN", "flatten", "LATERAL", "lateral", "TABLE", "table"} {
+		if countUnresolvedRefs(refs, badName) > 0 {
+			t.Errorf("(lateral flatten) %q must not produce a references edge (it is a SQL keyword/function, not a table)", badName)
+		}
+	}
+
+	// Sub-test 2: TABLE(FLATTEN(...)) form.
+	result2, err2 := ext.Extract("/db/snowflake_c4_table.sql", c4TableFlattenFixture)
+	if err2 != nil {
+		t.Fatalf("Extract (table flatten): %v", err2)
+	}
+	refs2 := result2.UnresolvedReferences
+
+	if !hasUnresolvedRef(refs2, "src_tbl", types.EdgeKindReferences) {
+		t.Error("(table flatten) expected references edge to 'src_tbl' from FROM clause")
+	}
+	for _, badName := range []string{"FLATTEN", "flatten", "LATERAL", "lateral", "TABLE", "table"} {
+		if countUnresolvedRefs(refs2, badName) > 0 {
+			t.Errorf("(table flatten) %q must not produce a references edge", badName)
+		}
+	}
+}
