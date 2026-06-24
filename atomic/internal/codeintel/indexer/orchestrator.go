@@ -170,6 +170,23 @@ func init() {
 	}
 }
 
+// compoundExt returns the effective file extension for routing purposes.
+// For paths ending in ".sql.jinja" (the dbt Jinja template compound extension)
+// it returns ".sql.jinja" so the file is keyed correctly in extToLanguage and
+// standaloneExts. For all other paths it delegates to filepath.Ext.
+//
+// WHY a separate helper: filepath.Ext("stg.sql.jinja") returns ".jinja", which
+// has no entry in extToLanguage — the file is silently skipped. compoundExt is
+// the single fix point for this two-level extension; callers must not add a
+// third call beyond the two sites in indexFiles and indexOneFile.
+func compoundExt(path string) string {
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".sql.jinja") {
+		return ".sql.jinja"
+	}
+	return filepath.Ext(path)
+}
+
 // ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
@@ -315,7 +332,7 @@ func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, fileP
 	// Filter to files with a known extension.
 	var toIndex []string
 	for _, p := range filePaths {
-		ext := strings.ToLower(filepath.Ext(p))
+		ext := strings.ToLower(compoundExt(p))
 		if _, ok := extToLanguage[ext]; ok {
 			toIndex = append(toIndex, p)
 		}
@@ -379,7 +396,7 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 		return nil
 	}
 
-	ext := strings.ToLower(filepath.Ext(relPath))
+	ext := strings.ToLower(compoundExt(relPath))
 	lang := extToLanguage[ext]
 
 	// Dedup: if the file record exists with the same content hash, skip.

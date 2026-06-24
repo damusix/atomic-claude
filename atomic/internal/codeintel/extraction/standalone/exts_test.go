@@ -24,10 +24,10 @@ import (
 
 // wantSQLExts is the explicit enumeration used to drive all assertions below.
 // It must be updated whenever the SQL extension list changes.
-var wantSQLExts = []string{".sql", ".ddl", ".pgsql", ".mysql"}
+var wantSQLExts = []string{".sql", ".ddl", ".pgsql", ".mysql", ".sql.jinja"}
 
 func TestSQLExtensions_CanonicalSet(t *testing.T) {
-	t.Run("canonical slice has exactly the four known extensions", func(t *testing.T) {
+	t.Run("canonical slice has exactly the five known extensions", func(t *testing.T) {
 		got := make([]string, len(standalone.SQLExtensions))
 		copy(got, standalone.SQLExtensions)
 		sort.Strings(got)
@@ -88,6 +88,20 @@ func TestSQLExtensions_CanonicalSet(t *testing.T) {
 		for _, ext := range wantSQLExts {
 			if e := reg.For(ext); e == nil {
 				t.Errorf("NewRegistry().For(%q) = nil, want non-nil extractor", ext)
+			}
+		}
+	})
+
+	// D1: compound extension (.sql.jinja) must be recognised.
+	t.Run("IsSQLExt true for .sql.jinja compound extension", func(t *testing.T) {
+		cases := []string{
+			"models/stg.sql.jinja",
+			"/abs/path/stg.sql.jinja",
+			"STG.SQL.JINJA", // case-insensitive
+		}
+		for _, p := range cases {
+			if !standalone.IsSQLExt(p) {
+				t.Errorf("IsSQLExt(%q) = false, want true (.sql.jinja must be a SQL ext)", p)
 			}
 		}
 	})

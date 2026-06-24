@@ -579,8 +579,15 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 	var dbtModelID string // non-empty when the pre-pass fired
 	if dbtJinjaGateRE.MatchString(source) {
 		// B4: one model node per file, named by the basename without extension.
+		// For .sql.jinja files the compound suffix must be stripped in full so
+		// {{ ref('stg') }} resolves to this node — not to a phantom 'stg.sql'.
 		base := filepath.Base(filePath)
-		modelName := strings.TrimSuffix(base, filepath.Ext(base))
+		var modelName string
+		if strings.HasSuffix(strings.ToLower(base), ".sql.jinja") {
+			modelName = base[:len(base)-len(".sql.jinja")]
+		} else {
+			modelName = strings.TrimSuffix(base, filepath.Ext(base))
+		}
 
 		// Emit the model node at line 1 (file-level concept).
 		modelLine := 1

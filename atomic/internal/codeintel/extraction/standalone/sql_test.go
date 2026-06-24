@@ -2326,6 +2326,68 @@ FROM src_tbl t
 JOIN TABLE(FLATTEN(INPUT => t.col_val)) f ON true;
 `
 
+// ---------------------------------------------------------------------------
+// D1 / D2 — .sql.jinja ingestion
+// ---------------------------------------------------------------------------
+
+// TestD1D2SqlJinjaModelNode verifies that a .sql.jinja file:
+//   - D1: is accepted by Extract (the router gets it here via IsSQLExt)
+//   - D2: produces a model node whose Name is the basename WITHOUT the whole
+//     ".sql.jinja" compound suffix (→ "stg", not "stg.sql")
+//   - ref() DAG is identical to what the .sql twin would produce
+//
+// WHY the exact-name assertion: dbt resolves {{ ref('stg') }} to the node
+// named 'stg'. If the model node is named 'stg.sql' instead, the ref edge
+// from a sibling model never resolves — silent lineage gap.
+const d1D2SqlJinjaFixture = `
+{{ config(materialized='table') }}
+
+SELECT *
+FROM {{ ref('base_orders') }}
+WHERE status = 'active'
+`
+
+func TestD1D2SqlJinjaModelNode(t *testing.T) {
+	ext := newSQL()
+
+	// .sql twin: same content via a .sql path — model name must be "stg".
+	result, err := ext.Extract("models/stg.sql", d1D2SqlJinjaFixture)
+	if err != nil {
+		t.Fatalf("Extract (.sql twin): %v", err)
+	}
+	sqlModel := findSQLNodeExact(result.Nodes, types.NodeKindModel, "stg")
+	if sqlModel == nil {
+		t.Fatal(".sql twin: expected model node named 'stg'")
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, "base_orders", types.EdgeKindReferences) {
+		t.Error(".sql twin: expected references edge to 'base_orders'")
+	}
+
+	// .sql.jinja: must produce the same model name and ref DAG.
+	result2, err := ext.Extract("models/stg.sql.jinja", d1D2SqlJinjaFixture)
+	if err != nil {
+		t.Fatalf("Extract (.sql.jinja): %v", err)
+	}
+
+	// D2: model node must be named "stg", not "stg.sql".
+	jinjaModel := findSQLNodeExact(result2.Nodes, types.NodeKindModel, "stg")
+	if jinjaModel == nil {
+		// Produce a helpful diagnosis showing what was actually created.
+		var names []string
+		for _, n := range result2.Nodes {
+			if n.Kind == types.NodeKindModel {
+				names = append(names, n.Name)
+			}
+		}
+		t.Fatalf(".sql.jinja: expected model node named 'stg' (D2: strip full .sql.jinja suffix); got model names: %v", names)
+	}
+
+	// Ref DAG must be identical: 'base_orders' referenced.
+	if !hasUnresolvedRef(result2.UnresolvedReferences, "base_orders", types.EdgeKindReferences) {
+		t.Error(".sql.jinja: expected references edge to 'base_orders' (ref DAG identical to .sql twin)")
+	}
+}
+
 func TestC4FlattenNoEdge(t *testing.T) {
 	ext := newSQL()
 
