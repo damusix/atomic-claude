@@ -162,12 +162,15 @@ Success: a table with `c VARIANT, o OBJECT, a ARRAY` → three column nodes whos
 ### F3 — O4 LATERAL FLATTEN argument reference (guarded)
 
 Parse `FLATTEN ( [INPUT =>] <expr> )` (including inside `TABLE(FLATTEN(...))`). Emit a `references` edge from the
-enclosing owner to `<expr>` **only** when `<expr>` is a bare relation identifier (`tbl` or `schema.tbl`, no further
-member access). Emit **nothing** when `<expr>` is a column expression (`t.col` — already covered by the FROM table),
-and never reference `FLATTEN` / `LATERAL` / `TABLE` / the `INPUT` keyword.
+enclosing owner to `<expr>` **only** when `<expr>` is a single **unqualified** identifier (`other_tbl`, no dot). A
+**dotted** expression (`raw.payload`) is skipped — `schema.table` and `alias.column` are syntactically identical, and
+in FLATTEN's real usage the input is overwhelmingly a VARIANT *column* (`t.payload`), so treating every dotted form as
+a column expression (already covered by its FROM table) avoids the noisy false edges the v1 design warned about. Never
+reference `FLATTEN` / `LATERAL` / `TABLE` / the `INPUT` keyword.
 
-Success: `FROM raw, LATERAL FLATTEN(INPUT => raw.payload)` → `references` to `raw` only (none to `payload`/`FLATTEN`);
-`… , LATERAL FLATTEN(INPUT => other_tbl)` → `references` to `other_tbl`.
+Success: `FROM raw, LATERAL FLATTEN(INPUT => raw.payload)` → `references` to `raw` only (none to `payload`/`FLATTEN`;
+the dotted FLATTEN input is skipped); `… , LATERAL FLATTEN(INPUT => other_tbl)` → `references` to `other_tbl` (the
+unqualified input is treated as a relation).
 
 ### F4 — standalone top-level COPY INTO (lazy `script` owner)
 
@@ -209,6 +212,13 @@ package-level `const <name>Fixture`). At minimum one fixture per success criteri
 
 ## Change log
 
+- 2026-06-24 — F3 disambiguated during implementation (pre-Group-F dispatch).
+  **What changed:** F3 now emits a FLATTEN-argument reference only for a single **unqualified** identifier; any dotted
+  expression is skipped. The original wording ("`tbl` or `schema.tbl`") was self-contradictory — `schema.tbl` and the
+  `t.col` it said to skip are syntactically identical, so no implementation could honour both. The success criteria
+  (1-part emits, 2-part skips) already pinned this behaviour; the body now matches.
+  **Why:** an un-resolvable ambiguity in the body would have produced either arbitrary or noisy behaviour; the
+  unqualified-only rule is honest, testable, and matches FLATTEN's real usage (input is almost always a VARIANT column).
 - 2026-06-24 — Revised after spec-mode review (pre-implementation, no prior build).
   **What changed:** E4 corrected — `dbtRefRE`/`dbtRefSubstRE` *match* but do **not capture** the version integer `N`
   (it lives in a non-capturing group); v2 must add a new trailing capture group, preserving group-1/group-2 indices,

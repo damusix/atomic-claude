@@ -368,6 +368,22 @@ var bodyMergeIntoRE = regexp.MustCompile(`(?i)\bMERGE\s+INTO\s+(` + sqlQNameRaw 
 // Group 1 = routine name.
 var bodyExecCallRE = regexp.MustCompile(`(?i)\b(?:EXEC(?:UTE)?\s+|CALL\s+)(` + sqlQNameRaw + `)\s*[\s(]`)
 
+// bodyFlattenRE matches FLATTEN ( [INPUT =>] <expr> ) inside a body scan.
+// F3: used in scanBodyEdges to emit a references edge to <expr> ONLY when
+// <expr> is a single unqualified identifier (no dot). Dotted expressions are
+// column aliases (e.g. t.payload) — syntactically identical to schema.table
+// — and are skipped to avoid noisy false edges.
+//
+// Pattern deliberately does NOT anchor on LATERAL or TABLE so that both:
+//
+//	LATERAL FLATTEN(INPUT => tbl)
+//	TABLE(FLATTEN(INPUT => tbl))
+//
+// are captured with one regex applied to the body text.
+//
+// Group 1 = the raw expression token (may include a dot for dotted forms).
+var bodyFlattenRE = regexp.MustCompile(`(?i)\bFLATTEN\s*\(\s*(?:INPUT\s*=>\s*)?(` + sqlQNameRaw + `)\s*\)`)
+
 // bodyCopyIntoRE matches COPY INTO <target> FROM <source> in a routine/task body.
 // A2: both directions are captured; the leading '@' on the target decides direction.
 //   - Group 1 = target token (may start with '@' for stage-as-target direction).
@@ -1187,6 +1203,24 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, node.ID, tgtName, types.EdgeKindReferences, line))
 		}
 
+		// F3: FLATTEN([INPUT =>] <expr>) argument reference in view body.
+		// Emit a references edge only for single unqualified identifiers.
+		for _, bm := range bodyFlattenRE.FindAllStringSubmatchIndex(viewBody, -1) {
+			rawExpr := viewBody[bm[2]:bm[3]]
+			if strings.ContainsRune(rawExpr, '.') {
+				continue // dotted — column expr, skip
+			}
+			_, tgtName := parseQName(rawExpr)
+			if tgtName == "" || isSQLRefKeyword(tgtName) || seen[strings.ToLower(tgtName)] {
+				continue
+			}
+			seen[strings.ToLower(tgtName)] = true
+			byteOff := viewBodyStart + bm[2]
+			line := strings.Count(stripped[:byteOff], "\n") + 1
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, node.ID, tgtName, types.EdgeKindReferences, line))
+		}
+
 		// A6: CLONE <src> — emit a references edge from the new view to its source.
 		// Scan only the preamble text BEFORE the first '(' (same guard as table path).
 		// A cloned view has no AS SELECT body, so CLONE is the only lineage signal.
@@ -1607,6 +1641,104 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				fnLine := strings.Count(stripped[:byteOff], "\n") + 1
 				result.UnresolvedReferences = append(result.UnresolvedReferences,
 					sqlRef(filePath, policyID, fnName, types.EdgeKindCalls, fnLine))
+			}
+		}
+	}
+
+	// F4: standalone top-level COPY INTO — lazy script owner.
+	//
+	// A COPY INTO that is NOT inside any routine/function/procedure/task body
+	// and NOT in a dbt model file is owned by a lazily-created script node named
+	// by the file basename. The script node is created only when at least one such
+	// top-level COPY exists.
+	//
+	// dbt model files already own their top-level statements via the model node
+	// (B5 residual scan), so we skip them entirely.
+	if dbtModelID == "" {
+		// Step 1: collect body spans [start, end) for all routines and tasks so
+		// we can exclude COPY INTO matches that fall inside them.
+		type bodySpan struct{ start, end int }
+		var bodySpans []bodySpan
+		for _, re := range []*regexp.Regexp{functionRE, procedureRE, taskRE} {
+			for _, m := range re.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+				body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
+				if body != "" {
+					bodySpans = append(bodySpans, bodySpan{start: bodyOff, end: bodyOff + len(body)})
+				}
+			}
+		}
+
+		inBodySpan := func(off int) bool {
+			for _, sp := range bodySpans {
+				if off >= sp.start && off < sp.end {
+					return true
+				}
+			}
+			return false
+		}
+
+		// Step 2: scan for top-level COPY INTO matches (outside all body spans).
+		// scriptID is set on the first top-level COPY found (lazy creation).
+		// We capture the ID as a string rather than a pointer into result.Nodes —
+		// any subsequent append to result.Nodes would reallocate the backing array
+		// and make a slice-element pointer stale.
+		scriptID := ""
+		for _, m := range bodyCopyIntoRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+			if inBodySpan(m[0]) {
+				continue // already owned by the enclosing routine/task (v1)
+			}
+
+			// Lazily create the script node on the first top-level COPY found.
+			if scriptID == "" {
+				base := filepath.Base(filePath)
+				// Strip single extension (e.g. "load_facts.sql" → "load_facts").
+				// For .sql.jinja the dbt pre-pass already ran so dbtModelID != "" —
+				// we never reach here for those files.
+				scriptName := strings.TrimSuffix(base, filepath.Ext(base))
+				scriptLine := 1
+				scriptID = extraction.GenerateNodeID(filePath, string(types.NodeKindScript), scriptName, scriptLine)
+				result.Nodes = append(result.Nodes, types.Node{
+					ID:            scriptID,
+					Kind:          types.NodeKindScript,
+					Name:          scriptName,
+					QualifiedName: scriptName,
+					FilePath:      filePath,
+					Language:      types.LanguageSQL,
+					StartLine:     scriptLine,
+					EndLine:       scriptLine,
+					IsExported:    true,
+				})
+			}
+
+			// Emit COPY lineage edges owned by the script node — reuse v1 direction logic.
+			rawTarget := strippedNoStr[m[2]:m[3]]
+			rawSource := strippedNoStr[m[4]:m[5]]
+			line := strings.Count(stripped[:m[0]], "\n") + 1
+
+			if strings.HasPrefix(rawTarget, "@") {
+				// COPY INTO @stage FROM <tbl>
+				stageName := parseStageToken(rawTarget)
+				_, tblName := parseQName(rawSource)
+				if stageName != "" {
+					result.UnresolvedReferences = append(result.UnresolvedReferences,
+						sqlRef(filePath, scriptID, stageName, types.EdgeKindWrites, line))
+				}
+				if tblName != "" && !isSQLRefKeyword(tblName) {
+					result.UnresolvedReferences = append(result.UnresolvedReferences,
+						sqlRef(filePath, scriptID, tblName, types.EdgeKindReferences, line))
+				}
+			} else {
+				// COPY INTO <tbl> FROM @stage[/path]
+				_, tblName := parseQName(rawTarget)
+				stageName := parseStageToken(rawSource)
+				if tblName != "" && !isSQLRefKeyword(tblName) {
+					result.UnresolvedReferences = append(result.UnresolvedReferences,
+						sqlRef(filePath, scriptID, tblName, types.EdgeKindWrites, line))
+				}
+				if stageName != "" {
+					result.UnresolvedReferences = append(result.UnresolvedReferences,
+						sqlRef(filePath, scriptID, stageName, types.EdgeKindReferences, line))
+				}
 			}
 		}
 	}
@@ -2295,6 +2427,24 @@ func scanBodyEdges(
 		_, name := parseQName(rawName)
 		if name != "" {
 			addRef(name, types.EdgeKindCalls, m[2])
+		}
+	}
+
+	// F3: FLATTEN([INPUT =>] <expr>) argument reference.
+	// Emit a references edge only when <expr> is a single unqualified identifier
+	// (no dot). Dotted expressions (alias.column / schema.table) are indistinguishable
+	// from column references and are skipped to avoid noisy false edges.
+	// Never reference FLATTEN/LATERAL/TABLE/INPUT — these are filtered by isSQLRefKeyword
+	// or the unqualified-only guard above.
+	for _, m := range bodyFlattenRE.FindAllStringSubmatchIndex(body, -1) {
+		rawExpr := body[m[2]:m[3]]
+		// Skip dotted forms — treat as column expression, not a relation.
+		if strings.ContainsRune(rawExpr, '.') {
+			continue
+		}
+		_, name := parseQName(rawExpr)
+		if name != "" {
+			addRef(name, types.EdgeKindReferences, m[2])
 		}
 	}
 

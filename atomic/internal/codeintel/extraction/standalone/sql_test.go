@@ -1656,15 +1656,18 @@ func TestA2CopyIntoBodyEdges(t *testing.T) {
 
 // TestA2CopyIntoBodyVsTopLevel is a discriminating test: a file with both a
 // standalone top-level COPY INTO AND a procedure body COPY INTO. The body COPY
-// must produce edges; the top-level targets must not appear in any edge.
-// WHY: the previous vacuous test passed even with the COPY code absent. This one
-// requires the body path to fire for the proc-body COPY while proving the
-// top-level COPY is correctly skipped.
+// must be owned by the procedure node; the top-level COPY must be owned by the
+// script node (F4: lazy script node for standalone top-level COPYs).
+//
+// WHY: v1 only captured COPY INTO inside routine/task bodies. F4 extends this:
+// a top-level COPY (not inside any definition) is now owned by a lazily-created
+// script node named by the file basename. Both copies must produce edges; the
+// key assertion is that each is owned by the correct node (proc vs script).
 const a2CopyIntoBodyVsTopLevelFixture = `
 CREATE TABLE body_tbl (id INT);
 CREATE TABLE toplevel_tbl (id INT);
 
--- Standalone top-level COPY (not inside any definition) — must produce NO edges.
+-- Standalone top-level COPY (not inside any definition) — owned by script node (F4).
 COPY INTO toplevel_tbl FROM @toplevel_stage;
 
 CREATE PROCEDURE load_proc()
@@ -1691,14 +1694,42 @@ func TestA2CopyIntoBodyVsTopLevel(t *testing.T) {
 		t.Error("expected references edge to 'body_stage' from proc-body COPY INTO")
 	}
 
-	// Top-level COPY must NOT fire: its distinct targets must not appear.
+	// F4: Top-level COPY must also fire, owned by the script node.
+	// Confirm the script node exists and owns the top-level COPY edges.
+	scriptNode := findSQLNodeExact(result.Nodes, types.NodeKindScript, "snowflake_a2_vs")
+	if scriptNode == nil {
+		t.Fatal("expected script node 'snowflake_a2_vs' for the top-level COPY INTO (F4)")
+	}
+
+	var topWriteOwned, topStageOwned bool
 	for _, r := range refs {
-		if r.ReferenceName == "toplevel_tbl" {
-			t.Errorf("top-level COPY target 'toplevel_tbl' must not appear in edges; got %s edge", r.ReferenceKind)
+		if r.ReferenceName == "toplevel_tbl" && r.ReferenceKind == types.EdgeKindWrites && r.FromNodeID == scriptNode.ID {
+			topWriteOwned = true
 		}
-		if r.ReferenceName == "toplevel_stage" {
-			t.Errorf("top-level COPY stage 'toplevel_stage' must not appear in edges; got %s edge", r.ReferenceKind)
+		if r.ReferenceName == "toplevel_stage" && r.ReferenceKind == types.EdgeKindReferences && r.FromNodeID == scriptNode.ID {
+			topStageOwned = true
 		}
+	}
+	if !topWriteOwned {
+		t.Error("script node must own writes edge to 'toplevel_tbl' (top-level COPY INTO, F4)")
+	}
+	if !topStageOwned {
+		t.Error("script node must own references edge to 'toplevel_stage' (top-level COPY INTO, F4)")
+	}
+
+	// The proc node must own the body COPY edges (not the script node).
+	procNode := findSQLNodeExact(result.Nodes, types.NodeKindProcedure, "load_proc")
+	if procNode == nil {
+		t.Fatal("expected procedure node 'load_proc'")
+	}
+	var procWriteOwned bool
+	for _, r := range refs {
+		if r.ReferenceName == "body_tbl" && r.ReferenceKind == types.EdgeKindWrites && r.FromNodeID == procNode.ID {
+			procWriteOwned = true
+		}
+	}
+	if !procWriteOwned {
+		t.Error("procedure node must own writes edge to 'body_tbl' (body COPY INTO, v1)")
 	}
 }
 
@@ -3096,5 +3127,266 @@ func TestF2GeneratedColumnPreservesType(t *testing.T) {
 	}
 	if gen, _ := m["generated"].(bool); !gen {
 		t.Errorf("label column Metadata.generated must be true; got %v", m["generated"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F3 — LATERAL FLATTEN argument reference (guarded)
+// ---------------------------------------------------------------------------
+
+// TestF3FlattenArgRef verifies the F3 spec contract:
+//
+//   - LATERAL FLATTEN(INPUT => dotted.expr) → NO edge to the dotted expr
+//     (dotted forms are column expressions, not relation names).
+//   - LATERAL FLATTEN(INPUT => bare_tbl) → references edge to bare_tbl
+//     (single unqualified identifier is treated as a relation).
+//   - Never emit edges to FLATTEN, LATERAL, TABLE, or INPUT.
+//
+// WHY: the FLATTEN input is overwhelmingly a VARIANT *column* (t.payload),
+// so dotted forms would produce noisy false edges. Only a bare identifier
+// (no dot) is unambiguously a relation reference.
+const f3FlattenArgFixture = `
+CREATE VIEW f3_view AS
+SELECT t.col_val, f.value
+FROM raw, LATERAL FLATTEN(INPUT => raw.payload) f,
+     LATERAL FLATTEN(INPUT => other_tbl) g;
+`
+
+func TestF3FlattenArgRef(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_f3.sql", f3FlattenArgFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// "raw" must be referenced (real table in FROM clause via viewBodyFROMRE).
+	if !hasUnresolvedRef(refs, "raw", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'raw' from the FROM clause")
+	}
+
+	// "other_tbl" must be referenced (unqualified FLATTEN input = relation).
+	if !hasUnresolvedRef(refs, "other_tbl", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'other_tbl' (unqualified FLATTEN input treated as relation)")
+	}
+
+	// Dotted FLATTEN input raw.payload must produce NO edge to "payload".
+	if countUnresolvedRefs(refs, "payload") > 0 {
+		t.Errorf("'payload' (dotted FLATTEN input) must not produce an edge; got %d ref(s)",
+			countUnresolvedRefs(refs, "payload"))
+	}
+
+	// FLATTEN/LATERAL/TABLE/INPUT must never appear as edge targets.
+	for _, badName := range []string{"FLATTEN", "flatten", "LATERAL", "lateral", "TABLE", "table", "INPUT", "input"} {
+		if countUnresolvedRefs(refs, badName) > 0 {
+			t.Errorf("%q must not produce a references edge; got %d ref(s)", badName, countUnresolvedRefs(refs, badName))
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F4 — standalone top-level COPY INTO (lazy script owner)
+// ---------------------------------------------------------------------------
+
+// TestF3FlattenArgRefInProcBody verifies the scanBodyEdges FLATTEN dispatch
+// (routine/task body path) — the positive case that bodyFlattenRE fires and
+// emits a references edge to a bare identifier inside a procedure body.
+//
+// WHY: TestF3FlattenArgRef only exercises the VIEW body path (inline scan).
+// The scanBodyEdges path (functions, procedures, tasks) has a separate dispatch
+// of bodyFlattenRE that must also be tested so neither path can regress silently.
+const f3FlattenProcBodyFixture = `
+CREATE OR REPLACE PROCEDURE flatten_proc()
+LANGUAGE SQL AS $$
+BEGIN
+  SELECT f.value
+  FROM raw_tbl t,
+       LATERAL FLATTEN(INPUT => x_tbl) f,
+       LATERAL FLATTEN(INPUT => t.nested_col) g;
+END;
+$$;
+`
+
+func TestF3FlattenArgRefInProcBody(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_f3_proc.sql", f3FlattenProcBodyFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	procNode := findSQLNodeExact(result.Nodes, types.NodeKindProcedure, "flatten_proc")
+	if procNode == nil {
+		t.Fatal("expected procedure node 'flatten_proc'")
+	}
+
+	refs := result.UnresolvedReferences
+
+	// Unqualified FLATTEN input "x_tbl" → references edge owned by the proc.
+	var xTblOwned bool
+	for _, r := range refs {
+		if r.ReferenceName == "x_tbl" && r.ReferenceKind == types.EdgeKindReferences && r.FromNodeID == procNode.ID {
+			xTblOwned = true
+		}
+	}
+	if !xTblOwned {
+		t.Error("expected references edge to 'x_tbl' (bare FLATTEN input) owned by procedure node")
+	}
+
+	// Dotted FLATTEN input t.nested_col → NO edge to "nested_col".
+	if countUnresolvedRefs(refs, "nested_col") > 0 {
+		t.Errorf("'nested_col' (dotted FLATTEN input) must produce no edge; got %d ref(s)",
+			countUnresolvedRefs(refs, "nested_col"))
+	}
+
+	// FLATTEN/LATERAL/INPUT must never appear as edge targets.
+	for _, badName := range []string{"FLATTEN", "flatten", "LATERAL", "lateral", "INPUT", "input"} {
+		if countUnresolvedRefs(refs, badName) > 0 {
+			t.Errorf("%q must not produce a references edge in proc body; got %d ref(s)",
+				badName, countUnresolvedRefs(refs, badName))
+		}
+	}
+}
+
+// TestF4TopLevelCopyScriptOwner verifies that a .sql file whose only statements
+// are top-level COPY INTO commands produces a lazily-created script node (named
+// by the file basename) that OWNS the writes/references edges.
+//
+// WHY: a standalone COPY INTO (not inside a routine/task body) has no enclosing
+// definition to own its lineage. The script node provides a stable anchor so the
+// graph stays connected. The node is lazy — never created for files without a
+// top-level COPY.
+const f4CopyScriptFixture = `
+COPY INTO fact FROM @load_stage;
+COPY INTO @out_stage FROM fact;
+`
+
+func TestF4TopLevelCopyScriptOwner(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/etl/load_facts.sql", f4CopyScriptFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// A script node must be present (lazy creation on first top-level COPY).
+	scriptNode := findSQLNodeExact(result.Nodes, types.NodeKindScript, "load_facts")
+	if scriptNode == nil {
+		t.Fatal("expected script node 'load_facts' (basename of load_facts.sql) for a file with top-level COPY INTO")
+	}
+
+	refs := result.UnresolvedReferences
+
+	// COPY INTO fact FROM @load_stage → script writes to "fact", references "load_stage".
+	var factWriteOwned, stageRefOwned bool
+	for _, r := range refs {
+		if r.ReferenceName == "fact" && r.ReferenceKind == types.EdgeKindWrites && r.FromNodeID == scriptNode.ID {
+			factWriteOwned = true
+		}
+		if r.ReferenceName == "load_stage" && r.ReferenceKind == types.EdgeKindReferences && r.FromNodeID == scriptNode.ID {
+			stageRefOwned = true
+		}
+	}
+	if !factWriteOwned {
+		t.Error("expected script node to own a writes edge to 'fact' (COPY INTO fact FROM @load_stage)")
+	}
+	if !stageRefOwned {
+		t.Error("expected script node to own a references edge to 'load_stage' (COPY INTO fact FROM @load_stage)")
+	}
+
+	// COPY INTO @out_stage FROM fact → script writes to "out_stage", references "fact".
+	var outStageWriteOwned, factRefOwned bool
+	for _, r := range refs {
+		if r.ReferenceName == "out_stage" && r.ReferenceKind == types.EdgeKindWrites && r.FromNodeID == scriptNode.ID {
+			outStageWriteOwned = true
+		}
+		if r.ReferenceName == "fact" && r.ReferenceKind == types.EdgeKindReferences && r.FromNodeID == scriptNode.ID {
+			factRefOwned = true
+		}
+	}
+	if !outStageWriteOwned {
+		t.Error("expected script node to own a writes edge to 'out_stage' (COPY INTO @out_stage FROM fact)")
+	}
+	if !factRefOwned {
+		t.Error("expected script node to own a references edge to 'fact' (COPY INTO @out_stage FROM fact)")
+	}
+}
+
+// TestF4NoScriptForNonCopyFile verifies that a .sql file with only CREATE TABLE
+// and SELECT statements (no top-level COPY INTO) does NOT produce a script node.
+//
+// WHY: the script node is lazily created — we must not pollute files that have no
+// top-level COPY with a spurious node.
+const f4NoCopyFixture = `
+CREATE TABLE dim_date (
+    date_id INTEGER,
+    full_date DATE
+);
+
+SELECT * FROM dim_date;
+`
+
+func TestF4NoScriptForNonCopyFile(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/etl/dim_date.sql", f4NoCopyFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	for _, n := range result.Nodes {
+		if n.Kind == types.NodeKindScript {
+			t.Errorf("unexpected script node %q in a file with no top-level COPY INTO; script nodes are lazy", n.Name)
+		}
+	}
+}
+
+// TestF4CopyInsideTaskNotScript verifies the critical dedup contract: a COPY INTO
+// that lives inside a CREATE TASK body is owned by the TASK node and must NOT
+// also create a script node.
+//
+// WHY: in-body COPYs are already owned by the routine/task via v1's scanBodyEdges.
+// Creating an additional script node would double-count the lineage and produce a
+// spurious top-level node for what is really a body-scoped statement.
+const f4CopyInTaskFixture = `
+CREATE OR REPLACE TASK load_task
+  SCHEDULE = '1 minute'
+  AS
+  COPY INTO fact FROM @stg;
+`
+
+func TestF4CopyInsideTaskNotScript(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/etl/task_load.sql", f4CopyInTaskFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// No script node should exist — the COPY is inside a task body.
+	for _, n := range result.Nodes {
+		if n.Kind == types.NodeKindScript {
+			t.Errorf("unexpected script node %q: COPY inside a task body must be owned by the task, not a script node", n.Name)
+		}
+	}
+
+	// The task node must exist and own the COPY lineage.
+	taskNode := findSQLNodeExact(result.Nodes, types.NodeKindTask, "load_task")
+	if taskNode == nil {
+		t.Fatal("expected task node 'load_task'")
+	}
+
+	refs := result.UnresolvedReferences
+	// Task body COPY INTO fact FROM @stg → task writes to "fact", references "stg".
+	var taskWritesFact, taskRefStg bool
+	for _, r := range refs {
+		if r.ReferenceName == "fact" && r.ReferenceKind == types.EdgeKindWrites && r.FromNodeID == taskNode.ID {
+			taskWritesFact = true
+		}
+		if r.ReferenceName == "stg" && r.ReferenceKind == types.EdgeKindReferences && r.FromNodeID == taskNode.ID {
+			taskRefStg = true
+		}
+	}
+	if !taskWritesFact {
+		t.Error("task node must own writes edge to 'fact' (COPY INTO inside task body)")
+	}
+	if !taskRefStg {
+		t.Error("task node must own references edge to 'stg' (COPY INTO inside task body)")
 	}
 }
