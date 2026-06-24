@@ -1,5 +1,31 @@
 # Changelog
 
+## [5.7.0](https://github.com/damusix/atomic-claude/compare/v5.6.3...v5.7.0) (2026-06-24)
+
+
+### Features
+
+* **code-intel:** emit calls edge for T-SQL CROSS/OUTER APPLY ([329f572](https://github.com/damusix/atomic-claude/commit/329f572b0889b06dd5fd5fb3295e51089a541e1c))
+* **code-intel:** Snowflake + dbt SQL lineage extraction ([#104](https://github.com/damusix/atomic-claude/issues/104)) ([fd42185](https://github.com/damusix/atomic-claude/commit/fd421859f325e081337eb34f7f595d80025d9d64))
+* slim CLAUDE.md, auto-index, YAGNI partial ([1bbc361](https://github.com/damusix/atomic-claude/commit/1bbc361b96230b20961f66c147c3c87bb60acf27))
+
+
+### Bug Fixes
+
+* burn down code-quality follow-ups ([d792921](https://github.com/damusix/atomic-claude/commit/d792921c21b392024d4c26461722a200860088fa))
+* **cmd:** emit render-templates/bundle-mirror success message on stdout ([b5f33de](https://github.com/damusix/atomic-claude/commit/b5f33de14e963e2336470fe4e40f27f5d5643f43))
+* **code-intel:** file-absolute node IDs for Vue/Svelte SFC symbols ([a641a89](https://github.com/damusix/atomic-claude/commit/a641a89943d70fcc20d4c000a2aac6f91150a05c))
+* **doctor:** slugify cwd per-char for memory path ([136c922](https://github.com/damusix/atomic-claude/commit/136c922eac4234b7df04b34e337aba2a7add5eef))
+* **doctor:** slugify cwd per-char for memory path ([4439616](https://github.com/damusix/atomic-claude/commit/44396167951debe2dc0d8bec2558ac438545eba1))
+* **doctor:** stream repair output; struct-based repair seam ([46905ef](https://github.com/damusix/atomic-claude/commit/46905eff21ff476fc8eb3bb139c6e6a27b0574e4))
+* **signals:** stop mutating caller opts; read each file once ([456005f](https://github.com/damusix/atomic-claude/commit/456005fbc1e36a54f42ed876ec78d263590ecc62))
+
+
+### Performance Improvements
+
+* **bundlemirror:** read each artifact once instead of twice ([3893720](https://github.com/damusix/atomic-claude/commit/3893720d487388c979f8b96bcc49057cfa0049b1))
+* **doctor:** resolve git toplevel once per run, not per check ([9108f4d](https://github.com/damusix/atomic-claude/commit/9108f4d058c9f864416e03d29cbb23a9ac48a18a))
+
 ## [5.6.3](https://github.com/damusix/atomic-claude/compare/v5.6.2...v5.6.3) (2026-06-23)
 
 
