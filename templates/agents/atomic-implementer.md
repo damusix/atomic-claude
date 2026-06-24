@@ -58,6 +58,8 @@ No apologies, no alternatives. Bounce and stop.
 
 </surgical_mode>
 
+{{ template "agent-yagni" . }}
+
 {{ template "agent-implementer-workflow" . }}
 
 {{ template "agent-signals-output" . }}

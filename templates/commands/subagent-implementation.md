@@ -45,19 +45,9 @@ test -f .claude/.atomic-index/atomic.db
 ```
 
 - **Warm (DB exists):** run `atomic code sync` to bring the index up to date with the current working tree. Skip silently if `atomic` is absent or errors.
-- **Cold (no DB):** offer to build the index via `AskUserQuestion`:
+- **Cold (no DB):** run `atomic code index` directly — do **not** prompt. Indexing is cheap, idempotent, and harmless, so assume the user wants it. Print a one-line "Building code index (first run may take seconds to a few minutes)…" notice first, then run. If `atomic` is absent or indexing errors, proceed without the index — subagents degrade to sg/grep automatically.
 
-    ```
-    No code-intel index found (.claude/.atomic-index/atomic.db). Build one now so builders
-    and reviewers can use the dependency graph for this task? First index can take
-    seconds to a few minutes depending on repo size.
-    - Yes — run `atomic code index`
-    - No — proceed; subagents fall back to sg/grep
-    ```
-
-    On Yes: run `atomic code index`. On No (or if `atomic` is absent, or if indexing errors): proceed without the index — subagents degrade to sg/grep automatically.
-
-The index lifecycle is orchestrator-owned. Subagents never trigger indexing. A missing or declined index never blocks the loop.
+The index lifecycle is orchestrator-owned. Subagents never trigger indexing. A missing index never blocks the loop.
 
 ## Phase 1 — Write brief to `$SCRATCH`
 

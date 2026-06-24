@@ -19,7 +19,7 @@ Wire the built `atomic code` engine into the atomic artifact system so disposabl
 - [ ] `agent-search-tooling` carries a one-line bridge naming code-intel as the top search tier when an index is present.
 - [ ] `atomic-investigator` uses `code search/callers/callees/impact` for location/relationship questions when an index exists, and falls back to sg/grep otherwise.
 - [ ] `atomic-signals-inferrer` queries real import/call edges to inform domain clustering when an index exists, degrading to filename heuristics otherwise.
-- [ ] `/refresh-signals` ensures the index is fresh before dispatching the inferrer: `code sync` when warm; offer `code index` when cold; proceed degraded on decline or absence. The cold-start offer fires each run until accepted (memory-of-decline is a deferred follow-up, not this spec).
+- [ ] `/refresh-signals` ensures the index is fresh before dispatching the inferrer: `code sync` when warm; auto-run `code index` when cold (no prompt — indexing is harmless and idempotent); proceed degraded on index error or binary absence.
 - [ ] `/refresh-wiki` syncs/indexes each member repo best-effort before summarizing, and degrades to summary-without-graph when a repo has no index.
 - [ ] `/subagent-implementation` and `/autopilot` index/sync once at task start and run `code sync` after each builder commit so the reviewer queries current working-tree state; both degrade when unavailable.
 - [ ] `/atomic-plan` delegates structural exploration to the investigator (which now carries code-intel); the main agent issues no inline `code` queries.
@@ -47,9 +47,9 @@ Wire the built `atomic code` engine into the atomic artifact system so disposabl
 |---|------------|-------------|-------|------------|----------|
 | 1 | `agent-code-intel` partial + keystone investigator + search-tooling bridge | `templates/shared/agent-code-intel.md` (new), `templates/shared/agent-search-tooling.md`, `templates/agents/atomic-investigator.md`, rendered `agents/atomic-investigator.md` | atomic-builder | ~4 | `make render` clean; rendered investigator carries code-intel guidance + degradation; bridge line present |
 | 2 | Compose into implementer + reviewer + haiku | `templates/shared/agent-implementer-workflow.md`, `templates/agents/atomic-reviewer.md`, `templates/agents/atomic-haiku.md`, rendered `agents/{atomic-builder,atomic-surgeon,atomic-reviewer,atomic-haiku}.md` | atomic-builder | ~7 | rendered builder/surgeon/reviewer/haiku carry the partial; bounded-query + degradation present |
-| 3 | Signals: inferrer query + `/refresh-signals` lifecycle | `templates/agents/atomic-signals-inferrer.md`, `templates/commands/refresh-signals.md`, rendered outputs | atomic-builder | ~4 | inferrer uses import/call edges w/ degradation; refresh-signals syncs-if-warm / offers-if-cold before dispatch |
+| 3 | Signals: inferrer query + `/refresh-signals` lifecycle | `templates/agents/atomic-signals-inferrer.md`, `templates/commands/refresh-signals.md`, rendered outputs | atomic-builder | ~4 | inferrer uses import/call edges w/ degradation; refresh-signals syncs-if-warm / auto-indexes-if-cold (no prompt) before dispatch |
 | 4 | `/refresh-wiki` cross-repo index | `templates/commands/refresh-wiki.md`, rendered output | atomic-builder | ~2 | per-repo best-effort sync/index step; degrades to summary-without-graph |
-| 5 | Orchestrator lifecycle: `/subagent-implementation` + `/autopilot` | `templates/commands/subagent-implementation.md`, `templates/commands/autopilot.md`, rendered outputs | atomic-builder | ~4 | sync-if-warm at task start + sync-per-iteration (after each builder commit) steps. Cold-start diverges by command: `/subagent-implementation` (interactive) OFFERS via AskUserQuestion, never silent; `/autopilot` (unattended, autonomy already granted) auto-indexes best-effort at task start with no prompt, degrading on error — a mid-run prompt would violate autopilot's single-decision contract. Both degrade to grep when the index/binary is unavailable. |
+| 5 | Orchestrator lifecycle: `/subagent-implementation` + `/autopilot` | `templates/commands/subagent-implementation.md`, `templates/commands/autopilot.md`, rendered outputs | atomic-builder | ~4 | sync-if-warm at task start + sync-per-iteration (after each builder commit) steps. Cold-start is uniform: both auto-index best-effort at task start with no prompt (indexing is harmless and idempotent), degrading to grep on error or when the index/binary is unavailable. |
 | 6 | Parent-delegates: `/atomic-plan` + `/documentation` + `/gather-evidence` | `templates/commands/atomic-plan.md`, `templates/commands/documentation.md`, `templates/commands/gather-evidence.md`, rendered outputs | atomic-builder | ~6 | plan/doc delegate to subagent (no inline query); gather-evidence names code-intel Tier-1 |
 | 7 | Doctor index-freshness check | `atomic/internal/codeintel/...` (read-only status helper, mirroring how `checks_signals.go` calls `signals.Stale`), new doctor check file + test, doctor suite registration | atomic-builder | ~4 | `go test ./internal/doctor/...` green; PASS-absent / WARN-stale / PASS-fresh; never FAIL; doctor check appended (existing indices unchanged) |
 | 8 | Discoverability + docs + MCP page | `templates/commands/atomic-help.md`, `CLAUDE.md`, `README.md`, `docs/reference/*.md`, new MCP docs page | atomic-builder | ~6 | help-router verification zero `MISSING:`; docs build; bundle parity; "10 integrity checks" string in atomic-help bumped to "11" |
@@ -62,7 +62,7 @@ Wire the built `atomic code` engine into the atomic artifact system so disposabl
 |------|-----------|-----------|
 | Doctor check WARNs on every repo that never opted into code-intel (noise) | med | absence = PASS informational, never WARN; only WARN when a DB exists and is stale |
 | Subagent hard-depends on the index and errors when absent | med | degradation contract stated in the shared partial + verified per CP; fallback to sg/grep is the default path, query is the enhancement |
-| Cold-start `code index` ambushes the user (slow) on a hot path | med | only orchestrators trigger indexing; `/subagent-implementation` and `/refresh-signals` offer via AskUserQuestion (never silent); `/autopilot` auto-indexes best-effort with no prompt (autonomy already granted) and degrades on error; session-start auto-index is a non-goal |
+| Cold-start `code index` ambushes the user (slow) on a hot path | med | only orchestrators trigger indexing; `/refresh-signals`, `/subagent-implementation`, and `/autopilot` all auto-index best-effort with no prompt, printing a one-line "first run may take a while" notice and degrading on error; session-start auto-index is a non-goal |
 | Bundle/render drift slips into a commit | low | each CP verifies `make render` + `make -C atomic bundle` clean; pre-commit hook chains both |
 | `/refresh-wiki` cross-repo indexing is slow on large realms | med | best-effort, sync-if-warm, index-only-on-opt-in, degrade to summary-without-graph |
 | Parent agent still queries inline despite the principle | low | plan/documentation checkpoints assert "no inline query"; reviewer checks the rendered command text |
@@ -93,9 +93,13 @@ Built across 8 checkpoints via `/autopilot` (merge-verb `commit-only`). Commits 
 
 **Deferred items still open:**
 - None. Autopilot addressed every reviewer finding in-iteration; the scratchpad FOLLOWUPS ledger ended empty.
-- Pre-existing, separately tracked: memory-of-decline for the cold-start index offer (noted out-of-scope in the spec, not filed as a new follow-up).
+- Obsolete (2026-06-24): the cold-start index *offer* was removed in favor of uniform no-prompt auto-index, so memory-of-decline no longer applies — there is no decline to remember.
 
 ## Change log
+
+### 2026-06-24 — Cold-start indexing unified to no-prompt auto-index
+
+Removed the cold-start index *offer*. `/refresh-signals` and `/subagent-implementation` previously prompted via `AskUserQuestion` before building a cold index; both now run `atomic code index` directly with no prompt, matching `/autopilot`. Rationale: indexing is cheap, idempotent, and non-destructive — there is nothing to ask, and a one-line "first run may take a while" notice covers the only cost (latency). **Superseded:** the 2026-06-07 CP5 split (interactive commands offer, autopilot auto-indexes) and the original "cold-start is an explicit offer, never silent" rule — all three commands now auto-index uniformly. Body amended: the `/refresh-signals` success criterion, the CP3 and CP5 checkpoint cells, and the cold-start-ambush risk row; the memory-of-decline deferred item is marked obsolete. Aligns with the auto-index policy in `CLAUDE.md`.
 
 ### 2026-06-07 — CP5 cold-start behavior split by command
 

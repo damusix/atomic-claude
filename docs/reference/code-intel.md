@@ -111,7 +111,7 @@ Indexing is owned by orchestrator commands, never by the agents they dispatch. A
 
 | State | What happens |
 |-------|--------------|
-| Cold — no database | The first `index` can take seconds to minutes. `/refresh-signals` and `/subagent-implementation` *offer* to build it (you decide); `/autopilot` builds it best-effort without prompting because you already granted it autonomy. Nothing auto-indexes at session start. |
+| Cold — no database | The first `index` can take seconds to minutes. `/refresh-signals`, `/subagent-implementation`, and `/autopilot` all build it automatically without prompting — indexing is cheap and idempotent, so there is nothing to ask. Nothing auto-indexes at session start. |
 | Warm — database exists | Orchestrators run `atomic code sync` before dispatching work. Incremental and cheap. |
 | Per iteration | The implementation loop runs `sync` after each committed change so the next review queries current state. |
 

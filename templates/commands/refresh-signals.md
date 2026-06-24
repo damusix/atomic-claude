@@ -87,20 +87,9 @@ Ensure the code-intel index is current before dispatching the inferrer, so domai
 
 - If `atomic` is not on `$PATH` (already checked in Step 1 above): skip this step silently and proceed. The inferrer degrades to heuristic-only clustering.
 - If `.claude/.atomic-index/atomic.db` **exists** (warm index): run `atomic code sync` to bring it up to date with the current working tree. This is incremental and cheap. On sync error, print a warning and proceed degraded — a stale index is still useful and never blocks the refresh.
-- If `.claude/.atomic-index/atomic.db` **does not exist** (cold — no index yet): ask via `AskUserQuestion`:
+- If `.claude/.atomic-index/atomic.db` **does not exist** (cold — no index yet): run `atomic code index` directly — do **not** prompt. Indexing is cheap, idempotent, and harmless, so assume the user wants it. Print a one-line "Building code index (first run may take seconds to minutes)…" notice before running so a slow first index isn't a surprise. On index error, print a warning and proceed degraded.
 
-  ```
-  No code index found. Build one now so signals can use the real dependency graph?
-  First index can take seconds to minutes depending on repo size.
-  ```
-
-  Options:
-  - "Yes, build index" → run `atomic code index`. On completion, continue to Step 5.
-  - "No, use heuristics" → proceed to Step 5 without an index.
-
-  The offer fires each run until accepted. The decline is not persisted — memory-of-decline is a deferred follow-up out of scope here.
-
-A missing or declined index never blocks the refresh. The inferrer uses filename/path heuristics in that case and produces valid signals — the index is an enhancement, not a requirement.
+A missing index (binary absent, or a failed index/sync) never blocks the refresh. The inferrer uses filename/path heuristics in that case and produces valid signals — the index is an enhancement, not a requirement.
 
 ## Step 5 — Dispatch agent
 

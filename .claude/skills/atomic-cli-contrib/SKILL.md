@@ -283,4 +283,4 @@ Gotchas:
 - `docs/spec/atomic-state-and-config.md` — TOML config + state directory contract.
 - `docs/spec/atomic-validate.md` — bundle parity + cross-reference linting.
 - `.claude/rules/authoring/axioms.md` — the five design axioms this skill cross-references.
-- `CLAUDE.md` § "Subagents available for dispatch" — when to delegate CLI work to `atomic-builder` vs `atomic-surgeon`.
+- The harness agent roster (injected each session) — when to delegate CLI work to `atomic-implementer` (feature vs surgical mode).
