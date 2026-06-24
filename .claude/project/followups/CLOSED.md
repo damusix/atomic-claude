@@ -27,3 +27,4 @@
 - 2026-06-24 snowflake-sql-extraction — "Add Snowflake SQL dialect extraction" — *(closed 2026-06-24)*
 - 2026-06-24 artifact-templates-f-7 — "worktree-cleanup-prompt has 1 consumer (merge-flow only)" — *(closed 2026-06-24)*
 - 2026-06-24 hooks-tests-read-real-home — "hooks tests read real HOME — user's <wikis> block leaks into empty-output expectations" — *(closed 2026-06-24)*
+- 2026-06-24 artifact-templates-f-2 — "Renderer success message on stderr (matches bundle-mirror)" — *(closed 2026-06-24)*
