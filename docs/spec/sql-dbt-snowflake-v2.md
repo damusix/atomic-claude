@@ -184,12 +184,24 @@ Success: a `.sql` file whose only top-level statement is `COPY INTO fact FROM @l
 owning a `writes` to `fact` + a `references` to `load_stage`; a `.sql` file with only `CREATE TABLE`/`SELECT` and no
 top-level COPY → NO `script` node.
 
-## Implementation sequencing
+## Checkpoints
 
-Land as ordered, each green before the next: D-taxonomy (3 kinds) → D1/D2 (`.sql.jinja`) → E1 (path role) → E2 (macro
-nodes+calls) → E3 (macro-body ref ownership) → E4 (versioned refs) → E5 (alias) → F1 (FILE FORMAT) → F2 (column typing)
-→ F3 (FLATTEN) → F4 (standalone COPY). The dbt track (E) and Snowflake track (F) are independent after taxonomy; either
-may go first, but E1 precedes E2/E3.
+Land as ordered, each green before the next. The dbt track (E) and Snowflake track (F) are independent after taxonomy;
+either may go first, but E1 precedes E2/E3.
+
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | Taxonomy: 3 new node kinds | `types/types.go`, `types/types_test.go` | `TestNodeKindCount` = 38; file_format/macro/script present |
+| 2 | D1/D2 `.sql.jinja` ingestion | `standalone/exts.go`, `indexer/orchestrator.go`, `standalone/sql.go` | `.sql.jinja` routes + indexes; model basename `stg` |
+| 3 | E1 path-role detection | `standalone/sql.go` | `macros/` → macro node, no model node; `models/` unchanged |
+| 4 | E2 macro nodes + call edges | `standalone/sql.go` | `{% macro %}` → node; `{{ m() }}` → calls; denylist + pkg skip |
+| 5 | E3 macro-body ref ownership | `standalone/sql.go` | in-span ref → macro owner; out-of-span → model owner |
+| 6 | E4 versioned refs | `standalone/sql.go` | `ref('m', v=N)` → `m_v<N>`; B5 placeholder agrees |
+| 7 | E5 config(alias=) | `standalone/sql.go` | model node Metadata `alias` set; annotation only |
+| 8 | F1 CREATE FILE FORMAT | `standalone/sql.go` | `file_format` node; no edges |
+| 9 | F2 column typing | `standalone/sql.go` | column Metadata `type` VARIANT/OBJECT/ARRAY; generated merged |
+| 10 | F3 FLATTEN argument | `standalone/sql.go` | unqualified input → reference; dotted skipped |
+| 11 | F4 standalone COPY | `standalone/sql.go` | lazy `script` owner; in-body COPY not double-owned |
 
 ## Test plan
 
@@ -212,6 +224,8 @@ package-level `const <name>Fixture`). At minimum one fixture per success criteri
 
 ## Change log
 
+- 2026-06-24 — `## Implementation sequencing` reshaped to the `## Checkpoints` table form required by `atomic validate`
+  rule S5 (columns `# | Checkpoint | Files/areas | Verifies`). Content unchanged — same 11 ordered checkpoints.
 - 2026-06-24 — F3 disambiguated during implementation (pre-Group-F dispatch).
   **What changed:** F3 now emits a FLATTEN-argument reference only for a single **unqualified** identifier; any dotted
   expression is skipped. The original wording ("`tbl` or `schema.tbl`") was self-contradictory — `schema.tbl` and the

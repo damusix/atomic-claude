@@ -212,12 +212,23 @@ package-level `const <name>Fixture`). Cover, at minimum, one fixture per success
 - C the four O3 negative guards.
 - Taxonomy: `TestNodeKindCount` 31→35 with the four named kinds present.
 
-## Implementation sequencing
+## Checkpoints
 
-Land as ordered checkpoints, each green before the next: A1 (preamble — verify no regression) → A5 (stage) → A2
-(COPY body edge) → A3 (task) → A4 (stream) → A6 (clone) → B taxonomy+model node+gate → B2/B3 (ref/source harvest)
-→ B5 (placeholder residual) → C (guards). Snowflake and dbt are independent; either may go first, but A1 precedes
+Land as ordered, each green before the next. Snowflake and dbt are independent; either may go first, but A1 precedes
 the other Snowflake items and A5 precedes A2 (so `@stage` references can resolve to a stage node).
+
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | A1 preamble class/security modifiers | `standalone/sql.go` | TRANSIENT/SECURE etc. parse; no dialect regression |
+| 2 | A5 CREATE STAGE | `standalone/sql.go` | `stage` node |
+| 3 | A2 COPY INTO body edge | `standalone/sql.go` | writes/references owned by routine/task; `@stage` resolves |
+| 4 | A3 CREATE TASK | `standalone/sql.go` | `task` node; AFTER predecessors → references |
+| 5 | A4 CREATE STREAM | `standalone/sql.go` | `stream` node + reference to ON object |
+| 6 | A6 CLONE | `standalone/sql.go` | `references` edge new → src |
+| 7 | B taxonomy + model node + gate | `types/`, `standalone/sql.go` | `model` node on Jinja gate; AllNodeKinds 31→35 |
+| 8 | B2/B3 ref/source harvest | `standalone/sql.go` | ref grammar (1/2-arg + version); source → `a.b` |
+| 9 | B5 placeholder residual | `standalone/sql.go` | residual table lineage; no surviving `__dbt_*` |
+| 10 | C O3 syntax-tolerance guards | `standalone/sql.go` | QUALIFY/`::`/`$1`/FLATTEN emit no garbage |
 
 ## Implementation log
 
@@ -234,6 +245,9 @@ the other Snowflake items and A5 precedes A2 (so `@stage` references can resolve
 
 ## Change log
 
+- 2026-06-24 — `## Implementation sequencing` reshaped to the `## Checkpoints` table form required by `atomic validate`
+  rule S5 (the original prose heading predated S5 enforcement on this spec). Content unchanged — same ordered A/B/C
+  checkpoints. Surfaced while validating the v2 child spec.
 - 2026-06-24 — Revised after spec-mode review (pre-implementation, no prior build).
   **What changed:** `.sql.jinja` ingestion moved to Non-goals (v2) — `filepath.Ext` returns `.jinja`, so it needs
   orchestrator compound-extension routing, not a registry list-add; plain `.sql` dbt models are already ingested.
