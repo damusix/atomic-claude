@@ -2388,6 +2388,362 @@ func TestD1D2SqlJinjaModelNode(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Part E — dbt macros and project awareness (E1 / E2 / E3)
+// ---------------------------------------------------------------------------
+
+// E1 — path-role detection.
+//
+// macros/util.sql with {% macro u() %}…{% endmacro %} must:
+//   - produce a macro node named "u"
+//   - NOT produce a model node
+//
+// models/stg.sql with Jinja must produce a model node (v1 non-regression).
+const e1MacroFileFixture = `
+{% macro u() %}
+  SELECT 1
+{% endmacro %}
+`
+
+const e1ModelFileFixture = `
+SELECT * FROM {{ ref('base') }}
+`
+
+func TestE1PathRoleMacroFile(t *testing.T) {
+	ext := newSQL()
+
+	// macros/ role: should produce macro node, no model node.
+	result, err := ext.Extract("macros/util.sql", e1MacroFileFixture)
+	if err != nil {
+		t.Fatalf("Extract (macros/util.sql): %v", err)
+	}
+
+	// Must have a macro node named "u".
+	macroNode := findSQLNodeExact(result.Nodes, types.NodeKindMacro, "u")
+	if macroNode == nil {
+		t.Fatal("macros/util.sql: expected macro node 'u' from {% macro u() %}")
+	}
+
+	// Must NOT have a model node.
+	for _, n := range result.Nodes {
+		if n.Kind == types.NodeKindModel {
+			t.Errorf("macros/util.sql: must NOT produce a model node; got model %q", n.Name)
+		}
+	}
+}
+
+func TestE1PathRoleModelFile(t *testing.T) {
+	ext := newSQL()
+
+	// models/ role: should produce model node as in v1 (no regression).
+	result, err := ext.Extract("models/stg.sql", e1ModelFileFixture)
+	if err != nil {
+		t.Fatalf("Extract (models/stg.sql): %v", err)
+	}
+
+	model := findSQLNodeExact(result.Nodes, types.NodeKindModel, "stg")
+	if model == nil {
+		t.Fatal("models/stg.sql: expected model node 'stg' (v1 behaviour, no regression)")
+	}
+}
+
+// E2 — macro nodes + call edges with guards.
+//
+// Fixture has four invocations:
+//   - {{ my_macro() }}         → calls edge to my_macro (local macro call)
+//   - {{ dbt_utils.star() }}   → package-qualified, NO edge
+//   - {{ ref('x') }}           → denylist, NO calls edge
+//   - {{ config(...) }}        → denylist, NO calls edge
+//
+// Exactly one calls edge must be emitted (to my_macro).
+const e2FalseEdgeGuardFixture = `
+SELECT
+  {{ my_macro() }},
+  {{ dbt_utils.star(from=ref('orders')) }},
+  {{ ref('x') }},
+  {{ config(materialized='table') }}
+FROM {{ ref('base_tbl') }}
+`
+
+func TestE2FalseEdgeGuard(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("models/e2_guard.sql", e2FalseEdgeGuardFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// Must have a calls edge to my_macro.
+	if !hasUnresolvedRef(refs, "my_macro", types.EdgeKindCalls) {
+		t.Error("expected calls edge to 'my_macro' from {{ my_macro() }}")
+	}
+
+	// dbt_utils.star is package-qualified — no edge.
+	if countUnresolvedRefs(refs, "dbt_utils") > 0 {
+		t.Error("package 'dbt_utils' must not appear as an edge target (package-qualified skip)")
+	}
+	if countUnresolvedRefs(refs, "star") > 0 {
+		t.Error("'star' from dbt_utils.star() must not appear as an edge target (package-qualified skip)")
+	}
+
+	// ref / config are denylist — no calls edge.
+	if hasUnresolvedRef(refs, "ref", types.EdgeKindCalls) {
+		t.Error("'ref' is in the denylist; must not produce a calls edge")
+	}
+	if hasUnresolvedRef(refs, "config", types.EdgeKindCalls) {
+		t.Error("'config' is in the denylist; must not produce a calls edge")
+	}
+
+	// Count total calls edges — must be exactly 1 (my_macro only).
+	callsCount := 0
+	for _, r := range refs {
+		if r.ReferenceKind == types.EdgeKindCalls {
+			callsCount++
+		}
+	}
+	if callsCount != 1 {
+		t.Errorf("expected exactly 1 calls edge (to my_macro); got %d", callsCount)
+	}
+}
+
+// E3 — macro-body ref ownership.
+//
+// Fixture: a model file with two refs:
+//   - top-level {{ ref('a') }}            → owned by the MODEL node
+//   - inside {% macro m() %}{{ ref('b') }}{% endmacro %} → owned by macro node m
+//
+// We assert the FromNodeID of each UnresolvedReference to verify ownership.
+// WHY FromNodeID: presence alone doesn't tell us who owns the ref — only
+// FromNodeID distinguishes "ref 'a' owned by model" from "ref 'a' owned by
+// macro m". The test must fail when ownership is wrong.
+const e3SpanBoundaryFixture = `
+SELECT * FROM {{ ref('a') }}
+{% macro m() %}
+  SELECT * FROM {{ ref('b') }}
+{% endmacro %}
+`
+
+func TestE3SpanBoundaryOwnership(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("models/e3_span.sql", e3SpanBoundaryFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// Model node must exist.
+	modelNode := findSQLNodeExact(result.Nodes, types.NodeKindModel, "e3_span")
+	if modelNode == nil {
+		t.Fatal("expected model node 'e3_span'")
+	}
+
+	// Macro node m must exist.
+	macroNode := findSQLNodeExact(result.Nodes, types.NodeKindMacro, "m")
+	if macroNode == nil {
+		t.Fatal("expected macro node 'm' from {% macro m() %}")
+	}
+
+	refs := result.UnresolvedReferences
+
+	// ref('a') is OUTSIDE all macro spans → must be owned by the model node.
+	var refAOwner string
+	for _, r := range refs {
+		if r.ReferenceName == "a" && r.ReferenceKind == types.EdgeKindReferences {
+			refAOwner = r.FromNodeID
+		}
+	}
+	if refAOwner == "" {
+		t.Fatal("expected references edge to 'a' (top-level ref outside macro body)")
+	}
+	if refAOwner != modelNode.ID {
+		t.Errorf("ref('a') must be owned by model node (ID=%s); got owner ID=%s", modelNode.ID, refAOwner)
+	}
+
+	// ref('b') is INSIDE the macro body → must be owned by macro node m.
+	var refBOwner string
+	for _, r := range refs {
+		if r.ReferenceName == "b" && r.ReferenceKind == types.EdgeKindReferences {
+			refBOwner = r.FromNodeID
+		}
+	}
+	if refBOwner == "" {
+		t.Fatal("expected references edge to 'b' (ref inside macro body)")
+	}
+	if refBOwner != macroNode.ID {
+		t.Errorf("ref('b') must be owned by macro node 'm' (ID=%s); got owner ID=%s", macroNode.ID, refBOwner)
+	}
+
+	// No model→b edge allowed; no macro→a edge allowed.
+	for _, r := range refs {
+		if r.ReferenceName == "b" && r.FromNodeID == modelNode.ID {
+			t.Error("ref('b') inside macro body must NOT be owned by the model node")
+		}
+		if r.ReferenceName == "a" && r.FromNodeID == macroNode.ID {
+			t.Error("ref('a') outside macro body must NOT be owned by the macro node")
+		}
+	}
+}
+
+// E3 unicode-comment span alignment.
+//
+// WHY: blankPreserveNewlines replaces every multi-byte UTF-8 rune with a
+// single-byte space, so a {# comment #} containing unicode SHORTENS
+// rawForHarvest relative to source. If macro spans were computed on source
+// but ref offsets are into rawForHarvest, the span boundaries would be wrong
+// and a ref inside the macro body would be mis-attributed to the model node.
+//
+// This test catches that regression: a unicode Jinja comment appears BEFORE
+// the macro definition. Without the fix (compute spans on rawForHarvest),
+// the macro span start in rawForHarvest coordinates is earlier than the span
+// recorded from source, and ref('b') falls outside the (now-shifted) span —
+// it gets attributed to the model node instead of the macro node.
+const e3UnicodeCommentFixture = `
+SELECT * FROM {{ ref('a') }}
+{# note: café 你好 — this comment contains multi-byte UTF-8 runes #}
+{% macro m() %}
+  SELECT * FROM {{ ref('b') }}
+{% endmacro %}
+`
+
+func TestE3UnicodeCommentSpanAlignment(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("models/e3_unicode.sql", e3UnicodeCommentFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	modelNode := findSQLNodeExact(result.Nodes, types.NodeKindModel, "e3_unicode")
+	if modelNode == nil {
+		t.Fatal("expected model node 'e3_unicode'")
+	}
+	macroNode := findSQLNodeExact(result.Nodes, types.NodeKindMacro, "m")
+	if macroNode == nil {
+		t.Fatal("expected macro node 'm'")
+	}
+
+	// ref('b') is INSIDE the macro body — must be owned by the macro node.
+	// WHY this assertion catches the bug: if spans are computed on `source`
+	// but match offsets are into rawForHarvest, the unicode comment shrinks
+	// rawForHarvest and ref('b')'s offset falls BEFORE the macro span start,
+	// so it would be attributed to the model node.
+	var refBOwner string
+	for _, r := range result.UnresolvedReferences {
+		if r.ReferenceName == "b" && r.ReferenceKind == types.EdgeKindReferences {
+			refBOwner = r.FromNodeID
+		}
+	}
+	if refBOwner == "" {
+		t.Fatal("expected references edge to 'b' (inside macro body after unicode comment)")
+	}
+	if refBOwner != macroNode.ID {
+		t.Errorf("ref('b') must be owned by macro node 'm' (span-alignment bug); got owner ID=%s, macro ID=%s, model ID=%s",
+			refBOwner, macroNode.ID, modelNode.ID)
+	}
+
+	// ref('a') remains owned by the model node (outside all macro spans).
+	var refAOwner string
+	for _, r := range result.UnresolvedReferences {
+		if r.ReferenceName == "a" && r.ReferenceKind == types.EdgeKindReferences {
+			refAOwner = r.FromNodeID
+		}
+	}
+	if refAOwner == "" {
+		t.Fatal("expected references edge to 'a' (top-level, outside macro)")
+	}
+	if refAOwner != modelNode.ID {
+		t.Errorf("ref('a') must be owned by model node; got owner ID=%s", refAOwner)
+	}
+}
+
+// E2 per-owner call-edge dedup.
+//
+// WHY: if seenCall is keyed on callee alone, only the FIRST owner (model or
+// macro) gets a calls edge to my_helper — the second owner's edge is dropped.
+// The dedup key must be "owner:callee" so each distinct owner gets its edge.
+const e2PerOwnerCallDedupFixture = `
+SELECT {{ my_helper() }}
+FROM {{ ref('base') }}
+{% macro wrapper() %}
+  SELECT {{ my_helper() }}
+{% endmacro %}
+`
+
+func TestE2PerOwnerCallDedup(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("models/e2_dedup.sql", e2PerOwnerCallDedupFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	modelNode := findSQLNodeExact(result.Nodes, types.NodeKindModel, "e2_dedup")
+	if modelNode == nil {
+		t.Fatal("expected model node 'e2_dedup'")
+	}
+	macroNode := findSQLNodeExact(result.Nodes, types.NodeKindMacro, "wrapper")
+	if macroNode == nil {
+		t.Fatal("expected macro node 'wrapper'")
+	}
+
+	// Both the model node AND the macro node must have a calls edge to my_helper.
+	modelCallsHelper := false
+	macroCallsHelper := false
+	for _, r := range result.UnresolvedReferences {
+		if r.ReferenceName == "my_helper" && r.ReferenceKind == types.EdgeKindCalls {
+			if r.FromNodeID == modelNode.ID {
+				modelCallsHelper = true
+			}
+			if r.FromNodeID == macroNode.ID {
+				macroCallsHelper = true
+			}
+		}
+	}
+	if !modelCallsHelper {
+		t.Error("model node must have a calls edge to 'my_helper' (called in top-level SELECT)")
+	}
+	if !macroCallsHelper {
+		t.Error("macro node 'wrapper' must have a calls edge to 'my_helper' (called inside macro body)")
+	}
+}
+
+// E-nonregression — existing v1 dbt model (no macros) must be unchanged.
+//
+// WHY: E1/E2/E3 must not disturb the happy path for plain dbt models.
+// Re-using the b5PlaceholderResidualFixture (already tested for model node +
+// ref DAG) with a models/ path confirms v1 behaviour is preserved.
+func TestEV1NonRegression(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("models/b5_residual.sql", b5PlaceholderResidualFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// Model node must exist (v1).
+	modelNode := findSQLNodeExact(result.Nodes, types.NodeKindModel, "b5_residual")
+	if modelNode == nil {
+		t.Fatal("v1 non-regression: expected model node 'b5_residual'")
+	}
+
+	// ref('stg') and 'real_tbl' must be owned by the model node.
+	for _, want := range []string{"stg", "real_tbl"} {
+		found := false
+		for _, r := range result.UnresolvedReferences {
+			if r.ReferenceName == want && r.FromNodeID == modelNode.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("v1 non-regression: references to %q must be owned by the model node", want)
+		}
+	}
+
+	// No macro nodes must be present in a plain model file.
+	for _, n := range result.Nodes {
+		if n.Kind == types.NodeKindMacro {
+			t.Errorf("v1 non-regression: plain model must not produce macro nodes; got %q", n.Name)
+		}
+	}
+}
+
 func TestC4FlattenNoEdge(t *testing.T) {
 	ext := newSQL()
 

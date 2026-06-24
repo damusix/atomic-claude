@@ -553,6 +553,99 @@ var dbtSourceSubstRE = regexp.MustCompile(
 var dbtAnyExprRE = regexp.MustCompile(`(?s)\{\{.*?\}\}|\{%.*?%\}`)
 
 // ---------------------------------------------------------------------------
+// E — dbt macros and project awareness (E1 / E2 / E3)
+// ---------------------------------------------------------------------------
+
+// dbtMacroDefRE matches {% macro <name>(<args>) %} … {% endmacro %} blocks.
+// Tolerates whitespace-control markers ({%- / -%}) and arbitrary spacing.
+// Group 1 = macro name. Used in E2 (node harvesting) and E3 (span computation).
+var dbtMacroDefRE = regexp.MustCompile(
+	`(?s)\{%-?\s*macro\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*-?%\}.*?\{%-?\s*endmacro\s*-?%\}`,
+)
+
+// dbtMacroCallRE matches {{ <name>(...) }} invocations. Tolerates whitespace-
+// control markers. Group 1 = the raw callee token (may be "pkg.fn" or bare "fn").
+// Guards are applied by the caller (denylist + package-qualified skip).
+var dbtMacroCallRE = regexp.MustCompile(
+	`\{\{[-\s]*([A-Za-z_][A-Za-z0-9_.]*)\s*\(`,
+)
+
+// dbtMacroCallDenylist is the set of bare names that are NOT user-defined macro
+// calls. Includes dbt built-ins, Jinja2 built-ins (zip, range), and pseudo-
+// variables. Package-qualified calls (a.b) are rejected by a separate path-check.
+//
+// zip and range are Jinja2 built-ins — not dbt macros — but they look identical
+// syntactically, so they belong here to suppress false call edges.
+var dbtMacroCallDenylist = map[string]bool{
+	"ref": true, "source": true, "config": true, "var": true,
+	"env_var": true, "is_incremental": true, "should_full_refresh": true,
+	"this": true, "target": true, "builtins": true, "adapter": true,
+	"exceptions": true, "modules": true, "api": true, "log": true,
+	"print": true, "run_query": true, "run_started_at": true, "statement": true,
+	"return": true, "set": true, "dbt_version": true, "invocation_id": true,
+	"flags": true, "model": true, "graph": true,
+	"fromjson": true, "tojson": true, "fromyaml": true, "toyaml": true,
+	"zip": true, "range": true, // Jinja2 built-ins, not dbt macros
+}
+
+// dbtFileRole classifies a dbt project file by its path segment to determine
+// whether it should produce a model node, only macro nodes, or neither.
+//
+//   - path contains /macros/  → "macro"  (harvest macro defs, no model node)
+//   - path contains /analyses/, /tests/, /seeds/, or /snapshots/ → "other"
+//     (no model node; macro defs are still harvested if present)
+//   - otherwise (incl. /models/ and unrecognised locations) → "model"
+//     (create the model node exactly as v1; preserves v1 behaviour by default)
+func dbtFileRole(filePath string) string {
+	// Use forward slashes for cross-platform path checks; filepath.ToSlash is
+	// not needed on macOS/Linux (the only supported targets), but the separator
+	// comparison uses '/' explicitly to avoid matching a bare segment name
+	// (e.g. "macros_extra" must not match "/macros/").
+	p := strings.ToLower(filePath)
+	for _, c := range []byte(p) {
+		if c == '\\' {
+			// Normalise backslashes to forward slashes (Windows paths in tests).
+			p = strings.ReplaceAll(p, "\\", "/")
+			break
+		}
+	}
+	// Check for the segment with a leading slash (middle of path) OR as a
+	// leading segment (path starts with the segment, no leading slash).
+	hasSeg := func(seg string) bool {
+		// seg must be like "/macros/" already (with slashes on both sides).
+		// Match anywhere mid-path, or at the very start of the path.
+		return strings.Contains(p, seg) || strings.HasPrefix(p, seg[1:])
+	}
+	if hasSeg("/macros/") {
+		return "macro"
+	}
+	for _, seg := range []string{"/analyses/", "/tests/", "/seeds/", "/snapshots/"} {
+		if hasSeg(seg) {
+			return "other"
+		}
+	}
+	return "model"
+}
+
+// macroSpan holds the byte [start, end) of a single {% macro %}…{% endmacro %} block.
+type macroSpan struct {
+	start int
+	end   int
+	id    string // node ID of the owning macro node
+}
+
+// inMacroSpan returns the macroSpan whose [start, end) contains offset, or nil.
+// dbt does not support nested macros, so simple linear search is correct.
+func inMacroSpan(spans []macroSpan, offset int) *macroSpan {
+	for i := range spans {
+		if offset >= spans[i].start && offset < spans[i].end {
+			return &spans[i]
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // SQLExtractor
 // ---------------------------------------------------------------------------
 
@@ -576,43 +669,95 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 	// ---------------------------------------------------------------------------
 
 	// B1 gate: only activate when the source contains Jinja markers.
-	var dbtModelID string // non-empty when the pre-pass fired
+	var dbtModelID string // non-empty when the pre-pass fired AND a model node was created
 	if dbtJinjaGateRE.MatchString(source) {
-		// B4: one model node per file, named by the basename without extension.
-		// For .sql.jinja files the compound suffix must be stripped in full so
-		// {{ ref('stg') }} resolves to this node — not to a phantom 'stg.sql'.
-		base := filepath.Base(filePath)
-		var modelName string
-		if strings.HasSuffix(strings.ToLower(base), ".sql.jinja") {
-			modelName = base[:len(base)-len(".sql.jinja")]
-		} else {
-			modelName = strings.TrimSuffix(base, filepath.Ext(base))
-		}
-
-		// Emit the model node at line 1 (file-level concept).
-		modelLine := 1
-		modelQName := modelName
-		modelID := extraction.GenerateNodeID(filePath, string(types.NodeKindModel), modelQName, modelLine)
-		modelNode := types.Node{
-			ID:            modelID,
-			Kind:          types.NodeKindModel,
-			Name:          modelName,
-			QualifiedName: modelQName,
-			FilePath:      filePath,
-			Language:      types.LanguageSQL,
-			StartLine:     modelLine,
-			EndLine:       modelLine,
-			IsExported:    true,
-		}
-		result.Nodes = append(result.Nodes, modelNode)
-		dbtModelID = modelID
+		// E1: classify the file role by path segments.
+		// role == "model"  → create model node (v1 behaviour, the default).
+		// role == "macro"  → harvest macro defs only; no model node.
+		// role == "other"  → no model node; macro defs still harvested.
+		role := dbtFileRole(filePath)
 
 		// Remove {# … #} comments before harvest so refs inside them are skipped.
+		// Built here (before span extraction) so that macro spans and all harvest
+		// loops use offsets into the same string — rawForHarvest. If spans were
+		// computed on `source` instead, a unicode Jinja comment before a macro block
+		// would compress the byte offsets in rawForHarvest (blankPreserveNewlines
+		// replaces multi-byte runes with single-byte spaces), causing refs inside the
+		// macro body to be mis-attributed to the model node (span misalignment).
 		rawForHarvest := dbtJinjaCommentRE.ReplaceAllStringFunc(source, func(m string) string {
 			return blankPreserveNewlines(m)
 		})
 
+		// E2: harvest {% macro name(args) %} … {% endmacro %} definitions.
+		// Emitted regardless of role; computed on rawForHarvest so that all offsets
+		// (spans and harvest loops) are in the same coordinate space.
+		// We also compute the byte spans (E3) for ref/call ownership.
+		var spans []macroSpan // byte spans of all macro blocks (for E3)
+
+		for _, m := range dbtMacroDefRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
+			macroName := rawForHarvest[m[2]:m[3]]
+			macroLine := strings.Count(rawForHarvest[:m[0]], "\n") + 1
+			macroID := extraction.GenerateNodeID(filePath, string(types.NodeKindMacro), macroName, macroLine)
+			macroNode := types.Node{
+				ID:            macroID,
+				Kind:          types.NodeKindMacro,
+				Name:          macroName,
+				QualifiedName: macroName,
+				FilePath:      filePath,
+				Language:      types.LanguageSQL,
+				StartLine:     macroLine,
+				EndLine:       macroLine,
+				IsExported:    true,
+			}
+			result.Nodes = append(result.Nodes, macroNode)
+			spans = append(spans, macroSpan{start: m[0], end: m[1], id: macroID})
+		}
+
+		// B4 (role == model only): one model node per file, named by the basename
+		// without extension. For .sql.jinja files the compound suffix must be stripped
+		// in full so {{ ref('stg') }} resolves to this node — not to a phantom 'stg.sql'.
+		if role == "model" {
+			base := filepath.Base(filePath)
+			var modelName string
+			if strings.HasSuffix(strings.ToLower(base), ".sql.jinja") {
+				modelName = base[:len(base)-len(".sql.jinja")]
+			} else {
+				modelName = strings.TrimSuffix(base, filepath.Ext(base))
+			}
+
+			modelLine := 1
+			modelQName := modelName
+			modelID := extraction.GenerateNodeID(filePath, string(types.NodeKindModel), modelQName, modelLine)
+			modelNode := types.Node{
+				ID:            modelID,
+				Kind:          types.NodeKindModel,
+				Name:          modelName,
+				QualifiedName: modelQName,
+				FilePath:      filePath,
+				Language:      types.LanguageSQL,
+				StartLine:     modelLine,
+				EndLine:       modelLine,
+				IsExported:    true,
+			}
+			result.Nodes = append(result.Nodes, modelNode)
+			dbtModelID = modelID
+		}
+
+		// ownerForOffset returns the node ID that owns the ref/call at the given
+		// byte offset. E3: if the offset falls inside a macro span, the macro node
+		// owns it; otherwise the model node owns it (empty string when there is no
+		// model node, i.e. role != model).
+		ownerForOffset := func(offset int) string {
+			if sp := inMacroSpan(spans, offset); sp != nil {
+				return sp.id
+			}
+			return dbtModelID // empty string when role != model
+		}
+
 		// B2: harvest ref() edges from the comment-stripped raw source.
+		// E3: ownership is determined by ownerForOffset.
+		// E1: refs whose owner is empty (outside macro spans in a non-model file)
+		// are dropped — there is no node to attach them to.
 		seenRef := map[string]bool{}
 		for _, m := range dbtRefRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
 			first := rawForHarvest[m[2]:m[3]]
@@ -627,12 +772,17 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			if modelRef == "" || seenRef[modelRef] {
 				continue
 			}
+			owner := ownerForOffset(m[0])
+			if owner == "" {
+				continue // no owning node; drop
+			}
 			seenRef[modelRef] = true
 			result.UnresolvedReferences = append(result.UnresolvedReferences,
-				sqlRef(filePath, modelID, modelRef, types.EdgeKindReferences, 1))
+				sqlRef(filePath, owner, modelRef, types.EdgeKindReferences, 1))
 		}
 
 		// B3: harvest source() edges.
+		// E3: ownership follows ownerForOffset.
 		seenSrc := map[string]bool{}
 		for _, m := range dbtSourceRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
 			schema := rawForHarvest[m[2]:m[3]]
@@ -641,62 +791,98 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			if seenSrc[synthetic] {
 				continue
 			}
+			owner := ownerForOffset(m[0])
+			if owner == "" {
+				continue // no owning node; drop
+			}
 			seenSrc[synthetic] = true
 			result.UnresolvedReferences = append(result.UnresolvedReferences,
-				sqlRef(filePath, modelID, synthetic, types.EdgeKindReferences, 1))
+				sqlRef(filePath, owner, synthetic, types.EdgeKindReferences, 1))
 		}
 
-		// B5: build the placeholder-substituted residual that the normal pipeline
-		// will process. Replace ref/source calls with safe identifiers, then blank
-		// remaining Jinja expressions length-preservingly.
-
-		// Step 1: replace {{ ref('x') }} → __dbt_ref_<model>
-		// dbtRefSubstRE is guaranteed to match (ReplaceAllStringFunc only calls the
-		// func for successful matches), so FindStringSubmatch cannot return nil here.
-		residual := dbtRefSubstRE.ReplaceAllStringFunc(source, func(m string) string {
-			sub := dbtRefSubstRE.FindStringSubmatch(m)
-			modelRef := sub[1]
-			if sub[2] != "" {
-				// Two positional literals: model name is the second.
-				modelRef = sub[2]
-			}
-			return padTo("__dbt_ref_"+modelRef, len(m))
-		})
-
-		// Step 2: replace {{ source('a','b') }} → __dbt_src_a__b
-		residual = dbtSourceSubstRE.ReplaceAllStringFunc(residual, func(m string) string {
-			sub := dbtSourceSubstRE.FindStringSubmatch(m)
-			return padTo("__dbt_src_"+sub[1]+"__"+sub[2], len(m))
-		})
-
-		// Step 3: blank remaining {{ … }} / {% … %} length-preservingly.
-		residual = dbtAnyExprRE.ReplaceAllStringFunc(residual, func(m string) string {
-			return blankPreserveNewlines(m)
-		})
-
-		// B5 residual: run scanBodyEdges on the residual with the model node as
-		// the owning fromNodeID. This captures real table names (FROM/JOIN real_tbl).
-		// The residual goes through the normal stripComments/stripStrings below so
-		// the model-node body scan receives a properly cleaned version.
-		residualStripped := stripStrings(stripComments(residual))
-		ctes := extractCTENames(residualStripped)
-		bodyEdges := scanBodyEdges(filePath, modelID, residualStripped, 0, residualStripped, ctes)
-
-		// Drop any residual reference whose name starts with __dbt_ref_ or __dbt_src_
-		// — those are the placeholder identifiers we injected; the harvest already owns
-		// the real edges.
-		for _, ref := range bodyEdges {
-			if strings.HasPrefix(ref.ReferenceName, "__dbt_ref_") || strings.HasPrefix(ref.ReferenceName, "__dbt_src_") {
+		// E2: harvest macro call edges {{ name(...) }} from the comment-stripped raw
+		// source. Guards:
+		//   (a) bare-name denylist — dbt built-ins, Jinja2 built-ins, pseudo-variables.
+		//   (b) package-qualified skip — any "a.b(" token (contains a dot) is external.
+		// E3: ownership is determined by ownerForOffset.
+		// Dedup key is "owner:callee" so each distinct owner gets its own calls edge
+		// for the same callee (e.g. both a model and a macro may call my_helper()).
+		seenCall := map[string]bool{}
+		for _, m := range dbtMacroCallRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
+			callee := rawForHarvest[m[2]:m[3]]
+			// (b) package-qualified: any dot means external package — skip.
+			if strings.Contains(callee, ".") {
 				continue
 			}
-			result.UnresolvedReferences = append(result.UnresolvedReferences, ref)
+			// (a) denylist check on the bare name.
+			if dbtMacroCallDenylist[callee] {
+				continue
+			}
+			owner := ownerForOffset(m[0])
+			if owner == "" {
+				continue // no owning node; drop
+			}
+			dedupKey := owner + ":" + callee
+			if seenCall[dedupKey] {
+				continue
+			}
+			seenCall[dedupKey] = true
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, owner, callee, types.EdgeKindCalls, 1))
 		}
 
-		// Replace source with the residual so the normal definition scan below can
-		// process embedded CREATEs inside the model without being confused by Jinja.
-		source = residual
+		// B5: build the placeholder-substituted residual for the normal pipeline.
+		// Only run when there IS a model node — for macro/other files the residual
+		// scan would have no owning node and is mostly Jinja anyway (near-empty SQL).
+		if dbtModelID != "" {
+			// Step 1: replace {{ ref('x') }} → __dbt_ref_<model>
+			// dbtRefSubstRE is guaranteed to match (ReplaceAllStringFunc only calls the
+			// func for successful matches), so FindStringSubmatch cannot return nil here.
+			residual := dbtRefSubstRE.ReplaceAllStringFunc(source, func(m string) string {
+				sub := dbtRefSubstRE.FindStringSubmatch(m)
+				modelRef := sub[1]
+				if sub[2] != "" {
+					// Two positional literals: model name is the second.
+					modelRef = sub[2]
+				}
+				return padTo("__dbt_ref_"+modelRef, len(m))
+			})
+
+			// Step 2: replace {{ source('a','b') }} → __dbt_src_a__b
+			residual = dbtSourceSubstRE.ReplaceAllStringFunc(residual, func(m string) string {
+				sub := dbtSourceSubstRE.FindStringSubmatch(m)
+				return padTo("__dbt_src_"+sub[1]+"__"+sub[2], len(m))
+			})
+
+			// Step 3: blank remaining {{ … }} / {% … %} length-preservingly.
+			residual = dbtAnyExprRE.ReplaceAllStringFunc(residual, func(m string) string {
+				return blankPreserveNewlines(m)
+			})
+
+			// B5 residual: run scanBodyEdges on the residual with the model node as
+			// the owning fromNodeID. This captures real table names (FROM/JOIN real_tbl).
+			// The residual goes through the normal stripComments/stripStrings below so
+			// the model-node body scan receives a properly cleaned version.
+			residualStripped := stripStrings(stripComments(residual))
+			ctes := extractCTENames(residualStripped)
+			bodyEdges := scanBodyEdges(filePath, dbtModelID, residualStripped, 0, residualStripped, ctes)
+
+			// Drop any residual reference whose name starts with __dbt_ref_ or __dbt_src_
+			// — those are the placeholder identifiers we injected; the harvest already owns
+			// the real edges.
+			for _, ref := range bodyEdges {
+				if strings.HasPrefix(ref.ReferenceName, "__dbt_ref_") || strings.HasPrefix(ref.ReferenceName, "__dbt_src_") {
+					continue
+				}
+				result.UnresolvedReferences = append(result.UnresolvedReferences, ref)
+			}
+
+			// Replace source with the residual so the normal definition scan below can
+			// process embedded CREATEs inside the model without being confused by Jinja.
+			source = residual
+		}
 	}
-	_ = dbtModelID // may be empty for non-Jinja files; used only in pre-pass above
+	_ = dbtModelID // may be empty for non-Jinja files or macro/other roles
 
 	// Strip comments and string literals before matching to avoid false positives.
 	stripped := stripComments(source)
