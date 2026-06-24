@@ -91,7 +91,6 @@ Design is exploratory — looser rules than spec. The required sections are prob
 
 | # | Rule | Severity |
 |---|------|----------|
-| C1 | Every agent in `CLAUDE.md` "Subagents available for dispatch" list exists at `agents/<name>.md` | FAIL |
 | C2 | Every agent in `agents/*.md` (with `atomic-` prefix) appears in `CLAUDE.md` registry | WARN |
 | C3 | Every `subagent_type: "<name>"` in `commands/*.md` resolves to `agents/<name>.md` (or is a built-in like `general-purpose`) | FAIL |
 | C4 | Every skill name in `commands/*.md` (search for `` `<name>` skill ``) resolves to `skills/<name>/SKILL.md` | FAIL |

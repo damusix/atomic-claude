@@ -32,7 +32,7 @@ func RunWithOutput(args []string, w io.Writer) int {
 		fmt.Fprintf(w, "Usage: atomic validate [flags] [spec|config|bundle|artifacts] [paths...]\n\n")
 		fmt.Fprintf(w, "Subcommands:\n")
 		fmt.Fprintf(w, "  spec       [paths...]  Validate spec structure (S0,S1,S5,S6)\n")
-		fmt.Fprintf(w, "  config     [paths...]  Validate cross-reference integrity (C1,C3,C5,C7,C9)\n")
+		fmt.Fprintf(w, "  config     [paths...]  Validate cross-reference integrity (C3,C5,C7,C9)\n")
 		fmt.Fprintf(w, "  bundle                 Validate bundle parity vs committed embedded/\n")
 		fmt.Fprintf(w, "  artifacts  [paths...]  Lint atomic CLI verb/flag citations in artifacts\n")
 		fmt.Fprintf(w, "\nFlags:\n")

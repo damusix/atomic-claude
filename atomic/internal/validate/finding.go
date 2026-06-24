@@ -9,7 +9,7 @@ package validate
 import "sort"
 
 // Finding represents a single linting finding from any validator rule.
-// Severity is "FAIL" or "WARN". Rule is the rule ID (S0, S1, C1, etc.).
+// Severity is "FAIL" or "WARN". Rule is the rule ID (S0, S1, C3, etc.).
 // Line is 0 if not applicable.
 type Finding struct {
 	Severity string

@@ -45,9 +45,11 @@ This is a **judgment call, not a regex lint**. Defensive code that genuinely gua
 
 Place suppression-pattern findings in the **Code quality** subsection.
 
+{{ template "agent-yagni" . }}
+
 ## Over-engineering findings
 
-Flag code that reinvents what already exists or carries unused flexibility: hand-rolled logic the standard library or a native platform feature already ships (name the replacement), a new dependency where an installed one — or a few lines — suffices, a duplicate of a utility the codebase already has, or a speculative abstraction with one implementation (interface, factory, or config with a single caller). Name the concrete replacement, not "consider simplifying".
+Flag code that violates the *Simplicity first (YAGNI)* ladder above — reinvents what the stdlib, a native platform feature, an installed dependency, or the codebase already provides (name the replacement), or carries unused flexibility like a speculative abstraction with one implementation (interface, factory, or config with a single caller). Name the concrete replacement, not "consider simplifying".
 
 **Severity:** 🟡 risk when the duplication or dependency carries real cost; 🔵 nit for a pure shrink-it. Not a finding: a deliberate simplification the spec called for, or the single smoke-test / self-check the implementer left behind — that is the atomic minimum, never bloat.
 
