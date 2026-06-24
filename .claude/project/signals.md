@@ -32,8 +32,8 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Go | 134834 | 390 | 69% |
-| Markdown | 47253 | 285 | 24% |
+| Go | 135566 | 393 | 69% |
+| Markdown | 47272 | 285 | 24% |
 | JavaScript | 4179 | 5 | 2% |
 | CSS | 2943 | 2 | 1% |
 | JSON | 2363 | 6 | 1% |
@@ -43,7 +43,7 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 | TypeScript | 205 | 3 | 0% |
 | Vue | 183 | 1 | 0% |
 
-Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed. Go LOC increased 132868 → 134834 (390 files) from new code-intel test files and per-repo MCP additions in 5.6.0–5.6.2. JavaScript LOC dropped significantly (10034 → 4179) after htmx upgrade to 4.0.0-beta4 (smaller bundle). CSS LOC increased (2015 → 2943) reflecting FE polish additions to [`atomic/internal/serve/assets/app.css`](../../atomic/internal/serve/assets/app.css) and VitePress theme updates. HTML LOC increased (899 → 1653) from layout.html additions. Markdown LOC increased (47199 → 47253) from homepage video + docs/reference updates in 5.6.2.
+Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed. Go LOC increased 134834 → 135566 (393 files) from follow-up burndown additions: new doctor test files (`gitcallcount_internal_test.go`, `stdin_prompter_internal_test.go`, `format_verbose_test.go`), new `mirror_test.go` (bundlemirror first unit tests), and code-intel standalone Vue/Svelte SFC node-ID fix. JavaScript LOC dropped significantly (10034 → 4179) after htmx upgrade to 4.0.0-beta4 (smaller bundle). CSS LOC increased (2015 → 2943) reflecting FE polish additions to [`atomic/internal/serve/assets/app.css`](../../atomic/internal/serve/assets/app.css) and VitePress theme updates. HTML LOC increased (899 → 1653) from layout.html additions. Markdown LOC increased (47253 → 47272) from follow-up burndown docs updates.
 
 ## DevOps & CI
 
@@ -146,3 +146,17 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 **`atomic serve` FE polish (serve domain)**: nav-item links now render amber (`var(--amber)`) to match right-rail OUT/IN links; left inset set to 20px (section headers stay at 8px, leaves indent inside them); visited/hover/active states pinned explicitly — independent of global `a:visited` color. Brand element upgraded from `<span>` to `<a href={{.LandingURL}}>` with htmx nav attributes (clicking the logo navigates home without a full reload). `chromaHighlight` and `chromaHighlightLines` no longer call `lexers.Analyse` (content-based guessing) — unknown fence language falls through to plaintext (no spurious highlighting). Search JS in `layout.html` now boots with a `window.__atomicSearchBooted` guard and uses delegated `document.addEventListener('click')` listeners so they survive htmx 4 history-restore body swaps; `btn-graph` click similarly migrated to a delegated listener. `htmx:after:swap` handler resets `#main-pane.scrollTop = 0` on content swaps; modal resets `scrollTop = 0` on open.
 
 **`atomic-visual-options` skill (workflow domain)**: [`skills/atomic-visual-options/SKILL.md`](../../skills/atomic-visual-options/SKILL.md) auto-fires on visual-comparison phrases ("show me a few options", "mock up some variants", "compare these layouts", etc.) and is invoked just-in-time by `/atomic-plan` Diverge phase when a design question passes the see-it-over-read-it gate. Renders 2–4 side-by-side variants per dimension as a single throwaway self-contained HTML file; user picks by typing terminal codes (e.g. `A2 B3`); chosen codes recorded in the design doc. Scope: visual choices (layout, color, spacing, hierarchy, diagram) — not conceptual or text decisions.
+
+**Doctor Repairer struct (doctor domain)**: [`atomic/internal/doctor/fix.go`](../../atomic/internal/doctor/fix.go) replaced the global repair-fn seam with a `Repairer` struct — injectable function fields (`ManifestBundleFn`, `ManifestRenderFn`, `RepoRootFn`, etc.); `DefaultRepairer()` wires production. `Repair` is a method on `Repairer`; the package-level `Repair` remains as a thin wrapper for callers that don't need injection. `RepairSummary.FixApplied` and `RepairSummary.FixSummary` fields removed — struct now has `Applied`, `Skipped`, `NonFixable`. `fix_impls.go` streams make output directly to `out io.Writer` — no buffering. `stdin_prompter.go` introduces `stdinPrompter` struct + `NewStdinPrompter(r, w)`; tested in `stdin_prompter_internal_test.go`.
+
+**Doctor git-toplevel resolved once per run (doctor domain)**: [`atomic/internal/doctor/doctor.go`](../../atomic/internal/doctor/doctor.go) `RunWith` lazy-fills `Opts.RepoRoot` exactly once — when `opts.RepoRoot` is empty on entry, `gitToplevelFn(cwd)` is called once and stored; subsequent check functions read `opts.RepoRoot` from opts without spawning git. Verified by `gitcallcount_internal_test.go` (two tests: preset `RepoRoot` → 0 git calls; empty `RepoRoot` → exactly 1 call).
+
+**Signals opts clone (signals domain)**: [`atomic/internal/signals/signals.go`](../../atomic/internal/signals/signals.go) `resolveScanOptions` returns a cloned `*Options` — the caller's value is never mutated. `assembleBody` reads each file once (bytes from the tree-walk step); no second file-read pass. Resolves prior double-read behavior (`signals-router-f-2` follow-up).
+
+**Bundlemirror single-read (bundle domain)**: [`atomic/internal/bundlemirror/mirror.go`](../../atomic/internal/bundlemirror/mirror.go) `Enumerate` reads each artifact once and stores bytes in `EnumeratedArtifact.Data`; `Run` reuses those bytes — no second `os.ReadFile`. `EnumeratedArtifact.SrcPath` carries the absolute source path. First unit tests in `mirror_test.go`. Resolves `atomic-doctor-f-1` follow-up.
+
+**Vue/Svelte SFC node IDs file-absolute (code-intel domain)**: [`atomic/internal/codeintel/extraction/standalone/standalone.go`](../../atomic/internal/codeintel/extraction/standalone/standalone.go) pre-pads script content with `strings.Repeat("\n", contentLineOffset)` before passing to the JS/TS sub-extractor — node IDs and line numbers produced by the sub-extractor are file-absolute rather than script-section-relative. Resolves `followup-hardening-f-4` follow-up.
+
+**Hooks tests wiki-staleness seam (config domain)**: [`atomic/internal/hooks/hooks_test.go`](../../atomic/internal/hooks/hooks_test.go) stubs the `WikiCheckStaleness` seam (`hooks.WikiCheckStaleness = func(...) ([]string, error) { return nil, nil }`) for tests that assert empty output — prevents real `~/.claude/CLAUDE.md` `<wikis>` block from leaking dirty-wiki nudges into test expectations. Seam is an exported package-level `var`; `DefaultWikiCheckStaleness` is the production value. Resolves `hooks-tests-read-real-home` follow-up.
+
+**`atomic-tdd` / `atomic-debug` trigger boundary (workflow domain)**: [`skills/atomic-tdd/SKILL.md`](../../skills/atomic-tdd/SKILL.md) and [`skills/atomic-debug/SKILL.md`](../../skills/atomic-debug/SKILL.md) each carry an explicit reciprocal boundary sentence in their trigger description — `atomic-tdd` names `atomic-debug` as the owner of root-cause diagnosis; `atomic-debug` names `atomic-tdd` as the owner of writing the fix once the cause is known. Resolves `nits-encode-skill-trigger-boundary-f-1` follow-up.
