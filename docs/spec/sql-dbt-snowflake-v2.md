@@ -92,7 +92,11 @@ Success: `macros/util.sql` with `{% macro u() %}…{% endmacro %}` → a `macro`
     `graph`, `fromjson`, `tojson`, `fromyaml`, `toyaml`, `zip`, `range`. (`zip`/`range` are Jinja2 builtins, not dbt —
     note that in a code comment so the list's purpose is clear to a future reader.)
   - **Package-qualified skip**: any `a.b(...)` (e.g. `dbt_utils.star(...)`, `dbt.foo(...)`) emits no edge — external
-    package macros are not defined in this repo, and edges to unresolvable names are noise.
+    package macros are not defined in this repo, and edges to unresolvable names are noise. Consequence (verified
+    against the dbt-utils package's *own* source): a package's self-referential calls (`dbt_utils.x()` inside the
+    dbt-utils repo itself) are also skipped — the stateless extractor cannot tell a self-reference from an external
+    dependency without the project's package name (`dbt_project.yml` `name:`, out of scope per O9). This is the correct
+    trade-off for the common case: a project that *consumes* dbt_utils as a dependency, where `dbt_utils.x` is external.
 
 Success: `{{ my_macro() }}` → `calls` edge to `my_macro`; `{{ dbt_utils.star(...) }}`, `{{ ref('x') }}`,
 `{{ config(...) }}` → no `calls` edge.
@@ -240,6 +244,11 @@ package-level `const <name>Fixture`). At minimum one fixture per success criteri
 
 ## Change log
 
+- 2026-06-24 — Real-repo validation pass (jaffle-shop-classic, dbt-utils, Snowflake snowpark guide; Haiku batch
+  cross-check against source). Surfaced and fixed a v1-era bug — Jinja `{# #}` comment prose leaked as false `from`/
+  `join` references because the B5 residual was built from raw `source`, not the comment-stripped `rawForHarvest`
+  (fix: build residual from `rawForHarvest`). Documented the package-qualified self-call behaviour in E2 (a package's
+  own `pkg.x()` calls are skipped when indexing that package's source — correct for the common consumer case).
 - 2026-06-24 — `## Implementation sequencing` reshaped to the `## Checkpoints` table form required by `atomic validate`
   rule S5 (columns `# | Checkpoint | Files/areas | Verifies`). Content unchanged — same 11 ordered checkpoints.
 - 2026-06-24 — F3 disambiguated during implementation (pre-Group-F dispatch).
