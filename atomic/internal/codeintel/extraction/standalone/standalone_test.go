@@ -342,6 +342,110 @@ func TestSvelte_NodeCountStable(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Node-ID file-absolute line correctness (regression for followup-hardening-f-4)
+// ---------------------------------------------------------------------------
+
+// TestVue_NodeIDUsesFileAbsoluteLine asserts that the node ID for a symbol
+// inside a <script> block hashes the FILE-ABSOLUTE line number, not the
+// script-relative line number. Before the fix, GenerateNodeID was called with
+// the script-relative line; StartLine was corrected post-hoc via +contentLineOffset
+// but the node ID remained wrong. The fix pads content with leading newlines so
+// the sub-extractor sees file-absolute lines from the start, making the node ID
+// and StartLine consistent.
+//
+// vueFixture layout (1-indexed):
+//
+//	7: <script>
+//	8: export function greetUser(name) {   ← file-absolute line 8
+//
+// Before fix: node ID hashes line 2 (script-relative), StartLine = 8.
+// After fix:  node ID hashes line 8, StartLine = 8 — consistent.
+func TestVue_NodeIDUsesFileAbsoluteLine(t *testing.T) {
+	pool := newPool(t)
+	ext := standalone.NewVueExtractor(pool)
+
+	result, err := ext.Extract(vueFixturePath, vueFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	greet := findNode(result.Nodes, types.NodeKindFunction, "greetUser")
+	if greet == nil {
+		t.Fatalf("greetUser function not found; nodes: %v", result.Nodes)
+	}
+
+	// StartLine must be file-absolute.
+	const wantLine = 8
+	if greet.StartLine != wantLine {
+		t.Errorf("greetUser StartLine = %d, want %d", greet.StartLine, wantLine)
+	}
+
+	// Node ID must hash the file-absolute line.
+	wantID := extraction.GenerateNodeID(vueFixturePath, string(types.NodeKindFunction), "greetUser", wantLine)
+	if greet.ID != wantID {
+		t.Errorf("greetUser node ID = %q\n\twant (file-absolute line %d) = %q\n\t(node ID embeds script-relative line — followup-hardening-f-4)",
+			greet.ID, wantLine, wantID)
+	}
+}
+
+// svelteOffsetFixture has a <style> block before <script> so contentLineOffset > 0.
+//
+// Layout (1-indexed):
+//
+//	1: <style>
+//	2:   /* styles */
+//	3: </style>
+//	4: (blank)
+//	5: <script>
+//	6:   function greetSvelte(user) {   ← file-absolute line 6
+//	7:     return 'Hello ' + user;
+//	8:   }
+//	9: </script>
+const svelteOffsetFixture = `<style>
+  /* styles */
+</style>
+
+<script>
+  function greetSvelte(user) {
+    return 'Hello ' + user;
+  }
+</script>
+`
+
+const svelteOffsetFixturePath = "src/Greeter.svelte"
+
+// TestSvelte_NodeIDUsesFileAbsoluteLine mirrors TestVue_NodeIDUsesFileAbsoluteLine
+// for Svelte. greetSvelte is at script-relative line 2 but file-absolute line 6.
+//
+// Before fix: node ID hashes line 2, StartLine = 6.
+// After fix:  node ID hashes line 6, StartLine = 6 — consistent.
+func TestSvelte_NodeIDUsesFileAbsoluteLine(t *testing.T) {
+	pool := newPool(t)
+	ext := standalone.NewSvelteExtractor(pool)
+
+	result, err := ext.Extract(svelteOffsetFixturePath, svelteOffsetFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	greet := findNode(result.Nodes, types.NodeKindFunction, "greetSvelte")
+	if greet == nil {
+		t.Fatalf("greetSvelte function not found; nodes: %v", result.Nodes)
+	}
+
+	const wantLine = 6
+	if greet.StartLine != wantLine {
+		t.Errorf("greetSvelte StartLine = %d, want %d", greet.StartLine, wantLine)
+	}
+
+	wantID := extraction.GenerateNodeID(svelteOffsetFixturePath, string(types.NodeKindFunction), "greetSvelte", wantLine)
+	if greet.ID != wantID {
+		t.Errorf("greetSvelte node ID = %q\n\twant (file-absolute line %d) = %q\n\t(node ID embeds script-relative line — followup-hardening-f-4)",
+			greet.ID, wantLine, wantID)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Liquid
 // ---------------------------------------------------------------------------
 
