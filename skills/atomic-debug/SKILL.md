@@ -5,6 +5,8 @@ description: >
   is reported. Auto-trigger on error pastes or "broken/doesn't work/failing" language. Explicit
   invocation: /atomic-debug. Output: symptom statement → hypothesis table → cheapest test first →
   root cause. No symptom-patching.
+  Boundary with atomic-tdd: this skill owns diagnosing an unknown root cause. Once the cause is
+  known and you are writing the fix, that is atomic-tdd's job (failing test first, then the fix).
 ---
 
 Debug by hypothesis, not by guessing. Cheapest test first. Root cause, not symptom.

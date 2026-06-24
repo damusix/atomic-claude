@@ -5,6 +5,10 @@ description: >
   "write a test for", "implement", "build out", and similar pre-code-change phrases.
   Iron rule: failing test exists before production code. Skip only for pure docs/config
   changes with an explicit "skipped because:" note. Explicit invocation: /atomic-tdd.
+  Boundary with atomic-debug: this skill owns writing or changing code — new behavior, or a
+  fix whose root cause is already understood. Diagnosing why something is broken (unknown
+  cause) is atomic-debug's job; debug to the root cause first, then return here to write the
+  fix test-first.
 ---
 
 Test first. Watch it fail. Write minimal code. Watch it pass. Refactor green.
