@@ -60,7 +60,20 @@ func addReminderWithDate(t *testing.T, root, body string, daysAgo int) string {
 
 // --- SessionStart tests ---
 
+// stubNoWikiStaleness overrides the WikiCheckStaleness seam so tests that
+// assert empty output are not contaminated by the real ~/.claude/CLAUDE.md
+// <wikis> block (which may contain dirty registered wikis on the test machine).
+func stubNoWikiStaleness(t *testing.T) {
+	t.Helper()
+	orig := hooks.WikiCheckStaleness
+	hooks.WikiCheckStaleness = func(_ string, _ int, _ func(string, ...string) error, _ func() time.Time) ([]string, error) {
+		return nil, nil
+	}
+	t.Cleanup(func() { hooks.WikiCheckStaleness = orig })
+}
+
 func TestSessionStart_EmptyReminders(t *testing.T) {
+	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	out, err := hooks.SessionStart(root, now)
@@ -209,6 +222,7 @@ func TestSessionStart_FormatText(t *testing.T) {
 }
 
 func TestSessionStart_FormatText_EmptyReminders(t *testing.T) {
+	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	out, err := hooks.SessionStartText(root, now)
@@ -333,6 +347,7 @@ func patchDueField(t *testing.T, root, id, dueValue string) {
 // --- Past-due filter tests ---
 
 func TestSessionStart_FutureDue_Silent(t *testing.T) {
+	stubNoWikiStaleness(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	// Reminder due 1 day in the future — must not appear.
