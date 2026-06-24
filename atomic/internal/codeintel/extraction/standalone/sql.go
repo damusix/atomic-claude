@@ -242,6 +242,34 @@ var sequenceRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SEQUENCE
 // unconsumed whitespace before STAGE.
 var stageRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(?:TEMPORARY|TEMP)\s+)?STAGE\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
+// streamRE matches CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON <object-kind> <source>
+// A4: Snowflake change-data-capture stream definition.
+// Group 1 = stream name, Group 2 = source object name.
+// Object kinds (alternation, longest-first for regex correctness):
+//
+//	EXTERNAL TABLE | DYNAMIC TABLE | EVENT TABLE | TABLE | VIEW | STAGE
+//
+// The multi-word forms must precede their single-word constituent (TABLE) so
+// the alternation matches the full phrase before falling back to the bare TABLE.
+var streamRE = regexp.MustCompile(
+	`(?im)^[ \t]*CREATE\s+` + modPat + `STREAM\s+` + modPat + `(` + sqlQNameRaw + `)` +
+		`\s+ON\s+(?:EXTERNAL\s+TABLE|DYNAMIC\s+TABLE|EVENT\s+TABLE|TABLE|VIEW|STAGE)\s+(` + sqlQNameRaw + `)`,
+)
+
+// taskRE matches CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name>
+// A3: Snowflake scheduled task definition.
+// Group 1 = task name.
+var taskRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `TASK\s+` + modPat + `(` + sqlQNameRaw + `)`)
+
+// taskAfterRE matches the AFTER <t1>[, <t2> ...] predecessor clause in a CREATE TASK statement.
+// A3: AFTER is in sqlKeywordsForRef so it must NOT go through scanBodyEdges.
+// This regex is applied to the per-task statement text (not the full source) to
+// extract the comma-separated predecessor list. Group 1 = full comma list.
+var taskAfterRE = regexp.MustCompile(`(?i)\bAFTER\s+((?:` + sqlQNameRaw + `)(?:\s*,\s*(?:` + sqlQNameRaw + `))*)`)
+
+// taskPredecessorSplitRE splits the AFTER predecessor comma list into individual names.
+var taskPredecessorSplitRE = regexp.MustCompile(`\s*,\s*`)
+
 // schemaRE matches CREATE SCHEMA <name>
 var schemaRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SCHEMA\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
@@ -844,6 +872,77 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			continue
 		}
 		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindStage, schema, name, qname, m[0]))
+	}
+
+	// -- Streams (A4) --
+	// Emit one stream node + one references edge per CREATE STREAM ... ON <kind> <source>.
+	// Group 1 = stream name, Group 2 = source object name.
+	for _, m := range streamRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+		rawName := strippedNoStr[m[2]:m[3]]
+		rawSrc := strippedNoStr[m[4]:m[5]]
+		schema, name := parseQName(rawName)
+		qname := qualifiedName(schema, name)
+		if name == "" {
+			continue
+		}
+		streamNode := nodeAt(types.NodeKindStream, schema, name, qname, m[0])
+		result.Nodes = append(result.Nodes, streamNode)
+
+		_, srcName := parseQName(rawSrc)
+		if srcName != "" && !isSQLRefKeyword(srcName) {
+			line := strings.Count(stripped[:m[4]], "\n") + 1
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, streamNode.ID, srcName, types.EdgeKindReferences, line))
+		}
+	}
+
+	// -- Tasks (A3) --
+	// Emit one task node per CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name>.
+	// Two edge sources:
+	//   1. AFTER <t1>[, <t2>...] → dedicated taskAfterRE (AFTER is in sqlKeywordsForRef
+	//      so it must NOT go through scanBodyEdges which would silently drop it).
+	//   2. AS <sql> / AS CALL <proc>(...) task body → scanBodyEdges for FROM/JOIN/INSERT/CALL/COPY.
+	for _, m := range taskRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+		rawName := strippedNoStr[m[2]:m[3]]
+		schema, name := parseQName(rawName)
+		qname := qualifiedName(schema, name)
+		if name == "" {
+			continue
+		}
+		taskNode := nodeAt(types.NodeKindTask, schema, name, qname, m[0])
+		result.Nodes = append(result.Nodes, taskNode)
+
+		// Extract the full CREATE TASK statement text (from end of name match to
+		// the next statement boundary) to scan for AFTER and body.
+		stmtText := extractStmtText(strippedNoStr, m[1])
+
+		// 1. AFTER predecessor edges (dedicated regex — AFTER is keyword-denylisted).
+		if am := taskAfterRE.FindStringSubmatchIndex(stmtText); am != nil {
+			rawList := stmtText[am[2]:am[3]]
+			predecessors := taskPredecessorSplitRE.Split(rawList, -1)
+			for _, pred := range predecessors {
+				pred = strings.TrimSpace(pred)
+				if pred == "" {
+					continue
+				}
+				_, predName := parseQName(pred)
+				if predName == "" {
+					continue
+				}
+				byteOff := m[1] + am[2]
+				line := strings.Count(stripped[:byteOff], "\n") + 1
+				result.UnresolvedReferences = append(result.UnresolvedReferences,
+					sqlRef(filePath, taskNode.ID, predName, types.EdgeKindReferences, line))
+			}
+		}
+
+		// 2. Task body edges (AS <sql>) → reuse scanBodyEdges.
+		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
+		if body != "" {
+			ctes := extractCTENames(body)
+			bodyEdgeRefs := scanBodyEdges(filePath, taskNode.ID, body, bodyOff, stripped, ctes)
+			result.UnresolvedReferences = append(result.UnresolvedReferences, bodyEdgeRefs...)
+		}
 	}
 
 	// -- Schemas --

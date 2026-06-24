@@ -1821,3 +1821,161 @@ func TestCloneFPColumnNamedClone(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// A4 — CREATE STREAM
+// ---------------------------------------------------------------------------
+
+// TestA4CreateStreamOnTable verifies CREATE STREAM <name> ON TABLE <source>
+// emits a stream node + a references edge to the source table.
+// A4 spec success criterion: `CREATE STREAM s ON TABLE orders` → stream node `s`
+// + references to `orders`.
+const a4StreamOnTableFixture = `
+CREATE STREAM s ON TABLE orders;
+`
+
+func TestA4CreateStreamOnTable(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a4.sql", a4StreamOnTableFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	streamNode := findSQLNodeExact(result.Nodes, types.NodeKindStream, "s")
+	if streamNode == nil {
+		t.Fatal("expected stream node 's' from CREATE STREAM s ON TABLE orders")
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, "orders", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'orders' from CREATE STREAM ON TABLE")
+	}
+}
+
+// TestA4CreateStreamVariants verifies all ON <object-kind> variants produce a
+// stream node + references edge. A4 spec: TABLE, VIEW, EXTERNAL TABLE, STAGE,
+// DYNAMIC TABLE, EVENT TABLE all match.
+const a4StreamVariantsFixture = `
+CREATE OR REPLACE STREAM s_view ON VIEW v_orders;
+CREATE STREAM IF NOT EXISTS s_ext ON EXTERNAL TABLE ext_orders;
+CREATE OR REPLACE STREAM s_stage ON STAGE my_stage;
+CREATE STREAM s_dyn ON DYNAMIC TABLE dyn_orders;
+CREATE STREAM s_evt ON EVENT TABLE evt_orders;
+`
+
+func TestA4CreateStreamVariants(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a4_variants.sql", a4StreamVariantsFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	cases := []struct {
+		streamName string
+		sourceName string
+	}{
+		{"s_view", "v_orders"},
+		{"s_ext", "ext_orders"},
+		{"s_stage", "my_stage"},
+		{"s_dyn", "dyn_orders"},
+		{"s_evt", "evt_orders"},
+	}
+	for _, c := range cases {
+		if findSQLNodeExact(result.Nodes, types.NodeKindStream, c.streamName) == nil {
+			t.Errorf("expected stream node %q", c.streamName)
+		}
+		if !hasUnresolvedRef(result.UnresolvedReferences, c.sourceName, types.EdgeKindReferences) {
+			t.Errorf("expected references edge to %q from stream %q", c.sourceName, c.streamName)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// A3 — CREATE TASK
+// ---------------------------------------------------------------------------
+
+// TestA3CreateTaskAfterAndBody is the primary A3 success-criterion test.
+// It guards the keyword-denylist trap: the word AFTER is in sqlKeywordsForRef
+// so AFTER predecessors must NOT be routed through scanBodyEdges — a dedicated
+// AFTER-predecessor regex must handle them.
+//
+// Fixture: CREATE TASK load_t AFTER stg_t, dim_t AS INSERT INTO fact SELECT * FROM stg
+// Expected:
+//   - task node load_t
+//   - references to stg_t (AFTER predecessor 1)
+//   - references to dim_t (AFTER predecessor 2)
+//   - writes to fact (INSERT INTO)
+//   - references to stg (FROM clause)
+const a3TaskAfterAndBodyFixture = `
+CREATE TASK load_t
+  AFTER stg_t, dim_t
+  AS INSERT INTO fact SELECT * FROM stg;
+`
+
+func TestA3CreateTaskAfterAndBody(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a3.sql", a3TaskAfterAndBodyFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	taskNode := findSQLNodeExact(result.Nodes, types.NodeKindTask, "load_t")
+	if taskNode == nil {
+		t.Fatal("expected task node 'load_t' from CREATE TASK load_t")
+	}
+
+	refs := result.UnresolvedReferences
+
+	// AFTER predecessor edges — these MUST be emitted via a dedicated regex,
+	// not scanBodyEdges, because AFTER is in sqlKeywordsForRef.
+	if !hasUnresolvedRef(refs, "stg_t", types.EdgeKindReferences) {
+		t.Error("expected references edge to AFTER predecessor 'stg_t' (keyword-denylist trap guard)")
+	}
+	if !hasUnresolvedRef(refs, "dim_t", types.EdgeKindReferences) {
+		t.Error("expected references edge to AFTER predecessor 'dim_t' (keyword-denylist trap guard)")
+	}
+
+	// Body edges via scanBodyEdges.
+	if !hasUnresolvedRef(refs, "fact", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'fact' from INSERT INTO in task body")
+	}
+	if !hasUnresolvedRef(refs, "stg", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'stg' from FROM clause in task body")
+	}
+}
+
+// TestA3CreateTaskOrReplace verifies CREATE OR REPLACE TASK [IF NOT EXISTS] <name>
+// still produces a task node.
+const a3TaskOrReplaceFixture = `
+CREATE OR REPLACE TASK IF NOT EXISTS my_task
+  AS SELECT 1;
+`
+
+func TestA3CreateTaskOrReplace(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a3_orreplace.sql", a3TaskOrReplaceFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindTask, "my_task") == nil {
+		t.Error("expected task node 'my_task' from CREATE OR REPLACE TASK IF NOT EXISTS my_task")
+	}
+}
+
+// TestA3CreateTaskCallBody verifies AS CALL <proc>(...) in the task body emits
+// a calls edge via scanBodyEdges.
+const a3TaskCallBodyFixture = `
+CREATE TASK etl_task
+  AS CALL load_proc();
+`
+
+func TestA3CreateTaskCallBody(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a3_call.sql", a3TaskCallBodyFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindTask, "etl_task") == nil {
+		t.Fatal("expected task node 'etl_task'")
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, "load_proc", types.EdgeKindCalls) {
+		t.Error("expected calls edge to 'load_proc' from AS CALL in task body")
+	}
+}
