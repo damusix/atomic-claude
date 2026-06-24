@@ -1823,6 +1823,217 @@ func TestCloneFPColumnNamedClone(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Part B — dbt Jinja pre-pass
+// ---------------------------------------------------------------------------
+
+// B4 + B1 gate: a plain SQL file (no Jinja) must produce ZERO model nodes and
+// identical results to before the dbt pre-pass was added.
+// WHY: B1 says the pre-pass is a no-op when source has no {{ / {% / {#. We use
+// the existing pgFixture (Postgres DDL) as the "before" baseline.
+const b1PlainSQLFixture = `
+CREATE TABLE plain_tbl (id INT);
+CREATE VIEW plain_view AS SELECT id FROM plain_tbl;
+`
+
+func TestB1PlainSQLNoModelNode(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/plain.sql", b1PlainSQLFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	// No model node must be created for a plain SQL file.
+	for _, n := range result.Nodes {
+		if n.Kind == types.NodeKindModel {
+			t.Errorf("plain SQL file must not produce a model node; got model %q", n.Name)
+		}
+	}
+	// Normal nodes must still be extracted.
+	if findSQLNodeExact(result.Nodes, types.NodeKindTable, "plain_tbl") == nil {
+		t.Error("expected table node 'plain_tbl' from plain SQL")
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindView, "plain_view") == nil {
+		t.Error("expected view node 'plain_view' from plain SQL")
+	}
+}
+
+// B4: model node is named by the file basename without extension.
+// Input path /models/staging/stg_orders.sql → model name "stg_orders".
+const b4ModelNodeFixture = `
+SELECT order_id FROM {{ ref('raw_orders') }}
+`
+
+func TestB4ModelNodeBasename(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/staging/stg_orders.sql", b4ModelNodeFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	model := findSQLNodeExact(result.Nodes, types.NodeKindModel, "stg_orders")
+	if model == nil {
+		t.Fatal("expected model node named 'stg_orders' (basename without extension of /models/staging/stg_orders.sql)")
+	}
+}
+
+// B2: five ref() grammar forms in one fixture (includes dbt 1.5+ cross-project versioned ref).
+// Highest-risk assertions:
+//   - ref('pkg','stg_orders') → edge target is 'stg_orders', NOT 'pkg'.
+//   - ref('pkg','stg_orders', v=3) → edge target is 'stg_orders'; version ignored.
+//   - ref('pkg','stg_orders', version=3) → same.
+//
+// WHY the two-positional-plus-version forms: dbt 1.5 introduced cross-project
+// versioned refs where both a package AND a version= keyword co-exist. The old
+// regex had v= as an alternative INSIDE the second-arg group, making it structurally
+// impossible to match both group 2 AND a trailing version=. The fix makes version=
+// an independent trailing optional group.
+const b2RefGrammarFixture = `
+-- single literal
+SELECT * FROM {{ ref('stg_orders') }}
+-- two literals: (package, model); model name is SECOND
+JOIN {{ ref('pkg','stg_orders') }} ON true
+-- version keyword arg alone: ignored, model name is the first positional literal
+JOIN {{ ref('stg_orders', v=2) }} ON true
+-- two positional PLUS version= (dbt 1.5+ cross-project versioned ref)
+JOIN {{ ref('pkg', 'stg_orders', v=3) }} ON true
+JOIN {{ ref('pkg', 'stg_orders', version=3) }} ON true
+`
+
+func TestB2RefGrammarThreeForms(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/b2_test.sql", b2RefGrammarFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// All five forms must emit a references edge to 'stg_orders'.
+	if !hasUnresolvedRef(refs, "stg_orders", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'stg_orders'")
+	}
+
+	// Critical: 'pkg' (the package arg) must NOT appear as an edge target.
+	if countUnresolvedRefs(refs, "pkg") > 0 {
+		t.Errorf("package arg 'pkg' must not appear as edge target; got %d ref(s)", countUnresolvedRefs(refs, "pkg"))
+	}
+}
+
+// B2 Jinja-comment exclusion: a ref() inside {# ... #} must NOT be harvested.
+// WHY: spec B2 says harvest runs "after removing {# … #} comments". A ref inside
+// a comment is intentionally disabled — emitting its edge would be wrong.
+const b2RefInJinjaCommentFixture = `
+SELECT id FROM real_tbl
+{# This ref is commented out: {{ ref('commented_out') }} #}
+`
+
+func TestB2RefInJinjaCommentNotHarvested(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/b2_comment.sql", b2RefInJinjaCommentFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if countUnresolvedRefs(result.UnresolvedReferences, "commented_out") > 0 {
+		t.Error("ref() inside {# ... #} must not produce a references edge to 'commented_out'")
+	}
+}
+
+// B2 (inside Jinja block): a ref() inside {% if is_incremental() %} is still captured.
+const b2RefInsideJinjaBlockFixture = `
+SELECT id FROM base_tbl
+{% if is_incremental() %}
+  WHERE updated_at > (SELECT MAX(updated_at) FROM {{ ref('events') }})
+{% endif %}
+`
+
+func TestB2RefInsideJinjaBlock(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/b2_incremental.sql", b2RefInsideJinjaBlockFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, "events", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'events' from ref() inside {% if is_incremental() %}")
+	}
+}
+
+// B3: source() harvest — always 2 args; edge target is "schema.table".
+const b3SourceFixture = `
+SELECT * FROM {{ source('raw', 'orders') }}
+`
+
+func TestB3SourceHarvest(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/b3_source.sql", b3SourceFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, "raw.orders", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'raw.orders' from {{ source('raw','orders') }}")
+	}
+}
+
+// B5: placeholder + residual scan.
+// A model SELECT with ref() and a real table join: both must appear as edges
+// owned by the model node. No __dbt_* name may survive in unresolved references.
+const b5PlaceholderResidualFixture = `
+SELECT s.id, r.amount
+FROM {{ ref('stg') }} s
+JOIN real_tbl r ON s.id = r.id
+`
+
+func TestB5PlaceholderResidual(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/b5_residual.sql", b5PlaceholderResidualFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// B2 harvest: references edge to 'stg'
+	if !hasUnresolvedRef(refs, "stg", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'stg' from {{ ref('stg') }}")
+	}
+
+	// B5 residual scan: references edge to 'real_tbl' (from the JOIN)
+	if !hasUnresolvedRef(refs, "real_tbl", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'real_tbl' from JOIN real_tbl in residual body scan")
+	}
+
+	// No __dbt_* names must survive
+	for _, r := range refs {
+		if strings.HasPrefix(r.ReferenceName, "__dbt_ref_") || strings.HasPrefix(r.ReferenceName, "__dbt_src_") {
+			t.Errorf("__dbt_* placeholder reference must not survive in final refs; got %q", r.ReferenceName)
+		}
+	}
+}
+
+// B5 + B4: model node owns the residual edges (model node must exist, and the
+// references edges must be owned by it — same FromNodeID).
+func TestB5ModelOwnsResidualEdges(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/b5_residual.sql", b5PlaceholderResidualFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	model := findSQLNodeExact(result.Nodes, types.NodeKindModel, "b5_residual")
+	if model == nil {
+		t.Fatal("expected model node 'b5_residual'")
+	}
+
+	// Both 'stg' and 'real_tbl' references must be owned by the model node.
+	modelRefs := make(map[string]bool)
+	for _, r := range result.UnresolvedReferences {
+		if r.FromNodeID == model.ID {
+			modelRefs[r.ReferenceName] = true
+		}
+	}
+	if !modelRefs["stg"] {
+		t.Error("references to 'stg' must be owned by the model node (same FromNodeID)")
+	}
+	if !modelRefs["real_tbl"] {
+		t.Error("references to 'real_tbl' must be owned by the model node (same FromNodeID)")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // A4 — CREATE STREAM
 // ---------------------------------------------------------------------------
 

@@ -164,13 +164,17 @@ models' `ref()`.
 
 After harvesting B2/B3 from raw source: replace `{{ ref('x') }}` → `__dbt_ref_x` and `{{ source('a','b') }}` →
 `__dbt_src_a__b`, then blank remaining `{{ … }}` / `{% … %}` length-preservingly (line numbers stay correct).
-Feed that residual into the rest of `Extract` (its normal strip pipeline) for table/column lineage. Then **drop
-any residual unresolved reference whose name begins `__dbt_ref_` or `__dbt_src_`** — the harvest already owns
+Then scan that residual for table/column lineage **owned by the `model` node** — a dbt model is typically a bare
+top-level `SELECT` with no `CREATE`, which the normal definition scan would not own, so the residual must be run
+through the body-edge machinery (`scanBodyEdges`) with the `model` node as the owning `fromNodeID`. (The residual
+also still passes through the normal `Extract` definition scan, so an embedded `CREATE` in a model is not lost.)
+Then **drop any unresolved reference whose name begins `__dbt_ref_` or `__dbt_src_`** — the harvest already owns
 those edges (prevents double counting and keeps `FROM {{ ref('x') }}` from leaving a dangling/garbage reference).
 The `__dbt_ref_` / `__dbt_src_` prefixes are contract; choose them so no real table name collides.
 
-Success: `SELECT * FROM {{ ref('stg') }} JOIN real_tbl ON ...` yields exactly one `references` to `stg` (B2) and
-one `references` to `real_tbl` (residual SQL pass) — no `__dbt_ref_stg` reference survives.
+Success: a dbt model `SELECT * FROM {{ ref('stg') }} JOIN real_tbl ON ...` yields, owned by the model node,
+exactly one `references` to `stg` (B2) and one `references` to `real_tbl` (residual body scan) — no `__dbt_ref_stg`
+reference survives.
 
 ## Part C — O3 syntax-tolerance guards
 

@@ -16,6 +16,7 @@ package standalone
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -163,6 +164,52 @@ func stripComments(source string) string {
 		return strings.Repeat(" ", len(m))
 	})
 	return result
+}
+
+// blankPreserveNewlines replaces all non-newline characters in s with spaces,
+// preserving newlines so that line-number offsets remain stable.
+func blankPreserveNewlines(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, c := range s {
+		if c == '\n' {
+			b.WriteByte('\n')
+		} else {
+			b.WriteByte(' ')
+		}
+	}
+	return b.String()
+}
+
+// padTo pads s to exactly n bytes by appending spaces when s is shorter.
+// If s is longer than n (placeholder exceeded the original span), the original
+// span is blanked via blankPreserveNewlines using the original match text — this
+// is safe because the harvest already captured the lineage edge; blanking the
+// span is lossless and avoids silently truncating real SQL tokens.
+// The blank argument is the original matched string used for the safe fallback.
+func padTo(s string, n int) string {
+	if len(s) == n {
+		return s
+	}
+	if len(s) > n {
+		// Placeholder is longer than the original Jinja span (shouldn't happen in
+		// practice with __dbt_ref_/src_ prefixes, but defend against it). Blank the
+		// span so no SQL token is corrupted; harvest already owns the edge.
+		var b strings.Builder
+		b.Grow(n)
+		for i := 0; i < n; i++ {
+			b.WriteByte(' ')
+		}
+		return b.String()
+	}
+	// Pad with spaces to reach n bytes.
+	var b strings.Builder
+	b.Grow(n)
+	b.WriteString(s)
+	for b.Len() < n {
+		b.WriteByte(' ')
+	}
+	return b.String()
 }
 
 // stripStrings replaces single-quoted string literals with same-length blank
@@ -439,6 +486,73 @@ var constraintKeywords = map[string]bool{
 var generatedMarkerRE = regexp.MustCompile(`(?i)\bGENERATED\b|\bAS\s*\(`)
 
 // ---------------------------------------------------------------------------
+// B — dbt Jinja pre-pass regex patterns
+// ---------------------------------------------------------------------------
+
+// dbtJinjaGateRE detects the presence of Jinja in raw source (B1 gate).
+// Any of {{ / {% / {# triggers the dbt pre-pass.
+var dbtJinjaGateRE = regexp.MustCompile(`\{\{|\{%|\{#`)
+
+// dbtJinjaCommentRE matches Jinja block comments {# ... #} (DOTALL).
+// Used to remove comments before B2/B3 harvest so refs inside them are skipped.
+var dbtJinjaCommentRE = regexp.MustCompile(`(?s)\{#.*?#\}`)
+
+// dbtRefRE matches any valid dbt ref() call form, including cross-project versioned refs.
+// Tolerates whitespace-control markers ({{-, -}}) and surrounding spaces.
+//
+// Supported grammar (dbt 1.5+):
+//   - ref('model')                       → group 1 = model
+//   - ref('model', v=2)                  → group 1 = model, version ignored
+//   - ref('pkg', 'model')                → group 1 = pkg, group 2 = model
+//   - ref('pkg', 'model', v=3)           → group 1 = pkg, group 2 = model, version ignored
+//   - ref('pkg', 'model', version=3)     → same
+//
+// Capture groups:
+//   - Group 1 = first string literal.
+//   - Group 2 = second string literal (present only when 2 positional args).
+//   - Version keyword (v=|version=) is an INDEPENDENT optional trailing group, not an
+//     alternative to the second literal. This is the key fix: previously v= was inside
+//     the second-arg optional group, making it impossible to have both group 2 AND v=.
+//
+// Model name = group 2 if present, else group 1. Version is always ignored for edges.
+var dbtRefRE = regexp.MustCompile(
+	`\{\{[-\s]*\bref\s*\(\s*` +
+		`'([^']+)'` + // group 1: first literal
+		`(?:\s*,\s*'([^']+)')?` + // group 2: second literal (package, model) — optional
+		`(?:\s*,\s*v(?:ersion)?\s*=\s*[^)]+)?` + // independent optional version= arg — ignored
+		`\s*\)\s*-?\}\}`,
+)
+
+// dbtSourceRE matches {{ source('schema', 'table') }}.
+// Always 2 positional string literals; produces a references edge to 'schema.table'.
+// Group 1 = schema name, Group 2 = table name.
+var dbtSourceRE = regexp.MustCompile(
+	`\{\{[-\s]*\bsource\s*\(\s*'([^']+)'\s*,\s*'([^']+)'\s*\)\s*-?\}\}`,
+)
+
+// dbtRefSubstRE matches {{ ref(...) }} for B5 placeholder substitution.
+// Mirrors dbtRefRE's grammar exactly: first literal in group 1, optional second
+// literal in group 2, independent optional version= trailing arg. Used to compute
+// the placeholder name (__dbt_ref_<model>) and replace the whole expression.
+var dbtRefSubstRE = regexp.MustCompile(
+	`\{\{[-\s]*\bref\s*\(\s*` +
+		`'([^']+)'` + // group 1: first literal
+		`(?:\s*,\s*'([^']+)')?` + // group 2: second literal — optional
+		`(?:\s*,\s*v(?:ersion)?\s*=\s*[^)]+)?` + // independent optional version= — ignored
+		`\s*\)\s*-?\}\}`,
+)
+
+// dbtSourceSubstRE matches {{ source('a','b') }} for B5 placeholder substitution.
+var dbtSourceSubstRE = regexp.MustCompile(
+	`\{\{[-\s]*\bsource\s*\(\s*'([^']+)'\s*,\s*'([^']+)'\s*\)\s*-?\}\}`,
+)
+
+// dbtAnyExprRE matches remaining {{ ... }} or {% ... %} blocks (DOTALL).
+// Used in B5 to blank remaining Jinja expressions length-preservingly after
+// ref/source substitution.
+var dbtAnyExprRE = regexp.MustCompile(`(?s)\{\{.*?\}\}|\{%.*?%\}`)
+
+// ---------------------------------------------------------------------------
 // SQLExtractor
 // ---------------------------------------------------------------------------
 
@@ -454,6 +568,128 @@ func NewSQLExtractor() *SQLExtractor {
 // Extract implements the Extractor interface for SQL files.
 func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult, error) {
 	var result types.ExtractionResult
+
+	// ---------------------------------------------------------------------------
+	// Part B — dbt Jinja pre-pass (operates on raw source, before stripStrings).
+	// Ordering is contract: stripStrings blanks quoted arguments inside
+	// {{ ref('x') }}, so the ref/source harvest MUST read the raw source string.
+	// ---------------------------------------------------------------------------
+
+	// B1 gate: only activate when the source contains Jinja markers.
+	var dbtModelID string // non-empty when the pre-pass fired
+	if dbtJinjaGateRE.MatchString(source) {
+		// B4: one model node per file, named by the basename without extension.
+		base := filepath.Base(filePath)
+		modelName := strings.TrimSuffix(base, filepath.Ext(base))
+
+		// Emit the model node at line 1 (file-level concept).
+		modelLine := 1
+		modelQName := modelName
+		modelID := extraction.GenerateNodeID(filePath, string(types.NodeKindModel), modelQName, modelLine)
+		modelNode := types.Node{
+			ID:            modelID,
+			Kind:          types.NodeKindModel,
+			Name:          modelName,
+			QualifiedName: modelQName,
+			FilePath:      filePath,
+			Language:      types.LanguageSQL,
+			StartLine:     modelLine,
+			EndLine:       modelLine,
+			IsExported:    true,
+		}
+		result.Nodes = append(result.Nodes, modelNode)
+		dbtModelID = modelID
+
+		// Remove {# … #} comments before harvest so refs inside them are skipped.
+		rawForHarvest := dbtJinjaCommentRE.ReplaceAllStringFunc(source, func(m string) string {
+			return blankPreserveNewlines(m)
+		})
+
+		// B2: harvest ref() edges from the comment-stripped raw source.
+		seenRef := map[string]bool{}
+		for _, m := range dbtRefRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
+			first := rawForHarvest[m[2]:m[3]]
+			var modelRef string
+			if m[4] >= 0 {
+				// Two positional literals: (package, model) — model is the SECOND.
+				modelRef = rawForHarvest[m[4]:m[5]]
+			} else {
+				// Single literal: that literal is the model name.
+				modelRef = first
+			}
+			if modelRef == "" || seenRef[modelRef] {
+				continue
+			}
+			seenRef[modelRef] = true
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, modelID, modelRef, types.EdgeKindReferences, 1))
+		}
+
+		// B3: harvest source() edges.
+		seenSrc := map[string]bool{}
+		for _, m := range dbtSourceRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
+			schema := rawForHarvest[m[2]:m[3]]
+			table := rawForHarvest[m[4]:m[5]]
+			synthetic := schema + "." + table
+			if seenSrc[synthetic] {
+				continue
+			}
+			seenSrc[synthetic] = true
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, modelID, synthetic, types.EdgeKindReferences, 1))
+		}
+
+		// B5: build the placeholder-substituted residual that the normal pipeline
+		// will process. Replace ref/source calls with safe identifiers, then blank
+		// remaining Jinja expressions length-preservingly.
+
+		// Step 1: replace {{ ref('x') }} → __dbt_ref_<model>
+		// dbtRefSubstRE is guaranteed to match (ReplaceAllStringFunc only calls the
+		// func for successful matches), so FindStringSubmatch cannot return nil here.
+		residual := dbtRefSubstRE.ReplaceAllStringFunc(source, func(m string) string {
+			sub := dbtRefSubstRE.FindStringSubmatch(m)
+			modelRef := sub[1]
+			if sub[2] != "" {
+				// Two positional literals: model name is the second.
+				modelRef = sub[2]
+			}
+			return padTo("__dbt_ref_"+modelRef, len(m))
+		})
+
+		// Step 2: replace {{ source('a','b') }} → __dbt_src_a__b
+		residual = dbtSourceSubstRE.ReplaceAllStringFunc(residual, func(m string) string {
+			sub := dbtSourceSubstRE.FindStringSubmatch(m)
+			return padTo("__dbt_src_"+sub[1]+"__"+sub[2], len(m))
+		})
+
+		// Step 3: blank remaining {{ … }} / {% … %} length-preservingly.
+		residual = dbtAnyExprRE.ReplaceAllStringFunc(residual, func(m string) string {
+			return blankPreserveNewlines(m)
+		})
+
+		// B5 residual: run scanBodyEdges on the residual with the model node as
+		// the owning fromNodeID. This captures real table names (FROM/JOIN real_tbl).
+		// The residual goes through the normal stripComments/stripStrings below so
+		// the model-node body scan receives a properly cleaned version.
+		residualStripped := stripStrings(stripComments(residual))
+		ctes := extractCTENames(residualStripped)
+		bodyEdges := scanBodyEdges(filePath, modelID, residualStripped, 0, residualStripped, ctes)
+
+		// Drop any residual reference whose name starts with __dbt_ref_ or __dbt_src_
+		// — those are the placeholder identifiers we injected; the harvest already owns
+		// the real edges.
+		for _, ref := range bodyEdges {
+			if strings.HasPrefix(ref.ReferenceName, "__dbt_ref_") || strings.HasPrefix(ref.ReferenceName, "__dbt_src_") {
+				continue
+			}
+			result.UnresolvedReferences = append(result.UnresolvedReferences, ref)
+		}
+
+		// Replace source with the residual so the normal definition scan below can
+		// process embedded CREATEs inside the model without being confused by Jinja.
+		source = residual
+	}
+	_ = dbtModelID // may be empty for non-Jinja files; used only in pre-pass above
 
 	// Strip comments and string literals before matching to avoid false positives.
 	stripped := stripComments(source)
