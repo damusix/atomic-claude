@@ -219,6 +219,19 @@ Land as ordered checkpoints, each green before the next: A1 (preamble — verify
 → B5 (placeholder residual) → C (guards). Snowflake and dbt are independent; either may go first, but A1 precedes
 the other Snowflake items and A5 precedes A2 (so `@stage` references can resolve to a stage node).
 
+## Implementation log
+
+- 2026-06-24 — Implemented on branch `feat/sql-dbt-snowflake` (autopilot, issues #68 + #69), 5 review-gated
+  checkpoints: `028fa0e` taxonomy (stage/stream/task/model, AllNodeKinds 31→35) + A1 preamble modifiers;
+  `b3b83ac` A5 stage + A2 COPY body edge + A6 clone; `b9b846e` A3 task (+ dedicated AFTER regex) + A4 stream;
+  `0f31b50` Part B dbt Jinja pre-pass (gate, ref/source harvest with the 1/2-arg+version grammar, model node,
+  placeholder residual); `34df55d` Part C O3 guards. Each checkpoint passed `atomic-reviewer`; findings
+  (clone false-positive, ref version-grammar gap, two vacuous tests, internal-stage handling) were fixed
+  in-iteration. Verified: full standalone+types suites green; module-wide `go vet`/`gofmt`/`go build`/`atomic
+  validate` clean; end-to-end `atomic code index` + `code search` on sample dbt + Snowflake files confirms the
+  four new node kinds extract, persist, and query. Pre-existing `internal/hooks` env-dependent test failures
+  are unrelated (CI-clean).
+
 ## Change log
 
 - 2026-06-24 — Revised after spec-mode review (pre-implementation, no prior build).
