@@ -192,11 +192,33 @@ func stripStrings(source string) string {
 // Pattern: optional IF NOT EXISTS / OR REPLACE / OR ALTER
 const modPat = `(?:(?:OR\s+(?:REPLACE|ALTER)|IF\s+NOT\s+EXISTS)\s+)*`
 
-// tableRE matches CREATE [FOREIGN|EXTERNAL] TABLE [IF NOT EXISTS] <name>
-var tableRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(FOREIGN|EXTERNAL)\s+)?TABLE\s+` + modPat + `(` + sqlQNameRaw + `)`)
+// tableClassPat matches optional Snowflake/SQL-standard class modifiers that
+// may appear between OR REPLACE and TABLE. OR REPLACE is consumed by modPat.
+// Valid forms:
+//   - TRANSIENT | VOLATILE | TEMPORARY | TEMP  — stand alone
+//   - LOCAL TEMPORARY | LOCAL TEMP             — LOCAL only as prefix
+//   - GLOBAL TEMPORARY | GLOBAL TEMP           — GLOBAL only as prefix
+//
+// Bare LOCAL TABLE / GLOBAL TABLE are invalid in all supported dialects and
+// must NOT match — so LOCAL/GLOBAL are non-optional only when followed by
+// TEMP/TEMPORARY. The alternation is: one optional modifier token which is
+// either a standalone word or a LOCAL/GLOBAL-prefixed TEMP compound.
+const tableClassPat = `(?:(?:TRANSIENT|VOLATILE|(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP))\s+)?`
 
-// viewRE matches CREATE [OR REPLACE] [MATERIALIZED] VIEW <name>
-var viewRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(MATERIALIZED\s+)?VIEW\s+` + modPat + `(` + sqlQNameRaw + `)`)
+// viewSecurityPat matches optional Snowflake security/recursive modifiers that
+// may appear between OR REPLACE and VIEW (e.g. SECURE, RECURSIVE, and the
+// optional TEMP/TEMPORARY qualifier on a view). Multiple modifiers are valid.
+const viewSecurityPat = `(?:(?:SECURE|RECURSIVE|TEMPORARY|TEMP)\s+)*`
+
+// tableRE matches CREATE [FOREIGN|EXTERNAL] [class-modifiers] TABLE [IF NOT EXISTS] <name>
+// A1: tableClassPat inserted after the FOREIGN|EXTERNAL group to absorb
+// Snowflake TRANSIENT/TEMPORARY/TEMP/VOLATILE/LOCAL/GLOBAL before TABLE.
+var tableRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(FOREIGN|EXTERNAL)\s+)?` + tableClassPat + `TABLE\s+` + modPat + `(` + sqlQNameRaw + `)`)
+
+// viewRE matches CREATE [OR REPLACE] [security-modifiers] [MATERIALIZED] VIEW <name>
+// A1: viewSecurityPat inserted after modPat to absorb Snowflake SECURE/RECURSIVE
+// before MATERIALIZED/VIEW.
+var viewRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + viewSecurityPat + `(MATERIALIZED\s+)?VIEW\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
 // functionRE matches CREATE [OR REPLACE|OR ALTER] FUNCTION <name>
 var functionRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `FUNCTION\s+` + modPat + `(` + sqlQNameRaw + `)`)

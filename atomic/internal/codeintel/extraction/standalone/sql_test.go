@@ -1433,3 +1433,119 @@ func TestF14RoutineBodyLateralNoEdge(t *testing.T) {
 		t.Error("expected references edge to 'orders' from routine body FROM clause")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// A1 — Snowflake preamble class/security modifiers
+// ---------------------------------------------------------------------------
+
+// TestA1SnowflakeTransientTable verifies that CREATE OR REPLACE TRANSIENT TABLE
+// produces a table node (not a false-negative due to the TRANSIENT modifier).
+// A1 spec: TRANSIENT is a class modifier between OR REPLACE and TABLE.
+const a1TransientTableFixture = `
+CREATE OR REPLACE TRANSIENT TABLE dbo.t (
+    id   INT,
+    name VARCHAR(100)
+);
+`
+
+func TestA1SnowflakeTransientTable(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a1.sql", a1TransientTableFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	node := findSQLNodeExact(result.Nodes, types.NodeKindTable, "t")
+	if node == nil {
+		t.Error("expected table node 't' from CREATE OR REPLACE TRANSIENT TABLE dbo.t")
+	}
+}
+
+// TestA1SnowflakeSecureView verifies that CREATE OR REPLACE SECURE VIEW produces
+// a view node AND a references edge to the source table in the view body.
+// A1 spec: SECURE is a security modifier between OR REPLACE and VIEW.
+const a1SecureViewFixture = `
+CREATE OR REPLACE SECURE VIEW v AS
+SELECT id, name FROM base;
+`
+
+func TestA1SnowflakeSecureView(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a1_view.sql", a1SecureViewFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	viewNode := findSQLNodeExact(result.Nodes, types.NodeKindView, "v")
+	if viewNode == nil {
+		t.Fatal("expected view node 'v' from CREATE OR REPLACE SECURE VIEW")
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, "base", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'base' from SECURE VIEW body")
+	}
+}
+
+// TestA1AdditionalClassModifiers verifies TEMPORARY, TEMP, VOLATILE, LOCAL,
+// GLOBAL for tables and RECURSIVE for views all parse correctly.
+const a1AdditionalModifiersFixture = `
+CREATE OR REPLACE TEMPORARY TABLE tmp_orders (id INT);
+CREATE OR REPLACE TEMP TABLE tmp_items (id INT);
+CREATE OR REPLACE VOLATILE TABLE vol_cache (id INT);
+CREATE OR REPLACE LOCAL TEMPORARY TABLE local_tmp (id INT);
+CREATE OR REPLACE GLOBAL TEMPORARY TABLE global_tmp (id INT);
+CREATE OR REPLACE RECURSIVE VIEW rv AS SELECT 1 AS n;
+`
+
+func TestA1AdditionalClassModifiers(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a1_more.sql", a1AdditionalModifiersFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	for _, name := range []string{"tmp_orders", "tmp_items", "vol_cache", "local_tmp", "global_tmp"} {
+		if findSQLNodeExact(result.Nodes, types.NodeKindTable, name) == nil {
+			t.Errorf("expected table node %q from CREATE OR REPLACE <modifier> TABLE", name)
+		}
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindView, "rv") == nil {
+		t.Error("expected view node 'rv' from CREATE OR REPLACE RECURSIVE VIEW")
+	}
+}
+
+// TestA1GlobalTemporaryTableValid verifies that CREATE GLOBAL TEMPORARY TABLE
+// (SQL-standard compound modifier) produces a table node. LOCAL/GLOBAL are only
+// legal as prefixes to TEMP/TEMPORARY — this is the valid two-keyword form.
+const a1GlobalTempTableFixture = `
+CREATE GLOBAL TEMPORARY TABLE gt (id INT);
+`
+
+func TestA1GlobalTemporaryTableValid(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a1_global_tmp.sql", a1GlobalTempTableFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindTable, "gt") == nil {
+		t.Error("expected table node 'gt' from CREATE GLOBAL TEMPORARY TABLE")
+	}
+}
+
+// TestA1StandaloneLocalGlobalNotCaptured guards that bare CREATE LOCAL TABLE
+// and CREATE GLOBAL TABLE (invalid SQL — LOCAL/GLOBAL require TEMP/TEMPORARY)
+// do NOT produce table nodes under the tightened tableClassPat.
+const a1StandaloneLocalGlobalFixture = `
+CREATE LOCAL TABLE bad_local (id INT);
+CREATE GLOBAL TABLE bad_global (id INT);
+`
+
+func TestA1StandaloneLocalGlobalNotCaptured(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a1_bad.sql", a1StandaloneLocalGlobalFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindTable, "bad_local") != nil {
+		t.Error("CREATE LOCAL TABLE must not produce a table node — LOCAL requires TEMP/TEMPORARY")
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindTable, "bad_global") != nil {
+		t.Error("CREATE GLOBAL TABLE must not produce a table node — GLOBAL requires TEMP/TEMPORARY")
+	}
+}

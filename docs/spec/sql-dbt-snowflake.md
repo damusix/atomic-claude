@@ -53,8 +53,11 @@ Widen the definition preamble so these parse and still produce the correct node:
 - Table: `CREATE [OR REPLACE] {TRANSIENT|TEMPORARY|TEMP|VOLATILE|LOCAL|GLOBAL}* TABLE [IF NOT EXISTS] <name>`.
 - View: `CREATE [OR REPLACE] {SECURE|RECURSIVE}* [TEMP|TEMPORARY]? VIEW [IF NOT EXISTS] <name>`.
 
-Implementation: a `classPat` optional-keyword fragment spliced after `modPat` in `tableRE` / `viewRE`. Must not
-regress the existing Postgres/MySQL/T-SQL/ANSI definition tests.
+Implementation: optional **non-capturing** class/security keyword fragment(s) spliced after `modPat` in
+`tableRE` / `viewRE` (separate table-class and view-security sets). The splices must stay non-capturing so
+downstream capture-group indices (FOREIGN/EXTERNAL, MATERIALIZED, name) are unchanged, and must not regress the
+existing Postgres/MySQL/T-SQL/ANSI definition tests. `LOCAL` / `GLOBAL` are valid only as a prefix to
+`TEMPORARY` / `TEMP` (SQL-standard temp tables), never standalone before `TABLE`.
 
 Success: `CREATE OR REPLACE TRANSIENT TABLE dbo.t (...)` → a `table` node `t`; `CREATE OR REPLACE SECURE VIEW v AS
 SELECT ... FROM base` → a `view` node `v` + a `references` edge to `base`.
