@@ -13,7 +13,7 @@ import (
 // Const-set contract tests (appendix C gate)
 // ---------------------------------------------------------------------------
 
-// TestNodeKindCount asserts that AllNodeKinds contains exactly 35 entries
+// TestNodeKindCount asserts that AllNodeKinds contains exactly 38 entries
 // matching the appendix C verbatim list. Any addition or removal breaks the
 // on-disk data model and should be a deliberate, test-gated change.
 func TestNodeKindCount(t *testing.T) {
@@ -53,10 +53,13 @@ func TestNodeKindCount(t *testing.T) {
 		types.NodeKindStream,
 		types.NodeKindTask,
 		types.NodeKindModel,
+		types.NodeKindFileFormat,
+		types.NodeKindMacro,
+		types.NodeKindScript,
 	}
 
-	if len(types.AllNodeKinds) != 35 {
-		t.Errorf("AllNodeKinds: got %d entries, want 35", len(types.AllNodeKinds))
+	if len(types.AllNodeKinds) != 38 {
+		t.Errorf("AllNodeKinds: got %d entries, want 38", len(types.AllNodeKinds))
 	}
 
 	// Build a lookup set from the exported slice.
