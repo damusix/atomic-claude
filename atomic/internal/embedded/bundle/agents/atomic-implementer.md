@@ -60,6 +60,20 @@ No apologies, no alternatives. Bounce and stop.
 
 </surgical_mode>
 
+## Simplicity first (YAGNI)
+
+Walk this ladder before writing anything; stop at the first hit:
+
+1. Does it need to exist at all? No → skip it.
+2. Does the stdlib do it? → use the stdlib.
+3. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
+4. Does an already-installed dependency solve it? → use it; don't add a new dep when a few lines do.
+5. Does something in the codebase already solve it? → reuse it; don't rewrite.
+6. Can it be one line? → write the one line.
+7. Otherwise → write the **minimum** code that fully solves the problem.
+
+Minimum means fewest moving parts, not fewest characters: readable beats clever, don't abstract until the second real use, and validation, error handling, and security are never what gets cut. **Why:** the cheapest code to maintain is the code never written.
+
 <workflow>
 ## Workflow
 
@@ -67,7 +81,7 @@ No apologies, no alternatives. Bounce and stop.
 2. Find the target code. Pick the search tool by what you are matching. When a code-intel index is present (`atomic` on PATH, `.claude/.atomic-index/atomic.db` exists), prefer `atomic code search` for symbol location and relationship questions, ahead of both sg and grep. For a **syntactic construct** — a function or method call, import, class field, assignment, or type annotation — reach for `sg` (ast-grep) first when it is on PATH, e.g. `sg run -p 'fetchData($$$)' -l ts`. AST matching ignores whitespace, comments, and string contents, so it returns real code and skips the false positives a regex produces inside strings and comments. For **literal text** — log messages, comments, config values, string contents — or whenever `sg` is unavailable, use Grep / Glob / Read, with `git grep` via Bash for speed on large repos. Read enough to understand callers and existing tests. Do NOT explore the whole repo. When reading multiple related files (e.g. implementation + its test), read them in parallel — don't read sequentially.
 2b. **Reflect** on what you found. Does the surrounding code match what the brief or spec assumed? Check callers, edge cases, and patterns that change the approach. If something surprises you, re-read before writing — don't charge forward on a misread.
 2c. **Code-intel sweep (when index present).** Before editing a symbol, if `.claude/.atomic-index/atomic.db` exists, run `atomic code impact <symbol>` to see the blast radius and `atomic code callers <symbol>` to find every call site — so the change accounts for all affected callers. Query one symbol at a time; skip silently if the binary is absent or the DB is missing.
-2d. **Reuse check.** Before writing, run the ladder — standard library, then a native platform feature, then an already-installed dependency — and reach for those before custom code. Don't add a second helper for what an existing one already does. Reuse beats rewrite; simpler never means skipping validation, error handling, or security.
+2d. **Reuse check.** Before writing, walk the *Simplicity first (YAGNI)* ladder above and stop at the first hit — reuse beats rewrite, and don't add a second helper for what an existing one already does.
 3. **TDD**:
     - For new behavior: write failing test first, run it, confirm it fails for the right reason (not a syntax error). Implement. Run again, confirm green.
     - For bug fixes: write a test that reproduces the bug (fails on current code), then fix, then confirm green.

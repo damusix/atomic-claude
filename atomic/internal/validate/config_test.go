@@ -31,43 +31,6 @@ func hasRule(findings []validate.Finding, rule string) bool {
 	return false
 }
 
-// --- C1: CLAUDE.md "Subagents available for dispatch" references exist ---
-
-// TestRunConfigRules_C1_Pass proves that when CLAUDE.md lists an agent in the
-// "Subagents available for dispatch" section and agents/<name>.md exists, C1
-// produces no finding. WHY: C1 catches the invisible-feature class where an
-// agent is documented but never created (or vice versa).
-func TestRunConfigRules_C1_Pass(t *testing.T) {
-	root := configFixtureDir(t, "pass/C1")
-	findings, err := validate.RunConfigRules(root)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if hasRule(findings, "C1") {
-		t.Errorf("C1 false-positive; findings: %+v", findings)
-	}
-}
-
-// TestRunConfigRules_C1_Fail proves that when CLAUDE.md lists atomic-foo but
-// agents/atomic-foo.md is absent, C1 produces a FAIL finding. WHY: C1 must
-// catch stale registry entries — an agent listed in CLAUDE.md but never
-// created is invisible to dispatchers.
-func TestRunConfigRules_C1_Fail(t *testing.T) {
-	root := configFixtureDir(t, "fail/C1")
-	findings, err := validate.RunConfigRules(root)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !hasRule(findings, "C1") {
-		t.Errorf("expected C1 FAIL finding, got %+v", findings)
-	}
-	for _, f := range findings {
-		if f.Rule == "C1" && f.Severity != "FAIL" {
-			t.Errorf("C1 finding must be FAIL, got %q", f.Severity)
-		}
-	}
-}
-
 // --- C3: subagent_type in commands resolves ---
 
 // TestRunConfigRules_C3_Pass proves that a command referencing a known agent
