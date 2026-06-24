@@ -66,7 +66,7 @@ func TestFormatHumanFindingsShownOnlyWhenVerbose(t *testing.T) {
 }
 
 // TestFormatHumanPassResultClean verifies that a PASS result produces a single
-// line — no remediation, no findings, no fix line.
+// line — no remediation, no findings.
 func TestFormatHumanPassResultClean(t *testing.T) {
 	results := []doctor.Result{
 		{Index: 1, Name: "install", Severity: doctor.PASS, Detail: "36/36 files match bundle"},
@@ -79,32 +79,5 @@ func TestFormatHumanPassResultClean(t *testing.T) {
 	}
 	if strings.Contains(out, "•") {
 		t.Errorf("PASS result must not print findings even with Verbose=true:\n%s", out)
-	}
-	if strings.Contains(out, "✓ fixed:") {
-		t.Errorf("PASS result must not print fix summary:\n%s", out)
-	}
-}
-
-// TestFormatHumanFixAppliedLine verifies that FixApplied+FixSummary renders
-// the "✓ fixed:" line.
-func TestFormatHumanFixAppliedLine(t *testing.T) {
-	results := []doctor.Result{
-		{
-			Index:      2,
-			Name:       "hooks",
-			Severity:   doctor.WARN,
-			Detail:     "session-start hook missing",
-			FixApplied: true,
-			FixSummary: "registered atomic hooks session-start",
-		},
-	}
-	opts := doctor.Opts{Verbose: false}
-	out := doctor.FormatHuman(results, opts, "myproject")
-
-	if !strings.Contains(out, "✓ fixed:") {
-		t.Errorf("FixApplied=true must render '✓ fixed:' line:\n%s", out)
-	}
-	if !strings.Contains(out, "registered atomic hooks session-start") {
-		t.Errorf("FixSummary text missing:\n%s", out)
 	}
 }

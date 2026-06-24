@@ -36,79 +36,36 @@ type RepairSummary struct {
 	NonFixable int
 }
 
-// -- injectable functions for testability --
+// Repairer holds the injectable repair functions used by the fix loop.
+// Construct one with DefaultRepairer() for production, or build a struct
+// literal with faked fields in tests — no shared mutable globals, no races.
+type Repairer struct {
+	InstallFn         func(io.Writer) error
+	HooksFn           func(io.Writer) error
+	ManifestFn        func(io.Writer) error
+	FollowupsRenderFn func(io.Writer) error
+	ConfigFn          func(claudeHome string) error
+	IsRepoDevFn       func() (bool, error)
+	RepoRootFn        func() string
+}
 
-// installRepairFn applies the install repair. Default uses claudeinstall.
-var installRepairFn func(io.Writer) error = defaultInstallRepair
-
-// hooksRepairFn applies the hooks repair. Default uses hooks.Install.
-var hooksRepairFn func(io.Writer) error = defaultHooksRepair
-
-// manifestRepairFn runs `make -C atomic bundle`. Default shells out.
-var manifestRepairFn func(io.Writer) error = defaultManifestRepair
-
-// followupsRenderRepairFn runs `atomic followups render` to regenerate INDEX.md.
-var followupsRenderRepairFn func(io.Writer) error = defaultFollowupsRenderRepair
-
-// isRepoDevFn checks whether cwd is in the atomic-claude repo.
-var isRepoDevFn func() (bool, error) = defaultIsRepoDev
-
-// repoRootFn returns the repo root for refs repair.
-var repoRootFn func() string = defaultRepoRoot
-
-// SetInstallRepairFn replaces the install repair function (testing only).
-// Pass nil to restore the default.
-func SetInstallRepairFn(fn func(io.Writer) error) {
-	if fn == nil {
-		installRepairFn = defaultInstallRepair
-	} else {
-		installRepairFn = fn
+// DefaultRepairer returns a Repairer wired with the real production implementations.
+func DefaultRepairer() Repairer {
+	return Repairer{
+		InstallFn:         defaultInstallRepair,
+		HooksFn:           defaultHooksRepair,
+		ManifestFn:        defaultManifestRepair,
+		FollowupsRenderFn: defaultFollowupsRenderRepair,
+		ConfigFn:          defaultConfigRepair,
+		IsRepoDevFn:       defaultIsRepoDev,
+		RepoRootFn:        defaultRepoRoot,
 	}
 }
 
-// SetHooksRepairFn replaces the hooks repair function (testing only).
-func SetHooksRepairFn(fn func(io.Writer) error) {
-	if fn == nil {
-		hooksRepairFn = defaultHooksRepair
-	} else {
-		hooksRepairFn = fn
-	}
-}
-
-// SetManifestRepairFn replaces the manifest repair function (testing only).
-func SetManifestRepairFn(fn func(io.Writer) error) {
-	if fn == nil {
-		manifestRepairFn = defaultManifestRepair
-	} else {
-		manifestRepairFn = fn
-	}
-}
-
-// SetFollowupsRenderRepairFn replaces the followups render repair function (testing only).
-func SetFollowupsRenderRepairFn(fn func(io.Writer) error) {
-	if fn == nil {
-		followupsRenderRepairFn = defaultFollowupsRenderRepair
-	} else {
-		followupsRenderRepairFn = fn
-	}
-}
-
-// SetIsRepoDevFn replaces the repo-dev check (testing only).
-func SetIsRepoDevFn(fn func() (bool, error)) {
-	if fn == nil {
-		isRepoDevFn = defaultIsRepoDev
-	} else {
-		isRepoDevFn = fn
-	}
-}
-
-// SetRepoRootFn replaces the repo-root resolver (testing only).
-func SetRepoRootFn(fn func() string) {
-	if fn == nil {
-		repoRootFn = defaultRepoRoot
-	} else {
-		repoRootFn = fn
-	}
+// Repair is a convenience wrapper that calls DefaultRepairer().Repair(...).
+// It is the production entry point used by main.go.
+func Repair(results []Result, opts Opts, p Prompter, out io.Writer) RepairSummary {
+	return DefaultRepairer().Repair(results, opts, p, out)
 }
 
 func defaultIsRepoDev() (bool, error) {
@@ -127,28 +84,7 @@ func defaultRepoRoot() string {
 	return gitToplevel(cwd)
 }
 
-// -- default repair implementations --
-
-func defaultInstallRepair(out io.Writer) error {
-	fmt.Fprintln(out, "$ atomic claude install --merge")
-	target, err := resolveClaudeHome()
-	if err != nil {
-		return err
-	}
-	// Import-cycle prevention: claudeinstall is used directly.
-	// Plan + Apply in non-dry-run mode matches "install --merge" semantics.
-	return applyInstallRepair(target)
-}
-
-func defaultHooksRepair(out io.Writer) error {
-	fmt.Fprintln(out, "$ atomic hooks install")
-	return applyHooksRepair()
-}
-
-func defaultManifestRepair(out io.Writer) error {
-	fmt.Fprintln(out, "$ make -C atomic bundle")
-	return applyManifestRepair()
-}
+// -- Repairer methods --
 
 // Repair drives the interactive fix loop.
 //
@@ -157,10 +93,11 @@ func defaultManifestRepair(out io.Writer) error {
 //  2. For non-auto-fixable: print the instruction and count as NonFixable.
 //  3. For auto-fixable: prompt; apply on Yes/All; skip on No/Quit.
 //
+// On success, prints "✓ fixed: <summary>" to out.
 // Prints a summary line at the end.
 // The passed io.Writer receives all output (prompts are also written there;
 // the prompter reads from its own input source).
-func Repair(results []Result, _ Opts, p Prompter, out io.Writer) RepairSummary {
+func (rp Repairer) Repair(results []Result, _ Opts, p Prompter, out io.Writer) RepairSummary {
 	var summary RepairSummary
 	runAll := false // set when user chose 'a' (all)
 
@@ -200,7 +137,8 @@ func Repair(results []Result, _ Opts, p Prompter, out io.Writer) RepairSummary {
 			runAll = true
 			fallthrough
 		case DecisionYes:
-			if err := applyRepair(r, p, out); err != nil {
+			fixSummary, err := rp.applyRepair(r, p, out)
+			if err != nil {
 				if err == errNonFixable {
 					summary.NonFixable++
 				} else {
@@ -209,6 +147,7 @@ func Repair(results []Result, _ Opts, p Prompter, out io.Writer) RepairSummary {
 				}
 			} else {
 				summary.Applied++
+				fmt.Fprintf(out, "✓ fixed: %s\n", fixSummary)
 			}
 		}
 	}
@@ -278,53 +217,73 @@ func repairPlan(r Result) (plan string, fixable bool) {
 var errNonFixable = fmt.Errorf("cannot auto-fix in this context")
 
 // applyRepair dispatches the actual repair for fixable categories.
-func applyRepair(r Result, p Prompter, out io.Writer) error {
+// Returns a concise summary string and nil on success, or an error.
+func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, error) {
 	switch r.Name {
 	case "install":
-		return installRepairFn(out)
+		if err := rp.InstallFn(out); err != nil {
+			return "", err
+		}
+		return "re-synced bundle via `atomic claude install --merge`", nil
 	case "hooks":
-		return hooksRepairFn(out)
+		if err := rp.HooksFn(out); err != nil {
+			return "", err
+		}
+		return "session-start hook registered", nil
 	case "refs":
-		return applyRefsRepair(p, out)
+		chosenFile, err := rp.applyRefsRepair(p, out)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("appended @-ref to %s", chosenFile), nil
 	case "manifest":
-		return applyManifestRepairWithGuard(out)
+		if err := rp.applyManifestRepairWithGuard(out); err != nil {
+			return "", err
+		}
+		return "bundle regenerated via `make -C atomic bundle`", nil
 	case "config":
-		return applyConfigRepair(out)
+		if err := rp.applyConfigRepair(out); err != nil {
+			return "", err
+		}
+		return "config.resolved.md re-rendered", nil
 	case "followups":
-		return applyFollowupsRepair(r, out)
+		if err := rp.applyFollowupsRepair(r, out); err != nil {
+			return "", err
+		}
+		return "INDEX.md regenerated via `atomic followups render`", nil
 	case "profile":
 		// Belt-and-suspenders: repairPlan returns fixable=false for profile, so this
 		// branch should never be reached. If a future change sets fixable=true without
 		// adding real implementation here, return an explicit error rather than silently no-op.
-		return fmt.Errorf("profile repair not yet implemented — run 'atomic claude install' instead")
+		return "", fmt.Errorf("profile repair not yet implemented — run 'atomic claude install' instead")
 	default:
-		return fmt.Errorf("no repair for %q", r.Name)
+		return "", fmt.Errorf("no repair for %q", r.Name)
 	}
 }
 
 // applyFollowupsRepair dispatches to render based on the detail string.
-func applyFollowupsRepair(r Result, out io.Writer) error {
+func (rp Repairer) applyFollowupsRepair(r Result, out io.Writer) error {
 	if strings.Contains(r.Detail, "atomic followups render") || strings.Contains(r.Detail, "INDEX.md") {
-		return followupsRenderRepairFn(out)
+		return rp.FollowupsRenderFn(out)
 	}
 	return fmt.Errorf("no auto-fix available for this followups condition")
 }
 
 // applyConfigRepair re-renders config.resolved.md from the current TOML.
-func applyConfigRepair(out io.Writer) error {
+func (rp Repairer) applyConfigRepair(out io.Writer) error {
 	fmt.Fprintln(out, "$ re-rendering config.resolved.md")
 	claudeHome, err := resolveClaudeHome()
 	if err != nil {
 		return fmt.Errorf("resolve claude home: %w", err)
 	}
-	return configRepairFn(claudeHome)
+	return rp.ConfigFn(claudeHome)
 }
 
 // applyManifestRepairWithGuard checks repo-dev before delegating.
 // Returns errNonFixable when not in the atomic-claude repo so the caller
 // can increment NonFixable rather than Skipped.
-func applyManifestRepairWithGuard(out io.Writer) error {
-	inRepoDev, err := isRepoDevFn()
+func (rp Repairer) applyManifestRepairWithGuard(out io.Writer) error {
+	inRepoDev, err := rp.IsRepoDevFn()
 	if err != nil {
 		return fmt.Errorf("check repo-dev: %w", err)
 	}
@@ -332,7 +291,7 @@ func applyManifestRepairWithGuard(out io.Writer) error {
 		fmt.Fprintln(out, "  manifest repair only available inside the atomic-claude repo")
 		return errNonFixable
 	}
-	return manifestRepairFn(out)
+	return rp.ManifestFn(out)
 }
 
 // -- refs repair --
@@ -340,12 +299,13 @@ func applyManifestRepairWithGuard(out io.Writer) error {
 const refsBlock = "\n## Project signals (auto-loaded)\n\n@.claude/project/signals.md\n"
 
 // applyRefsRepair appends the @-ref block to the chosen candidate file.
+// Returns the chosen filename on success.
 // Selection rules per brief:
 //   - 0 existing candidates → default CLAUDE.md (create).
 //   - 1 existing candidate → single Yes/No via Confirm.
 //   - >1 existing candidates → Indexed numbered list.
-func applyRefsRepair(p Prompter, out io.Writer) error {
-	root := repoRootFn()
+func (rp Repairer) applyRefsRepair(p Prompter, out io.Writer) (string, error) {
+	root := rp.RepoRootFn()
 
 	// Collect which candidate files exist. Deduplicate by inode to handle
 	// case-insensitive filesystems (macOS) where CLAUDE.md and claude.md both
@@ -381,14 +341,17 @@ func applyRefsRepair(p Prompter, out io.Writer) error {
 		copy(items, existing)
 		idx := p.Indexed(items)
 		if idx < 1 || idx > len(items) {
-			return fmt.Errorf("no file selected")
+			return "", fmt.Errorf("no file selected")
 		}
 		chosenFile = items[idx-1]
 	}
 
 	targetPath := filepath.Join(root, chosenFile)
 	fmt.Fprintf(out, "$ appending @-refs to %s\n", chosenFile)
-	return appendRefsIfMissing(targetPath)
+	if err := appendRefsIfMissing(targetPath); err != nil {
+		return "", err
+	}
+	return chosenFile, nil
 }
 
 // appendRefsIfMissing reads the file (or treats as empty if absent) and appends

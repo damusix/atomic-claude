@@ -37,9 +37,23 @@ func (f *fakePrompter) Indexed(items []string) int {
 	return i
 }
 
-// makeResultsFor builds a []Result for a single named category with the given severity.
+// makeResult builds a Result for a single named category with the given severity.
 func makeResult(idx int, name string, sev doctor.Severity, detail string) doctor.Result {
 	return doctor.Result{Index: idx, Name: name, Severity: sev, Detail: detail}
+}
+
+// nopRepairer returns a Repairer with all injectable functions stubbed to no-ops.
+// Tests override only the fields they care about.
+func nopRepairer() doctor.Repairer {
+	return doctor.Repairer{
+		InstallFn:         func(io.Writer) error { return nil },
+		HooksFn:           func(io.Writer) error { return nil },
+		ManifestFn:        func(io.Writer) error { return nil },
+		FollowupsRenderFn: func(io.Writer) error { return nil },
+		ConfigFn:          func(string) error { return nil },
+		IsRepoDevFn:       func() (bool, error) { return true, nil },
+		RepoRootFn:        func() string { return os.TempDir() },
+	}
 }
 
 // -- tests for the RepairSummary type --
@@ -91,7 +105,8 @@ func TestRepair_Signals_NonFixable(t *testing.T) {
 	}
 	var out strings.Builder
 	p := &fakePrompter{}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &out)
+	rp := nopRepairer()
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &out)
 
 	if summary.NonFixable != 1 {
 		t.Errorf("NonFixable = %d, want 1", summary.NonFixable)
@@ -115,7 +130,8 @@ func TestRepair_Followups_NonFixable(t *testing.T) {
 	}
 	var out strings.Builder
 	p := &fakePrompter{}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &out)
+	rp := nopRepairer()
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &out)
 
 	if summary.NonFixable != 1 {
 		t.Errorf("NonFixable = %d, want 1", summary.NonFixable)
@@ -132,7 +148,8 @@ func TestRepair_Memory_NonFixable(t *testing.T) {
 	}
 	var out strings.Builder
 	p := &fakePrompter{}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &out)
+	rp := nopRepairer()
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &out)
 
 	if summary.NonFixable != 1 {
 		t.Errorf("NonFixable = %d, want 1", summary.NonFixable)
@@ -149,7 +166,8 @@ func TestRepair_Binary_NonFixable(t *testing.T) {
 	}
 	var out strings.Builder
 	p := &fakePrompter{}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &out)
+	rp := nopRepairer()
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &out)
 
 	if summary.NonFixable != 1 {
 		t.Errorf("NonFixable = %d, want 1", summary.NonFixable)
@@ -169,7 +187,8 @@ func TestRepair_SkipsPassResults(t *testing.T) {
 	}
 	var out strings.Builder
 	p := &fakePrompter{}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &out)
+	rp := nopRepairer()
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &out)
 
 	if summary.Applied+summary.Skipped+summary.NonFixable != 0 {
 		t.Errorf("expected all-zero summary for PASS results, got %+v", summary)
@@ -184,29 +203,30 @@ func TestRepair_SkipsSkipResults(t *testing.T) {
 	}
 	var out strings.Builder
 	p := &fakePrompter{}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &out)
+	rp := nopRepairer()
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &out)
 
 	if summary.NonFixable != 0 {
 		t.Errorf("NonFixable = %d, want 0 (SKIP results not counted)", summary.NonFixable)
 	}
 }
 
-// -- install repair: stubbed mutation --
+// -- install repair: struct injection --
 
 func TestRepair_Install_Yes(t *testing.T) {
 	called := false
-	doctor.SetInstallRepairFn(func(out io.Writer) error {
+	rp := nopRepairer()
+	rp.InstallFn = func(out io.Writer) error {
 		called = true
 		return nil
-	})
-	t.Cleanup(func() { doctor.SetInstallRepairFn(nil) })
+	}
 
 	results := []doctor.Result{
 		makeResult(1, "install", doctor.WARN, "2 files differ"),
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if !called {
 		t.Error("install repair fn not called on Yes")
@@ -222,18 +242,18 @@ func TestRepair_Install_Yes(t *testing.T) {
 
 func TestRepair_Install_No(t *testing.T) {
 	called := false
-	doctor.SetInstallRepairFn(func(out io.Writer) error {
+	rp := nopRepairer()
+	rp.InstallFn = func(out io.Writer) error {
 		called = true
 		return nil
-	})
-	t.Cleanup(func() { doctor.SetInstallRepairFn(nil) })
+	}
 
 	results := []doctor.Result{
 		makeResult(1, "install", doctor.FAIL, "missing files"),
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionNo}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if called {
 		t.Error("install repair fn called on No")
@@ -246,12 +266,9 @@ func TestRepair_Install_No(t *testing.T) {
 func TestRepair_Install_All_RunsRemainingWithoutPrompt(t *testing.T) {
 	installCalled := false
 	hooksCalled := false
-	doctor.SetInstallRepairFn(func(out io.Writer) error { installCalled = true; return nil })
-	doctor.SetHooksRepairFn(func(out io.Writer) error { hooksCalled = true; return nil })
-	t.Cleanup(func() {
-		doctor.SetInstallRepairFn(nil)
-		doctor.SetHooksRepairFn(nil)
-	})
+	rp := nopRepairer()
+	rp.InstallFn = func(out io.Writer) error { installCalled = true; return nil }
+	rp.HooksFn = func(out io.Writer) error { hooksCalled = true; return nil }
 
 	results := []doctor.Result{
 		makeResult(1, "install", doctor.WARN, "drift"),
@@ -260,7 +277,7 @@ func TestRepair_Install_All_RunsRemainingWithoutPrompt(t *testing.T) {
 	var sb strings.Builder
 	// "all" on first prompt → no second prompt needed.
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionAll}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if !installCalled || !hooksCalled {
 		t.Errorf("install=%v hooks=%v — both should have run on 'all'", installCalled, hooksCalled)
@@ -277,12 +294,9 @@ func TestRepair_Install_All_RunsRemainingWithoutPrompt(t *testing.T) {
 func TestRepair_Quit_StopsRemaining(t *testing.T) {
 	installCalled := false
 	hooksCalled := false
-	doctor.SetInstallRepairFn(func(out io.Writer) error { installCalled = true; return nil })
-	doctor.SetHooksRepairFn(func(out io.Writer) error { hooksCalled = true; return nil })
-	t.Cleanup(func() {
-		doctor.SetInstallRepairFn(nil)
-		doctor.SetHooksRepairFn(nil)
-	})
+	rp := nopRepairer()
+	rp.InstallFn = func(out io.Writer) error { installCalled = true; return nil }
+	rp.HooksFn = func(out io.Writer) error { hooksCalled = true; return nil }
 
 	results := []doctor.Result{
 		makeResult(1, "install", doctor.WARN, "drift"),
@@ -290,7 +304,7 @@ func TestRepair_Quit_StopsRemaining(t *testing.T) {
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionQuit}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if installCalled || hooksCalled {
 		t.Error("no repair should run after Quit")
@@ -304,15 +318,15 @@ func TestRepair_Quit_StopsRemaining(t *testing.T) {
 
 func TestRepair_Hooks_Yes(t *testing.T) {
 	called := false
-	doctor.SetHooksRepairFn(func(out io.Writer) error { called = true; return nil })
-	t.Cleanup(func() { doctor.SetHooksRepairFn(nil) })
+	rp := nopRepairer()
+	rp.HooksFn = func(out io.Writer) error { called = true; return nil }
 
 	results := []doctor.Result{
 		makeResult(2, "hooks", doctor.WARN, "session-start hook missing"),
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if !called {
 		t.Error("hooks repair fn not called on Yes")
@@ -329,20 +343,16 @@ func TestRepair_Hooks_Yes(t *testing.T) {
 
 func TestRepair_Manifest_Yes_InRepoDev(t *testing.T) {
 	called := false
-	doctor.SetManifestRepairFn(func(out io.Writer) error { called = true; return nil })
-	t.Cleanup(func() { doctor.SetManifestRepairFn(nil) })
+	rp := nopRepairer()
+	rp.ManifestFn = func(out io.Writer) error { called = true; return nil }
+	rp.IsRepoDevFn = func() (bool, error) { return true, nil }
 
 	results := []doctor.Result{
 		makeResult(5, "manifest", doctor.FAIL, "manifest stale"),
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
-	opts := doctor.Opts{Fix: true}
-	// Force isRepoDev = true via the injectable.
-	doctor.SetIsRepoDevFn(func() (bool, error) { return true, nil })
-	t.Cleanup(func() { doctor.SetIsRepoDevFn(nil) })
-
-	summary := doctor.Repair(results, opts, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if !called {
 		t.Error("manifest repair fn not called on Yes (repo-dev)")
@@ -357,18 +367,16 @@ func TestRepair_Manifest_Yes_InRepoDev(t *testing.T) {
 
 func TestRepair_Manifest_RefusesOutsideRepoDev(t *testing.T) {
 	called := false
-	doctor.SetManifestRepairFn(func(out io.Writer) error { called = true; return nil })
-	t.Cleanup(func() { doctor.SetManifestRepairFn(nil) })
+	rp := nopRepairer()
+	rp.ManifestFn = func(out io.Writer) error { called = true; return nil }
+	rp.IsRepoDevFn = func() (bool, error) { return false, nil }
 
 	results := []doctor.Result{
 		makeResult(5, "manifest", doctor.FAIL, "manifest stale"),
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
-	doctor.SetIsRepoDevFn(func() (bool, error) { return false, nil })
-	t.Cleanup(func() { doctor.SetIsRepoDevFn(nil) })
-
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if called {
 		t.Error("manifest repair fn called outside repo-dev — should refuse")
@@ -383,8 +391,8 @@ func TestRepair_Manifest_RefusesOutsideRepoDev(t *testing.T) {
 func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 	dir := t.TempDir()
 
-	doctor.SetRepoRootFn(func() string { return dir })
-	t.Cleanup(func() { doctor.SetRepoRootFn(nil) })
+	rp := nopRepairer()
+	rp.RepoRootFn = func() string { return dir }
 
 	results := []doctor.Result{
 		makeResult(4, "refs", doctor.FAIL, "refs not present"),
@@ -392,7 +400,7 @@ func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 	var sb strings.Builder
 	// No Indexed call expected — defaults to CLAUDE.md.
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if summary.Applied != 1 {
 		t.Errorf("Applied = %d, want 1", summary.Applied)
@@ -414,8 +422,8 @@ func TestRepair_Refs_OneCandidateExisting_SingleYesNo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	doctor.SetRepoRootFn(func() string { return dir })
-	t.Cleanup(func() { doctor.SetRepoRootFn(nil) })
+	rp := nopRepairer()
+	rp.RepoRootFn = func() string { return dir }
 
 	results := []doctor.Result{
 		makeResult(4, "refs", doctor.FAIL, "refs not present"),
@@ -423,7 +431,7 @@ func TestRepair_Refs_OneCandidateExisting_SingleYesNo(t *testing.T) {
 	var sb strings.Builder
 	// One existing candidate → user confirms at outer prompt; no inner Indexed needed.
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if summary.Applied != 1 {
 		t.Errorf("Applied = %d, want 1\noutput:\n%s", summary.Applied, sb.String())
@@ -444,8 +452,8 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	doctor.SetRepoRootFn(func() string { return dir })
-	t.Cleanup(func() { doctor.SetRepoRootFn(nil) })
+	rp := nopRepairer()
+	rp.RepoRootFn = func() string { return dir }
 
 	results := []doctor.Result{
 		makeResult(4, "refs", doctor.FAIL, "refs not present"),
@@ -456,7 +464,7 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 		decisions:   []doctor.Decision{doctor.DecisionYes},
 		indexInputs: []int{2},
 	}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if summary.Applied != 1 {
 		t.Errorf("Applied = %d, want 1\noutput:\n%s", summary.Applied, sb.String())
@@ -483,8 +491,8 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 func TestRepair_Refs_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 
-	doctor.SetRepoRootFn(func() string { return dir })
-	t.Cleanup(func() { doctor.SetRepoRootFn(nil) })
+	rp := nopRepairer()
+	rp.RepoRootFn = func() string { return dir }
 
 	results := []doctor.Result{
 		makeResult(4, "refs", doctor.FAIL, "refs not present"),
@@ -494,7 +502,7 @@ func TestRepair_Refs_Idempotent(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		var sb strings.Builder
 		p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
-		doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+		rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 	}
 
 	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -515,15 +523,15 @@ func TestRepair_Refs_ExistingContent_AppendsRef(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	doctor.SetRepoRootFn(func() string { return dir })
-	t.Cleanup(func() { doctor.SetRepoRootFn(nil) })
+	rp := nopRepairer()
+	rp.RepoRootFn = func() string { return dir }
 
 	results := []doctor.Result{
 		makeResult(4, "refs", doctor.FAIL, "ref not present"),
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if summary.Applied != 1 {
 		t.Errorf("Applied = %d, want 1\noutput:\n%s", summary.Applied, sb.String())
@@ -548,8 +556,8 @@ func TestRepair_Refs_ExistingContent_AppendsRef(t *testing.T) {
 // -- summary line --
 
 func TestRepair_SummaryLine(t *testing.T) {
-	doctor.SetInstallRepairFn(func(out io.Writer) error { return nil })
-	t.Cleanup(func() { doctor.SetInstallRepairFn(nil) })
+	rp := nopRepairer()
+	rp.InstallFn = func(out io.Writer) error { return nil }
 
 	results := []doctor.Result{
 		makeResult(1, "install", doctor.WARN, "drift"),
@@ -558,7 +566,7 @@ func TestRepair_SummaryLine(t *testing.T) {
 	}
 	var sb strings.Builder
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	// 1 applied (install), 2 non-fixable (signals + binary)
 	if summary.Applied != 1 || summary.NonFixable != 2 {
@@ -585,12 +593,9 @@ func TestRepair_SummaryLine(t *testing.T) {
 func TestRepair_DecisionAbort_stopsLoop(t *testing.T) {
 	installCalled := false
 	hooksCalled := false
-	doctor.SetInstallRepairFn(func(out io.Writer) error { installCalled = true; return nil })
-	doctor.SetHooksRepairFn(func(out io.Writer) error { hooksCalled = true; return nil })
-	t.Cleanup(func() {
-		doctor.SetInstallRepairFn(nil)
-		doctor.SetHooksRepairFn(nil)
-	})
+	rp := nopRepairer()
+	rp.InstallFn = func(out io.Writer) error { installCalled = true; return nil }
+	rp.HooksFn = func(out io.Writer) error { hooksCalled = true; return nil }
 
 	results := []doctor.Result{
 		makeResult(1, "install", doctor.WARN, "drift"),
@@ -599,7 +604,7 @@ func TestRepair_DecisionAbort_stopsLoop(t *testing.T) {
 	var sb strings.Builder
 	// First prompt returns Abort; second should never be reached.
 	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionAbort}}
-	summary := doctor.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
 
 	if installCalled || hooksCalled {
 		t.Error("no repair should run after DecisionAbort")
@@ -613,5 +618,62 @@ func TestRepair_DecisionAbort_stopsLoop(t *testing.T) {
 	output := sb.String()
 	if !strings.Contains(output, "Aborted") {
 		t.Errorf("expected 'Aborted' in output, got:\n%s", output)
+	}
+}
+
+// TestRepair_PrintsFixedOnSuccess verifies that after a successful repair
+// the Repair loop prints "✓ fixed: <summary>" to the writer.
+// WHY: the user needs inline feedback that a repair ran and what it did;
+// FormatHuman is called before Repair in main.go so the Repair loop is the
+// only output channel that reaches the user at repair time.
+func TestRepair_PrintsFixedOnSuccess(t *testing.T) {
+	rp := nopRepairer()
+	rp.InstallFn = func(out io.Writer) error { return nil }
+
+	results := []doctor.Result{
+		makeResult(1, "install", doctor.WARN, "2 files differ"),
+	}
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	if summary.Applied != 1 {
+		t.Fatalf("Applied = %d, want 1", summary.Applied)
+	}
+	output := sb.String()
+	// The loop prints "✓ fixed: <summary>" immediately after a successful repair.
+	if !strings.Contains(output, "✓ fixed:") {
+		t.Errorf("expected '✓ fixed:' in output after successful repair, got:\n%s", output)
+	}
+}
+
+// -- manifest repair streams make output to writer (f-4) --
+
+// TestRepair_Manifest_WriterReceivesMakeOutput verifies that the ManifestFn is called
+// with the repair's io.Writer, so make's combined output flows to the caller.
+// WHY: the old applyManifestRepair discarded output on success (CombinedOutput with no
+// streaming) — the user had no visibility into what regenerated. The injected fn now
+// receives the writer and can write known bytes to it.
+func TestRepair_Manifest_WriterReceivesMakeOutput(t *testing.T) {
+	const fakeOutput = "FAKE MAKE OUTPUT SENTINEL"
+	rp := nopRepairer()
+	rp.IsRepoDevFn = func() (bool, error) { return true, nil }
+	rp.ManifestFn = func(out io.Writer) error {
+		_, err := io.WriteString(out, fakeOutput)
+		return err
+	}
+
+	results := []doctor.Result{
+		makeResult(5, "manifest", doctor.FAIL, "manifest stale"),
+	}
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	summary := rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	if summary.Applied != 1 {
+		t.Fatalf("Applied = %d, want 1\noutput:\n%s", summary.Applied, sb.String())
+	}
+	if !strings.Contains(sb.String(), fakeOutput) {
+		t.Errorf("writer did not receive make output; got:\n%s", sb.String())
 	}
 }

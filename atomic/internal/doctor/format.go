@@ -27,7 +27,6 @@ const nameWidth = 25
 // Rich fields on Result are rendered after each result line:
 //   - Remediation is printed on Warn/Fail regardless of opts.Verbose.
 //   - Findings are printed only when opts.Verbose is true.
-//   - FixSummary is printed when FixApplied is true.
 func FormatHuman(results []Result, opts Opts, project string) string {
 	var b strings.Builder
 
@@ -45,10 +44,6 @@ func FormatHuman(results []Result, opts Opts, project string) string {
 			for _, f := range r.Findings {
 				fmt.Fprintf(&b, "%s• %s\n", indentPrefix, f)
 			}
-		}
-		// Fix summary: always shown when a fix was applied.
-		if r.FixApplied && r.FixSummary != "" {
-			fmt.Fprintf(&b, "%s✓ fixed: %s\n", indentPrefix, r.FixSummary)
 		}
 	}
 

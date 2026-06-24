@@ -24,8 +24,6 @@ type Result struct {
 	// Rich fields — populated by checks and rendered by FormatHuman.
 	Findings    []string // per-item detail lines; printed only when Verbose=true
 	Remediation string   // fix hint; printed on Warn/Fail regardless of Verbose
-	FixApplied  bool     // set by repair path after a fix succeeds
-	FixSummary  string   // human description of what was fixed; printed when FixApplied=true
 }
 
 // Opts holds the parsed CLI flags passed to Run.

@@ -32,3 +32,6 @@
 - 2026-06-24 followup-hardening-f-4 — "Vue/Svelte node-ID staleness (inline contentLineOffset, no ID regen)" — *(closed 2026-06-24)*
 - 2026-06-24 signals-router-f-2 — "Double file reads across assembleBody" — *(closed 2026-06-24)*
 - 2026-06-24 signals-router-f-4 — "ScanWithOptions mutates caller-passed opts pointer" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-3 — "Repair seam globals are exported `Set*` mutators" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-4 — "`defaultManifestRepair` does not stream `make` output" — *(closed 2026-06-24)*
+- 2026-06-24 doctor-verbose-f-2 — "FixApplied/FixSummary render but no repair path populates them" — *(closed 2026-06-24)*
