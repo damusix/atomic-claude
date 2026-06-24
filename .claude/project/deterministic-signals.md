@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-24T14:29:53Z
+generated_at: 2026-06-24T16:27:57Z
 atomic_version: 5.6.3
 ---
 # Deterministic signals
@@ -92,7 +92,7 @@ atomic_version: 5.6.3
 │   │   │   ├── extraction/ (14 files, 2 dirs)
 │   │   │   ├── grammars/ (1 file, 0 dirs)
 │   │   │   ├── graph/ (2 files, 0 dirs)
-│   │   │   ├── indexer/ (10 files, 0 dirs)
+│   │   │   ├── indexer/ (11 files, 0 dirs)
 │   │   │   ├── mcp/ (7 files, 0 dirs)
 │   │   │   ├── realm/ (7 files, 0 dirs)
 │   │   │   ├── resolution/ (9 files, 2 dirs)
@@ -373,7 +373,7 @@ atomic_version: 5.6.3
 │   ├── undo-commit.md (1fc5769, 130L, 2700ch, 2706B)
 │   └── watch-ci.md (e8e1bcf, 138L, 6037ch, 6101B)
 ├── docs/ (8)
-│   ├── design/ (27)
+│   ├── design/ (29)
 │   │   ├── artifact-consolidation.md (3ec99af, 218L, 9783ch, 9839B)
 │   │   ├── artifact-templates.md (e418887, 238L, 18708ch, 18872B)
 │   │   ├── atomic-doctor.md (571ad59, 149L, 6483ch, 6515B)
@@ -392,6 +392,8 @@ atomic_version: 5.6.3
 │   │   ├── followup-hardening.md (003902f, 67L, 7082ch, 7118B)
 │   │   ├── okf-alignment.md (f5d27f9, 153L, 10823ch, 10886B)
 │   │   ├── signals-router.md (243f522, 202L, 12800ch, 12976B)
+│   │   ├── sql-dbt-snowflake-v2.md (f6f81c6, 236L, 16396ch, 16598B)
+│   │   ├── sql-dbt-snowflake.md (8a961f6, 158L, 10476ch, 10588B)
 │   │   ├── stuck-fix-escalation.md (405d21e, 78L, 5304ch, 5356B)
 │   │   ├── typed-followups.md (ce9a194, 96L, 5253ch, 5285B)
 │   │   ├── uninstall.md (0498bea, 87L, 4834ch, 4854B)
@@ -424,9 +426,10 @@ atomic_version: 5.6.3
 │   │   ├── skills.md (30b35df, 36L, 2814ch, 2818B)
 │   │   ├── wiki-workflow.md (fb4b972, 192L, 18095ch, 18339B)
 │   │   └── workflow.md (c9d1479, 152L, 10363ch, 10433B)
-│   ├── research/ (1)
+│   ├── research/ (2)
+│   │   ├── sql-dbt-snowflake-coverage.md (48fb9e2, 88L, 7250ch, 7330B)
 │   │   └── tsbinding-vendor-on-demand.md (f4ddb35, 149L, 8150ch, 8180B)
-│   ├── spec/ (49)
+│   ├── spec/ (51)
 │   │   ├── artifact-consolidation.md (a670797, 136L, 20815ch, 20962B)
 │   │   ├── artifact-templates.md (9c31bdb, 122L, 13661ch, 13732B)
 │   │   ├── atomic-binary.md (287be9e, 763L, 45896ch, 46292B)
@@ -465,6 +468,8 @@ atomic_version: 5.6.3
 │   │   ├── signals-router.md (94a136c, 394L, 31152ch, 31384B)
 │   │   ├── signals-wiki-linkify.md (dc60e78, 97L, 8932ch, 8964B)
 │   │   ├── signals-workflow.md (dbaa116, 369L, 25880ch, 26038B)
+│   │   ├── sql-dbt-snowflake-v2.md (fbcb2e0, 277L, 20596ch, 20798B)
+│   │   ├── sql-dbt-snowflake.md (0bbb2b4, 263L, 16902ch, 17060B)
 │   │   ├── sql-language-support.md (29c9efb, 231L, 24839ch, 25211B)
 │   │   ├── stuck-fix-escalation.md (b0e8a5c, 84L, 7507ch, 7562B)
 │   │   ├── subagent-diagnose.md (ed1542e, 304L, 18618ch, 18751B)
@@ -602,8 +607,8 @@ atomic_version: 5.6.3
 
 ## Languages
 
-- Go: 135458 LOC (69%), 393 files (54%)
-- Markdown: 47295 LOC (24%), 283 files (39%)
+- Go: 138583 LOC (69%), 394 files (54%)
+- Markdown: 48317 LOC (24%), 288 files (39%)
 - JavaScript: 4179 LOC (2%), 5 files (0%)
 - CSS: 2943 LOC (1%), 2 files (0%)
 - JSON: 2363 LOC (1%), 6 files (0%)

@@ -15,6 +15,7 @@ var SQLExtensions = []string{
 	".ddl",
 	".pgsql",
 	".mysql",
+	".sql.jinja",
 }
 
 // IsSQLExt reports whether filePath has one of the canonical SQL file extensions.

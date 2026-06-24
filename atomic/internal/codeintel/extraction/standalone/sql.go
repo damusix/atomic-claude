@@ -16,6 +16,7 @@ package standalone
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -165,6 +166,52 @@ func stripComments(source string) string {
 	return result
 }
 
+// blankPreserveNewlines replaces all non-newline characters in s with spaces,
+// preserving newlines so that line-number offsets remain stable.
+func blankPreserveNewlines(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, c := range s {
+		if c == '\n' {
+			b.WriteByte('\n')
+		} else {
+			b.WriteByte(' ')
+		}
+	}
+	return b.String()
+}
+
+// padTo pads s to exactly n bytes by appending spaces when s is shorter.
+// If s is longer than n (placeholder exceeded the original span), the original
+// span is blanked via blankPreserveNewlines using the original match text — this
+// is safe because the harvest already captured the lineage edge; blanking the
+// span is lossless and avoids silently truncating real SQL tokens.
+// The blank argument is the original matched string used for the safe fallback.
+func padTo(s string, n int) string {
+	if len(s) == n {
+		return s
+	}
+	if len(s) > n {
+		// Placeholder is longer than the original Jinja span (shouldn't happen in
+		// practice with __dbt_ref_/src_ prefixes, but defend against it). Blank the
+		// span so no SQL token is corrupted; harvest already owns the edge.
+		var b strings.Builder
+		b.Grow(n)
+		for i := 0; i < n; i++ {
+			b.WriteByte(' ')
+		}
+		return b.String()
+	}
+	// Pad with spaces to reach n bytes.
+	var b strings.Builder
+	b.Grow(n)
+	b.WriteString(s)
+	for b.Len() < n {
+		b.WriteByte(' ')
+	}
+	return b.String()
+}
+
 // stripStrings replaces single-quoted string literals with same-length blank
 // sequences (preserving newlines). Best-effort: protects against DDL comments
 // embedded in default values.
@@ -192,11 +239,33 @@ func stripStrings(source string) string {
 // Pattern: optional IF NOT EXISTS / OR REPLACE / OR ALTER
 const modPat = `(?:(?:OR\s+(?:REPLACE|ALTER)|IF\s+NOT\s+EXISTS)\s+)*`
 
-// tableRE matches CREATE [FOREIGN|EXTERNAL] TABLE [IF NOT EXISTS] <name>
-var tableRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(FOREIGN|EXTERNAL)\s+)?TABLE\s+` + modPat + `(` + sqlQNameRaw + `)`)
+// tableClassPat matches optional Snowflake/SQL-standard class modifiers that
+// may appear between OR REPLACE and TABLE. OR REPLACE is consumed by modPat.
+// Valid forms:
+//   - TRANSIENT | VOLATILE | TEMPORARY | TEMP  — stand alone
+//   - LOCAL TEMPORARY | LOCAL TEMP             — LOCAL only as prefix
+//   - GLOBAL TEMPORARY | GLOBAL TEMP           — GLOBAL only as prefix
+//
+// Bare LOCAL TABLE / GLOBAL TABLE are invalid in all supported dialects and
+// must NOT match — so LOCAL/GLOBAL are non-optional only when followed by
+// TEMP/TEMPORARY. The alternation is: one optional modifier token which is
+// either a standalone word or a LOCAL/GLOBAL-prefixed TEMP compound.
+const tableClassPat = `(?:(?:TRANSIENT|VOLATILE|(?:(?:LOCAL|GLOBAL)\s+)?(?:TEMPORARY|TEMP))\s+)?`
 
-// viewRE matches CREATE [OR REPLACE] [MATERIALIZED] VIEW <name>
-var viewRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(MATERIALIZED\s+)?VIEW\s+` + modPat + `(` + sqlQNameRaw + `)`)
+// viewSecurityPat matches optional Snowflake security/recursive modifiers that
+// may appear between OR REPLACE and VIEW (e.g. SECURE, RECURSIVE, and the
+// optional TEMP/TEMPORARY qualifier on a view). Multiple modifiers are valid.
+const viewSecurityPat = `(?:(?:SECURE|RECURSIVE|TEMPORARY|TEMP)\s+)*`
+
+// tableRE matches CREATE [FOREIGN|EXTERNAL] [class-modifiers] TABLE [IF NOT EXISTS] <name>
+// A1: tableClassPat inserted after the FOREIGN|EXTERNAL group to absorb
+// Snowflake TRANSIENT/TEMPORARY/TEMP/VOLATILE/LOCAL/GLOBAL before TABLE.
+var tableRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(FOREIGN|EXTERNAL)\s+)?` + tableClassPat + `TABLE\s+` + modPat + `(` + sqlQNameRaw + `)`)
+
+// viewRE matches CREATE [OR REPLACE] [security-modifiers] [MATERIALIZED] VIEW <name>
+// A1: viewSecurityPat inserted after modPat to absorb Snowflake SECURE/RECURSIVE
+// before MATERIALIZED/VIEW.
+var viewRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + viewSecurityPat + `(MATERIALIZED\s+)?VIEW\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
 // functionRE matches CREATE [OR REPLACE|OR ALTER] FUNCTION <name>
 var functionRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `FUNCTION\s+` + modPat + `(` + sqlQNameRaw + `)`)
@@ -212,6 +281,45 @@ var indexRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+(?:UNIQUE\s+)?INDEX\s+` +
 
 // sequenceRE matches CREATE SEQUENCE <name>
 var sequenceRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SEQUENCE\s+` + modPat + `(` + sqlQNameRaw + `)`)
+
+// stageRE matches CREATE [OR REPLACE] [TEMPORARY|TEMP] STAGE [IF NOT EXISTS] <name>
+// A5: Snowflake external/internal stage definition.
+// The optional TEMPORARY/TEMP modifier sits between OR REPLACE (consumed by modPat)
+// and STAGE; trailing \s+ is embedded inside the alternation to avoid leaving
+// unconsumed whitespace before STAGE.
+var stageRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(?:TEMPORARY|TEMP)\s+)?STAGE\s+` + modPat + `(` + sqlQNameRaw + `)`)
+
+// fileFormatRE matches CREATE [OR REPLACE] [TEMPORARY|TEMP] FILE FORMAT [IF NOT EXISTS] <name>
+// F1: Snowflake named file format definition. Group 1 = format name (possibly schema-qualified).
+var fileFormatRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(?:TEMPORARY|TEMP)\s+)?FILE\s+FORMAT\s+` + modPat + `(` + sqlQNameRaw + `)`)
+
+// streamRE matches CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON <object-kind> <source>
+// A4: Snowflake change-data-capture stream definition.
+// Group 1 = stream name, Group 2 = source object name.
+// Object kinds (alternation, longest-first for regex correctness):
+//
+//	EXTERNAL TABLE | DYNAMIC TABLE | EVENT TABLE | TABLE | VIEW | STAGE
+//
+// The multi-word forms must precede their single-word constituent (TABLE) so
+// the alternation matches the full phrase before falling back to the bare TABLE.
+var streamRE = regexp.MustCompile(
+	`(?im)^[ \t]*CREATE\s+` + modPat + `STREAM\s+` + modPat + `(` + sqlQNameRaw + `)` +
+		`\s+ON\s+(?:EXTERNAL\s+TABLE|DYNAMIC\s+TABLE|EVENT\s+TABLE|TABLE|VIEW|STAGE)\s+(` + sqlQNameRaw + `)`,
+)
+
+// taskRE matches CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name>
+// A3: Snowflake scheduled task definition.
+// Group 1 = task name.
+var taskRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `TASK\s+` + modPat + `(` + sqlQNameRaw + `)`)
+
+// taskAfterRE matches the AFTER <t1>[, <t2> ...] predecessor clause in a CREATE TASK statement.
+// A3: AFTER is in sqlKeywordsForRef so it must NOT go through scanBodyEdges.
+// This regex is applied to the per-task statement text (not the full source) to
+// extract the comma-separated predecessor list. Group 1 = full comma list.
+var taskAfterRE = regexp.MustCompile(`(?i)\bAFTER\s+((?:` + sqlQNameRaw + `)(?:\s*,\s*(?:` + sqlQNameRaw + `))*)`)
+
+// taskPredecessorSplitRE splits the AFTER predecessor comma list into individual names.
+var taskPredecessorSplitRE = regexp.MustCompile(`\s*,\s*`)
 
 // schemaRE matches CREATE SCHEMA <name>
 var schemaRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SCHEMA\s+` + modPat + `(` + sqlQNameRaw + `)`)
@@ -259,6 +367,43 @@ var bodyMergeIntoRE = regexp.MustCompile(`(?i)\bMERGE\s+INTO\s+(` + sqlQNameRaw 
 // bodyExecCallRE matches EXEC[UTE] <name> or CALL <name>( in a routine body.
 // Group 1 = routine name.
 var bodyExecCallRE = regexp.MustCompile(`(?i)\b(?:EXEC(?:UTE)?\s+|CALL\s+)(` + sqlQNameRaw + `)\s*[\s(]`)
+
+// bodyFlattenRE matches FLATTEN ( [INPUT =>] <expr> ) inside a body scan.
+// F3: used in scanBodyEdges to emit a references edge to <expr> ONLY when
+// <expr> is a single unqualified identifier (no dot). Dotted expressions are
+// column aliases (e.g. t.payload) — syntactically identical to schema.table
+// — and are skipped to avoid noisy false edges.
+//
+// Pattern deliberately does NOT anchor on LATERAL or TABLE so that both:
+//
+//	LATERAL FLATTEN(INPUT => tbl)
+//	TABLE(FLATTEN(INPUT => tbl))
+//
+// are captured with one regex applied to the body text.
+//
+// Group 1 = the raw expression token (may include a dot for dotted forms).
+var bodyFlattenRE = regexp.MustCompile(`(?i)\bFLATTEN\s*\(\s*(?:INPUT\s*=>\s*)?(` + sqlQNameRaw + `)\s*\)`)
+
+// bodyCopyIntoRE matches COPY INTO <target> FROM <source> in a routine/task body.
+// A2: both directions are captured; the leading '@' on the target decides direction.
+//   - Group 1 = target token (may start with '@' for stage-as-target direction).
+//   - Group 2 = source token (may start with '@' for stage-as-source direction).
+//
+// stageTokenPat extends sqlQNameRaw to also match Snowflake internal-stage sigil
+// forms: @~/path (user stage) and @%name (table stage). The '@' is included in
+// the match so callers can detect stage tokens; parseStageToken then strips the
+// sigil and returns empty for @~ / @% forms (no references edge emitted).
+const stageTokenPat = `@(?:[~%][A-Za-z0-9_$./]*|` + sqlQNameRaw + `(?:/[^\s]*)?)`
+
+var bodyCopyIntoRE = regexp.MustCompile(`(?i)\bCOPY\s+INTO\s+(` + stageTokenPat + `|` + sqlQNameRaw + `)\s+FROM\s+(` + stageTokenPat + `|` + sqlQNameRaw + `)`)
+
+// cloneRE matches the CLONE <src> clause appended to CREATE TABLE/VIEW statements.
+// A6: used after a successful table/view match to detect if it is a clone and
+// emit the lineage references edge. Group 1 = source object name.
+// IMPORTANT: callers must scan only the preamble text BEFORE the first '(' so
+// that a column literally named CLONE (e.g. CREATE TABLE t (CLONE INT)) does
+// not produce a spurious edge. A real CLONE statement has no column-list body.
+var cloneRE = regexp.MustCompile(`(?i)\bCLONE\s+(` + sqlQNameRaw + `)`)
 
 // cteNameRE matches the name of each CTE in WITH <name> AS (…) or , <name> AS (…).
 // Used to collect CTE-local names so they are excluded from edge emission.
@@ -361,6 +506,178 @@ var constraintKeywords = map[string]bool{
 var generatedMarkerRE = regexp.MustCompile(`(?i)\bGENERATED\b|\bAS\s*\(`)
 
 // ---------------------------------------------------------------------------
+// B — dbt Jinja pre-pass regex patterns
+// ---------------------------------------------------------------------------
+
+// dbtJinjaGateRE detects the presence of Jinja in raw source (B1 gate).
+// Any of {{ / {% / {# triggers the dbt pre-pass.
+var dbtJinjaGateRE = regexp.MustCompile(`\{\{|\{%|\{#`)
+
+// dbtJinjaCommentRE matches Jinja block comments {# ... #} (DOTALL).
+// Used to remove comments before B2/B3 harvest so refs inside them are skipped.
+var dbtJinjaCommentRE = regexp.MustCompile(`(?s)\{#.*?#\}`)
+
+// dbtRefRE matches any valid dbt ref() call form, including cross-project versioned refs.
+// Tolerates whitespace-control markers ({{-, -}}) and surrounding spaces.
+//
+// Supported grammar (dbt 1.5+):
+//   - ref('model')                       → group 1 = model
+//   - ref('model', v=2)                  → group 1 = model, group 3 = "2"
+//   - ref('pkg', 'model')                → group 1 = pkg, group 2 = model
+//   - ref('pkg', 'model', v=3)           → group 1 = pkg, group 2 = model, group 3 = "3"
+//   - ref('pkg', 'model', version=3)     → same
+//
+// Capture groups:
+//   - Group 1 = first string literal.
+//   - Group 2 = second string literal (present only when 2 positional args).
+//   - Group 3 = version integer N (present only when v=N or version=N is given).
+//
+// Groups 1 and 2 are unchanged from v1 so all callers that index them by position
+// are unaffected. Group 3 is a NEW trailing group (E4).
+//
+// Model name = group 2 if present, else group 1.
+// When group 3 is present, the reference target is "<model>_v<N>" (dbt's default
+// compiled identifier for versioned models).
+var dbtRefRE = regexp.MustCompile(
+	`\{\{[-\s]*\bref\s*\(\s*` +
+		`'([^']+)'` + // group 1: first literal
+		`(?:\s*,\s*'([^']+)')?` + // group 2: second literal (package, model) — optional
+		`(?:\s*,\s*v(?:ersion)?\s*=\s*([0-9]+))?` + // group 3: version integer N — optional (E4)
+		`\s*\)\s*-?\}\}`,
+)
+
+// dbtSourceRE matches {{ source('schema', 'table') }}.
+// Always 2 positional string literals; produces a references edge to 'schema.table'.
+// Group 1 = schema name, Group 2 = table name.
+var dbtSourceRE = regexp.MustCompile(
+	`\{\{[-\s]*\bsource\s*\(\s*'([^']+)'\s*,\s*'([^']+)'\s*\)\s*-?\}\}`,
+)
+
+// dbtRefSubstRE matches {{ ref(...) }} for B5 placeholder substitution.
+// Mirrors dbtRefRE's grammar exactly: first literal in group 1, optional second
+// literal in group 2, version integer in group 3 (E4). Used to compute the
+// placeholder name (__dbt_ref_<model> or __dbt_ref_<model>_v<N> for versioned refs).
+var dbtRefSubstRE = regexp.MustCompile(
+	`\{\{[-\s]*\bref\s*\(\s*` +
+		`'([^']+)'` + // group 1: first literal
+		`(?:\s*,\s*'([^']+)')?` + // group 2: second literal — optional
+		`(?:\s*,\s*v(?:ersion)?\s*=\s*([0-9]+))?` + // group 3: version integer N — optional (E4)
+		`\s*\)\s*-?\}\}`,
+)
+
+// dbtSourceSubstRE matches {{ source('a','b') }} for B5 placeholder substitution.
+var dbtSourceSubstRE = regexp.MustCompile(
+	`\{\{[-\s]*\bsource\s*\(\s*'([^']+)'\s*,\s*'([^']+)'\s*\)\s*-?\}\}`,
+)
+
+// dbtAnyExprRE matches remaining {{ ... }} or {% ... %} blocks (DOTALL).
+// Used in B5 to blank remaining Jinja expressions length-preservingly after
+// ref/source substitution.
+var dbtAnyExprRE = regexp.MustCompile(`(?s)\{\{.*?\}\}|\{%.*?%\}`)
+
+// dbtConfigAliasRE matches {{ config(... alias='name' ...) }} or alias="name".
+// E5: captures the alias value so the model node's Metadata can be annotated.
+// Group 1 = alias value (single- or double-quoted). The overall config() call
+// may contain other kwargs in any order; this regex tolerates them via [^)]*
+// on each side of the alias kwarg.
+var dbtConfigAliasRE = regexp.MustCompile(
+	`\{\{[-\s]*\bconfig\s*\([^)]*\balias\s*=\s*['"]([^'"]+)['"][^)]*\)\s*-?\}\}`,
+)
+
+// ---------------------------------------------------------------------------
+// E — dbt macros and project awareness (E1 / E2 / E3)
+// ---------------------------------------------------------------------------
+
+// dbtMacroDefRE matches {% macro <name>(<args>) %} … {% endmacro %} blocks.
+// Tolerates whitespace-control markers ({%- / -%}) and arbitrary spacing.
+// Group 1 = macro name. Used in E2 (node harvesting) and E3 (span computation).
+var dbtMacroDefRE = regexp.MustCompile(
+	`(?s)\{%-?\s*macro\s+([A-Za-z_][A-Za-z0-9_]*)\s*\([^)]*\)\s*-?%\}.*?\{%-?\s*endmacro\s*-?%\}`,
+)
+
+// dbtMacroCallRE matches {{ <name>(...) }} invocations. Tolerates whitespace-
+// control markers. Group 1 = the raw callee token (may be "pkg.fn" or bare "fn").
+// Guards are applied by the caller (denylist + package-qualified skip).
+var dbtMacroCallRE = regexp.MustCompile(
+	`\{\{[-\s]*([A-Za-z_][A-Za-z0-9_.]*)\s*\(`,
+)
+
+// dbtMacroCallDenylist is the set of bare names that are NOT user-defined macro
+// calls. Includes dbt built-ins, Jinja2 built-ins (zip, range), and pseudo-
+// variables. Package-qualified calls (a.b) are rejected by a separate path-check.
+//
+// zip and range are Jinja2 built-ins — not dbt macros — but they look identical
+// syntactically, so they belong here to suppress false call edges.
+var dbtMacroCallDenylist = map[string]bool{
+	"ref": true, "source": true, "config": true, "var": true,
+	"env_var": true, "is_incremental": true, "should_full_refresh": true,
+	"this": true, "target": true, "builtins": true, "adapter": true,
+	"exceptions": true, "modules": true, "api": true, "log": true,
+	"print": true, "run_query": true, "run_started_at": true, "statement": true,
+	"return": true, "set": true, "dbt_version": true, "invocation_id": true,
+	"flags": true, "model": true, "graph": true,
+	"fromjson": true, "tojson": true, "fromyaml": true, "toyaml": true,
+	"zip": true, "range": true, // Jinja2 built-ins, not dbt macros
+}
+
+// dbtFileRole classifies a dbt project file by its path segment to determine
+// whether it should produce a model node, only macro nodes, or neither.
+//
+//   - path contains /macros/  → "macro"  (harvest macro defs, no model node)
+//   - path contains /analyses/, /tests/, /seeds/, or /snapshots/ → "other"
+//     (no model node; macro defs are still harvested if present)
+//   - otherwise (incl. /models/ and unrecognised locations) → "model"
+//     (create the model node exactly as v1; preserves v1 behaviour by default)
+func dbtFileRole(filePath string) string {
+	// Use forward slashes for cross-platform path checks; filepath.ToSlash is
+	// not needed on macOS/Linux (the only supported targets), but the separator
+	// comparison uses '/' explicitly to avoid matching a bare segment name
+	// (e.g. "macros_extra" must not match "/macros/").
+	p := strings.ToLower(filePath)
+	for _, c := range []byte(p) {
+		if c == '\\' {
+			// Normalise backslashes to forward slashes (Windows paths in tests).
+			p = strings.ReplaceAll(p, "\\", "/")
+			break
+		}
+	}
+	// Check for the segment with a leading slash (middle of path) OR as a
+	// leading segment (path starts with the segment, no leading slash).
+	hasSeg := func(seg string) bool {
+		// seg must be like "/macros/" already (with slashes on both sides).
+		// Match anywhere mid-path, or at the very start of the path.
+		return strings.Contains(p, seg) || strings.HasPrefix(p, seg[1:])
+	}
+	if hasSeg("/macros/") {
+		return "macro"
+	}
+	for _, seg := range []string{"/analyses/", "/tests/", "/seeds/", "/snapshots/"} {
+		if hasSeg(seg) {
+			return "other"
+		}
+	}
+	return "model"
+}
+
+// macroSpan holds the byte [start, end) of a single {% macro %}…{% endmacro %} block.
+type macroSpan struct {
+	start int
+	end   int
+	id    string // node ID of the owning macro node
+}
+
+// inMacroSpan returns the macroSpan whose [start, end) contains offset, or nil.
+// dbt does not support nested macros, so simple linear search is correct.
+func inMacroSpan(spans []macroSpan, offset int) *macroSpan {
+	for i := range spans {
+		if offset >= spans[i].start && offset < spans[i].end {
+			return &spans[i]
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // SQLExtractor
 // ---------------------------------------------------------------------------
 
@@ -376,6 +693,253 @@ func NewSQLExtractor() *SQLExtractor {
 // Extract implements the Extractor interface for SQL files.
 func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult, error) {
 	var result types.ExtractionResult
+
+	// ---------------------------------------------------------------------------
+	// Part B — dbt Jinja pre-pass (operates on raw source, before stripStrings).
+	// Ordering is contract: stripStrings blanks quoted arguments inside
+	// {{ ref('x') }}, so the ref/source harvest MUST read the raw source string.
+	// ---------------------------------------------------------------------------
+
+	// B1 gate: only activate when the source contains Jinja markers.
+	var dbtModelID string // non-empty when the pre-pass fired AND a model node was created
+	if dbtJinjaGateRE.MatchString(source) {
+		// E1: classify the file role by path segments.
+		// role == "model"  → create model node (v1 behaviour, the default).
+		// role == "macro"  → harvest macro defs only; no model node.
+		// role == "other"  → no model node; macro defs still harvested.
+		role := dbtFileRole(filePath)
+
+		// Remove {# … #} comments before harvest so refs inside them are skipped.
+		// Built here (before span extraction) so that macro spans and all harvest
+		// loops use offsets into the same string — rawForHarvest. If spans were
+		// computed on `source` instead, a unicode Jinja comment before a macro block
+		// would compress the byte offsets in rawForHarvest (blankPreserveNewlines
+		// replaces multi-byte runes with single-byte spaces), causing refs inside the
+		// macro body to be mis-attributed to the model node (span misalignment).
+		rawForHarvest := dbtJinjaCommentRE.ReplaceAllStringFunc(source, func(m string) string {
+			return blankPreserveNewlines(m)
+		})
+
+		// E2: harvest {% macro name(args) %} … {% endmacro %} definitions.
+		// Emitted regardless of role; computed on rawForHarvest so that all offsets
+		// (spans and harvest loops) are in the same coordinate space.
+		// We also compute the byte spans (E3) for ref/call ownership.
+		var spans []macroSpan // byte spans of all macro blocks (for E3)
+
+		for _, m := range dbtMacroDefRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
+			macroName := rawForHarvest[m[2]:m[3]]
+			macroLine := strings.Count(rawForHarvest[:m[0]], "\n") + 1
+			macroID := extraction.GenerateNodeID(filePath, string(types.NodeKindMacro), macroName, macroLine)
+			macroNode := types.Node{
+				ID:            macroID,
+				Kind:          types.NodeKindMacro,
+				Name:          macroName,
+				QualifiedName: macroName,
+				FilePath:      filePath,
+				Language:      types.LanguageSQL,
+				StartLine:     macroLine,
+				EndLine:       macroLine,
+				IsExported:    true,
+			}
+			result.Nodes = append(result.Nodes, macroNode)
+			spans = append(spans, macroSpan{start: m[0], end: m[1], id: macroID})
+		}
+
+		// B4 (role == model only): one model node per file, named by the basename
+		// without extension. For .sql.jinja files the compound suffix must be stripped
+		// in full so {{ ref('stg') }} resolves to this node — not to a phantom 'stg.sql'.
+		if role == "model" {
+			base := filepath.Base(filePath)
+			var modelName string
+			if strings.HasSuffix(strings.ToLower(base), ".sql.jinja") {
+				modelName = base[:len(base)-len(".sql.jinja")]
+			} else {
+				modelName = strings.TrimSuffix(base, filepath.Ext(base))
+			}
+
+			modelLine := 1
+			modelQName := modelName
+			modelID := extraction.GenerateNodeID(filePath, string(types.NodeKindModel), modelQName, modelLine)
+			modelNode := types.Node{
+				ID:            modelID,
+				Kind:          types.NodeKindModel,
+				Name:          modelName,
+				QualifiedName: modelQName,
+				FilePath:      filePath,
+				Language:      types.LanguageSQL,
+				StartLine:     modelLine,
+				EndLine:       modelLine,
+				IsExported:    true,
+			}
+			// E5: capture config(alias=...) and annotate the model node's Metadata.
+			// First match wins (deterministic when multiple config() blocks exist).
+			// Use json.Marshal so the alias value is properly escaped — the regex
+			// [^'"]+ excludes quotes but allows backslash, control chars, etc.
+			if am := dbtConfigAliasRE.FindStringSubmatch(rawForHarvest); am != nil {
+				if b, err := json.Marshal(map[string]string{"alias": am[1]}); err == nil {
+					modelNode.Metadata = b
+				}
+			}
+			result.Nodes = append(result.Nodes, modelNode)
+			dbtModelID = modelID
+		}
+
+		// ownerForOffset returns the node ID that owns the ref/call at the given
+		// byte offset. E3: if the offset falls inside a macro span, the macro node
+		// owns it; otherwise the model node owns it (empty string when there is no
+		// model node, i.e. role != model).
+		ownerForOffset := func(offset int) string {
+			if sp := inMacroSpan(spans, offset); sp != nil {
+				return sp.id
+			}
+			return dbtModelID // empty string when role != model
+		}
+
+		// B2: harvest ref() edges from the comment-stripped raw source.
+		// E3: ownership is determined by ownerForOffset.
+		// E1: refs whose owner is empty (outside macro spans in a non-model file)
+		// are dropped — there is no node to attach them to.
+		// E4: when group 3 (version N) is captured, the target is "<model>_v<N>".
+		seenRef := map[string]bool{}
+		for _, m := range dbtRefRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
+			first := rawForHarvest[m[2]:m[3]]
+			var modelRef string
+			if m[4] >= 0 {
+				// Two positional literals: (package, model) — model is the SECOND.
+				modelRef = rawForHarvest[m[4]:m[5]]
+			} else {
+				// Single literal: that literal is the model name.
+				modelRef = first
+			}
+			// E4: apply version suffix when group 3 is present.
+			if m[6] >= 0 {
+				modelRef = modelRef + "_v" + rawForHarvest[m[6]:m[7]]
+			}
+			if modelRef == "" || seenRef[modelRef] {
+				continue
+			}
+			owner := ownerForOffset(m[0])
+			if owner == "" {
+				continue // no owning node; drop
+			}
+			seenRef[modelRef] = true
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, owner, modelRef, types.EdgeKindReferences, 1))
+		}
+
+		// B3: harvest source() edges.
+		// E3: ownership follows ownerForOffset.
+		seenSrc := map[string]bool{}
+		for _, m := range dbtSourceRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
+			schema := rawForHarvest[m[2]:m[3]]
+			table := rawForHarvest[m[4]:m[5]]
+			synthetic := schema + "." + table
+			if seenSrc[synthetic] {
+				continue
+			}
+			owner := ownerForOffset(m[0])
+			if owner == "" {
+				continue // no owning node; drop
+			}
+			seenSrc[synthetic] = true
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, owner, synthetic, types.EdgeKindReferences, 1))
+		}
+
+		// E2: harvest macro call edges {{ name(...) }} from the comment-stripped raw
+		// source. Guards:
+		//   (a) bare-name denylist — dbt built-ins, Jinja2 built-ins, pseudo-variables.
+		//   (b) package-qualified skip — any "a.b(" token (contains a dot) is external.
+		// E3: ownership is determined by ownerForOffset.
+		// Dedup key is "owner:callee" so each distinct owner gets its own calls edge
+		// for the same callee (e.g. both a model and a macro may call my_helper()).
+		seenCall := map[string]bool{}
+		for _, m := range dbtMacroCallRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
+			callee := rawForHarvest[m[2]:m[3]]
+			// (b) package-qualified: any dot means external package — skip.
+			if strings.Contains(callee, ".") {
+				continue
+			}
+			// (a) denylist check on the bare name.
+			if dbtMacroCallDenylist[callee] {
+				continue
+			}
+			owner := ownerForOffset(m[0])
+			if owner == "" {
+				continue // no owning node; drop
+			}
+			dedupKey := owner + ":" + callee
+			if seenCall[dedupKey] {
+				continue
+			}
+			seenCall[dedupKey] = true
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, owner, callee, types.EdgeKindCalls, 1))
+		}
+
+		// B5: build the placeholder-substituted residual for the normal pipeline.
+		// Only run when there IS a model node — for macro/other files the residual
+		// scan would have no owning node and is mostly Jinja anyway (near-empty SQL).
+		if dbtModelID != "" {
+			// Step 1: replace {{ ref('x') }} → __dbt_ref_<model>
+			// E4: versioned refs produce __dbt_ref_<model>_v<N> so the placeholder
+			// name agrees with the harvest edge target. The B5 drop-guard uses a
+			// HasPrefix("__dbt_ref_") check, which catches both bare and versioned
+			// forms without a separate rule.
+			// dbtRefSubstRE is guaranteed to match (ReplaceAllStringFunc only calls the
+			// func for successful matches), so FindStringSubmatch cannot return nil here.
+			// Start from rawForHarvest (not source) so that {# … #} comment text is
+			// already blanked — otherwise comment prose containing "from"/"join" words
+			// leaks into scanBodyEdges and produces false references edges (B5 bug).
+			residual := dbtRefSubstRE.ReplaceAllStringFunc(rawForHarvest, func(m string) string {
+				sub := dbtRefSubstRE.FindStringSubmatch(m)
+				modelRef := sub[1]
+				if sub[2] != "" {
+					// Two positional literals: model name is the second.
+					modelRef = sub[2]
+				}
+				// E4: append _v<N> when version was captured (group 3).
+				if sub[3] != "" {
+					modelRef = modelRef + "_v" + sub[3]
+				}
+				return padTo("__dbt_ref_"+modelRef, len(m))
+			})
+
+			// Step 2: replace {{ source('a','b') }} → __dbt_src_a__b
+			residual = dbtSourceSubstRE.ReplaceAllStringFunc(residual, func(m string) string {
+				sub := dbtSourceSubstRE.FindStringSubmatch(m)
+				return padTo("__dbt_src_"+sub[1]+"__"+sub[2], len(m))
+			})
+
+			// Step 3: blank remaining {{ … }} / {% … %} length-preservingly.
+			residual = dbtAnyExprRE.ReplaceAllStringFunc(residual, func(m string) string {
+				return blankPreserveNewlines(m)
+			})
+
+			// B5 residual: run scanBodyEdges on the residual with the model node as
+			// the owning fromNodeID. This captures real table names (FROM/JOIN real_tbl).
+			// The residual goes through the normal stripComments/stripStrings below so
+			// the model-node body scan receives a properly cleaned version.
+			residualStripped := stripStrings(stripComments(residual))
+			ctes := extractCTENames(residualStripped)
+			bodyEdges := scanBodyEdges(filePath, dbtModelID, residualStripped, 0, residualStripped, ctes)
+
+			// Drop any residual reference whose name starts with __dbt_ref_ or __dbt_src_
+			// — those are the placeholder identifiers we injected; the harvest already owns
+			// the real edges.
+			for _, ref := range bodyEdges {
+				if strings.HasPrefix(ref.ReferenceName, "__dbt_ref_") || strings.HasPrefix(ref.ReferenceName, "__dbt_src_") {
+					continue
+				}
+				result.UnresolvedReferences = append(result.UnresolvedReferences, ref)
+			}
+
+			// Replace source with the residual so the normal definition scan below can
+			// process embedded CREATEs inside the model without being confused by Jinja.
+			source = residual
+		}
+	}
+	_ = dbtModelID // may be empty for non-Jinja files or macro/other roles
 
 	// Strip comments and string literals before matching to avoid false positives.
 	stripped := stripComments(source)
@@ -450,6 +1014,26 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				line := strings.Count(stripped[:m[1]], "\n") + 1
 				result.UnresolvedReferences = append(result.UnresolvedReferences,
 					sqlRef(filePath, tableID, tgtName, types.EdgeKindReferences, line))
+			}
+		}
+
+		// A6: CLONE <src> — emit a references edge from the new table to its source.
+		// Scan only the preamble text BEFORE the first '(' to avoid false-positive
+		// matches on a column literally named CLONE inside a CREATE TABLE body.
+		// A real CLONE statement has no column list, so CLONE always precedes any '('.
+		stmtText := extractStmtText(strippedNoStr, m[1])
+		preamble := stmtText
+		if parenIdx := strings.IndexByte(stmtText, '('); parenIdx >= 0 {
+			preamble = stmtText[:parenIdx]
+		}
+		if cm := cloneRE.FindStringSubmatchIndex(preamble); cm != nil {
+			rawSrc := preamble[cm[2]:cm[3]]
+			_, srcName := parseQName(rawSrc)
+			if srcName != "" && !isSQLRefKeyword(srcName) {
+				byteOff := m[1] + cm[2]
+				line := strings.Count(stripped[:byteOff], "\n") + 1
+				result.UnresolvedReferences = append(result.UnresolvedReferences,
+					sqlRef(filePath, tableID, srcName, types.EdgeKindReferences, line))
 			}
 		}
 	}
@@ -621,6 +1205,43 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			result.UnresolvedReferences = append(result.UnresolvedReferences,
 				sqlRef(filePath, node.ID, tgtName, types.EdgeKindReferences, line))
 		}
+
+		// F3: FLATTEN([INPUT =>] <expr>) argument reference in view body.
+		// Emit a references edge only for single unqualified identifiers.
+		for _, bm := range bodyFlattenRE.FindAllStringSubmatchIndex(viewBody, -1) {
+			rawExpr := viewBody[bm[2]:bm[3]]
+			if strings.ContainsRune(rawExpr, '.') {
+				continue // dotted — column expr, skip
+			}
+			_, tgtName := parseQName(rawExpr)
+			if tgtName == "" || isSQLRefKeyword(tgtName) || seen[strings.ToLower(tgtName)] {
+				continue
+			}
+			seen[strings.ToLower(tgtName)] = true
+			byteOff := viewBodyStart + bm[2]
+			line := strings.Count(stripped[:byteOff], "\n") + 1
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, node.ID, tgtName, types.EdgeKindReferences, line))
+		}
+
+		// A6: CLONE <src> — emit a references edge from the new view to its source.
+		// Scan only the preamble text BEFORE the first '(' (same guard as table path).
+		// A cloned view has no AS SELECT body, so CLONE is the only lineage signal.
+		viewStmtText := extractStmtText(strippedNoStr, m[1])
+		viewPreamble := viewStmtText
+		if parenIdx := strings.IndexByte(viewStmtText, '('); parenIdx >= 0 {
+			viewPreamble = viewStmtText[:parenIdx]
+		}
+		if cm := cloneRE.FindStringSubmatchIndex(viewPreamble); cm != nil {
+			rawSrc := viewPreamble[cm[2]:cm[3]]
+			_, srcName := parseQName(rawSrc)
+			if srcName != "" && !isSQLRefKeyword(srcName) {
+				byteOff := m[1] + cm[2]
+				line := strings.Count(stripped[:byteOff], "\n") + 1
+				result.UnresolvedReferences = append(result.UnresolvedReferences,
+					sqlRef(filePath, node.ID, srcName, types.EdgeKindReferences, line))
+			}
+		}
 	}
 
 	// -- Functions --
@@ -744,6 +1365,101 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			continue
 		}
 		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindSequence, schema, name, qname, m[0]))
+	}
+
+	// -- Stages (A5) --
+	for _, m := range stageRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+		rawName := strippedNoStr[m[2]:m[3]]
+		schema, name := parseQName(rawName)
+		qname := qualifiedName(schema, name)
+		if name == "" {
+			continue
+		}
+		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindStage, schema, name, qname, m[0]))
+	}
+
+	// -- File Formats (F1) --
+	// CREATE [OR REPLACE] [TEMPORARY|TEMP] FILE FORMAT [IF NOT EXISTS] <name>
+	// Produces a file_format node; no outbound edges.
+	for _, m := range fileFormatRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+		rawName := strippedNoStr[m[2]:m[3]]
+		schema, name := parseQName(rawName)
+		qname := qualifiedName(schema, name)
+		if name == "" {
+			continue
+		}
+		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindFileFormat, schema, name, qname, m[0]))
+	}
+
+	// -- Streams (A4) --
+	// Emit one stream node + one references edge per CREATE STREAM ... ON <kind> <source>.
+	// Group 1 = stream name, Group 2 = source object name.
+	for _, m := range streamRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+		rawName := strippedNoStr[m[2]:m[3]]
+		rawSrc := strippedNoStr[m[4]:m[5]]
+		schema, name := parseQName(rawName)
+		qname := qualifiedName(schema, name)
+		if name == "" {
+			continue
+		}
+		streamNode := nodeAt(types.NodeKindStream, schema, name, qname, m[0])
+		result.Nodes = append(result.Nodes, streamNode)
+
+		_, srcName := parseQName(rawSrc)
+		if srcName != "" && !isSQLRefKeyword(srcName) {
+			line := strings.Count(stripped[:m[4]], "\n") + 1
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, streamNode.ID, srcName, types.EdgeKindReferences, line))
+		}
+	}
+
+	// -- Tasks (A3) --
+	// Emit one task node per CREATE [OR REPLACE] TASK [IF NOT EXISTS] <name>.
+	// Two edge sources:
+	//   1. AFTER <t1>[, <t2>...] → dedicated taskAfterRE (AFTER is in sqlKeywordsForRef
+	//      so it must NOT go through scanBodyEdges which would silently drop it).
+	//   2. AS <sql> / AS CALL <proc>(...) task body → scanBodyEdges for FROM/JOIN/INSERT/CALL/COPY.
+	for _, m := range taskRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+		rawName := strippedNoStr[m[2]:m[3]]
+		schema, name := parseQName(rawName)
+		qname := qualifiedName(schema, name)
+		if name == "" {
+			continue
+		}
+		taskNode := nodeAt(types.NodeKindTask, schema, name, qname, m[0])
+		result.Nodes = append(result.Nodes, taskNode)
+
+		// Extract the full CREATE TASK statement text (from end of name match to
+		// the next statement boundary) to scan for AFTER and body.
+		stmtText := extractStmtText(strippedNoStr, m[1])
+
+		// 1. AFTER predecessor edges (dedicated regex — AFTER is keyword-denylisted).
+		if am := taskAfterRE.FindStringSubmatchIndex(stmtText); am != nil {
+			rawList := stmtText[am[2]:am[3]]
+			predecessors := taskPredecessorSplitRE.Split(rawList, -1)
+			for _, pred := range predecessors {
+				pred = strings.TrimSpace(pred)
+				if pred == "" {
+					continue
+				}
+				_, predName := parseQName(pred)
+				if predName == "" {
+					continue
+				}
+				byteOff := m[1] + am[2]
+				line := strings.Count(stripped[:byteOff], "\n") + 1
+				result.UnresolvedReferences = append(result.UnresolvedReferences,
+					sqlRef(filePath, taskNode.ID, predName, types.EdgeKindReferences, line))
+			}
+		}
+
+		// 2. Task body edges (AS <sql>) → reuse scanBodyEdges.
+		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
+		if body != "" {
+			ctes := extractCTENames(body)
+			bodyEdgeRefs := scanBodyEdges(filePath, taskNode.ID, body, bodyOff, stripped, ctes)
+			result.UnresolvedReferences = append(result.UnresolvedReferences, bodyEdgeRefs...)
+		}
 	}
 
 	// -- Schemas --
@@ -932,6 +1648,104 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
+	// F4: standalone top-level COPY INTO — lazy script owner.
+	//
+	// A COPY INTO that is NOT inside any routine/function/procedure/task body
+	// and NOT in a dbt model file is owned by a lazily-created script node named
+	// by the file basename. The script node is created only when at least one such
+	// top-level COPY exists.
+	//
+	// dbt model files already own their top-level statements via the model node
+	// (B5 residual scan), so we skip them entirely.
+	if dbtModelID == "" {
+		// Step 1: collect body spans [start, end) for all routines and tasks so
+		// we can exclude COPY INTO matches that fall inside them.
+		type bodySpan struct{ start, end int }
+		var bodySpans []bodySpan
+		for _, re := range []*regexp.Regexp{functionRE, procedureRE, taskRE} {
+			for _, m := range re.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+				body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
+				if body != "" {
+					bodySpans = append(bodySpans, bodySpan{start: bodyOff, end: bodyOff + len(body)})
+				}
+			}
+		}
+
+		inBodySpan := func(off int) bool {
+			for _, sp := range bodySpans {
+				if off >= sp.start && off < sp.end {
+					return true
+				}
+			}
+			return false
+		}
+
+		// Step 2: scan for top-level COPY INTO matches (outside all body spans).
+		// scriptID is set on the first top-level COPY found (lazy creation).
+		// We capture the ID as a string rather than a pointer into result.Nodes —
+		// any subsequent append to result.Nodes would reallocate the backing array
+		// and make a slice-element pointer stale.
+		scriptID := ""
+		for _, m := range bodyCopyIntoRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+			if inBodySpan(m[0]) {
+				continue // already owned by the enclosing routine/task (v1)
+			}
+
+			// Lazily create the script node on the first top-level COPY found.
+			if scriptID == "" {
+				base := filepath.Base(filePath)
+				// Strip single extension (e.g. "load_facts.sql" → "load_facts").
+				// For .sql.jinja the dbt pre-pass already ran so dbtModelID != "" —
+				// we never reach here for those files.
+				scriptName := strings.TrimSuffix(base, filepath.Ext(base))
+				scriptLine := 1
+				scriptID = extraction.GenerateNodeID(filePath, string(types.NodeKindScript), scriptName, scriptLine)
+				result.Nodes = append(result.Nodes, types.Node{
+					ID:            scriptID,
+					Kind:          types.NodeKindScript,
+					Name:          scriptName,
+					QualifiedName: scriptName,
+					FilePath:      filePath,
+					Language:      types.LanguageSQL,
+					StartLine:     scriptLine,
+					EndLine:       scriptLine,
+					IsExported:    true,
+				})
+			}
+
+			// Emit COPY lineage edges owned by the script node — reuse v1 direction logic.
+			rawTarget := strippedNoStr[m[2]:m[3]]
+			rawSource := strippedNoStr[m[4]:m[5]]
+			line := strings.Count(stripped[:m[0]], "\n") + 1
+
+			if strings.HasPrefix(rawTarget, "@") {
+				// COPY INTO @stage FROM <tbl>
+				stageName := parseStageToken(rawTarget)
+				_, tblName := parseQName(rawSource)
+				if stageName != "" {
+					result.UnresolvedReferences = append(result.UnresolvedReferences,
+						sqlRef(filePath, scriptID, stageName, types.EdgeKindWrites, line))
+				}
+				if tblName != "" && !isSQLRefKeyword(tblName) {
+					result.UnresolvedReferences = append(result.UnresolvedReferences,
+						sqlRef(filePath, scriptID, tblName, types.EdgeKindReferences, line))
+				}
+			} else {
+				// COPY INTO <tbl> FROM @stage[/path]
+				_, tblName := parseQName(rawTarget)
+				stageName := parseStageToken(rawSource)
+				if tblName != "" && !isSQLRefKeyword(tblName) {
+					result.UnresolvedReferences = append(result.UnresolvedReferences,
+						sqlRef(filePath, scriptID, tblName, types.EdgeKindWrites, line))
+				}
+				if stageName != "" {
+					result.UnresolvedReferences = append(result.UnresolvedReferences,
+						sqlRef(filePath, scriptID, stageName, types.EdgeKindReferences, line))
+				}
+			}
+		}
+	}
+
 	return result, nil
 }
 
@@ -997,6 +1811,45 @@ func extractColumns(
 		colQName := fmt.Sprintf("%s.%s", tableQName, colName)
 		colID := extraction.GenerateNodeID(filePath, string(types.NodeKindColumn), colQName, lineNum)
 
+		// Extract the declared type token: first identifier after the column name.
+		// Skip the column name token (including any surrounding quotes) to reach the
+		// type portion of the line, then take the first identifier from it.
+		// Parameterised forms like NUMBER(38,0) and structured forms like OBJECT(a INT)
+		// yield the base keyword (NUMBER, OBJECT) — extractFirstIdent stops at '('.
+		//
+		// Two-guard filter: reject tokens that are (a) DML/DDL verbs via isSQLKeyword,
+		// or (b) column-attribute keywords that are not type names. The attribute denylist
+		// handles patterns like `col DEFAULT 0`, `col REFERENCES t(id)`, `col NOT NULL`
+		// where the second token is a constraint/modifier, not a declared type.
+		colTypeToken := ""
+		nameLen := extractFirstIdentLen(trimmed)
+		if nameLen > 0 && nameLen < len(trimmed) {
+			rest := strings.TrimSpace(trimmed[nameLen:])
+			if typeIdent := extractFirstIdent(rest); typeIdent != "" &&
+				!isSQLKeyword(typeIdent) &&
+				!colAttributeKeywords[strings.ToUpper(typeIdent)] {
+				colTypeToken = strings.ToUpper(typeIdent)
+			}
+		}
+
+		// Build Metadata: always includes "type" when we found one.
+		// Detect GENERATED / computed column using the original (non-stripped) source
+		// line so keywords inside string-literal defaults remain visible.
+		origLine := getSourceLine(source, lineOffset+i)
+		isGenerated := generatedMarkerRE.MatchString(origLine)
+
+		var colMeta json.RawMessage
+		if colTypeToken != "" || isGenerated {
+			meta := map[string]interface{}{}
+			if colTypeToken != "" {
+				meta["type"] = colTypeToken
+			}
+			if isGenerated {
+				meta["generated"] = true
+			}
+			colMeta, _ = json.Marshal(meta)
+		}
+
 		colNode := types.Node{
 			ID:            colID,
 			Kind:          types.NodeKindColumn,
@@ -1007,14 +1860,7 @@ func extractColumns(
 			StartLine:     lineNum,
 			EndLine:       lineNum,
 			IsExported:    true,
-		}
-
-		// Detect GENERATED / computed column.
-		// Use the original source line (not stripped) for this check so we can
-		// see keywords that might have been inside strings on other lines.
-		origLine := getSourceLine(source, lineOffset+i)
-		if generatedMarkerRE.MatchString(origLine) {
-			colNode.Metadata = []byte(`{"generated":true}`)
+			Metadata:      colMeta,
 		}
 
 		nodes = append(nodes, colNode)
@@ -1183,6 +2029,48 @@ func findParenBlock(source string, startOffset int) (string, int) {
 	return "", 0
 }
 
+// extractFirstIdentLen returns the byte length of the first SQL identifier
+// token in line (including surrounding quote characters if any). Returns 0
+// when line is empty or starts with a non-identifier character.
+// Used to advance past the column name to reach the type token.
+func extractFirstIdentLen(line string) int {
+	line = strings.TrimSpace(line)
+	if len(line) == 0 {
+		return 0
+	}
+	switch line[0] {
+	case '"':
+		end := strings.Index(line[1:], `"`)
+		if end < 0 {
+			return 0
+		}
+		return end + 2 // include both quote chars
+	case '`':
+		end := strings.Index(line[1:], "`")
+		if end < 0 {
+			return 0
+		}
+		return end + 2
+	case '[':
+		end := strings.Index(line[1:], "]")
+		if end < 0 {
+			return 0
+		}
+		return end + 2
+	default:
+		end := 0
+		for end < len(line) {
+			c := line[end]
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '$' {
+				end++
+			} else {
+				break
+			}
+		}
+		return end
+	}
+}
+
 // extractFirstIdent extracts the first SQL identifier from a line.
 // Handles quoted, backtick, and bracket identifiers.
 func extractFirstIdent(line string) string {
@@ -1232,6 +2120,23 @@ func getSourceLine(source string, lineIdx int) string {
 		return lines[lineIdx]
 	}
 	return ""
+}
+
+// colAttributeKeywords is the denylist of tokens that look like column-type
+// identifiers but are actually constraint or column-attribute keywords. When
+// the second token on a column definition line matches one of these, no "type"
+// key is emitted in Metadata. This handles patterns like:
+//   - col DEFAULT 0          → second token = DEFAULT (not a type)
+//   - col REFERENCES t(id)   → second token = REFERENCES (not a type)
+//   - col NOT NULL           → second token = NOT (not a type)
+//   - col COLLATE utf8       → second token = COLLATE (not a type)
+//
+// The list is intentionally a denylist (not an allowlist of all known types) so
+// that user-defined types and domain names still pass through unblocked.
+var colAttributeKeywords = map[string]bool{
+	"DEFAULT": true, "REFERENCES": true, "COLLATE": true, "COMMENT": true,
+	"ENCODING": true, "CONSTRAINT": true, "PRIMARY": true, "UNIQUE": true,
+	"CHECK": true, "GENERATED": true, "NOT": true, "NULL": true, "AS": true,
 }
 
 // sqlKeywords is a set of SQL reserved words that cannot be column names.
@@ -1528,5 +2433,72 @@ func scanBodyEdges(
 		}
 	}
 
+	// F3: FLATTEN([INPUT =>] <expr>) argument reference.
+	// Emit a references edge only when <expr> is a single unqualified identifier
+	// (no dot). Dotted expressions (alias.column / schema.table) are indistinguishable
+	// from column references and are skipped to avoid noisy false edges.
+	// Never reference FLATTEN/LATERAL/TABLE/INPUT — these are filtered by isSQLRefKeyword
+	// or the unqualified-only guard above.
+	for _, m := range bodyFlattenRE.FindAllStringSubmatchIndex(body, -1) {
+		rawExpr := body[m[2]:m[3]]
+		// Skip dotted forms — treat as column expression, not a relation.
+		if strings.ContainsRune(rawExpr, '.') {
+			continue
+		}
+		_, name := parseQName(rawExpr)
+		if name != "" {
+			addRef(name, types.EdgeKindReferences, m[2])
+		}
+	}
+
+	// A2: COPY INTO <target> FROM <source> — body-owned edge.
+	// Direction: if target starts with '@', the stage is the write target.
+	// Otherwise the table/view is the write target and the stage (source) is referenced.
+	// Stage tokens: strip leading '@' and any '/path' suffix (keep bare name).
+	for _, m := range bodyCopyIntoRE.FindAllStringSubmatchIndex(body, -1) {
+		rawTarget := body[m[2]:m[3]]
+		rawSource := body[m[4]:m[5]]
+
+		if strings.HasPrefix(rawTarget, "@") {
+			// COPY INTO @stage FROM <tbl>
+			stageName := parseStageToken(rawTarget)
+			_, tblName := parseQName(rawSource)
+			if stageName != "" {
+				addRef(stageName, types.EdgeKindWrites, m[2])
+			}
+			if tblName != "" {
+				addRef(tblName, types.EdgeKindReferences, m[4])
+			}
+		} else {
+			// COPY INTO <tbl> FROM @stage[/path]
+			_, tblName := parseQName(rawTarget)
+			stageName := parseStageToken(rawSource)
+			if tblName != "" {
+				addRef(tblName, types.EdgeKindWrites, m[2])
+			}
+			if stageName != "" {
+				addRef(stageName, types.EdgeKindReferences, m[4])
+			}
+		}
+	}
+
 	return refs
+}
+
+// parseStageToken extracts the bare stage name from a Snowflake named-stage token.
+// Returns empty string for internal-stage sigils (@~ user stage, @%tbl table stage)
+// — only NAMED external/internal named stages emit a reference edge.
+// Strips the leading '@' and any '/path' suffix (e.g. '@load_stage/path' → 'load_stage').
+func parseStageToken(raw string) string {
+	s := strings.TrimPrefix(raw, "@")
+	// @~ is the user (home) stage — no named target, skip.
+	// @%tbl is a table stage — not a named object, skip.
+	if strings.HasPrefix(s, "~") || strings.HasPrefix(s, "%") {
+		return ""
+	}
+	// Strip path suffix (anything after the first '/')
+	if idx := strings.IndexByte(s, '/'); idx >= 0 {
+		s = s[:idx]
+	}
+	return strings.TrimSpace(s)
 }

@@ -33,7 +33,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// NodeKind — the 31 node-type strings (appendix C, verbatim)
+// NodeKind — the 38 node-type strings (appendix C, verbatim)
 // ---------------------------------------------------------------------------
 
 // NodeKind is the type of a symbol node in the knowledge graph. The string
@@ -73,6 +73,14 @@ const (
 	NodeKindIndex      NodeKind = "index"
 	NodeKindSequence   NodeKind = "sequence"
 	NodeKindPolicy     NodeKind = "policy"
+	// Snowflake/dbt-specific kinds (added for dbt+Snowflake SQL extraction).
+	NodeKindStage      NodeKind = "stage"
+	NodeKindStream     NodeKind = "stream"
+	NodeKindTask       NodeKind = "task"
+	NodeKindModel      NodeKind = "model"
+	NodeKindFileFormat NodeKind = "file_format"
+	NodeKindMacro      NodeKind = "macro"
+	NodeKindScript     NodeKind = "script"
 )
 
 // AllNodeKinds is the complete set of NodeKind values, ordered as in
@@ -109,6 +117,13 @@ var AllNodeKinds = []NodeKind{
 	NodeKindIndex,
 	NodeKindSequence,
 	NodeKindPolicy,
+	NodeKindStage,
+	NodeKindStream,
+	NodeKindTask,
+	NodeKindModel,
+	NodeKindFileFormat,
+	NodeKindMacro,
+	NodeKindScript,
 }
 
 // ---------------------------------------------------------------------------
