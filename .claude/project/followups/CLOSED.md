@@ -30,3 +30,5 @@
 - 2026-06-24 artifact-templates-f-2 — "Renderer success message on stderr (matches bundle-mirror)" — *(closed 2026-06-24)*
 - 2026-06-24 atomic-doctor-f-1 — "`bundlemirror.Run` double-reads files via path reconstruction" — *(closed 2026-06-24)*
 - 2026-06-24 followup-hardening-f-4 — "Vue/Svelte node-ID staleness (inline contentLineOffset, no ID regen)" — *(closed 2026-06-24)*
+- 2026-06-24 signals-router-f-2 — "Double file reads across assembleBody" — *(closed 2026-06-24)*
+- 2026-06-24 signals-router-f-4 — "ScanWithOptions mutates caller-passed opts pointer" — *(closed 2026-06-24)*

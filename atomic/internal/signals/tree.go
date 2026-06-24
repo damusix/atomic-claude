@@ -190,6 +190,15 @@ func ScanTree(root string) (string, error) {
 	return ScanTreeWithOptions(root, nil)
 }
 
+// scanTreeWithMetaCache is the internal variant used by assembleBody. It returns
+// the tree rendering AND the metadata cache built during the tree pass (rel →
+// fileMeta for all non-beyond files). The cache lets assembleBody avoid a second
+// os.ReadFile call for those files in the language-LOC pass.
+func scanTreeWithMetaCache(root string, opts *Options) (string, map[string]fileMeta, error) {
+	tree, cache, err := scanTreeInternal(root, opts)
+	return tree, cache, err
+}
+
 // ScanTreeWithOptions is like ScanTree but reads MaxDepth, ExcludeGlobs, and
 // GeneratedGlobs from opts.
 // When opts is nil or opts.MaxDepth is 0, defaultMaxDepth (3) is used.
@@ -197,6 +206,14 @@ func ScanTree(root string) (string, error) {
 // ExcludeGlobs: matching files are omitted from the tree entirely (not shown).
 // GeneratedGlobs: matching files appear in the tree with a [generated] marker.
 func ScanTreeWithOptions(root string, opts *Options) (string, error) {
+	tree, _, err := scanTreeInternal(root, opts)
+	return tree, err
+}
+
+// scanTreeInternal is the shared implementation for ScanTreeWithOptions and
+// scanTreeWithMetaCache. It returns the rendered tree and the per-file metadata
+// cache populated during the read pass.
+func scanTreeInternal(root string, opts *Options) (string, map[string]fileMeta, error) {
 	maxDepth := defaultMaxDepth
 	if opts != nil && opts.MaxDepth > 0 {
 		maxDepth = opts.MaxDepth
@@ -211,7 +228,7 @@ func ScanTreeWithOptions(root string, opts *Options) (string, error) {
 	} else {
 		excl, gen, err := readSignalsIgnore(root)
 		if err != nil {
-			return "", fmt.Errorf("tree scanner: %w", err)
+			return "", nil, fmt.Errorf("tree scanner: %w", err)
 		}
 		excludeGlobs = excl
 		generatedGlobs = gen
@@ -219,7 +236,7 @@ func ScanTreeWithOptions(root string, opts *Options) (string, error) {
 
 	files, err := enumerateFiles(root)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	// Filter out files matching ExcludeGlobs before building the tree.
@@ -234,7 +251,7 @@ func ScanTreeWithOptions(root string, opts *Options) (string, error) {
 	}
 
 	if len(files) == 0 {
-		return "", nil
+		return "", map[string]fileMeta{}, nil
 	}
 
 	// Build a tree from the flat file list.
@@ -283,6 +300,11 @@ func ScanTreeWithOptions(root string, opts *Options) (string, error) {
 	// (markAllBeyond propagates the flag). A single file read computes all 4
 	// metadata fields (SHA, lines, chars, bytes) at once — no double reads.
 	// Also mark generated nodes based on GeneratedGlobs from .signalsignore.
+	//
+	// The metadata is also returned as a cache (metaCache) so assembleBody can
+	// pass it to scanLanguagesFromCache — avoiding a second os.ReadFile call for
+	// every non-beyond file (f-2: double-read elimination).
+	metaCache := make(map[string]fileMeta, len(fileNodeByRel))
 	for rel, node := range fileNodeByRel {
 		if len(generatedGlobs) > 0 && matchesSignalsIgnore(rel, generatedGlobs) {
 			node.generated = true
@@ -291,6 +313,7 @@ func ScanTreeWithOptions(root string, opts *Options) (string, error) {
 			absPath := filepath.Join(root, filepath.FromSlash(rel))
 			if m, err := readFileMeta(absPath); err == nil {
 				node.meta = m
+				metaCache[rel] = m
 			}
 		}
 	}
@@ -301,7 +324,7 @@ func ScanTreeWithOptions(root string, opts *Options) (string, error) {
 
 	result := sb.String()
 	result = strings.TrimRight(result, "\n")
-	return result, nil
+	return result, metaCache, nil
 }
 
 // sortTree sorts children of every directory node: dirs before files,
