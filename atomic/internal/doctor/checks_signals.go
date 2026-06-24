@@ -26,11 +26,14 @@ const (
 //  4. router integrity checks (see RunCheckRouterWith)
 //  5. all clear → PASS
 func checkSignals(opts Opts) Result {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not get cwd: %v", err)}
+	root := opts.RepoRoot
+	if root == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return Result{Severity: WARN, Detail: fmt.Sprintf("could not get cwd: %v", err)}
+		}
+		root = gitToplevelFn(cwd)
 	}
-	root := gitToplevel(cwd)
 	return RunCheckSignalsWith(root, opts.StaleDays)
 }
 

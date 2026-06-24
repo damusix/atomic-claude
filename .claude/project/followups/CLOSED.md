@@ -36,3 +36,4 @@
 - 2026-06-24 atomic-doctor-f-4 — "`defaultManifestRepair` does not stream `make` output" — *(closed 2026-06-24)*
 - 2026-06-24 doctor-verbose-f-2 — "FixApplied/FixSummary render but no repair path populates them" — *(closed 2026-06-24)*
 - 2026-06-24 nits-encode-skill-trigger-boundary-f-1 — "Encode skill trigger boundary in atomic-tdd and atomic-debug descriptions" — *(closed 2026-06-24)*
+- 2026-06-24 atomic-doctor-f-2 — "`gitToplevel` called 3× per doctor run" — *(closed 2026-06-24)*
