@@ -888,7 +888,10 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			// forms without a separate rule.
 			// dbtRefSubstRE is guaranteed to match (ReplaceAllStringFunc only calls the
 			// func for successful matches), so FindStringSubmatch cannot return nil here.
-			residual := dbtRefSubstRE.ReplaceAllStringFunc(source, func(m string) string {
+			// Start from rawForHarvest (not source) so that {# … #} comment text is
+			// already blanked — otherwise comment prose containing "from"/"join" words
+			// leaks into scanBodyEdges and produces false references edges (B5 bug).
+			residual := dbtRefSubstRE.ReplaceAllStringFunc(rawForHarvest, func(m string) string {
 				sub := dbtRefSubstRE.FindStringSubmatch(m)
 				modelRef := sub[1]
 				if sub[2] != "" {

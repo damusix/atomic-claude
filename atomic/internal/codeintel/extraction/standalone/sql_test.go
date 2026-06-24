@@ -2074,6 +2074,81 @@ func TestB5ModelOwnsResidualEdges(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// B5 Jinja comment stripping in residual (jaffle-shop regression)
+// ---------------------------------------------------------------------------
+
+// B5JinjaCommentResidualFromJoin: a model whose {#- ... -#} block comment
+// contains the word "from" followed by prose words must NOT emit references
+// edges to those prose words. Only the real {{ ref('raw_x') }} must appear.
+//
+// WHY: the B5 residual was built from `source` (raw), so {# … #} comment text
+// survived into scanBodyEdges. "select from the table" inside the comment
+// produced a spurious `references | the` edge (jaffle-shop-classic regression).
+// Fix: start the residual from rawForHarvest (comments already blanked).
+const b5JinjaCommentFromProseFixture = `
+with source as (
+    {#-
+    Normally we would select from the table here, but we are using seeds to
+    keep it simple — so this query is intentionally minimal.
+    -#}
+    select * from {{ ref('raw_x') }}
+)
+select * from source
+`
+
+func TestB5JinjaCommentResidualFromProse(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/stg_customers.sql", b5JinjaCommentFromProseFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// Must have exactly one references edge: to raw_x.
+	if !hasUnresolvedRef(refs, "raw_x", types.EdgeKindReferences) {
+		t.Error("expected exactly one references edge to 'raw_x' from {{ ref('raw_x') }}")
+	}
+
+	// Comment prose words that follow "from" / "join" inside {# #} must NOT appear.
+	for _, badWord := range []string{"the", "table", "here", "seeds", "simple", "so", "this", "query", "is", "intentionally", "minimal"} {
+		if countUnresolvedRefs(refs, badWord) > 0 {
+			t.Errorf("spurious references edge to comment-prose word %q — Jinja comment text must not leak into residual body scan", badWord)
+		}
+	}
+}
+
+// B5JinjaCommentResidualJoinProse: same class of bug but the comment prose
+// contains a word after "join". Verifies join-keyword path is also clean.
+const b5JinjaCommentJoinProseFixture = `
+with base as (
+    {#
+    We normally join other_table here, but we are bypassing it.
+    #}
+    select id from {{ ref('raw_orders') }}
+)
+select * from base
+`
+
+func TestB5JinjaCommentResidualJoinProse(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/models/stg_orders.sql", b5JinjaCommentJoinProseFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// Must have the real ref edge.
+	if !hasUnresolvedRef(refs, "raw_orders", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'raw_orders'")
+	}
+
+	// "other_table" is inside a {# #} comment after "join" — must not appear.
+	if countUnresolvedRefs(refs, "other_table") > 0 {
+		t.Error("spurious references edge to 'other_table' from join-prose inside {# #} comment")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // A4 — CREATE STREAM
 // ---------------------------------------------------------------------------
 
