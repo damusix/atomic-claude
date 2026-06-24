@@ -502,24 +502,27 @@ var dbtJinjaCommentRE = regexp.MustCompile(`(?s)\{#.*?#\}`)
 //
 // Supported grammar (dbt 1.5+):
 //   - ref('model')                       → group 1 = model
-//   - ref('model', v=2)                  → group 1 = model, version ignored
+//   - ref('model', v=2)                  → group 1 = model, group 3 = "2"
 //   - ref('pkg', 'model')                → group 1 = pkg, group 2 = model
-//   - ref('pkg', 'model', v=3)           → group 1 = pkg, group 2 = model, version ignored
+//   - ref('pkg', 'model', v=3)           → group 1 = pkg, group 2 = model, group 3 = "3"
 //   - ref('pkg', 'model', version=3)     → same
 //
 // Capture groups:
 //   - Group 1 = first string literal.
 //   - Group 2 = second string literal (present only when 2 positional args).
-//   - Version keyword (v=|version=) is an INDEPENDENT optional trailing group, not an
-//     alternative to the second literal. This is the key fix: previously v= was inside
-//     the second-arg optional group, making it impossible to have both group 2 AND v=.
+//   - Group 3 = version integer N (present only when v=N or version=N is given).
 //
-// Model name = group 2 if present, else group 1. Version is always ignored for edges.
+// Groups 1 and 2 are unchanged from v1 so all callers that index them by position
+// are unaffected. Group 3 is a NEW trailing group (E4).
+//
+// Model name = group 2 if present, else group 1.
+// When group 3 is present, the reference target is "<model>_v<N>" (dbt's default
+// compiled identifier for versioned models).
 var dbtRefRE = regexp.MustCompile(
 	`\{\{[-\s]*\bref\s*\(\s*` +
 		`'([^']+)'` + // group 1: first literal
 		`(?:\s*,\s*'([^']+)')?` + // group 2: second literal (package, model) — optional
-		`(?:\s*,\s*v(?:ersion)?\s*=\s*[^)]+)?` + // independent optional version= arg — ignored
+		`(?:\s*,\s*v(?:ersion)?\s*=\s*([0-9]+))?` + // group 3: version integer N — optional (E4)
 		`\s*\)\s*-?\}\}`,
 )
 
@@ -532,13 +535,13 @@ var dbtSourceRE = regexp.MustCompile(
 
 // dbtRefSubstRE matches {{ ref(...) }} for B5 placeholder substitution.
 // Mirrors dbtRefRE's grammar exactly: first literal in group 1, optional second
-// literal in group 2, independent optional version= trailing arg. Used to compute
-// the placeholder name (__dbt_ref_<model>) and replace the whole expression.
+// literal in group 2, version integer in group 3 (E4). Used to compute the
+// placeholder name (__dbt_ref_<model> or __dbt_ref_<model>_v<N> for versioned refs).
 var dbtRefSubstRE = regexp.MustCompile(
 	`\{\{[-\s]*\bref\s*\(\s*` +
 		`'([^']+)'` + // group 1: first literal
 		`(?:\s*,\s*'([^']+)')?` + // group 2: second literal — optional
-		`(?:\s*,\s*v(?:ersion)?\s*=\s*[^)]+)?` + // independent optional version= — ignored
+		`(?:\s*,\s*v(?:ersion)?\s*=\s*([0-9]+))?` + // group 3: version integer N — optional (E4)
 		`\s*\)\s*-?\}\}`,
 )
 
@@ -551,6 +554,15 @@ var dbtSourceSubstRE = regexp.MustCompile(
 // Used in B5 to blank remaining Jinja expressions length-preservingly after
 // ref/source substitution.
 var dbtAnyExprRE = regexp.MustCompile(`(?s)\{\{.*?\}\}|\{%.*?%\}`)
+
+// dbtConfigAliasRE matches {{ config(... alias='name' ...) }} or alias="name".
+// E5: captures the alias value so the model node's Metadata can be annotated.
+// Group 1 = alias value (single- or double-quoted). The overall config() call
+// may contain other kwargs in any order; this regex tolerates them via [^)]*
+// on each side of the alias kwarg.
+var dbtConfigAliasRE = regexp.MustCompile(
+	`\{\{[-\s]*\bconfig\s*\([^)]*\balias\s*=\s*['"]([^'"]+)['"][^)]*\)\s*-?\}\}`,
+)
 
 // ---------------------------------------------------------------------------
 // E — dbt macros and project awareness (E1 / E2 / E3)
@@ -739,6 +751,15 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				EndLine:       modelLine,
 				IsExported:    true,
 			}
+			// E5: capture config(alias=...) and annotate the model node's Metadata.
+			// First match wins (deterministic when multiple config() blocks exist).
+			// Use json.Marshal so the alias value is properly escaped — the regex
+			// [^'"]+ excludes quotes but allows backslash, control chars, etc.
+			if am := dbtConfigAliasRE.FindStringSubmatch(rawForHarvest); am != nil {
+				if b, err := json.Marshal(map[string]string{"alias": am[1]}); err == nil {
+					modelNode.Metadata = b
+				}
+			}
 			result.Nodes = append(result.Nodes, modelNode)
 			dbtModelID = modelID
 		}
@@ -758,6 +779,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		// E3: ownership is determined by ownerForOffset.
 		// E1: refs whose owner is empty (outside macro spans in a non-model file)
 		// are dropped — there is no node to attach them to.
+		// E4: when group 3 (version N) is captured, the target is "<model>_v<N>".
 		seenRef := map[string]bool{}
 		for _, m := range dbtRefRE.FindAllStringSubmatchIndex(rawForHarvest, -1) {
 			first := rawForHarvest[m[2]:m[3]]
@@ -768,6 +790,10 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			} else {
 				// Single literal: that literal is the model name.
 				modelRef = first
+			}
+			// E4: apply version suffix when group 3 is present.
+			if m[6] >= 0 {
+				modelRef = modelRef + "_v" + rawForHarvest[m[6]:m[7]]
 			}
 			if modelRef == "" || seenRef[modelRef] {
 				continue
@@ -836,6 +862,10 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		// scan would have no owning node and is mostly Jinja anyway (near-empty SQL).
 		if dbtModelID != "" {
 			// Step 1: replace {{ ref('x') }} → __dbt_ref_<model>
+			// E4: versioned refs produce __dbt_ref_<model>_v<N> so the placeholder
+			// name agrees with the harvest edge target. The B5 drop-guard uses a
+			// HasPrefix("__dbt_ref_") check, which catches both bare and versioned
+			// forms without a separate rule.
 			// dbtRefSubstRE is guaranteed to match (ReplaceAllStringFunc only calls the
 			// func for successful matches), so FindStringSubmatch cannot return nil here.
 			residual := dbtRefSubstRE.ReplaceAllStringFunc(source, func(m string) string {
@@ -844,6 +874,10 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				if sub[2] != "" {
 					// Two positional literals: model name is the second.
 					modelRef = sub[2]
+				}
+				// E4: append _v<N> when version was captured (group 3).
+				if sub[3] != "" {
+					modelRef = modelRef + "_v" + sub[3]
 				}
 				return padTo("__dbt_ref_"+modelRef, len(m))
 			})

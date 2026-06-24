@@ -1877,8 +1877,11 @@ func TestB4ModelNodeBasename(t *testing.T) {
 // B2: five ref() grammar forms in one fixture (includes dbt 1.5+ cross-project versioned ref).
 // Highest-risk assertions:
 //   - ref('pkg','stg_orders') → edge target is 'stg_orders', NOT 'pkg'.
-//   - ref('pkg','stg_orders', v=3) → edge target is 'stg_orders'; version ignored.
+//   - ref('pkg','stg_orders', v=3) → edge target is 'stg_orders_v3' (E4 versioned suffix).
 //   - ref('pkg','stg_orders', version=3) → same.
+//
+// The test only asserts that 'stg_orders' (bare) exists — satisfied by the first
+// unversioned form. E4 versioned-target assertions live in TestE4VersionedRefDistinctTargets.
 //
 // WHY the two-positional-plus-version forms: dbt 1.5 introduced cross-project
 // versioned refs where both a package AND a version= keyword co-exist. The old
@@ -1905,9 +1908,15 @@ func TestB2RefGrammarThreeForms(t *testing.T) {
 	}
 	refs := result.UnresolvedReferences
 
-	// All five forms must emit a references edge to 'stg_orders'.
+	// The single-literal form ref('stg_orders') → target "stg_orders" (unchanged).
+	// Versioned forms now produce distinct targets per E4:
+	//   ref('stg_orders', v=2)             → "stg_orders_v2"
+	//   ref('pkg', 'stg_orders', v=3)      → "stg_orders_v3"
+	//   ref('pkg', 'stg_orders', version=3) → "stg_orders_v3" (deduped)
+	// This assertion verifies the unversioned form; see TestE4VersionedRefDistinctTargets
+	// for the versioned-target assertions.
 	if !hasUnresolvedRef(refs, "stg_orders", types.EdgeKindReferences) {
-		t.Error("expected references edge to 'stg_orders'")
+		t.Error("expected references edge to 'stg_orders' from unversioned ref('stg_orders')")
 	}
 
 	// Critical: 'pkg' (the package arg) must NOT appear as an edge target.
@@ -2778,6 +2787,128 @@ func TestC4FlattenNoEdge(t *testing.T) {
 	for _, badName := range []string{"FLATTEN", "flatten", "LATERAL", "lateral", "TABLE", "table"} {
 		if countUnresolvedRefs(refs2, badName) > 0 {
 			t.Errorf("(table flatten) %q must not produce a references edge", badName)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Part E4 — versioned refs → distinct reference target (<model>_v<N>)
+// ---------------------------------------------------------------------------
+
+// E4: three ref grammar forms in one fixture asserting versioned target names.
+//
+// WHY: dbt 1.5+ compiled versioned models to <model>_v<N> by default (e.g.
+// ref('orders', v=2) → edge target "orders_v2"). The old regex had version=
+// in a non-capturing group so N was never extracted and the target was the bare
+// model name. v2 must capture N and append _v<N> to the target.
+//
+// Guards:
+//   - No bare "orders" edge must survive for the versioned forms.
+//   - The B5 placeholder-drop prefix (__dbt_ref_) must still catch
+//     __dbt_ref_orders_v2 (prefix match, not exact match).
+const e4VersionedRefFixture = `
+-- unversioned: target = "orders"
+SELECT * FROM {{ ref('orders') }}
+-- v= form: target = "orders_v2"
+JOIN {{ ref('orders', v=2) }} ON true
+-- version= with package: target = "orders_v3"
+JOIN {{ ref('pkg', 'orders', version=3) }} ON true
+`
+
+func TestE4VersionedRefDistinctTargets(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("models/e4_versioned.sql", e4VersionedRefFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// Unversioned ref('orders') → target "orders".
+	if !hasUnresolvedRef(refs, "orders", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'orders' from unversioned ref('orders')")
+	}
+
+	// ref('orders', v=2) → target "orders_v2".
+	if !hasUnresolvedRef(refs, "orders_v2", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'orders_v2' from ref('orders', v=2)")
+	}
+
+	// ref('pkg', 'orders', version=3) → target "orders_v3".
+	if !hasUnresolvedRef(refs, "orders_v3", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'orders_v3' from ref('pkg', 'orders', version=3)")
+	}
+
+	// No bare "orders" leak from a versioned ref (the versioned forms must use
+	// "orders_v2"/"orders_v3", not "orders").
+	// Count references to "orders" — must be exactly 1 (from the unversioned form).
+	ordersCount := countUnresolvedRefs(refs, "orders")
+	if ordersCount != 1 {
+		t.Errorf("expected exactly 1 edge to bare 'orders' (unversioned form only); got %d", ordersCount)
+	}
+
+	// No __dbt_ref_* placeholder must survive in unresolved references.
+	// WHY: the B5 prefix-drop logic strips names starting with "__dbt_ref_".
+	// This catches versioned placeholders (__dbt_ref_orders_v2) as well because
+	// strings.HasPrefix("__dbt_ref_orders_v2", "__dbt_ref_") == true.
+	for _, r := range refs {
+		if strings.HasPrefix(r.ReferenceName, "__dbt_ref_") || strings.HasPrefix(r.ReferenceName, "__dbt_src_") {
+			t.Errorf("__dbt_* placeholder reference must not survive in final refs; got %q", r.ReferenceName)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Part E5 — config(alias=…) capture
+// ---------------------------------------------------------------------------
+
+// E5: config(alias=...) sets the model node's Metadata to {"alias":"<name>"}.
+//
+// WHY: dbt's config(alias=) lets a model deploy under a different identifier
+// than its filename. The extractor annotates the model node's Metadata so
+// downstream tooling knows the deployed name without a dbt manifest.
+const e5ConfigAliasFixture = `
+{{ config(materialized='table', alias='daily_orders') }}
+SELECT order_id FROM raw_orders
+`
+
+// e5NoAliasFixture: a model with config() but no alias= kwarg.
+const e5NoAliasFixture = `
+{{ config(materialized='view') }}
+SELECT * FROM raw
+`
+
+func TestE5ConfigAliasCapture(t *testing.T) {
+	ext := newSQL()
+
+	// Model WITH alias= → Metadata must include alias:"daily_orders".
+	result, err := ext.Extract("models/e5_alias.sql", e5ConfigAliasFixture)
+	if err != nil {
+		t.Fatalf("Extract (alias model): %v", err)
+	}
+	modelNode := findSQLNodeExact(result.Nodes, types.NodeKindModel, "e5_alias")
+	if modelNode == nil {
+		t.Fatal("expected model node 'e5_alias'")
+	}
+	if !metadataHas(modelNode.Metadata, "alias", "daily_orders") {
+		t.Errorf("model node Metadata must include alias='daily_orders'; got %s", modelNode.Metadata)
+	}
+
+	// Model WITHOUT alias= → Metadata must be nil or absent (no spurious alias).
+	result2, err2 := ext.Extract("models/e5_no_alias.sql", e5NoAliasFixture)
+	if err2 != nil {
+		t.Fatalf("Extract (no-alias model): %v", err2)
+	}
+	modelNode2 := findSQLNodeExact(result2.Nodes, types.NodeKindModel, "e5_no_alias")
+	if modelNode2 == nil {
+		t.Fatal("expected model node 'e5_no_alias'")
+	}
+	if modelNode2.Metadata != nil {
+		// If Metadata is non-nil, the "alias" key must be absent.
+		var m map[string]interface{}
+		if err := json.Unmarshal(modelNode2.Metadata, &m); err == nil {
+			if _, hasAlias := m["alias"]; hasAlias {
+				t.Errorf("model with no alias= must not have 'alias' key in Metadata; got %s", modelNode2.Metadata)
+			}
 		}
 	}
 }
