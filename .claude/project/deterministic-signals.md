@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-24T09:43:43Z
+generated_at: 2026-06-24T14:26:20Z
 atomic_version: 5.6.3
 ---
 # Deterministic signals
@@ -137,8 +137,8 @@ atomic_version: 5.6.3
 │   │   │   ├── checks_install_test.go (d278140, 222L, 6311ch, 6319B)
 │   │   │   ├── checks_manifest.go (40d0cd9, 68L, 1807ch, 1811B)
 │   │   │   ├── checks_manifest_test.go (cc9a550, 163L, 5025ch, 5035B)
-│   │   │   ├── checks_memory.go (bb14a89, 88L, 2764ch, 2766B)
-│   │   │   ├── checks_memory_test.go (80f4d56, 138L, 4957ch, 4959B)
+│   │   │   ├── checks_memory.go (5c785d2, 99L, 3236ch, 3242B)
+│   │   │   ├── checks_memory_test.go (addea96, 148L, 5722ch, 5728B)
 │   │   │   ├── checks_profile.go (635c187, 115L, 4645ch, 4650B)
 │   │   │   ├── checks_profile_test.go (bcb8f8f, 190L, 7032ch, 7034B)
 │   │   │   ├── checks_refs.go (60fda5f, 54L, 1528ch, 1530B)
@@ -599,7 +599,7 @@ atomic_version: 5.6.3
 
 ## Languages
 
-- Go: 134705 LOC (69%), 390 files (54%)
+- Go: 134726 LOC (69%), 390 files (54%)
 - Markdown: 47283 LOC (24%), 283 files (39%)
 - JavaScript: 4179 LOC (2%), 5 files (0%)
 - CSS: 2943 LOC (1%), 2 files (0%)

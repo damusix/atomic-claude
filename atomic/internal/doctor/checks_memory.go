@@ -30,14 +30,25 @@ func checkMemory(_ Opts) Result {
 	return RunCheckMemoryWith(claudeHome, project)
 }
 
+// projectSlugRe matches every character Claude Code replaces with "-" when it
+// derives a project session directory name from a cwd: any non-alphanumeric
+// character (path separators "/" and "\", the Windows drive colon ":", dots,
+// and so on). Replacement is per character, so "/." becomes "--". Existing
+// hyphens map to themselves and letter case is preserved.
+var projectSlugRe = regexp.MustCompile(`[^a-zA-Z0-9]`)
+
 // ProjectNameFromCWD derives the Claude Code auto-memory project name from an
-// absolute cwd path. Convention: full path with "/" replaced by "-"; leading
-// "/" stripped first so the result begins with "-".
-// Example: /Users/alonso/foo → -Users-alonso-foo
+// absolute cwd path, mirroring Claude Code's own slugification: every
+// non-alphanumeric character is replaced by "-".
+//
+// A POSIX path's leading "/" therefore yields a leading "-", and dotted
+// segments slugify too:
+//
+//	/Users/alonso/foo  → -Users-alonso-foo
+//	/Users/alonso/.cfg → -Users-alonso--cfg
+//	C:\Users\me\repo    → C--Users-me-repo
 func ProjectNameFromCWD(cwd string) string {
-	// Strip leading slash so replacement produces "-Users-..." not "--Users-...".
-	trimmed := strings.TrimPrefix(cwd, "/")
-	return "-" + strings.ReplaceAll(trimmed, "/", "-")
+	return projectSlugRe.ReplaceAllString(cwd, "-")
 }
 
 // RunCheckMemoryWith runs the memory orphan check against explicit claudeHome and project.
