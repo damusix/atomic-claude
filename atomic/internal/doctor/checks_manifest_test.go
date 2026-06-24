@@ -125,6 +125,83 @@ func TestCheckManifest_fail_findings(t *testing.T) {
 	}
 }
 
+// TestCheckManifest_fail_findings_missing: removing an embedded artifact from disk
+// causes a "missing: <path>" finding in the FAIL result.
+func TestCheckManifest_fail_findings_missing(t *testing.T) {
+	root := buildSyntheticRepoDev(t)
+
+	// Pick the first agent artifact and delete it from disk.
+	manifest := embedded.Manifest()
+	var missingRelPath string
+	for _, a := range manifest {
+		if a.Kind == "agent" {
+			missingRelPath = a.Target
+			break
+		}
+	}
+	if missingRelPath == "" {
+		t.Fatal("no agent artifact found in manifest")
+	}
+	if err := os.Remove(filepath.Join(root, filepath.FromSlash(missingRelPath))); err != nil {
+		t.Fatalf("remove artifact: %v", err)
+	}
+
+	r := doctor.RunCheckManifestWith(root)
+	if r.Severity != doctor.FAIL {
+		t.Fatalf("severity = %q, want FAIL; detail: %s", r.Severity, r.Detail)
+	}
+
+	want := "missing: " + missingRelPath
+	found := false
+	for _, f := range r.Findings {
+		if f == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Findings = %v; want entry %q", r.Findings, want)
+	}
+	if r.Remediation != "make -C atomic bundle" {
+		t.Errorf("Remediation = %q, want %q", r.Remediation, "make -C atomic bundle")
+	}
+}
+
+// TestCheckManifest_fail_findings_extra: adding a new agent file on disk (not in the
+// embedded manifest) causes an "extra: <path>" finding in the FAIL result.
+func TestCheckManifest_fail_findings_extra(t *testing.T) {
+	root := buildSyntheticRepoDev(t)
+
+	// Write an extra agent file that matches bundlespec (atomic-*.md) but is not
+	// present in embedded.Manifest(). The name is chosen to be distinct from any
+	// real artifact.
+	extraRelPath := "agents/atomic-zzz-extra-fixture-test.md"
+	extraDst := filepath.Join(root, filepath.FromSlash(extraRelPath))
+	if err := os.WriteFile(extraDst, []byte("# extra fixture\n"), 0o644); err != nil {
+		t.Fatalf("write extra artifact: %v", err)
+	}
+
+	r := doctor.RunCheckManifestWith(root)
+	if r.Severity != doctor.FAIL {
+		t.Fatalf("severity = %q, want FAIL; detail: %s", r.Severity, r.Detail)
+	}
+
+	want := "extra: " + extraRelPath
+	found := false
+	for _, f := range r.Findings {
+		if f == want {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Findings = %v; want entry %q", r.Findings, want)
+	}
+	if r.Remediation != "make -C atomic bundle" {
+		t.Errorf("Remediation = %q, want %q", r.Remediation, "make -C atomic bundle")
+	}
+}
+
 // buildSyntheticRepoDev creates a temporary directory tree that looks like the
 // atomic-claude repo root to IsRepoDev and bundlemirror.Enumerate:
 //   - atomic/internal/bundlemirror/mirror.go  (marker file)
