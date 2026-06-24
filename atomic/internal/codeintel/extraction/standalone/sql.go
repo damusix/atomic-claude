@@ -235,6 +235,13 @@ var indexRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+(?:UNIQUE\s+)?INDEX\s+` +
 // sequenceRE matches CREATE SEQUENCE <name>
 var sequenceRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SEQUENCE\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
+// stageRE matches CREATE [OR REPLACE] [TEMPORARY|TEMP] STAGE [IF NOT EXISTS] <name>
+// A5: Snowflake external/internal stage definition.
+// The optional TEMPORARY/TEMP modifier sits between OR REPLACE (consumed by modPat)
+// and STAGE; trailing \s+ is embedded inside the alternation to avoid leaving
+// unconsumed whitespace before STAGE.
+var stageRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(?:TEMPORARY|TEMP)\s+)?STAGE\s+` + modPat + `(` + sqlQNameRaw + `)`)
+
 // schemaRE matches CREATE SCHEMA <name>
 var schemaRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SCHEMA\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
@@ -281,6 +288,27 @@ var bodyMergeIntoRE = regexp.MustCompile(`(?i)\bMERGE\s+INTO\s+(` + sqlQNameRaw 
 // bodyExecCallRE matches EXEC[UTE] <name> or CALL <name>( in a routine body.
 // Group 1 = routine name.
 var bodyExecCallRE = regexp.MustCompile(`(?i)\b(?:EXEC(?:UTE)?\s+|CALL\s+)(` + sqlQNameRaw + `)\s*[\s(]`)
+
+// bodyCopyIntoRE matches COPY INTO <target> FROM <source> in a routine/task body.
+// A2: both directions are captured; the leading '@' on the target decides direction.
+//   - Group 1 = target token (may start with '@' for stage-as-target direction).
+//   - Group 2 = source token (may start with '@' for stage-as-source direction).
+//
+// stageTokenPat extends sqlQNameRaw to also match Snowflake internal-stage sigil
+// forms: @~/path (user stage) and @%name (table stage). The '@' is included in
+// the match so callers can detect stage tokens; parseStageToken then strips the
+// sigil and returns empty for @~ / @% forms (no references edge emitted).
+const stageTokenPat = `@(?:[~%][A-Za-z0-9_$./]*|` + sqlQNameRaw + `(?:/[^\s]*)?)`
+
+var bodyCopyIntoRE = regexp.MustCompile(`(?i)\bCOPY\s+INTO\s+(` + stageTokenPat + `|` + sqlQNameRaw + `)\s+FROM\s+(` + stageTokenPat + `|` + sqlQNameRaw + `)`)
+
+// cloneRE matches the CLONE <src> clause appended to CREATE TABLE/VIEW statements.
+// A6: used after a successful table/view match to detect if it is a clone and
+// emit the lineage references edge. Group 1 = source object name.
+// IMPORTANT: callers must scan only the preamble text BEFORE the first '(' so
+// that a column literally named CLONE (e.g. CREATE TABLE t (CLONE INT)) does
+// not produce a spurious edge. A real CLONE statement has no column-list body.
+var cloneRE = regexp.MustCompile(`(?i)\bCLONE\s+(` + sqlQNameRaw + `)`)
 
 // cteNameRE matches the name of each CTE in WITH <name> AS (…) or , <name> AS (…).
 // Used to collect CTE-local names so they are excluded from edge emission.
@@ -474,6 +502,26 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 					sqlRef(filePath, tableID, tgtName, types.EdgeKindReferences, line))
 			}
 		}
+
+		// A6: CLONE <src> — emit a references edge from the new table to its source.
+		// Scan only the preamble text BEFORE the first '(' to avoid false-positive
+		// matches on a column literally named CLONE inside a CREATE TABLE body.
+		// A real CLONE statement has no column list, so CLONE always precedes any '('.
+		stmtText := extractStmtText(strippedNoStr, m[1])
+		preamble := stmtText
+		if parenIdx := strings.IndexByte(stmtText, '('); parenIdx >= 0 {
+			preamble = stmtText[:parenIdx]
+		}
+		if cm := cloneRE.FindStringSubmatchIndex(preamble); cm != nil {
+			rawSrc := preamble[cm[2]:cm[3]]
+			_, srcName := parseQName(rawSrc)
+			if srcName != "" && !isSQLRefKeyword(srcName) {
+				byteOff := m[1] + cm[2]
+				line := strings.Count(stripped[:byteOff], "\n") + 1
+				result.UnresolvedReferences = append(result.UnresolvedReferences,
+					sqlRef(filePath, tableID, srcName, types.EdgeKindReferences, line))
+			}
+		}
 	}
 
 	// Build a map of (kind, lower-name) → nodeID once so that the ALTER TABLE
@@ -643,6 +691,25 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			result.UnresolvedReferences = append(result.UnresolvedReferences,
 				sqlRef(filePath, node.ID, tgtName, types.EdgeKindReferences, line))
 		}
+
+		// A6: CLONE <src> — emit a references edge from the new view to its source.
+		// Scan only the preamble text BEFORE the first '(' (same guard as table path).
+		// A cloned view has no AS SELECT body, so CLONE is the only lineage signal.
+		viewStmtText := extractStmtText(strippedNoStr, m[1])
+		viewPreamble := viewStmtText
+		if parenIdx := strings.IndexByte(viewStmtText, '('); parenIdx >= 0 {
+			viewPreamble = viewStmtText[:parenIdx]
+		}
+		if cm := cloneRE.FindStringSubmatchIndex(viewPreamble); cm != nil {
+			rawSrc := viewPreamble[cm[2]:cm[3]]
+			_, srcName := parseQName(rawSrc)
+			if srcName != "" && !isSQLRefKeyword(srcName) {
+				byteOff := m[1] + cm[2]
+				line := strings.Count(stripped[:byteOff], "\n") + 1
+				result.UnresolvedReferences = append(result.UnresolvedReferences,
+					sqlRef(filePath, node.ID, srcName, types.EdgeKindReferences, line))
+			}
+		}
 	}
 
 	// -- Functions --
@@ -766,6 +833,17 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			continue
 		}
 		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindSequence, schema, name, qname, m[0]))
+	}
+
+	// -- Stages (A5) --
+	for _, m := range stageRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+		rawName := strippedNoStr[m[2]:m[3]]
+		schema, name := parseQName(rawName)
+		qname := qualifiedName(schema, name)
+		if name == "" {
+			continue
+		}
+		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindStage, schema, name, qname, m[0]))
 	}
 
 	// -- Schemas --
@@ -1550,5 +1628,54 @@ func scanBodyEdges(
 		}
 	}
 
+	// A2: COPY INTO <target> FROM <source> — body-owned edge.
+	// Direction: if target starts with '@', the stage is the write target.
+	// Otherwise the table/view is the write target and the stage (source) is referenced.
+	// Stage tokens: strip leading '@' and any '/path' suffix (keep bare name).
+	for _, m := range bodyCopyIntoRE.FindAllStringSubmatchIndex(body, -1) {
+		rawTarget := body[m[2]:m[3]]
+		rawSource := body[m[4]:m[5]]
+
+		if strings.HasPrefix(rawTarget, "@") {
+			// COPY INTO @stage FROM <tbl>
+			stageName := parseStageToken(rawTarget)
+			_, tblName := parseQName(rawSource)
+			if stageName != "" {
+				addRef(stageName, types.EdgeKindWrites, m[2])
+			}
+			if tblName != "" {
+				addRef(tblName, types.EdgeKindReferences, m[4])
+			}
+		} else {
+			// COPY INTO <tbl> FROM @stage[/path]
+			_, tblName := parseQName(rawTarget)
+			stageName := parseStageToken(rawSource)
+			if tblName != "" {
+				addRef(tblName, types.EdgeKindWrites, m[2])
+			}
+			if stageName != "" {
+				addRef(stageName, types.EdgeKindReferences, m[4])
+			}
+		}
+	}
+
 	return refs
+}
+
+// parseStageToken extracts the bare stage name from a Snowflake named-stage token.
+// Returns empty string for internal-stage sigils (@~ user stage, @%tbl table stage)
+// — only NAMED external/internal named stages emit a reference edge.
+// Strips the leading '@' and any '/path' suffix (e.g. '@load_stage/path' → 'load_stage').
+func parseStageToken(raw string) string {
+	s := strings.TrimPrefix(raw, "@")
+	// @~ is the user (home) stage — no named target, skip.
+	// @%tbl is a table stage — not a named object, skip.
+	if strings.HasPrefix(s, "~") || strings.HasPrefix(s, "%") {
+		return ""
+	}
+	// Strip path suffix (anything after the first '/')
+	if idx := strings.IndexByte(s, '/'); idx >= 0 {
+		s = s[:idx]
+	}
+	return strings.TrimSpace(s)
 }

@@ -71,9 +71,11 @@ owned by that routine/task:
 - `COPY INTO @<stage> FROM <tbl|(query)>` → `writes` to the stage + `references` to the table(s). Direction is
   decided by whether the COPY target token starts with `@`.
 
-Stage tokens (`@my_stage`, `@~/path`, `@%tbl`) are captured to the bare stage identifier (strip the leading `@`
-and any `/path` suffix). A standalone top-level `COPY INTO` (not inside any definition) is **not** captured in v1
-— consistent with how a bare top-level `INSERT` is not captured (no owning node). See Non-goals.
+A **named** stage token (`@my_stage`, `@my_stage/path` → `my_stage`) is captured to the bare stage identifier
+(strip the leading `@` and any `/path` suffix) and emits the references edge. The internal **user-stage** (`@~`)
+and **table-stage** (`@%tbl`) sigils are skipped in v1 — there is no named stage object to reference. A standalone
+top-level `COPY INTO` (not inside any definition) is **not** captured in v1 — consistent with how a bare top-level
+`INSERT` is not captured (no owning node). See Non-goals.
 
 Success: a task/proc body `COPY INTO fact FROM @load_stage` → `writes` to `fact` + `references` to `load_stage`;
 `COPY INTO @out_stage FROM fact` → `writes` to `out_stage` + `references` to `fact`.

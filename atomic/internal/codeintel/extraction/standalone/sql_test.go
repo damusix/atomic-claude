@@ -1549,3 +1549,275 @@ func TestA1StandaloneLocalGlobalNotCaptured(t *testing.T) {
 		t.Error("CREATE GLOBAL TABLE must not produce a table node — GLOBAL requires TEMP/TEMPORARY")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// A5 — CREATE STAGE
+// ---------------------------------------------------------------------------
+
+// TestA5CreateStage verifies that CREATE STAGE <name> emits a stage node.
+// A5 spec: new stage node (top-level definition loop), no outbound edges.
+const a5StageFixture = `
+CREATE STAGE my_stage URL='s3://bucket/path' CREDENTIALS=(AWS_KEY_ID='key');
+`
+
+func TestA5CreateStage(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a5.sql", a5StageFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindStage, "my_stage") == nil {
+		t.Error("expected stage node 'my_stage' from CREATE STAGE my_stage URL='s3://...'")
+	}
+}
+
+// TestA5CreateStageOrReplace verifies CREATE OR REPLACE STAGE <name>.
+const a5StageOrReplaceFixture = `
+CREATE OR REPLACE STAGE etl_stage;
+`
+
+func TestA5CreateStageOrReplace(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a5_orreplace.sql", a5StageOrReplaceFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindStage, "etl_stage") == nil {
+		t.Error("expected stage node 'etl_stage' from CREATE OR REPLACE STAGE etl_stage")
+	}
+}
+
+// TestA5CreateStageTempIfNotExists verifies TEMPORARY/TEMP modifiers and IF NOT EXISTS.
+const a5StageTempIfNotExistsFixture = `
+CREATE OR REPLACE TEMPORARY STAGE IF NOT EXISTS temp_stage;
+CREATE TEMP STAGE raw_stage;
+`
+
+func TestA5CreateStageTempIfNotExists(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a5_temp.sql", a5StageTempIfNotExistsFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindStage, "temp_stage") == nil {
+		t.Error("expected stage node 'temp_stage' from CREATE OR REPLACE TEMPORARY STAGE IF NOT EXISTS temp_stage")
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindStage, "raw_stage") == nil {
+		t.Error("expected stage node 'raw_stage' from CREATE TEMP STAGE raw_stage")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// A2 — COPY INTO (body edge, owned by enclosing routine/task)
+// ---------------------------------------------------------------------------
+
+// TestA2CopyIntoBodyEdges verifies both COPY INTO directions inside a procedure body.
+// A2 spec:
+//   - COPY INTO <tbl> FROM @<stage> → writes to tbl + references to stage.
+//   - COPY INTO @<stage> FROM <tbl> → writes to stage + references to tbl.
+//
+// WHY: direction decided by whether the COPY target starts with '@'.
+const a2CopyIntoFixture = `
+CREATE TABLE fact (id INT, amount NUMERIC);
+CREATE PROCEDURE load_fact()
+LANGUAGE SQL AS $$
+BEGIN
+  COPY INTO fact FROM @load_stage/path/to/file.csv;
+  COPY INTO @out_stage FROM fact;
+END;
+$$;
+`
+
+func TestA2CopyIntoBodyEdges(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a2.sql", a2CopyIntoFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// COPY INTO fact FROM @load_stage → writes to fact
+	if !hasUnresolvedRef(refs, "fact", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'fact' from COPY INTO fact FROM @load_stage")
+	}
+	// COPY INTO fact FROM @load_stage → references to load_stage (@ stripped)
+	if !hasUnresolvedRef(refs, "load_stage", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'load_stage' from COPY INTO fact FROM @load_stage")
+	}
+	// COPY INTO @out_stage FROM fact → writes to out_stage (@ stripped)
+	if !hasUnresolvedRef(refs, "out_stage", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'out_stage' from COPY INTO @out_stage FROM fact")
+	}
+	// COPY INTO @out_stage FROM fact → references to fact
+	if !hasUnresolvedRef(refs, "fact", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'fact' from COPY INTO @out_stage FROM fact")
+	}
+}
+
+// TestA2CopyIntoBodyVsTopLevel is a discriminating test: a file with both a
+// standalone top-level COPY INTO AND a procedure body COPY INTO. The body COPY
+// must produce edges; the top-level targets must not appear in any edge.
+// WHY: the previous vacuous test passed even with the COPY code absent. This one
+// requires the body path to fire for the proc-body COPY while proving the
+// top-level COPY is correctly skipped.
+const a2CopyIntoBodyVsTopLevelFixture = `
+CREATE TABLE body_tbl (id INT);
+CREATE TABLE toplevel_tbl (id INT);
+
+-- Standalone top-level COPY (not inside any definition) — must produce NO edges.
+COPY INTO toplevel_tbl FROM @toplevel_stage;
+
+CREATE PROCEDURE load_proc()
+LANGUAGE SQL AS $$
+BEGIN
+  COPY INTO body_tbl FROM @body_stage;
+END;
+$$;
+`
+
+func TestA2CopyIntoBodyVsTopLevel(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a2_vs.sql", a2CopyIntoBodyVsTopLevelFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// Proc-body COPY must fire: writes body_tbl + references body_stage.
+	if !hasUnresolvedRef(refs, "body_tbl", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'body_tbl' from proc-body COPY INTO")
+	}
+	if !hasUnresolvedRef(refs, "body_stage", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'body_stage' from proc-body COPY INTO")
+	}
+
+	// Top-level COPY must NOT fire: its distinct targets must not appear.
+	for _, r := range refs {
+		if r.ReferenceName == "toplevel_tbl" {
+			t.Errorf("top-level COPY target 'toplevel_tbl' must not appear in edges; got %s edge", r.ReferenceKind)
+		}
+		if r.ReferenceName == "toplevel_stage" {
+			t.Errorf("top-level COPY stage 'toplevel_stage' must not appear in edges; got %s edge", r.ReferenceKind)
+		}
+	}
+}
+
+// TestA2CopyIntoInternalStageSkipped verifies that @~ (user stage) and @%tbl
+// (table stage) sigils are SKIPPED — only named stages emit a references edge.
+// WHY: @~ and @%tbl are anonymous internal Snowflake stages; they have no node
+// to reference. The writes edge to the target table must still be emitted.
+const a2CopyIntoInternalStageFixture = `
+CREATE TABLE dest (id INT);
+CREATE PROCEDURE copy_from_internal()
+LANGUAGE SQL AS $$
+BEGIN
+  COPY INTO dest FROM @~/path/to/file.csv;
+  COPY INTO dest FROM @%othertbl/path;
+END;
+$$;
+`
+
+func TestA2CopyIntoInternalStageSkipped(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a2_internal.sql", a2CopyIntoInternalStageFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// writes to dest must still be emitted (COPY INTO dest FROM @~...)
+	if !hasUnresolvedRef(refs, "dest", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'dest' even when source is an internal stage")
+	}
+
+	// @~ user stage: must NOT emit any reference to "~" or similar
+	if countUnresolvedRefs(refs, "~") > 0 {
+		t.Error("@~ user-stage must not emit a references edge to '~'")
+	}
+	// @%othertbl table stage: must NOT emit a references edge to "othertbl" or the raw sigil token.
+	// (The sigil form is @<percent>tbl — a Snowflake table-stage reference, not a named stage.)
+	if countUnresolvedRefs(refs, "othertbl") > 0 {
+		t.Error("table-stage sigil must not emit a references edge to 'othertbl'")
+	}
+	if countUnresolvedRefs(refs, "%othertbl") > 0 {
+		t.Error("table-stage sigil must not emit a references edge to the raw sigil token")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// A6 — CLONE
+// ---------------------------------------------------------------------------
+
+// TestA6Clone verifies CREATE OR REPLACE TRANSIENT TABLE <new> CLONE <src>
+// emits a table node for <new> + a references edge new→src.
+// A6 spec: the body has no FROM; CLONE is the only lineage signal.
+const a6CloneFixture = `
+CREATE OR REPLACE TRANSIENT TABLE staging CLONE prod;
+`
+
+func TestA6Clone(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a6.sql", a6CloneFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	stagingNode := findSQLNodeExact(result.Nodes, types.NodeKindTable, "staging")
+	if stagingNode == nil {
+		t.Fatal("expected table node 'staging' from CREATE OR REPLACE TRANSIENT TABLE staging CLONE prod")
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, "prod", types.EdgeKindReferences) {
+		t.Error("expected references edge 'staging'→'prod' from CLONE clause")
+	}
+}
+
+// TestA6CloneView verifies CLONE also works on CREATE VIEW.
+const a6CloneViewFixture = `
+CREATE OR REPLACE VIEW v_clone CLONE v_original;
+`
+
+func TestA6CloneView(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a6_view.sql", a6CloneViewFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	if findSQLNodeExact(result.Nodes, types.NodeKindView, "v_clone") == nil {
+		t.Fatal("expected view node 'v_clone' from CREATE OR REPLACE VIEW v_clone CLONE v_original")
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, "v_original", types.EdgeKindReferences) {
+		t.Error("expected references edge 'v_clone'→'v_original' from CLONE clause")
+	}
+}
+
+// TestCloneFPColumnNamedClone guards the A6 false-positive: a column literally
+// named CLONE inside a CREATE TABLE body must NOT produce a references edge.
+// WHY: cloneRE is scanned over preamble text before '(', so column definitions
+// inside the body are never matched — a real CLONE statement has no column list.
+const cloneFPColumnNamedCloneFixture = `
+CREATE TABLE t (
+    CLONE INT,
+    id   INT
+);
+`
+
+func TestCloneFPColumnNamedClone(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_a6_fp.sql", cloneFPColumnNamedCloneFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	// Must produce a table node for 't'
+	if findSQLNodeExact(result.Nodes, types.NodeKindTable, "t") == nil {
+		t.Error("expected table node 't'")
+	}
+	// Must NOT produce a references edge to 'INT' (from the CLONE column definition)
+	if hasUnresolvedRef(result.UnresolvedReferences, "INT", types.EdgeKindReferences) {
+		t.Error("column named CLONE inside table body must not produce a references edge to 'INT'")
+	}
+	// Must NOT produce any references edge at all (no real CLONE source here)
+	for _, r := range result.UnresolvedReferences {
+		if r.ReferenceKind == types.EdgeKindReferences {
+			t.Errorf("expected no references edges from table with CLONE column; got references to %q", r.ReferenceName)
+		}
+	}
+}
