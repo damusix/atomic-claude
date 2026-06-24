@@ -23,3 +23,6 @@
 - 2026-06-10 autopilot-verify-omits-atomic-validate — "Verify gate omits atomic validate (autopilot shipped S5-failing spec)" — *(closed 2026-06-10)*
 - 2026-06-10 validate-artifact-cli-flag-lint — "Add atomic validate check: flag artifacts that cite atomic CLI verbs/flags the binary doesn't define (the --format-json class)" — *(closed 2026-06-10)*
 - 2026-06-18 artifact-templates-f-8 — "doc-impact-why has 1 consumer (commit-flow only)" — *(closed 2026-06-18)*
+- 2026-06-24 dbt-jinja-extraction — "Add dbt (Jinja+SQL) extraction" — *(closed 2026-06-24)*
+- 2026-06-24 snowflake-sql-extraction — "Add Snowflake SQL dialect extraction" — *(closed 2026-06-24)*
+- 2026-06-24 artifact-templates-f-7 — "worktree-cleanup-prompt has 1 consumer (merge-flow only)" — *(closed 2026-06-24)*
