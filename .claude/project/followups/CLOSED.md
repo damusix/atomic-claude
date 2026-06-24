@@ -38,3 +38,5 @@
 - 2026-06-24 nits-encode-skill-trigger-boundary-f-1 — "Encode skill trigger boundary in atomic-tdd and atomic-debug descriptions" — *(closed 2026-06-24)*
 - 2026-06-24 atomic-doctor-f-2 — "`gitToplevel` called 3× per doctor run" — *(closed 2026-06-24)*
 - 2026-06-24 doctor-verbose-f-1 — "manifest verbose Findings: only drifted: prefix is tested" — *(closed 2026-06-24)*
+- 2026-06-24 install-output-style-f-5 — "`defaultRunConfirm` huh-abort mapping is test-dead" — *(closed 2026-06-24)*
+- 2026-06-24 install-output-style-f-1 — "`prompt.Confirm` default-value plumbing is untested" — *(closed 2026-06-24)*
