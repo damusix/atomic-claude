@@ -23,15 +23,6 @@ var builtinSubagents = map[string]bool{
 	"Plan":            true,
 }
 
-// reAgentRegistry matches bold-backtick agent names in the "Subagents available
-// for dispatch" section of CLAUDE.md. Pattern: **`<name>`** where name starts
-// with a letter and contains only alphanumerics, underscores, and hyphens.
-//
-// Example line: - **`atomic-builder`** (sonnet, tools: ...) — description
-//
-// C1: @-ref grammar — agent name extraction from CLAUDE.md registry.
-var reAgentRegistry = regexp.MustCompile(`\*\*` + "`" + `([a-zA-Z][a-zA-Z0-9_-]+)` + "`" + `\*\*`)
-
 // reSubagentType matches subagent_type: "name" or subagent_type: 'name' in
 // command prose (outside fenced code blocks). The name must start with a letter
 // and contain only alphanumerics, underscores, and hyphens.
@@ -52,7 +43,7 @@ var reSubagentType = regexp.MustCompile(`subagent_type:\s*["']([a-zA-Z][a-zA-Z0-
 // extension-terminated paths) or markdown links.
 var reAtRef = regexp.MustCompile(`@([./a-zA-Z0-9_-]+\.[a-zA-Z]{2,4})`)
 
-// RunConfigRules runs C1, C3, C5, C7, C9 on the repo rooted at repoRoot.
+// RunConfigRules runs C3, C5, C7, C9 on the repo rooted at repoRoot.
 // Returns findings sorted by (Path, Line, Rule) and any filesystem error.
 //
 // Exported so tests can call it directly with a synthetic repo fixture.
@@ -73,13 +64,6 @@ func RunConfigRules(repoRoot string) ([]Finding, error) {
 	}
 	findings = append(findings, c9...)
 
-	// C1: CLAUDE.md registry vs agents/ directory.
-	c1, err := runC1(repoRoot)
-	if err != nil {
-		return nil, err
-	}
-	findings = append(findings, c1...)
-
 	// C3: subagent_type in commands/*.md.
 	c3, err := runC3(repoRoot)
 	if err != nil {
@@ -95,64 +79,6 @@ func RunConfigRules(repoRoot string) ([]Finding, error) {
 	findings = append(findings, c5...)
 
 	sortFindings(findings)
-	return findings, nil
-}
-
-// runC1 checks that every agent name listed in CLAUDE.md "Subagents available
-// for dispatch" section has a corresponding agents/<name>.md file.
-func runC1(repoRoot string) ([]Finding, error) {
-	claudePath := filepath.Join(repoRoot, "CLAUDE.md")
-	src, err := os.ReadFile(claudePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil // no CLAUDE.md: nothing to check
-		}
-		return nil, fmt.Errorf("C1: read %s: %w", claudePath, err)
-	}
-
-	// Find the "Subagents available for dispatch" section.
-	sections, err := mdparse.Sections(src)
-	if err != nil {
-		return nil, fmt.Errorf("C1: parse %s: %w", claudePath, err)
-	}
-
-	var dispatchSection *mdparse.Section
-	for i := range sections {
-		if sections[i].Heading == "Subagents available for dispatch" {
-			dispatchSection = &sections[i]
-			break
-		}
-	}
-	if dispatchSection == nil {
-		return nil, nil // section absent: no agents to check
-	}
-
-	// Extract lines of that section.
-	sectionSrc := extractLines(src, dispatchSection.Start, dispatchSection.End)
-
-	// Regex for bold-backtick names. We run on plain text (not via TextSegments)
-	// because the section content is prose — there are no code blocks to skip in
-	// the dispatch registry section (it is a bullet list). If there were a code
-	// block inside, the false-positive risk is low enough that a simple regex is
-	// acceptable for this specific section extraction.
-	matches := reAgentRegistry.FindAllSubmatch(sectionSrc, -1)
-
-	var findings []Finding
-	for _, m := range matches {
-		name := string(m[1])
-		agentPath := filepath.Join(repoRoot, "agents", name+".md")
-		if _, err := os.Stat(agentPath); os.IsNotExist(err) {
-			// Compute approximate line number within CLAUDE.md.
-			line := lineOfMatch(src, m[0], dispatchSection.Start)
-			findings = append(findings, Finding{
-				Severity: "FAIL",
-				Rule:     "C1",
-				Path:     relPath(repoRoot, claudePath),
-				Line:     line,
-				Message:  fmt.Sprintf("agent %q listed in CLAUDE.md but agents/%s.md does not exist", name, name),
-			})
-		}
-	}
 	return findings, nil
 }
 
@@ -381,24 +307,6 @@ func relPath(root, path string) string {
 		return path
 	}
 	return rel
-}
-
-// lineOfMatch returns the approximate 1-indexed line number of match m within
-// src, biased by the section start offset.
-//
-// Limitation: strings.Index searches the full src from byte 0, so it returns
-// the position of the FIRST occurrence anywhere in the file. If the agent name
-// appears in prose earlier than the registry section (e.g. a description or
-// example), the reported line points to that earlier prose mention rather than
-// the registry entry. The line is documented as "approximate" for this reason.
-// A caller that needs exact section-local line numbers should pass only the
-// section's byte range as src.
-func lineOfMatch(src, match []byte, sectionStart int) int {
-	idx := strings.Index(string(src), string(match))
-	if idx < 0 {
-		return sectionStart
-	}
-	return strings.Count(string(src[:idx]), "\n") + 1
 }
 
 // runConfig is the config validator entry point, implementing CP-6 rules.

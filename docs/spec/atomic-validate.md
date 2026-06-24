@@ -30,7 +30,7 @@ v1 ships a tight, load-bearing rule subset (8 rules) that catches the actual inv
 - S8 (TODO/TBD scan) — if revived, scope to `docs/spec/` only; design docs legitimately carry open questions.
 - C2 (reverse registry direction), C4 (skill-name extraction from prose), C6 (`/atomic-<name>` claim without `user-invocable`), C8 (dup skill names).
 - F-rules (followups validator) — F1–F5.
-- Bundle-snapshot ref validation (run C1/C5 against bundled `CLAUDE.md` too).
+- Bundle-snapshot ref validation (run C5 against bundled `CLAUDE.md` too).
 - `--format sarif` output (current `--json` reserves `schema_version: 1` for forward compatibility).
 
 
@@ -125,7 +125,6 @@ S0 exists because `mdparse` only handles ATX correctly; silent mis-parsing of Se
 
 | ID | Rule | Severity |
 |----|------|----------|
-| C1 | Every agent named in `CLAUDE.md` "Subagents available for dispatch" exists at `agents/<name>.md` | FAIL |
 | C3 | Every `subagent_type: "<name>"` in `commands/*.md` resolves to `agents/<name>.md` or a built-in (`general-purpose`, `Explore`, `Plan`) | FAIL |
 | C5 | Every `@-ref` in `CLAUDE.md`, `claude.local.md`, `CLAUDE.local.md` resolves to an existing path (case-sensitive) | FAIL |
 | C7 | No duplicate `name:` across `agents/*.md` | FAIL |
@@ -218,7 +217,7 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 |------|------|
 | `atomic/internal/validate/` | Subcommand dispatch, rule runners, fixture-backed tests |
 | `atomic/internal/validate/spec.go` | S0, S1, S5, S6 rules |
-| `atomic/internal/validate/config.go` | C1, C3, C5, C7, C9 rules |
+| `atomic/internal/validate/config.go` | C3, C5, C7, C9 rules |
 | `atomic/internal/validate/artifacts.go` | A1 rule — CLI-flag citation scanner |
 | `atomic/internal/validate/output.go` | Human + JSON formatters, `--suggest` structural templates |
 | `atomic/internal/validate/testdata/` | PASS / FAIL fixtures per rule |
@@ -264,6 +263,14 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 
 
 <!-- Drafting/refinement edits before approval are not logged. First entry is at v1 ship. -->
+
+
+### 2026-06-24 — C1 rule retired
+
+
+Removed config rule C1 ("every agent named in `CLAUDE.md` 'Subagents available for dispatch' exists at `agents/<name>.md`"). The `## Subagents available for dispatch` registry section was removed from `CLAUDE.md`: the Claude Code harness lists the agent roster (name + when-to-use) every session, so the in-file registry was redundant. With no registry section, `runC1` returned vacuously — the rule had nothing left to guard. Dropped the rule runner, the `reAgentRegistry` pattern, the `lineOfMatch` helper, the `testdata/config/{pass,fail}/C1/` fixtures, and the C1 tests.
+
+Body amended: removed the C1 row from `## v1 rules` → Config validator; updated `## Package layout` (`config.go` now lists C3/C5/C7/C9); changed the `## v1.1 deferrals` bundle-snapshot note from `C1/C5` to `C5`. The `## Checkpoints` and `## Implementation log` sections keep their original C1 mention as a historical record of what CP-6 shipped.
 
 
 ## Implementation log

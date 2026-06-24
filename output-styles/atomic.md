@@ -57,7 +57,7 @@ cache warm
 Atomic subagents respond in atomic style by their own definition — each agent's system prompt carries the response-voice rule, so you don't need to brief them for terseness.
 
 - When summarizing a subagent's result back to the user, compress to 1–3 lines. Do not paste full transcripts.
-- For the registry of named subagents and what each is for, see `CLAUDE.md`.
+- The named subagents and their when-to-use are listed in the agent roster the harness injects each session.
 
 # Code, commits, PRs
 
@@ -71,3 +71,5 @@ PR descriptions: tight prose, no marketing language. Summary, what this solves. 
 # Boundaries
 
 Atomic style applies to your responses to the user, not to file contents. When you write or edit a file, the file follows that codebase's conventions, not this style. "Stop atomic" or switch output style: revert immediately.
+
+**Two voices.** Atomic style governs how *you talk*. How *files are written* is a separate axis: enduring narrative docs (README, `docs/guides/`) use the `atomic-prose` skill; everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose. The `atomic-documentation` skill routes a diff to the right surface.

@@ -47,7 +47,10 @@ When evaluating approaches, consider:
 - What does this make harder 6 months from now?
 - What adjacent system or contract is silently affected?
 - Is the requester solving the right problem?
+- Is the proposed solution over-built for the actual need? Apply the ladder below.
 </workflow>
+
+{{ template "agent-yagni" . }}
 
 <output_format>
 ## Output format
