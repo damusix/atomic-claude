@@ -289,6 +289,10 @@ var sequenceRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SEQUENCE
 // unconsumed whitespace before STAGE.
 var stageRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(?:TEMPORARY|TEMP)\s+)?STAGE\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
+// fileFormatRE matches CREATE [OR REPLACE] [TEMPORARY|TEMP] FILE FORMAT [IF NOT EXISTS] <name>
+// F1: Snowflake named file format definition. Group 1 = format name (possibly schema-qualified).
+var fileFormatRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `(?:(?:TEMPORARY|TEMP)\s+)?FILE\s+FORMAT\s+` + modPat + `(` + sqlQNameRaw + `)`)
+
 // streamRE matches CREATE [OR REPLACE] STREAM [IF NOT EXISTS] <name> ON <object-kind> <source>
 // A4: Snowflake change-data-capture stream definition.
 // Group 1 = stream name, Group 2 = source object name.
@@ -1337,6 +1341,19 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindStage, schema, name, qname, m[0]))
 	}
 
+	// -- File Formats (F1) --
+	// CREATE [OR REPLACE] [TEMPORARY|TEMP] FILE FORMAT [IF NOT EXISTS] <name>
+	// Produces a file_format node; no outbound edges.
+	for _, m := range fileFormatRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
+		rawName := strippedNoStr[m[2]:m[3]]
+		schema, name := parseQName(rawName)
+		qname := qualifiedName(schema, name)
+		if name == "" {
+			continue
+		}
+		result.Nodes = append(result.Nodes, nodeAt(types.NodeKindFileFormat, schema, name, qname, m[0]))
+	}
+
 	// -- Streams (A4) --
 	// Emit one stream node + one references edge per CREATE STREAM ... ON <kind> <source>.
 	// Group 1 = stream name, Group 2 = source object name.
@@ -1659,6 +1676,45 @@ func extractColumns(
 		colQName := fmt.Sprintf("%s.%s", tableQName, colName)
 		colID := extraction.GenerateNodeID(filePath, string(types.NodeKindColumn), colQName, lineNum)
 
+		// Extract the declared type token: first identifier after the column name.
+		// Skip the column name token (including any surrounding quotes) to reach the
+		// type portion of the line, then take the first identifier from it.
+		// Parameterised forms like NUMBER(38,0) and structured forms like OBJECT(a INT)
+		// yield the base keyword (NUMBER, OBJECT) — extractFirstIdent stops at '('.
+		//
+		// Two-guard filter: reject tokens that are (a) DML/DDL verbs via isSQLKeyword,
+		// or (b) column-attribute keywords that are not type names. The attribute denylist
+		// handles patterns like `col DEFAULT 0`, `col REFERENCES t(id)`, `col NOT NULL`
+		// where the second token is a constraint/modifier, not a declared type.
+		colTypeToken := ""
+		nameLen := extractFirstIdentLen(trimmed)
+		if nameLen > 0 && nameLen < len(trimmed) {
+			rest := strings.TrimSpace(trimmed[nameLen:])
+			if typeIdent := extractFirstIdent(rest); typeIdent != "" &&
+				!isSQLKeyword(typeIdent) &&
+				!colAttributeKeywords[strings.ToUpper(typeIdent)] {
+				colTypeToken = strings.ToUpper(typeIdent)
+			}
+		}
+
+		// Build Metadata: always includes "type" when we found one.
+		// Detect GENERATED / computed column using the original (non-stripped) source
+		// line so keywords inside string-literal defaults remain visible.
+		origLine := getSourceLine(source, lineOffset+i)
+		isGenerated := generatedMarkerRE.MatchString(origLine)
+
+		var colMeta json.RawMessage
+		if colTypeToken != "" || isGenerated {
+			meta := map[string]interface{}{}
+			if colTypeToken != "" {
+				meta["type"] = colTypeToken
+			}
+			if isGenerated {
+				meta["generated"] = true
+			}
+			colMeta, _ = json.Marshal(meta)
+		}
+
 		colNode := types.Node{
 			ID:            colID,
 			Kind:          types.NodeKindColumn,
@@ -1669,14 +1725,7 @@ func extractColumns(
 			StartLine:     lineNum,
 			EndLine:       lineNum,
 			IsExported:    true,
-		}
-
-		// Detect GENERATED / computed column.
-		// Use the original source line (not stripped) for this check so we can
-		// see keywords that might have been inside strings on other lines.
-		origLine := getSourceLine(source, lineOffset+i)
-		if generatedMarkerRE.MatchString(origLine) {
-			colNode.Metadata = []byte(`{"generated":true}`)
+			Metadata:      colMeta,
 		}
 
 		nodes = append(nodes, colNode)
@@ -1845,6 +1894,48 @@ func findParenBlock(source string, startOffset int) (string, int) {
 	return "", 0
 }
 
+// extractFirstIdentLen returns the byte length of the first SQL identifier
+// token in line (including surrounding quote characters if any). Returns 0
+// when line is empty or starts with a non-identifier character.
+// Used to advance past the column name to reach the type token.
+func extractFirstIdentLen(line string) int {
+	line = strings.TrimSpace(line)
+	if len(line) == 0 {
+		return 0
+	}
+	switch line[0] {
+	case '"':
+		end := strings.Index(line[1:], `"`)
+		if end < 0 {
+			return 0
+		}
+		return end + 2 // include both quote chars
+	case '`':
+		end := strings.Index(line[1:], "`")
+		if end < 0 {
+			return 0
+		}
+		return end + 2
+	case '[':
+		end := strings.Index(line[1:], "]")
+		if end < 0 {
+			return 0
+		}
+		return end + 2
+	default:
+		end := 0
+		for end < len(line) {
+			c := line[end]
+			if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '$' {
+				end++
+			} else {
+				break
+			}
+		}
+		return end
+	}
+}
+
 // extractFirstIdent extracts the first SQL identifier from a line.
 // Handles quoted, backtick, and bracket identifiers.
 func extractFirstIdent(line string) string {
@@ -1894,6 +1985,23 @@ func getSourceLine(source string, lineIdx int) string {
 		return lines[lineIdx]
 	}
 	return ""
+}
+
+// colAttributeKeywords is the denylist of tokens that look like column-type
+// identifiers but are actually constraint or column-attribute keywords. When
+// the second token on a column definition line matches one of these, no "type"
+// key is emitted in Metadata. This handles patterns like:
+//   - col DEFAULT 0          → second token = DEFAULT (not a type)
+//   - col REFERENCES t(id)   → second token = REFERENCES (not a type)
+//   - col NOT NULL           → second token = NOT (not a type)
+//   - col COLLATE utf8       → second token = COLLATE (not a type)
+//
+// The list is intentionally a denylist (not an allowlist of all known types) so
+// that user-defined types and domain names still pass through unblocked.
+var colAttributeKeywords = map[string]bool{
+	"DEFAULT": true, "REFERENCES": true, "COLLATE": true, "COMMENT": true,
+	"ENCODING": true, "CONSTRAINT": true, "PRIMARY": true, "UNIQUE": true,
+	"CHECK": true, "GENERATED": true, "NOT": true, "NULL": true, "AS": true,
 }
 
 // sqlKeywords is a set of SQL reserved words that cannot be column names.

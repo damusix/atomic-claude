@@ -2912,3 +2912,189 @@ func TestE5ConfigAliasCapture(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// F1 — CREATE FILE FORMAT
+// ---------------------------------------------------------------------------
+
+// TestF1CreateFileFormat verifies that CREATE [OR REPLACE] FILE FORMAT <name>
+// produces a file_format node with the correct name and no spurious edges.
+//
+// WHY (F1): Snowflake file formats are first-class named objects; consumers
+// need to locate them by name (e.g. to find which stages or COPY INTO
+// statements use a given format). No outbound edges are expected because
+// the format itself has no dependency to track.
+const f1FileFormatFixture = `
+CREATE OR REPLACE FILE FORMAT my_csv TYPE = CSV FIELD_DELIMITER=',' SKIP_HEADER=1;
+CREATE FILE FORMAT analytics.my_json TYPE=JSON;
+`
+
+func TestF1CreateFileFormat(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_f1.sql", f1FileFormatFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// CREATE OR REPLACE FILE FORMAT my_csv → file_format node named "my_csv"
+	csvNode := findSQLNodeExact(result.Nodes, types.NodeKindFileFormat, "my_csv")
+	if csvNode == nil {
+		t.Error("expected file_format node 'my_csv' from CREATE OR REPLACE FILE FORMAT my_csv")
+	}
+
+	// CREATE FILE FORMAT analytics.my_json → file_format node named "my_json" (schema-qualified)
+	jsonNode := findSQLNodeExact(result.Nodes, types.NodeKindFileFormat, "my_json")
+	if jsonNode == nil {
+		t.Error("expected file_format node 'my_json' from CREATE FILE FORMAT analytics.my_json")
+	}
+
+	// No spurious unresolved references from file format definitions.
+	if len(result.UnresolvedReferences) != 0 {
+		t.Errorf("expected no unresolved references; got %d", len(result.UnresolvedReferences))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// F2 — VARIANT/OBJECT/ARRAY column typing
+// ---------------------------------------------------------------------------
+
+// TestF2ColumnTyping verifies that column nodes carry Metadata.type for all
+// column kinds: VARIANT, OBJECT, ARRAY, and parameterised NUMBER(38,0).
+//
+// WHY (F2): downstream tooling needs to know which columns hold semi-structured
+// data (VARIANT/OBJECT/ARRAY) to apply Snowflake-specific query patterns.
+// Capturing ALL column types (not only the semi-structured trio) is simpler
+// and more useful — the wire-format changes intentionally.
+const f2ColumnTypingFixture = `
+CREATE TABLE sf_typed (
+    c VARIANT,
+    o OBJECT,
+    a ARRAY,
+    n NUMBER(38,0),
+    v VARCHAR(256),
+    id INTEGER NOT NULL
+);
+`
+
+func TestF2ColumnTyping(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_f2.sql", f2ColumnTypingFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	cases := []struct {
+		colName  string
+		wantType string
+	}{
+		{"c", "VARIANT"},
+		{"o", "OBJECT"},
+		{"a", "ARRAY"},
+		{"n", "NUMBER"},
+		{"v", "VARCHAR"},
+		{"id", "INTEGER"},
+	}
+	for _, tc := range cases {
+		node := findSQLNodeExact(result.Nodes, types.NodeKindColumn, tc.colName)
+		if node == nil {
+			t.Errorf("expected column node %q", tc.colName)
+			continue
+		}
+		if node.Metadata == nil {
+			t.Errorf("column %q: Metadata is nil, want type=%q", tc.colName, tc.wantType)
+			continue
+		}
+		var m map[string]interface{}
+		if err := json.Unmarshal(node.Metadata, &m); err != nil {
+			t.Errorf("column %q: Metadata unmarshal error: %v", tc.colName, err)
+			continue
+		}
+		gotType, _ := m["type"].(string)
+		if gotType != tc.wantType {
+			t.Errorf("column %q: Metadata.type = %q, want %q", tc.colName, gotType, tc.wantType)
+		}
+	}
+}
+
+// TestF2NoTypeWhenAttributeKeyword verifies that when the token after the column
+// name is a column-attribute keyword (DEFAULT, REFERENCES, NOT, NULL, …) rather
+// than a type name, no "type" key appears in Metadata.
+//
+// WHY: isSQLKeyword only rejects DML/DDL verbs. Without an extended denylist,
+// `col DEFAULT 0` would emit Metadata.type = "DEFAULT", which is wrong.
+const f2NoTypeAttributeFixture = `
+CREATE TABLE attr_cols (
+    qty   DEFAULT 0,
+    fk_id REFERENCES other(id),
+    flag  NOT NULL
+);
+`
+
+func TestF2NoTypeWhenAttributeKeyword(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_f2_attr.sql", f2NoTypeAttributeFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	// None of these columns have a declared type — the second token is an
+	// attribute keyword. Metadata must either be nil OR contain no "type" key.
+	for _, colName := range []string{"qty", "fk_id", "flag"} {
+		node := findSQLNodeExact(result.Nodes, types.NodeKindColumn, colName)
+		if node == nil {
+			t.Errorf("expected column node %q", colName)
+			continue
+		}
+		if node.Metadata == nil {
+			continue // nil Metadata is fine — no type key present
+		}
+		var m map[string]interface{}
+		if err := json.Unmarshal(node.Metadata, &m); err != nil {
+			t.Errorf("column %q: Metadata unmarshal error: %v", colName, err)
+			continue
+		}
+		if _, hasType := m["type"]; hasType {
+			t.Errorf("column %q: Metadata must not have 'type' key when second token is an attribute keyword; got %s", colName, node.Metadata)
+		}
+	}
+}
+
+// TestF2GeneratedColumnPreservesType verifies that a generated column carries
+// BOTH the declared type and generated:true — the merge must not overwrite
+// the generated flag.
+//
+// WHY (F2 merge rule): before F2, generated columns had Metadata={"generated":true}.
+// After F2, ALL columns carry {"type":"<TYPE>"} and generated columns additionally
+// carry {"generated":true}. The merge must produce {"type":"<TYPE>","generated":true}.
+const f2GeneratedColumnFixture = `
+CREATE TABLE sf_gen (
+    id    INTEGER,
+    score FLOAT,
+    label TEXT GENERATED ALWAYS AS (CONCAT('score-', CAST(score AS TEXT))) VIRTUAL
+);
+`
+
+func TestF2GeneratedColumnPreservesType(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/snowflake_f2_gen.sql", f2GeneratedColumnFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	labelCol := findSQLNodeExact(result.Nodes, types.NodeKindColumn, "label")
+	if labelCol == nil {
+		t.Fatal("expected column 'label'")
+	}
+	if labelCol.Metadata == nil {
+		t.Fatal("label column Metadata is nil; want {type:TEXT, generated:true}")
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(labelCol.Metadata, &m); err != nil {
+		t.Fatalf("label column Metadata unmarshal: %v", err)
+	}
+	if gotType, _ := m["type"].(string); gotType != "TEXT" {
+		t.Errorf("label column Metadata.type = %q, want TEXT", gotType)
+	}
+	if gen, _ := m["generated"].(bool); !gen {
+		t.Errorf("label column Metadata.generated must be true; got %v", m["generated"])
+	}
+}
