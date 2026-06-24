@@ -24,17 +24,35 @@ type Artifact struct {
 	SHA256 string
 }
 
+// enumeratedArtifact is the internal type returned by enumerate. It carries the
+// embedded.Artifact fields alongside SrcPath (the absolute filesystem source
+// path) and Data (the file bytes already read during enumeration) so that Run
+// can write the artifact without a second os.ReadFile call.
+type enumeratedArtifact struct {
+	embedded.Artifact
+	SrcPath string // absolute path of the source file on disk
+	Data    []byte // file bytes read during enumeration; reused by Run to avoid a second read
+}
+
 // Enumerate walks repoRoot per the bundle inclusion rules and returns the
 // artifact list without writing anything to disk. Callers outside this package
 // (e.g. manifestcheck) should use this instead of Run when no disk write is
 // needed.
 func Enumerate(repoRoot string) ([]embedded.Artifact, error) {
-	return enumerate(repoRoot)
+	items, err := enumerate(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]embedded.Artifact, len(items))
+	for i, it := range items {
+		out[i] = it.Artifact
+	}
+	return out, nil
 }
 
 // enumerate is the internal no-write walker shared by Enumerate and Run.
-func enumerate(repoRoot string) ([]embedded.Artifact, error) {
-	var artifacts []embedded.Artifact
+func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
+	var artifacts []enumeratedArtifact
 
 	// agents/atomic-*.md
 	agentsDir := filepath.Join(repoRoot, "agents")
@@ -181,18 +199,23 @@ func enumerate(repoRoot string) ([]embedded.Artifact, error) {
 	return artifacts, nil
 }
 
-// readArtifact reads src, computes its SHA256, and returns an embedded.Artifact
-// without writing anything to disk.
-func readArtifact(src, target, kind string) (embedded.Artifact, error) {
+// readArtifact reads src once, computes its SHA256, and returns an enumeratedArtifact
+// without writing anything to disk. The bytes are retained in Data so Run can
+// write them without a second os.ReadFile.
+func readArtifact(src, target, kind string) (enumeratedArtifact, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
-		return embedded.Artifact{}, fmt.Errorf("read %s: %w", src, err)
+		return enumeratedArtifact{}, fmt.Errorf("read %s: %w", src, err)
 	}
-	return embedded.Artifact{
-		Kind:   kind,
-		Source: "bundle/" + target,
-		Target: target,
-		SHA256: SHA256Hex(data),
+	return enumeratedArtifact{
+		Artifact: embedded.Artifact{
+			Kind:   kind,
+			Source: "bundle/" + target,
+			Target: target,
+			SHA256: SHA256Hex(data),
+		},
+		SrcPath: src,
+		Data:    data,
 	}, nil
 }
 
@@ -211,7 +234,7 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 
 	artifacts := make([]Artifact, 0, len(embeds))
 	for _, ea := range embeds {
-		a, err := mirrorFile(filepath.Join(repoRoot, filepath.FromSlash(ea.Target)), ea.Target, ea.Kind, bundleDir)
+		a, err := mirrorFile(ea.Data, ea.Target, ea.Kind, bundleDir)
 		if err != nil {
 			return nil, err
 		}
@@ -221,16 +244,12 @@ func Run(repoRoot, outDir string) ([]Artifact, error) {
 	return artifacts, nil
 }
 
-// mirrorFile copies src into bundleDir/<target>, computes sha256, returns Artifact.
-func mirrorFile(src, target, kind, bundleDir string) (Artifact, error) {
+// mirrorFile writes data into bundleDir/<target> and returns an Artifact.
+// data is already read by readArtifact; no second os.ReadFile occurs here.
+func mirrorFile(data []byte, target, kind, bundleDir string) (Artifact, error) {
 	dst := filepath.Join(bundleDir, filepath.FromSlash(target))
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return Artifact{}, fmt.Errorf("mkdir for %s: %w", target, err)
-	}
-
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return Artifact{}, fmt.Errorf("read %s: %w", src, err)
 	}
 
 	if err := os.WriteFile(dst, data, 0o644); err != nil {
