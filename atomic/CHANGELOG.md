@@ -1,5 +1,12 @@
 # Changelog
 
+## [5.8.0](https://github.com/damusix/atomic-claude/compare/v5.7.0...v5.8.0) (2026-06-25)
+
+
+### Features
+
+* **code-intel:** close T-SQL lineage gaps ([#70](https://github.com/damusix/atomic-claude/issues/70)) ([d54034f](https://github.com/damusix/atomic-claude/commit/d54034f33da7a0fbc93de49fdd064e9ed4493f67))
+
 ## [5.7.0](https://github.com/damusix/atomic-claude/compare/v5.6.3...v5.7.0) (2026-06-24)
 
 
