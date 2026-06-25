@@ -105,6 +105,8 @@ two bounded SQL-scoped resolver tweaks). Gaps 1–3 are `sql.go`-only; gap 4 als
   dynamic SQL not scanned) filed as follow-up `tsql-alter-procedure-bodies` — pre-existing, not
   a regression.
 
+**Squashed to d54034f — 2026-06-24.** Per-checkpoint SHAs are historical (unreachable from any branch). **Merged into main as d54034f — 2026-06-24.**
+
 ## Change log
 
 <!-- Populated on first amendment after approval. -->
