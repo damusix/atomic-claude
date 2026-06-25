@@ -1,6 +1,6 @@
 ---
-generated_at: 2026-06-24T16:27:57Z
-atomic_version: 5.6.3
+generated_at: 2026-06-25T01:20:55Z
+atomic_version: 5.7.0
 ---
 # Deterministic signals
 
@@ -342,7 +342,7 @@ atomic_version: 5.6.3
 │   │       └── wiki_test.go (89f17e0, 1184L, 39619ch, 39702B)
 │   ├── test/ (1)
 │   │   └── install_sh_test.go (dfa131f, 229L, 6304ch, 6310B)
-│   ├── CHANGELOG.md (8abb0b4, 428L, 24905ch, 24927B)
+│   ├── CHANGELOG.md (eedba29, 454L, 27036ch, 27058B)
 │   ├── Makefile (d68669b, 31L, 751ch, 751B)
 │   ├── go.mod (d77ad34, 62L, 2621ch, 2621B)
 │   └── go.sum (6208e65, 155L, 14051ch, 14051B)
@@ -373,7 +373,7 @@ atomic_version: 5.6.3
 │   ├── undo-commit.md (1fc5769, 130L, 2700ch, 2706B)
 │   └── watch-ci.md (e8e1bcf, 138L, 6037ch, 6101B)
 ├── docs/ (8)
-│   ├── design/ (29)
+│   ├── design/ (30)
 │   │   ├── artifact-consolidation.md (3ec99af, 218L, 9783ch, 9839B)
 │   │   ├── artifact-templates.md (e418887, 238L, 18708ch, 18872B)
 │   │   ├── atomic-doctor.md (571ad59, 149L, 6483ch, 6515B)
@@ -395,6 +395,7 @@ atomic_version: 5.6.3
 │   │   ├── sql-dbt-snowflake-v2.md (f6f81c6, 236L, 16396ch, 16598B)
 │   │   ├── sql-dbt-snowflake.md (8a961f6, 158L, 10476ch, 10588B)
 │   │   ├── stuck-fix-escalation.md (405d21e, 78L, 5304ch, 5356B)
+│   │   ├── tsql-lineage-gaps-v2.md (8349d82, 164L, 11109ch, 11391B)
 │   │   ├── typed-followups.md (ce9a194, 96L, 5253ch, 5285B)
 │   │   ├── uninstall.md (0498bea, 87L, 4834ch, 4854B)
 │   │   ├── user-profile.md (5d95284, 471L, 34010ch, 34268B)
@@ -416,7 +417,7 @@ atomic_version: 5.6.3
 │   │   └── share-image.png (1c1b293, 7762L, 2365661ch, 2461198B)
 │   ├── reference/ (11)
 │   │   ├── agents.md (7f8f76f, 32L, 2853ch, 2863B)
-│   │   ├── code-intel.md (822349a, 226L, 17817ch, 17901B)
+│   │   ├── code-intel.md (657be7f, 226L, 18625ch, 18719B)
 │   │   ├── commands.md (b484161, 113L, 10383ch, 10399B)
 │   │   ├── concepts.md (f73e942, 310L, 24724ch, 24860B)
 │   │   ├── conventions.md (b3c569e, 10L, 908ch, 912B)
@@ -429,7 +430,7 @@ atomic_version: 5.6.3
 │   ├── research/ (2)
 │   │   ├── sql-dbt-snowflake-coverage.md (48fb9e2, 88L, 7250ch, 7330B)
 │   │   └── tsbinding-vendor-on-demand.md (f4ddb35, 149L, 8150ch, 8180B)
-│   ├── spec/ (51)
+│   ├── spec/ (53)
 │   │   ├── artifact-consolidation.md (a670797, 136L, 20815ch, 20962B)
 │   │   ├── artifact-templates.md (9c31bdb, 122L, 13661ch, 13732B)
 │   │   ├── atomic-binary.md (287be9e, 763L, 45896ch, 46292B)
@@ -473,6 +474,8 @@ atomic_version: 5.6.3
 │   │   ├── sql-language-support.md (29c9efb, 231L, 24839ch, 25211B)
 │   │   ├── stuck-fix-escalation.md (b0e8a5c, 84L, 7507ch, 7562B)
 │   │   ├── subagent-diagnose.md (ed1542e, 304L, 18618ch, 18751B)
+│   │   ├── tsql-lineage-gaps-v2.md (981da5e, 110L, 9487ch, 9589B)
+│   │   ├── tsql-lineage-gaps.md (4bb74e2, 128L, 7693ch, 7740B)
 │   │   ├── typed-followups.md (a165287, 90L, 5701ch, 5740B)
 │   │   ├── uninstall.md (eee8979, 178L, 8612ch, 8652B)
 │   │   ├── user-profile.md (902d4a1, 639L, 54191ch, 54493B)
@@ -494,8 +497,9 @@ atomic_version: 5.6.3
 │       └── style.md (a520e9d, 55L, 4705ch, 4725B)
 ├── scripts/ (3)
 │   ├── code-eval/ (6)
-│   │   ├── fixtures/ (1)
-│   │   │   └── embedded-sql-multilang/ (7 files, 0 dirs)
+│   │   ├── fixtures/ (2)
+│   │   │   ├── embedded-sql-multilang/ (7 files, 0 dirs)
+│   │   │   └── tsql-lineage/ (1 file, 0 dirs)
 │   │   ├── README.md (bd7aa57, 84L, 4604ch, 4632B)
 │   │   ├── corpus.tsv (99da9a0, 53L, 4488ch, 4496B)
 │   │   ├── embedded-sql-eval.sh (6ac2652, 263L, 9908ch, 9930B)
@@ -588,7 +592,7 @@ atomic_version: 5.6.3
 ├── Dockerfile (0e5b6e5, 61L, 2316ch, 2592B)
 ├── LICENSE (42eaf96, 21L, 1070ch, 1070B)
 ├── Makefile (2114399, 40L, 1550ch, 1550B)
-├── README.md (e69d263, 274L, 15334ch, 15955B)
+├── README.md (8e55998, 274L, 15513ch, 16142B)
 ├── claude.local.md (3ca9d09, 334L, 34523ch, 34690B)
 ├── docker-compose.yml (8e77524, 12L, 261ch, 261B)
 ├── docker-entrypoint.sh (fc1c1d6, 19L, 465ch, 467B)
@@ -596,7 +600,7 @@ atomic_version: 5.6.3
 ├── package-lock.json (6fe371e, 2254L, 91385ch, 91385B)
 ├── package.json (df17f35, 15L, 373ch, 373B)
 ├── release-please-config.json (fc8b307, 15L, 419ch, 419B)
-└── release-please-manifest.json (c7f2668, 3L, 24ch, 24B)
+└── release-please-manifest.json (1e4f2fe, 3L, 24ch, 24B)
 
 ## Manifests
 
@@ -607,8 +611,8 @@ atomic_version: 5.6.3
 
 ## Languages
 
-- Go: 138583 LOC (69%), 394 files (54%)
-- Markdown: 48317 LOC (24%), 288 files (39%)
+- Go: 140559 LOC (69%), 394 files (54%)
+- Markdown: 48745 LOC (24%), 291 files (40%)
 - JavaScript: 4179 LOC (2%), 5 files (0%)
 - CSS: 2943 LOC (1%), 2 files (0%)
 - JSON: 2363 LOC (1%), 6 files (0%)

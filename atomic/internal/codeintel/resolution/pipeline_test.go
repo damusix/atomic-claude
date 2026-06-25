@@ -827,3 +827,69 @@ func TestOverFuzzyCapNameDoesNotTriggerFuzzy(t *testing.T) {
 		t.Errorf("expected 1 unresolved ref to remain (over-cap, no match), got %d", remaining)
 	}
 }
+
+// TestCP4_QualifiedColumnRefResolvesEndToEnd proves a SQL qualified column ref
+// resolves through the FULL pipeline (including the known-names pre-filter), not
+// just the name matcher. The column ref name "dbo.Account.account_id" is not a
+// bare node name, so without the SQL-scoped simple-name fall-through in the
+// pre-filter it is dropped before reaching byQualifiedName. Two tables own an
+// "account_id" column; the ref must resolve to the RIGHT one (prefer-exact).
+func TestCP4_QualifiedColumnRefResolvesEndToEnd(t *testing.T) {
+	d := openPipelineTestDB(t)
+	ctx := context.Background()
+
+	sqlFile := "db/schema.sql"
+	// Two distinct "account_id" columns in different tables.
+	acctColID := "column:db/schema.sql:dbo.Account.account_id:3"
+	ordColID := "column:db/schema.sql:dbo.Orders.account_id:9"
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: acctColID, Kind: types.NodeKindColumn, Name: "account_id",
+		QualifiedName: "dbo.Account.account_id", FilePath: sqlFile,
+		Language: types.LanguageSQL, StartLine: 3, EndLine: 3,
+	}); err != nil {
+		t.Fatalf("UpsertNode acct col: %v", err)
+	}
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: ordColID, Kind: types.NodeKindColumn, Name: "account_id",
+		QualifiedName: "dbo.Orders.account_id", FilePath: sqlFile,
+		Language: types.LanguageSQL, StartLine: 9, EndLine: 9,
+	}); err != nil {
+		t.Fatalf("UpsertNode orders col: %v", err)
+	}
+	// The referring view.
+	viewID := "view:db/schema.sql:AccountOwners:20"
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: viewID, Kind: types.NodeKindView, Name: "AccountOwners",
+		QualifiedName: "dbo.AccountOwners", FilePath: sqlFile,
+		Language: types.LanguageSQL, StartLine: 20, EndLine: 25,
+	}); err != nil {
+		t.Fatalf("UpsertNode view: %v", err)
+	}
+
+	seedUnresolvedRef(t, d, types.UnresolvedReference{
+		ID:            "ref-cp4-col-001",
+		FromNodeID:    viewID,
+		ReferenceName: "dbo.Account.account_id",
+		ReferenceKind: types.EdgeKindReferences,
+		FilePath:      sqlFile,
+		Language:      types.LanguageSQL,
+		Line:          22,
+	})
+
+	_, resolved, err := resolution.NewPipeline(d).ResolveAndPersistBatched(ctx, 5000, nil)
+	if err != nil {
+		t.Fatalf("ResolveAndPersistBatched: %v", err)
+	}
+	if resolved == 0 {
+		t.Fatal("CP4: qualified column ref did not resolve — pre-filter dropped it before byQualifiedName")
+	}
+
+	edges := edgesWithKind(t, d, viewID, types.EdgeKindReferences)
+	if len(edges) != 1 {
+		t.Fatalf("expected exactly 1 references edge from the view, got %d", len(edges))
+	}
+	if edges[0].Target != acctColID {
+		t.Errorf("CP4: column ref resolved to %q, want dbo.Account.account_id (%q) — prefer-exact must pick the right table's column, not dbo.Orders.account_id",
+			edges[0].Target, acctColID)
+	}
+}

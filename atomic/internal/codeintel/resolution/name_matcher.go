@@ -175,6 +175,27 @@ func (nm *NameMatcher) matchReference(ctx context.Context, ref types.UnresolvedR
 				Strategy:   StrategyMethodCall,
 			}, nil
 		}
+		// CP4 tweak 1: SQL single-dot fall-through to qualifiedName.
+		// byMethodCall only returns method/function kinds, so SQL column refs
+		// (table.col) always produce zero candidates above. For SQL references,
+		// fall through to byQualifiedName so "acct.id" can resolve to the column
+		// node whose QualifiedName is "acct.id". Gate is strictly on LanguageSQL
+		// so Go/TS/Java receiver.method resolution is byte-for-byte unchanged (SC9).
+		if ref.Language == types.LanguageSQL {
+			candidates, err = nm.byQualifiedName(ctx, name, ref)
+			if err != nil {
+				return nil, err
+			}
+			if len(candidates) > 0 {
+				best := findBestMatch(candidates, ref)
+				return &MatchResult{
+					Node:       best.Node,
+					Score:      best.Score,
+					Confidence: scoreToConfidence(best.Score),
+					Strategy:   StrategyQualifiedName,
+				}, nil
+			}
+		}
 	}
 
 	// 4. exactName strategy.
@@ -257,6 +278,20 @@ func (nm *NameMatcher) GetAllCandidates(ctx context.Context, ref types.Unresolve
 			return nil, err
 		}
 		addCandidates(nodes)
+		// CP4 tweak 1: SQL single-dot fall-through (mirrors matchReference logic).
+		// For SQL column refs (table.col), byMethodCall returns nothing (columns are
+		// not method/function kind). Query byQualifiedName so column candidates appear
+		// in the overload list. Gate is strictly on LanguageSQL (SC9).
+		// Skip when isQualifiedDot(name) is already true: byQualifiedName ran at
+		// line 273 above and its results are already in `all` via addCandidates —
+		// calling it again is redundant (deduplicated but wasteful).
+		if ref.Language == types.LanguageSQL && !isQualifiedDot(name) && !strings.Contains(name, "::") {
+			nodes, err = nm.byQualifiedName(ctx, name, ref)
+			if err != nil {
+				return nil, err
+			}
+			addCandidates(nodes)
+		}
 	}
 
 	nodes, err := nm.byExactName(ctx, name, ref)
@@ -319,15 +354,28 @@ func (nm *NameMatcher) byQualifiedName(ctx context.Context, name string, ref typ
 	// Filter to those whose QualifiedName (case-insensitive) matches or contains
 	// the full qualified name.
 	lowerFull := strings.ToLower(name)
-	var matched []types.Node
+	lowerSimple := strings.ToLower(simpleName)
+	var exact []types.Node  // candidates with QualifiedName == full name exactly
+	var suffix []types.Node // candidates matching by suffix only
 	for _, n := range nodes {
 		lq := strings.ToLower(n.QualifiedName)
-		if lq == lowerFull || strings.HasSuffix(lq, strings.ToLower("::"+simpleName)) ||
-			strings.HasSuffix(lq, strings.ToLower("."+simpleName)) {
-			matched = append(matched, n)
+		if lq == lowerFull {
+			exact = append(exact, n)
+		} else if strings.HasSuffix(lq, "::"+lowerSimple) ||
+			strings.HasSuffix(lq, "."+lowerSimple) {
+			suffix = append(suffix, n)
 		}
 	}
-	return matched, nil
+
+	// CP4 tweak 2: prefer exact full-QName candidates over suffix matches.
+	// An exact match (e.g. QualifiedName "acct.id" == ref "acct.id") is
+	// unambiguous; the loose suffix set (".id" matching every table's id column)
+	// is a fallback used only when no exact candidate exists. This eliminates
+	// false-positive multi-table collisions for qualified SQL column refs.
+	if len(exact) > 0 {
+		return exact, nil
+	}
+	return suffix, nil
 }
 
 // byMethodCall resolves a "receiver.method" reference. It looks up all nodes

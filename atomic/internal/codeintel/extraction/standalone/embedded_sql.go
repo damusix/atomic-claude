@@ -145,7 +145,9 @@ func ScanBodyEdges(filePath, fromNodeID, body string) []types.UnresolvedReferenc
 	// bodyBaseOffset=0: line numbers are relative to body start.
 	// ExtractEmbeddedSQL passes a newline-padded body so that line 1 of the
 	// literal is already at the correct file-absolute line number.
-	return scanBodyEdges(filePath, fromNodeID, strippedNoStr, 0, stripped, ctes)
+	// Embedded SQL bodies are host-language strings — no T-SQL temp declarations.
+	_, refs := scanBodyEdges(filePath, fromNodeID, strippedNoStr, 0, stripped, ctes, "", nil)
+	return refs
 }
 
 // ---------------------------------------------------------------------------
@@ -216,8 +218,9 @@ func (e *SQLExtractor) ExtractEmbeddedSQL(filePath, literalText string, baseLine
 
 	// DML path: call scanBodyEdges with the padded text so ref line numbers
 	// are file-absolute via the newline padding.
+	// Embedded SQL strings are host-language — no T-SQL temp declarations.
 	ctes := extractCTENames(strippedNoStr)
-	refs := scanBodyEdges(filePath, ownerNodeID, strippedNoStr, 0, stripped, ctes)
+	_, refs := scanBodyEdges(filePath, ownerNodeID, strippedNoStr, 0, stripped, ctes, "", nil)
 
 	return types.ExtractionResult{
 		UnresolvedReferences: refs,

@@ -390,6 +390,219 @@ var bodyApplyRE = regexp.MustCompile(`(?i)\b(?:CROSS|OUTER)\s+APPLY\s+(` + sqlQN
 // Group 1 = the raw expression token (may include a dot for dotted forms).
 var bodyFlattenRE = regexp.MustCompile(`(?i)\bFLATTEN\s*\(\s*(?:INPUT\s*=>\s*)?(` + sqlQNameRaw + `)\s*\)`)
 
+// ---------------------------------------------------------------------------
+// CP4: Column-level lineage — alias→table map + qualified column refs
+//
+// Gap 4a: qualified "alias.col" references in a routine/view body resolve to
+// the specific column node (e.g. "dbo.acct.id") by building an alias→table
+// map from FROM/JOIN clauses and then scanning the body for single-dot refs.
+//
+// Two components:
+//
+//  1. bodyFromAliasRE — captures FROM/JOIN <table> [AS] <alias> so we can
+//     build the alias→table map. Group 1 = table name (sqlQNameRaw), group 2 =
+//     optional bare alias (sqlIdentOnlyRaw). If no alias is present, group 2
+//     will be empty ("") and the table maps to itself.
+//
+//  2. bodyQualColRefRE — captures single-dot references "prefix.col" in the
+//     body. We look up prefix in the alias→table map and emit a references
+//     edge with ReferenceName = "<table-as-written>.<col>". Unqualified bare
+//     identifiers are skipped (ambiguous). Two-dot or more refs already resolve
+//     through the existing isQualifiedDot → byQualifiedName path without changes.
+//     Group 1 = prefix (alias or table name), group 2 = column name.
+// ---------------------------------------------------------------------------
+
+// bodyFromAliasRE matches FROM/JOIN <table> [AS] <alias> in a stripped body.
+// Group 1 = table name (schema-qualified or bare), group 2 = optional alias.
+// Optional "AS" is consumed without capture. The alias group is non-capturing-
+// optional — if the word after the table is a SQL keyword (ON/WHERE/SET/…) it
+// will be captured in group 2 but is filtered out by cp4AliasBoundaryKeywords
+// in buildAliasMap before it enters the map.
+var bodyFromAliasRE = regexp.MustCompile(
+	`(?i)\b(?:FROM|JOIN)\s+(` + sqlQNameRaw + `)` +
+		`(?:\s+(?:AS\s+)?(` + sqlIdentOnlyRaw + `))?`)
+
+// bodyQualColRefRE matches single-dot column references "prefix.column" in a
+// body. The prefix is a bare identifier (no dots itself — dotted schema prefixes
+// like dbo.acct.col have 2+ dots and are handled elsewhere). The column name is
+// also a bare identifier.
+// Group 1 = prefix (alias or table), group 2 = column name.
+// Non-SQL single-dot "obj.method" forms are structurally identical — the caller
+// gate (only invoked inside SQL extraction paths) ensures we only emit SQL refs.
+var bodyQualColRefRE = regexp.MustCompile(
+	`\b([A-Za-z_][A-Za-z0-9_$]*)\.([A-Za-z_][A-Za-z0-9_$]*)`)
+
+// cp4AliasBoundaryKeywords is the CP4-local set of tokens that can immediately
+// follow a table name in a FROM/JOIN clause but are NOT valid aliases. These are
+// distinct from sqlKeywords (which guards column-name extraction) so we don't
+// accidentally pollute the shared set. Covers every token the regex can capture
+// spuriously: clause starters (WHERE, GROUP, ORDER, HAVING, UNION, SET, OPTION),
+// join type words (JOIN, INNER, LEFT, RIGHT, OUTER, CROSS, FULL), join clause
+// (ON), T-SQL batch terminator (GO), and pivot operators (PIVOT, UNPIVOT).
+var cp4AliasBoundaryKeywords = map[string]bool{
+	"WHERE": true, "GROUP": true, "ORDER": true, "HAVING": true,
+	"UNION": true, "INTERSECT": true, "EXCEPT": true,
+	"JOIN": true, "INNER": true, "LEFT": true, "RIGHT": true,
+	"OUTER": true, "CROSS": true, "FULL": true,
+	"ON": true, "SET": true, "OPTION": true, "GO": true,
+	"PIVOT": true, "UNPIVOT": true,
+	// Also cover tokens already in sqlKeywords for completeness / defense.
+	"SELECT": true, "FROM": true, "INTO": true, "AS": true,
+	"INSERT": true, "UPDATE": true, "DELETE": true, "MERGE": true,
+}
+
+// buildAliasMap scans body (stripped SQL) and returns a lowercase-alias → table-as-written map.
+// CTE names in cteShadow are excluded (they are computed relations, not base tables).
+// Tables with no alias map their own lower-case name to themselves (as-written).
+func buildAliasMap(body string, cteShadow map[string]bool) map[string]string {
+	aliasMap := map[string]string{} // lower-case alias/table-name → table-as-written
+	for _, m := range bodyFromAliasRE.FindAllStringSubmatch(body, -1) {
+		rawTable := m[1] // table as-written (may be schema-qualified)
+		rawAlias := ""
+		if len(m) > 2 {
+			rawAlias = strings.TrimSpace(m[2])
+		}
+		// Reject if the table name itself is a CTE shadow.
+		_, tableName := parseQName(rawTable)
+		if tableName == "" || cteShadow[strings.ToLower(tableName)] {
+			continue
+		}
+		if rawAlias != "" && !cp4AliasBoundaryKeywords[strings.ToUpper(rawAlias)] {
+			// Explicit alias: map alias → table-as-written.
+			aliasMap[strings.ToLower(rawAlias)] = rawTable
+		} else {
+			// No alias (or alias word is a clause boundary keyword — captured
+			// spuriously by the optional group): the table maps its own bare
+			// lower-case name to itself so unaliased "tbl.col" refs still resolve.
+			aliasMap[strings.ToLower(tableName)] = rawTable
+		}
+	}
+	return aliasMap
+}
+
+// emitQualifiedColumnRefs scans body for single-dot "prefix.col" references,
+// resolves prefix via aliasMap, and calls addRef for each column ref found.
+// cteShadow prevents CTE aliases from producing column edges. dedup tracks
+// refs already emitted (same as the parent seen map, using "table.col" as key).
+// bodyBaseOffset is the byte offset of body in strippedFull (for line numbers).
+func emitQualifiedColumnRefs(
+	body string,
+	aliasMap map[string]string,
+	cteShadow map[string]bool,
+	addColRef func(name string, matchOff int),
+) {
+	// seen dedups within this column-ref scan pass. The caller's addRef map
+	// (in scanBodyEdges) is not passed in, so this local guard is required —
+	// do not remove it thinking the outer dedup covers column refs.
+	seen := map[string]bool{}
+	for _, m := range bodyQualColRefRE.FindAllStringSubmatchIndex(body, -1) {
+		prefix := body[m[2]:m[3]]
+		col := body[m[4]:m[5]]
+		lowerPrefix := strings.ToLower(prefix)
+		// Skip if prefix is a CTE name.
+		if cteShadow[lowerPrefix] {
+			continue
+		}
+		// Resolve alias → table-as-written. Skip if not in scope.
+		tableAsWritten, ok := aliasMap[lowerPrefix]
+		if !ok {
+			continue
+		}
+		// Emit ref name = "<table-as-written>.<col>".
+		// This matches the column node's QualifiedName: "<tableQName>.<col>".
+		refName := tableAsWritten + "." + col
+		if seen[strings.ToLower(refName)] {
+			continue
+		}
+		seen[strings.ToLower(refName)] = true
+		addColRef(refName, m[2])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CP1: T-SQL temp-table and table-variable regexes
+//
+// sqlQNameRaw starts with [A-Za-z_] so #/## and @ tokens never match it.
+// These dedicated regexes handle the T-SQL temp-table / table-variable namespace.
+//
+// sqlTempTokenRaw matches: ##g (global temp), #t (local temp), @x (table variable).
+// It is intentionally broader than sqlQNameRaw — the declaration-gating guard in
+// scanBodyEdges (bodyTempCreateRE / bodyTempSelectIntoRE / bodyDeclareTableVarRE)
+// ensures only declared names emit edges.
+// ---------------------------------------------------------------------------
+
+// sqlTempTokenRaw matches a single T-SQL temp-table or table-variable token.
+const sqlTempTokenRaw = `##[A-Za-z0-9_$#]+|#[A-Za-z0-9_$#]+|@[A-Za-z0-9_$]+`
+
+// bodyTempCreateRE matches CREATE TABLE #x / ##x in a routine body.
+// Group 1 = the temp token (e.g. "#staging", "##g").
+var bodyTempCreateRE = regexp.MustCompile(`(?i)\bCREATE\s+TABLE\s+(` + sqlTempTokenRaw + `)`)
+
+// bodyTempSelectIntoRE matches SELECT … INTO #x / ##x in a routine body.
+// Uses a lazy-char-class bridge [^;]* so it never crosses a statement boundary (';').
+// Group 1 = the temp token.
+var bodyTempSelectIntoRE = regexp.MustCompile(`(?i)\bSELECT\b[^;]*?\bINTO\s+(` + sqlTempTokenRaw + `)`)
+
+// bodyDeclareTableVarRE matches DECLARE @x TABLE( in a routine body.
+// Group 1 = the @x token.
+// Scalar declarations (DECLARE @x INT) do NOT match because they lack the TABLE keyword.
+var bodyDeclareTableVarRE = regexp.MustCompile(`(?i)\bDECLARE\s+(@[A-Za-z0-9_$]+)\s+TABLE\s*\(`)
+
+// bodyTempFROMRE matches FROM/JOIN <temp-token> in a routine body.
+// Group 1 = the temp token.
+var bodyTempFROMRE = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(` + sqlTempTokenRaw + `)`)
+
+// bodyTempInsertRE matches INSERT INTO <temp-token>.
+// Group 1 = the temp token.
+var bodyTempInsertRE = regexp.MustCompile(`(?i)\bINSERT\s+INTO\s+(` + sqlTempTokenRaw + `)`)
+
+// bodyTempUpdateRE matches UPDATE <temp-token> SET.
+// Group 1 = the temp token.
+var bodyTempUpdateRE = regexp.MustCompile(`(?i)\bUPDATE\s+(` + sqlTempTokenRaw + `)\s+SET\b`)
+
+// bodyTempDeleteRE matches DELETE FROM <temp-token>.
+// Group 1 = the temp token.
+var bodyTempDeleteRE = regexp.MustCompile(`(?i)\bDELETE\s+FROM\s+(` + sqlTempTokenRaw + `)`)
+
+// bodyTempMergeRE matches MERGE INTO <temp-token>.
+// Group 1 = the temp token.
+var bodyTempMergeRE = regexp.MustCompile(`(?i)\bMERGE\s+INTO\s+(` + sqlTempTokenRaw + `)`)
+
+// ---------------------------------------------------------------------------
+// CP2: OUTPUT … INTO <target> lineage
+//
+// T-SQL OUTPUT clause routes the change-capture rows (inserted.*, deleted.*,
+// $action) into a secondary target table or table variable.  This is a write
+// to <target> that must be attributed to the owning routine.
+//
+// Regex design (SC6 false-positive mitigation):
+//   Group 1 = gap text between OUTPUT and INTO (used by Go code guard below).
+//   Group 2 = target name — either a temp token (#x / @x / ##x) or a real
+//             qualified name (sqlQNameRaw).
+//
+// The regex uses [^;]*? (lazy, semicolon-barrier) for the gap so it never
+// crosses a statement boundary. A Go code guard further rejects any gap that
+// contains a DML statement keyword (INSERT, UPDATE, DELETE, MERGE, SELECT,
+// FROM, WHERE, VALUES, EXEC, EXECUTE) — these indicate two separate statements
+// rather than one OUTPUT … INTO clause, making the check deterministic and
+// false-positive-free even in the absence of semicolons.
+// ---------------------------------------------------------------------------
+
+// bodyOutputIntoRE matches OUTPUT <gap> INTO <target> inside a DML statement.
+//
+//	Group 1 = gap text (validated by outputIntoKeywordGuard).
+//	Group 2 = target — temp token or qualified name.
+var bodyOutputIntoRE = regexp.MustCompile(
+	`(?i)\bOUTPUT\b([^;]*?)\bINTO\s+(` + sqlTempTokenRaw + `|` + sqlQNameRaw + `)`,
+)
+
+// outputIntoBoundaryRE matches a DML-keyword boundary token inside an
+// OUTPUT…INTO gap.  If the gap contains any of these tokens the candidate
+// match spans two statements and must be rejected (SC6 code guard).
+var outputIntoBoundaryRE = regexp.MustCompile(
+	`(?i)\b(FROM|WHERE|VALUES|SELECT|INSERT|UPDATE|DELETE|MERGE|EXEC|EXECUTE)\b`,
+)
+
 // bodyCopyIntoRE matches COPY INTO <target> FROM <source> in a routine/task body.
 // A2: both directions are captured; the leading '@' on the target decides direction.
 //   - Group 1 = target token (may start with '@' for stage-as-target direction).
@@ -928,7 +1141,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			// the model-node body scan receives a properly cleaned version.
 			residualStripped := stripStrings(stripComments(residual))
 			ctes := extractCTENames(residualStripped)
-			bodyEdges := scanBodyEdges(filePath, dbtModelID, residualStripped, 0, residualStripped, ctes)
+			// dbt model bodies do not contain T-SQL temp tables; pass "" routineName.
+			_, bodyEdges := scanBodyEdges(filePath, dbtModelID, residualStripped, 0, residualStripped, ctes, "", nil)
 
 			// Drop any residual reference whose name starts with __dbt_ref_ or __dbt_src_
 			// — those are the placeholder identifiers we injected; the harvest already owns
@@ -1230,6 +1444,21 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				sqlRef(filePath, node.ID, tgtName, types.EdgeKindReferences, line))
 		}
 
+		// CP4: emit qualified column references "alias.col" from view body.
+		// Build alias→table map from FROM/JOIN clauses, then scan for prefix.col
+		// patterns. CTE names are excluded (they are computed, not base tables).
+		viewCTEs := extractCTENames(viewBody)
+		viewAliasMap := buildAliasMap(viewBody, viewCTEs)
+		emitQualifiedColumnRefs(viewBody, viewAliasMap, viewCTEs, func(refName string, matchOff int) {
+			byteOff := viewBodyStart + matchOff
+			if byteOff > len(stripped) {
+				byteOff = len(stripped)
+			}
+			line := strings.Count(stripped[:byteOff], "\n") + 1
+			result.UnresolvedReferences = append(result.UnresolvedReferences,
+				sqlRef(filePath, node.ID, refName, types.EdgeKindReferences, line))
+		})
+
 		// A6: CLONE <src> — emit a references edge from the new view to its source.
 		// Scan only the preamble text BEFORE the first '(' (same guard as table path).
 		// A cloned view has no AS SELECT body, so CLONE is the only lineage signal.
@@ -1250,6 +1479,12 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 	}
 
+	// CP1: globalTempNodes is shared across all function/procedure scans in this
+	// file so that ##global temp tables declared in one routine are visible when
+	// another routine references them, and are deduped to a single node.
+	// Populated by scanBodyEdges; collected into result.Nodes after all scans.
+	globalTempNodes := map[string]*types.Node{}
+
 	// -- Functions --
 	for _, m := range functionRE.FindAllStringSubmatchIndex(strippedNoStr, -1) {
 		rawName := strippedNoStr[m[2]:m[3]]
@@ -1262,10 +1497,12 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		result.Nodes = append(result.Nodes, fnNode)
 
 		// CP5: scan function body for reads (references), writes, and calls.
+		// CP1: pass routine name + shared globalTempNodes map for temp-table scoping.
 		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
 		if body != "" {
 			ctes := extractCTENames(body)
-			bodyEdgeRefs := scanBodyEdges(filePath, fnNode.ID, body, bodyOff, stripped, ctes)
+			tempNodes, bodyEdgeRefs := scanBodyEdges(filePath, fnNode.ID, body, bodyOff, stripped, ctes, name, globalTempNodes)
+			result.Nodes = append(result.Nodes, tempNodes...)
 			result.UnresolvedReferences = append(result.UnresolvedReferences, bodyEdgeRefs...)
 		}
 	}
@@ -1282,12 +1519,20 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		result.Nodes = append(result.Nodes, procNode)
 
 		// CP5: scan procedure body for reads (references), writes, and calls.
+		// CP1: pass routine name + shared globalTempNodes map for temp-table scoping.
 		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
 		if body != "" {
 			ctes := extractCTENames(body)
-			bodyEdgeRefs := scanBodyEdges(filePath, procNode.ID, body, bodyOff, stripped, ctes)
+			tempNodes, bodyEdgeRefs := scanBodyEdges(filePath, procNode.ID, body, bodyOff, stripped, ctes, name, globalTempNodes)
+			result.Nodes = append(result.Nodes, tempNodes...)
 			result.UnresolvedReferences = append(result.UnresolvedReferences, bodyEdgeRefs...)
 		}
+	}
+
+	// CP1: collect file-scoped global temp nodes (##x) after all routine scans.
+	// Each entry was created once (deduped) in globalTempNodes during the scans above.
+	for _, n := range globalTempNodes {
+		result.Nodes = append(result.Nodes, *n)
 	}
 
 	// -- Triggers --
@@ -1463,7 +1708,8 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		body, bodyOff := extractRoutineBody(strippedNoStr, m[1])
 		if body != "" {
 			ctes := extractCTENames(body)
-			bodyEdgeRefs := scanBodyEdges(filePath, taskNode.ID, body, bodyOff, stripped, ctes)
+			// Tasks do not contain T-SQL temp declarations; pass "" routineName.
+			_, bodyEdgeRefs := scanBodyEdges(filePath, taskNode.ID, body, bodyOff, stripped, ctes, "", nil)
 			result.UnresolvedReferences = append(result.UnresolvedReferences, bodyEdgeRefs...)
 		}
 	}
@@ -2354,6 +2600,19 @@ func extractCTENames(body string) map[string]bool {
 // target. fromNodeID is the routine/view node that owns the body.
 // bodyBaseOffset is the byte offset in the original stripped source where
 // body begins (used for accurate line-number calculation).
+//
+// CP1 — T-SQL temp tables and table variables:
+//   - routineName is the bare routine name (e.g. "usp_Foo") used to synthesise
+//     per-routine node names for local #tmp / @tvar tokens. Pass "" for contexts
+//     that do not have T-SQL temp declarations (dbt models, view bodies, tasks).
+//   - globalTempNodes is a shared map[token→*Node] across all routines in a file.
+//     Local (#single-hash) temps use a routine-scoped synthetic name; global
+//     (##double-hash) temps use a file-scoped entry in this map so that two procs
+//     referencing ##g in one file resolve to the same node. Pass nil for callers
+//     that never encounter global temps (safe: nil map reads return zero-value).
+//
+// Returns (tempNodes, refs): tempNodes are new table nodes for declared
+// temps/table-vars; refs are the unresolved edge references.
 func scanBodyEdges(
 	filePath string,
 	fromNodeID string,
@@ -2361,7 +2620,10 @@ func scanBodyEdges(
 	bodyBaseOffset int,
 	strippedFull string,
 	cteShadow map[string]bool,
-) []types.UnresolvedReference {
+	routineName string,
+	globalTempNodes map[string]*types.Node,
+) ([]types.Node, []types.UnresolvedReference) {
+	var tempNodes []types.Node
 	var refs []types.UnresolvedReference
 	seen := map[string]map[types.EdgeKind]bool{}
 
@@ -2384,6 +2646,165 @@ func scanBodyEdges(
 		line := strings.Count(strippedFull[:byteOff], "\n") + 1
 		refs = append(refs, sqlRef(filePath, fromNodeID, name, kind, line))
 	}
+
+	// resolveTempFn is set by the CP1 block below and reused by CP2 (OUTPUT INTO).
+	// It maps a raw temp token (#x / ##x / @x) to its synthetic name, or returns
+	// ("", false) if the token is undeclared in this routine.  Default no-op so
+	// CP2 silently skips temps when there is no routine context (routineName == "").
+	resolveTempFn := func(_ string) (string, bool) { return "", false }
+
+	// -- CP1: T-SQL temp table and table-variable declaration pre-scan ----------
+	//
+	// Only emit edges for tokens that are DECLARED in this routine body.
+	// localDecls maps (lower-case token) → synthetic-name; globalDecls maps
+	// token → true.  An undeclared @scalar or stray #tmp from another proc is
+	// silently skipped.
+	//
+	// Scoping rules (from spec):
+	//   #x / @x  → routine-local: synthetic name = routineName + token (no dots)
+	//   ##x       → file-local (global temp): bare token, deduped in globalTempNodes
+	//
+	// Declaration triggers: CREATE TABLE #x, SELECT…INTO #x, DECLARE @x TABLE(…).
+	// SELECT…INTO both declares AND is a write to #x.
+	type tempDecl struct {
+		token     string // as written, e.g. "#staging", "##g", "@results"
+		synthetic string // resolved Name for UnresolvedReference
+		isGlobal  bool
+	}
+	var localDecls []tempDecl // routine-scoped (#x / @x)
+	seenLocal := map[string]bool{}
+
+	if routineName != "" {
+		// 1. CREATE TABLE #x / ##x
+		for _, m := range bodyTempCreateRE.FindAllStringSubmatchIndex(body, -1) {
+			tok := body[m[2]:m[3]]
+			lower := strings.ToLower(tok)
+			isGlobal := strings.HasPrefix(tok, "##")
+			if isGlobal {
+				if globalTempNodes != nil && globalTempNodes[lower] == nil {
+					node := makeTempNode(filePath, tok, tok, "global", bodyBaseOffset+m[2], strippedFull)
+					globalTempNodes[lower] = &node
+				}
+			} else if !seenLocal[lower] {
+				seenLocal[lower] = true
+				synthetic := routineName + tok
+				localDecls = append(localDecls, tempDecl{token: tok, synthetic: synthetic, isGlobal: false})
+			}
+		}
+
+		// 2. SELECT … INTO #x / ##x  (declares AND writes)
+		for _, m := range bodyTempSelectIntoRE.FindAllStringSubmatchIndex(body, -1) {
+			tok := body[m[2]:m[3]]
+			lower := strings.ToLower(tok)
+			isGlobal := strings.HasPrefix(tok, "##")
+			if isGlobal {
+				if globalTempNodes != nil && globalTempNodes[lower] == nil {
+					node := makeTempNode(filePath, tok, tok, "global", bodyBaseOffset+m[2], strippedFull)
+					globalTempNodes[lower] = &node
+				}
+			} else if !seenLocal[lower] {
+				seenLocal[lower] = true
+				synthetic := routineName + tok
+				localDecls = append(localDecls, tempDecl{token: tok, synthetic: synthetic, isGlobal: false})
+			}
+		}
+
+		// 3. DECLARE @x TABLE(…)  — table variable (scalars do NOT match this regex)
+		for _, m := range bodyDeclareTableVarRE.FindAllStringSubmatchIndex(body, -1) {
+			tok := body[m[2]:m[3]] // @x
+			lower := strings.ToLower(tok)
+			if !seenLocal[lower] {
+				seenLocal[lower] = true
+				synthetic := routineName + tok
+				localDecls = append(localDecls, tempDecl{token: tok, synthetic: synthetic, isGlobal: false})
+			}
+		}
+
+		// Build local declaration map (lower → tempDecl) for O(1) lookup.
+		localMap := make(map[string]tempDecl, len(localDecls))
+		for _, d := range localDecls {
+			localMap[strings.ToLower(d.token)] = d
+			// Create the node now and collect for return.
+			node := makeTempNode(filePath, d.token, d.synthetic, "local", 0, strippedFull)
+			tempNodes = append(tempNodes, node)
+		}
+
+		// -- CP1 temp-token scans (write + reference edges) ----------------------
+
+		// Helper: resolve a raw temp token to its synthetic or bare name.
+		// Returns ("", false) if the token is not declared in this routine.
+		// Assigned to resolveTempFn so CP2 (OUTPUT INTO) can reuse it after
+		// the CP1 block closes.
+		resolveTemp := func(tok string) (string, bool) {
+			lower := strings.ToLower(tok)
+			if strings.HasPrefix(tok, "##") {
+				// Global temp — file-level; valid if globalTempNodes has it.
+				if globalTempNodes != nil && globalTempNodes[lower] != nil {
+					return tok, true
+				}
+				return "", false
+			}
+			// Local: only declared locals emit edges.
+			if d, ok := localMap[lower]; ok {
+				return d.synthetic, true
+			}
+			return "", false
+		}
+		resolveTempFn = resolveTemp
+
+		// INSERT INTO <temp> → writes (also covers SELECT INTO declaration-write below)
+		for _, m := range bodyTempInsertRE.FindAllStringSubmatchIndex(body, -1) {
+			tok := body[m[2]:m[3]]
+			if syn, ok := resolveTemp(tok); ok {
+				addRef(syn, types.EdgeKindWrites, m[2])
+			}
+		}
+
+		// SELECT … INTO <temp> → writes (declaration + write in one shot)
+		for _, m := range bodyTempSelectIntoRE.FindAllStringSubmatchIndex(body, -1) {
+			tok := body[m[2]:m[3]]
+			if syn, ok := resolveTemp(tok); ok {
+				addRef(syn, types.EdgeKindWrites, m[2])
+			}
+		}
+
+		// FROM / JOIN <temp> → references
+		for _, m := range bodyTempFROMRE.FindAllStringSubmatchIndex(body, -1) {
+			tok := body[m[2]:m[3]]
+			if syn, ok := resolveTemp(tok); ok {
+				addRef(syn, types.EdgeKindReferences, m[2])
+			}
+		}
+
+		// UPDATE <temp> SET → writes
+		for _, m := range bodyTempUpdateRE.FindAllStringSubmatchIndex(body, -1) {
+			tok := body[m[2]:m[3]]
+			if syn, ok := resolveTemp(tok); ok {
+				addRef(syn, types.EdgeKindWrites, m[2])
+			}
+		}
+
+		// DELETE FROM <temp> → writes
+		for _, m := range bodyTempDeleteRE.FindAllStringSubmatchIndex(body, -1) {
+			tok := body[m[2]:m[3]]
+			if syn, ok := resolveTemp(tok); ok {
+				addRef(syn, types.EdgeKindWrites, m[2])
+			}
+		}
+
+		// MERGE INTO <temp> → writes
+		for _, m := range bodyTempMergeRE.FindAllStringSubmatchIndex(body, -1) {
+			tok := body[m[2]:m[3]]
+			if syn, ok := resolveTemp(tok); ok {
+				addRef(syn, types.EdgeKindWrites, m[2])
+			}
+		}
+
+		// Collect global temp nodes that were first seen in this call.
+		// (Nodes that already existed in globalTempNodes before this call
+		// are not re-added; callers collect the full map after all scans.)
+	}
+	// -- end CP1 -----------------------------------------------------------------
 
 	// FROM / JOIN → references
 	for _, m := range viewBodyFROMRE.FindAllStringSubmatchIndex(body, -1) {
@@ -2497,7 +2918,75 @@ func scanBodyEdges(
 		}
 	}
 
-	return refs
+	// CP2: OUTPUT … INTO <target> → writes
+	//
+	// T-SQL's OUTPUT clause can route the change-capture rows into a secondary
+	// table or table variable: INSERT/UPDATE/DELETE/MERGE … OUTPUT list INTO <target>.
+	// The gap between OUTPUT and INTO is validated by outputIntoBoundaryRE (SC6 guard)
+	// to reject cross-statement matches where the lazy [^;]*? skipped a DML keyword.
+	//
+	// Target routing:
+	//   - temp token (#x / ##x / @x): resolved through resolveTempFn (CP1 reuse).
+	//     Undeclared tokens produce no edge (silently dropped).
+	//   - real table: parsed via parseQName, same as bodyInsertIntoRE.
+	for _, m := range bodyOutputIntoRE.FindAllStringSubmatchIndex(body, -1) {
+		gap := body[m[2]:m[3]]       // group 1: gap text between OUTPUT and INTO
+		rawTarget := body[m[4]:m[5]] // group 2: target name (temp or real table)
+
+		// SC6 code guard: gap must not contain a DML-boundary keyword.
+		// Such a keyword means this is two adjacent statements, not one clause.
+		if outputIntoBoundaryRE.MatchString(gap) {
+			continue
+		}
+
+		isTempTarget := strings.HasPrefix(rawTarget, "#") || strings.HasPrefix(rawTarget, "@")
+		if isTempTarget {
+			if syn, ok := resolveTempFn(rawTarget); ok {
+				addRef(syn, types.EdgeKindWrites, m[4])
+			}
+		} else {
+			_, name := parseQName(rawTarget)
+			if name != "" {
+				addRef(name, types.EdgeKindWrites, m[4])
+			}
+		}
+	}
+
+	// CP4: emit qualified column references "alias.col" from the routine body.
+	// Build alias→table map from FROM/JOIN clauses (honoring CTE shadow), then
+	// scan for single-dot prefix.col patterns. Table-level FROM/JOIN edges already
+	// emitted above coexist with these column-level edges.
+	bodyAliasMap := buildAliasMap(body, cteShadow)
+	emitQualifiedColumnRefs(body, bodyAliasMap, cteShadow, func(refName string, matchOff int) {
+		addRef(refName, types.EdgeKindReferences, matchOff)
+	})
+
+	return tempNodes, refs
+}
+
+// makeTempNode constructs a synthetic table node for a T-SQL temp table or
+// table variable.  syntheticName is the node's Name field (used for resolution);
+// token is the written form stored in Metadata for display.
+// tempScope is "local" (proc-scoped #x / @x) or "global" (##x).
+func makeTempNode(filePath, token, syntheticName, tempScope string, byteOff int, strippedFull string) types.Node {
+	line := 1
+	if byteOff > 0 && byteOff <= len(strippedFull) {
+		line = strings.Count(strippedFull[:byteOff], "\n") + 1
+	}
+	id := extraction.GenerateNodeID(filePath, string(types.NodeKindTable), syntheticName, line)
+	meta, _ := json.Marshal(map[string]string{"temp": tempScope, "token": token})
+	return types.Node{
+		ID:            id,
+		Kind:          types.NodeKindTable,
+		Name:          syntheticName,
+		QualifiedName: syntheticName,
+		FilePath:      filePath,
+		Language:      types.LanguageSQL,
+		StartLine:     line,
+		EndLine:       line,
+		IsExported:    false,
+		Metadata:      meta,
+	}
 }
 
 // parseStageToken extracts the bare stage name from a Snowflake named-stage token.

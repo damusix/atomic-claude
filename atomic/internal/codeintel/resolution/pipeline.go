@@ -541,6 +541,16 @@ func (p *Pipeline) resolveOne(
 	//   - frameworkClaims: a framework resolver knows this name even if the cache doesn't.
 	importKind := ref.ReferenceKind == types.EdgeKindImports
 	nameMatch := hasAnyPossibleMatch(ref.ReferenceName, names)
+	// CP4: SQL qualified column refs are emitted as the full "schema.table.col"
+	// path so they resolve to the specific column node, but the known-names cache
+	// holds only bare node names ("col"). Without checking the simple name, these
+	// refs fail the pre-filter and never reach byQualifiedName. Scoped to SQL so
+	// non-SQL receiver.method / pkg.Class.member pre-filter behavior is unchanged.
+	if !nameMatch && ref.Language == types.LanguageSQL {
+		if simple := qualifiedSimpleName(ref.ReferenceName); simple != ref.ReferenceName {
+			nameMatch = hasAnyPossibleMatch(simple, names)
+		}
+	}
 	frameworkClaims := p.frameworks.claimsAny(ref.ReferenceName)
 	pass := nameMatch || (importKind && matchesAnyImport(ref, files)) || frameworkClaims
 	if !pass {

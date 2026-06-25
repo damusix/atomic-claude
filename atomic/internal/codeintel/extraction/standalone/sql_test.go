@@ -3617,6 +3617,393 @@ func TestTSQLApplyKeywordsNotEdges(t *testing.T) {
 // emits a references edge.
 // WHY (criterion 6): bodyApplyRE requires a sqlQNameRaw identifier immediately
 // after APPLY, followed by '('. A derived-table apply starts with '(' after
+// ---------------------------------------------------------------------------
+// CP1: T-SQL proc-scoped temp tables and table variables
+// ---------------------------------------------------------------------------
+
+// tsqlTempTableLocalFixture tests SC1 — a procedure declaring #tmp via CREATE
+// TABLE and reading it back produces writes + references edges to one synthetic
+// routine-scoped node; the node's Name contains the routine name (not just #tmp)
+// so global resolution maps 1:1 and two distinct procs' #tmp stay separated.
+// WHY: #tmp tokens have leading '#' which sqlQNameRaw cannot match today — zero
+// edges without CP1.  The synthetic name prevents cross-proc collisions.
+const tsqlTempTableLocalFixture = `
+CREATE TABLE dbo.source_data (id INT, val NVARCHAR(100));
+CREATE PROCEDURE dbo.usp_LoadTemp
+AS
+BEGIN
+    CREATE TABLE #staging (id INT, val NVARCHAR(100));
+    INSERT INTO #staging
+        SELECT id, val FROM dbo.source_data WHERE val IS NOT NULL;
+    SELECT id, val FROM #staging WHERE id > 0;
+    DROP TABLE #staging;
+END;
+GO
+`
+
+func TestTSQLTempTableLocal(t *testing.T) {
+	// WHY: verifies SC1 — local #tmp emits writes+references to a single synthetic
+	// routine-scoped node; node Name encodes the routine so byExactName resolves 1:1.
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_temp_local.sql", tsqlTempTableLocalFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// A node for #staging should exist with a synthetic name containing "staging"
+	// (and NOT be bare "#staging" — the routine name must be encoded).
+	var tempNode *types.Node
+	for i := range result.Nodes {
+		n := &result.Nodes[i]
+		if n.Kind == types.NodeKindTable && strings.Contains(n.Name, "staging") && strings.HasPrefix(n.Name, "usp_LoadTemp") {
+			tempNode = n
+			break
+		}
+	}
+	if tempNode == nil {
+		t.Fatalf("expected a synthetic temp node for #staging scoped to usp_LoadTemp; nodes: %v",
+			nodeNames(result.Nodes))
+	}
+
+	// Metadata must carry temp:local and the written token.
+	if !metadataHas(tempNode.Metadata, "temp", "local") {
+		t.Errorf("temp node metadata should have {\"temp\":\"local\"}, got %s", tempNode.Metadata)
+	}
+	if !metadataHas(tempNode.Metadata, "token", "#staging") {
+		t.Errorf("temp node metadata should carry {\"token\":\"#staging\"}, got %s", tempNode.Metadata)
+	}
+
+	// Synthetic name must contain no '.' '/' '::' so byExactName routing applies.
+	if strings.ContainsAny(tempNode.Name, "./") || strings.Contains(tempNode.Name, "::") {
+		t.Errorf("synthetic temp node Name must not contain '.', '/', or '::'; got %q", tempNode.Name)
+	}
+
+	syntheticName := tempNode.Name
+
+	// The routine must emit a writes edge to the synthetic node.
+	if !hasUnresolvedRef(result.UnresolvedReferences, syntheticName, types.EdgeKindWrites) {
+		t.Errorf("expected writes edge to %q (INSERT INTO #staging); refs: %v",
+			syntheticName, refNames(result.UnresolvedReferences))
+	}
+
+	// The routine must emit a references edge to the synthetic node (SELECT FROM #staging).
+	if !hasUnresolvedRef(result.UnresolvedReferences, syntheticName, types.EdgeKindReferences) {
+		t.Errorf("expected references edge to %q (SELECT FROM #staging); refs: %v",
+			syntheticName, refNames(result.UnresolvedReferences))
+	}
+
+	// The real source table must still produce a references edge.
+	if !hasUnresolvedRef(result.UnresolvedReferences, "source_data", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'source_data' from INSERT…SELECT source")
+	}
+
+	// Bare "#staging" must NOT appear as a reference name — only the synthetic form.
+	if hasUnresolvedRef(result.UnresolvedReferences, "#staging", types.EdgeKindWrites) ||
+		hasUnresolvedRef(result.UnresolvedReferences, "#staging", types.EdgeKindReferences) {
+		t.Error("bare '#staging' must not appear as ReferenceName; only the synthetic form should")
+	}
+}
+
+// tsqlTempTableTwoProcsSC2Fixture tests SC2 — two procedures in the same file
+// each declare #tmp.  They must produce TWO distinct synthetic nodes so the
+// reads/writes of proc A never resolve to proc B's #tmp and vice versa.
+// WHY: without a routine-scoped synthetic name, both refs share the same
+// ReferenceName and the resolver would unify them — false cross-proc lineage.
+const tsqlTempTableTwoProcsSC2Fixture = `
+CREATE TABLE dbo.a_src (n INT);
+CREATE TABLE dbo.b_src (n INT);
+
+CREATE PROCEDURE dbo.ProcA
+AS
+BEGIN
+    CREATE TABLE #tmp (n INT);
+    INSERT INTO #tmp SELECT n FROM dbo.a_src;
+    SELECT n FROM #tmp;
+END;
+GO
+
+CREATE PROCEDURE dbo.ProcB
+AS
+BEGIN
+    CREATE TABLE #tmp (n INT);
+    INSERT INTO #tmp SELECT n FROM dbo.b_src;
+    SELECT n FROM #tmp;
+END;
+GO
+`
+
+func TestTSQLTempTableTwoProcsSC2(t *testing.T) {
+	// WHY SC2: same-file two procs each declaring #tmp must not collide.
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_two_procs.sql", tsqlTempTableTwoProcsSC2Fixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// Collect all synthetic temp nodes for #tmp.
+	var tmpNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == types.NodeKindTable && strings.Contains(n.Name, "tmp") &&
+			(strings.HasPrefix(n.Name, "ProcA") || strings.HasPrefix(n.Name, "ProcB")) {
+			tmpNodes = append(tmpNodes, n)
+		}
+	}
+	if len(tmpNodes) != 2 {
+		t.Fatalf("expected 2 distinct synthetic #tmp nodes (one per proc), got %d; nodes: %v",
+			len(tmpNodes), nodeNames(result.Nodes))
+	}
+
+	// The two nodes must have different Names.
+	if tmpNodes[0].Name == tmpNodes[1].Name {
+		t.Errorf("two procs' #tmp nodes must have distinct synthetic Names; both are %q", tmpNodes[0].Name)
+	}
+
+	// ProcA's writes/references must target ProcA's node, not ProcB's, and vice versa.
+	// We verify this indirectly: ProcA's synthetic name must appear exactly in refs
+	// attributed to ProcA's node ID.  Both synthetic names exist in the ref list.
+	nameA := tmpNodes[0].Name
+	nameB := tmpNodes[1].Name
+	// Ensure they differ from the bare "#tmp".
+	if nameA == "#tmp" || nameB == "#tmp" {
+		t.Error("synthetic names must not be bare '#tmp'")
+	}
+	// Both synthetic names must appear as reference names.
+	if countUnresolvedRefs(result.UnresolvedReferences, nameA) == 0 {
+		t.Errorf("no refs found for %q", nameA)
+	}
+	if countUnresolvedRefs(result.UnresolvedReferences, nameB) == 0 {
+		t.Errorf("no refs found for %q", nameB)
+	}
+}
+
+// tsqlTableVariableSC3Fixture tests SC3 — DECLARE @t TABLE(…) emits edges;
+// a scalar DECLARE @id INT does not.
+// WHY: @x tokens are ambiguous (could be scalar or table variable).  The gate
+// is strict: only DECLARE @x TABLE(…) form is a relation; scalars are silently
+// skipped to avoid false-positive edges.
+const tsqlTableVariableSC3Fixture = `
+CREATE TABLE dbo.orders (id INT, amount MONEY);
+
+CREATE PROCEDURE dbo.usp_CalcOrders
+AS
+BEGIN
+    DECLARE @id INT;           -- scalar: must produce NO edge
+    DECLARE @results TABLE (   -- table variable: must produce edges
+        id     INT,
+        amount MONEY
+    );
+
+    INSERT INTO @results
+        SELECT id, amount FROM dbo.orders WHERE amount > 0;
+
+    SELECT id, amount FROM @results WHERE id > 10;
+END;
+GO
+`
+
+func TestTSQLTableVariableSC3(t *testing.T) {
+	// WHY SC3: strict declaration gate — scalar @id gets no edge; @results TABLE(…) gets
+	// writes+references.
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_tvar.sql", tsqlTableVariableSC3Fixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// Find the synthetic node for @results (must exist).
+	var tvarNode *types.Node
+	for i := range result.Nodes {
+		n := &result.Nodes[i]
+		if n.Kind == types.NodeKindTable && strings.Contains(n.Name, "results") &&
+			strings.HasPrefix(n.Name, "usp_CalcOrders") {
+			tvarNode = n
+			break
+		}
+	}
+	if tvarNode == nil {
+		t.Fatalf("expected synthetic node for @results table variable; nodes: %v", nodeNames(result.Nodes))
+	}
+
+	if !metadataHas(tvarNode.Metadata, "temp", "local") {
+		t.Errorf("@results node should have metadata {\"temp\":\"local\"}, got %s", tvarNode.Metadata)
+	}
+	if !metadataHas(tvarNode.Metadata, "token", "@results") {
+		t.Errorf("@results node should carry {\"token\":\"@results\"}, got %s", tvarNode.Metadata)
+	}
+
+	synName := tvarNode.Name
+	if !hasUnresolvedRef(result.UnresolvedReferences, synName, types.EdgeKindWrites) {
+		t.Errorf("expected writes edge to %q (INSERT INTO @results)", synName)
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, synName, types.EdgeKindReferences) {
+		t.Errorf("expected references edge to %q (SELECT FROM @results)", synName)
+	}
+
+	// Scalar @id must produce no edge — not writes, not references.
+	// The scalar name does not get a synthetic node or ref.
+	for _, n := range result.Nodes {
+		if n.Kind == types.NodeKindTable && strings.Contains(n.Name, "id") &&
+			strings.HasPrefix(n.Name, "usp_CalcOrders") {
+			t.Errorf("scalar @id must not produce a temp node; got %q", n.Name)
+		}
+	}
+	// No bare "@id" in refs.
+	if countUnresolvedRefs(result.UnresolvedReferences, "@id") > 0 ||
+		countUnresolvedRefs(result.UnresolvedReferences, "usp_CalcOrders@id") > 0 {
+		t.Error("scalar @id must not appear in any ref")
+	}
+}
+
+// tsqlGlobalTempSC4Fixture tests SC4 — ##g declared in ProcA and read in ProcB
+// resolves to ONE shared node; declaring ##g twice in the same file yields one node.
+// WHY: global temp tables (##name) persist across connections — their cross-proc
+// lineage is real.  File-level dedup prevents spurious duplicate nodes.
+const tsqlGlobalTempSC4Fixture = `
+CREATE TABLE dbo.real_tbl (x INT);
+
+CREATE PROCEDURE dbo.ProcWriter
+AS
+BEGIN
+    CREATE TABLE ##shared_staging (x INT);
+    INSERT INTO ##shared_staging SELECT x FROM dbo.real_tbl;
+END;
+GO
+
+CREATE PROCEDURE dbo.ProcReader
+AS
+BEGIN
+    -- ##shared_staging was created by ProcWriter; reading it here.
+    SELECT x FROM ##shared_staging;
+    -- Declaring ##shared_staging again (conditional branch) must NOT create a second node.
+    CREATE TABLE ##shared_staging (x INT);
+END;
+GO
+`
+
+func TestTSQLGlobalTempSC4(t *testing.T) {
+	// WHY SC4: ##g is file-scoped; cross-proc refs resolve to one node;
+	// duplicate declarations dedup to one node.
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_global_temp.sql", tsqlGlobalTempSC4Fixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// Exactly ONE node for ##shared_staging.
+	var globalNodes []types.Node
+	for _, n := range result.Nodes {
+		if n.Kind == types.NodeKindTable && strings.Contains(n.Name, "shared_staging") {
+			globalNodes = append(globalNodes, n)
+		}
+	}
+	if len(globalNodes) != 1 {
+		t.Fatalf("expected exactly 1 node for ##shared_staging (file-deduped), got %d; nodes: %v",
+			len(globalNodes), nodeNames(result.Nodes))
+	}
+
+	globalName := globalNodes[0].Name
+	// Global temp Name should be the bare ##shared_staging token (not routine-prefixed).
+	if !strings.Contains(globalName, "shared_staging") {
+		t.Errorf("global temp node Name should contain 'shared_staging', got %q", globalName)
+	}
+	// Must not be prefixed with a routine name (global scope, not local).
+	if strings.HasPrefix(globalName, "ProcWriter") || strings.HasPrefix(globalName, "ProcReader") {
+		t.Errorf("global temp Name must not be routine-prefixed; got %q", globalName)
+	}
+
+	if !metadataHas(globalNodes[0].Metadata, "temp", "global") {
+		t.Errorf("##shared_staging should have {\"temp\":\"global\"}, got %s", globalNodes[0].Metadata)
+	}
+
+	// Resolve the two procedure node IDs so the cross-proc claim is explicit:
+	// the shared node must be WRITTEN by ProcWriter and READ by ProcReader — both
+	// edges land on the one node. Asserting by FromNodeID prevents a false pass
+	// where a single proc happened to emit both a writes and a references edge.
+	var writerID, readerID string
+	for _, n := range result.Nodes {
+		if n.Kind != types.NodeKindProcedure {
+			continue
+		}
+		switch n.Name {
+		case "ProcWriter":
+			writerID = n.ID
+		case "ProcReader":
+			readerID = n.ID
+		}
+	}
+	if writerID == "" || readerID == "" {
+		t.Fatalf("expected ProcWriter and ProcReader nodes; got writer=%q reader=%q", writerID, readerID)
+	}
+
+	hasEdgeFrom := func(fromID, name string, kind types.EdgeKind) bool {
+		for _, r := range result.UnresolvedReferences {
+			if r.FromNodeID == fromID && r.ReferenceName == name && r.ReferenceKind == kind {
+				return true
+			}
+		}
+		return false
+	}
+	// Writes edge from ProcWriter (INSERT INTO ##shared_staging).
+	if !hasEdgeFrom(writerID, globalName, types.EdgeKindWrites) {
+		t.Errorf("expected writes edge to %q from ProcWriter", globalName)
+	}
+	// References edge from ProcReader (SELECT FROM ##shared_staging) — the cross-proc read.
+	if !hasEdgeFrom(readerID, globalName, types.EdgeKindReferences) {
+		t.Errorf("expected references edge to %q from ProcReader (cross-proc lineage)", globalName)
+	}
+}
+
+// tsqlSelectIntoTempFixture tests that SELECT … INTO #tmp (which both declares
+// AND writes the temp table) emits a writes edge — not just a references edge.
+// WHY: SELECT INTO is the most common T-SQL pattern for materializing a temp
+// table from a query; it is a declaration+write in one statement.
+const tsqlSelectIntoTempFixture = `
+CREATE TABLE dbo.events (id INT, ts DATETIME);
+
+CREATE PROCEDURE dbo.usp_Recent
+AS
+BEGIN
+    SELECT id, ts INTO #recent FROM dbo.events WHERE ts > '2024-01-01';
+    SELECT id FROM #recent;
+END;
+GO
+`
+
+func TestTSQLSelectIntoTemp(t *testing.T) {
+	// WHY: SELECT INTO is a declaration+write; the temp must be declared (SELECT INTO)
+	// before any downstream FROM/JOIN ref is emitted.
+	ext := newSQL()
+	result, err := ext.Extract("/db/tsql_select_into.sql", tsqlSelectIntoTempFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	var tempNode *types.Node
+	for i := range result.Nodes {
+		n := &result.Nodes[i]
+		if n.Kind == types.NodeKindTable && strings.Contains(n.Name, "recent") &&
+			strings.HasPrefix(n.Name, "usp_Recent") {
+			tempNode = n
+			break
+		}
+	}
+	if tempNode == nil {
+		t.Fatalf("expected synthetic node for #recent; nodes: %v", nodeNames(result.Nodes))
+	}
+
+	synName := tempNode.Name
+	if !hasUnresolvedRef(result.UnresolvedReferences, synName, types.EdgeKindWrites) {
+		t.Errorf("expected writes edge to %q from SELECT INTO", synName)
+	}
+	if !hasUnresolvedRef(result.UnresolvedReferences, synName, types.EdgeKindReferences) {
+		t.Errorf("expected references edge to %q from SELECT FROM", synName)
+	}
+	// Real source table must still appear.
+	if !hasUnresolvedRef(result.UnresolvedReferences, "events", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'events'")
+	}
+}
+
 // APPLY — not an identifier — so the regex cannot match. The inner FROM clause
 // is caught by the existing viewBodyFROMRE scan, preserving that lineage.
 const tsqlApplyDerivedTableFixture = `
@@ -3659,4 +4046,558 @@ func TestTSQLApplyDerivedTableNoCallEdge(t *testing.T) {
 	if !hasUnresolvedRef(refs, "real_inner", types.EdgeKindReferences) {
 		t.Error("expected references edge to 'real_inner' from inner FROM inside derived-table APPLY")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// CP2: OUTPUT … INTO <target> lineage
+// ---------------------------------------------------------------------------
+
+// cp2MergeOutputIntoRealTableFixture tests SC5 — MERGE … OUTPUT $action, inserted.id
+// INTO dbo.AuditLog emits a writes edge to AuditLog.
+// WHY: OUTPUT INTO is a T-SQL/SQL Server feature that routes the change-capture rows
+// into a second table; without CP2 that secondary write is invisible to the graph.
+const cp2MergeOutputIntoRealTableFixture = `
+CREATE TABLE dbo.Tgt (id INT, val NVARCHAR(100));
+CREATE TABLE dbo.Src (id INT, val NVARCHAR(100));
+CREATE TABLE dbo.AuditLog (action NVARCHAR(10), id INT);
+
+CREATE PROCEDURE dbo.usp_MergeAudit
+AS
+BEGIN
+    MERGE INTO dbo.Tgt AS t
+    USING dbo.Src AS s ON t.id = s.id
+    WHEN MATCHED THEN UPDATE SET t.val = s.val
+    WHEN NOT MATCHED THEN INSERT (id, val) VALUES (s.id, s.val)
+    OUTPUT $action, inserted.id INTO dbo.AuditLog;
+END;
+GO
+`
+
+func TestCP2MergeOutputIntoRealTable(t *testing.T) {
+	// WHY SC5: MERGE … OUTPUT $action, inserted.id INTO dbo.AuditLog must emit
+	// a writes edge to AuditLog from the procedure.  $action and inserted.* appear
+	// in the OUTPUT list — the gap-text scanner must tolerate $ and dot.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp2_merge_output.sql", cp2MergeOutputIntoRealTableFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// Primary MERGE target dbo.Tgt → writes (existing MERGE INTO logic).
+	if !hasUnresolvedRef(refs, "Tgt", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'Tgt' from MERGE INTO")
+	}
+	// OUTPUT INTO target dbo.AuditLog → writes (CP2).
+	if !hasUnresolvedRef(refs, "AuditLog", types.EdgeKindWrites) {
+		t.Errorf("expected writes edge to 'AuditLog' from OUTPUT INTO; refs: %v",
+			refNames(result.UnresolvedReferences))
+	}
+}
+
+// cp2InsertOutputIntoTvarFixture tests SC5 — INSERT INTO dbo.A … OUTPUT inserted.id
+// INTO @captured where @captured is declared as a table variable emits a writes edge
+// to the routine-scoped synthetic node for @captured (not to bare "@captured").
+// WHY: CP1 synthetic-name routing must also apply to OUTPUT INTO targets so that
+// the captured-rows write resolves to the same node as other @tvar edges.
+const cp2InsertOutputIntoTvarFixture = `
+CREATE TABLE dbo.A (id INT, val NVARCHAR(100));
+
+CREATE PROCEDURE dbo.usp_InsertCapture
+AS
+BEGIN
+    DECLARE @captured TABLE (id INT);
+    INSERT INTO dbo.A (id, val)
+    OUTPUT inserted.id INTO @captured
+    VALUES (1, 'hello');
+    SELECT id FROM @captured;
+END;
+GO
+`
+
+func TestCP2InsertOutputIntoTvar(t *testing.T) {
+	// WHY SC5: INSERT INTO dbo.A … OUTPUT inserted.id INTO @captured must emit a
+	// writes edge to the synthetic node for @captured (CP1 reuse), not to bare "@captured".
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp2_insert_output_tvar.sql", cp2InsertOutputIntoTvarFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	// Find the synthetic node for @captured (routine-scoped).
+	var capturedNode *types.Node
+	for i := range result.Nodes {
+		n := &result.Nodes[i]
+		if n.Kind == types.NodeKindTable && strings.Contains(n.Name, "captured") &&
+			strings.HasPrefix(n.Name, "usp_InsertCapture") {
+			capturedNode = n
+			break
+		}
+	}
+	if capturedNode == nil {
+		t.Fatalf("expected synthetic node for @captured table variable; nodes: %v", nodeNames(result.Nodes))
+	}
+
+	synName := capturedNode.Name
+
+	// OUTPUT INTO @captured → writes to the synthetic node.
+	if !hasUnresolvedRef(result.UnresolvedReferences, synName, types.EdgeKindWrites) {
+		t.Errorf("expected writes edge to %q from OUTPUT INTO @captured; refs: %v",
+			synName, refNames(result.UnresolvedReferences))
+	}
+	// SELECT FROM @captured → references to the synthetic node.
+	if !hasUnresolvedRef(result.UnresolvedReferences, synName, types.EdgeKindReferences) {
+		t.Errorf("expected references edge to %q from SELECT FROM @captured; refs: %v",
+			synName, refNames(result.UnresolvedReferences))
+	}
+	// Primary INSERT INTO dbo.A → writes.
+	if !hasUnresolvedRef(result.UnresolvedReferences, "A", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'A' from INSERT INTO dbo.A")
+	}
+	// Bare "@captured" must NOT appear — only the synthetic name.
+	if hasUnresolvedRef(result.UnresolvedReferences, "@captured", types.EdgeKindWrites) {
+		t.Error("bare '@captured' must not appear as a writes ref; only the synthetic form should")
+	}
+}
+
+// cp2OutputNoIntoFixture tests SC6a — OUTPUT inserted.id with no INTO clause
+// must produce no OUTPUT-derived edge.
+// WHY: OUTPUT without INTO just returns a result set to the caller; there is no
+// secondary write target.  Emitting a spurious writes edge would be a false positive.
+const cp2OutputNoIntoFixture = `
+CREATE TABLE dbo.Orders (id INT, status NVARCHAR(20));
+
+CREATE PROCEDURE dbo.usp_FulfillOrder
+AS
+BEGIN
+    UPDATE dbo.Orders
+    SET status = 'shipped'
+    OUTPUT inserted.id, inserted.status
+    WHERE id = 42;
+END;
+GO
+`
+
+func TestCP2OutputNoInto(t *testing.T) {
+	// WHY SC6a: OUTPUT with no INTO must not produce any OUTPUT-derived writes edge.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp2_output_no_into.sql", cp2OutputNoIntoFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// UPDATE dbo.Orders → writes (normal UPDATE path).
+	if !hasUnresolvedRef(refs, "Orders", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'Orders' from UPDATE")
+	}
+	// No extra writes targets from OUTPUT (no INTO present).
+	for _, r := range refs {
+		if r.ReferenceKind == types.EdgeKindWrites && r.ReferenceName != "Orders" {
+			t.Errorf("unexpected writes edge to %q — OUTPUT with no INTO should produce no secondary writes edge",
+				r.ReferenceName)
+		}
+	}
+}
+
+// cp2SC6bSemicolonBoundaryFixture tests SC6b — a DELETE…OUTPUT (no INTO) followed
+// by a `SELECT … INTO <ghost>` on the next statement, separated by a semicolon.
+// `GhostSemi` is reachable ONLY through a false OUTPUT…INTO bridge: a real-table
+// `SELECT … INTO` is not captured as a write by any scan, so a guard-sensitive
+// assertion is "GhostSemi has zero writes". If the OUTPUT…INTO match wrongly spans
+// the semicolon, GhostSemi gets a spurious write and this test fails.
+const cp2SC6bSemicolonBoundaryFixture = `
+CREATE TABLE dbo.A (id INT);
+
+CREATE PROCEDURE dbo.usp_TwoStmts
+AS
+BEGIN
+    DELETE FROM dbo.A OUTPUT deleted.id;
+    SELECT id INTO dbo.GhostSemi FROM dbo.A;
+END;
+GO
+`
+
+func TestCP2SC6bSemicolonBoundary(t *testing.T) {
+	// WHY SC6b: the semicolon is a hard boundary — the OUTPUT clause of the DELETE
+	// must not bridge to the next statement's `INTO dbo.GhostSemi`.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp2_sc6b_semicolon.sql", cp2SC6bSemicolonBoundaryFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// The DELETE writes A (normal delete path).
+	if !hasUnresolvedRef(refs, "A", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'A' from DELETE FROM dbo.A")
+	}
+	// Guard-sensitive: GhostSemi can ONLY be written by a false OUTPUT…INTO bridge
+	// (real-table SELECT…INTO is not a captured write). Its presence means the guard failed.
+	if hasUnresolvedRef(refs, "GhostSemi", types.EdgeKindWrites) {
+		t.Error("false OUTPUT…INTO edge bridged the semicolon to 'GhostSemi' — boundary guard failed")
+	}
+}
+
+// cp2SC6bKeywordBoundaryFixture tests the keyword-guard path of SC6b — a
+// DELETE…OUTPUT (no INTO) directly followed by `SELECT … INTO <ghost>` with NO
+// semicolon, so the regex `[^;]` exclusion cannot help; only the DML/SELECT keyword
+// guard prevents the bridge. The gap between OUTPUT and INTO contains the SELECT
+// keyword. `GhostKW` is reachable only through the false bridge, so asserting zero
+// writes to it fails if the keyword guard is removed.
+const cp2SC6bKeywordBoundaryFixture = `
+CREATE TABLE dbo.A (id INT);
+
+CREATE PROCEDURE dbo.usp_KeywordBoundary
+AS
+BEGIN
+    DELETE FROM dbo.A OUTPUT deleted.id SELECT id INTO dbo.GhostKW FROM dbo.A
+END;
+GO
+`
+
+func TestCP2SC6bKeywordBoundary(t *testing.T) {
+	// WHY SC6b keyword guard: with no semicolon, the gap "deleted.id SELECT id "
+	// between OUTPUT and INTO contains the SELECT keyword. The Go code guard must
+	// reject the match so no spurious write to GhostKW is emitted.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp2_sc6b_keyword.sql", cp2SC6bKeywordBoundaryFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// The DELETE writes A.
+	if !hasUnresolvedRef(refs, "A", types.EdgeKindWrites) {
+		t.Error("expected writes edge to 'A' from DELETE FROM dbo.A")
+	}
+	// Guard-sensitive: GhostKW is reachable only via a false OUTPUT…INTO bridge across
+	// the SELECT keyword. A write to it means the keyword guard did not fire.
+	if hasUnresolvedRef(refs, "GhostKW", types.EdgeKindWrites) {
+		t.Error("false OUTPUT…INTO edge bridged the SELECT keyword to 'GhostKW' — keyword guard failed")
+	}
+}
+
+// cp3PivotFixture — a view whose body pivots a derived table. The only object-level
+// lineage is the inner FROM source (SalesRaw); PIVOT, the aggregate (SUM), the
+// pivoted column (amt), the spread column (yr), and the IN-list value columns
+// ([2020]/[2021]) are columns/operators, not navigable objects, and must not emit edges.
+const cp3PivotFixture = `
+CREATE VIEW dbo.SalesByYear AS
+SELECT custid, [2020], [2021]
+FROM (SELECT custid, yr, amt FROM dbo.SalesRaw) src
+PIVOT (SUM(amt) FOR yr IN ([2020], [2021])) pvt;
+GO
+`
+
+func TestCP3PivotSourceOnly(t *testing.T) {
+	// WHY CP3: PIVOT introduces no new object reference — the source is captured by the
+	// inner FROM. Confirms the source ref survives and no PIVOT internals leak as edges.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp3_pivot.sql", cp3PivotFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// Object-level lineage: the inner FROM source is referenced.
+	if !hasUnresolvedRef(refs, "SalesRaw", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'SalesRaw' (inner FROM source of the PIVOT)")
+	}
+	// No edge to any PIVOT internal — operator, aggregate, columns, IN-list values, aliases.
+	forbidden := []string{"PIVOT", "SUM", "amt", "yr", "2020", "2021", "pvt", "src"}
+	for _, r := range refs {
+		for _, bad := range forbidden {
+			if strings.EqualFold(r.ReferenceName, bad) {
+				t.Errorf("unexpected %s edge to %q — PIVOT internals must not become object edges",
+					r.ReferenceKind, r.ReferenceName)
+			}
+		}
+	}
+}
+
+// cp3UnpivotFixture — a procedure that unpivots a real table. The source (WideMetrics)
+// is the only object reference; UNPIVOT, the value/name columns (val/metric), and the
+// IN-list source columns (q1/q2/q3) must not emit edges.
+const cp3UnpivotFixture = `
+CREATE PROCEDURE dbo.UnpivotDemo
+AS
+BEGIN
+    SELECT custid, metric, val
+    FROM dbo.WideMetrics
+    UNPIVOT (val FOR metric IN (q1, q2, q3)) up;
+END;
+GO
+`
+
+func TestCP3UnpivotSourceOnly(t *testing.T) {
+	// WHY CP3: UNPIVOT mirrors PIVOT — the FROM source is the only object edge.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp3_unpivot.sql", cp3UnpivotFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	if !hasUnresolvedRef(refs, "WideMetrics", types.EdgeKindReferences) {
+		t.Error("expected references edge to 'WideMetrics' (FROM source of the UNPIVOT)")
+	}
+	forbidden := []string{"UNPIVOT", "val", "metric", "q1", "q2", "q3", "up"}
+	for _, r := range refs {
+		for _, bad := range forbidden {
+			if strings.EqualFold(r.ReferenceName, bad) {
+				t.Errorf("unexpected %s edge to %q — UNPIVOT internals must not become object edges",
+					r.ReferenceKind, r.ReferenceName)
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CP4: Column-level lineage — alias→table map + qualified column refs
+// ---------------------------------------------------------------------------
+
+// cp4ViewAliasColFixture: CREATE VIEW with alias. SELECT a.id, a.name FROM dbo.acct a.
+// Expected: references edges for "dbo.acct.id" and "dbo.acct.name".
+const cp4ViewAliasColFixture = `
+CREATE TABLE dbo.acct (id INT, name VARCHAR(100));
+
+CREATE VIEW dbo.v_acct AS
+SELECT a.id, a.name
+FROM dbo.acct a;
+`
+
+func TestCP4ColumnRef_ViewAlias(t *testing.T) {
+	// WHY CP4: qualified alias.col in a view body must emit a references edge whose
+	// ReferenceName is "table-as-written.col" (e.g. "dbo.acct.id"), matching the
+	// column node's QualifiedName so it can resolve. This is the primary emission
+	// assertion for gap 4a.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp4_view.sql", cp4ViewAliasColFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// Must emit column-level references.
+	if !hasUnresolvedRef(refs, "dbo.acct.id", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'dbo.acct.id' (alias a → dbo.acct); got refs: %v", cp4RefNames(refs))
+	}
+	if !hasUnresolvedRef(refs, "dbo.acct.name", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'dbo.acct.name' (alias a → dbo.acct); got refs: %v", cp4RefNames(refs))
+	}
+
+	// Table-level FROM ref must still be present.
+	if !hasUnresolvedRef(refs, "acct", types.EdgeKindReferences) {
+		t.Errorf("expected table-level references edge to 'acct'; got refs: %v", cp4RefNames(refs))
+	}
+}
+
+// cp4ViewJoinAliasFixture: view body with a JOIN alias.
+// SELECT a.id, p.name FROM dbo.acct a JOIN dbo.person p ON a.id = p.acct_id.
+const cp4ViewJoinAliasFixture = `
+CREATE TABLE dbo.acct (id INT);
+CREATE TABLE dbo.person (name VARCHAR(100), acct_id INT);
+
+CREATE VIEW dbo.v_joined AS
+SELECT a.id, p.name
+FROM dbo.acct a
+JOIN dbo.person p ON a.id = p.acct_id;
+`
+
+func TestCP4ColumnRef_JoinAlias(t *testing.T) {
+	// WHY CP4: a JOIN alias must also build alias→table mapping. References to
+	// p.name should resolve to dbo.person.name and a.id to dbo.acct.id.
+	// Note: ON-clause qualified column refs (a.id in ON a.id = p.acct_id) are
+	// intentionally in-scope per SC8 — they are real column references, not just
+	// SELECT-list ones. The alias map covers the full body including ON clauses.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp4_join.sql", cp4ViewJoinAliasFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	if !hasUnresolvedRef(refs, "dbo.acct.id", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'dbo.acct.id'; got: %v", cp4RefNames(refs))
+	}
+	if !hasUnresolvedRef(refs, "dbo.person.name", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'dbo.person.name'; got: %v", cp4RefNames(refs))
+	}
+}
+
+// cp4UnqualifiedSkipFixture: SELECT id FROM acct — bare unqualified column must NOT emit.
+const cp4UnqualifiedSkipFixture = `
+CREATE TABLE dbo.acct (id INT);
+
+CREATE VIEW dbo.v_bare AS
+SELECT id
+FROM dbo.acct;
+`
+
+func TestCP4ColumnRef_UnqualifiedSkipped(t *testing.T) {
+	// WHY CP4: unqualified column refs are ambiguous — any table could have an 'id'
+	// column. We must NOT emit edges for bare identifiers, only for alias.col forms.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp4_unqualified.sql", cp4UnqualifiedSkipFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// No column ref should contain a dot in the "id" segment.
+	for _, r := range refs {
+		if strings.HasSuffix(r.ReferenceName, ".id") && r.ReferenceKind == types.EdgeKindReferences {
+			// Allow the table-level reference to "acct" (no dot in simple name).
+			// But reject any "something.id" that came from a bare SELECT id.
+			t.Errorf("unexpected column-level ref %q — bare 'id' must not emit a column edge", r.ReferenceName)
+		}
+	}
+}
+
+// cp4AliaslessFixture: FROM acct (no alias) + acct.id ref.
+// Expected: references edge "acct.id" (table maps to itself).
+const cp4AliaslessFixture = `
+CREATE TABLE acct (id INT, val INT);
+
+CREATE VIEW v_aliasless AS
+SELECT acct.id, acct.val
+FROM acct;
+`
+
+func TestCP4ColumnRef_AliaslessTableSelf(t *testing.T) {
+	// WHY CP4: a table with no alias maps its bare name to itself — "acct.col" refs
+	// must still produce column edges. This covers the "unaliased table" branch of
+	// the alias→table map build.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp4_aliasless.sql", cp4AliaslessFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	if !hasUnresolvedRef(refs, "acct.id", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'acct.id'; got: %v", cp4RefNames(refs))
+	}
+	if !hasUnresolvedRef(refs, "acct.val", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'acct.val'; got: %v", cp4RefNames(refs))
+	}
+}
+
+// cp4CTEShadowFixture: CTE alias must NOT produce column edges.
+// WITH cte AS (SELECT id FROM acct) SELECT cte.id FROM cte — cte.id should be skipped.
+const cp4CTEShadowFixture = `
+CREATE TABLE dbo.acct (id INT);
+
+CREATE VIEW dbo.v_cte AS
+WITH cte AS (SELECT id FROM dbo.acct)
+SELECT cte.id
+FROM cte;
+`
+
+func TestCP4ColumnRef_CTEAliasSkipped(t *testing.T) {
+	// WHY CP4: CTE names shadow real tables — "cte.id" must not become a column edge
+	// because "cte" is a computed relation, not a base table with known column nodes.
+	// The cteShadow set must gate alias→table mapping.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp4_cte.sql", cp4CTEShadowFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// cte.id must NOT produce a column edge.
+	for _, r := range refs {
+		if r.ReferenceName == "cte.id" {
+			t.Errorf("CTE alias 'cte' produced a column edge %q — CTE names must be shadowed", r.ReferenceName)
+		}
+	}
+}
+
+// cp4ProcAliasColFixture: column refs inside a procedure body (scanBodyEdges path).
+const cp4ProcAliasColFixture = `
+CREATE TABLE dbo.orders (id INT, total MONEY);
+
+CREATE PROCEDURE dbo.usp_GetOrders
+AS
+BEGIN
+    SELECT o.id, o.total
+    FROM dbo.orders o
+    WHERE o.total > 0;
+END;
+GO
+`
+
+func TestCP4ColumnRef_ProcBody(t *testing.T) {
+	// WHY CP4: column refs must also work inside procedure bodies (scanBodyEdges path),
+	// not just view bodies. This exercises the routine alias→table map.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp4_proc.sql", cp4ProcAliasColFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	if !hasUnresolvedRef(refs, "dbo.orders.id", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'dbo.orders.id'; got: %v", cp4RefNames(refs))
+	}
+	if !hasUnresolvedRef(refs, "dbo.orders.total", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'dbo.orders.total'; got: %v", cp4RefNames(refs))
+	}
+	// Table-level edge must still be present.
+	if !hasUnresolvedRef(refs, "orders", types.EdgeKindReferences) {
+		t.Errorf("expected table-level references edge to 'orders'; got: %v", cp4RefNames(refs))
+	}
+}
+
+// cp4KeywordBoundaryFixture: FROM dbo.acct WHERE a.id = 1 — "WHERE" must NOT become
+// an alias named "where". The unaliased table should self-map so "acct.id" still resolves.
+const cp4KeywordBoundaryFixture = `
+CREATE TABLE dbo.acct (id INT, val INT);
+
+CREATE VIEW dbo.v_kw AS
+SELECT acct.id, acct.val
+FROM dbo.acct
+WHERE acct.id = 1;
+`
+
+func TestCP4ColumnRef_KeywordBoundaryNotAlias(t *testing.T) {
+	// WHY CP4 issue 2: bodyFromAliasRE can capture a trailing keyword as a spurious
+	// alias ("FROM dbo.acct WHERE" → alias="WHERE"). The cp4AliasBoundaryKeywords
+	// guard must block it. Assert: no alias named "where" is created, and the
+	// unaliased table self-maps so "acct.id" column refs still resolve.
+	ext := newSQL()
+	result, err := ext.Extract("/db/cp4_kw.sql", cp4KeywordBoundaryFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	refs := result.UnresolvedReferences
+
+	// acct self-maps → acct.id and acct.val must produce column refs.
+	if !hasUnresolvedRef(refs, "dbo.acct.id", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'dbo.acct.id' (unaliased self-map); got: %v", cp4RefNames(refs))
+	}
+	if !hasUnresolvedRef(refs, "dbo.acct.val", types.EdgeKindReferences) {
+		t.Errorf("expected references edge to 'dbo.acct.val' (unaliased self-map); got: %v", cp4RefNames(refs))
+	}
+	// Ensure "WHERE" was not treated as an alias for dbo.acct.
+	// A "where.id" or "where.val" ref would be the symptom of the bug.
+	for _, r := range refs {
+		if strings.HasPrefix(strings.ToLower(r.ReferenceName), "where.") {
+			t.Errorf("spurious alias: keyword 'WHERE' was treated as an alias; got ref %q", r.ReferenceName)
+		}
+	}
+}
+
+// cp4RefNames returns unique ref names for CP4 error messages.
+func cp4RefNames(refs []types.UnresolvedReference) []string {
+	names := make([]string, 0, len(refs))
+	seen := map[string]bool{}
+	for _, r := range refs {
+		if !seen[r.ReferenceName] {
+			seen[r.ReferenceName] = true
+			names = append(names, r.ReferenceName)
+		}
+	}
+	return names
 }

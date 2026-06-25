@@ -22,6 +22,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/codeintel/db"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
@@ -983,5 +984,213 @@ func TestNameMatcher_InMemoryFuzzy_ResolvesTypo(t *testing.T) {
 	// No known names → fuzzy finds nothing. Exact also misses (name is misspelled).
 	if result3 != nil {
 		t.Errorf("empty knownNames: expected nil, got node %q", result3.Node.ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CP4 resolver tweaks: single-dot SQL → qualified routing; exact-QName preference
+// ---------------------------------------------------------------------------
+
+// seedColumn inserts a column node with Name=col (bare) and QualifiedName=tableQName.col.
+func seedColumn(t *testing.T, d *db.DB, filePath, tableQName, col string, line int) string {
+	t.Helper()
+	ctx := context.Background()
+	qname := tableQName + "." + col
+	id := nodeID(filePath, "column", qname, line)
+	if err := d.UpsertNode(ctx, types.Node{
+		ID:            id,
+		Kind:          types.NodeKindColumn,
+		Name:          col,
+		QualifiedName: qname,
+		FilePath:      filePath,
+		Language:      types.LanguageSQL,
+		StartLine:     line,
+		EndLine:       line,
+		IsExported:    true,
+	}); err != nil {
+		t.Fatalf("seedColumn %s: %v", qname, err)
+	}
+	return id
+}
+
+func TestNameMatcher_CP4_SingleDotSQLResolvesToColumn(t *testing.T) {
+	// WHY (tweak 1): a single-dot SQL reference "acct.id" must reach byQualifiedName
+	// so it can resolve to the column node acct.id. Without the tweak, byMethodCall
+	// handles single dots but excludes columns, so the ref falls through to byExactName
+	// which can't match because the column's Name is "id" not "acct.id" — miss.
+	// Gate: ref.Language == LanguageSQL — non-SQL receiver.method is unchanged.
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	sqlFile := "db/schema.sql"
+	seedFile(t, d, sqlFile, types.LanguageSQL)
+
+	// Seed the table and column nodes.
+	colID := seedColumn(t, d, sqlFile, "acct", "id", 5)
+
+	// SQL ref with single-dot name.
+	ref := types.UnresolvedReference{
+		ID:            "ref-col-sql",
+		FromNodeID:    "proc:usp_Get",
+		ReferenceName: "acct.id",
+		ReferenceKind: types.EdgeKindReferences,
+		Line:          20,
+		FilePath:      sqlFile,
+		Language:      types.LanguageSQL,
+	}
+
+	nm := resolution.NewNameMatcher(d)
+	result, err := nm.MatchReference(ctx, ref)
+	if err != nil {
+		t.Fatalf("MatchReference: %v", err)
+	}
+	if result == nil {
+		t.Fatal("CP4 tweak 1: MatchReference returned nil — single-dot SQL ref did not resolve")
+	}
+	if result.Node.ID != colID {
+		t.Errorf("CP4 tweak 1: resolved to %q, want column node %q", result.Node.ID, colID)
+	}
+	if result.Strategy != resolution.StrategyQualifiedName {
+		t.Errorf("CP4 tweak 1: strategy = %q, want %q", result.Strategy, resolution.StrategyQualifiedName)
+	}
+}
+
+func TestNameMatcher_CP4_ExactQNamePreferred(t *testing.T) {
+	// WHY (tweak 2): byQualifiedName currently returns all nodes whose QualifiedName
+	// matches OR ends with ".id". When "acct.id" is the ref, both "acct.id" and
+	// "person.id" match via the suffix rule. After tweak 2, if any candidate has
+	// QualifiedName == "acct.id" exactly, only those are returned — person.id is excluded.
+	// This prevents multi-table collision when the ref is schema-qualified.
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	sqlFile := "db/schema.sql"
+	seedFile(t, d, sqlFile, types.LanguageSQL)
+
+	// Two tables each with an "id" column.
+	acctColID := seedColumn(t, d, sqlFile, "acct", "id", 5)
+	_ = seedColumn(t, d, sqlFile, "person", "id", 15)
+
+	// Ref qualified to "acct.id" specifically.
+	ref := types.UnresolvedReference{
+		ID:            "ref-exact-qname",
+		FromNodeID:    "proc:usp_Get",
+		ReferenceName: "acct.id",
+		ReferenceKind: types.EdgeKindReferences,
+		Line:          30,
+		FilePath:      sqlFile,
+		Language:      types.LanguageSQL,
+	}
+
+	nm := resolution.NewNameMatcher(d)
+	result, err := nm.MatchReference(ctx, ref)
+	if err != nil {
+		t.Fatalf("MatchReference: %v", err)
+	}
+	if result == nil {
+		t.Fatal("CP4 tweak 2: MatchReference returned nil — no column resolved")
+	}
+	if result.Node.ID != acctColID {
+		t.Errorf("CP4 tweak 2: resolved to %q, want acct.id node %q (exact-QName must beat suffix match)",
+			result.Node.ID, acctColID)
+	}
+}
+
+func TestNameMatcher_CP4_SC9_NonSQLSingleDotUnchanged(t *testing.T) {
+	// WHY SC9: the SQL-scoped single-dot fall-through must NOT affect non-SQL languages.
+	// A Go/TS "receiver.method" ref that currently resolves via byMethodCall must
+	// continue to do so — the new path is gated strictly on LanguageSQL.
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	tsFile := "src/api.ts"
+	seedFile(t, d, tsFile, types.LanguageTypeScript)
+
+	// Seed a method node.
+	methodID := nodeID(tsFile, "method", "doWork", 10)
+	if err := d.UpsertNode(ctx, types.Node{
+		ID:         methodID,
+		Kind:       types.NodeKindMethod,
+		Name:       "doWork",
+		FilePath:   tsFile,
+		Language:   types.LanguageTypeScript,
+		StartLine:  10,
+		EndLine:    15,
+		IsExported: true,
+	}); err != nil {
+		t.Fatalf("UpsertNode method: %v", err)
+	}
+
+	// TypeScript single-dot ref "obj.doWork" — must go through byMethodCall.
+	ref := types.UnresolvedReference{
+		ID:            "ref-ts-method",
+		FromNodeID:    "file:" + tsFile,
+		ReferenceName: "obj.doWork",
+		ReferenceKind: types.EdgeKindCalls,
+		Line:          20,
+		FilePath:      tsFile,
+		Language:      types.LanguageTypeScript,
+	}
+
+	nm := resolution.NewNameMatcher(d)
+	result, err := nm.MatchReference(ctx, ref)
+	if err != nil {
+		t.Fatalf("MatchReference: %v", err)
+	}
+	if result == nil {
+		t.Fatal("SC9: MatchReference returned nil — TypeScript method should still resolve")
+	}
+	if result.Node.ID != methodID {
+		t.Errorf("SC9: resolved to %q, want method node %q", result.Node.ID, methodID)
+	}
+	if result.Strategy != resolution.StrategyMethodCall {
+		t.Errorf("SC9: strategy = %q, want %q (non-SQL must not use qualifiedName path)",
+			result.Strategy, resolution.StrategyMethodCall)
+	}
+}
+
+func TestNameMatcher_CP4_SC9_NonSQLColumnGateBlocks(t *testing.T) {
+	// WHY SC9 gate-coverage: the previous SC9 test only exercises the byMethodCall-
+	// succeeds path, so removing the LanguageSQL gate leaves it green. This sibling
+	// test exercises the gate directly: a NON-SQL single-dot ref where byMethodCall
+	// finds NOTHING (no method/function node named "doWork" exists), but a COLUMN
+	// node with QualifiedName "obj.doWork" DOES exist. Without the gate, tweak 1
+	// would route the non-SQL ref to byQualifiedName and resolve to the column.
+	// With the gate, the non-SQL ref must NOT resolve to that column.
+	//
+	// Verification: this test FAILS if the `ref.Language == LanguageSQL` gate in
+	// matchReference is deleted, because byMethodCall returns empty → (no gate) →
+	// byQualifiedName finds the column → resolves → result != nil → assertion trips.
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	tsFile := "src/widget.ts"
+	seedFile(t, d, tsFile, types.LanguageTypeScript)
+
+	// Seed a COLUMN node (SQL kind) named "doWork" with QualifiedName "obj.doWork".
+	// No method/function node named "doWork" exists — byMethodCall returns empty.
+	colID := seedColumn(t, d, tsFile, "obj", "doWork", 5)
+
+	// TypeScript single-dot ref: byMethodCall → empty; without gate → byQualifiedName
+	// finds the column and resolves. The gate must block this.
+	ref := types.UnresolvedReference{
+		ID:            "ref-ts-col-gate",
+		FromNodeID:    "file:" + tsFile,
+		ReferenceName: "obj.doWork",
+		ReferenceKind: types.EdgeKindCalls,
+		Line:          20,
+		FilePath:      tsFile,
+		Language:      types.LanguageTypeScript, // NOT SQL
+	}
+
+	nm := resolution.NewNameMatcher(d)
+	result, err := nm.MatchReference(ctx, ref)
+	if err != nil {
+		t.Fatalf("MatchReference: %v", err)
+	}
+	// The non-SQL ref must NOT resolve to the column node.
+	if result != nil && result.Node.ID == colID {
+		t.Errorf("SC9 gate: non-SQL ref resolved to column node %q — LanguageSQL gate must block byQualifiedName for non-SQL refs",
+			colID)
 	}
 }
