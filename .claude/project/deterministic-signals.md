@@ -1,5 +1,5 @@
 ---
-generated_at: 2026-06-25T01:20:55Z
+generated_at: 2026-06-25T01:26:37Z
 atomic_version: 5.7.0
 ---
 # Deterministic signals
@@ -474,7 +474,7 @@ atomic_version: 5.7.0
 │   │   ├── sql-language-support.md (29c9efb, 231L, 24839ch, 25211B)
 │   │   ├── stuck-fix-escalation.md (b0e8a5c, 84L, 7507ch, 7562B)
 │   │   ├── subagent-diagnose.md (ed1542e, 304L, 18618ch, 18751B)
-│   │   ├── tsql-lineage-gaps-v2.md (981da5e, 110L, 9487ch, 9589B)
+│   │   ├── tsql-lineage-gaps-v2.md (a029eed, 112L, 9638ch, 9744B)
 │   │   ├── tsql-lineage-gaps.md (4bb74e2, 128L, 7693ch, 7740B)
 │   │   ├── typed-followups.md (a165287, 90L, 5701ch, 5740B)
 │   │   ├── uninstall.md (eee8979, 178L, 8612ch, 8652B)
@@ -612,7 +612,7 @@ atomic_version: 5.7.0
 ## Languages
 
 - Go: 140559 LOC (69%), 394 files (54%)
-- Markdown: 48745 LOC (24%), 291 files (40%)
+- Markdown: 48747 LOC (24%), 291 files (40%)
 - JavaScript: 4179 LOC (2%), 5 files (0%)
 - CSS: 2943 LOC (1%), 2 files (0%)
 - JSON: 2363 LOC (1%), 6 files (0%)
