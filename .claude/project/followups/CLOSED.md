@@ -40,3 +40,4 @@
 - 2026-06-24 doctor-verbose-f-1 — "manifest verbose Findings: only drifted: prefix is tested" — *(closed 2026-06-24)*
 - 2026-06-24 install-output-style-f-5 — "`defaultRunConfirm` huh-abort mapping is test-dead" — *(closed 2026-06-24)*
 - 2026-06-24 install-output-style-f-1 — "`prompt.Confirm` default-value plumbing is untested" — *(closed 2026-06-24)*
+- 2026-06-25 tsql-lineage-gaps — "Close T-SQL lineage gaps in standalone SQL extractor" — *(closed 2026-06-25)*
