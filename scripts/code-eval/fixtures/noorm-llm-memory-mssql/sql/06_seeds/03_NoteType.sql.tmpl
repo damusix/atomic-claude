@@ -1,0 +1,7 @@
+-- Seed NoteType discriminator values used by the exclusive Note subtype.
+-- Idempotent: each row inserted only when missing.
+-- {% const values = ['project', 'milestone', 'task']; %}
+-- {% for (const v of values) { %}
+IF NOT EXISTS (SELECT 1 FROM [dbo].[NoteType] WHERE [note_type] = {%~ $.quote(v) %})
+    INSERT INTO [dbo].[NoteType] ([note_type]) VALUES ({%~ $.quote(v) %});
+-- {% } %}

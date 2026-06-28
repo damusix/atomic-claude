@@ -1,0 +1,8 @@
+-- Seed StateTransitionType discriminator values used by the exclusive
+-- StateTransition subtype tables.
+-- Idempotent: each row inserted only when missing.
+-- {% const values = [ 'milestone-tracking', 'milestone-relevance', 'task-tracking', 'memory-relevance', 'note-relevance', 'artifact-relevance', ]; %}
+-- {% for (const v of values) { %}
+IF NOT EXISTS (SELECT 1 FROM [dbo].[StateTransitionType] WHERE [state_transition_type] = {%~ $.quote(v) %})
+    INSERT INTO [dbo].[StateTransitionType] ([state_transition_type]) VALUES ({%~ $.quote(v) %});
+-- {% } %}

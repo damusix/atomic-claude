@@ -1,0 +1,64 @@
+# Allowed state-transition edges for tracking and relevance status machines.
+# Source: tmp/llm-memory-db.pseudo  (REFERENCE DATA section)
+
+trackingAllowed:
+    - from: not-started
+      to: in-progress
+    - from: not-started
+      to: abandoned
+    - from: in-progress
+      to: agent-review
+    - from: in-progress
+      to: needs-more-work
+    - from: in-progress
+      to: done
+    - from: in-progress
+      to: abandoned
+    - from: agent-review
+      to: human-review
+    - from: agent-review
+      to: needs-more-work
+    - from: agent-review
+      to: in-progress
+    - from: agent-review
+      to: done
+    - from: human-review
+      to: needs-more-work
+    - from: human-review
+      to: done
+    - from: needs-more-work
+      to: in-progress
+    - from: done
+      to: agent-review
+    - from: abandoned
+      to: in-progress
+    - from: abandoned
+      to: not-started
+
+relevanceAllowed:
+    - from: active
+      to: needs-review
+    - from: active
+      to: superseded
+    - from: active
+      to: irrelevant
+    - from: active
+      to: deleted
+    - from: needs-review
+      to: active
+    - from: needs-review
+      to: superseded
+    - from: needs-review
+      to: irrelevant
+    - from: needs-review
+      to: deleted
+    - from: superseded
+      to: active
+    - from: superseded
+      to: deleted
+    - from: irrelevant
+      to: active
+    - from: irrelevant
+      to: deleted
+    - from: deleted
+      to: active

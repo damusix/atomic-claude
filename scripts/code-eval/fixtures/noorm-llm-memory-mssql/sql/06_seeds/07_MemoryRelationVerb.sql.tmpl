@@ -1,0 +1,9 @@
+-- Seed MemoryRelationVerb forward/backward verb pairs.
+-- Symmetric verbs use the same value for forward and backward.
+-- Idempotent: each row inserted only when missing (PK = verb_forward).
+-- {% const pairs = [ ['supersedes',     'superseded-by'], ['extends',        'extended-by'], ['clarifies',      'clarified-by'], ['refines',        'refined-by'], ['derived-from',   'source-of'], ['caused-by',      'caused'], ['contradicts',    'contradicts'], ['equivalent-to',  'equivalent-to'], ['related-to',     'related-to'], ]; %}
+-- {% for (const [forward, backward] of pairs) { %}
+IF NOT EXISTS (SELECT 1 FROM [dbo].[MemoryRelationVerb] WHERE [verb_forward] = {%~ $.quote(forward) %})
+    INSERT INTO [dbo].[MemoryRelationVerb] ([verb_forward], [verb_backward])
+        VALUES ({%~ $.quote(forward) %}, {%~ $.quote(backward) %});
+-- {% } %}

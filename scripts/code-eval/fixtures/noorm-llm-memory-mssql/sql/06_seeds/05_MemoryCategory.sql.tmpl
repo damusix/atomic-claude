@@ -1,0 +1,7 @@
+-- Seed MemoryCategory reference values.
+-- Idempotent: each row inserted only when missing.
+-- {% const values = [ 'decision', 'fact', 'pattern', 'solution', 'gotcha', 'preference', 'convention', ]; %}
+-- {% for (const v of values) { %}
+IF NOT EXISTS (SELECT 1 FROM [dbo].[MemoryCategory] WHERE [category] = {%~ $.quote(v) %})
+    INSERT INTO [dbo].[MemoryCategory] ([category]) VALUES ({%~ $.quote(v) %});
+-- {% } %}

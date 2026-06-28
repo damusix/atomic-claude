@@ -1,0 +1,78 @@
+# Reference value lists for the LLM memory DB.
+# Source: tmp/llm-memory-db.pseudo  (REFERENCE DATA section)
+
+relevanceStatus:
+    - active
+    - needs-review
+    - superseded
+    - irrelevant
+    - deleted
+
+trackingStatus:
+    - not-started
+    - in-progress
+    - agent-review
+    - human-review
+    - needs-more-work
+    - done
+    - abandoned
+
+noteType:
+    - project
+    - milestone
+    - task
+
+memoryDomain:
+    - backend
+    - frontend
+    - infra
+    - devops
+    - data
+    - security
+    - testing
+    - docs
+
+memoryCategory:
+    - decision
+    - fact
+    - pattern
+    - solution
+    - gotcha
+    - preference
+    - convention
+
+dependencyVerb:
+    - blocks
+    - requires
+    - informs
+    - follows
+    - extends
+    - duplicates
+
+memoryRelationVerb:
+    - forward: supersedes
+      backward: superseded-by
+    - forward: extends
+      backward: extended-by
+    - forward: clarifies
+      backward: clarified-by
+    - forward: refines
+      backward: refined-by
+    - forward: derived-from
+      backward: source-of
+    - forward: caused-by
+      backward: caused
+    - forward: contradicts
+      backward: contradicts
+    - forward: equivalent-to
+      backward: equivalent-to
+    - forward: related-to
+      backward: related-to
+
+stateTransitionType:
+    - milestone-tracking
+    - milestone-relevance
+    - task-tracking
+    - memory-relevance
+    - note-relevance
+    - artifact-relevance

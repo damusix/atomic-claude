@@ -1,0 +1,12 @@
+-- Seed TrackingStatus_Allowed whitelist edges (from_status -> to_status).
+-- Any (from, to) pair NOT listed here is rejected by the state machine.
+-- Idempotent: each row inserted only when missing (PK = from_status, to_status).
+-- {% const edges = [ ['not-started',     'in-progress'], ['not-started',     'abandoned'], ['in-progress',     'agent-review'], ['in-progress',     'needs-more-work'], ['in-progress',     'done'], ['in-progress',     'abandoned'], ['agent-review',    'human-review'], ['agent-review',    'needs-more-work'], ['agent-review',    'in-progress'], ['agent-review',    'done'], ['human-review',    'needs-more-work'], ['human-review',    'done'], ['needs-more-work', 'in-progress'], ['done',            'agent-review'], ['abandoned',       'in-progress'], ['abandoned',       'not-started'], ]; %}
+-- {% for (const [from, to] of edges) { %}
+IF NOT EXISTS (
+    SELECT 1 FROM [dbo].[TrackingStatus_Allowed]
+    WHERE [from_status] = {%~ $.quote(from) %} AND [to_status] = {%~ $.quote(to) %}
+)
+    INSERT INTO [dbo].[TrackingStatus_Allowed] ([from_status], [to_status])
+        VALUES ({%~ $.quote(from) %}, {%~ $.quote(to) %});
+-- {% } %}

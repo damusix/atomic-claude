@@ -1,0 +1,77 @@
+paths:
+    sql: ./sql
+    changes: ./changes
+
+build:
+    include:
+        - sql/00_types
+        - sql/01_reference
+        - sql/02_tables
+        - sql/03_validators
+        - sql/04_subtypes
+        - sql/05_binary
+        - sql/06_seeds
+        - sql/07_functions
+        - sql/08_views
+        - sql/09_procedures
+    exclude: []
+
+stages:
+    dev:
+        description: Local development database (MSSQL)
+        defaults:
+            dialect: mssql
+            host: localhost
+            port: 11433
+            database: noorm_llm_dev
+            user: SA
+            password: NoOrm_Test123!
+            isTest: false
+            protected: false
+
+    test:
+        description: Local test database (MSSQL)
+        defaults:
+            dialect: mssql
+            host: localhost
+            port: 11433
+            database: noorm_llm_test
+            user: SA
+            password: NoOrm_Test123!
+            isTest: true
+            protected: false
+
+rules:
+    - description: Seed reference data and sentinel rows on test DBs
+      match:
+          isTest: true
+      include:
+          - sql/06_seeds
+
+strict:
+    enabled: false
+    stages: []
+
+teardown:
+    # Reference tables and the Agent/Project sentinel rows are vocabulary
+    # the schema depends on. Truncating them between tests would force a
+    # re-seed on every beforeEach and break any test that relies on the
+    # Agent(0) / Project(0) sentinels for FK resolution.
+    preserveTables:
+        - RelevanceStatus
+        - TrackingStatus
+        - NoteType
+        - MemoryDomain
+        - MemoryCategory
+        - DependencyVerb
+        - MemoryRelationVerb
+        - StateTransitionType
+        - TrackingStatus_Allowed
+        - RelevanceStatus_Allowed
+
+logging:
+    enabled: true
+    level: info
+    file: .noorm/state/noorm.log
+    maxSize: 10mb
+    maxFiles: 5
