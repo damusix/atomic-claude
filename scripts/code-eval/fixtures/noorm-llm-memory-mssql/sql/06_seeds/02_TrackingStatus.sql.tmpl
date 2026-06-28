@@ -1,0 +1,7 @@
+-- Seed TrackingStatus reference values.
+-- Idempotent: each row inserted only when missing.
+-- {% const values = [ 'not-started', 'in-progress', 'agent-review', 'human-review', 'needs-more-work', 'done', 'abandoned', ]; %}
+-- {% for (const v of values) { %}
+IF NOT EXISTS (SELECT 1 FROM [dbo].[TrackingStatus] WHERE [tracking_status] = {%~ $.quote(v) %})
+    INSERT INTO [dbo].[TrackingStatus] ([tracking_status]) VALUES ({%~ $.quote(v) %});
+-- {% } %}

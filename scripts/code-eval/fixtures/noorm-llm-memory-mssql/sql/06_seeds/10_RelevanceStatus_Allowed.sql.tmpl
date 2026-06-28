@@ -1,0 +1,12 @@
+-- Seed RelevanceStatus_Allowed whitelist edges (from_status -> to_status).
+-- Any (from, to) pair NOT listed here is rejected by the state machine.
+-- Idempotent: each row inserted only when missing (PK = from_status, to_status).
+-- {% const edges = [ ['active',       'needs-review'], ['active',       'superseded'], ['active',       'irrelevant'], ['active',       'deleted'], ['needs-review', 'active'], ['needs-review', 'superseded'], ['needs-review', 'irrelevant'], ['needs-review', 'deleted'], ['superseded',   'active'], ['superseded',   'deleted'], ['irrelevant',   'active'], ['irrelevant',   'deleted'], ['deleted',      'active'], ]; %}
+-- {% for (const [from, to] of edges) { %}
+IF NOT EXISTS (
+    SELECT 1 FROM [dbo].[RelevanceStatus_Allowed]
+    WHERE [from_status] = {%~ $.quote(from) %} AND [to_status] = {%~ $.quote(to) %}
+)
+    INSERT INTO [dbo].[RelevanceStatus_Allowed] ([from_status], [to_status])
+        VALUES ({%~ $.quote(from) %}, {%~ $.quote(to) %});
+-- {% } %}

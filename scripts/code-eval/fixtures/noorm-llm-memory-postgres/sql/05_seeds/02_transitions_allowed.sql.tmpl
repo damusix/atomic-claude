@@ -1,0 +1,11 @@
+-- Seed: allowed state-transition edges
+-- Source: tmp/llm-memory-db.pseudo  (REFERENCE DATA section)
+-- Idempotent: ON CONFLICT DO NOTHING on the (from_status, to_status) PK.
+
+-- {% for (const edge of $.transitionsAllowed.trackingAllowed) { %}
+INSERT INTO "TrackingStatus_Allowed" (from_status, to_status) VALUES ({%~ $.quote(edge.from) %}, {%~ $.quote(edge.to) %}) ON CONFLICT DO NOTHING;
+-- {% } %}
+
+-- {% for (const edge of $.transitionsAllowed.relevanceAllowed) { %}
+INSERT INTO "RelevanceStatus_Allowed" (from_status, to_status) VALUES ({%~ $.quote(edge.from) %}, {%~ $.quote(edge.to) %}) ON CONFLICT DO NOTHING;
+-- {% } %}

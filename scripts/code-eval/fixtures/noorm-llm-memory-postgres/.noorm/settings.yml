@@ -1,0 +1,49 @@
+build:
+    include:
+        - sql/00_types
+        - sql/01_reference
+        - sql/02_tables
+        - sql/03_subtypes
+        - sql/04_binary
+        - sql/05_seeds
+        - sql/06_functions
+        - sql/07_views
+        - sql/08_procedures
+        - sql/09_triggers
+paths:
+    sql: ./sql
+    changes: ./changes
+rules:
+    - match:
+          isTest: true
+      include:
+          - sql/05_seeds
+stages:
+    dev:
+        description: Local development database
+        locked: false
+        defaults:
+            dialect: postgres
+            host: localhost
+            port: 15432
+            database: noorm_llm_dev
+            user: noorm_test
+            password: noorm_test
+            isTest: false
+    test:
+        description: Local test database
+        locked: false
+        defaults:
+            dialect: postgres
+            host: localhost
+            port: 15432
+            database: noorm_llm_test
+            user: noorm_test
+            password: noorm_test
+            isTest: true
+logging:
+    enabled: true
+    level: info
+    file: .noorm/state/noorm.log
+    maxSize: 10mb
+    maxFiles: 5

@@ -1,0 +1,23 @@
+{
+    "name": "@noormdev/example-llm-memory-db-pg",
+    "version": "0.0.1-alpha.2",
+    "private": true,
+    "type": "module",
+    "description": "Full-surface noorm example: LLM memory + task tracker schema, SDK, and tests against PostgreSQL",
+    "scripts": {
+        "test": "bun test --serial",
+        "test:watch": "bun test --serial --watch",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@noormdev/sdk": "workspace:*",
+        "kysely": "^0.28.0",
+        "pg": "^8.20.0",
+        "zod": "^3.24.0"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.3.10",
+        "@types/pg": "^8.18.0",
+        "typescript": "^5.9.3"
+    }
+}

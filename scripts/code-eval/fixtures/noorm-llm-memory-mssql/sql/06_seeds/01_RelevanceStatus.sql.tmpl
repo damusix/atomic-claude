@@ -1,0 +1,7 @@
+-- Seed RelevanceStatus reference values.
+-- Idempotent: each row inserted only when missing.
+-- {% const values = ['active', 'needs-review', 'superseded', 'irrelevant', 'deleted']; %}
+-- {% for (const v of values) { %}
+IF NOT EXISTS (SELECT 1 FROM [dbo].[RelevanceStatus] WHERE [relevance_status] = {%~ $.quote(v) %})
+    INSERT INTO [dbo].[RelevanceStatus] ([relevance_status]) VALUES ({%~ $.quote(v) %});
+-- {% } %}

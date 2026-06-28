@@ -1,0 +1,40 @@
+-- Seed sentinel rows for "no attribution" (Agent 0) and "no provenance"
+-- (Project 0). These rows make the agent_id / provenance_id FKs total
+-- functions: every entity points to a real row, even when no agent or
+-- project applies. Both rows are immutable and undeletable per the
+-- procedure layer's guards.
+--
+-- IDENTITY_INSERT is required because both PKs are INT IDENTITY(1,1)
+-- and we need the literal id 0. The Project sentinel's agent_id FK
+-- references Agent(0), so Agent must exist first — this file is the
+-- last seed in 05_seeds (alphabetical order) and runs after the
+-- reference whitelists, so the FK is satisfied.
+--
+-- Idempotent: each insert gated on a NOT EXISTS check.
+
+-- Sentinel Agent(0): "none" / no attribution recorded.
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Agent] WHERE [agent_id] = 0)
+BEGIN
+    SET IDENTITY_INSERT [dbo].[Agent] ON;
+    INSERT INTO [dbo].[Agent] ([agent_id], [name], [description])
+        VALUES (0, {%~ $.quote('none') %}, {%~ $.quote('no attribution recorded') %});
+    SET IDENTITY_INSERT [dbo].[Agent] OFF;
+END
+
+-- Sentinel Project(0): "none" / no originating project.
+IF NOT EXISTS (SELECT 1 FROM [dbo].[Project] WHERE [project_id] = 0)
+BEGIN
+    SET IDENTITY_INSERT [dbo].[Project] ON;
+    INSERT INTO [dbo].[Project]
+        ([project_id], [agent_id], [name], [filepath], [git_repo], [main_branch], [git_url])
+    VALUES (
+        0,
+        0,
+        {%~ $.quote('none') %},
+        {%~ $.quote('none') %},
+        {%~ $.quote('none') %},
+        {%~ $.quote('none') %},
+        {%~ $.quote('none') %}
+    );
+    SET IDENTITY_INSERT [dbo].[Project] OFF;
+END

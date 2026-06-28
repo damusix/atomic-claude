@@ -1,0 +1,35 @@
+-- Seed: reference value tables
+-- Source: tmp/llm-memory-db.pseudo  (REFERENCE DATA section)
+-- Idempotent: ON CONFLICT DO NOTHING on the natural primary key.
+
+-- {% for (const value of $.referenceValues.relevanceStatus) { %}
+INSERT INTO "RelevanceStatus" (relevance_status) VALUES ({%~ $.quote(value) %}) ON CONFLICT DO NOTHING;
+-- {% } %}
+
+-- {% for (const value of $.referenceValues.trackingStatus) { %}
+INSERT INTO "TrackingStatus" (tracking_status) VALUES ({%~ $.quote(value) %}) ON CONFLICT DO NOTHING;
+-- {% } %}
+
+-- {% for (const value of $.referenceValues.noteType) { %}
+INSERT INTO "NoteType" (note_type) VALUES ({%~ $.quote(value) %}) ON CONFLICT DO NOTHING;
+-- {% } %}
+
+-- {% for (const value of $.referenceValues.memoryDomain) { %}
+INSERT INTO "MemoryDomain" (domain) VALUES ({%~ $.quote(value) %}) ON CONFLICT DO NOTHING;
+-- {% } %}
+
+-- {% for (const value of $.referenceValues.memoryCategory) { %}
+INSERT INTO "MemoryCategory" (category) VALUES ({%~ $.quote(value) %}) ON CONFLICT DO NOTHING;
+-- {% } %}
+
+-- {% for (const value of $.referenceValues.dependencyVerb) { %}
+INSERT INTO "DependencyVerb" (dependency_verb) VALUES ({%~ $.quote(value) %}) ON CONFLICT DO NOTHING;
+-- {% } %}
+
+-- {% for (const verb of $.referenceValues.memoryRelationVerb) { %}
+INSERT INTO "MemoryRelationVerb" (verb_forward, verb_backward) VALUES ({%~ $.quote(verb.forward) %}, {%~ $.quote(verb.backward) %}) ON CONFLICT DO NOTHING;
+-- {% } %}
+
+-- {% for (const value of $.referenceValues.stateTransitionType) { %}
+INSERT INTO "StateTransitionType" (state_transition_type) VALUES ({%~ $.quote(value) %}) ON CONFLICT DO NOTHING;
+-- {% } %}

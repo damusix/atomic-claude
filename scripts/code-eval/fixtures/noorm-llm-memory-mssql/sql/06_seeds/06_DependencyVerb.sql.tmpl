@@ -1,0 +1,7 @@
+-- Seed DependencyVerb reference values used by Task_Dependency.
+-- Idempotent: each row inserted only when missing.
+-- {% const values = [ 'blocks', 'requires', 'informs', 'follows', 'extends', 'duplicates', ]; %}
+-- {% for (const v of values) { %}
+IF NOT EXISTS (SELECT 1 FROM [dbo].[DependencyVerb] WHERE [dependency_verb] = {%~ $.quote(v) %})
+    INSERT INTO [dbo].[DependencyVerb] ([dependency_verb]) VALUES ({%~ $.quote(v) %});
+-- {% } %}

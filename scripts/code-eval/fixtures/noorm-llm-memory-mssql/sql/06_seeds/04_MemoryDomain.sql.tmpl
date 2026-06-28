@@ -1,0 +1,7 @@
+-- Seed MemoryDomain reference values.
+-- Idempotent: each row inserted only when missing.
+-- {% const values = [ 'backend', 'frontend', 'infra', 'devops', 'data', 'security', 'testing', 'docs', ]; %}
+-- {% for (const v of values) { %}
+IF NOT EXISTS (SELECT 1 FROM [dbo].[MemoryDomain] WHERE [domain] = {%~ $.quote(v) %})
+    INSERT INTO [dbo].[MemoryDomain] ([domain]) VALUES ({%~ $.quote(v) %});
+-- {% } %}
