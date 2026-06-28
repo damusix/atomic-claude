@@ -383,6 +383,47 @@ func TestMarkdown_HeuristicEdgeMarker(t *testing.T) {
 	}
 }
 
+// TestMarkdown_RelationshipsResolveNames is a regression guard: the Relationships
+// section must render human-readable node names, not raw node IDs (the graph's
+// foreign keys). Previously every edge printed as "funcA → funcB" (IDs) instead
+// of "Alpha → Beta" (names), which surfaced as opaque "function:<hash> → field:<hash>"
+// lines in real `atomic code explore` output.
+func TestMarkdown_RelationshipsResolveNames(t *testing.T) {
+	database := openTestDB(t)
+	insertFixture(t, database)
+
+	builder := codectx.New(database)
+	sg, tier, _, err := builder.FindRelevantContext(context.Background(), "Alpha", codectx.Options{BFSDepth: 1})
+	if err != nil {
+		t.Fatalf("FindRelevantContext: %v", err)
+	}
+
+	ctx, err := builder.BuildContext(context.Background(), sg, codectx.BuildOptions{
+		Format: codectx.FormatMarkdown,
+		Query:  "Alpha",
+		Source: tier,
+	})
+	if err != nil {
+		t.Fatalf("BuildContext: %v", err)
+	}
+
+	rel := ctx.Content
+	if idx := strings.Index(rel, "## Relationships"); idx >= 0 {
+		rel = rel[idx:]
+	} else {
+		t.Fatal("missing ## Relationships section")
+	}
+
+	// The funcA→funcB edge must render with resolved names.
+	if !strings.Contains(rel, "Alpha → Beta (calls)") {
+		t.Errorf("Relationships should resolve node IDs to names; want 'Alpha → Beta (calls)' in:\n%s", rel)
+	}
+	// The raw ID form must not leak.
+	if strings.Contains(rel, "funcA → funcB") {
+		t.Errorf("Relationships leaked raw node IDs instead of names:\n%s", rel)
+	}
+}
+
 // TestJSON_StableShape verifies the JSON output has the required fields and
 // nodes sorted by ID.
 //

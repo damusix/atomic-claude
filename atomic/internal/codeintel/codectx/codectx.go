@@ -521,7 +521,7 @@ func formatMarkdown(sg types.Subgraph, query, source string) (string, error) {
 		fmt.Fprintln(&b, "_No edges in gathered subgraph._")
 	} else {
 		for _, e := range allEdges {
-			line := fmt.Sprintf("- %s → %s (%s)", e.Source, e.Target, e.Kind)
+			line := fmt.Sprintf("- %s → %s (%s)", nodeName(sg, e.Source), nodeName(sg, e.Target), e.Kind)
 			if e.Provenance == "heuristic" {
 				line += " (heuristic)"
 			}
@@ -606,14 +606,20 @@ func buildCallChains(sg types.Subgraph, callEdges []types.Edge) [][]string {
 	return chains
 }
 
+// nodeName resolves a node ID (the graph's foreign key) to its human-readable
+// name, falling back to the raw ID when the node is absent from the subgraph or
+// has no name, so rendered output is never blank.
+func nodeName(sg types.Subgraph, id string) string {
+	if n, ok := sg.Nodes[id]; ok && n.Name != "" {
+		return n.Name
+	}
+	return id
+}
+
 func appendNodeNames(sg types.Subgraph, ids []string) []string {
 	names := make([]string, len(ids))
 	for i, id := range ids {
-		if n, ok := sg.Nodes[id]; ok {
-			names[i] = n.Name
-		} else {
-			names[i] = id
-		}
+		names[i] = nodeName(sg, id)
 	}
 	return names
 }
