@@ -36,7 +36,17 @@ func RunCheckConfigWith(claudeHome string) Result {
 		return Result{Severity: FAIL, Detail: fmt.Sprintf("config parse error: %v", err)}
 	}
 
-	// Build unknown-keys detail (if any); do NOT return early — also check drift.
+	// Invalid values → FAIL (includes [agents] tier validation).
+	// Unknown keys are non-fatal for the drift check, but invalid values mean we
+	// cannot render a valid resolved.md, so stop here.
+	if err := config.Validate(cfg); err != nil {
+		return Result{Severity: FAIL, Detail: err.Error()}
+	}
+
+	// Append non-fatal [agents] unknown-agent-name warnings after Validate passes.
+	warns = append(warns, config.AgentWarnings(cfg)...)
+
+	// Build combined warning detail (if any); do NOT return early — also check drift.
 	var unknownKeysDetail string
 	if len(warns) > 0 {
 		keys := make([]string, 0, len(warns))
@@ -44,12 +54,6 @@ func RunCheckConfigWith(claudeHome string) Result {
 			keys = append(keys, w.Message)
 		}
 		unknownKeysDetail = strings.Join(keys, "; ") + " — run `atomic config unset <key>` to remove"
-	}
-
-	// Invalid values → FAIL (unknown keys are non-fatal for drift check but
-	// invalid values mean we cannot render a valid resolved.md, so stop here).
-	if err := config.Validate(cfg); err != nil {
-		return Result{Severity: FAIL, Detail: err.Error()}
 	}
 
 	// Check resolved.md sync.

@@ -383,6 +383,68 @@ rules = []
 	}
 }
 
+// --- [agents] doctor tests (CP2) ---
+
+// TestCheckConfig_agents_invalidTier: [agents] with an invalid tier value → FAIL.
+func TestCheckConfig_agents_invalidTier(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[agents]\natomic-implementer = \"turbo\"\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.FAIL {
+		t.Errorf("severity = %q, want FAIL for invalid agent tier; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "atomic-implementer") {
+		t.Errorf("detail %q: want mention of agent name 'atomic-implementer'", r.Detail)
+	}
+}
+
+// TestCheckConfig_agents_unknownAgent: [agents] with an unknown agent key → WARN, not FAIL.
+func TestCheckConfig_agents_unknownAgent(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[agents]\nmade-up-agent = \"haiku\"\n")
+
+	// Pre-render resolved.md so drift doesn't confound the severity.
+	cfg, warns, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	_ = warns
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %q, want WARN for unknown agent key; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "made-up-agent") {
+		t.Errorf("detail %q: want mention of 'made-up-agent'", r.Detail)
+	}
+}
+
+// TestCheckConfig_agents_valid: [agents] with known agents + valid tiers → PASS (when resolved synced).
+func TestCheckConfig_agents_valid(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, `[agents]
+atomic-implementer = "sonnet"
+atomic-investigator = "haiku"
+atomic-strategist = "opus"
+`)
+
+	cfg, warns, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("unexpected structural warnings: %v", warns)
+	}
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS for valid [agents]; detail: %s", r.Severity, r.Detail)
+	}
+}
+
 // alwaysYesPrompter always returns DecisionYes for testing.
 type alwaysYesPrompter struct{}
 

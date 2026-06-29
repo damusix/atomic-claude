@@ -640,6 +640,192 @@ func TestSignalsMaxDepthRoundTrip(t *testing.T) {
 	}
 }
 
+// --- [agents] table tests (CP2) ---
+
+// TestAgentsRoundTrip: config with [agents] (valid tiers for all 5 known agents)
+// survives WritePersist→Load without structural warnings or Validate error.
+func TestAgentsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	cfg.Agents = map[string]string{
+		"atomic-implementer":   "sonnet",
+		"atomic-investigator":  "haiku",
+		"atomic-reviewer":      "sonnet",
+		"atomic-strategist":    "opus",
+		"atomic-wiki-inferrer": "sonnet",
+	}
+
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected structural warnings: %v", warns)
+	}
+	if err := Validate(loaded); err != nil {
+		t.Errorf("Validate: unexpected error: %v", err)
+	}
+
+	if len(loaded.Agents) != 5 {
+		t.Errorf("Agents len = %d, want 5", len(loaded.Agents))
+	}
+	if loaded.Agents["atomic-implementer"] != "sonnet" {
+		t.Errorf("atomic-implementer = %q, want %q", loaded.Agents["atomic-implementer"], "sonnet")
+	}
+	if loaded.Agents["atomic-investigator"] != "haiku" {
+		t.Errorf("atomic-investigator = %q, want %q", loaded.Agents["atomic-investigator"], "haiku")
+	}
+	if loaded.Agents["atomic-strategist"] != "opus" {
+		t.Errorf("atomic-strategist = %q, want %q", loaded.Agents["atomic-strategist"], "opus")
+	}
+}
+
+// TestAgentsInvalidTier: Validate returns an error when an agents value is outside
+// the allowlist {haiku, sonnet, opus, fable}.
+func TestAgentsInvalidTier(t *testing.T) {
+	cfg := Default()
+	cfg.Agents = map[string]string{
+		"atomic-implementer": "turbo", // invalid
+	}
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate should error on invalid tier, got nil")
+	}
+	if !strings.Contains(err.Error(), "atomic-implementer") {
+		t.Errorf("error should mention agent name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "turbo") {
+		t.Errorf("error should mention the invalid tier value, got: %v", err)
+	}
+}
+
+// TestAgentsUnknownKeyIsWarn: an agent name not in the known-agent set produces a
+// Warning from AgentWarnings (non-fatal), not a Validate error (FAIL).
+func TestAgentsUnknownKeyIsWarn(t *testing.T) {
+	cfg := Default()
+	cfg.Agents = map[string]string{
+		"made-up-agent": "haiku", // unknown key, but valid tier
+	}
+
+	// Validate must succeed (unknown key is a WARNING, not a FAIL).
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate should not error on unknown agent key, got: %v", err)
+	}
+
+	// AgentWarnings must return at least one warning mentioning the unknown key.
+	warns := AgentWarnings(cfg)
+	if len(warns) == 0 {
+		t.Fatal("AgentWarnings should return a warning for unknown agent key, got none")
+	}
+	found := false
+	for _, w := range warns {
+		if strings.Contains(w.Message, "made-up-agent") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("warning should mention 'made-up-agent', got: %v", warns)
+	}
+}
+
+// TestAgentsAbsent: no [agents] table → no structural warnings, Validate returns nil,
+// AgentWarnings returns empty.
+func TestAgentsAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[output.signals]\nmax_depth = 3\n[update]\nrun_doctor = true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate on config without [agents]: %v", err)
+	}
+	agentWarns := AgentWarnings(cfg)
+	if len(agentWarns) != 0 {
+		t.Errorf("AgentWarnings on config without [agents] = %v, want empty", agentWarns)
+	}
+}
+
+// TestAgentsNoStructuralWarningsFromLoad: [agents] with valid known-agent keys does not
+// produce structural unknown-key warnings from Load.
+func TestAgentsNoStructuralWarningsFromLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := `[agents]
+atomic-implementer = "sonnet"
+atomic-investigator = "haiku"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "atomic-implementer") || strings.Contains(w.Message, "agents") {
+			t.Errorf("unexpected structural warning for [agents] key: %q", w.Message)
+		}
+	}
+}
+
+// TestAgentsFableIsValid: "fable" tier passes Validate (forward-reserved).
+func TestAgentsFableIsValid(t *testing.T) {
+	cfg := Default()
+	cfg.Agents = map[string]string{
+		"atomic-implementer": "fable",
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate should accept 'fable' (forward-reserved tier), got: %v", err)
+	}
+}
+
+// TestAgentsKnownAgentNoWarnWithManifest: when install.artifacts.agents lists the agent,
+// AgentWarnings should not warn about it (manifest takes precedence over static set).
+func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
+	cfg := Default()
+	cfg.Install.Artifacts.Agents = []string{"custom-agent.md", "atomic-implementer.md"}
+	cfg.Agents = map[string]string{
+		"custom-agent":       "haiku", // in manifest → known
+		"atomic-implementer": "sonnet",
+	}
+	warns := AgentWarnings(cfg)
+	if len(warns) != 0 {
+		t.Errorf("AgentWarnings with manifest: expected no warnings, got %v", warns)
+	}
+}
+
+// TestAgentsNotInConfigList: [agents] keys do not appear in Resolved() (machine-written section,
+// not user-settable via `atomic config set`).
+func TestAgentsNotInConfigList(t *testing.T) {
+	cfg := Default()
+	cfg.Agents = map[string]string{"atomic-implementer": "haiku"}
+	m := Resolved(cfg)
+	for k := range m {
+		if strings.HasPrefix(k, "agents") {
+			t.Errorf("Resolved() contains agents key %q — agents is machine-written, must not appear in config list", k)
+		}
+	}
+}
+
 // TestUpdateUnknownLeafKeyWarn: unknown key under [update] section emits a warning.
 func TestUpdateUnknownLeafKeyWarn(t *testing.T) {
 	dir := t.TempDir()
