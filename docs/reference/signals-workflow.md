@@ -7,7 +7,7 @@ Run `/refresh-signals` to generate (or update) them:
 - **`deterministic-signals.md`** — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
 - **`signals.md`** — inferred meaning: framework, build/test/lint commands, architectural style, domain index. Produced by the `atomic-signals-inferrer` agent.
 
-Both files live in `.claude/project/`, are gitignored, and auto-load into every Claude session via `@`-refs. The `atomic-signals-inferrer` agent keeps them fresh — `/refresh-signals` dispatches it on demand, and ship commands dispatch it silently when source files change.
+Both files live in `.claude/project/`, are gitignored, and auto-load into every Claude session via `@`-refs. The `atomic-signals-inferrer` agent keeps them fresh. Three trigger points: `/refresh-signals` on demand; the implementation loop (`/subagent-implementation`, `/autopilot`) at finalize, scoped to the task's SHA range (primary); and ship commands (`/commit` and related verbs) as an ad-hoc fallback for real-code commits — docs-only commits (README, CHANGELOG, `docs/` tree) are skipped, and a freshness check prevents double-dispatch after the loop already ran.
 
 Requires the `atomic` binary. Without it, a degraded tree-only fallback runs instead.
 
