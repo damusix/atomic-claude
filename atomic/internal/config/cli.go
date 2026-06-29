@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -136,6 +137,41 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 		}
 		return 0
 
+	case "agents":
+		cfg, _, err := Load(TOMLPath(home))
+		if err != nil {
+			fmt.Fprintf(stderr, "atomic config agents: load config: %v\n", err)
+			return 1
+		}
+		selections, err := AgentTierSelector(cfg)
+		if err != nil {
+			if errors.Is(err, ErrNonInteractiveAgents) {
+				fmt.Fprintln(stderr, "atomic config agents: requires an interactive terminal")
+				fmt.Fprintln(stderr, "Run `atomic config agents` in a terminal with stdin and stdout attached to a TTY.")
+				return 1
+			}
+			if errors.Is(err, ErrAgentsAborted) {
+				fmt.Fprintln(stderr, "atomic config agents: aborted")
+				return 1
+			}
+			fmt.Fprintf(stderr, "atomic config agents: %v\n", err)
+			return 1
+		}
+		if err := applyAgentTiers(cfg, selections); err != nil {
+			fmt.Fprintf(stderr, "atomic config agents: %v\n", err)
+			return 1
+		}
+		if err := WritePersist(TOMLPath(home), cfg); err != nil {
+			fmt.Fprintf(stderr, "atomic config agents: write config: %v\n", err)
+			return 1
+		}
+		if err := writeResolved(home, cfg); err != nil {
+			fmt.Fprintf(stderr, "atomic config agents: write resolved: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "Agent tier overrides saved.")
+		return 0
+
 	default:
 		fmt.Fprintf(stderr, "atomic config: unknown verb %q\n", verb)
 		printConfigUsage(stderr)
@@ -154,11 +190,12 @@ func writeResolved(home string, cfg *Config) error {
 }
 
 func printConfigUsage(w io.Writer) {
-	fmt.Fprintln(w, "Usage: atomic config <get|set|unset|list|path> [args]")
+	fmt.Fprintln(w, "Usage: atomic config <get|set|unset|list|path|agents> [args]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  get <key>           Print resolved value for key")
 	fmt.Fprintln(w, "  set <key> <value>   Set key to value; writes config.toml and re-renders config.resolved.md")
 	fmt.Fprintln(w, "  unset <key>         Remove key from config (reverts to built-in default)")
 	fmt.Fprintln(w, "  list [--json]       Print all resolved key=value pairs")
 	fmt.Fprintln(w, "  path                Print path to config.toml")
+	fmt.Fprintln(w, "  agents              Set per-agent model tiers interactively")
 }
