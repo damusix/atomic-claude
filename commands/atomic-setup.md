@@ -8,14 +8,47 @@ You set up the repo for atomic-claude conventions. Detect first, propose second,
 
 ## Pre-flight
 
-1. Verify inside a git repo: `git rev-parse --is-inside-work-tree 2>/dev/null`.
-2. If not a git repo, prompt via `AskUserQuestion`:
-    ```
-    Not a git repo. Initialize one?
-    - Yes, run git init
-    - No, stop
-    ```
-    On Yes: `git init`. On No: refuse and stop.
+1. Run these two checks in parallel:
+   - `git rev-parse --is-inside-work-tree 2>/dev/null`
+   - `test -d wiki && echo wiki-present || echo wiki-absent`
+
+2. If NOT in a git repo:
+   - **`wiki/` directory present** → realm root confirmed. Set `WIKI_SCOPE=realm`;
+     skip the init prompt and proceed to Scope detection.
+   - **No `wiki/` directory** → prompt via `AskUserQuestion`:
+     ```
+     Not a git repo. Initialize one?
+     - Yes, run git init
+     - No, stop
+     ```
+     On Yes: `git init`. On No: refuse and stop.
+
+## Scope detection
+
+Determine `WIKI_SCOPE` (skip if pre-flight already set it to `realm`):
+
+| git repo? | `wiki/` present? | `WIKI_SCOPE` |
+|-----------|-----------------|-------------|
+| No        | Yes             | `realm` (set in pre-flight) |
+| Yes       | No              | `repo` |
+| Yes       | Yes             | Ask user (see below) |
+
+**Ambiguous case** — git repo with a `wiki/` directory present. Prompt via
+`AskUserQuestion`:
+
+```
+A wiki/ directory exists inside this git repo. Which scope applies?
+- realm — this directory is a realm root (wiki/ is the attached wiki repo)
+- repo  — this is a single git repo with its own wiki/ storage
+- unsure / cancel — treat as repo
+```
+
+Accept `realm` or `repo` as typed input or a button choice. If the user cancels,
+answers ambiguously, or chooses "unsure / cancel", default to `repo` and note
+`"wiki-type defaulted to repo (wiki/ present inside git repo — user did not confirm realm)"` in the Step 5 output.
+
+`WIKI_SCOPE` is now set to either `repo` or `realm`. It is written as a
+`<wiki-type>` scope marker in Step 4.
 
 ## Step 1 — Audit
 
@@ -322,6 +355,32 @@ fi
 
 Idempotent: only appends when `CLAUDE.md` exists AND `@-ref` is missing. Refuses silently otherwise.
 
+### `<wiki-type>` scope marker
+
+Write the `<wiki-type>` block unconditionally — this is machine-managed metadata,
+not gated by the Step 3 confirmation list.
+
+Determine the target file (check in this order):
+
+- `claude.local.md` exists at repo root → write to `claude.local.md`.
+- `CLAUDE.md` exists at repo root (including if just created earlier in Step 4) → write to `CLAUDE.md`.
+- Neither exists → skip; note `"wiki-type not written — no CLAUDE.md or claude.local.md present"` in Step 5.
+
+Write idempotently — replace the block in place if already present, else append:
+
+```bash
+# $TARGET is claude.local.md or CLAUDE.md; $WIKI_SCOPE is repo or realm
+if grep -qF '<wiki-type>' "$TARGET" 2>/dev/null; then
+  sed -i '' "s|<wiki-type>[^<]*</wiki-type>|<wiki-type>${WIKI_SCOPE}</wiki-type>|" "$TARGET"
+else
+  printf '\n<wiki-type>%s</wiki-type>\n' "${WIKI_SCOPE}" >> "$TARGET"
+fi
+```
+
+`claude.local.md` is checked first so the project-local file takes precedence
+over the committed `CLAUDE.md` — mirrors how the `@`-ref and other machine-managed
+blocks choose their target in this repo.
+
 ## Step 5 — Report
 
 Final state:
@@ -331,6 +390,7 @@ Applied:
   ✓ .gitignore updated: added tmp/, .claude/.scratchpad/, .worktrees/
   ✓ CLAUDE.md created via survey (N sections accepted, M edited, K skipped)
   ✓ docs/spec/ + docs/design/ created with .gitkeep
+  ✓ wiki-type: repo → written to CLAUDE.md
 
 Skipped:
   • README.md (you said no)
