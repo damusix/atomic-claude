@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/migrate"
@@ -140,6 +141,99 @@ func TestCP3CobraMetadata(t *testing.T) {
 		}
 		if got := found.Annotations["args_hint"]; got != w.argsHint {
 			t.Errorf("%s args_hint:\n  got:  %q\n  want: %q", label, got, w.argsHint)
+		}
+	}
+}
+
+// TestDeriveCommandsGolden is the CP4 gate for the A1 linter. It captures the
+// hardcoded cliusage.Commands() slice as the golden fixture (SetRoot is never
+// called in tests, so Commands() returns the static table) and asserts that
+// cliusage.DeriveCommands(buildRootCmd(...)) reproduces the exact same surface.
+//
+// A failure here means the Cobra tree's metadata (Short, Annotations["args_hint"],
+// or registered Flags) diverges from the golden — fix the Cobra side in main.go,
+// not the golden.
+//
+// WHY set-for-set comparison: cobra's VisitAll visits flags alphabetically; the
+// hardcoded golden has flags in non-alphabetical order for some commands. Order
+// within the Flags slice is irrelevant for the A1 linter (which builds a map).
+func TestDeriveCommandsGolden(t *testing.T) {
+	// Golden: hardcoded pre-migration slice (SetRoot not called in tests).
+	golden := cliusage.Commands()
+
+	// Derived: walk the live Cobra tree.
+	var repo string
+	root := buildRootCmd(&repo)
+	derived := cliusage.DeriveCommands(root)
+
+	assertCommandSetsEqual(t, derived, golden)
+}
+
+// assertCommandSetsEqual verifies that derived and golden describe the same
+// command surface: same set of paths, and for each path the same Args,
+// Description, and flag set (flag ORDER within a command is ignored).
+func assertCommandSetsEqual(t *testing.T, derived, golden []cliusage.Command) {
+	t.Helper()
+
+	if len(derived) != len(golden) {
+		t.Errorf("command count: derived=%d, golden=%d", len(derived), len(golden))
+		derivedKeys := make(map[string]bool, len(derived))
+		for _, c := range derived {
+			derivedKeys[strings.Join(c.Path, "/")] = true
+		}
+		goldenKeys := make(map[string]bool, len(golden))
+		for _, c := range golden {
+			goldenKeys[strings.Join(c.Path, "/")] = true
+		}
+		for k := range goldenKeys {
+			if !derivedKeys[k] {
+				t.Errorf("  missing in derived: %s", k)
+			}
+		}
+		for k := range derivedKeys {
+			if !goldenKeys[k] {
+				t.Errorf("  extra in derived: %s", k)
+			}
+		}
+		return
+	}
+
+	// Index golden by path key.
+	byPath := make(map[string]cliusage.Command, len(golden))
+	for _, c := range golden {
+		byPath[strings.Join(c.Path, "/")] = c
+	}
+
+	for _, got := range derived {
+		key := strings.Join(got.Path, "/")
+		want, ok := byPath[key]
+		if !ok {
+			t.Errorf("derived has path not in golden: %v", got.Path)
+			continue
+		}
+		if got.Args != want.Args {
+			t.Errorf("%v: Args: derived=%q, golden=%q", got.Path, got.Args, want.Args)
+		}
+		if got.Description != want.Description {
+			t.Errorf("%v: Description: derived=%q, golden=%q", got.Path, got.Description, want.Description)
+		}
+		gotF := make(map[string]bool, len(got.Flags))
+		for _, f := range got.Flags {
+			gotF[f] = true
+		}
+		wantF := make(map[string]bool, len(want.Flags))
+		for _, f := range want.Flags {
+			wantF[f] = true
+		}
+		for f := range wantF {
+			if !gotF[f] {
+				t.Errorf("%v: flag %q in golden but missing from derived", got.Path, f)
+			}
+		}
+		for f := range gotF {
+			if !wantF[f] {
+				t.Errorf("%v: flag %q in derived but not in golden", got.Path, f)
+			}
 		}
 	}
 }

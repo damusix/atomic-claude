@@ -1,15 +1,16 @@
 // Package cliusage defines the complete atomic command surface as structured
-// data. It serves two consumers: (1) main.go renders --help from it, and
-// (2) the validate artifacts rule (Checkpoint 2) checks artifact citations
-// against it. Define the surface once here; callers never hand-write usage
-// lines or maintain parallel flag lists.
+// data. It serves two consumers: (1) Cobra renders --help from the registered
+// command tree, and (2) the validate artifacts rule checks artifact citations
+// against it. The surface is derived by walking the Cobra tree via SetRoot;
+// the hardcoded slice below is the pre-migration golden fixture and the
+// fallback for tests that never call SetRoot.
 package cliusage
 
 import (
-	"fmt"
-	"io"
 	"strings"
-	"text/tabwriter"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // Command describes one entry in the atomic command surface.
@@ -27,12 +28,11 @@ type Command struct {
 	Description string
 }
 
-// commands is the ordered command surface. Flags reflect the actual
-// flag.NewFlagSet registrations in each verb handler — the source of truth
-// for the validate-artifacts check. Keep this in sync with the handler when
-// adding or removing flags; a mismatch causes CP2 to emit false-positives or
-// false-negatives. Edit this slice to change --help and the validate
-// artifacts rule simultaneously.
+// commands holds the current command surface. In production it is replaced by
+// SetRoot (called from main after building the Cobra tree). In tests that
+// never call SetRoot it retains the hardcoded slice below, which serves as
+// the golden fixture for TestDeriveCommandsGolden. The hardcoded slice and
+// the Cobra tree must be kept in sync: the golden test enforces this.
 var commands = []Command{
 	{
 		Path:        []string{"claude", "install"},
@@ -392,36 +392,72 @@ func Commands() []Command {
 	return out
 }
 
-// RenderCommandsBlock writes the "Commands:" body — the lines between the
-// "Commands:" label and the "\nFlags:" section — to w. Each line is one
-// command: "  <verb-path> [args] [flags]  <description>". Columns are aligned
-// via text/tabwriter. The label "Commands:" and the "\nFlags:" section are
-// NOT written here; main.go owns those surrounding lines.
-func RenderCommandsBlock(w io.Writer) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	for _, c := range commands {
-		hint := buildHint(c)
-		if hint != "" {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\n", strings.Join(c.Path, " "), hint, c.Description)
-		} else {
-			fmt.Fprintf(tw, "  %s\t\t%s\n", strings.Join(c.Path, " "), c.Description)
-		}
-	}
-	tw.Flush()
+// SetRoot derives the command surface by walking the Cobra tree rooted at root
+// and replaces the commands slice. main() calls this once after building the
+// Cobra tree so that Commands(), LookupByPath(), and TopLevelVerbs() all read
+// from the live Cobra tree rather than the static hardcoded table.
+func SetRoot(root *cobra.Command) {
+	commands = DeriveCommands(root)
 }
 
-// buildHint builds the args+flags hint string for a command, e.g.
-// "<query> [--json] [--limit N]". Returns "" when both Args and Flags are
-// empty. The rendered form matches the original main.go usage block style.
-func buildHint(c Command) string {
-	var parts []string
-	if c.Args != "" {
-		parts = append(parts, c.Args)
+// DeriveCommands walks the Cobra tree rooted at root and returns the leaf
+// commands (those with no visible subcommands) as cliusage entries. The root
+// itself is excluded from paths; only its children and their descendants
+// contribute. Each leaf's Path comes from the ancestor chain of command names,
+// Args from Annotations["args_hint"], Flags from cmd.Flags().VisitAll
+// (alphabetical, registered flags only — inherited persistent flags are not
+// included because the FlagSet is created before the parent is assigned), and
+// Description from cmd.Short.
+func DeriveCommands(root *cobra.Command) []Command {
+	var out []Command
+	for _, child := range root.Commands() {
+		if child.Hidden {
+			continue
+		}
+		walkLeaves(child, nil, &out)
 	}
-	for _, f := range c.Flags {
-		parts = append(parts, "["+f+"]")
+	return out
+}
+
+// walkLeaves recursively walks the Cobra command tree. Non-leaf commands
+// (those with visible subcommands) are recursed into; leaf commands are
+// mapped to a Command entry and appended to out. prefix is the path tokens
+// accumulated from ancestor commands (not including root).
+func walkLeaves(cmd *cobra.Command, prefix []string, out *[]Command) {
+	path := make([]string, len(prefix)+1)
+	copy(path, prefix)
+	path[len(prefix)] = cmd.Name()
+
+	// Collect visible subcommands; skip cobra-injected "help" and "completion"
+	// even when not explicitly hidden.
+	var subs []*cobra.Command
+	for _, s := range cmd.Commands() {
+		if s.Hidden || s.Name() == "help" || s.Name() == "completion" {
+			continue
+		}
+		subs = append(subs, s)
 	}
-	return strings.Join(parts, " ")
+
+	if len(subs) > 0 {
+		for _, s := range subs {
+			walkLeaves(s, path, out)
+		}
+		return
+	}
+
+	// Leaf: map to a cliusage.Command.
+	c := Command{
+		Path:        path,
+		Args:        cmd.Annotations["args_hint"],
+		Description: cmd.Short,
+	}
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		c.Flags = append(c.Flags, "--"+f.Name)
+	})
+	if len(c.Flags) == 0 {
+		c.Flags = nil
+	}
+	*out = append(*out, c)
 }
 
 // LookupByPath returns the Command whose Path matches path exactly, or nil

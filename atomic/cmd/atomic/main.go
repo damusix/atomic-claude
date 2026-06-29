@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
+	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	codecli "github.com/damusix/atomic-claude/atomic/internal/codeintel/cli"
 	"github.com/damusix/atomic-claude/atomic/internal/coldprompt"
@@ -61,6 +62,11 @@ func main() {
 	// persistent-flag parsing for "--repo" placed before the subcommand.
 	var repoOverride string
 	rootCmd := buildRootCmd(&repoOverride)
+
+	// Derive the cliusage surface from the live Cobra tree so Commands(),
+	// LookupByPath(), and TopLevelVerbs() all reflect the real flag metadata
+	// rather than the static hardcoded table (CP4).
+	cliusage.SetRoot(rootCmd)
 
 	// Background update check: spawned before verb execution so it runs
 	// concurrently with the handler; banner is printed after Execute() returns.
@@ -185,29 +191,17 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 
 	rootCmd.AddCommand(buildClaudeCmd())
 
-	rootCmd.AddCommand(makeVerb("doctor",
-		"Integrity check",
-		func(args []string) { runDoctor(args) }))
+	rootCmd.AddCommand(buildDoctorCmd())
 
 	rootCmd.AddCommand(buildDockerCmd())
 
-	rootCmd.AddCommand(makeVerb("update",
-		"Self-update the atomic binary, then refresh ~/.claude artifacts",
-		func(args []string) { runUpdate(args) }))
+	rootCmd.AddCommand(buildUpdateCmd())
 
 	rootCmd.AddCommand(buildConfigCmd())
 
 	rootCmd.AddCommand(buildFollowupsCmd(repoOverride))
 
-	rootCmd.AddCommand(&cobra.Command{
-		Use:                "validate",
-		Short:              "Lint repo artifacts",
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			os.Exit(validate.Run(args))
-			return nil
-		},
-	})
+	rootCmd.AddCommand(buildValidateCmd())
 
 	rootCmd.AddCommand(buildDocsCmd(repoOverride))
 
@@ -219,19 +213,9 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 
 	rootCmd.AddCommand(buildPromptCmd())
 
-	rootCmd.AddCommand(&cobra.Command{
-		Use:                "serve",
-		Short:              "Start a local read-only HTTP server for exploring wiki + code-intel",
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			os.Exit(serve.Run(args, os.Stdout, os.Stderr))
-			return nil
-		},
-	})
+	rootCmd.AddCommand(buildServeCmd())
 
-	rootCmd.AddCommand(makeVerb("migrate",
-		"Run versioned atomic migrations",
-		func(args []string) { runMigrate(args) }))
+	rootCmd.AddCommand(buildMigrateCmd())
 
 	return rootCmd
 }
@@ -773,6 +757,112 @@ func buildFollowupsCmd(repoOverride *string) *cobra.Command {
 	addSub("render", "Regenerate INDEX.md", "", nil)
 	addSub("path", "Print followups folder path", "", nil)
 	return parent
+}
+
+// --- CP4: top-level-only verb builders with flag metadata -----------------
+//
+// The five verbs below have no Cobra subcommands (they are leaves). Each uses
+// DisableFlagParsing:true so the existing handler's own flag.NewFlagSet parses
+// flags at runtime; the Flags() registrations here are metadata only, read by
+// cliusage.DeriveCommands to populate the Commands() surface for the A1 linter.
+// Flag names and the args_hint annotation must match cliusage.go's hardcoded
+// golden slice exactly.
+
+// buildDoctorCmd returns the "doctor" top-level command with flag metadata.
+func buildDoctorCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "doctor",
+		Short:              "Integrity check",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runDoctor(args)
+			return nil
+		},
+	}
+	// Metadata only — not parsed at runtime (DisableFlagParsing:true).
+	c.Flags().Bool("fix", false, "per-item confirm prompt before applying any repair")
+	c.Flags().Bool("json", false, "emit machine-readable JSON result to stdout")
+	c.Flags().String("only", "", "comma-separated category indices or names to run")
+	c.Flags().String("skip", "", "comma-separated category indices or names to skip")
+	c.Flags().Int("stale-days", 7, "stale-signals threshold in days (positive int)")
+	c.Flags().Bool("verbose", false, "print per-file detail for install integrity")
+	return c
+}
+
+// buildUpdateCmd returns the "update" top-level command with flag metadata.
+func buildUpdateCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "update",
+		Short:              "Self-update the atomic binary, then refresh ~/.claude artifacts",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runUpdate(args)
+			return nil
+		},
+	}
+	c.Flags().Bool("check", false, "only check if update available; do not apply")
+	c.Flags().String("channel", "stable", "release channel: stable or prerelease")
+	c.Flags().Bool("no-doctor", false, "skip post-update doctor self-check")
+	c.Flags().Bool("skip-claude-update", false, "skip the ~/.claude artifact refresh after binary swap")
+	return c
+}
+
+// buildValidateCmd returns the "validate" top-level command with flag metadata.
+func buildValidateCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "validate",
+		Short:              "Lint repo artifacts",
+		Annotations:        map[string]string{"args_hint": "[flags] [spec|config|bundle|artifacts] [paths...]"},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			os.Exit(validate.Run(args))
+			return nil
+		},
+	}
+	c.Flags().Bool("json", false, "emit JSON output ({schema_version:1, findings:[...]})")
+	c.Flags().Bool("suggest", false, "print structural templates for content-FAIL rules")
+	return c
+}
+
+// buildServeCmd returns the "serve" top-level command with flag metadata.
+func buildServeCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "serve",
+		Short:              "Start a local read-only HTTP server for exploring wiki + code-intel",
+		Annotations:        map[string]string{"args_hint": "[path]"},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			os.Exit(serve.Run(args, os.Stdout, os.Stderr))
+			return nil
+		},
+	}
+	c.Flags().Int("port", 4500, "TCP port to listen on (0 = OS-assigned free port)")
+	c.Flags().String("host", "127.0.0.1", "bind address")
+	c.Flags().Bool("open", false, "open the browser after startup (best-effort)")
+	return c
+}
+
+// buildMigrateCmd returns the "migrate" top-level command with flag metadata.
+// Note: --repo here is a migrate-specific flag (target repo path) distinct from
+// the root's persistent --repo (context override); no Cobra conflict occurs
+// because DisableFlagParsing:true prevents flag merging at execute time, and
+// the FlagSet is created before AddCommand so the lazy-init merge never runs.
+func buildMigrateCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "migrate",
+		Short:              "Run versioned atomic migrations",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runMigrate(args)
+			return nil
+		},
+	}
+	c.Flags().String("repo", "", "run repo-scope migrations on this path")
+	c.Flags().String("realm", "", "run install-scope + repo fan-out under this realm root")
+	return c
 }
 
 // findFirstVerb scans argv (os.Args[1:] after scanNoUpdateCheck) for the
