@@ -309,7 +309,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 
    1. If `command -v atomic` returns nothing → skip.
    2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report the error and skip.
-   3. Exit 1 → dispatch `atomic-signals-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort after the inferrer returns.
+   3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort after the wiki inferrer returns.
    4. Stage `.claude/project/deterministic-signals.md`, `.claude/project/signals.md`, and any files under `.claude/project/signals/`. Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
 
 6. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.

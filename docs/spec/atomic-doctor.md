@@ -189,7 +189,7 @@ Per-item confirm (axiom 3). Each repair idempotent. Print every shell command be
 |---|----------|---------------|
 | 1 | `install`   | `atomic claude install --merge` (re-uses existing merge-required guard for `CLAUDE.md`). |
 | 2 | `hooks`     | `atomic hooks install`. |
-| 3 | `signals`   | **Cannot auto-fix.** Print: `run /refresh-signals from Claude Code to refresh signals.` |
+| 3 | `signals`   | **Cannot auto-fix.** Print: `run /refresh-wiki from Claude Code to refresh signals.` |
 | 4 | `refs`      | Ask user which file to patch (numbered list per axiom 4 if >1 candidate); append `@`-ref block. |
 | 5 | `manifest`  | `make -C atomic bundle` (regenerates); refuses outside the atomic-claude repo. |
 | 6 | `followups` | **Cannot auto-fix.** Print malformed entries with line numbers; refuse to edit (content authorship is human). |

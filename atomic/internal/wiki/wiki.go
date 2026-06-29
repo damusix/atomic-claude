@@ -63,7 +63,9 @@ type Member struct {
 	Path string
 	// Status is one of "indexed", "pending", or "summarized".
 	Status string
-	// SignalsPath is the absolute path to .claude/project/signals.md when Status == "indexed".
+	// SignalsPath is the absolute path to the indexed-member router file when
+	// Status == "indexed". Preferred location is docs/wiki/index.md (new layout);
+	// falls back to .claude/project/signals.md (legacy layout). Set by classifyMembers.
 	SignalsPath string
 	// SummaryPath is the value of the summary attribute when Status == "summarized".
 	SummaryPath string
@@ -305,12 +307,20 @@ func isGitMember(dir string) bool {
 	return err == nil
 }
 
+// fileExists reports whether the named file exists and is accessible.
+func fileExists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
 // classifyMembers derives the status for each member.
 //
 // Classification rules:
 //  1. If prior status was "summarized" AND the summary file still exists → keep "summarized".
-//  2. If .claude/project/signals.md exists → "indexed" (signals are richer than
-//     summaries; a leftover summary does not demote a graduated repo).
+//  2. If docs/wiki/index.md exists (new layout) → "indexed" with SignalsPath pointing there.
+//     Else if .claude/project/signals.md exists (legacy layout) → "indexed" with SignalsPath
+//     pointing there. Either layout counts; new layout takes precedence. A leftover summary
+//     does not demote a graduated repo.
 //  3. If a summary exists on disk under wiki/repos/ (repos/<name>.md or
 //     repos/<name>/ with at least one .md) → "summarized". This makes the
 //     status reachable on first derivation — /refresh-wiki writes summaries
@@ -336,9 +346,18 @@ func classifyMembers(root, wikiDir string, members []string, prior map[string]pr
 			// Summary file gone — fall through to re-derive.
 		}
 
-		// Derive from signals presence.
-		signalsAbs := filepath.Join(absRepo, ".claude", "project", "signals.md")
-		if _, err := os.Lstat(signalsAbs); err == nil {
+		// Derive from index presence — migration-aware dual-layout detection.
+		// New layout (docs/wiki/index.md) takes precedence; legacy (.claude/project/signals.md)
+		// is accepted for un-migrated repos so existing users don't regress.
+		if indexAbs := filepath.Join(absRepo, "docs", "wiki", "index.md"); fileExists(indexAbs) {
+			result = append(result, Member{
+				Path:        rel,
+				Status:      "indexed",
+				SignalsPath: indexAbs,
+			})
+			continue
+		}
+		if signalsAbs := filepath.Join(absRepo, ".claude", "project", "signals.md"); fileExists(signalsAbs) {
 			result = append(result, Member{
 				Path:        rel,
 				Status:      "indexed",
@@ -516,7 +535,8 @@ func defaultNarrative() string {
 // re-spliced idempotently while narrative outside it is preserved byte-for-byte.
 //
 // Link targets are relative to the directory containing indexPath (wiki/).
-//   - indexed  → [<repo>](../<repo>/.claude/project/signals.md)
+//   - indexed (new layout)  → [<repo>](../<repo>/docs/wiki/index.md)
+//   - indexed (legacy layout) → [<repo>](../<repo>/.claude/project/signals.md)
 //   - summarized → [<repo>](repos/<repo>.md)
 //   - pending  → [<repo>](../<repo>/)
 func writeMembersSection(indexPath string, members []Member) error {
@@ -797,16 +817,16 @@ func buildMembersSection(indexDir string, members []Member) string {
 func memberLinkTarget(indexDir string, m Member) string {
 	switch m.Status {
 	case "indexed":
-		// Link to the repo's signals.md.
-		// m.SignalsPath is the absolute path to .claude/project/signals.md in the repo.
+		// Link to m.SignalsPath — either docs/wiki/index.md (new layout) or
+		// .claude/project/signals.md (legacy layout), whichever classifyMembers found.
 		if m.SignalsPath != "" {
 			rel, err := filepath.Rel(indexDir, m.SignalsPath)
 			if err == nil {
 				return rel
 			}
 		}
-		// Fallback: construct from path.
-		return "../" + m.Path + "/.claude/project/signals.md"
+		// Fallback: prefer new layout path when path is known.
+		return "../" + m.Path + "/docs/wiki/index.md"
 	case "summarized":
 		// Link to the summary (already relative to wiki/): repos/<repo>.md or
 		// repos/<repo>/ for a domain-split summary.

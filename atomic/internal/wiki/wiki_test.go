@@ -1182,3 +1182,100 @@ func TestBuildMembersSection_OKFListingForm(t *testing.T) {
 		t.Errorf("repoC is pending (no summary) — should be link-only, got: %q", repoCLine)
 	}
 }
+
+// --- dual-layout indexed detection tests ---
+
+// writeWikiIndex creates the docs/wiki/index.md file in dir (new layout).
+func writeWikiIndex(t *testing.T, dir string) {
+	t.Helper()
+	p := filepath.Join(dir, "docs", "wiki", "index.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# wiki index\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestScan_IndexedByNewLayout verifies that a member repo with docs/wiki/index.md
+// (new layout) is classified "indexed" even without the old .claude/project/signals.md.
+func TestScan_IndexedByNewLayout(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeWikiIndex(t, repoA) // new layout only — no old signals.md
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `status="indexed"`) {
+		t.Errorf("repoA with docs/wiki/index.md should be indexed; content:\n%s", content)
+	}
+}
+
+// TestScan_IndexedByNewLayout_LinksToWikiIndex verifies that the Members section
+// for a new-layout indexed member links to docs/wiki/index.md.
+func TestScan_IndexedByNewLayout_LinksToWikiIndex(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeWikiIndex(t, repoA)
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	// Members section for an indexed new-layout member must link to docs/wiki/index.md.
+	if !strings.Contains(content, "docs/wiki/index.md") {
+		t.Errorf("new-layout indexed repoA should link to docs/wiki/index.md; content:\n%s", content)
+	}
+}
+
+// TestScan_IndexedByOldLayout_BackCompat verifies that a member repo with only
+// .claude/project/signals.md (old layout) is still classified "indexed" — backward compat.
+func TestScan_IndexedByOldLayout_BackCompat(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeSignals(t, repoA) // old layout only — no docs/wiki/index.md
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `status="indexed"`) {
+		t.Errorf("repoA with .claude/project/signals.md should still be indexed; content:\n%s", content)
+	}
+	// The Members section must still link to the old signals.md path.
+	if !strings.Contains(content, ".claude/project/signals.md") {
+		t.Errorf("old-layout indexed repoA should still link to .claude/project/signals.md; content:\n%s", content)
+	}
+}
+
+// TestScan_NewLayoutPreferredOverOld verifies that when a member has BOTH
+// docs/wiki/index.md and .claude/project/signals.md, the new layout wins
+// and the link points to docs/wiki/index.md.
+func TestScan_NewLayoutPreferredOverOld(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeWikiIndex(t, repoA) // new layout
+	writeSignals(t, repoA)   // old layout also present
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `status="indexed"`) {
+		t.Errorf("repoA should be indexed; content:\n%s", content)
+	}
+	// New layout must win: link to docs/wiki/index.md, not .claude/project/signals.md.
+	if !strings.Contains(content, "docs/wiki/index.md") {
+		t.Errorf("new-layout should be preferred; expected docs/wiki/index.md link; content:\n%s", content)
+	}
+}

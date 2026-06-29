@@ -1,12 +1,208 @@
 ---
-description: Refresh the project wiki incrementally. Runs atomic wiki scan, checks freshness with atomic wiki stale, re-authors only stale or pending artifacts, stamps fingerprints via code, and commits the wiki when done.
+description: >
+  Refresh the project wiki. Handles both repo scope (docs/wiki/ inside the current
+  repo) and realm scope (a cross-repo wiki at <root>/wiki/). Scope auto-detected
+  from <wiki-type> block or directory structure. Dispatches atomic-wiki-inferrer,
+  which reads the matching pipeline reference and executes it.
 ---
 
-`/refresh-wiki [root]` — refresh the wiki for the realm rooted at `[root]` (default: cwd). `[root]` is the **realm root** — the directory that contains `wiki/`, not the `wiki/` directory itself. Run this to keep the wiki current after repos are added, signals are updated, or the drift marker appears.
+`/refresh-wiki [root]` — refresh the wiki. With no argument, auto-detects scope: if `docs/wiki/index.md` exists in the current repo the scope is **repo**; if a `wiki/` directory exists at the cwd or a supplied `[root]` the scope is **realm**. Pass `[root]` to target a specific realm root.
 
 <workflow>
 
-## Step 1 — Resolve root and pre-flight
+## Step 0 — Detect scope
+
+Determine which pipeline to run:
+
+**Repo scope** — all of the following:
+- No `[root]` argument supplied, AND
+- `docs/wiki/index.md` exists in the current repo (check `test -f docs/wiki/index.md`), OR `docs/wiki/` exists but is empty / no index yet (first run).
+
+Specifically: if no `[root]` was supplied and the cwd is inside a git repo, this is repo scope. Continue to the **Repo scope** steps.
+
+**Realm scope** — any of the following:
+- `[root]` argument was supplied, OR
+- No `[root]` was supplied but a `wiki/` directory exists at the cwd that contains an `index.md` with `<wiki-type>realm</wiki-type>`, OR
+- The current working directory is not inside a git repo but a `wiki/` directory is present.
+
+Continue to the **Realm scope** steps.
+
+**Ambiguous** — cwd is a git repo AND a sibling `wiki/` directory exists (repo + `wiki/` co-located). Ask via `AskUserQuestion`:
+
+```
+This directory is a git repo and has a wiki/ sibling. Which scope?
+- Repo scope (refresh docs/wiki/ inside this repo)
+- Realm scope (refresh wiki/ as a cross-repo wiki)
+```
+
+Treat as repo scope on cancel or ambiguous input.
+
+---
+
+## Repo scope
+
+### R1 — Pre-flight
+
+```bash
+git rev-parse --is-inside-work-tree
+```
+
+If not inside a git repo, stop:
+
+```
+not a git repo. /refresh-wiki (repo scope) requires a git repository.
+```
+
+```bash
+command -v atomic
+```
+
+If `atomic` is not on `$PATH`, stop:
+
+```
+atomic binary not found on $PATH.
+install: curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash
+then re-run /refresh-wiki.
+```
+
+### R2 — Bootstrap check
+
+```bash
+test -f docs/wiki/scan.md
+```
+
+If the file does not exist, this is a first-time initialization. Print:
+
+```
+no existing signals found. initializing from scratch.
+```
+
+Set `first_run=true`. Continue to R3.
+
+### R3 — Steering file check
+
+```bash
+test -f docs/wiki/CLAUDE.md
+```
+
+If the file does not exist, create it with the default scaffold.
+
+<!-- Canonical scaffold — must stay byte-identical to Step 8c in skills/atomic-wiki/references/repo.md.
+     Edit both together if the scaffold changes. -->
+
+```bash
+mkdir -p docs/wiki
+cat > docs/wiki/CLAUDE.md << 'EOF'
+---
+type: Steering
+description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
+---
+
+<steering note: user hints to correct framework detection / domain grouping / build-test commands;
+ the inferrer reads this and treats it as authoritative>
+
+## Framework
+# NestJS monorepo (not plain Express)
+
+## Domains
+# - src/billing/ and src/payments/ are one domain ("payments")
+# - src/internal-tools/ is scratch code — not a real domain
+
+## Build
+# - Build: pnpm turbo build
+# - Test: pnpm test:ci (not pnpm test — that runs watch mode)
+
+## Ignore for domains
+# - vendor/
+# - generated/
+EOF
+```
+
+Print: `created docs/wiki/CLAUDE.md (edit to steer the inferrer).`
+
+If the file already exists, read its contents for the dispatch prompt.
+
+### R4 — Code-intel index lifecycle
+
+Ensure the code-intel index is current before dispatching the inferrer, so domain clustering can use real dependency edges rather than filename heuristics alone.
+
+- If `atomic` is not on `$PATH` (already checked in R1): skip this step silently and proceed. The inferrer degrades to heuristic-only clustering.
+- If `.claude/.atomic-index/atomic.db` **exists** (warm index): run `atomic code sync` to bring it up to date with the current working tree. This is incremental and cheap. On sync error, print a warning and proceed degraded — a stale index is still useful and never blocks the refresh.
+- If `.claude/.atomic-index/atomic.db` **does not exist** (cold — no index yet): run `atomic code index` directly — do **not** prompt. Indexing is cheap, idempotent, and harmless, so assume the user wants it. Print a one-line "Building code index (first run may take seconds to minutes)…" notice before running so a slow first index isn't a surprise. On index error, print a warning and proceed degraded.
+
+A missing index (binary absent, or a failed index/sync) never blocks the refresh. The inferrer uses filename/path heuristics in that case and produces valid signals — the index is an enhancement, not a requirement.
+
+### R5 — Dispatch agent
+
+Dispatch the `atomic-wiki-inferrer` agent via the `Agent` tool. Build the prompt:
+
+```
+mode: interactive
+first_run: <true if R2 found no existing signals, false otherwise>
+
+<steering>
+<contents of docs/wiki/CLAUDE.md, if it exists and is not all comments>
+</steering>
+```
+
+Wait for the agent to complete. The agent reads `skills/atomic-wiki/references/repo.md` and executes the full repo-scope pipeline (scan → infer → write `docs/wiki/` files → linkify → wire `@-ref`).
+
+### R6 — Surface concerns
+
+If the agent returned a `## Concerns` table (judgment observations found during inference), present them to the user as a numbered list. Ask via `AskUserQuestion`: "The signals scan found N potential issues. Create follow-ups for any?" with options:
+
+- "All" — create follow-ups for every concern via `atomic followups add`
+- "Pick" — print the indexed list, accept space/comma-separated indices, create only those
+- "Skip" — discard, no follow-ups created
+
+### R7 — No CLAUDE.md at all
+
+If no `CLAUDE.md` exists after the agent runs (the agent could not wire the `@-ref`), ask via `AskUserQuestion`:
+
+```
+No CLAUDE.md found. Create a starter with signals @-ref?
+- Yes (writes minimal starter with @-ref)
+- No, skip
+```
+
+On "Yes": write a minimal `CLAUDE.md` at repo root containing only:
+
+```markdown
+<atomic-signals>
+
+## Project signals (auto-loaded)
+
+@docs/wiki/index.md
+
+</atomic-signals>
+```
+
+On "No, skip": continue without creating.
+
+### R8 — Report
+
+Print final state:
+
+```
+signals <refreshed | initialized>.
+
+  scan (raw):    docs/wiki/scan.md
+  index:         docs/wiki/index.md
+  CLAUDE.md:     <updated with @-refs | unchanged (already wired) | not created (skipped)>
+
+suggested next step:
+  git add docs/wiki/index.md docs/wiki/*.md && git restore --staged docs/wiki/scan.md
+  (and CLAUDE.md if modified)
+  then: /commit
+```
+
+Use "initialized" if R2 found no existing signals; "refreshed" otherwise.
+
+---
+
+## Realm scope
+
+### Step 1 — Resolve root and pre-flight
 
 Resolve the wiki root:
 
@@ -26,7 +222,7 @@ install: curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main
 then re-run /refresh-wiki.
 ```
 
-## Step 2 — Scan (deterministic)
+### Step 2 — Scan (deterministic)
 
 Run the scan step to scaffold any missing structure, classify repos, and register the wiki:
 
@@ -44,7 +240,7 @@ Record the member list (path, status) for use in the incremental pass.
 
 If `atomic wiki scan` exits non-zero, stop and surface the error verbatim. The most common cause is a `wiki/` directory with a missing or malformed `index.md` — the error message names the path.
 
-## Step 3 — One-time bucket offer (judgment)
+### Step 3 — One-time bucket offer (judgment)
 
 Check whether `wiki/index.md` already contains a `<wiki-buckets` block:
 
@@ -78,7 +274,7 @@ atomic wiki bucket add --root <resolved-root> <name>
 
 **On blank/skip input** (user presses Enter or types nothing): record the decline by writing a `<wiki-buckets declined="true"></wiki-buckets>` block into `wiki/index.md`. Use an Edit to insert the block after the last line of content (or append if file ends without a trailing newline). This prevents the offer from re-firing on future runs.
 
-## Step 4 — Placeholder fill (judgment)
+### Step 4 — Placeholder fill (judgment)
 
 If new buckets were just created in Step 3, ask the user what each bucket is for (or infer from their Step 3 answers if they described purpose while naming). Then:
 
@@ -87,7 +283,7 @@ If new buckets were just created in Step 3, ask the user what each bucket is for
 
 Code writes structure; the model writes meaning. A bucket whose placeholder survives this step (user declined to describe it) is flagged in the Step 11 disposition output as `PLACEHOLDER (unfilled)` — it is not a blocker for the rest of the run.
 
-## Step 5 — Stale check (deterministic)
+### Step 5 — Stale check (deterministic)
 
 Run the freshness check:
 
@@ -108,11 +304,11 @@ Exit codes: `0` = fully fresh, `1` = one or more stale/drift lines, `2` = hard e
 
 If exit code is `0` and there are no `pending` members from Step 2 and no newly created buckets from Step 3: print `wiki is up to date.` and stop — nothing to do. (The newly-created-buckets guard is load-bearing for a just-created empty bucket: it has no files yet, so `atomic wiki stale` emits no `STALE bucket` line for it, but its placeholder fill in Step 4 is still pending. Without this guard, the run would exit here and the placeholder would never be offered.)
 
-## Step 6 — Pending repos: offer /refresh-signals (judgment)
+### Step 6 — Pending repos: offer repo wiki refresh (judgment)
 
 If there are `pending` repos from the Step 2 scan:
 
-Present them as a numbered list and ask the user which ones to handle via `/refresh-signals` (which will produce signals files and promote them to `indexed`). Repos not selected here go to the `atomic-signals-inferrer` wiki-output pass in Step 7.
+Present them as a numbered list and ask the user which ones to handle via `/refresh-wiki` (which will produce signals files and promote them to `indexed`). Repos not selected here go to the `atomic-wiki-inferrer` wiki-output pass in Step 7.
 
 ```
 Pending repos (no docs/wiki/index.md found):
@@ -121,7 +317,7 @@ Pending repos (no docs/wiki/index.md found):
   2. /path/to/repo-b
   3. /path/to/repo-c
 
-Which repos do you want to refresh via /refresh-signals first?
+Which repos do you want to refresh via /refresh-wiki first?
 (This runs the full signals pipeline for those repos and promotes them to `indexed`.)
 
 Type indices (e.g. 1 3), a range (1-3), `all`, or `none` to skip:
@@ -129,21 +325,21 @@ Type indices (e.g. 1 3), a range (1-3), `all`, or `none` to skip:
 
 Accepted input: space-separated indices, comma-separated, ranges (`1-3`), `all`, `none`, or `all except N`.
 
-Ask the user to run `/refresh-signals` in each selected repo, then confirm once done before continuing. An executing agent cannot run slash commands programmatically — the user must do this step. Once signals are written, those repos become `indexed`; update your internal member list accordingly.
+Ask the user to run `/refresh-wiki` in each selected repo, then confirm once done before continuing. An executing agent cannot run slash commands programmatically — the user must do this step. Once signals are written, those repos become `indexed`; update your internal member list accordingly.
 
 Unselected `pending` repos continue to Step 7 as candidates for wiki-mode summarization.
 
-## Step 7 — Incremental repo pass (judgment)
+### Step 7 — Incremental repo pass (judgment)
 
 Work through each repo artifact that needs authoring or re-authoring. Preserve fresh artifacts — do not re-author them.
 
 For each artifact, determine its disposition:
 
 - **SKIPPED (fresh)** — not flagged stale by Step 5 and not pending → preserve, no action.
-- **NEW** — a `pending` repo (not handled via `/refresh-signals` in Step 6) that has no summary yet.
+- **NEW** — a `pending` repo (not handled via `/refresh-wiki` in Step 6) that has no summary yet.
 - **RE-AUTHORED** — flagged `STALE summary` or `STALE concern` by Step 5.
 
-### 7a — Pending repo summaries (NEW)
+#### 7a — Pending repo summaries (NEW)
 
 For each `pending` repo not selected in Step 6:
 
@@ -167,16 +363,16 @@ test -f <member-repo-path>/.claude/.atomic-index/atomic.db
 
 Code-intel grounding is best-effort per repo. A repo without an index still gets summarized via heuristics — absence of an index is never a blocker for the wiki refresh.
 
-Dispatch `atomic-signals-inferrer` in wiki-output mode:
+Dispatch `atomic-wiki-inferrer` in wiki-output mode:
 
 ```
-subagent_type: "atomic-signals-inferrer"
+subagent_type: "atomic-wiki-inferrer"
 prompt:
   target_repo: <abs-path-to-repo>
   wiki_dir: <abs-path-to-wiki-root>
 ```
 
-Wait for the agent to complete. The inferrer writes EITHER a single file `<wiki-root>/repos/<repo-name>.md` (small repo) OR multiple files under `<wiki-root>/repos/<repo-name>/<domain>.md` (large repo, domain-split). Check which shape was produced.
+Wait for the agent to complete. The inferrer reads `skills/atomic-wiki/references/realm.md` and executes the wiki-output pipeline (W1-W7). It writes EITHER a single file `<wiki-root>/repos/<repo-name>.md` (small repo) OR multiple files under `<wiki-root>/repos/<repo-name>/<domain>.md` (large repo, domain-split). Check which shape was produced.
 
 After the agent returns, stamp each summary file the inferrer produced for that repo:
 
@@ -194,7 +390,7 @@ If the repo has no commits yet (`git rev-parse HEAD` fails), `atomic wiki stamp`
 
 Print: `NEW  <summary-file-path>`
 
-### 7b — Stale summaries (RE-AUTHORED)
+#### 7b — Stale summaries (RE-AUTHORED)
 
 For each `STALE summary <path>` line from Step 5:
 
@@ -202,7 +398,7 @@ The `STALE summary <path>` line from Step 5 gives you the summary file path. Der
 
 **Code-intel index sync (best-effort).** Apply the same warm/cold/absent logic as 7a using the resolved `target_repo` path before dispatching the inferrer.
 
-Dispatch `atomic-signals-inferrer` in wiki-output mode the same way as 7a, passing that repo path as `target_repo`.
+Dispatch `atomic-wiki-inferrer` in wiki-output mode the same way as 7a, passing that repo path as `target_repo`.
 
 After the agent returns, stamp each summary file the inferrer produced, using the `target_repo` path from your member list:
 
@@ -212,7 +408,7 @@ atomic wiki stamp <summary-file-path> --repo <target_repo>
 
 Print: `RE-AUTHORED  <summary-file-path>`
 
-## Step 8 — Bucket synthesis phase (judgment + deterministic)
+### Step 8 — Bucket synthesis phase (judgment + deterministic)
 
 For each bucket registered in `wiki/index.md` (read the `<wiki-buckets>` block entries):
 
@@ -226,17 +422,17 @@ atomic wiki bucket diff --root <resolved-root> <name>
 - Exit 1 → diff is non-empty → proceed to synthesis.
 - Exit 2 (hard error) → surface verbatim, mark bucket synthesis failed for this bucket, continue to the next.
 
-**8b — Dispatch inferrer for synthesis (judgment).** For each bucket with a non-empty diff, dispatch `atomic-signals-inferrer` in bucket-synthesis mode:
+**8b — Dispatch inferrer for synthesis (judgment).** For each bucket with a non-empty diff, dispatch `atomic-wiki-inferrer` in bucket-synthesis mode:
 
 ```
-subagent_type: "atomic-signals-inferrer"
+subagent_type: "atomic-wiki-inferrer"
 prompt:
   bucket_name: <name>
   bucket_path: <abs-path-to-bucket-folder>
   wiki_dir: <abs-path-to-wiki-root>
 ```
 
-The inferrer reads the bucket's `index.md` (conventions context) and the new/changed files from the diff as content context, and writes or updates `wiki/knowledge/<topic>.md` page(s). It reports back the pages it wrote and the source files that contributed to each page.
+The inferrer reads `skills/atomic-wiki/references/realm.md` and executes the bucket-synthesis pipeline (B1-B5). It reads the bucket's `index.md` (conventions context) and the new/changed files from the diff as content context, and writes or updates `wiki/knowledge/<topic>.md` page(s). It reports back the pages it wrote and the source files that contributed to each page.
 
 If the inferrer returns a partial-args error, surface it verbatim and mark synthesis failed for this bucket.
 
@@ -263,7 +459,7 @@ Print for synthesized buckets:
 SYNTHESIZED  <name>  → <wiki-root>/knowledge/<topic1>.md, <wiki-root>/knowledge/<topic2>.md
 ```
 
-## Step 9 — Stale concerns (RE-AUTHORED)
+### Step 9 — Stale concerns (RE-AUTHORED)
 
 For each `STALE concern <path> (<repo>)` line from Step 5:
 
@@ -290,7 +486,7 @@ The `--cites` ids are the repo identifiers (base directory names) of the repos w
 
 Print: `RE-AUTHORED  <concern-file-path>`
 
-## Step 10 — Linkify wiki artifacts (deterministic)
+### Step 10 — Linkify wiki artifacts (deterministic)
 
 After every summary, concern, and knowledge page has been authored AND stamped (Steps 7–9), render path citations into navigable relative markdown links:
 
@@ -300,7 +496,7 @@ atomic wiki linkify --root <resolved-root>
 
 This runs **after** stamping, so it never disturbs `reflects_*` fingerprints or `atomic wiki stale` verdicts (staleness is HEAD/hash-based, not body-based). Base resolution: `repos/**` summaries use each summary's `repo:` frontmatter dir; `concerns/*.md` and `index.md` use the realm root. It is idempotent — re-running produces byte-identical files; fenced code blocks are never touched. A `[text](path)` link is not an `@-ref`.
 
-## Step 11 — Summary disposition report
+### Step 11 — Summary disposition report
 
 After all artifacts are processed, print a per-artifact disposition table:
 
@@ -318,7 +514,7 @@ Wiki refresh — disposition:
 <N> new, <M> re-authored, <K> skipped, <L> synthesized, <P> placeholder.
 ```
 
-## Step 12 — Clear drift marker and re-scan (only on full completion)
+### Step 12 — Clear drift marker and re-scan (only on full completion)
 
 Only if Steps 2–11 all completed without error (no hard exit, no aborted dispatch):
 
@@ -336,7 +532,7 @@ atomic wiki scan --root <resolved-root>
 
 If any step earlier encountered an error or was aborted, leave `.dirty` set — the neglect nudge will continue to fire until a clean run completes.
 
-## Step 13 — Commit the wiki
+### Step 13 — Commit the wiki
 
 Once the drift marker is cleared, commit the wiki repository automatically — do not ask. The wiki is its own git repo under `<resolved-root>/wiki/`, and its git history *is* the wiki's changelog; prompting only adds friction to an additive operation that loses nothing.
 
@@ -355,7 +551,7 @@ Stage all changes under `<resolved-root>/wiki/`, invoke the `atomic-commit` skil
 - The bucket offer fires once per realm. The `<wiki-buckets>` block records both the populated state and the `declined="true"` state. Once the block exists, skip Step 3 entirely. **Why:** re-prompting on every run would be disruptive; the block is the durable opt-in/opt-out record.
 - Clear `.dirty` only on full completion. A partial or aborted run leaves the marker set. **Why:** the forcing function relies on `.dirty` persisting until the wiki is genuinely clean; clearing it early hides real drift.
 - Commit the wiki automatically; never ask. The wiki repo's git history is its changelog, so an additive commit loses nothing. **Why:** axiom 3 governs *destructive* shared-state ops (delete, force-push, history rewrite); a plain additive commit to the wiki's own repo is not one, and the user has standing consent for it — the wiki is an audit trail, and prompting defeats its purpose.
-- Both `target_repo` and `wiki_dir` must be passed together to `atomic-signals-inferrer` (wiki mode). Both `bucket_name`, `bucket_path`, and `wiki_dir` must all be passed for bucket-synthesis mode. If the inferrer reports a partial-args error, surface it verbatim and stop the current artifact's pass. **Why:** the inferrer refuses and names the missing arg — this is the prompt-level guard; the command always supplies all required args.
+- Both `target_repo` and `wiki_dir` must be passed together to `atomic-wiki-inferrer` (wiki mode). Both `bucket_name`, `bucket_path`, and `wiki_dir` must all be passed for bucket-synthesis mode. If the inferrer reports a partial-args error, surface it verbatim and stop the current artifact's pass. **Why:** the inferrer refuses and names the missing arg — this is the prompt-level guard; the command always supplies all required args.
 - Surface all `atomic wiki scan` and `atomic wiki stale` errors verbatim. Do not paraphrase exit-code 2 output. **Why:** paraphrased errors drop the exact token needed to diagnose the root cause.
 
 </constraints>
@@ -367,7 +563,7 @@ Stage all changes under `<resolved-root>/wiki/`, invoke the `atomic-commit` skil
 Each run only does the minimum necessary work:
 
 - **Fresh artifacts** (`atomic wiki stale` emits no line for them) are untouched — the code has verified they reflect the current state.
-- **Pending repos** that the user routes to `/refresh-signals` graduate to `indexed` and never need a wiki summary (signals are richer than summaries).
+- **Pending repos** that the user routes to `/refresh-wiki` (repo scope) graduate to `indexed` and never need a wiki summary (signals are richer than summaries).
 - **Pending repos** routed to the inferrer get a new summary stamped with the current HEAD — they become `summarized`.
 - **Stale summaries and concerns** are re-authored by the inferrer and re-stamped — only these incur inference cost.
 - **Buckets with a non-empty diff** are synthesized into knowledge pages, stamped, and promoted — only the changed files are passed as context.

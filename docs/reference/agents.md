@@ -29,4 +29,4 @@ These handle system-level tasks.
 
 | Agent | What it does | Model |
 |-------|-------------|-------|
-| `atomic-signals-inferrer` | Owns the full signals pipeline: scans the repo via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), writes `signals.md` (and per-domain files on large repos), wires the `@-ref` into `CLAUDE.md`. Dispatched by `/refresh-signals` and silently by ship verbs. | Sonnet |
+| `atomic-wiki-inferrer` | Owns the full signals pipeline: scans the repo via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), writes `signals.md` (and per-domain files on large repos), wires the `@-ref` into `CLAUDE.md`. Dispatched by `/refresh-wiki` and silently by ship verbs. | Sonnet |

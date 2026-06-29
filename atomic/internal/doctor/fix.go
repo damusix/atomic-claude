@@ -296,7 +296,7 @@ func (rp Repairer) applyManifestRepairWithGuard(out io.Writer) error {
 
 // -- refs repair --
 
-const refsBlock = "\n## Project signals (auto-loaded)\n\n@docs/wiki/index.md\n"
+const refsBlock = "\n## Project wiki (auto-loaded)\n\n@docs/wiki/index.md\n"
 
 // applyRefsRepair appends the @-ref block to the chosen candidate file.
 // Returns the chosen filename on success.

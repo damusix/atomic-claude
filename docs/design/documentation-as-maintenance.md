@@ -127,7 +127,7 @@ On first run (or when the user adds new docs), `/documentation` does the bootstr
 
 5. **Check for unindexed docs.** On subsequent runs, `/documentation` compares the scan results against the indexed table and offers to add any new unindexed docs. "Found 3 doc files not in your surfaces table. Add them?"
 
-This is similar to how `/refresh-signals` bootstraps the signals `@-refs` on first run — discover, present, wire, then subsequent runs are incremental.
+This is similar to how `/refresh-wiki` bootstraps the signals `@-refs` on first run — discover, present, wire, then subsequent runs are incremental.
 
 
 ### Maintenance mode: commit-flow integration

@@ -68,7 +68,7 @@ Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subage
 
 ### Orient Claude in a new repo
 
-`/atomic-setup` audits conventions, `/refresh-signals` teaches Claude the repo's shape, deterministic facts plus inferred meaning:
+`/atomic-setup` audits conventions, `/refresh-wiki` teaches Claude the repo's shape, deterministic facts plus inferred meaning:
 
 ```text
 ❯ /atomic-setup
@@ -94,14 +94,14 @@ Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subage
 
   Apply which actions? → All (1-3)
 
-  ✓ Applied. Next: /refresh-signals
+  ✓ Applied. Next: /refresh-wiki
 
-❯ /refresh-signals
+❯ /refresh-wiki
 
 ⏺ atomic signals scan
   ⎿  Tree · Manifests · Languages → docs/wiki/scan.md
 
-⏺ atomic-signals-inferrer
+⏺ atomic-wiki-inferrer
   ⎿  Framework: NestJS · package manager: pnpm
   ⎿  Build: pnpm build · test: pnpm test · lint: pnpm lint
   ⎿  → docs/wiki/index.md
@@ -215,7 +215,7 @@ Lost? Run `/atomic-help` in any repo — it reads your git state and names one n
 | # | Adopt | Do this |
 |---|-------|---------|
 | 1 | Structured replies | Install, activate the output style via `/config`. Everything else is optional. |
-| 2 | A repo explorer | `/atomic-setup` + `/refresh-signals`. Claude stops hallucinating build commands. |
+| 2 | A repo explorer | `/atomic-setup` + `/refresh-wiki`. Claude stops hallucinating build commands. |
 | 3 | A symbol-aware assistant | `atomic code index`, then `atomic code explore "<question>"` returns a digest of symbols, files, and call edges in one query. |
 | 4 | The full loop, or autopilot | Read the [workflow reference](docs/reference/workflow.md). |
 
@@ -236,7 +236,7 @@ atomic claude install
 
 Activate the output style with `/config` → Output style → Atomic.
 
-Then get the most from it: run `/refresh-signals` in each repo so Claude learns its shape, and `/refresh-wiki` over a folder of related repos for a cross-repo map. If your organization allows Claude Code hooks, `atomic hooks install` wires up profile refresh, pending reminders, and staleness nudges.
+Then get the most from it: run `/refresh-wiki` in each repo so Claude learns its shape, and at a realm root to build a cross-repo knowledge map. If your organization allows Claude Code hooks, `atomic hooks install` wires up profile refresh, pending reminders, and staleness nudges.
 
 For prereqs, flags, existing `~/.claude/CLAUDE.md` handling, updates, Docker evaluation, and uninstall: [docs/guides/install.md](docs/guides/install.md).
 

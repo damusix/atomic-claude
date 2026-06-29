@@ -1,19 +1,8 @@
+# Repo-scope wiki pipeline
+
+Full pipeline for a single-repo wiki refresh. Root: `docs/wiki/` inside the target repo. Executed by `atomic-wiki-inferrer` when scope is `repo`.
+
 ---
-name: atomic-signals-inferrer
-description: >
-  Full signals pipeline: scans the repo, infers domain structure, writes docs/wiki/index.md,
-  wires @-refs. Dispatches sub-agents per domain on large repos, validates via reviewer.
-  Dispatched by /refresh-signals (interactive) and ship verbs (silent). Scoped writes
-  only — never touches files outside docs/wiki/ and the @-ref target file.
-tools: Read, Write, Edit, Grep, Glob, Bash, Agent
-model: sonnet
----
-
-Signals pipeline orchestrator. Scans the repo via `atomic signals scan`, reads the deterministic snapshot, infers domain structure, dispatches sub-agents per domain, validates via reviewer, assembles `docs/wiki/index.md`, and wires the `@-ref`. Never touches files outside `docs/wiki/` (except the `@-ref` target file).
-
-## Response voice
-
-Your reply is consumed by the orchestrator agent, not shown to a human. Return findings and results only: no preamble, no restating the task back, no closing recap. Drop filler, pleasantries, and hedging; fragments are fine. Keep identifiers, technical terms, and error strings exact. Lead with the answer. **Why:** the orchestrator pays for every token of your reply and must extract the result without wading through scaffolding.
 
 ## What signals ARE
 
@@ -26,21 +15,7 @@ Signals are **facts about the current state of the codebase** — not instructio
 
 Every sentence in a signals file must be verifiable by reading the source. If it cannot be confirmed by opening a file, it does not belong in signals.
 
-
-## Caller-provided context
-
-The caller (command or ship verb) passes mode and context via the dispatch prompt:
-
-- **`mode: interactive`** — full pipeline with report. Return concerns table if any found.
-- **`mode: silent`** — scan + infer + wire. Suppress report. Discard concerns.
-- **`steering:`** block — contents of `signals-steering.md`, if it exists. Treat as ground truth — steering wins over inference.
-- **`first_run: true`** — no prior signals exist. Run full pipeline, not incremental.
-- **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths changed in this git range. When present, the agent derives the changed-paths set from `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes (`git diff --name-only <from-sha>`), instead of the `tmp/.scan.prev.md` vs `docs/wiki/scan.md` diff. The deterministic scan (Step 1) still runs whole-repo; only domain re-inference is scoped. Absent → unchanged behavior (prev/current snapshot diff drives incremental mode). Ignored in wiki-output and bucket-synthesis modes.
-- **`target_repo: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates wiki-output mode. Both must be present together. If exactly one is supplied, refuse immediately and name the missing argument — do not fall back to default mode. See the **Wiki-output mode** steps in the workflow below.
-- **`bucket_name: <name>`** + **`bucket_path: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates bucket-synthesis mode. All three must be present together. If `bucket_name` or `bucket_path` is supplied and any of the three is missing, refuse immediately and name the missing arg(s) — do not fall back to default or wiki-output mode. `wiki_dir` alone (without `bucket_name` or `bucket_path`) never triggers this guard. See the **Bucket-synthesis mode** steps in the workflow below.
-
-
-<workflow>
+---
 
 ## Pipeline
 
@@ -241,7 +216,7 @@ Block to append:
 </atomic-signals>
 ```
 
-In **silent mode** (ship verb context), append without confirmation. In **interactive mode** (from `/refresh-signals`), still append — the ref is non-destructive and the user expects signals to work after running refresh.
+In **silent mode** (ship verb context), append without confirmation. In **interactive mode** (from `/refresh-wiki`), still append — the ref is non-destructive and the user expects signals to work after running refresh.
 
 ### Step 8b — Linkify written signals files
 
@@ -253,14 +228,16 @@ atomic signals linkify
 
 This renders every repo-root-relative backtick path citation that resolves on disk (in `docs/wiki/index.md` and every `docs/wiki/*.md` domain file, excluding `docs/wiki/scan.md` and `docs/wiki/CLAUDE.md`) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
 
-Run this in **both** interactive and silent modes. (Wiki-output mode does NOT run it — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
+Run this in **both** interactive and silent modes. (Realm wiki-output mode does NOT run it — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
 
 ### Step 8c — Bootstrap docs/wiki/CLAUDE.md (first run only)
 
-If `docs/wiki/CLAUDE.md` does NOT exist, create it with OKF frontmatter and a steering note. Never overwrite an existing file — this step is idempotent.
+If `docs/wiki/CLAUDE.md` does NOT exist, create it with OKF frontmatter and the commented steering scaffold. Never overwrite an existing file — this step is idempotent.
 
 Check existence first: `test -f docs/wiki/CLAUDE.md` — if it exits 0, skip this step entirely.
 
+<!-- Canonical scaffold — must stay byte-identical to the R3 branch in templates/commands/refresh-wiki.md.
+     Edit both together if the scaffold changes. -->
 If absent, write:
 
 ```markdown
@@ -269,14 +246,23 @@ type: Steering
 description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
 ---
 
-This directory is the signals/wiki output for this repo. The inferrer treats this file as authoritative steering when a `<steering>` block is provided by the caller.
+<steering note: user hints to correct framework detection / domain grouping / build-test commands;
+ the inferrer reads this and treats it as authoritative>
 
-Key files:
-- `docs/wiki/index.md` — router + orientation, @-ref'd from project CLAUDE.md or CLAUDE.local.md
-- `docs/wiki/scan.md` — raw deterministic scan substrate (not @-ref'd; not committed)
-- `docs/wiki/<domain>.md` — per-domain detail files (OKF type: Domain)
+## Framework
+# NestJS monorepo (not plain Express)
 
-Signals are facts about the current state of the codebase — not instructions, not rules, not intent. See the inferrer agent for the full pipeline definition.
+## Domains
+# - src/billing/ and src/payments/ are one domain ("payments")
+# - src/internal-tools/ is scratch code — not a real domain
+
+## Build
+# - Build: pnpm turbo build
+# - Test: pnpm test:ci (not pnpm test — that runs watch mode)
+
+## Ignore for domains
+# - vendor/
+# - generated/
 ```
 
 ### Step 9 — Report (interactive only)
@@ -286,206 +272,6 @@ Print one-line summary: `signals refreshed. <N> sections changed. inferrer updat
 In **silent mode**, produce no output beyond writing the files.
 
 ---
-
-## Wiki-output mode
-
-Activated when the caller provides **both** `target_repo` and `wiki_dir`. If exactly one is present, stop immediately:
-
-```
-ERROR: wiki-output mode requires both target_repo and wiki_dir.
-Missing: <whichever is absent>.
-Aborting — not falling back to default signals mode.
-```
-
-When both are present, run this alternate pipeline instead of Steps 1-9 above. The default pipeline is not executed.
-
-### W1 — Guard: read-only on target_repo
-
-`target_repo` is explored **read-only**. No writes, no edits, no file creation anywhere inside it. The only write destination is `wiki_dir/repos/`. This mode is exempt from the default Scope rule: it never writes to `target_repo`'s `docs/wiki/` and never wires `@-refs`.
-
-### W2 — Obtain deterministic substrate
-
-Run `atomic signals scan` scoped to `target_repo`, writing output to a temporary directory outside it:
-
-```bash
-cd <target_repo> && atomic signals scan --out <tmp_dir>
-```
-
-where `<tmp_dir>` is a fresh temporary directory outside `target_repo` (e.g., a `os.MkdirTemp`-equivalent path). The scan must be rooted at `target_repo` so the substrate reflects that repo's files — not the current working directory or wiki dir. The output goes to `<tmp_dir>` instead of into `target_repo`'s `docs/wiki/`, which is never written to.
-
-Read the resulting `<tmp_dir>/docs/wiki/scan.md` as the substrate for inference.
-
-### W3 — Infer domain partitioning
-
-Apply the same domain-partitioning logic as Step 3 of the default pipeline (vertical slices by functional concern). Read source files in `target_repo` as needed to verify structure — read-only.
-
-**Size heuristic:**
-
-- **Small repo** (≤ 3 inferred domains or ≤ ~1,000 total lines of significant source): write a single summary file at `wiki_dir/repos/<repo-name>.md`.
-- **Large repo** (> 3 domains or > ~1,000 lines): write one file per domain at `wiki_dir/repos/<repo-name>/<domain>.md`.
-
-`<repo-name>` is the base name of `target_repo` (e.g., `target_repo = /home/user/projects/myapp` → `<repo-name> = myapp`).
-
-### W4 — Dispatch sub-agents per domain
-
-Same sub-agent dispatch logic as Step 4 of the default pipeline, with two differences:
-
-1. Sub-agents read from `target_repo` read-only and write their domain output to `wiki_dir/repos/<repo-name>/` (or single file for small repos). They do NOT write into `target_repo`.
-2. **Omit the `<concerns_format>` block from sub-agent prompts.** Wiki mode never surfaces concerns (W7 explicitly excludes them), so including the block wastes tokens generating output that is immediately discarded.
-
-The output format is the **wiki summary format** (not the signals domain file format):
-
-```
-<output_format>
----
-title: <domain or repo name>
-repo: <repo-name>
-generated: <YYYY-MM-DD>
-# reflects_rev and reflects fields are intentionally absent — written by 'atomic wiki stamp'
----
-
-## Overview
-
-<2-4 fact sentences about what this repo/domain does>
-
-## Key paths
-
-<bullet list: path — purpose. Most important entry points and packages.>
-
-## Tech stack
-
-<bullet: language, frameworks, key deps — facts from reading source/config>
-
-## Patterns worth knowing
-
-<bullet: conventions, non-obvious decisions, things that affect callers>
-</output_format>
-```
-
-The `reflects_rev` frontmatter field is **intentionally left absent**. The code step `atomic wiki stamp` writes it after this agent completes. The agent does not compute or write any fingerprint values.
-
-### W5 — Reviewer validates each summary file
-
-Same reviewer dispatch logic as Step 5 of the default pipeline. Reviewer checks that every claim is verifiable from source files in `target_repo`. Iterate up to 3 times before flagging unresolved.
-
-### W6 — Skip @-ref wiring
-
-Do NOT run Step 8 (wire `@-ref`). Wiki summaries live under `wiki_dir/` — they are not wired into any CLAUDE.md or project config. No `@-ref` is written.
-
-### W7 — Report
-
-Print a per-file disposition:
-
-```
-wiki summary written: wiki_dir/repos/<repo-name>[/<domain>].md  NEW | RE-AUTHORED
-```
-
-Do not print concerns in wiki-output mode — concerns are surfaced by the `/refresh-wiki` orchestrator, not this agent.
-
----
-
-## Bucket-synthesis mode
-
-Activated when the caller provides **all three** of `bucket_name`, `bucket_path`, and `wiki_dir`. When all three are present, run the bucket-synthesis pipeline below instead of Steps 1-9 or the wiki-output pipeline. The default and wiki-output pipelines are not executed.
-
-**Partial-arg guard.** Bucket intent = `bucket_name` or `bucket_path` supplied. If bucket intent is shown and any of the three args (`bucket_name`, `bucket_path`, `wiki_dir`) is missing, stop immediately:
-
-```
-ERROR: bucket-synthesis mode requires bucket_name, bucket_path, and wiki_dir.
-Missing: <whichever arg(s) are absent>.
-Aborting — not falling back to default or wiki-output mode.
-```
-
-`wiki_dir` alone (without `bucket_name` or `bucket_path`) shows no bucket intent — it is shared with wiki-output mode and never triggers this guard. When none of the three bucket args are present, skip this section entirely and proceed with default mode detection.
-
-### B1 — Read conventions context
-
-Read `<bucket_path>/index.md`. This file contains the bucket's purpose line and `## Conventions` block — it is the only description of what this bucket's content means. Use it as the framing context for all synthesis decisions: what topics are relevant, how to cluster files, what level of abstraction is appropriate.
-
-Do not modify `<bucket_path>/index.md` or any file inside `<bucket_path>/`. The bucket folder is read-only.
-
-### B2 — Read content files
-
-Read the changed/new files listed in the dispatch prompt (the orchestrator supplies the diff work list: new and changed files from `atomic wiki bucket diff`). Read files in parallel.
-
-`removed` files are listed for awareness only — do not attempt to read them (they may no longer exist). Do not auto-delete any knowledge content when files are removed; the orchestrator decides retraction.
-
-### B3 — Synthesize knowledge pages
-
-For each coherent topic found across the content files:
-
-1. Determine the topic name. Topic names must be kebab-case matching `[a-z0-9-]+\.md` (examples: `vendor-x.md`, `auth-patterns.md`, `api-design.md`). Code validates this at stamp time; emit conforming names — non-conforming names will be skipped by `atomic wiki stamp --knowledge`.
-
-2. Determine the target path: `<wiki_dir>/knowledge/<topic>.md`.
-
-3. If the file already exists, read it first, then **merge** new information into the existing content. Never duplicate facts already present. Preserve existing structure where it still applies; extend or refine as needed.
-
-4. If the file does not exist, create it. Write durable, topic-keyed knowledge content — not a raw dump, not a bullet list of file names. Synthesize facts, patterns, and relationships that persist beyond any single capture file.
-
-   When the body links to another concept in the bundle (a repo summary, concern, or another knowledge page), use a standard bundle-relative markdown link `[text](/path.md)` — not an Obsidian `[[wikilink]]`. **Why:** OKF §5.1 recommends bundle-relative `/path.md` as the canonical cross-link form; standard markdown links are portable across all consumers (serve, Obsidian, GitHub, goldmark).
-
-5. Write the frontmatter with the following fields:
-   - `title:` — the topic name in plain English.
-   - `type: Knowledge` — required OKF field (title-case; serve maps it to the `knowledge` graph node class).
-   - `description:` — a one-line summary of the topic.
-
-   Do NOT write `sources:` or any fingerprint/hash values — those are written by `atomic wiki stamp --knowledge` after synthesis completes. Do NOT write `reflects_rev:` or `reflects:` fields. **Why:** `type` and `description` are producer-defined content (OKF §4.1) and belong to the model, just as `title:` is already model-written; code computes and writes every fingerprint, and the model never declares hash values.
-
-6. Write the file.
-
-Knowledge pages are topic-keyed, not bucket-keyed. If content from this bucket covers the same topic as a prior synthesis from another bucket, merge into the shared topic page. Multiple buckets' files about the same topic converge to one page — this is intentional.
-
-### B4 — Never touch outside the knowledge dir
-
-Do NOT:
-- Modify any file inside `<bucket_path>/`
-- Write fingerprint or `sources:` values (code stamps after)
-- Modify `<wiki_dir>/index.md`
-- Run `atomic wiki bucket promote` (orchestrator's job, conditional on synthesis success)
-- Write to any path outside `<wiki_dir>/knowledge/`
-
-### B5 — Report
-
-Return a structured report listing each knowledge page written or updated, and which source files from the bucket fed that page. The orchestrator passes this source list to `atomic wiki stamp --knowledge`.
-
-```
-bucket synthesis complete: <bucket_name>
-
-knowledge pages written/updated:
-- <wiki_dir>/knowledge/<topic>.md  NEW | UPDATED
-  sources: <bucket_name>/<relpath>, <bucket_name>/<relpath>, …
-
-- <wiki_dir>/knowledge/<other-topic>.md  NEW | UPDATED
-  sources: <bucket_name>/<relpath>, …
-```
-
-If no content files were provided (empty diff), report:
-
-```
-bucket synthesis skipped: <bucket_name> — no changed files to synthesize
-```
-
-</workflow>
-
-## Code-intel index
-
-When `.claude/.atomic-index/atomic.db` is present and `atomic` is on PATH, prefer `atomic code` verbs for location and relationship questions — they query a pre-built symbol graph and return results that grep cannot replicate:
-
-- `atomic code explore "<query>"` — **reach for this first when scoping an unfamiliar area.** Takes a natural-language query and returns a bundled context digest (markdown): the relevant symbols, files, and relationships in one shot, instead of you issuing four separate queries and stitching the results together. Use it to orient, then drill in with the targeted verbs below.
-- `atomic code search <symbol>` — where a symbol is defined and used (outranks sg/grep for this question)
-- `atomic code callers <symbol>` — all callers of a function or method across the codebase
-- `atomic code callees <symbol>` — all symbols a function calls
-- `atomic code impact <symbol>` — blast radius of changing a symbol (transitive callers)
-
-Add `--json` to any query verb for machine-parseable output when processing results programmatically.
-
-**Bounded queries only.** Scope every query — one `explore` question or one symbol at a time. Never attempt to dump or sweep the full graph; the index answers a specific question, it is not a corpus to read.
-
-**Graceful degradation — non-negotiable.** Before querying, confirm the path is live: `atomic` on PATH, `.claude/.atomic-index/atomic.db` exists, and the query returns usable output. On any failure — binary absent, DB missing, query error — fall back silently to sg/grep/heuristics. Never print an error about the index being unavailable; never block because it is missing. The query is an enhancement; grep is the floor. This matters because the artifacts install into user repos that never ran `atomic code index`.
-
-**Why the index exists.** It reflects working-tree state at the last `atomic code sync`. It is authoritative for existing symbols at that point in time. The orchestrator (not the subagent) owns keeping the index fresh — the subagent only queries.
-
-**Wiki realm fan-out.** If a `<code-index>` block is present in CLAUDE.md, the working directory is a wiki realm with N independently indexed member repos. `atomic code` queries fan out across all members at the realm root (results grouped under `[<key>]` headers; add `--json` for a `{ "<key>": … }` object); inside a member directory, only that member is queried. Use `--only <keys>` or `--exclude <keys>` to filter the fan-out set. Graceful degradation to `sg`/`grep` applies to realm queries as well.
 
 ## Incremental vs full mode
 
@@ -649,12 +435,6 @@ Plus the `@-ref` wiring target (one of `claude.local.md`, `CLAUDE.local.md`, or 
 
 The deterministic substrate (`docs/wiki/scan.md`) is written by the scan step. Never rewrite it manually.
 
-**Wiki-output mode is exempt from this scope rule.** When `target_repo` + `wiki_dir` are both supplied, the only write destination is `wiki_dir/repos/`. This agent never writes to `target_repo`'s `docs/wiki/` and never wires `@-refs` in wiki mode.
-
-**Bucket-synthesis mode is exempt from this scope rule.** When `bucket_name` + `bucket_path` + `wiki_dir` are all supplied, the only write destination is `wiki_dir/knowledge/`. This agent never writes to the bucket folder, never wires `@-refs`, and never touches any `docs/wiki/` directory in bucket-synthesis mode.
-
-
-<constraints>
 
 ## Rules
 
@@ -665,5 +445,3 @@ The deterministic substrate (`docs/wiki/scan.md`) is written by the scan step. N
 - Never modify files outside `docs/wiki/` (except the single `@-ref` target file for wiring). **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
 - Errors quoted exact. No paraphrasing. **Why:** paraphrased errors lose the exact token needed to `grep` for the root cause.
 - Never block a commit — if the scan fails, log and continue. **Why:** signals are supplemental context, not a build gate.
-
-</constraints>

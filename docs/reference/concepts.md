@@ -42,7 +42,7 @@ Everything below is either produced by this binary or grounded by what it produc
 - `atomic code explore "<question>"` — reach for this first: a bundled digest of the relevant symbols, files, and how they relate, in one shot.
 - `atomic code callers <symbol>` / `callees <symbol>` — what calls it, what it calls.
 - `atomic code impact <symbol>` — the blast radius of changing it.
-- `atomic code sync` — keep the index current (ship verbs and `/refresh-signals` do this when it is warm).
+- `atomic code sync` — keep the index current (ship verbs and `/refresh-wiki` do this when it is warm).
 - `atomic code mcp` — expose the graph to your interactive session as MCP tools.
 
 See the [code-intel reference](/reference/code-intel) for the full verb list and lifecycle, and the [MCP guide](/guides/code-intel-mcp).
@@ -53,7 +53,7 @@ See the [code-intel reference](/reference/code-intel) for the full verb list and
 
 Signals are context engineering — a wiki for one repo. The project's context is curated once and kept as an artifact, instead of re-derived from scratch every session.
 
-You could hand-maintain a `CLAUDE.md`, but the odds you keep it current are slim: you add a service, rename a package, swap Jest for Vitest, and forget. Signals are baked into the workflow instead. `/refresh-signals` scans the repo, the ship verbs refresh it on every commit, and the inference is grounded by the code-intel graph and the actual file diff, not guesswork. You front-load compressed context once — and again only when the repo changes — instead of paying for it on every request.
+You could hand-maintain a `CLAUDE.md`, but the odds you keep it current are slim: you add a service, rename a package, swap Jest for Vitest, and forget. Signals are baked into the workflow instead. `/refresh-wiki` scans the repo, the ship verbs refresh it on every commit, and the inference is grounded by the code-intel graph and the actual file diff, not guesswork. You front-load compressed context once — and again only when the repo changes — instead of paying for it on every request.
 
 Signals fix:
 

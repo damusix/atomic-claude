@@ -103,7 +103,7 @@ The whole pipeline is one command:
 
 1. `atomic wiki bucket add research` — register the folder once. It creates the bucket's `index.md` stub and its manifest directory.
 2. Drop material into `research/`, `raw/`, and the rest as work happens.
-3. `/refresh-wiki` — scans the repos, then for each bucket with a non-empty diff dispatches `atomic-signals-inferrer` to synthesize the changed files into `wiki/knowledge/<topic>.md`, stamps `sources:` provenance, promotes the baseline, and offers to commit the wiki.
+3. `/refresh-wiki` — scans the repos, then for each bucket with a non-empty diff dispatches `atomic-wiki-inferrer` to synthesize the changed files into `wiki/knowledge/<topic>.md`, stamps `sources:` provenance, promotes the baseline, and offers to commit the wiki.
 
 No fingerprint script, no custom synthesis command. On first run in a realm with no buckets, `/refresh-wiki` offers to create them.
 

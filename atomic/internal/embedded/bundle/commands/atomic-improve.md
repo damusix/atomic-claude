@@ -234,7 +234,7 @@ Parse the outputs:
 - `doctor.json` — every `FAIL` becomes a candidate finding (tier: Critical if `category in {refs, manifest, install, hooks}`; Maintenance otherwise). Every `WARN` becomes a Maintenance finding. SKIP/PASS are ignored.
 - `validate.json` — every `FAIL` with `level >= S1` becomes a Critical finding; lower levels become Maintenance.
 - `docs-stale.txt` exists → one Maintenance finding suggesting `/documentation` re-scan.
-- `signals-stale.txt` exists → one Maintenance finding suggesting `/refresh-signals`.
+- `signals-stale.txt` exists → one Maintenance finding suggesting `/refresh-wiki`.
 
 These findings carry the binary's own remediation text — the LLM does not paraphrase it. Recommendations are the binary's verbatim `--fix` suggestion when present.
 

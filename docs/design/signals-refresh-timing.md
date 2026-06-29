@@ -4,7 +4,7 @@
 
 Project-signals refresh is wired to **commit time only**. The `signals-gate` partial is
 embedded in the `commit-flow`, `merge-flow`, and `squash-flow` ship partials; each ship
-verb runs `atomic signals stale` and, on exit 1, dispatches the `atomic-signals-inferrer`
+verb runs `atomic signals stale` and, on exit 1, dispatches the `atomic-wiki-inferrer`
 agent. The `/subagent-implementation` and `/autopilot` implement→review loops never refresh
 signals themselves — they only commit per green iteration.
 
@@ -86,7 +86,7 @@ only change is the *source* of that set:
   plus uncommitted (`git diff --name-only <from>`), unioned. The agent runs `git` itself
   (it has Bash), so no new CLI flag and no Go change.
 
-When no `changed_range` is supplied (the existing `/refresh-signals` and ship-verb callers),
+When no `changed_range` is supplied (the existing `/refresh-wiki` and ship-verb callers),
 behavior is unchanged — the prev/current snapshot diff drives incremental mode as before.
 
 ## Where it plugs in

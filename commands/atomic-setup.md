@@ -8,14 +8,47 @@ You set up the repo for atomic-claude conventions. Detect first, propose second,
 
 ## Pre-flight
 
-1. Verify inside a git repo: `git rev-parse --is-inside-work-tree 2>/dev/null`.
-2. If not a git repo, prompt via `AskUserQuestion`:
-    ```
-    Not a git repo. Initialize one?
-    - Yes, run git init
-    - No, stop
-    ```
-    On Yes: `git init`. On No: refuse and stop.
+1. Run these two checks in parallel:
+   - `git rev-parse --is-inside-work-tree 2>/dev/null`
+   - `test -d wiki && echo wiki-present || echo wiki-absent`
+
+2. If NOT in a git repo:
+   - **`wiki/` directory present** → realm root confirmed. Set `WIKI_SCOPE=realm`;
+     skip the init prompt and proceed to Scope detection.
+   - **No `wiki/` directory** → prompt via `AskUserQuestion`:
+     ```
+     Not a git repo. Initialize one?
+     - Yes, run git init
+     - No, stop
+     ```
+     On Yes: `git init`. On No: refuse and stop.
+
+## Scope detection
+
+Determine `WIKI_SCOPE` (skip if pre-flight already set it to `realm`):
+
+| git repo? | `wiki/` present? | `WIKI_SCOPE` |
+|-----------|-----------------|-------------|
+| No        | Yes             | `realm` (set in pre-flight) |
+| Yes       | No              | `repo` |
+| Yes       | Yes             | Ask user (see below) |
+
+**Ambiguous case** — git repo with a `wiki/` directory present. Prompt via
+`AskUserQuestion`:
+
+```
+A wiki/ directory exists inside this git repo. Which scope applies?
+- realm — this directory is a realm root (wiki/ is the attached wiki repo)
+- repo  — this is a single git repo with its own wiki/ storage
+- unsure / cancel — treat as repo
+```
+
+Accept `realm` or `repo` as typed input or a button choice. If the user cancels,
+answers ambiguously, or chooses "unsure / cancel", default to `repo` and note
+`"wiki-type defaulted to repo (wiki/ present inside git repo — user did not confirm realm)"` in the Step 5 output.
+
+`WIKI_SCOPE` is now set to either `repo` or `realm`. It is written as a
+`<wiki-type>` scope marker in Step 4.
 
 ## Step 1 — Audit
 
@@ -67,7 +100,7 @@ For each missing item, propose an action. Skip items already present.
 | Registration missing, binary present | Run `atomic hooks install`. |
 | Registration missing, binary missing | Manually add a `SessionStart` entry to `.claude/settings.json` whose `hooks[].command` is `atomic hooks session-start`. |
 | Legacy wrapper-script registration present | Run `atomic hooks install` (migrates to the inline command and deletes the stale `session-start-reminders.sh` script). |
-| `deterministic-signals.md` missing but `atomic` present | Print: "Run `/refresh-signals` to generate project signals." (follow-up only; setup does not invoke it). |
+| `deterministic-signals.md` missing but `atomic` present | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
 | `CLAUDE.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
 | `.signalsignore` missing | Create `.signalsignore` with commented explanation (see `.signalsignore` subsection in Step 4). Never overwrite if it exists. |
 | `.claude/project/signals-steering.md` missing | Create `.claude/project/signals-steering.md` with commented explanation (see `signals-steering.md` subsection in Step 4). Never overwrite if it exists. |
@@ -263,7 +296,7 @@ Accept → use as-is. Edit → user supplies replacement text. Skip (empty-guess
 </atomic-signals>
 ````
 
-The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d — it is read only during inference by the `atomic-signals-inferrer` agent.
+The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d — it is read only during inference by the `atomic-wiki-inferrer` agent.
 
 **Content that belongs in the global file, not the project file:** These live globally already — duplicating them noise-pollutes the project file:
 
@@ -299,7 +332,7 @@ Install the atomic binary:
 **Signals files missing (binary present)** — Print the follow-up command; do not invoke it:
 
 ```
-Run /refresh-signals to generate project signals.
+Run /refresh-wiki to generate project signals.
 ```
 
 **`CLAUDE.md` missing `@-ref`** — Append to the existing `CLAUDE.md`:
@@ -322,6 +355,32 @@ fi
 
 Idempotent: only appends when `CLAUDE.md` exists AND `@-ref` is missing. Refuses silently otherwise.
 
+### `<wiki-type>` scope marker
+
+Write the `<wiki-type>` block unconditionally — this is machine-managed metadata,
+not gated by the Step 3 confirmation list.
+
+Determine the target file (check in this order):
+
+- `claude.local.md` exists at repo root → write to `claude.local.md`.
+- `CLAUDE.md` exists at repo root (including if just created earlier in Step 4) → write to `CLAUDE.md`.
+- Neither exists → skip; note `"wiki-type not written — no CLAUDE.md or claude.local.md present"` in Step 5.
+
+Write idempotently — replace the block in place if already present, else append:
+
+```bash
+# $TARGET is claude.local.md or CLAUDE.md; $WIKI_SCOPE is repo or realm
+if grep -qF '<wiki-type>' "$TARGET" 2>/dev/null; then
+  sed -i '' "s|<wiki-type>[^<]*</wiki-type>|<wiki-type>${WIKI_SCOPE}</wiki-type>|" "$TARGET"
+else
+  printf '\n<wiki-type>%s</wiki-type>\n' "${WIKI_SCOPE}" >> "$TARGET"
+fi
+```
+
+`claude.local.md` is checked first so the project-local file takes precedence
+over the committed `CLAUDE.md` — mirrors how the `@`-ref and other machine-managed
+blocks choose their target in this repo.
+
 ## Step 5 — Report
 
 Final state:
@@ -331,6 +390,7 @@ Applied:
   ✓ .gitignore updated: added tmp/, .claude/.scratchpad/, .worktrees/
   ✓ CLAUDE.md created via survey (N sections accepted, M edited, K skipped)
   ✓ docs/spec/ + docs/design/ created with .gitkeep
+  ✓ wiki-type: repo → written to CLAUDE.md
 
 Skipped:
   • README.md (you said no)

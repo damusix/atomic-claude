@@ -17,7 +17,7 @@ Users pin any installed atomic agent to a cost tier via `atomic config agents`. 
 
 ## Success criteria
 
-- **SC-DSV (dispatch-site verification — load-bearing gate):** No command or agent template passes `model:` as an explicit Agent tool parameter when dispatching any atomic agent (`atomic-implementer`, `atomic-reviewer`, `atomic-strategist`, `atomic-investigator`, `atomic-signals-inferrer`). Frontmatter is the sole lever. If any dispatch site hardcodes `model:` at call time, the frontmatter patch is dead and the mechanism must pivot to dispatch-time override before any build work begins.
+- **SC-DSV (dispatch-site verification — load-bearing gate):** No command or agent template passes `model:` as an explicit Agent tool parameter when dispatching any atomic agent (`atomic-implementer`, `atomic-reviewer`, `atomic-strategist`, `atomic-investigator`, `atomic-wiki-inferrer`). Frontmatter is the sole lever. If any dispatch site hardcodes `model:` at call time, the frontmatter patch is dead and the mechanism must pivot to dispatch-time override before any build work begins.
 - **SC1:** `config.toml [agents]` accepts full agent filename keys (e.g., `atomic-implementer`) with tier values from `{haiku, sonnet, opus, fable}`. `atomic config agents` writes them interactively via huh; `config.WritePersist` persists.
 - **SC2:** `checks_config.go` / `config.Validate` fails on any `[agents]` value outside the allowlist; unknown agent-filename keys produce a warning (non-fatal).
 - **SC3:** `atomic claude install` and `atomic claude update` patch `model:` in each agent file listed under `[agents]`; an absent entry leaves the bundled default unchanged.

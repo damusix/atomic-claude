@@ -195,7 +195,7 @@ Add to `claude.local.md`:
 - `CLAUDE.md`: add `atomic docs scan` and `atomic docs stale` to "Atomic binary subcommands". Update `/documentation` description to mention bootstrap flow. Update "Two voices" to reference the surfaces table mechanism.
 - `README.md`: update `/documentation` row in commands table. Add note about bootstrap behavior.
 - `make render` + `make bundle`.
-- `/refresh-signals`.
+- `/refresh-wiki`.
 
 
 ## Risks

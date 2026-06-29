@@ -19,7 +19,7 @@ The knowledge exists only in the developer's head. A fresh Claude session redisc
 - Not a replacement for signals. Signals stay repo-local and authoritative; the wiki points at them, never copies them.
 - Not a dependency graph generator. Cross-cutting concerns are LLM-curated prose with cited evidence, not a parsed import graph.
 - Not a CLI "membership" system. Cross-realm links are LLM-curated via the `<wikis>` registry.
-- Not a new agent. The no-signals explorer is the existing `atomic-signals-inferrer` in a wiki-output mode.
+- Not a new agent. The no-signals explorer is the existing `atomic-wiki-inferrer` in a wiki-output mode.
 - Out of scope: monorepo sub-packages (a repo is a `.git` boundary); `--full` self-containment (summarizing `indexed` repos too); auto-committing the wiki.
 
 
@@ -37,7 +37,7 @@ Mental model: **signals = one repo's internals; a wiki = how a realm's repos rel
 
 | Deterministic CLI | called by | LLM command |
 |---|---|---|
-| `atomic signals scan` | → | `/refresh-signals` |
+| `atomic signals scan` | → | `/refresh-wiki` |
 | `atomic wiki scan` / `atomic wiki stale` | → | `/refresh-wiki` |
 
 
@@ -51,7 +51,7 @@ stateDiagram-v2
     [*] --> indexed: scan finds repo WITH .claude/project/signals.md
     [*] --> pending: scan finds repo WITHOUT signals
     pending --> summarized: inferrer (wiki mode) runs scan+infer redirected, writes wiki summary
-    pending --> indexed: user accepts /refresh-signals in the repo
+    pending --> indexed: user accepts /refresh-wiki in the repo
 ```
 
 | State | Knowledge source |
@@ -76,7 +76,7 @@ flowchart TD
     LLM --> D1{"repo pending, or its artifact stale?"}
     D1 -->|fresh| SKIP["preserve existing artifact"]
     D1 -->|signals present| R1["read live, cite path"]
-    D1 -->|no signals| O1["offer /refresh-signals; else dispatch inferrer (wiki mode)"]
+    D1 -->|no signals| O1["offer /refresh-wiki; else dispatch inferrer (wiki mode)"]
     O1 --> SCANOUT["atomic signals scan --out &lt;tmp&gt; (substrate OUTSIDE the repo)"]
     SCANOUT --> SUM["inferrer infers → writes wiki/repos/&lt;repo&gt;; CODE stamps reflects_rev"]
     R1 --> SYN["re-synthesize only concerns whose inputs drifted; CODE stamps reflects"]
@@ -147,7 +147,7 @@ flowchart TD
 ## Refresh + change log
 
 
-`/refresh-wiki` is the single idempotent entry point (init == refresh), parallel to `/refresh-signals`. Re-runs update only what drifted. The wiki is its own git repo, so its git history is the change log — the command ends by offering to commit (message via `atomic-commit`). Committing is offered, not automatic.
+`/refresh-wiki` is the single idempotent entry point (init == refresh), parallel to `/refresh-wiki`. Re-runs update only what drifted. The wiki is its own git repo, so its git history is the change log — the command ends by offering to commit (message via `atomic-commit`). Committing is offered, not automatic.
 
 
 ## Approaches
@@ -156,7 +156,7 @@ flowchart TD
 | # | Decision | Chosen | Rejected + why |
 |---|----------|--------|----------------|
 | 1 | Registry location | `<wikis>` block in `~/.claude/CLAUDE.md` | `config.toml` (LLM can't see it in-session); a new `@-ref`'d file (context bloat). |
-| 2 | No-signals explorer | reuse `atomic-signals-inferrer` in wiki mode, fed by `atomic signals scan --out` (substrate redirected outside the repo), output written into the wiki, @-ref wiring skipped | New agent — rejected: extra artifact that drifts from the explorer it duplicates. Write-into-repo-then-move-and-clean — rejected: leaks on crash, risks deleting pre-existing `.claude/`, must revert a CLAUDE.md edit. Redirecting the output removes the whole class of risk. |
+| 2 | No-signals explorer | reuse `atomic-wiki-inferrer` in wiki mode, fed by `atomic signals scan --out` (substrate redirected outside the repo), output written into the wiki, @-ref wiring skipped | New agent — rejected: extra artifact that drifts from the explorer it duplicates. Write-into-repo-then-move-and-clean — rejected: leaks on crash, risks deleting pre-existing `.claude/`, must revert a CLAUDE.md edit. Redirecting the output removes the whole class of risk. |
 | 3 | index.md structure | two-zone single file (`<wiki-scan>` block + narrative) | split sidecar — rejected: user wants the block inside `index.md`. |
 | 4 | Concern synthesis | `/refresh-wiki` orchestrator; per-repo summaries by the inferrer | in-agent synthesis — rejected: needs all repos together. |
 | 5 | Cross-realm refs | LLM-curated, evidence-cited, linked via the registry | CLI membership mechanism — rejected: the registry is the only mechanism needed. |

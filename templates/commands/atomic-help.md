@@ -50,7 +50,7 @@ Pick **one** primary recommendation from this decision table. Show it first, the
 | State | Primary recommendation | Why |
 |-------|------------------------|-----|
 | not `in_repo` | `/atomic-setup` (after `git init`) | repo not initialized |
-| `in_repo` + `fresh_repo` | `/atomic-setup` then `/refresh-signals` | toolchain never run here |
+| `in_repo` + `fresh_repo` | `/atomic-setup` then `/refresh-wiki` | toolchain never run here |
 | `in_repo` + on_base + clean | `/atomic-plan` then `/subagent-implementation` (worktree created at start of loop) | start fresh work in isolation |
 | on_base + dirty | commit or stash first, then `/subagent-implementation` (worktree created by the loop) | base should stay clean |
 | feature branch + dirty + no spec | `/atomic-plan` (write the contract first) | plan before code |
@@ -96,8 +96,8 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `setup` / `install` | First-run flow: `/atomic-setup` audits conventions, then `/refresh-signals` generates project context. |
-| `signals` | `/refresh-signals` — idempotent, initializes or refreshes. The implement loop / `/autopilot` refreshes at finalize (scoped to the task's SHA range); ship verbs are the ad-hoc fallback and skip docs-only commits. |
+| `setup` / `install` | First-run flow: `/atomic-setup` audits conventions, then `/refresh-wiki` generates project context. |
+| `signals` | `/refresh-wiki` — idempotent, initializes or refreshes. The implement loop / `/autopilot` refreshes at finalize (scoped to the task's SHA range); ship verbs are the ad-hoc fallback and skip docs-only commits. |
 | `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, synthesizes capture-bucket material into `wiki/knowledge/` pages, refreshes only stale artifacts, commits the wiki (its git history is the changelog). Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/diff/promote` to manage capture folders. `atomic-wiki` skill is the conversational entry point — fires on "I want a place for notes/tickets", "add a bucket", "what does my wiki know", "is my wiki stale". |
 | `worktree` | Worktree creation is built into the implement loop — `/subagent-implementation` and `/autopilot` both offer (or auto-create) `.worktrees/<branch>/` via the `worktree-setup` shared partial. Cleanup via `/git-cleanup`. |
 | `session` | `/session-report [<slug>]` captures branch session. Read + deleted by next commit-message ship verb. |
@@ -118,7 +118,7 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `agents` | 5 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, `atomic-strategist`, `atomic-signals-inferrer`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
+| `agents` | 5 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
 | `skills` | 9 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`, `atomic-wiki`, `atomic-visual-options`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
@@ -202,7 +202,7 @@ wiki layout:
   wiki/.buckets/<n>/  SHA-256 manifests for capture folder <n> (current/baseline/previous)
   <realm>/<bucket>/   capture folder (user-maintained; registered via `atomic wiki bucket add`)
 
-Refresh project map any time: /refresh-signals (syncs code-intel index when warm)
+Refresh project map any time: /refresh-wiki (syncs code-intel index when warm)
 Refresh cross-repo wiki: /refresh-wiki [root]
 ```
 

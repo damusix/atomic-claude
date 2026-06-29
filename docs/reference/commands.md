@@ -44,8 +44,8 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 | Command | What it does |
 |---------|-------------|
 | `/atomic-setup` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
-| `/refresh-signals` | Scan the project and generate (or update) the signals files that teach Claude your repo's shape. Idempotent. |
-| `/refresh-wiki` | Maintain a cross-repo wiki. Runs `atomic wiki scan` to classify member repos, refreshes stale or pending artifacts, and synthesizes capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-signals-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and offers a commit when done. Run `atomic wiki scan` first to scaffold the wiki directory. |
+| `/refresh-wiki` | Scan the project and generate (or update) the signals files that teach Claude your repo's shape. Idempotent. |
+| `/refresh-wiki` | Maintain a cross-repo wiki. Runs `atomic wiki scan` to classify member repos, refreshes stale or pending artifacts, and synthesizes capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-wiki-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and offers a commit when done. Run `atomic wiki scan` first to scaffold the wiki directory. |
 
 
 ## Maintenance
@@ -95,7 +95,7 @@ The `atomic wiki` subcommand manages the cross-repo wiki and capture buckets. Mo
 
 ## Binary subcommands (`atomic code`)
 
-The `atomic code` subcommand provides a code-intelligence index and query engine. When a project has been indexed, `atomic-investigator`, `atomic-reviewer`, and `atomic-signals-inferrer` query the symbol graph automatically; every consumer falls back to `sg`/`grep` when the index is absent. `atomic doctor` check 11 reports index health. Run `atomic code --help` for full usage.
+The `atomic code` subcommand provides a code-intelligence index and query engine. When a project has been indexed, `atomic-investigator`, `atomic-reviewer`, and `atomic-wiki-inferrer` query the symbol graph automatically; every consumer falls back to `sg`/`grep` when the index is absent. `atomic doctor` check 11 reports index health. Run `atomic code --help` for full usage.
 
 | Subcommand | What it does |
 |---------|-------------|

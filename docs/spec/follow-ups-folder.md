@@ -51,7 +51,7 @@ Replace `.claude/project/followups.md` (single file, merge-conflict-prone) with 
 | 12 | README + CLAUDE.md + CLAUDE.md edits | `README.md`, `CLAUDE.md`, `CLAUDE.md` | README new `atomic followups` subcommand documented in CLI section; CLAUDE.md / CLAUDE.md "Where things live" line updated from `followups.md` path to `followups/INDEX.md` + folder explanation |
 | 13 | `docs/reference/` updates if commands.md exists | `docs/reference/commands.md` | If file exists and lists `/follow-up`, update with `review` subverb |
 | 14 | Bundle regeneration | `make -C atomic bundle` | `atomic/internal/embedded/{bundle,manifest.go}` updated; CI parity check passes (`commands/follow-up.md` and `commands/subagent-implementation.md` both changed) |
-| 15 | Spec change-log + signals refresh | this file's Change log + `/refresh-signals` | Spec captures migration outcome; signals reflect new folder structure + CLI surface |
+| 15 | Spec change-log + signals refresh | this file's Change log + `/refresh-wiki` | Spec captures migration outcome; signals reflect new folder structure + CLI surface |
 
 ## Folder layout
 

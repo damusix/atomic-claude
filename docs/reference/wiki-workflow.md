@@ -46,7 +46,7 @@ The split is the same one signals use. The CLI does the deterministic work — w
 
 | Deterministic CLI | called by | LLM command |
 |---|---|---|
-| `atomic signals scan` | → | `/refresh-signals` |
+| `atomic signals scan` | → | `/refresh-wiki` |
 | `atomic wiki scan` / `atomic wiki stale` | → | `/refresh-wiki` |
 
 
@@ -67,7 +67,7 @@ atomic wiki scan --root ~/work/acme   # scaffold <path>/wiki
 
 `--root` is a flag; the positional slot is reserved for the verb (`scan`, `stale`). With no flag, the root is the current directory.
 
-The scan is idempotent. Re-running regenerates only the managed `<wiki-scan>` block in `index.md` — every summary, concern doc, and the narrative you or the LLM wrote is left untouched. It is init and refresh in one command, exactly like `/refresh-signals`.
+The scan is idempotent. Re-running regenerates only the managed `<wiki-scan>` block in `index.md` — every summary, concern doc, and the narrative you or the LLM wrote is left untouched. It is init and refresh in one command, exactly like `/refresh-wiki`.
 
 
 ## What a wiki looks like
@@ -116,7 +116,7 @@ The wiki is a navigable markdown graph. The scan writes a managed `## Members` s
 
 "No signals" is a fork, not a defect. A repo you own can carry committed signals; an open-source dependency should not — the wiki summarizes it instead, never writing into it.
 
-When the refresh pass meets a `pending` repo, it presents the no-signals repos as a numbered list and asks which to run `/refresh-signals` on, promoting those to `indexed`. The rest are summarized into the wiki by `atomic-signals-inferrer` in its wiki-output mode: it scans the repo with the substrate redirected outside it (`atomic signals scan --out`), infers, and writes the summary only into the wiki. The source repo is never modified.
+When the refresh pass meets a `pending` repo, it presents the no-signals repos as a numbered list and asks which to run `/refresh-wiki` on, promoting those to `indexed`. The rest are summarized into the wiki by `atomic-wiki-inferrer` in its wiki-output mode: it scans the repo with the substrate redirected outside it (`atomic signals scan --out`), infers, and writes the summary only into the wiki. The source repo is never modified.
 
 
 ## The registry
@@ -167,7 +167,7 @@ atomic wiki bucket promote research   # advance the baseline after synthesis
 
 **Two-phase contract.** `diff` is read-only: it computes a SHA-256 manifest of the current folder contents and compares against the stored baseline, reporting `new`, `changed`, and `removed` files. `promote` is a state change: it advances the baseline to the current manifest, marking the bucket in-sync. You run `promote` only after a successful synthesis so that a failed or aborted synthesis leaves the diff intact and `/refresh-wiki` retries.
 
-**What gets synthesized.** `/refresh-wiki` runs the bucket-synthesis phase after repo summaries. For each bucket with a non-empty diff, it dispatches `atomic-signals-inferrer` in bucket-synthesis mode (fresh context per bucket). The inferrer reads the bucket's `index.md` (where you describe the bucket's purpose and conventions) and the changed files, then writes or updates topic-keyed pages under `wiki/knowledge/`. Multiple buckets' content about the same topic merges into one page; provenance lives in each page's `sources:` frontmatter, written by `atomic wiki stamp --knowledge` — the model declares which source files contributed, the code writes every SHA-256 value.
+**What gets synthesized.** `/refresh-wiki` runs the bucket-synthesis phase after repo summaries. For each bucket with a non-empty diff, it dispatches `atomic-wiki-inferrer` in bucket-synthesis mode (fresh context per bucket). The inferrer reads the bucket's `index.md` (where you describe the bucket's purpose and conventions) and the changed files, then writes or updates topic-keyed pages under `wiki/knowledge/`. Multiple buckets' content about the same topic merges into one page; provenance lives in each page's `sources:` frontmatter, written by `atomic wiki stamp --knowledge` — the model declares which source files contributed, the code writes every SHA-256 value.
 
 **The manifest.** SHA-256 fingerprints live in `wiki/.buckets/<name>/` as three files: `current` (written on every diff, debugging artifact only), `baseline` (what the wiki has consumed), and `previous` (the prior baseline). Manifests are wiki state and belong in the wiki repo's git history — they make the wiki self-describing on clone.
 

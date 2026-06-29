@@ -47,7 +47,7 @@ The installer prints two manual steps it cannot automate:
 
     ![The output style picker with Atomic selected](/img/output-style-picker.png)
 
-2. **Scan your repos** — run `/refresh-signals` in each repo. It builds the signals files, Claude's standing map of that repo's framework, commands, and layout
+2. **Scan your repos** — run `/refresh-wiki` in each repo. It builds the signals files, Claude's standing map of that repo's framework, commands, and layout
 
 A few optional steps go further:
 

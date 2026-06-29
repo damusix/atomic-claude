@@ -5,7 +5,7 @@ description: Steering context for the docs/wiki/ project-wiki directory; loaded 
 
 # docs/wiki/ steering
 
-This directory is the repo-local project wiki for atomic-claude. It is written and maintained by `atomic-signals-inferrer` and `atomic signals scan`. Do not edit files here by hand except to correct factual errors.
+This directory is the repo-local project wiki for atomic-claude. It is written and maintained by `atomic-wiki-inferrer` and `atomic signals scan`. Do not edit files here by hand except to correct factual errors.
 
 ## What lives here
 
