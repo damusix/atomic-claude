@@ -151,20 +151,21 @@ func routerRefWired(root string) bool {
 // as root/docs/wiki/<target>.
 func parseRouterDomains(content string) []string {
 	var result []string
-	inTable := false
+	inSection := false
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		// Domains table header detection.
-		if strings.HasPrefix(line, "## Domains") {
-			inTable = true
+		// Enter the Domains section on its heading.
+		if line == "## Domains" || strings.HasPrefix(line, "## Domains ") {
+			inSection = true
 			continue
 		}
-		// Any non-table line after the header ends the table.
-		if inTable && !strings.HasPrefix(line, "|") && line != "" {
-			inTable = false
+		// Any subsequent heading exits the section.
+		if inSection && strings.HasPrefix(line, "## ") {
+			break
 		}
-		if !inTable || !strings.HasPrefix(line, "|") {
+		// Within the section, skip blank lines and intro prose; only process table rows.
+		if !inSection || !strings.HasPrefix(line, "|") {
 			continue
 		}
 		// Skip separator rows (e.g. |---|---|)

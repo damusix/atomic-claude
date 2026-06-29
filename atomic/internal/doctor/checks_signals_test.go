@@ -388,6 +388,43 @@ func TestCheckSignalsRouterNewLayout_Pass(t *testing.T) {
 	}
 }
 
+// routerWithIntroParagraph builds a docs/wiki/index.md body that mirrors the
+// real router structure: ## Domains heading, an intro paragraph, a blank line,
+// the table, then a ## Cross-cutting heading that follows.
+// The Detail column contains linkified markdown links: [`docs/wiki/x.md`](x.md).
+func routerWithIntroParagraph(details ...string) string {
+	var b strings.Builder
+	b.WriteString("# Project wiki\n\n")
+	b.WriteString("## Domains\n\n")
+	b.WriteString("Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for one feature concern. Read a domain file when you're working on that feature end-to-end.\n\n")
+	b.WriteString("| Domain | Repo paths | One-liner | Detail |\n")
+	b.WriteString("|--------|------------|-----------|--------|\n")
+	for i, d := range details {
+		linked := fmt.Sprintf("[`docs/wiki/%s`](%s)", d, d)
+		b.WriteString(fmt.Sprintf("| domain%d | src/%d/ | desc | %s |\n", i, i, linked))
+	}
+	b.WriteString("\n## Cross-cutting\n\n")
+	b.WriteString("Cross-cutting content here.\n")
+	return b.String()
+}
+
+// TestCheckSignalsRouterIntroParagraphTolerant verifies that an intro paragraph
+// between ## Domains and the table does NOT trip parseRouterDomains into returning
+// empty — which would cause every real domain file to be reported as an orphan.
+// This is the regression test for the false-positive WARN bug.
+func TestCheckSignalsRouterIntroParagraphTolerant(t *testing.T) {
+	root := t.TempDir()
+	makeRouterFile(t, root, routerWithIntroParagraph("auth.md", "billing.md"))
+	makeClaudeMd(t, root, "claude.local.md", "@docs/wiki/index.md\n")
+	makeDomainFile(t, root, "auth.md")
+	makeDomainFile(t, root, "billing.md")
+
+	r := doctor.RunCheckRouterWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS (intro paragraph must not break domain parsing); detail: %s", r.Severity, r.Detail)
+	}
+}
+
 // TestCheckSignalsOrphanExclusion verifies that index.md, scan.md, and
 // CLAUDE.md inside docs/wiki/ are never reported as orphan domain files,
 // even when they are not listed in the router table (new layout, CP2).
