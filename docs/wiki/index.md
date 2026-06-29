@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals, do
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>67d8d26cb0a39d2bc542c2e96f99fc5330229acc</scan-sha>
+<scan-sha>a747c4c3d6cb57c9db5bb4d42fd0201083e874e1</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals

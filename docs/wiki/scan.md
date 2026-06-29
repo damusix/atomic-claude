@@ -150,8 +150,8 @@
 │   │   │   ├── checks_profile_test.go (bcb8f8f, 190L, 7032ch, 7034B)
 │   │   │   ├── checks_refs.go (7a00b80, 57L, 1586ch, 1588B)
 │   │   │   ├── checks_refs_test.go (ebe584b, 146L, 4335ch, 4337B)
-│   │   │   ├── checks_signals.go (7e6ac39, 261L, 8340ch, 8362B)
-│   │   │   ├── checks_signals_test.go (2ae4d8f, 456L, 17906ch, 17922B)
+│   │   │   ├── checks_signals.go (6269ac0, 272L, 9131ch, 9155B)
+│   │   │   ├── checks_signals_test.go (2a755c0, 481L, 19220ch, 19236B)
 │   │   │   ├── doctor.go (3fdce3c, 178L, 6361ch, 6397B)
 │   │   │   ├── doctor_test.go (887aae3, 253L, 7539ch, 7549B)
 │   │   │   ├── exit.go (bd50502, 14L, 305ch, 309B)
@@ -645,7 +645,7 @@
 
 ## Languages
 
-- Go: 141073 LOC (60%), 395 files (43%)
+- Go: 141109 LOC (60%), 395 files (43%)
 - Markdown: 51076 LOC (21%), 314 files (34%)
 - TypeScript: 29270 LOC (12%), 159 files (17%)
 - JavaScript: 4179 LOC (1%), 5 files (0%)
