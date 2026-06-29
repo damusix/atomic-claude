@@ -186,7 +186,7 @@ func TestBuildUninstallPlan_EmbeddedSHA_Delete(t *testing.T) {
 
 	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, map[string]string{
 		"CLAUDE.md": embeddedSHA,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlanWithManifest: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestBuildUninstallPlan_EmbeddedSHA_NeedsMerge(t *testing.T) {
 
 	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, map[string]string{
 		"CLAUDE.md": embeddedSHA,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlanWithManifest: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestBuildUninstallPlan_CurrentMatchesPreInstall(t *testing.T) {
 
 	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, map[string]string{
 		"CLAUDE.md": embeddedSHA,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlanWithManifest: %v", err)
 	}
