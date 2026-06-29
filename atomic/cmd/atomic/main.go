@@ -36,57 +36,46 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/validate"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	fs := flag.NewFlagSet("atomic", flag.ContinueOnError)
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: atomic [flags] <command> [args]\n\n")
-		fmt.Fprintf(os.Stderr, "Commands:\n")
-		cliusage.RenderCommandsBlock(os.Stderr)
-		fmt.Fprintf(os.Stderr, "\nFlags:\n")
-		fs.PrintDefaults()
-	}
-
-	var showVersion bool
-	var repoOverride string
+	// Pre-scan 1: strip --no-update-check from os.Args in any position before
+	// Cobra runs. flag.FlagSet stops at the first non-flag argument (the
+	// subcommand), so "atomic signals scan --no-update-check" would not be
+	// seen by Cobra's persistent flag on the root. Stripping it here also
+	// prevents the sub-handler's own flag parser from tripping over it.
 	var noUpdateCheck bool
-	fs.BoolVar(&showVersion, "version", false, "print version and exit")
-	fs.BoolVar(&showVersion, "v", false, "print version and exit (short)")
-	fs.StringVar(&repoOverride, "repo", "", "repo root override (default: detect via git)")
-	// Registered for --help documentation only; the actual value is set by
-	// scanNoUpdateCheck (which pre-scans all argv positions before flag.Parse,
-	// since flag.FlagSet stops at the first non-flag argument).
-	fs.BoolVar(&noUpdateCheck, "no-update-check", false, "suppress background update check")
-
-	// Pre-scan all argv for --no-update-check before flag.Parse, because
-	// flag.FlagSet stops at the first non-flag argument (the subcommand), so
-	// "atomic signals scan --no-update-check" would not set noUpdateCheck via
-	// fs.Parse alone. We strip the flag from args so subcommands don't see it.
 	noUpdateCheck, os.Args = scanNoUpdateCheck(os.Args)
 
-	if err := fs.Parse(os.Args[1:]); err != nil {
-		os.Exit(2)
+	// Pre-scan 2: handle --version / -v before Cobra so the output format
+	// ("atomic X.Y.Z (commit)") and exit code (0) are preserved exactly.
+	// These flags are also registered as persistent flags for --help docs.
+	for _, a := range os.Args[1:] {
+		if a == "--version" || a == "-v" {
+			fmt.Printf("atomic %s (%s)\n", version.Version, version.Commit)
+			os.Exit(0)
+		}
 	}
 
-	if showVersion {
-		fmt.Printf("atomic %s (%s)\n", version.Version, version.Commit)
-		return
-	}
+	// Build the Cobra command tree. repoOverride is populated by Cobra's
+	// persistent-flag parsing for "--repo" placed before the subcommand.
+	var repoOverride string
+	rootCmd := buildRootCmd(&repoOverride)
 
-	args := fs.Args()
-	if len(args) == 0 {
-		fs.Usage()
-		os.Exit(1)
-	}
+	// Derive the cliusage surface from the live Cobra tree so Commands(),
+	// LookupByPath(), and TopLevelVerbs() all reflect the real flag metadata
+	// rather than the static hardcoded table (CP4).
+	cliusage.SetRoot(rootCmd)
 
-	// Background update check: spawned for every command except "update" and
-	// when --no-update-check is set. The goroutine writes to the cache; only
-	// the main thread prints the banner after the subcommand finishes.
+	// Background update check: spawned before verb execution so it runs
+	// concurrently with the handler; banner is printed after Execute() returns.
+	// We find the first verb by scanning os.Args, skipping flags and their
+	// values. Only --repo takes a value among root-level flags.
 	var bgUpdateCh <-chan selfupdate.Result
 	var cacheEntry selfupdate.CacheEntry
 	var cachePath string
-	if !noUpdateCheck && args[0] != "update" {
+	if !noUpdateCheck && findFirstVerb(os.Args[1:]) != "update" {
 		cp, err := selfupdate.DefaultCachePath()
 		if err == nil {
 			cachePath = cp
@@ -96,48 +85,10 @@ func main() {
 		}
 	}
 
-	switch args[0] {
-	case "signals":
-		runSignals(args[1:], repoOverride)
-	case "reminder":
-		runReminder(args[1:], repoOverride)
-	case "hooks":
-		runHooks(args[1:], repoOverride)
-	case "claude":
-		runClaude(args[1:])
-	case "doctor":
-		runDoctor(args[1:])
-	case "docker":
-		runDocker(args[1:])
-	case "update":
-		runUpdate(args[1:])
-	case "config":
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic config: resolve home dir: %v\n", err)
-			os.Exit(2)
-		}
-		os.Exit(config.Run(args[1:], filepath.Join(home, ".claude"), os.Stdout, os.Stderr))
-	case "followups":
-		runFollowups(args[1:], repoOverride)
-	case "validate":
-		os.Exit(validate.Run(args[1:]))
-	case "docs":
-		runDocs(args[1:], repoOverride)
-	case "profile":
-		runProfile(args[1:])
-	case "code":
-		runCode(args[1:], repoOverride)
-	case "wiki":
-		runWiki(args[1:])
-	case "prompt":
-		runPrompt(args[1:])
-	case "serve":
-		os.Exit(serve.Run(args[1:], os.Stdout, os.Stderr))
-	case "migrate":
-		runMigrate(args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
+	// Execute the Cobra command tree. SilenceErrors is set on rootCmd so we
+	// handle the error ourselves and control the exit code explicitly.
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -158,6 +109,766 @@ func main() {
 			// goroutine not done yet — skip banner this run
 		}
 	}
+}
+
+// buildRootCmd constructs the Cobra root command with all 17 top-level verb
+// stubs. Each stub delegates to the existing runXxx handler with the post-verb
+// args, preserving all existing dispatch behavior unchanged. The nested
+// sub-switches inside handlers (code, wiki, signals, etc.) stay intact and are
+// ported to Cobra sub-commands in later checkpoints.
+//
+// DisableFlagParsing: true on every verb passes the full arg slice
+// (sub-verbs + flags) through to the existing handler unmodified, so the
+// handler's own flag.NewFlagSet / sub-switch continues to work identically.
+func buildRootCmd(repoOverride *string) *cobra.Command {
+	rootCmd := &cobra.Command{
+		Use:           "atomic",
+		Short:         "Holistic Claude Code configuration CLI",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		// Run is called when no subcommand is given. Print help and exit 1,
+		// matching the old behavior of fs.Usage() + os.Exit(1).
+		Run: func(cmd *cobra.Command, args []string) {
+			_ = cmd.Help()
+			os.Exit(1)
+		},
+	}
+
+	// Suppress the auto-generated "completion" subcommand so the visible
+	// verb set stays exactly the current 17.
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	// Replace the auto-generated "help" subcommand with a hidden no-op so it
+	// does not appear in the visible verb list.
+	rootCmd.SetHelpCommand(&cobra.Command{
+		Use:    "help [command]",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return nil
+		},
+	})
+
+	// Override the help template to omit the hard-coded "(eq .Name "help")"
+	// exception that Cobra's default template uses. Without this, the hidden
+	// "help" command appears in `atomic --help` output even though Hidden: true.
+	rootCmd.SetHelpTemplate(`{{with .Short}}{{. | trimRightSpace}}{{end}}
+
+Usage:
+  {{.UseLine}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}
+
+Available Commands:{{range .Commands}}{{if .IsAvailableCommand}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimRightSpace}}
+
+Use "{{.CommandPath}} [command] --help" for more information about a command.
+`)
+
+	// Persistent flags: registered on root for --help documentation.
+	//
+	// --no-update-check is stripped from os.Args by scanNoUpdateCheck() before
+	// Execute() runs, so Cobra's persistent-flag parser never sees it in the
+	// argv. The Bool registration below is purely for `atomic --help` docs.
+	//
+	// --version / -v is handled by a pre-scan in main() that exits before
+	// Execute(); the BoolP registration is for `atomic --help` docs only.
+	//
+	// --repo is the only flag Cobra actually parses and applies at runtime
+	// (for arguments placed before the subcommand name).
+	rootCmd.PersistentFlags().StringVar(repoOverride, "repo", "", "repo root override (default: detect via git)")
+	rootCmd.PersistentFlags().Bool("no-update-check", false, "suppress background update check")
+	rootCmd.PersistentFlags().BoolP("version", "v", false, "print version and exit")
+
+	// --- 17 top-level verb stubs -----------------------------------------
+
+	rootCmd.AddCommand(buildSignalsCmd(repoOverride))
+
+	rootCmd.AddCommand(buildReminderCmd(repoOverride))
+
+	rootCmd.AddCommand(buildHooksCmd(repoOverride))
+
+	rootCmd.AddCommand(buildClaudeCmd())
+
+	rootCmd.AddCommand(buildDoctorCmd())
+
+	rootCmd.AddCommand(buildDockerCmd())
+
+	rootCmd.AddCommand(buildUpdateCmd())
+
+	rootCmd.AddCommand(buildConfigCmd())
+
+	rootCmd.AddCommand(buildFollowupsCmd(repoOverride))
+
+	rootCmd.AddCommand(buildValidateCmd())
+
+	rootCmd.AddCommand(buildDocsCmd(repoOverride))
+
+	rootCmd.AddCommand(buildProfileCmd())
+
+	rootCmd.AddCommand(buildCodeCmd(repoOverride))
+
+	rootCmd.AddCommand(buildWikiCmd())
+
+	rootCmd.AddCommand(buildPromptCmd())
+
+	rootCmd.AddCommand(buildServeCmd())
+
+	rootCmd.AddCommand(buildMigrateCmd())
+
+	return rootCmd
+}
+
+// --- CP2: parent commands with Cobra subcommands ---------------------------
+//
+// Each builder creates a parent *cobra.Command whose children correspond to the
+// nested verb switch in the handler. The parent uses Args:cobra.ArbitraryArgs
+// so unknown verbs (and the empty-args case) fall through to the existing
+// handler, preserving exit codes and error messages. Each child sets
+// DisableFlagParsing:true and prepends its name so the existing handler
+// receives [verb, ...rest], identical to the pre-CP2 call shape.
+// Flags registered via cmd.Flags() are for CP4 derivation only — not parsed
+// by Cobra at runtime; the handler's own flag.NewFlagSet parses them.
+
+// buildSignalsCmd builds the "signals" parent + scan|show|stale|diff|linkify children.
+func buildSignalsCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runSignals(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "signals",
+		Short: "Project context pipeline (scan|show|stale|diff|linkify)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("scan", "Walk repo and write docs/wiki/scan.md", "", func(c *cobra.Command) {
+		c.Flags().String("out", "", "write substrate to <dir> instead of <root>/.claude/project/")
+	})
+	addSub("show", "Print docs/wiki/scan.md to stdout", "", nil)
+	addSub("stale", "Exit 0 fresh, 1 stale, 2 error", "", nil)
+	addSub("diff", "Print unified diff of signals file", "", nil)
+	addSub("linkify", "Linkify path tokens in docs/wiki/index.md and docs/wiki/*.md", "", nil)
+	return parent
+}
+
+// buildReminderCmd builds the "reminder" parent + add|list|show|rm children.
+// The undocumented "set-due" verb is not a cliusage entry; it routes via the
+// parent's ArbitraryArgs fallback to the existing handler.
+func buildReminderCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runReminder(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "reminder",
+		Short: "Manage session reminders (add|list|show|rm|set-due)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("add", "Create a reminder file; prints assigned id", "<text>", func(c *cobra.Command) {
+		c.Flags().String("due", "", "RFC3339 due timestamp")
+		c.Flags().String("transport", "", "transport kind: cron, routine, or none")
+	})
+	addSub("list", "List all reminders", "", nil)
+	addSub("show", "Print body of a reminder", "<id>", nil)
+	addSub("rm", "Delete a reminder", "<id>", nil)
+	return parent
+}
+
+// buildHooksCmd builds the "hooks" parent + session-start|install|uninstall children.
+func buildHooksCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runHooks(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "hooks",
+		Short: "Manage session-start hooks (session-start|install|uninstall)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("session-start", "Print session-start hook payload", "", func(c *cobra.Command) {
+		c.Flags().String("format", "", "output format: json or text")
+	})
+	addSub("install", "Install session-start hook", "", func(c *cobra.Command) {
+		c.Flags().String("scope", "", "scope: user or project")
+	})
+	addSub("uninstall", "Remove session-start hook", "", func(c *cobra.Command) {
+		c.Flags().String("scope", "", "scope: user or project")
+	})
+	return parent
+}
+
+// buildClaudeCmd builds the "claude" parent + install|update|list|diff|uninstall children.
+func buildClaudeCmd() *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "claude",
+		Short: "Install, update, or manage ~/.claude artifacts (install|update|list|diff|uninstall)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { runClaude(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				runClaude(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("install", "Install artifact bundle", "", func(c *cobra.Command) {
+		c.Flags().Bool("dry-run", false, "print what would happen; make no changes")
+		c.Flags().String("target", "", "target directory (default ~/.claude)")
+		c.Flags().Bool("no-hooks", false, "skip session-start hook installation")
+	})
+	addSub("update", "Update artifact bundle", "", func(c *cobra.Command) {
+		c.Flags().Bool("dry-run", false, "print what would happen; make no changes")
+		c.Flags().String("target", "", "target directory (default ~/.claude)")
+		c.Flags().Bool("no-hooks", false, "skip session-start hook installation")
+	})
+	addSub("list", "List bundled artifacts", "", nil)
+	addSub("diff", "Diff bundle vs on-disk", "", func(c *cobra.Command) {
+		c.Flags().String("target", "", "target directory (default ~/.claude)")
+	})
+	addSub("uninstall", "Generate uninstall prompt", "", func(c *cobra.Command) {
+		c.Flags().String("target", "", "target directory (default ~/.claude)")
+	})
+	return parent
+}
+
+// buildDockerCmd builds the "docker" parent + init child.
+func buildDockerCmd() *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "docker",
+		Short: "Docker eval environment scaffolding (init)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { runDocker(args); return nil },
+	}
+	initCmd := &cobra.Command{
+		Use:                "init",
+		Short:              "Scaffold Docker eval environment",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runDocker(append([]string{"init"}, args...))
+			return nil
+		},
+	}
+	initCmd.Flags().String("target", "", "target directory for scaffolded files")
+	initCmd.Flags().Bool("force", false, "overwrite existing files")
+	parent.AddCommand(initCmd)
+	return parent
+}
+
+// buildDocsCmd builds the "docs" parent + scan|stale children.
+func buildDocsCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runDocs(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "docs",
+		Short: "Docs surface scanning (scan|stale)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short string) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": ""},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		parent.AddCommand(c)
+	}
+	addSub("scan", "Scan docs and write doc-surfaces.md")
+	addSub("stale", "Exit 0 fresh, 1 stale, 2 error")
+	return parent
+}
+
+// buildProfileCmd builds the "profile" parent + refresh child.
+func buildProfileCmd() *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "profile",
+		Short: "User profile management (refresh)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { runProfile(args); return nil },
+	}
+	refreshCmd := &cobra.Command{
+		Use:                "refresh",
+		Short:              "Refresh ## Environment in profile.md",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runProfile(append([]string{"refresh"}, args...))
+			return nil
+		},
+	}
+	refreshCmd.Flags().String("if-stale", "", "skip refresh when lastcheck is within this window (e.g. 7d, 30d)")
+	parent.AddCommand(refreshCmd)
+	return parent
+}
+
+// buildPromptCmd builds the "prompt" parent + git-cleanup|claude-merge children.
+func buildPromptCmd() *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "prompt",
+		Short: "Emit cold-op briefs (git-cleanup|claude-merge)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { runPrompt(args); return nil },
+	}
+	addSub := func(verb, short string) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": ""},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				runPrompt(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		parent.AddCommand(c)
+	}
+	addSub("git-cleanup", "Emit the git-cleanup cold-op brief")
+	addSub("claude-merge", "Emit the CLAUDE.md merge cold-op brief")
+	return parent
+}
+
+// --- CP3: package-resident nested switches → Cobra subcommands ---------------
+//
+// Same CP2 pattern: parent has Args:cobra.ArbitraryArgs so unknown verbs and
+// the no-args case fall through to the existing handler; each child sets
+// DisableFlagParsing:true and prepends its name to reconstruct the arg shape
+// the existing package handler expects.
+
+// buildCodeCmd builds the "code" parent + index|sync|status|search|callers|
+// callees|impact|node|files|affected|explore|mcp children.
+// Dispatch is runCode (→ codecli.RunCodeWithRealm); the handler's own
+// flag.NewFlagSet parses flags at runtime — Cobra flag registrations here are
+// for CP4 derivation only (deriveCommands reads cmd.Flags).
+func buildCodeCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runCode(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "code",
+		Short: "Code-intel engine (index|sync|status|search|callers|callees|impact|node|files|affected|explore|mcp)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("index", "Index all source files", "", func(c *cobra.Command) {
+		c.Flags().Bool("profile", false, "emit per-phase wall-time to stderr")
+		c.Flags().String("only", "", "include only files matching pattern")
+		c.Flags().String("exclude", "", "exclude files matching pattern")
+	})
+	addSub("sync", "Incrementally re-index changed files", "", nil)
+	addSub("status", "Show index status", "", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "emit machine-readable JSON")
+	})
+	addSub("search", "Search indexed nodes", "<query>", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "emit JSON")
+		c.Flags().Int("limit", 20, "max results")
+		c.Flags().String("only", "", "include only files matching pattern")
+		c.Flags().String("exclude", "", "exclude files matching pattern")
+	})
+	addSub("callers", "Find callers of symbol", "<symbol>", func(c *cobra.Command) {
+		c.Flags().Int("depth", 3, "BFS depth")
+		c.Flags().Bool("json", false, "emit JSON")
+		c.Flags().String("only", "", "include only files matching pattern")
+		c.Flags().String("exclude", "", "exclude files matching pattern")
+	})
+	addSub("callees", "Find callees of symbol", "<symbol>", func(c *cobra.Command) {
+		c.Flags().Int("depth", 3, "BFS depth")
+		c.Flags().Bool("json", false, "emit JSON")
+		c.Flags().String("only", "", "include only files matching pattern")
+		c.Flags().String("exclude", "", "exclude files matching pattern")
+	})
+	addSub("impact", "Find impact radius of symbol", "<symbol>", func(c *cobra.Command) {
+		c.Flags().Int("depth", 3, "BFS depth")
+		c.Flags().Bool("json", false, "emit JSON")
+		c.Flags().String("only", "", "include only files matching pattern")
+		c.Flags().String("exclude", "", "exclude files matching pattern")
+	})
+	addSub("node", "Show node detail", "<symbol>", func(c *cobra.Command) {
+		c.Flags().String("file", "", "filter by file path")
+		c.Flags().Int("line", 0, "filter by line number")
+		c.Flags().Bool("json", false, "emit JSON")
+	})
+	addSub("files", "List indexed files", "[pattern]", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "emit JSON")
+	})
+	addSub("affected", "Find affected test files", "", func(c *cobra.Command) {
+		c.Flags().Int("depth", 5, "BFS depth for dependency traversal")
+		c.Flags().String("test-glob", "", "glob pattern to identify test files")
+		c.Flags().Bool("stdin", false, "read changed file paths from stdin")
+		c.Flags().Bool("json", false, "emit JSON")
+	})
+	addSub("explore", "Gather context for a query", "<query>", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "emit JSON")
+		c.Flags().String("only", "", "include only files matching pattern")
+		c.Flags().String("exclude", "", "exclude files matching pattern")
+	})
+	addSub("mcp", "Run the MCP server over stdio (proxy + daemon; --no-watch disables sync poller)", "", func(c *cobra.Command) {
+		c.Flags().Duration("watch-interval", 0, "override the daemon's sync interval")
+		c.Flags().Bool("no-watch", false, "disable background sync poller in the daemon")
+	})
+	return parent
+}
+
+// buildConfigCmd builds the "config" parent + get|set|unset|list|path|agents children.
+// Dispatch is config.Run (from internal/config/cli.go).
+func buildConfigCmd() *cobra.Command {
+	dispatch := func(args []string) {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic config: resolve home dir: %v\n", err)
+			os.Exit(2)
+		}
+		os.Exit(config.Run(args, filepath.Join(home, ".claude"), os.Stdout, os.Stderr))
+	}
+	parent := &cobra.Command{
+		Use:   "config",
+		Short: "Read and write atomic config (get|set|unset|list|path|agents)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("get", "Print resolved config value", "<key>", nil)
+	addSub("set", "Set config value; re-renders config.resolved.md", "<key> <val>", nil)
+	addSub("unset", "Revert key to built-in default", "<key>", nil)
+	addSub("list", "List all resolved key=value pairs", "", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "print as JSON object")
+	})
+	addSub("path", "Print path to config.toml", "", nil)
+	addSub("agents", "Set per-agent model tiers interactively", "", nil)
+	return parent
+}
+
+// buildWikiCmd builds the "wiki" parent + scan|stale|linkify children and the
+// 3-level "wiki bucket" intermediate command with add|list|diff|promote leaves.
+// Dispatch is runWiki (→ wiki.WikiAction from internal/wiki/action.go).
+func buildWikiCmd() *cobra.Command {
+	dispatch := func(args []string) { runWiki(args) }
+	parent := &cobra.Command{
+		Use:   "wiki",
+		Short: "Wiki management (scan|stale|linkify|bucket)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("scan", "Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md", "", func(c *cobra.Command) {
+		c.Flags().String("root", "", "root directory to scan (default: cwd)")
+	})
+	addSub("stale", "Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)", "", func(c *cobra.Command) {
+		c.Flags().String("root", "", "root directory to check (default: cwd)")
+	})
+	addSub("linkify", "Linkify path tokens in wiki artifacts in-place", "", func(c *cobra.Command) {
+		c.Flags().String("root", "", "realm root directory (default: cwd)")
+	})
+
+	// 3-level nesting: wiki bucket → add|list|diff|promote.
+	// The bucket intermediate command routes through dispatch as well so that
+	// internal verbs (stamp, mark-dirty) and the no-args usage path all still
+	// reach wiki.WikiAction unchanged.
+	bucketParent := &cobra.Command{
+		Use:   "bucket",
+		Short: "Manage capture buckets (add|list|diff|promote)",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dispatch(append([]string{"bucket"}, args...))
+			return nil
+		},
+	}
+	addBucketSub := func(verb, short, argsHint string) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{"bucket", verb}, args...))
+				return nil
+			},
+		}
+		c.Flags().String("root", "", "realm root directory (default: cwd)")
+		bucketParent.AddCommand(c)
+	}
+	addBucketSub("add", "Register a capture bucket; create index.md stub and manifest dir", "<name>")
+	addBucketSub("list", "List registered buckets with baseline count and pending/fresh status", "")
+	addBucketSub("diff", "Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty", "<name>")
+	addBucketSub("promote", "Snapshot bucket and rotate baseline→previous, current→baseline", "<name>")
+	parent.AddCommand(bucketParent)
+
+	return parent
+}
+
+// buildFollowupsCmd builds the "followups" parent + list|add|close|render|path children.
+// Dispatch is runFollowups (→ followups.Run from internal/followups/cli.go).
+func buildFollowupsCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runFollowups(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "followups",
+		Short: "Manage typed follow-up entries (list|add|close|render|path)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("list", "List open follow-up entries", "", func(c *cobra.Command) {
+		c.Flags().Bool("stale", false, "show only stale entries")
+		c.Flags().Bool("json", false, "output as JSON array")
+	})
+	addSub("add", "Create entry", "", func(c *cobra.Command) {
+		c.Flags().String("id", "", "entry id (kebab-case)")
+		c.Flags().String("title", "", "entry title")
+		c.Flags().String("kind", "", "kind: finding (default) or plan")
+		c.Flags().String("severity", "", "severity: risk, nit, or question")
+		c.Flags().String("origin", "", "origin text")
+		c.Flags().String("file", "", "optional file:lines reference")
+		c.Flags().String("body", "", "body content; use '-' to read from stdin")
+	})
+	addSub("close", "Close an entry", "<id>", func(c *cobra.Command) {
+		c.Flags().String("reason", "", "optional closure reason")
+	})
+	addSub("render", "Regenerate INDEX.md", "", nil)
+	addSub("path", "Print followups folder path", "", nil)
+	return parent
+}
+
+// --- CP4: top-level-only verb builders with flag metadata -----------------
+//
+// The five verbs below have no Cobra subcommands (they are leaves). Each uses
+// DisableFlagParsing:true so the existing handler's own flag.NewFlagSet parses
+// flags at runtime; the Flags() registrations here are metadata only, read by
+// cliusage.DeriveCommands to populate the Commands() surface for the A1 linter.
+// Flag names and the args_hint annotation must match cliusage.go's hardcoded
+// golden slice exactly.
+
+// buildDoctorCmd returns the "doctor" top-level command with flag metadata.
+func buildDoctorCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "doctor",
+		Short:              "Integrity check",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runDoctor(args)
+			return nil
+		},
+	}
+	// Metadata only — not parsed at runtime (DisableFlagParsing:true).
+	c.Flags().Bool("fix", false, "per-item confirm prompt before applying any repair")
+	c.Flags().Bool("json", false, "emit machine-readable JSON result to stdout")
+	c.Flags().String("only", "", "comma-separated category indices or names to run")
+	c.Flags().String("skip", "", "comma-separated category indices or names to skip")
+	c.Flags().Int("stale-days", 7, "stale-signals threshold in days (positive int)")
+	c.Flags().Bool("verbose", false, "print per-file detail for install integrity")
+	return c
+}
+
+// buildUpdateCmd returns the "update" top-level command with flag metadata.
+func buildUpdateCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "update",
+		Short:              "Self-update the atomic binary, then refresh ~/.claude artifacts",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runUpdate(args)
+			return nil
+		},
+	}
+	c.Flags().Bool("check", false, "only check if update available; do not apply")
+	c.Flags().String("channel", "stable", "release channel: stable or prerelease")
+	c.Flags().Bool("no-doctor", false, "skip post-update doctor self-check")
+	c.Flags().Bool("skip-claude-update", false, "skip the ~/.claude artifact refresh after binary swap")
+	return c
+}
+
+// buildValidateCmd returns the "validate" top-level command with flag metadata.
+func buildValidateCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "validate",
+		Short:              "Lint repo artifacts",
+		Annotations:        map[string]string{"args_hint": "[flags] [spec|config|bundle|artifacts] [paths...]"},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			os.Exit(validate.Run(args))
+			return nil
+		},
+	}
+	c.Flags().Bool("json", false, "emit JSON output ({schema_version:1, findings:[...]})")
+	c.Flags().Bool("suggest", false, "print structural templates for content-FAIL rules")
+	return c
+}
+
+// buildServeCmd returns the "serve" top-level command with flag metadata.
+func buildServeCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "serve",
+		Short:              "Start a local read-only HTTP server for exploring wiki + code-intel",
+		Annotations:        map[string]string{"args_hint": "[path]"},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			os.Exit(serve.Run(args, os.Stdout, os.Stderr))
+			return nil
+		},
+	}
+	c.Flags().Int("port", 4500, "TCP port to listen on (0 = OS-assigned free port)")
+	c.Flags().String("host", "127.0.0.1", "bind address")
+	c.Flags().Bool("open", false, "open the browser after startup (best-effort)")
+	return c
+}
+
+// buildMigrateCmd returns the "migrate" top-level command with flag metadata.
+// Note: --repo here is a migrate-specific flag (target repo path) distinct from
+// the root's persistent --repo (context override); no Cobra conflict occurs
+// because DisableFlagParsing:true prevents flag merging at execute time, and
+// the FlagSet is created before AddCommand so the lazy-init merge never runs.
+func buildMigrateCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "migrate",
+		Short:              "Run versioned atomic migrations",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runMigrate(args)
+			return nil
+		},
+	}
+	c.Flags().String("repo", "", "run repo-scope migrations on this path")
+	c.Flags().String("realm", "", "run install-scope + repo fan-out under this realm root")
+	return c
+}
+
+// findFirstVerb scans argv (os.Args[1:] after scanNoUpdateCheck) for the
+// first positional argument, skipping flags and their values. Only --repo
+// takes a value among the root-level flags; all other root flags are booleans.
+// Used to gate the background update goroutine (skip when verb == "update").
+func findFirstVerb(argv []string) string {
+	for i := 0; i < len(argv); i++ {
+		a := argv[i]
+		if a == "--repo" {
+			i++ // skip the value token
+			continue
+		}
+		if strings.HasPrefix(a, "--repo=") {
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		return a
+	}
+	return ""
 }
 
 // scanNoUpdateCheck pre-scans argv for --no-update-check (and
