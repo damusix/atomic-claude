@@ -4,21 +4,21 @@ Signals are [context engineering](https://www.anthropic.com/engineering/effectiv
 
 Run `/refresh-signals` to generate (or update) them:
 
-- **`deterministic-signals.md`** — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
-- **`signals.md`** — inferred meaning: framework, build/test/lint commands, architectural style, domain index. Produced by the `atomic-signals-inferrer` agent.
+- **`docs/wiki/scan.md`** — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
+- **`docs/wiki/index.md`** — inferred meaning: framework, build/test/lint commands, architectural style, domain index. Produced by the `atomic-signals-inferrer` agent.
 
-Both files live in `.claude/project/`, are gitignored, and auto-load into every Claude session via `@`-refs. The `atomic-signals-inferrer` agent keeps them fresh. Three trigger points: `/refresh-signals` on demand; the implementation loop (`/subagent-implementation`, `/autopilot`) at finalize, scoped to the task's SHA range (primary); and ship commands (`/commit` and related verbs) as an ad-hoc fallback for real-code commits — docs-only commits (README, CHANGELOG, `docs/` tree) are skipped, and a freshness check prevents double-dispatch after the loop already ran.
+Both files live in `docs/wiki/`, are committed, and auto-load into every Claude session via `@`-refs. The `atomic-signals-inferrer` agent keeps them fresh. Three trigger points: `/refresh-signals` on demand; the implementation loop (`/subagent-implementation`, `/autopilot`) at finalize, scoped to the task's SHA range (primary); and ship commands (`/commit` and related verbs) as an ad-hoc fallback for real-code commits — docs-only commits (README, CHANGELOG, `docs/` tree) are skipped, and a freshness check prevents double-dispatch after the loop already ran.
 
 Requires the `atomic` binary. Without it, a degraded tree-only fallback runs instead.
 
-The signals files are a navigable markdown graph. The inferrer writes each path citation as a plain backtick path, then runs `atomic signals linkify` as its final step to render every one that resolves on disk into a relative link to the file it names. Open `.claude/project/` in Obsidian or any markdown server and click through the router into its domain files and out to the source. The linkifier is deterministic and idempotent, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference, so it stays inert until something reads it.
+The signals files are a navigable markdown graph. The inferrer writes each path citation as a plain backtick path, then runs `atomic signals linkify` as its final step to render every one that resolves on disk into a relative link to the file it names. Open `docs/wiki/` in Obsidian or any markdown server and click through the router into its domain files and out to the source. The linkifier is deterministic and idempotent, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference, so it stays inert until something reads it.
 
 
 ## Steering the inferrer
 
 The inferrer makes its best guess from the scan, but it can get things wrong — especially with monorepos, polyglot projects, or unconventional naming.
 
-Create `.claude/project/signals-steering.md` to provide explicit hints. The inferrer reads this file before writing `signals.md` and treats its content as ground truth. When steering contradicts the scan, steering wins.
+Create `docs/wiki/CLAUDE.md` to provide explicit hints. The inferrer reads this file before writing `docs/wiki/index.md` and treats its content as ground truth. When steering contradicts the scan, steering wins.
 
 
 ### When to use steering
@@ -64,18 +64,18 @@ Do not recurse into submodules or create domains for them.
 ### How it works
 
 1. `/refresh-signals` dispatches the `atomic-signals-inferrer` agent
-2. The agent runs `atomic signals scan` to produce the deterministic file, then reads it + `signals-steering.md` (if present)
+2. The agent runs `atomic signals scan` to produce the deterministic file, then reads it + `docs/wiki/CLAUDE.md` (if present)
 3. Steering directives override inference — if steering says "this is NestJS", the inferrer writes NestJS regardless of what `package.json` implies
 4. When the project has been indexed with `atomic code index`, the agent also reads real import and call edges from the symbol graph to corroborate domain boundaries. Files that call each other heavily cluster together regardless of directory layout; filename heuristics are the fallback when no index is present
-5. The inferrer writes `signals.md` (and domain files on large repos)
+5. The inferrer writes `docs/wiki/index.md` (and domain files at `docs/wiki/<domain>.md`)
 6. On the next `/refresh-signals`, changes to steering take effect immediately
 
 
 ### Bootstrap
 
-`/atomic-setup` creates a commented blank at `.claude/project/signals-steering.md` if it does not exist. Uncomment and edit the sections you need. Delete sections you do not.
+`/atomic-setup` creates `docs/wiki/CLAUDE.md` if it does not exist. Uncomment and edit the sections you need. Delete sections you do not.
 
-The file is gitignored by default. If your team wants shared steering, move it to a committed location and `@`-reference it.
+The file is committed along with the rest of `docs/wiki/`.
 
 
 ## .signalsignore
@@ -106,4 +106,4 @@ third_party/**
 
 **Use `.signalsignore`** when tracked paths should be excluded from the scan or flagged as generated.
 
-**Use `signals-steering.md`** when you want to tell the inferrer something it cannot derive from the scan.
+**Use `docs/wiki/CLAUDE.md`** when you want to tell the inferrer something it cannot derive from the scan.

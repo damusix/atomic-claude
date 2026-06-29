@@ -152,13 +152,13 @@ var commands = []Command{
 		Path:        []string{"signals", "scan"},
 		Args:        "",
 		Flags:       []string{"--out"},
-		Description: "Walk repo and write deterministic-signals.md",
+		Description: "Walk repo and write docs/wiki/scan.md",
 	},
 	{
 		Path:        []string{"signals", "show"},
 		Args:        "",
 		Flags:       nil,
-		Description: "Print deterministic-signals.md to stdout",
+		Description: "Print docs/wiki/scan.md to stdout",
 	},
 	{
 		Path:        []string{"signals", "stale"},
@@ -176,7 +176,7 @@ var commands = []Command{
 		Path:        []string{"signals", "linkify"},
 		Args:        "",
 		Flags:       nil,
-		Description: "Linkify path tokens in signals.md and signals/*.md",
+		Description: "Linkify path tokens in docs/wiki/index.md and docs/wiki/*.md",
 	},
 	{
 		Path:        []string{"update"},

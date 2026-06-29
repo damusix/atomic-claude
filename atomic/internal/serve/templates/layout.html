@@ -143,6 +143,8 @@
       var knowledgeColor = v('--c-knowledge') || '#f38ba8';
       var bucketColor    = v('--c-bucket')    || '#fab387';
       var externalColor  = v('--c-external')  || '#6c7086';
+      var indexColor     = v('--c-index')     || '#74c7ec';
+      var domainColor    = v('--c-domain')    || '#94e2d5';
       return {
         // Node type solid colors (used as gradient base + derived darker stop).
         'page':      pageColor,
@@ -151,6 +153,8 @@
         'knowledge': knowledgeColor,
         'bucket':    bucketColor,
         'external':  externalColor,
+        'index':     indexColor,
+        'domain':    domainColor,
         // Derived 10%-darker gradient stop for each type.
         'page-dark':      darken(pageColor,      0.10),
         'repo-dark':      darken(repoColor,      0.10),
@@ -158,6 +162,8 @@
         'knowledge-dark': darken(knowledgeColor, 0.10),
         'bucket-dark':    darken(bucketColor,    0.10),
         'external-dark':  darken(externalColor,  0.10),
+        'index-dark':     darken(indexColor,     0.10),
+        'domain-dark':    darken(domainColor,    0.10),
         // Per-type ink colors (node label text color).
         'page-ink':      v('--c-page-ink')      || '#3a63a8',
         'repo-ink':      v('--c-repo-ink')      || '#3f7a3a',
@@ -165,6 +171,8 @@
         'knowledge-ink': v('--c-knowledge-ink') || '#9c2f4c',
         'bucket-ink':    v('--c-bucket-ink')    || '#8a4a1a',
         'external-ink':  v('--c-external-ink')  || '#4a4e63',
+        'index-ink':     v('--c-index-ink')     || '#1a6a8a',
+        'domain-ink':    v('--c-domain-ink')    || '#2a7a6e',
         // Default node colors (for nodes whose type is unknown or empty).
         'default-fill':  pageColor,
         'default-dark':  darken(pageColor, 0.10),
@@ -194,7 +202,7 @@
       var colors = atomicCyTypeColors();
       // Build per-type node selectors: solid diagonal gradient fill, hairline border.
       // Each type selector sets the gradient stops so the color is unique per type.
-      var typeNames = ['page', 'repo', 'concern', 'knowledge', 'bucket', 'external'];
+      var typeNames = ['page', 'repo', 'concern', 'knowledge', 'bucket', 'external', 'index', 'domain'];
       var typeSelectors = typeNames.map(function(t) {
         var base   = colors[t]          || colors['default-fill'];
         var darker = colors[t + '-dark'] || darken(base, 0.10);

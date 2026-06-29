@@ -114,7 +114,7 @@ export default defineConfig({
     srcDir: 'docs',
     base: '/',
     // Internal contract docs — kept in-repo for contributors, excluded from the public site.
-    srcExclude: ['spec/**', 'design/**'],
+    srcExclude: ['spec/**', 'design/**', 'wiki/**'],
     head: [
         ['link', { rel: 'icon', type: 'image/png', href: '/logo.png' }],
         ['meta', { property: 'og:image', content: '/share-image.png' }],

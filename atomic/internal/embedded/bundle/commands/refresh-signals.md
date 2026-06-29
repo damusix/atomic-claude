@@ -31,7 +31,7 @@ then re-run /refresh-signals.
 ## Step 2 — Bootstrap check
 
 ```bash
-test -f .claude/project/deterministic-signals.md
+test -f docs/wiki/scan.md
 ```
 
 If the file does not exist, this is a first-time initialization. Print:
@@ -45,39 +45,40 @@ Set `first_run=true`. Continue to Step 3.
 ## Step 3 — Steering file check
 
 ```bash
-test -f .claude/project/signals-steering.md
+test -f docs/wiki/CLAUDE.md
 ```
 
 If the file does not exist, create it with the default scaffold:
 
 ```bash
-mkdir -p .claude/project
-cat > .claude/project/signals-steering.md << 'EOF'
-# Signals steering
-#
-# User-provided hints for the signals inferrer. When this file exists,
-# the inferrer reads it before writing signals.md and treats its
-# content as ground truth — steering wins over detection when they
-# conflict. Delete sections you don't need.
-#
-# ## Framework
+mkdir -p docs/wiki
+cat > docs/wiki/CLAUDE.md << 'EOF'
+---
+type: Steering
+description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
+---
+
+<steering note: user hints to correct framework detection / domain grouping / build-test commands;
+ the inferrer reads this and treats it as authoritative>
+
+## Framework
 # NestJS monorepo (not plain Express)
-#
-# ## Domains
+
+## Domains
 # - src/billing/ and src/payments/ are one domain ("payments")
 # - src/internal-tools/ is scratch code — not a real domain
-#
-# ## Build
+
+## Build
 # - Build: pnpm turbo build
 # - Test: pnpm test:ci (not pnpm test — that runs watch mode)
-#
-# ## Ignore for domains
+
+## Ignore for domains
 # - vendor/
 # - generated/
 EOF
 ```
 
-Print: `created .claude/project/signals-steering.md (edit to steer the inferrer).`
+Print: `created docs/wiki/CLAUDE.md (edit to steer the inferrer).`
 
 If the file already exists, read its contents for the dispatch prompt.
 
@@ -131,7 +132,7 @@ On "Yes": write a minimal `CLAUDE.md` at repo root containing only:
 
 ## Project signals (auto-loaded)
 
-@.claude/project/signals.md
+@docs/wiki/index.md
 
 </atomic-signals>
 ```
@@ -145,12 +146,12 @@ Print final state:
 ```
 signals <refreshed | initialized>.
 
-  deterministic: .claude/project/deterministic-signals.md
-  signals:       .claude/project/signals.md
+  scan (raw):    docs/wiki/scan.md
+  index:         docs/wiki/index.md
   CLAUDE.md:     <updated with @-refs | unchanged (already wired) | not created (skipped)>
 
 suggested next step:
-  git add .claude/project/deterministic-signals.md .claude/project/signals.md
+  git add docs/wiki/index.md docs/wiki/*.md && git restore --staged docs/wiki/scan.md
   (and CLAUDE.md if modified)
   then: /commit
 ```
@@ -173,7 +174,7 @@ Use "initialized" if Step 2 found no existing signals; "refreshed" otherwise.
 
 ## Steering
 
-If `.claude/project/signals-steering.md` exists, the inferrer reads it as authoritative user hints. Use it to correct misdetected frameworks, override domain groupings, specify exact build/test commands, or exclude paths from domain classification. Steering wins over inference when they conflict.
+If `docs/wiki/CLAUDE.md` exists, the inferrer reads it as authoritative user hints before writing `docs/wiki/index.md`. Use it to correct misdetected frameworks, override domain groupings, specify exact build/test commands, or exclude paths from domain classification. Steering wins over inference when they conflict.
 
 Example:
 

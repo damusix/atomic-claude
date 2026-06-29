@@ -46,6 +46,14 @@
     --c-bucket-ink:       #8a4a1a;
     --c-bucket-wash:      #fef3eb;
     --c-bucket-edge:      #f8d4b3;
+    --c-index:            #74c7ec;
+    --c-index-ink:        #1a6a8a;
+    --c-index-wash:       #e6f7fd;
+    --c-index-edge:       #b8e4f7;
+    --c-domain:           #94e2d5;
+    --c-domain-ink:       #2a7a6e;
+    --c-domain-wash:      #e8f9f7;
+    --c-domain-edge:      #bee8e1;
 
     /* Graph surface */
     --graph-bg:       #fafaf8;
@@ -125,6 +133,14 @@
     --c-bucket-ink:       #f5c09a;
     --c-bucket-wash:      #2a1a0a;
     --c-bucket-edge:      #5a3a1a;
+    --c-index:            #74c7ec;
+    --c-index-ink:        #8fd6f5;
+    --c-index-wash:       #0c2233;
+    --c-index-edge:       #1b4360;
+    --c-domain:           #94e2d5;
+    --c-domain-ink:       #a8eae0;
+    --c-domain-wash:      #0e2320;
+    --c-domain-edge:      #1a4039;
 
     --graph-bg:       #1a180f;
     --graph-grid:     rgba(241,234,217,0.03);

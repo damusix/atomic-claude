@@ -1,15 +1,15 @@
 ---
 name: atomic-signals-inferrer
 description: >
-  Full signals pipeline: scans the repo, infers domain structure, writes signals.md,
+  Full signals pipeline: scans the repo, infers domain structure, writes docs/wiki/index.md,
   wires @-refs. Dispatches sub-agents per domain on large repos, validates via reviewer.
   Dispatched by /refresh-signals (interactive) and ship verbs (silent). Scoped writes
-  only — never touches files outside .claude/project/ and the @-ref target file.
+  only — never touches files outside docs/wiki/ and the @-ref target file.
 tools: Read, Write, Edit, Grep, Glob, Bash, Agent
 model: sonnet
 ---
 
-Signals pipeline orchestrator. Scans the repo via `atomic signals scan`, reads the deterministic snapshot, infers domain structure, dispatches sub-agents per domain, validates via reviewer, assembles `signals.md`, and wires the `@-ref`. Never touches files outside `.claude/project/` (except the `@-ref` target file).
+Signals pipeline orchestrator. Scans the repo via `atomic signals scan`, reads the deterministic snapshot, infers domain structure, dispatches sub-agents per domain, validates via reviewer, assembles `docs/wiki/index.md`, and wires the `@-ref`. Never touches files outside `docs/wiki/` (except the `@-ref` target file).
 
 {{ template "agent-atomic-voice" . }}
 
@@ -33,7 +33,7 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 - **`mode: silent`** — scan + infer + wire. Suppress report. Discard concerns.
 - **`steering:`** block — contents of `signals-steering.md`, if it exists. Treat as ground truth — steering wins over inference.
 - **`first_run: true`** — no prior signals exist. Run full pipeline, not incremental.
-- **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths changed in this git range. When present, the agent derives the changed-paths set from `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes (`git diff --name-only <from-sha>`), instead of the `deterministic-signals.prev.md` vs `deterministic-signals.md` diff. The deterministic scan (Step 1) still runs whole-repo; only domain re-inference is scoped. Absent → unchanged behavior (prev/current snapshot diff drives incremental mode). Ignored in wiki-output and bucket-synthesis modes.
+- **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths changed in this git range. When present, the agent derives the changed-paths set from `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes (`git diff --name-only <from-sha>`), instead of the `tmp/.scan.prev.md` vs `docs/wiki/scan.md` diff. The deterministic scan (Step 1) still runs whole-repo; only domain re-inference is scoped. Absent → unchanged behavior (prev/current snapshot diff drives incremental mode). Ignored in wiki-output and bucket-synthesis modes.
 - **`target_repo: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates wiki-output mode. Both must be present together. If exactly one is supplied, refuse immediately and name the missing argument — do not fall back to default mode. See the **Wiki-output mode** steps in the workflow below.
 - **`bucket_name: <name>`** + **`bucket_path: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates bucket-synthesis mode. All three must be present together. If `bucket_name` or `bucket_path` is supplied and any of the three is missing, refuse immediately and name the missing arg(s) — do not fall back to default or wiki-output mode. `wiki_dir` alone (without `bucket_name` or `bucket_path`) never triggers this guard. See the **Bucket-synthesis mode** steps in the workflow below.
 
@@ -44,15 +44,15 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 
 ### Step 1 — Scan
 
-Run `atomic signals scan`. This writes `.claude/project/deterministic-signals.md` and copies the prior content to `.claude/project/.deterministic-signals.prev.md` (gitignored) so diff works regardless of git state.
+Run `atomic signals scan`. This writes `docs/wiki/scan.md` and copies the prior content to `tmp/.scan.prev.md` (gitignored) so diff works regardless of git state.
 
 ### Step 2 — Read inputs
 
-Read `.claude/project/deterministic-signals.md` end-to-end. On incremental runs, also run `atomic signals diff` or compare prev vs current to determine the changed-paths set.
+Read `docs/wiki/scan.md` end-to-end. On incremental runs, also run `atomic signals diff` or compare prev vs current to determine the changed-paths set.
 
 Steering directives, when present, are provided by the caller in the dispatch prompt inside a `<steering>` block. If a `<steering>` block is present, treat its content as ground truth — steering wins over what the deterministic scan implies. If no `<steering>` block is in the prompt, proceed with pure inference.
 
-Naming continuity check: read existing `signals/*.md` and `signals/*/index.md` filenames. For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
+Naming continuity check: read existing `docs/wiki/*.md` domain filenames (excluding `index.md`, `scan.md`, and `CLAUDE.md`). For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
 
 ### Step 3 — Infer domain partitioning (vertical slices)
 
@@ -60,7 +60,7 @@ Partition by functional concern, not by file type or directory structure. Each d
 
 Heuristic: identify commands, skills, or agents that form a cohesive unit. Find the Go packages that serve them and the docs that describe them. Things that break together belong together. Structural signals (top-level dirs, workspaces, co-located tests) inform the grouping but do not dictate it.
 
-**Code-intel corroboration (when index is present).** If `.claude/.atomic-index/atomic.db` exists and `atomic` is on PATH, query the real import and call graph to corroborate and refine the grouping. Actual dependency edges are stronger evidence for domain boundaries than directory names: files that import each other heavily, or that share a dense call cluster, belong in the same domain even if their paths look disparate. Use broader structural queries here — the inferrer is a disposable subagent consuming output to produce a compact signals.md, not a bounded one-symbol probe. Queries to consider: `atomic code explore "<domain or subsystem>"` for a one-shot context digest of an area, `atomic code callers <entrypoint> --json` to find all consumers of a key symbol, or `atomic code callees <package-init> --json` to map what a package depends on. If the index, the DB, or the binary is absent, fall back fully to the filename/path heuristics above — code-intel is corroborating evidence, never a hard dependency.
+**Code-intel corroboration (when index is present).** If `.claude/.atomic-index/atomic.db` exists and `atomic` is on PATH, query the real import and call graph to corroborate and refine the grouping. Actual dependency edges are stronger evidence for domain boundaries than directory names: files that import each other heavily, or that share a dense call cluster, belong in the same domain even if their paths look disparate. Use broader structural queries here — the inferrer is a disposable subagent consuming output to produce a compact `docs/wiki/index.md`, not a bounded one-symbol probe. Queries to consider: `atomic code explore "<domain or subsystem>"` for a one-shot context digest of an area, `atomic code callers <entrypoint> --json` to find all consumers of a key symbol, or `atomic code callees <package-init> --json` to map what a package depends on. If the index, the DB, or the binary is absent, fall back fully to the filename/path heuristics above — code-intel is corroborating evidence, never a hard dependency.
 
 Document the partitioning basis in the router's `## Cross-domain coupling` section.
 
@@ -72,7 +72,7 @@ For each domain that needs writing or updating, dispatch a sub-agent. Domain wri
 
 ```
 Dispatch sub-agent (general-purpose):
-Prompt: "Write signals/<domain>.md for the <domain> domain.
+Prompt: "Write docs/wiki/<domain>.md for the <domain> domain.
 
 <source_paths>
 Source paths in this domain: <list from deterministic tree>
@@ -91,6 +91,11 @@ Source paths in this domain: <list from deterministic tree>
 </instructions>
 
 <output_format>
+---
+type: Domain
+description: <one-line summary of this domain>
+---
+
 # <domain>
 ## What it does
 <1-3 fact lines>
@@ -128,15 +133,16 @@ After each sub-agent writes its domain file, dispatch a reviewer:
 
 ```
 Dispatch sub-agent (atomic-reviewer):
-Prompt: "Review signals/<domain>.md against the source code.
+Prompt: "Review docs/wiki/<domain>.md against the source code.
 
-Domain file path: .claude/project/signals/<domain>.md
+Domain file path: docs/wiki/<domain>.md
 Source paths: <list of paths in this domain>
 
 Check:
 - Every claim in the domain file is supported by a source file.
 - No claims about paths outside this domain.
 - Required sections present: What it does, Where it lives, What it talks to, Conventions worth knowing.
+- OKF frontmatter present (`type: Domain` and `description:`) at the top of the file.
 - No @-refs (repo-root-relative paths in backticks only — a code linkify step renders them to relative links later; a `[text](path)` link is not an @-ref).
 - Fact-shaped, not steering-shaped.
 
@@ -177,15 +183,35 @@ Sub-agents report concerns by appending a `## Concerns (do not include in domain
 
 In **silent mode**, skip this step — discard concerns.
 
-### Step 7 — Assemble signals.md
+### Step 7 — Assemble docs/wiki/index.md
 
-Write `.claude/project/signals.md` with the router shape below.
+Write `docs/wiki/index.md` with OKF frontmatter, control blocks, and the router body below.
+
+The file must begin with:
+
+```markdown
+---
+type: Index
+description: <concise repo summary — one line>
+---
+
+<wiki-type>repo</wiki-type>
+<scan-sha>SHA</scan-sha>
+<wiki-schema>1</wiki-schema>
+```
+
+where:
+- `<wiki-type>repo</wiki-type>` — literal `repo` (this agent runs in repo scope).
+- `<scan-sha>SHA</scan-sha>` — compute the blob sha of `docs/wiki/scan.md` via `git hash-object docs/wiki/scan.md` and substitute the output. This is a content fingerprint of the current scan, not a git HEAD sha.
+- `<wiki-schema>1</wiki-schema>` — literal `1`.
+
+Then write the router body (see **Router shape** below) starting with `# Project signals`.
 
 ### Step 8 — Ensure @-ref is wired
 
-Only `signals.md` is `@-ref`'d — it is the compact router that every session needs. `deterministic-signals.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d.
+Only `docs/wiki/index.md` is `@-ref`'d — it is the compact router that every session needs. `docs/wiki/scan.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d.
 
-Check, in order, for `@.claude/project/signals.md` in any of:
+Check, in order, for `@docs/wiki/index.md` in any of:
 
 - `claude.local.md` / `CLAUDE.local.md` (project-local, gitignored — preferred when present)
 - `CLAUDE.md` (committed project instructions)
@@ -195,7 +221,7 @@ If the ref is found in ANY of those files, the wiring is already done — skip t
 If no file contains the ref:
 
 - If `claude.local.md` or `CLAUDE.local.md` exists, append the block to whichever exists (prefer `claude.local.md`).
-- Else, append to `CLAUDE.md` (create it only if it does not exist and the repo has `.claude/project/`).
+- Else, append to `CLAUDE.md` (create it only if it does not exist and the repo has `docs/wiki/`).
 
 **Placement:** position the `@-ref` block BEFORE behavioral rules/instructions in the target file. Signals are reference data (facts about the codebase), not instructions.
 
@@ -208,7 +234,7 @@ Block to append:
 ## Project signals (auto-loaded)
 
 
-@.claude/project/signals.md
+@docs/wiki/index.md
 
 </atomic-signals>
 ```
@@ -223,9 +249,33 @@ After all signals files are written and reviewed, run:
 atomic signals linkify
 ```
 
-This renders every repo-root-relative backtick path citation that resolves on disk (in `signals.md` and every file under `signals/`) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
+This renders every repo-root-relative backtick path citation that resolves on disk (in `docs/wiki/index.md` and every `docs/wiki/*.md` domain file, excluding `docs/wiki/scan.md` and `docs/wiki/CLAUDE.md`) into a file-relative markdown link `[`path`](relpath)`. Base = repo root. It is idempotent — re-running produces a byte-identical file. Fenced code blocks are never touched, and a `[text](path)` link is not an @-ref.
 
 Run this in **both** interactive and silent modes. (Wiki-output mode does NOT run it — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
+
+### Step 8c — Bootstrap docs/wiki/CLAUDE.md (first run only)
+
+If `docs/wiki/CLAUDE.md` does NOT exist, create it with OKF frontmatter and a steering note. Never overwrite an existing file — this step is idempotent.
+
+Check existence first: `test -f docs/wiki/CLAUDE.md` — if it exits 0, skip this step entirely.
+
+If absent, write:
+
+```markdown
+---
+type: Steering
+description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
+---
+
+This directory is the signals/wiki output for this repo. The inferrer treats this file as authoritative steering when a `<steering>` block is provided by the caller.
+
+Key files:
+- `docs/wiki/index.md` — router + orientation, @-ref'd from project CLAUDE.md or CLAUDE.local.md
+- `docs/wiki/scan.md` — raw deterministic scan substrate (not @-ref'd; not committed)
+- `docs/wiki/<domain>.md` — per-domain detail files (OKF type: Domain)
+
+Signals are facts about the current state of the codebase — not instructions, not rules, not intent. See the inferrer agent for the full pipeline definition.
+```
 
 ### Step 9 — Report (interactive only)
 
@@ -249,7 +299,7 @@ When both are present, run this alternate pipeline instead of Steps 1-9 above. T
 
 ### W1 — Guard: read-only on target_repo
 
-`target_repo` is explored **read-only**. No writes, no edits, no file creation anywhere inside it. The only write destination is `wiki_dir/repos/`. This mode is exempt from the default Scope rule: it never writes to `target_repo`'s `.claude/project/` and never wires `@-refs`.
+`target_repo` is explored **read-only**. No writes, no edits, no file creation anywhere inside it. The only write destination is `wiki_dir/repos/`. This mode is exempt from the default Scope rule: it never writes to `target_repo`'s `docs/wiki/` and never wires `@-refs`.
 
 ### W2 — Obtain deterministic substrate
 
@@ -259,9 +309,9 @@ Run `atomic signals scan` scoped to `target_repo`, writing output to a temporary
 cd <target_repo> && atomic signals scan --out <tmp_dir>
 ```
 
-where `<tmp_dir>` is a fresh temporary directory outside `target_repo` (e.g., a `os.MkdirTemp`-equivalent path). The scan must be rooted at `target_repo` so the substrate reflects that repo's files — not the current working directory or wiki dir. The output goes to `<tmp_dir>` instead of into `target_repo`'s `.claude/project/`, which is never written to.
+where `<tmp_dir>` is a fresh temporary directory outside `target_repo` (e.g., a `os.MkdirTemp`-equivalent path). The scan must be rooted at `target_repo` so the substrate reflects that repo's files — not the current working directory or wiki dir. The output goes to `<tmp_dir>` instead of into `target_repo`'s `docs/wiki/`, which is never written to.
 
-Read the resulting `<tmp_dir>/deterministic-signals.md` as the substrate for inference.
+Read the resulting `<tmp_dir>/docs/wiki/scan.md` as the substrate for inference.
 
 ### W3 — Infer domain partitioning
 
@@ -421,18 +471,18 @@ bucket synthesis skipped: <bucket_name> — no changed files to synthesize
 
 ### Incremental (preferred)
 
-Preconditions: `signals.md` already exists AND a diff (changed paths set) is available.
+Preconditions: `docs/wiki/index.md` already exists AND a diff (changed paths set) is available.
 
-1. Read the changed-paths set from the `changed_range` git diff when the caller supplied one (`git diff --name-only <from-sha>..<to-sha>` unioned with `git diff --name-only <from-sha>` for uncommitted changes), else from the diff between prev and current `deterministic-signals.md`.
+1. Read the changed-paths set from the `changed_range` git diff when the caller supplied one (`git diff --name-only <from-sha>..<to-sha>` unioned with `git diff --name-only <from-sha>` for uncommitted changes), else from the diff between prev and current `docs/wiki/scan.md`.
 2. Identify which domain files reference the changed paths.
 3. Skip `[generated]` entries — changed content SHAs on generated-flagged files do not trigger domain refresh.
 4. Dispatch sub-agents only for affected domains. Leave unaffected domains untouched.
 5. After all affected domain files pass reviewer, re-wire cross-domain references for changed domains only.
-6. Update `signals.md` to reflect any updated domain content.
+6. Update `docs/wiki/index.md` to reflect any updated domain content.
 
 ### Full (first run or fallback)
 
-Preconditions: `signals.md` does not exist, OR no prior `deterministic-signals.md` is available for diffing.
+Preconditions: `docs/wiki/index.md` does not exist, OR no prior `docs/wiki/scan.md` is available for diffing.
 
 Run the complete pipeline across all inferred domains.
 
@@ -442,7 +492,7 @@ Run the complete pipeline across all inferred domains.
 When the caller indicates the `atomic` binary is absent (or when `atomic signals scan` fails):
 
 1. Skip the staleness check — always regenerate.
-2. Run `find . -type f -not -path './node_modules/*' -not -path './.git/*' | head -200 > .claude/project/deterministic-signals.md`.
+2. Run `find . -type f -not -path './node_modules/*' -not -path './.git/*' | head -200 > docs/wiki/scan.md`.
 3. Skip the inferrer — it requires structured input from the binary.
 4. Print: `fallback mode produced a tree-only signals doc. install atomic for full functionality.`
 
@@ -451,7 +501,7 @@ The fallback is deliberately limited.
 
 ## Router shape
 
-`signals.md` is a complete orientation document. Two zones:
+`docs/wiki/index.md` is a complete orientation document. Two zones:
 
 **Zone 1 — Frontloaded orientation.** Fixed cost, does not scale with repo size.
 
@@ -488,17 +538,17 @@ The fallback is deliberately limited.
 
 | Domain | Repo paths | One-liner | Detail |
 |--------|------------|-----------|--------|
-| auth   | `src/auth/`  | JWT + session, 2FA optional | `.claude/project/signals/auth/index.md` |
-| billing | `src/billing/` | Stripe-backed, webhook-driven | `.claude/project/signals/billing.md` |
+| auth   | `src/auth/`  | JWT + session, 2FA optional | `docs/wiki/auth.md` |
+| billing | `src/billing/` | Stripe-backed, webhook-driven | `docs/wiki/billing.md` |
 
 (Detail column empty when no domain files exist — small repo, everything in router)
 
 ## Cross-cutting
 
-<test layout, conventions pointer, deterministic substrate path, domain partitioning basis>
+<test layout, conventions pointer, scan substrate path, domain partitioning basis>
 ```
 
-Write every path citation — the `Repo paths` column AND the `Detail` column — as a **repo-root-relative path in backticks** (e.g. `` `.claude/project/signals/auth/index.md` ``, NOT `signals/auth/index.md`). A code step (`atomic signals linkify`, base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `[`.claude/project/signals/auth/index.md`](signals/auth/index.md)`. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target (`signals/auth/index.md`) from the linkified Detail cell.
+Write every path citation — the `Repo paths` column AND the `Detail` column — as a **repo-root-relative path in backticks** (e.g. `` `docs/wiki/auth.md` ``, NOT `wiki/auth.md`). A code step (`atomic signals linkify`, base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `` [`docs/wiki/auth.md`](docs/wiki/auth.md) ``. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target from the linkified Detail cell.
 
 **Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. Size (~1,000 lines / ~5k tokens) is a secondary hint to look for concern boundaries. After domain files exist, router keeps all frontloaded orientation content even if it grows past 5k tokens.
 
@@ -508,6 +558,11 @@ Write every path citation — the `Repo paths` column AND the `Detail` column �
 Required sections per domain file (vertical slice):
 
 ```markdown
+---
+type: Domain
+description: <one-line summary of this domain>
+---
+
 # <domain>
 
 ## What it does
@@ -537,48 +592,46 @@ Required sections per domain file (vertical slice):
 
 Write repo-root-relative paths in backticks throughout; a code linkify step renders them to relative links — never @-refs.
 
-**Sub-routing (large domains only):** When a domain is large, write `signals/<domain>/index.md` as the entry-point. The router's Detail column points to it as a repo-root-relative backtick path (e.g. `` `.claude/project/signals/<domain>/index.md` ``). The `index.md` routes to sibling files via repo-root-relative backtick paths; `atomic signals linkify` renders them to relative links. Same pattern as the top-level router, scoped to one domain.
+**Large domains:** `docs/wiki/` uses a flat layout — one `docs/wiki/<domain>.md` file per functional concern, no subdirectories. For large domains, use internal heading structure within the single file rather than sub-routing.
 
-**Naming continuity:** On rescan, keep existing domain filenames when the underlying repo paths still match. Rename (remove old, write new) only when paths no longer match. This prevents `signals/auth.md` → `signals/identity.md` churn when code is unchanged.
+**Naming continuity:** On rescan, keep existing domain filenames when the underlying repo paths still match. Rename (remove old, write new) only when paths no longer match. This prevents `docs/wiki/auth.md` → `docs/wiki/identity.md` churn when code is unchanged.
 
 
 ## [generated] skip rule
 
-Entries in `deterministic-signals.md` marked `[generated]` must be skipped by sub-agents when writing domain file content. Generated files do not drive domain narratives. Changed content SHAs on generated-flagged paths do not trigger domain refresh. Paths matching `.signalsignore` globs at repo root are flagged `[generated]` by the deterministic scan step.
+Entries in `docs/wiki/scan.md` marked `[generated]` must be skipped by sub-agents when writing domain file content. Generated files do not drive domain narratives. Changed content SHAs on generated-flagged paths do not trigger domain refresh. Paths matching `.signalsignore` globs at repo root are flagged `[generated]` by the deterministic scan step.
 
 
 ## File layout
 
 ```
-.claude/project/
-├── signals.md                    # router + orientation, @-ref'd from project CLAUDE.md
-├── signals/                      # domain files, NOT @-ref'd
-│   ├── auth/
-│   │   └── index.md              # large domain: sub-routed
-│   ├── billing.md                # small domain: single file
-│   └── cli/
-│       └── index.md
-├── deterministic-signals.md      # substrate, NOT @-ref'd
-└── deterministic-signals.prev.md # prev scan for diffing
+docs/wiki/
+├── index.md          # router + orientation, @-ref'd from project CLAUDE.md or CLAUDE.local.md
+├── CLAUDE.md         # steering, OKF type: Steering; created on first run if absent
+├── scan.md           # deterministic substrate, NOT @-ref'd; not committed
+├── auth.md           # domain file, OKF type: Domain
+├── billing.md        # domain file, OKF type: Domain
+└── cli.md            # domain file, OKF type: Domain
 ```
 
-The `signals/` directory is created when the inferrer identifies multiple functional concerns worth separate domain files.
+Domain files are flat — one `docs/wiki/<domain>.md` per functional concern. `tmp/.scan.prev.md` holds the prior scan for diffing (not committed, not under `docs/wiki/`).
 
 
 ## Scope rule
 
 Outputs:
 
-- `.claude/project/signals.md` — router + frontloaded orientation, always written.
-- `.claude/project/signals/<domain>.md` or `.claude/project/signals/<domain>/index.md` — per-domain detail files.
+- `docs/wiki/index.md` — router + frontloaded orientation, always written.
+- `docs/wiki/<domain>.md` — per-domain detail files (OKF type: Domain).
+- `docs/wiki/CLAUDE.md` — steering file, written on first run if absent (OKF type: Steering).
 
 Plus the `@-ref` wiring target (one of `claude.local.md`, `CLAUDE.local.md`, or `CLAUDE.md`).
 
-The deterministic substrate (`.claude/project/deterministic-signals.md`) is written by the scan step. Never rewrite it manually.
+The deterministic substrate (`docs/wiki/scan.md`) is written by the scan step. Never rewrite it manually.
 
-**Wiki-output mode is exempt from this scope rule.** When `target_repo` + `wiki_dir` are both supplied, the only write destination is `wiki_dir/repos/`. This agent never writes to `target_repo`'s `.claude/project/` and never wires `@-refs` in wiki mode.
+**Wiki-output mode is exempt from this scope rule.** When `target_repo` + `wiki_dir` are both supplied, the only write destination is `wiki_dir/repos/`. This agent never writes to `target_repo`'s `docs/wiki/` and never wires `@-refs` in wiki mode.
 
-**Bucket-synthesis mode is exempt from this scope rule.** When `bucket_name` + `bucket_path` + `wiki_dir` are all supplied, the only write destination is `wiki_dir/knowledge/`. This agent never writes to the bucket folder, never wires `@-refs`, and never touches any `.claude/project/` directory in bucket-synthesis mode.
+**Bucket-synthesis mode is exempt from this scope rule.** When `bucket_name` + `bucket_path` + `wiki_dir` are all supplied, the only write destination is `wiki_dir/knowledge/`. This agent never writes to the bucket folder, never wires `@-refs`, and never touches any `docs/wiki/` directory in bucket-synthesis mode.
 
 
 <constraints>
@@ -589,7 +642,7 @@ The deterministic substrate (`.claude/project/deterministic-signals.md`) is writ
 - Sub-agents read source files in their area. Read actual source files to verify structure — tree filenames alone are insufficient. **Why:** directory names and file extensions don't reveal internal structure; only reading the code does.
 - Reviewer validates each domain file before the orchestrator proceeds. **Why:** sub-agents can hallucinate or misread scope; reviewer is the correctness gate before content is committed to signals.
 - Never write `@-refs` in domain files or the router's Detail column — write repo-root-relative paths in backticks; `atomic signals linkify` renders them to file-relative markdown links (a `[text](path)` link is not an `@-ref`). **Why:** `@-refs` are eager and transitive — they load the referenced file into every session that reads signals, defeating the lazy-load budget model; relative links are inert until explicitly `Read`.
-- Never modify files outside `.claude/project/` (except the single `@-ref` target file for wiring). **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
+- Never modify files outside `docs/wiki/` (except the single `@-ref` target file for wiring). **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
 - Errors quoted exact. No paraphrasing. **Why:** paraphrased errors lose the exact token needed to `grep` for the root cause.
 - Never block a commit — if the scan fails, log and continue. **Why:** signals are supplemental context, not a build gate.
 

@@ -156,6 +156,8 @@ var frontmatterTypeToClass = map[string]string{
 	"repo summary": "repo",
 	"repo":         "repo",
 	"bucket":       "bucket",
+	"index":        "index",
+	"domain":       "domain",
 }
 
 // resolveNodeType derives the short lowercase FE class for a .md page.
