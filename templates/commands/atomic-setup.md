@@ -67,7 +67,7 @@ For each missing item, propose an action. Skip items already present.
 | Registration missing, binary present | Run `atomic hooks install`. |
 | Registration missing, binary missing | Manually add a `SessionStart` entry to `.claude/settings.json` whose `hooks[].command` is `atomic hooks session-start`. |
 | Legacy wrapper-script registration present | Run `atomic hooks install` (migrates to the inline command and deletes the stale `session-start-reminders.sh` script). |
-| `deterministic-signals.md` missing but `atomic` present | Print: "Run `/refresh-signals` to generate project signals." (follow-up only; setup does not invoke it). |
+| `deterministic-signals.md` missing but `atomic` present | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
 | `CLAUDE.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
 | `.signalsignore` missing | Create `.signalsignore` with commented explanation (see `.signalsignore` subsection in Step 4). Never overwrite if it exists. |
 | `.claude/project/signals-steering.md` missing | Create `.claude/project/signals-steering.md` with commented explanation (see `signals-steering.md` subsection in Step 4). Never overwrite if it exists. |
@@ -299,7 +299,7 @@ Install the atomic binary:
 **Signals files missing (binary present)** — Print the follow-up command; do not invoke it:
 
 ```
-Run /refresh-signals to generate project signals.
+Run /refresh-wiki to generate project signals.
 ```
 
 **`CLAUDE.md` missing `@-ref`** — Append to the existing `CLAUDE.md`:

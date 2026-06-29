@@ -8,6 +8,8 @@ description: >
   rather than a bare mkdir. Also fires on "add a bucket", "set up a karpathy wiki",
   "karpathy realm", "set up a wiki for my projects", "add this to my wiki",
   "wiki this", "what does my wiki know about X", "is my wiki stale".
+  Routes per-scope: repo wikis use references/repo.md pipeline (docs/wiki/);
+  realm wikis use references/realm.md pipeline (wiki/ in a separate repo).
   Not invoked by other commands — this skill is the conversational entry point
   for wiki and bucket operations; /refresh-wiki is the synthesis engine.
 ---
@@ -34,6 +36,16 @@ Read the `<wikis>` block in `~/.claude/CLAUDE.md` (outside `<atomic>`, CLI-manag
 - **cwd under a realm root** → that realm is active. Bucket operations target it.
 - **No registered realm + setup intent** → `atomic wiki scan --root <path>` bootstraps. Ask which folder is the realm root if ambiguous.
 - **`atomic` binary absent** → say so; point at `/refresh-wiki` and `docs/reference/wiki-workflow.md`. Do not hand-build the structure.
+
+## Pipeline routing
+
+When a full inference run is needed (refresh, summarize, synthesize), detect scope and load the matching reference:
+
+1. Read `<wiki-type>` from the active wiki index (`docs/wiki/index.md` for repo scope, `wiki/index.md` for realm scope).
+2. **Repo scope** (`<wiki-type>repo</wiki-type>`) — the full per-repo pipeline lives at `~/.claude/skills/atomic-wiki/references/repo.md` (installed location). A full refresh is triggered via `/refresh-wiki`, which dispatches `atomic-wiki-inferrer` to execute it.
+3. **Realm scope** (`<wiki-type>realm</wiki-type>`) — the wiki-output and bucket-synthesis pipelines live at `~/.claude/skills/atomic-wiki/references/realm.md` (installed location). A full refresh is triggered via `/refresh-wiki [root]`, which orchestrates scan/stale/offer and dispatches `atomic-wiki-inferrer` for each inference step.
+
+The pipeline text lives **only** in the reference files (installed at `~/.claude/skills/atomic-wiki/references/`) — not here, and not duplicated in the agent's system prompt. When an agentic inference run is needed, the agent resolves `$HOME` via Bash and reads the appropriate reference file at its absolute path, then executes it.
 
 ## Bucket creation route
 
@@ -76,7 +88,7 @@ Wiki repo commits happen inside `wiki/` — never the realm root.
 
 ## Boundaries
 
-- **Complements /refresh-wiki**: `/refresh-wiki` is the synthesis engine (repo summaries, bucket synthesis, concern re-auth, linkify). This skill is the conversational entry point — it registers and describes; `/refresh-wiki` synthesizes.
+- **Complements /refresh-wiki**: `/refresh-wiki` is the synthesis engine (repo signals refresh, realm repo summaries, bucket synthesis, concern re-auth, linkify). This skill is the conversational entry point — it registers and describes; `/refresh-wiki` synthesizes.
 - **Not invoked by other commands.** No cross-reference needed in the other direction.
 - **Never bare mkdir** for capture intent in a registered realm. `atomic wiki bucket add` is the only correct path — it wires the manifests and registry.
 
