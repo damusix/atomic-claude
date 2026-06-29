@@ -76,6 +76,74 @@ func TestCP2CobraMetadata(t *testing.T) {
 	}
 }
 
+// cp3WantMeta is the ground truth for every CP3-ported subcommand: the exact
+// Short and args_hint values from cliusage.go. Byte-for-byte match is required
+// so that CP4's deriveCommands reproduces the Commands() slice exactly.
+var cp3WantMeta = []struct {
+	path     []string
+	argsHint string
+	short    string
+}{
+	// code subcommands
+	{[]string{"code", "index"}, "", "Index all source files"},
+	{[]string{"code", "sync"}, "", "Incrementally re-index changed files"},
+	{[]string{"code", "status"}, "", "Show index status"},
+	{[]string{"code", "search"}, "<query>", "Search indexed nodes"},
+	{[]string{"code", "callers"}, "<symbol>", "Find callers of symbol"},
+	{[]string{"code", "callees"}, "<symbol>", "Find callees of symbol"},
+	{[]string{"code", "impact"}, "<symbol>", "Find impact radius of symbol"},
+	{[]string{"code", "node"}, "<symbol>", "Show node detail"},
+	{[]string{"code", "files"}, "[pattern]", "List indexed files"},
+	{[]string{"code", "affected"}, "", "Find affected test files"},
+	{[]string{"code", "explore"}, "<query>", "Gather context for a query"},
+	{[]string{"code", "mcp"}, "", "Run the MCP server over stdio (proxy + daemon; --no-watch disables sync poller)"},
+	// config subcommands
+	{[]string{"config", "get"}, "<key>", "Print resolved config value"},
+	{[]string{"config", "set"}, "<key> <val>", "Set config value; re-renders config.resolved.md"},
+	{[]string{"config", "unset"}, "<key>", "Revert key to built-in default"},
+	{[]string{"config", "list"}, "", "List all resolved key=value pairs"},
+	{[]string{"config", "path"}, "", "Print path to config.toml"},
+	{[]string{"config", "agents"}, "", "Set per-agent model tiers interactively"},
+	// wiki subcommands
+	{[]string{"wiki", "scan"}, "", "Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md"},
+	{[]string{"wiki", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)"},
+	{[]string{"wiki", "linkify"}, "", "Linkify path tokens in wiki artifacts in-place"},
+	// wiki bucket (3-level)
+	{[]string{"wiki", "bucket", "add"}, "<name>", "Register a capture bucket; create index.md stub and manifest dir"},
+	{[]string{"wiki", "bucket", "list"}, "", "List registered buckets with baseline count and pending/fresh status"},
+	{[]string{"wiki", "bucket", "diff"}, "<name>", "Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty"},
+	{[]string{"wiki", "bucket", "promote"}, "<name>", "Snapshot bucket and rotate baseline→previous, current→baseline"},
+	// followups subcommands
+	{[]string{"followups", "list"}, "", "List open follow-up entries"},
+	{[]string{"followups", "add"}, "", "Create entry"},
+	{[]string{"followups", "close"}, "<id>", "Close an entry"},
+	{[]string{"followups", "render"}, "", "Regenerate INDEX.md"},
+	{[]string{"followups", "path"}, "", "Print followups folder path"},
+}
+
+// TestCP3CobraMetadata walks the Cobra command tree for every CP3-ported
+// subcommand and asserts the exact Short and Annotations["args_hint"] values
+// match cliusage.go byte-for-byte. Covers the 3-level wiki bucket nesting.
+func TestCP3CobraMetadata(t *testing.T) {
+	var repo string
+	root := buildRootCmd(&repo)
+
+	for _, w := range cp3WantMeta {
+		label := fmt.Sprintf("%v", w.path)
+		found, _, _ := root.Find(w.path)
+		if found == nil || found == root {
+			t.Errorf("%s: command not found in Cobra tree", label)
+			continue
+		}
+		if found.Short != w.short {
+			t.Errorf("%s Short:\n  got:  %q\n  want: %q", label, found.Short, w.short)
+		}
+		if got := found.Annotations["args_hint"]; got != w.argsHint {
+			t.Errorf("%s args_hint:\n  got:  %q\n  want: %q", label, got, w.argsHint)
+		}
+	}
+}
+
 // TestRootCmdExact17Verbs verifies the Cobra root command has exactly the 17
 // expected top-level verbs and no extra auto-generated commands (completion,
 // help) leaked into the visible command set.
