@@ -425,6 +425,31 @@ func TestCheckSignalsRouterIntroParagraphTolerant(t *testing.T) {
 	}
 }
 
+// TestCheckSignalsRouterPipedOneLiner verifies that domain rows whose One-liner
+// column contains unescaped pipes (e.g. "md|code search and [page|system] toggle")
+// are correctly parsed: the Detail column (last content column before the trailing
+// pipe) must be extracted, NOT a one-liner fragment at the fixed cols[4] position.
+// This is the regression test for the false-positive WARN:
+//
+//	"domain file referenced in router table missing: code search, left nav, middle content [page"
+func TestCheckSignalsRouterPipedOneLiner(t *testing.T) {
+	root := t.TempDir()
+	// Build a router row that mirrors the real serve domain:
+	// the One-liner cell contains two raw unescaped pipes ("|").
+	content := "# Project wiki\n\n## Domains\n\n" +
+		"| Domain | Repo paths | One-liner | Detail |\n" +
+		"|--------|------------|-----------|--------|\n" +
+		"| serve | docs/wiki/serve.md | shell with md|code search and [page|system] toggle | [`docs/wiki/serve.md`](serve.md) |\n"
+	makeRouterFile(t, root, content)
+	makeClaudeMd(t, root, "claude.local.md", "@docs/wiki/index.md\n")
+	makeDomainFile(t, root, "serve.md")
+
+	r := doctor.RunCheckRouterWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS (piped one-liner must not confuse Detail extraction); detail: %s", r.Severity, r.Detail)
+	}
+}
+
 // TestCheckSignalsOrphanExclusion verifies that index.md, scan.md, and
 // CLAUDE.md inside docs/wiki/ are never reported as orphan domain files,
 // even when they are not listed in the router table (new layout, CP2).

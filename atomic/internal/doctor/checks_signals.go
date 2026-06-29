@@ -140,15 +140,20 @@ func routerRefWired(root string) bool {
 }
 
 // parseRouterDomains extracts non-empty Detail column values from the Domains
-// table in the router file content. The Detail column is the 4th pipe-separated
-// column. Returns relative paths like "auth.md" (bare filenames in the flat
-// docs/wiki/ layout).
+// table in the router file content. Returns relative paths like "auth.md" (bare
+// filenames in the flat docs/wiki/ layout).
 //
 // The Detail cell may be either a bare path (e.g. "auth.md") or a linkified
 // markdown link (e.g. "[`docs/wiki/auth.md`](auth.md)"). In the latter case the
 // link TARGET (the `](...)` part) is extracted, since that is the actual relative
 // path on disk. The spec requires that linkify emits targets that join correctly
 // as root/docs/wiki/<target>.
+//
+// The Detail column is ALWAYS the last content column — the cell immediately
+// before the trailing "|". Earlier columns (Repo paths, One-liner) may contain
+// raw unescaped pipes (e.g. "md|code search and [page|system] toggle"), which
+// create extra elements when split on "|". Using cols[len(cols)-2] rather than a
+// fixed index makes the parser robust to any number of pipes in earlier columns.
 func parseRouterDomains(content string) []string {
 	var result []string
 	inSection := false
@@ -174,10 +179,16 @@ func parseRouterDomains(content string) []string {
 		}
 		cols := strings.Split(line, "|")
 		// Expect at least 5 elements: ["", col1, col2, col3, col4, ...]
+		// A real 4-column row produces 6 elements (leading + trailing empty strings);
+		// the guard of 5 handles degenerate input safely.
 		if len(cols) < 5 {
 			continue
 		}
-		detail := strings.TrimSpace(cols[4])
+		// The Detail column is always the last content column (cols[len(cols)-2]).
+		// cols[len(cols)-1] is the empty string produced by the trailing "|".
+		// Earlier columns may contain unescaped "|" characters (e.g. One-liner cells
+		// like "md|code search"), which shift a fixed index off target.
+		detail := strings.TrimSpace(cols[len(cols)-2])
 		if detail == "" || strings.EqualFold(detail, "Detail") {
 			continue
 		}
