@@ -194,10 +194,14 @@ No file-extension allowlist. `atomic signals stale` is the source of truth: it i
 All of the above delegate to the `signals-gate` partial — the same probe `/commit-only` uses:
 
 
+0. **docs-only guard.** Inspect the staged set (`git diff --cached --name-only`). If the set is empty, fall through to the staleness check (empty staged set does not mean all paths are documentation). If the set is non-empty and **every** staged path is documentation (`docs/` subtree, or a top-level `README*`/`CHANGELOG*`/`CONTRIBUTING*`/`CODE_OF_CONDUCT*`/`SECURITY*`/`LICENSE*` file), skip the refresh entirely. Any other path — source, config, `CLAUDE.md`, bundled-artifact `.md` under `agents/` `commands/` `skills/` `rules/` `output-styles/` — means it is NOT docs-only; continue. Full guard spec: [`docs/spec/signals-refresh-timing.md`](./signals-refresh-timing.md) §C2.
 1. `command -v atomic` — skip silently if the binary is absent.
-2. `atomic signals stale` — act on the exit code (0 fresh → skip; 1 stale → refresh mandatory; 2 error → report and skip). Content-based, not mtime-based.
+2. `atomic signals stale` — act on the exit code (0 fresh → skip; 1 stale → refresh mandatory; 2 error → report and skip). Content-based, not mtime-based. **Why:** this staleness check also acts as the no-op guard when the implementation loop already refreshed — a fresh stored signals file returns exit 0, so ship-verb dispatch is skipped automatically.
 3. On exit 1, dispatch `atomic-signals-inferrer` in silent mode, then stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`.
 4. `atomic wiki mark-dirty` (best-effort) so a registered wiki's next session nudge fires.
+
+
+**Primary refresh point.** The `signals-gate` probe is the ad-hoc fallback. The implementation loop (`/subagent-implementation`, `/autopilot`) is the primary refresh: it runs once at finalize, scoped to the loop's SHA range via `changed_range`. Full timing contract: [`docs/spec/signals-refresh-timing.md`](./signals-refresh-timing.md).
 
 
 If the gate regenerates the signals files, the verb commits them as a **separate follow-up commit** (the subjects above) rather than amending the merge/squash commit — the refresh is a distinct concern from the feature, and amending a just-pushed merge would rewrite shared history. On the remote path, the follow-up is pushed after the merge.
@@ -360,6 +364,15 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 **Why:** The skill was an unnecessary indirection layer. Everything the skill did could be put into the agent definition, with the command just dispatching the agent. Commands auto-fire in practice (Claude picks up on descriptions), so the skill's auto-trigger surface is not lost. Simplifies the architecture from three artifacts (skill + agent + command) to two (agent + command).
 
 **Removed:** `skills/atomic-signals/SKILL.md` — skill definition. All references across `CLAUDE.md`, `claude.local.md`, `docs/reference/skills.md`, `docs/reference/signals-workflow.md`, ship verb templates, and `templates/commands/atomic-setup.md` updated to reference the agent directly.
+
+
+### 2026-06-29 — Signals refresh timing: impl-phase primary, ship-verb fallback
+
+**What changed:** (a) The `signals-gate` probe gains a docs-only guard (step 0): inspect the staged set; skip the refresh entirely when the set is non-empty and every path is documentation; fall through when the staged set is empty. (b) The existing staleness check (step 2) now carries an explicit WHY noting it also prevents a redundant refresh when the implementation loop already ran. (c) Added a "Primary refresh point" paragraph noting that `signals-gate` is the ad-hoc fallback — the implementation loop (`/subagent-implementation`, `/autopilot`) is the primary refresh, running once at finalize scoped to the loop's SHA range via `changed_range`. Full timing contract: [`docs/spec/signals-refresh-timing.md`](./signals-refresh-timing.md).
+
+**Why:** A docs-only commit (README, CHANGELOG) trips `atomic signals stale` exit 1 because the deterministic substrate counts per-language LOC, even though no project map changed. The implement loop + ship-verb double refresh was redundant. New model: one scoped refresh at task completion, content-gated fallback at ship time.
+
+**Superseded:** prior probe had no docs-only guard and carried no description of the implementation loop as the primary refresh site. Legacy verb-name sections (`/commit-only`, `/merge-to-main`, etc.) are left as-is; their behavior is governed by the gate, which now includes step 0.
 
 
 ### 2026-06-07 — Document post-merge / post-squash signals refresh
