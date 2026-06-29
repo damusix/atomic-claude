@@ -99,12 +99,12 @@ Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subage
 ❯ /refresh-signals
 
 ⏺ atomic signals scan
-  ⎿  Tree · Manifests · Languages → .claude/project/deterministic-signals.md
+  ⎿  Tree · Manifests · Languages → docs/wiki/scan.md
 
 ⏺ atomic-signals-inferrer
   ⎿  Framework: NestJS · package manager: pnpm
   ⎿  Build: pnpm build · test: pnpm test · lint: pnpm lint
-  ⎿  → .claude/project/signals.md
+  ⎿  → docs/wiki/index.md
 
   signals initialized.
 ```

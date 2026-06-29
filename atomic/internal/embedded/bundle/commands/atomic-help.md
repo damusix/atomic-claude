@@ -22,7 +22,7 @@ git rev-list --count "$BASE"..HEAD 2>/dev/null
 git worktree list 2>/dev/null
 ls docs/spec/ 2>/dev/null
 ls .claude/.scratchpad/ 2>/dev/null
-test -f .claude/project/signals.md && echo signals=yes || echo signals=no
+test -f docs/wiki/index.md && echo signals=yes || echo signals=no
 test -f CLAUDE.md && echo claudemd=yes || echo claudemd=no
 ```
 
@@ -36,7 +36,7 @@ Derive:
 - `in_worktree` — cwd path includes `.worktrees/`
 - `has_spec` — any files in `docs/spec/`
 - `has_scratchpad` — any active scratchpad dirs (implies in-flight `/subagent-implementation`)
-- `has_signals` — `.claude/project/signals.md` present
+- `has_signals` — `docs/wiki/index.md` present
 - `has_claudemd` — `CLAUDE.md` present at repo root
 - `fresh_repo` — `in_repo` AND NOT (`has_signals` OR `has_claudemd` OR `has_spec`) — signals the user has never run the atomic toolchain here
 
@@ -184,8 +184,8 @@ If user picks "dive in", ask which stage (1–4), then dump that stage's verb de
 **Stage 3 — State files and where things live.**
 
 ```
-.claude/project/signals.md            project map — auto-loaded every session
-.claude/project/deterministic-signals.md   raw scan output — NOT @-ref'd (too big)
+docs/wiki/index.md                    project map — auto-loaded every session
+docs/wiki/scan.md                     raw scan output — NOT @-ref'd
 .claude/.atomic-index/atomic.db       code-intel symbol graph (gitignored; built with `atomic code index`)
 .claude/.scratchpad/<task>/           implement→review working memory (gitignored)
 .claude/.scratchpad/session-reports/  per-branch session notes (gitignored)

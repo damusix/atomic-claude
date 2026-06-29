@@ -106,7 +106,7 @@ The wiki is a navigable markdown graph. The scan writes a managed `## Members` s
 
 ## Repo states
 
-`atomic wiki scan` classifies each member repo by whether it has `.claude/project/signals.md`, and records the result in the `<wiki-scan>` block:
+`atomic wiki scan` classifies each member repo by whether it has `docs/wiki/index.md`, and records the result in the `<wiki-scan>` block:
 
 | State | Meaning | Knowledge source |
 |-------|---------|------------------|
