@@ -32,7 +32,6 @@ tmp/claude-home/*
 !.claude/rules/authoring/
 !.claude/rules/authoring/**
 !.claude/settings.local.json
-.claude/project/.deterministic-signals.prev.md
 /bin/
 node_modules/
 .vitepress/dist/

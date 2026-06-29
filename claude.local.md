@@ -43,7 +43,7 @@ These two stay auto-loaded every session (project-specific, compact):
 
 ### Project signals (auto-loaded)
 
-@.claude/project/signals.md
+@docs/wiki/index.md
 
 
 ### Project follow-ups (auto-loaded)
@@ -80,7 +80,7 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 | 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit` requires editing the command to call it AND the skill to declare itself as called from there. |
 | 7 | **`/atomic-help` topic table + tour** ⚠ | **Always** — every artifact a user might type, install, or run. Non-negotiable. | Edit `templates/commands/atomic-help.md`. Add / remove / rename the row in the right category sub-table (Lifecycle / Ship matrix / State & context / Maintenance & utilities / Reference). Material lifecycle or maintenance change → also update the matching tour stage (Stage 2 lifecycle / Stage 3 state files / Stage 4 maintenance). **Read the full contract in `<help_router_contract>` below before skipping any sub-rule.** |
 | 8 | Bundle inclusion (`atomic/internal/bundlemirror/mirror.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the inclusion rule. Existing kinds (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`) auto-include matching files. |
-| 9 | Signals refresh | After adding the file | Run `/refresh-signals` (or let ship verbs dispatch `atomic-signals-inferrer` in silent mode) so `.claude/project/deterministic-signals.md` and `signals.md` reflect the new file. |
+| 9 | Signals refresh | After adding the file | Run `/refresh-signals` (or let ship verbs dispatch `atomic-signals-inferrer` in silent mode) so `docs/wiki/scan.md` and `docs/wiki/index.md` reflect the new file. |
 
 </mandatory_checklist>
 
@@ -203,7 +203,7 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 **In this repo specifically**, the ref lives in `claude.local.md` (this file) — not in `CLAUDE.md`. Reason: `CLAUDE.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for the project-scoped `@`-ref.
 
 
-- The `atomic-signals-inferrer` agent checks for `@.claude/project/signals.md` in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md`. If present in ANY of them, it skips wiring. The agent's search order is the contract.
+- The `atomic-signals-inferrer` agent checks for `@docs/wiki/index.md` in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md`. If present in ANY of them, it skips wiring. The agent's search order is the contract.
 - For most repos, the ref ends up in `CLAUDE.md` (one file, no separation). For this repo and any other config-source repos, it lives in `claude.local.md`. Both are valid.
 - If you fork the layout (e.g. moving refs into a separate `@`-included file), update the agent's search order in lockstep.
 
