@@ -134,14 +134,11 @@ This change touches **source artifacts** (`templates/` → rendered `commands/` 
 
 ## Checkpoints
 
-- **CP1 — mechanism.** C1 (inferrer `changed_range`) + C2 (gate docs-only guard). Edit
-  `templates/agents/atomic-signals-inferrer.md` + `templates/shared/signals-gate.md`; render +
-  bundle.
-- **CP2 — dispatch sites.** C3 (`/subagent-implementation` finalize) + C4 (`/autopilot`). Edit
-  `templates/commands/subagent-implementation.md` + `templates/commands/autopilot.md`; render +
-  bundle.
-- **CP3 — surfaces.** C5 (`CLAUDE.md`, `CLAUDE.local.md`, parent spec, reference doc,
-  `atomic-help.md`); render + bundle (CLAUDE.md + atomic-help template both feed the bundle).
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | Mechanism — C1 (inferrer `changed_range` arg) + C2 (gate docs-only guard, staged-set based) | `templates/agents/atomic-signals-inferrer.md`, `templates/shared/signals-gate.md` | `changed_range` documented + consumed in Incremental mode (absent → prior behavior); gate skips docs-only staged sets before staleness, empty staged set falls through; render+bundle parity clean |
+| 2 | Dispatch sites — C3 (`/subagent-implementation` finalize refresh) + C4 (`/autopilot` refresh before ship) | `templates/commands/subagent-implementation.md`, `templates/commands/autopilot.md` | Loop base SHA recorded; once-at-finalize range-scoped staleness-gated refresh committed `chore(signals)`; ship-gate no-op documented; render+bundle parity clean |
+| 3 | Surfaces — C5 (timing described everywhere) | `CLAUDE.md`, `CLAUDE.local.md` (out-of-band, untracked), `docs/spec/signals-workflow.md`, `docs/reference/signals-workflow.md`, `templates/commands/atomic-help.md` | No surface claims ship verbs are the primary/only trigger; parent spec points to this child; `/atomic-help` MISSING-scan zero; render+bundle parity clean |
 
 ## Change log
 
@@ -159,3 +156,31 @@ instead of `git diff --name-only` (unstaged changes). An empty staged set now fa
 the `atomic signals stale` check rather than being treated as all-docs — prevents the
 post-merge or post-squash defense-in-depth gate from short-circuiting to a skip when nothing
 is staged.
+
+## Implementation log
+
+### Shipped — 2026-06-29
+
+Built via `/autopilot` (3 checkpoints, implement→review loop, fresh-context subagents). No Go
+change — SHA-range scoping and docs-only classification are done by the agent/gate via `git`.
+Commits (chronological):
+
+- `fb18390` — CP1 mechanism: inferrer `changed_range` + signals-gate docs-only guard (feat)
+- `d437164` — CP2 dispatch sites: `/subagent-implementation` + `/autopilot` finalize refresh (feat)
+- `1f1c470` — CP3 surfaces: CLAUDE.md, parent spec, reference doc, `/atomic-help` row (docs)
+
+**Out-of-scope work performed during this build:**
+- CP1 reviewer nit folded in-iteration: gate inspects the staged set (`--cached`) with an
+  empty-set fall-through (more correct for the post-merge/squash gate). Spec C2 + change log
+  updated to match.
+
+**Unforeseens:**
+- `CLAUDE.local.md` is untracked (not actually gitignored) in this repo. Its C5 edit was applied
+  directly to the main-repo live copy out-of-band — it cannot ride the branch (committing it
+  would leak the private overlay; the worktree copy is discarded on cleanup).
+- In a repo where `.claude/project/signals.md` is gitignored (this repo) and the loop runs in a
+  worktree, the finalize refresh regenerates throwaway worktree signals. Pre-existing limitation
+  of signals-in-worktree (the prior ship-verb refresh had the same edge), orthogonal to the
+  timing change. For this run, main's signals are refreshed post-merge instead.
+
+**Deferred items still open:** none.
