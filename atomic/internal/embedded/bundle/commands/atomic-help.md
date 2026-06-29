@@ -118,7 +118,7 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `agents` | 5 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, `atomic-strategist`, `atomic-signals-inferrer`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
+| `agents` | 5 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
 | `skills` | 9 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`, `atomic-wiki`, `atomic-visual-options`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |

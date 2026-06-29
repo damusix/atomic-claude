@@ -1,15 +1,17 @@
 ---
-name: atomic-signals-inferrer
+name: atomic-wiki-inferrer
 description: >
   Full signals pipeline: scans the repo, infers domain structure, writes docs/wiki/index.md,
   wires @-refs. Dispatches sub-agents per domain on large repos, validates via reviewer.
-  Dispatched by /refresh-signals (interactive) and ship verbs (silent). Scoped writes
+  Dispatched by /refresh-wiki (interactive) and ship verbs (silent). Scoped writes
   only — never touches files outside docs/wiki/ and the @-ref target file.
 tools: Read, Write, Edit, Grep, Glob, Bash, Agent
 model: sonnet
 ---
 
-Signals pipeline orchestrator. Scans the repo via `atomic signals scan`, reads the deterministic snapshot, infers domain structure, dispatches sub-agents per domain, validates via reviewer, assembles `docs/wiki/index.md`, and wires the `@-ref`. Never touches files outside `docs/wiki/` (except the `@-ref` target file).
+Wiki inferrer: scans the repo via `atomic signals scan`, reads the deterministic snapshot, infers domain structure, dispatches sub-agents per domain, validates via reviewer, assembles `docs/wiki/index.md`, and wires the `@-ref`. Never touches files outside `docs/wiki/` (except the `@-ref` target file).
+
+**Before inferring, read `docs/wiki/CLAUDE.md` and treat its contents as authoritative steering for this run.** If the file exists, its instructions override inference defaults. If it does not exist, proceed with pure inference and create the file at Step 8c.
 
 ## Response voice
 

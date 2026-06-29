@@ -112,7 +112,7 @@ If exit code is `0` and there are no `pending` members from Step 2 and no newly 
 
 If there are `pending` repos from the Step 2 scan:
 
-Present them as a numbered list and ask the user which ones to handle via `/refresh-signals` (which will produce signals files and promote them to `indexed`). Repos not selected here go to the `atomic-signals-inferrer` wiki-output pass in Step 7.
+Present them as a numbered list and ask the user which ones to handle via `/refresh-wiki` (which will produce signals files and promote them to `indexed`). Repos not selected here go to the `atomic-wiki-inferrer` wiki-output pass in Step 7.
 
 ```
 Pending repos (no docs/wiki/index.md found):
@@ -167,10 +167,10 @@ test -f <member-repo-path>/.claude/.atomic-index/atomic.db
 
 Code-intel grounding is best-effort per repo. A repo without an index still gets summarized via heuristics — absence of an index is never a blocker for the wiki refresh.
 
-Dispatch `atomic-signals-inferrer` in wiki-output mode:
+Dispatch `atomic-wiki-inferrer` in wiki-output mode:
 
 ```
-subagent_type: "atomic-signals-inferrer"
+subagent_type: "atomic-wiki-inferrer"
 prompt:
   target_repo: <abs-path-to-repo>
   wiki_dir: <abs-path-to-wiki-root>
@@ -202,7 +202,7 @@ The `STALE summary <path>` line from Step 5 gives you the summary file path. Der
 
 **Code-intel index sync (best-effort).** Apply the same warm/cold/absent logic as 7a using the resolved `target_repo` path before dispatching the inferrer.
 
-Dispatch `atomic-signals-inferrer` in wiki-output mode the same way as 7a, passing that repo path as `target_repo`.
+Dispatch `atomic-wiki-inferrer` in wiki-output mode the same way as 7a, passing that repo path as `target_repo`.
 
 After the agent returns, stamp each summary file the inferrer produced, using the `target_repo` path from your member list:
 
@@ -226,10 +226,10 @@ atomic wiki bucket diff --root <resolved-root> <name>
 - Exit 1 → diff is non-empty → proceed to synthesis.
 - Exit 2 (hard error) → surface verbatim, mark bucket synthesis failed for this bucket, continue to the next.
 
-**8b — Dispatch inferrer for synthesis (judgment).** For each bucket with a non-empty diff, dispatch `atomic-signals-inferrer` in bucket-synthesis mode:
+**8b — Dispatch inferrer for synthesis (judgment).** For each bucket with a non-empty diff, dispatch `atomic-wiki-inferrer` in bucket-synthesis mode:
 
 ```
-subagent_type: "atomic-signals-inferrer"
+subagent_type: "atomic-wiki-inferrer"
 prompt:
   bucket_name: <name>
   bucket_path: <abs-path-to-bucket-folder>
@@ -355,7 +355,7 @@ Stage all changes under `<resolved-root>/wiki/`, invoke the `atomic-commit` skil
 - The bucket offer fires once per realm. The `<wiki-buckets>` block records both the populated state and the `declined="true"` state. Once the block exists, skip Step 3 entirely. **Why:** re-prompting on every run would be disruptive; the block is the durable opt-in/opt-out record.
 - Clear `.dirty` only on full completion. A partial or aborted run leaves the marker set. **Why:** the forcing function relies on `.dirty` persisting until the wiki is genuinely clean; clearing it early hides real drift.
 - Commit the wiki automatically; never ask. The wiki repo's git history is its changelog, so an additive commit loses nothing. **Why:** axiom 3 governs *destructive* shared-state ops (delete, force-push, history rewrite); a plain additive commit to the wiki's own repo is not one, and the user has standing consent for it — the wiki is an audit trail, and prompting defeats its purpose.
-- Both `target_repo` and `wiki_dir` must be passed together to `atomic-signals-inferrer` (wiki mode). Both `bucket_name`, `bucket_path`, and `wiki_dir` must all be passed for bucket-synthesis mode. If the inferrer reports a partial-args error, surface it verbatim and stop the current artifact's pass. **Why:** the inferrer refuses and names the missing arg — this is the prompt-level guard; the command always supplies all required args.
+- Both `target_repo` and `wiki_dir` must be passed together to `atomic-wiki-inferrer` (wiki mode). Both `bucket_name`, `bucket_path`, and `wiki_dir` must all be passed for bucket-synthesis mode. If the inferrer reports a partial-args error, surface it verbatim and stop the current artifact's pass. **Why:** the inferrer refuses and names the missing arg — this is the prompt-level guard; the command always supplies all required args.
 - Surface all `atomic wiki scan` and `atomic wiki stale` errors verbatim. Do not paraphrase exit-code 2 output. **Why:** paraphrased errors drop the exact token needed to diagnose the root cause.
 
 </constraints>

@@ -1,5 +1,5 @@
 ---
-description: Refresh project signals on demand (initializes on first run). Dispatches the atomic-signals-inferrer agent to scan, infer, and wire signals files.
+description: Refresh project signals on demand (initializes on first run). Dispatches the atomic-wiki-inferrer agent to scan, infer, and wire signals files.
 ---
 
 <workflow>
@@ -94,7 +94,7 @@ A missing index (binary absent, or a failed index/sync) never blocks the refresh
 
 ## Step 5 — Dispatch agent
 
-Dispatch the `atomic-signals-inferrer` agent via the `Agent` tool. Build the prompt:
+Dispatch the `atomic-wiki-inferrer` agent via the `Agent` tool. Build the prompt:
 
 ```
 mode: interactive
