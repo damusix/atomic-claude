@@ -17,7 +17,7 @@ func Manifest() []Artifact {
 		{Kind: "agent", Source: "bundle/agents/atomic-investigator.md", Target: "agents/atomic-investigator.md", SHA256: "5508bf1bebdbcc1bb25c3037acdb52a0be758454301b60313306f3a9444c5a7f"},
 		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "2c8f2518efaccd9d242ee835ababa75cf93c05fe1114a84c477fb392f914c9d1"},
 		{Kind: "agent", Source: "bundle/agents/atomic-strategist.md", Target: "agents/atomic-strategist.md", SHA256: "2d002229a7a7ae6f865c550c7aa941f9a01e8572e3610379d12ff5fe015bf162"},
-		{Kind: "agent", Source: "bundle/agents/atomic-wiki-inferrer.md", Target: "agents/atomic-wiki-inferrer.md", SHA256: "50ffac4267b7c85e59f73f57c73faa5b92b5c9222788e88664a455dad709bb4b"},
+		{Kind: "agent", Source: "bundle/agents/atomic-wiki-inferrer.md", Target: "agents/atomic-wiki-inferrer.md", SHA256: "a78fa2367ae5a2ebaeac4c4968f1ad9fb7dd9744295943d55e7798c7b2e89fca"},
 		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "fdeac37d81807903e70df64caa41a39baa953f97599dc7b62a1ace523cf596e7"},
 		{Kind: "command", Source: "bundle/commands/_templates/implementer-prompt.md", Target: "commands/_templates/implementer-prompt.md", SHA256: "88821c30f61b773218b90332f2060eec09979515545aaddfcb10081f1e8ce14f"},
 		{Kind: "command", Source: "bundle/commands/_templates/reviewer-prompt.md", Target: "commands/_templates/reviewer-prompt.md", SHA256: "296889105ed096f4afb9239c5931f9b900037d55e676f89bf3023daf5d62ffed"},
@@ -56,6 +56,6 @@ func Manifest() []Artifact {
 		{Kind: "skill", Source: "bundle/skills/atomic-visual-options/SKILL.md", Target: "skills/atomic-visual-options/SKILL.md", SHA256: "c33181fb08ef20597c15b480cb932eda7a5aebded1962ce098935805b28ee19e"},
 		{Kind: "skill", Source: "bundle/skills/atomic-wiki/SKILL.md", Target: "skills/atomic-wiki/SKILL.md", SHA256: "bca3dfd771275d71d99f4e1303481263d57e2021c06eccd66fe61b323797a30d"},
 		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/realm.md", Target: "skills/atomic-wiki/references/realm.md", SHA256: "0ca780067af3c3ba0988b4da2c141f99683e175ef23baefd99c9948185eaba55"},
-		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/repo.md", Target: "skills/atomic-wiki/references/repo.md", SHA256: "f30bab39fbd40a5eae8cb70a93ca89d205b5c6cbb23a097f4de9a737b34e54da"},
+		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/repo.md", Target: "skills/atomic-wiki/references/repo.md", SHA256: "7a65b643fab9b3ba219c575df5b9192049de82eb9d798850dddb24efa7c22e5a"},
 	}
 }
