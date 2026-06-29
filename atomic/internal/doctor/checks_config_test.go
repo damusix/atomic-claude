@@ -324,6 +324,65 @@ func TestRepairPlan_configWARN_fixable(t *testing.T) {
 	}
 }
 
+// TestCheckConfig_noInstallTable: config.toml without [install] is valid (pre-framework state).
+func TestCheckConfig_noInstallTable(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[output.signals]\nmax_depth = 3\n")
+
+	cfg, _, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS (no [install] is valid pre-framework state); detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// TestCheckConfig_invalidInstallVersion: non-semver install.version → FAIL.
+func TestCheckConfig_invalidInstallVersion(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[install]\nversion = \"not-a-semver\"\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.FAIL {
+		t.Errorf("severity = %q, want FAIL for invalid install.version; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "install.version") {
+		t.Errorf("detail %q: want mention of 'install.version'", r.Detail)
+	}
+}
+
+// TestCheckConfig_validInstallVersion: parseable install.version + in-sync resolved → PASS.
+func TestCheckConfig_validInstallVersion(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, `[install]
+version = "1.2.3"
+[install.artifacts]
+agents = ["atomic-implementer.md"]
+commands = ["commit.md"]
+skills = []
+output-styles = []
+rules = []
+`)
+
+	cfg, warns, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("unexpected warnings: %v", warns)
+	}
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS for valid install.version; detail: %s", r.Severity, r.Detail)
+	}
+}
+
 // alwaysYesPrompter always returns DecisionYes for testing.
 type alwaysYesPrompter struct{}
 

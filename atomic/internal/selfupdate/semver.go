@@ -81,6 +81,10 @@ func cmpInt(a, b int) int {
 	return 0
 }
 
+// IsValidSemver reports whether s is a parseable semver string.
+// It is the canonical exported validity check, alongside CompareSemver.
+func IsValidSemver(s string) bool { _, err := parseSemver(s); return err == nil }
+
 // CompareSemver compares two semver strings a and b.
 // Returns -1 if a < b, 0 if a == b, 1 if a > b.
 //
