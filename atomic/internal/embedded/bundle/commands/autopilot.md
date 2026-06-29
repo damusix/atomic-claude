@@ -211,6 +211,8 @@ Ready.
   - Cold (absent): run `atomic code index` best-effort to build the index before the loop starts. Autopilot runs in a fresh worktree (always cold), so this no-prompt path is what lets builders and reviewers use the dependency graph; it is non-destructive and the user granted autonomy by invoking `/autopilot`. On any error, degrade to sg/grep — never block the run. Record the indexing decision (success or error) in `STATE.md`.
   - Do NOT use `AskUserQuestion` for indexing — the only human decision in this run is the Ship gate (rule 4). A cold-index prompt would violate that contract.
 
+Before Phase 3 begins, record the current HEAD as the loop base SHA. The `/subagent-implementation` Phase 1 discipline writes it to `STATE.md` as `Loop base SHA: <git rev-parse HEAD>` before iteration 1 starts; Phase 4's signals refresh uses it as the range's `from-sha`.
+
 ## Phase 3 — Implement (the `/subagent-implementation` loop, with overrides)
 
 Run the loop exactly as `/subagent-implementation` defines it — scratchpad brief, `atomic-investigator` for scoping, `atomic-implementer (mode: feature)` or `atomic-implementer (mode: surgical)` per checkpoint, fresh `atomic-reviewer` each pass, commit per green checkpoint. Apply the autonomous overrides:
@@ -225,6 +227,15 @@ Run the loop exactly as `/subagent-implementation` defines it — scratchpad bri
 ## Phase 4 — Verify
 
 Orchestrator runs the full suite itself (invoke `atomic-verify`): tests, typecheck, lint, build, render+bundle parity, `atomic validate` (spec + config, when a spec or bundled artifact changed), and the `/atomic-help` MISSING-scan if artifacts changed. Confirm green before shipping. Do not trust subagent claims at the finish line.
+
+Once the suite is green, run a range-scoped signals refresh before the ship gate. Range: `Loop base SHA` in `STATE.md` (the Phase 2 worktree branch point) to current HEAD.
+
+1. If `command -v atomic` returns nothing → skip.
+2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report + skip.
+3. Exit 1 → dispatch `atomic-signals-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort.
+4. Stage `.claude/project/deterministic-signals.md`, `.claude/project/signals.md`, and any files under `.claude/project/signals/`. Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
+
+The Phase 5 ship verb's `signals-gate` will then see a fresh stored file (`atomic signals stale` exit 0) and skip the inferrer dispatch — this no-op is intended, not a bug. The loop already refreshed.
 
 ## Phase 5 — Ship gate (the one human decision)
 

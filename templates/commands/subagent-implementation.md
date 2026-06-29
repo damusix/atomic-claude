@@ -86,10 +86,12 @@ Refreshed each iteration — overwrite, don't append.
 
 ### `$SCRATCH/STATE.md`
 
-Append-only iteration log:
+Append-only iteration log. Before writing the first entry, capture `git rev-parse HEAD` and record it as the loop base SHA — the from-sha for the range-scoped signals refresh at finalize.
 
 ```markdown
 # State: <topic>
+
+Loop base SHA: <git rev-parse HEAD>
 
 ## Iteration 1 — <date>
 - Implementer: <one-line summary>
@@ -303,8 +305,15 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
     If the spec is dead (e.g. user decided not to ship the feature), still write the log with the status as `abandoned — <date>` and one line on why.
 
 4. Update repo documentation by invoking `/documentation` — it handles `README.md`, `CLAUDE.md`, `docs/spec/`, `docs/design/`.
-5. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.
-6. Report to the user: what shipped, which iterations + commit SHAs, what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
+5. **Refresh signals for the loop's range.** This runs once at finalize over the whole task range, not per-iteration. Range: from the `Loop base SHA` recorded in `STATE.md` to the current HEAD (after docs commits).
+
+   1. If `command -v atomic` returns nothing → skip.
+   2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report the error and skip.
+   3. Exit 1 → dispatch `atomic-signals-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort after the inferrer returns.
+   4. Stage `.claude/project/deterministic-signals.md`, `.claude/project/signals.md`, and any files under `.claude/project/signals/`. Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
+
+6. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.
+7. Report to the user: what shipped, which iterations + commit SHAs (including the signals refresh commit, if one was made), what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
 
     **Documentation advisory.** If `## Documentation surfaces` exists in CLAUDE instructions and the implemented changes touch files matching any surface's "Covers" column, append to the next-steps suggestions:
 
