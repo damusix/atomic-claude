@@ -92,6 +92,21 @@ atomic config set update.run_doctor false
 ```
 
 
+## Migrations
+
+`atomic update` auto-applies versioned migration steps after refreshing the artifact bundle. These steps handle breaking changes across releases — restructured directories, updated config keys, and similar one-time transforms — and are idempotent, so re-running them is always safe.
+
+To apply migrations manually (for example, after a manual binary swap or a fresh install on a machine that missed an update):
+
+```bash
+atomic migrate               # apply pending install-scope steps to ~/.claude/
+atomic migrate --repo <path> # run repo-scope migrations for one project
+atomic migrate --realm <path> # fan-out across all atomic'd member repos (prompts per-repo)
+```
+
+`atomic doctor` nudges you to run `atomic migrate` whenever the binary version is newer than the recorded install version. The nudge is suppressed for development builds (`dev` version string).
+
+
 ## If you already have a CLAUDE.md
 
 How the installer treats your file depends on whether it already carries an `<atomic>...</atomic>` block.
