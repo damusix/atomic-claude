@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +16,65 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/prompt"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
+
+// cp2WantMeta is the ground truth for every CP2-ported subcommand: the exact
+// Short and args_hint values from cliusage.go. CP4's deriveCommands reads
+// cmd.Short for Description and Annotations["args_hint"] for Args; a byte-for-byte
+// mismatch here means the derived Commands() slice diverges from cliusage.go.
+var cp2WantMeta = []struct {
+	path     []string
+	argsHint string
+	short    string
+}{
+	{[]string{"signals", "scan"}, "", "Walk repo and write docs/wiki/scan.md"},
+	{[]string{"signals", "show"}, "", "Print docs/wiki/scan.md to stdout"},
+	{[]string{"signals", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error"},
+	{[]string{"signals", "diff"}, "", "Print unified diff of signals file"},
+	{[]string{"signals", "linkify"}, "", "Linkify path tokens in docs/wiki/index.md and docs/wiki/*.md"},
+	{[]string{"reminder", "add"}, "<text>", "Create a reminder file; prints assigned id"},
+	{[]string{"reminder", "list"}, "", "List all reminders"},
+	{[]string{"reminder", "show"}, "<id>", "Print body of a reminder"},
+	{[]string{"reminder", "rm"}, "<id>", "Delete a reminder"},
+	{[]string{"hooks", "session-start"}, "", "Print session-start hook payload"},
+	{[]string{"hooks", "install"}, "", "Install session-start hook"},
+	{[]string{"hooks", "uninstall"}, "", "Remove session-start hook"},
+	{[]string{"claude", "install"}, "", "Install artifact bundle"},
+	{[]string{"claude", "update"}, "", "Update artifact bundle"},
+	{[]string{"claude", "list"}, "", "List bundled artifacts"},
+	{[]string{"claude", "diff"}, "", "Diff bundle vs on-disk"},
+	{[]string{"claude", "uninstall"}, "", "Generate uninstall prompt"},
+	{[]string{"docker", "init"}, "", "Scaffold Docker eval environment"},
+	{[]string{"docs", "scan"}, "", "Scan docs and write doc-surfaces.md"},
+	{[]string{"docs", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error"},
+	{[]string{"profile", "refresh"}, "", "Refresh ## Environment in profile.md"},
+	{[]string{"prompt", "git-cleanup"}, "", "Emit the git-cleanup cold-op brief"},
+	{[]string{"prompt", "claude-merge"}, "", "Emit the CLAUDE.md merge cold-op brief"},
+}
+
+// TestCP2CobraMetadata walks the Cobra command tree for every CP2-ported
+// subcommand and asserts the exact Short and Annotations["args_hint"] values
+// match cliusage.go byte-for-byte. WHY: CP4's deriveCommands reads these fields
+// to reproduce the Commands() slice; a silent mismatch would cause the A1 linter
+// to false-positive or false-negative against artifact citations.
+func TestCP2CobraMetadata(t *testing.T) {
+	var repo string
+	root := buildRootCmd(&repo)
+
+	for _, w := range cp2WantMeta {
+		label := fmt.Sprintf("%v", w.path)
+		found, _, _ := root.Find(w.path)
+		if found == nil || found == root {
+			t.Errorf("%s: command not found in Cobra tree", label)
+			continue
+		}
+		if found.Short != w.short {
+			t.Errorf("%s Short:\n  got:  %q\n  want: %q", label, found.Short, w.short)
+		}
+		if got := found.Annotations["args_hint"]; got != w.argsHint {
+			t.Errorf("%s args_hint:\n  got:  %q\n  want: %q", label, got, w.argsHint)
+		}
+	}
+}
 
 // TestRootCmdExact17Verbs verifies the Cobra root command has exactly the 17
 // expected top-level verbs and no extra auto-generated commands (completion,

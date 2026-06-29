@@ -177,29 +177,19 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 
 	// --- 17 top-level verb stubs -----------------------------------------
 
-	rootCmd.AddCommand(makeVerb("signals",
-		"Project context pipeline (scan|show|stale|diff|linkify)",
-		func(args []string) { runSignals(args, *repoOverride) }))
+	rootCmd.AddCommand(buildSignalsCmd(repoOverride))
 
-	rootCmd.AddCommand(makeVerb("reminder",
-		"Manage session reminders (add|list|show|rm|set-due)",
-		func(args []string) { runReminder(args, *repoOverride) }))
+	rootCmd.AddCommand(buildReminderCmd(repoOverride))
 
-	rootCmd.AddCommand(makeVerb("hooks",
-		"Manage session-start hooks (session-start|install|uninstall)",
-		func(args []string) { runHooks(args, *repoOverride) }))
+	rootCmd.AddCommand(buildHooksCmd(repoOverride))
 
-	rootCmd.AddCommand(makeVerb("claude",
-		"Install, update, or manage ~/.claude artifacts (install|update|list|diff|uninstall)",
-		func(args []string) { runClaude(args) }))
+	rootCmd.AddCommand(buildClaudeCmd())
 
 	rootCmd.AddCommand(makeVerb("doctor",
 		"Integrity check",
 		func(args []string) { runDoctor(args) }))
 
-	rootCmd.AddCommand(makeVerb("docker",
-		"Docker eval environment scaffolding (init)",
-		func(args []string) { runDocker(args) }))
+	rootCmd.AddCommand(buildDockerCmd())
 
 	rootCmd.AddCommand(makeVerb("update",
 		"Self-update the atomic binary, then refresh ~/.claude artifacts",
@@ -234,13 +224,9 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 		},
 	})
 
-	rootCmd.AddCommand(makeVerb("docs",
-		"Docs surface scanning (scan|stale)",
-		func(args []string) { runDocs(args, *repoOverride) }))
+	rootCmd.AddCommand(buildDocsCmd(repoOverride))
 
-	rootCmd.AddCommand(makeVerb("profile",
-		"User profile management (refresh)",
-		func(args []string) { runProfile(args) }))
+	rootCmd.AddCommand(buildProfileCmd())
 
 	rootCmd.AddCommand(makeVerb("code",
 		"Code-intel engine (index|sync|status|search|callers|callees|impact|node|files|affected|explore|mcp)",
@@ -250,9 +236,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 		"Wiki management (scan|stale|linkify|bucket)",
 		func(args []string) { runWiki(args) }))
 
-	rootCmd.AddCommand(makeVerb("prompt",
-		"Emit cold-op briefs (git-cleanup|claude-merge)",
-		func(args []string) { runPrompt(args) }))
+	rootCmd.AddCommand(buildPromptCmd())
 
 	rootCmd.AddCommand(&cobra.Command{
 		Use:                "serve",
@@ -285,6 +269,270 @@ func makeVerb(use, short string, fn func([]string)) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// --- CP2: parent commands with Cobra subcommands ---------------------------
+//
+// Each builder creates a parent *cobra.Command whose children correspond to the
+// nested verb switch in the handler. The parent uses Args:cobra.ArbitraryArgs
+// so unknown verbs (and the empty-args case) fall through to the existing
+// handler, preserving exit codes and error messages. Each child sets
+// DisableFlagParsing:true and prepends its name so the existing handler
+// receives [verb, ...rest], identical to the pre-CP2 call shape.
+// Flags registered via cmd.Flags() are for CP4 derivation only — not parsed
+// by Cobra at runtime; the handler's own flag.NewFlagSet parses them.
+
+// buildSignalsCmd builds the "signals" parent + scan|show|stale|diff|linkify children.
+func buildSignalsCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runSignals(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "signals",
+		Short: "Project context pipeline (scan|show|stale|diff|linkify)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("scan", "Walk repo and write docs/wiki/scan.md", "", func(c *cobra.Command) {
+		c.Flags().String("out", "", "write substrate to <dir> instead of <root>/.claude/project/")
+	})
+	addSub("show", "Print docs/wiki/scan.md to stdout", "", nil)
+	addSub("stale", "Exit 0 fresh, 1 stale, 2 error", "", nil)
+	addSub("diff", "Print unified diff of signals file", "", nil)
+	addSub("linkify", "Linkify path tokens in docs/wiki/index.md and docs/wiki/*.md", "", nil)
+	return parent
+}
+
+// buildReminderCmd builds the "reminder" parent + add|list|show|rm children.
+// The undocumented "set-due" verb is not a cliusage entry; it routes via the
+// parent's ArbitraryArgs fallback to the existing handler.
+func buildReminderCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runReminder(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "reminder",
+		Short: "Manage session reminders (add|list|show|rm|set-due)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("add", "Create a reminder file; prints assigned id", "<text>", func(c *cobra.Command) {
+		c.Flags().String("due", "", "RFC3339 due timestamp")
+		c.Flags().String("transport", "", "transport kind: cron, routine, or none")
+	})
+	addSub("list", "List all reminders", "", nil)
+	addSub("show", "Print body of a reminder", "<id>", nil)
+	addSub("rm", "Delete a reminder", "<id>", nil)
+	return parent
+}
+
+// buildHooksCmd builds the "hooks" parent + session-start|install|uninstall children.
+func buildHooksCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runHooks(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "hooks",
+		Short: "Manage session-start hooks (session-start|install|uninstall)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("session-start", "Print session-start hook payload", "", func(c *cobra.Command) {
+		c.Flags().String("format", "", "output format: json or text")
+	})
+	addSub("install", "Install session-start hook", "", func(c *cobra.Command) {
+		c.Flags().String("scope", "", "scope: user or project")
+	})
+	addSub("uninstall", "Remove session-start hook", "", func(c *cobra.Command) {
+		c.Flags().String("scope", "", "scope: user or project")
+	})
+	return parent
+}
+
+// buildClaudeCmd builds the "claude" parent + install|update|list|diff|uninstall children.
+func buildClaudeCmd() *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "claude",
+		Short: "Install, update, or manage ~/.claude artifacts (install|update|list|diff|uninstall)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { runClaude(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				runClaude(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("install", "Install artifact bundle", "", func(c *cobra.Command) {
+		c.Flags().Bool("dry-run", false, "print what would happen; make no changes")
+		c.Flags().String("target", "", "target directory (default ~/.claude)")
+		c.Flags().Bool("no-hooks", false, "skip session-start hook installation")
+	})
+	addSub("update", "Update artifact bundle", "", func(c *cobra.Command) {
+		c.Flags().Bool("dry-run", false, "print what would happen; make no changes")
+		c.Flags().String("target", "", "target directory (default ~/.claude)")
+		c.Flags().Bool("no-hooks", false, "skip session-start hook installation")
+	})
+	addSub("list", "List bundled artifacts", "", nil)
+	addSub("diff", "Diff bundle vs on-disk", "", func(c *cobra.Command) {
+		c.Flags().String("target", "", "target directory (default ~/.claude)")
+	})
+	addSub("uninstall", "Generate uninstall prompt", "", func(c *cobra.Command) {
+		c.Flags().String("target", "", "target directory (default ~/.claude)")
+	})
+	return parent
+}
+
+// buildDockerCmd builds the "docker" parent + init child.
+func buildDockerCmd() *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "docker",
+		Short: "Docker eval environment scaffolding (init)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { runDocker(args); return nil },
+	}
+	initCmd := &cobra.Command{
+		Use:                "init",
+		Short:              "Scaffold Docker eval environment",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runDocker(append([]string{"init"}, args...))
+			return nil
+		},
+	}
+	initCmd.Flags().String("target", "", "target directory for scaffolded files")
+	initCmd.Flags().Bool("force", false, "overwrite existing files")
+	parent.AddCommand(initCmd)
+	return parent
+}
+
+// buildDocsCmd builds the "docs" parent + scan|stale children.
+func buildDocsCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runDocs(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "docs",
+		Short: "Docs surface scanning (scan|stale)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short string) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": ""},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		parent.AddCommand(c)
+	}
+	addSub("scan", "Scan docs and write doc-surfaces.md")
+	addSub("stale", "Exit 0 fresh, 1 stale, 2 error")
+	return parent
+}
+
+// buildProfileCmd builds the "profile" parent + refresh child.
+func buildProfileCmd() *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "profile",
+		Short: "User profile management (refresh)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { runProfile(args); return nil },
+	}
+	refreshCmd := &cobra.Command{
+		Use:                "refresh",
+		Short:              "Refresh ## Environment in profile.md",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runProfile(append([]string{"refresh"}, args...))
+			return nil
+		},
+	}
+	refreshCmd.Flags().String("if-stale", "", "skip refresh when lastcheck is within this window (e.g. 7d, 30d)")
+	parent.AddCommand(refreshCmd)
+	return parent
+}
+
+// buildPromptCmd builds the "prompt" parent + git-cleanup|claude-merge children.
+func buildPromptCmd() *cobra.Command {
+	parent := &cobra.Command{
+		Use:   "prompt",
+		Short: "Emit cold-op briefs (git-cleanup|claude-merge)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { runPrompt(args); return nil },
+	}
+	addSub := func(verb, short string) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": ""},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				runPrompt(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		parent.AddCommand(c)
+	}
+	addSub("git-cleanup", "Emit the git-cleanup cold-op brief")
+	addSub("claude-merge", "Emit the CLAUDE.md merge cold-op brief")
+	return parent
 }
 
 // findFirstVerb scans argv (os.Args[1:] after scanNoUpdateCheck) for the
