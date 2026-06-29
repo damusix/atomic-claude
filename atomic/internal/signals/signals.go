@@ -8,17 +8,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
-	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
-	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
 
 const (
-	signalsFile = ".claude/project/deterministic-signals.md"
-	prevFile    = ".claude/project/.deterministic-signals.prev.md"
+	signalsFile = "docs/wiki/scan.md"
+	prevFile    = "tmp/.scan.prev.md"
 )
 
 // SignalsPath returns the absolute path to the signals file for the given repo root.
@@ -33,9 +30,6 @@ func PrevPath(root string) string {
 
 // Options configures a Scan run. All fields are optional.
 type Options struct {
-	// Clock returns the current time. If nil, time.Now().UTC() is used.
-	// Inject a fixed clock in tests to get deterministic generated_at values.
-	Clock func() time.Time
 	// MaxDepth limits the tree depth. Files at depth ≤ MaxDepth are fully
 	// enumerated with per-file metadata. Directories at MaxDepth+1 show a
 	// summary (N files, M dirs). Directories beyond MaxDepth+1 are elided.
@@ -58,8 +52,7 @@ type Options struct {
 	// Callers may also set this directly for testing.
 	GeneratedGlobs []string
 	// OutDir, when non-empty, redirects the deterministic substrate to
-	// <OutDir>/.claude/project/deterministic-signals.md instead of the
-	// default <root>/.claude/project/deterministic-signals.md.
+	// <OutDir>/docs/wiki/scan.md instead of the default <root>/docs/wiki/scan.md.
 	// The scanned repo is never written to when OutDir is set.
 	OutDir string
 }
@@ -94,16 +87,9 @@ func readSignalsIgnore(root string) (excludeGlobs, generatedGlobs []string, err 
 	return excludeGlobs, generatedGlobs, scanner.Err()
 }
 
-func (o *Options) clock() time.Time {
-	if o != nil && o.Clock != nil {
-		return o.Clock()
-	}
-	return time.Now().UTC()
-}
-
 // Scan walks the repo at root, assembles the signals document, and writes it.
-// Idempotency: if the body is unchanged, the existing generated_at is kept
-// and the file is NOT rewritten (so mtime stays stable).
+// Idempotency: the file is rewritten only when the body content changes, so
+// mtime stays stable on repeated scans of an unchanged repo.
 func Scan(root string) error {
 	return ScanWithOptions(root, nil)
 }
@@ -180,20 +166,10 @@ func ScanWithOptions(root string, opts *Options) error {
 	// Read existing file (if any) to check idempotency.
 	existingRaw, readErr := os.ReadFile(outPath)
 
-	var genAt string
 	rewrite := true
-
-	if readErr == nil {
-		oldMeta, oldBody, parseErr := frontmatter.Parse(string(existingRaw))
-		if parseErr == nil && oldBody == body {
-			// Body unchanged — keep existing generated_at and skip rewrite.
-			if oldMeta != nil {
-				if v, ok := oldMeta["generated_at"]; ok {
-					genAt, _ = v.(string)
-				}
-			}
-			rewrite = false
-		}
+	if readErr == nil && string(existingRaw) == body {
+		// Body unchanged — skip rewrite so mtime stays stable.
+		rewrite = false
 	}
 
 	if rewrite {
@@ -207,21 +183,10 @@ func ScanWithOptions(root string, opts *Options) error {
 			}
 		}
 
-		genAt = opts.clock().Format(time.RFC3339)
-
-		// Order: generated_at first, then atomic_version (matches spec examples).
-		doc, err := frontmatter.EmitOrdered([]frontmatter.KV{
-			{Key: "generated_at", Value: genAt},
-			{Key: "atomic_version", Value: version.Version},
-		}, body)
-		if err != nil {
-			return fmt.Errorf("signals scan: emit: %w", err)
-		}
-
 		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 			return fmt.Errorf("signals scan: create output dir: %w", err)
 		}
-		if err := os.WriteFile(outPath, []byte(doc), 0o644); err != nil {
+		if err := os.WriteFile(outPath, []byte(body), 0o644); err != nil {
 			return fmt.Errorf("signals scan: write output: %w", err)
 		}
 	}
@@ -307,10 +272,6 @@ func Stale(root string) (StaleInfo, error) {
 		}
 		return StaleInfo{}, fmt.Errorf("signals stale: %w", err)
 	}
-	_, oldBody, err := frontmatter.Parse(string(existingRaw))
-	if err != nil {
-		return StaleInfo{}, fmt.Errorf("signals stale: parse %s: %w", path, err)
-	}
 
 	opts, err := resolveScanOptions(root, nil)
 	if err != nil {
@@ -321,6 +282,7 @@ func Stale(root string) (StaleInfo, error) {
 		return StaleInfo{}, fmt.Errorf("signals stale: %w", err)
 	}
 
+	oldBody := string(existingRaw)
 	if newBody != oldBody {
 		return StaleInfo{ChangedLines: lineDelta(oldBody, newBody)}, ErrStale
 	}
@@ -431,11 +393,11 @@ func diffFallback(prevPath, currentPath string, out io.Writer) error {
 	return nil
 }
 
-// LinkifyFiles linkifies .claude/project/signals.md and every *.md file under
-// .claude/project/signals/ in the repo at root, using root as the base directory
-// for path resolution. Each file is read, linkified, and written back in place.
-// If a file's content is unchanged after linkification, it is not rewritten.
-// Idempotent: re-running on already-linkified content is a no-op.
+// LinkifyFiles linkifies docs/wiki/index.md and every *.md file under docs/wiki/
+// in the repo at root (excluding scan.md and CLAUDE.md), using root as the base
+// directory for path resolution. Each file is read, linkified, and written back
+// in place. If a file's content is unchanged after linkification, it is not
+// rewritten. Idempotent: re-running on already-linkified content is a no-op.
 func LinkifyFiles(root string) error {
 	return LinkifyFilesWithBase(root, root)
 }
@@ -443,8 +405,16 @@ func LinkifyFiles(root string) error {
 // LinkifyFilesWithBase is like LinkifyFiles but accepts an explicit base directory.
 // Exported so tests can inject a temp directory without needing a git repo.
 func LinkifyFilesWithBase(root, base string) error {
-	routerPath := filepath.Join(root, ".claude", "project", "signals.md")
-	domainDir := filepath.Join(root, ".claude", "project", "signals")
+	routerPath := filepath.Join(root, "docs", "wiki", "index.md")
+	domainDir := filepath.Join(root, "docs", "wiki")
+
+	// Files excluded from linkification: scan.md is the raw deterministic dump;
+	// CLAUDE.md is the steering file; index.md is handled separately as routerPath.
+	skipNames := map[string]bool{
+		"scan.md":   true,
+		"CLAUDE.md": true,
+		"index.md":  true,
+	}
 
 	var targets []string
 
@@ -456,22 +426,13 @@ func LinkifyFilesWithBase(root, base string) error {
 	if err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
-				// Recurse one level for sub-domain directories.
-				subDir := filepath.Join(domainDir, e.Name())
-				subs, rerr := os.ReadDir(subDir)
-				if rerr != nil {
-					continue
-				}
-				for _, se := range subs {
-					if !se.IsDir() && strings.HasSuffix(se.Name(), ".md") {
-						targets = append(targets, filepath.Join(subDir, se.Name()))
-					}
-				}
 				continue
 			}
-			if strings.HasSuffix(e.Name(), ".md") {
-				targets = append(targets, filepath.Join(domainDir, e.Name()))
+			name := e.Name()
+			if skipNames[name] || !strings.HasSuffix(name, ".md") {
+				continue
 			}
+			targets = append(targets, filepath.Join(domainDir, name))
 		}
 	}
 

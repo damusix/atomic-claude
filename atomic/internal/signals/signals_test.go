@@ -542,7 +542,8 @@ func TestScan_CreatesFile(t *testing.T) {
 	}
 }
 
-func TestScan_ValidFrontmatter(t *testing.T) {
+func TestScan_NoFrontmatter(t *testing.T) {
+	// scan.md is a raw deterministic dump; it must not carry YAML frontmatter.
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
 	})
@@ -550,21 +551,12 @@ func TestScan_ValidFrontmatter(t *testing.T) {
 		t.Fatalf("Scan: %v", err)
 	}
 	data, _ := os.ReadFile(signals.SignalsPath(root))
-	meta, body, err := frontmatter.Parse(string(data))
-	if err != nil {
-		t.Fatalf("parse frontmatter: %v", err)
+	content := string(data)
+	if strings.HasPrefix(content, "---") {
+		t.Errorf("scan output must not have YAML frontmatter delimiter:\n%s", content[:min(120, len(content))])
 	}
-	if meta == nil {
-		t.Fatal("expected frontmatter, got nil")
-	}
-	if meta["generated_at"] == "" {
-		t.Error("missing generated_at")
-	}
-	if meta["atomic_version"] == "" {
-		t.Error("missing atomic_version")
-	}
-	if !strings.Contains(body, "# Deterministic signals") {
-		t.Errorf("body missing header: %s", body)
+	if !strings.Contains(content, "# Deterministic signals") {
+		t.Errorf("body missing header: %s", content)
 	}
 }
 
@@ -840,15 +832,8 @@ func TestDiff_MissingSignalsFile(t *testing.T) {
 
 var update = flag.Bool("update", false, "regenerate golden testdata fixtures")
 
-// fixedClock returns a deterministic time for golden tests.
-// All golden fixtures contain this exact timestamp as generated_at.
-var fixedClockTime = time.Date(2026, 5, 16, 18, 32, 11, 0, time.UTC)
-
-func fixedClockFn() time.Time { return fixedClockTime }
-
 // goldenTest scans a temp repo seeded from testdata/signals/<scenario>/repo/,
-// uses a fixed clock for generated_at, and compares against
-// testdata/signals/<scenario>/expected.md.
+// and compares against testdata/signals/<scenario>/expected.md.
 // With -update, it writes the expected file instead of comparing.
 func goldenTest(t *testing.T, scenario string) {
 	t.Helper()
@@ -890,7 +875,7 @@ func goldenTest(t *testing.T, scenario string) {
 		}
 	}
 
-	opts := &signals.Options{Clock: fixedClockFn}
+	opts := &signals.Options{}
 	if err := signals.ScanWithOptions(root, opts); err != nil {
 		t.Fatalf("Scan: %v", err)
 	}
@@ -1155,7 +1140,8 @@ func TestEmitOrdered_Stable(t *testing.T) {
 	}
 }
 
-func TestScan_FrontmatterOrder(t *testing.T) {
+func TestScan_SectionsPresent(t *testing.T) {
+	// scan.md carries the three deterministic sections and no frontmatter.
 	root := makeRepo(t, map[string]string{
 		"main.go": "package main\n",
 	})
@@ -1164,14 +1150,16 @@ func TestScan_FrontmatterOrder(t *testing.T) {
 	}
 	data, _ := os.ReadFile(signals.SignalsPath(root))
 	content := string(data)
-	// generated_at must appear before atomic_version in the file.
-	gaIdx := strings.Index(content, "generated_at:")
-	avIdx := strings.Index(content, "atomic_version:")
-	if gaIdx == -1 || avIdx == -1 {
-		t.Fatalf("missing frontmatter keys:\n%s", content)
+	for _, section := range []string{"## Tree", "## Manifests", "## Languages"} {
+		if !strings.Contains(content, section) {
+			t.Errorf("missing section %q in scan output:\n%s", section, content)
+		}
 	}
-	if gaIdx > avIdx {
-		t.Errorf("expected generated_at before atomic_version:\n%s", content)
+	// No frontmatter keys should appear.
+	for _, key := range []string{"generated_at:", "atomic_version:"} {
+		if strings.Contains(content, key) {
+			t.Errorf("frontmatter key %q must not appear in scan output", key)
+		}
 	}
 }
 
@@ -2145,8 +2133,8 @@ func TestDiffPaths_WorksWithoutGit(t *testing.T) {
 // --- LinkifyFiles tests ---
 
 // TestLinkifyFiles_LinkifiesRouterAndDomains verifies that LinkifyFilesWithBase
-// rewrites signals.md and domain files under signals/, and leaves non-path tokens
-// untouched.
+// rewrites docs/wiki/index.md and flat domain files under docs/wiki/, and leaves
+// non-path tokens untouched.
 func TestLinkifyFiles_LinkifiesRouterAndDomains(t *testing.T) {
 	root := t.TempDir()
 
@@ -2159,24 +2147,20 @@ func TestLinkifyFiles_LinkifiesRouterAndDomains(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create signals.md with a plain backtick token.
-	projectDir := filepath.Join(root, ".claude", "project")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+	// Create docs/wiki/index.md (router) with a plain backtick token.
+	wikiDir := filepath.Join(root, "docs", "wiki")
+	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	routerContent := "# router\n\nSee `agents/atomic-builder.md` for details.\n"
-	routerPath := filepath.Join(projectDir, "signals.md")
+	routerPath := filepath.Join(wikiDir, "index.md")
 	if err := os.WriteFile(routerPath, []byte(routerContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create a domain file under signals/ with a plain backtick token.
-	domainDir := filepath.Join(projectDir, "signals")
-	if err := os.MkdirAll(domainDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// Create a flat domain file under docs/wiki/ with a plain backtick token.
 	domainContent := "# domain\n\n`agents/atomic-builder.md` is key.\n"
-	domainPath := filepath.Join(domainDir, "workflow.md")
+	domainPath := filepath.Join(wikiDir, "workflow.md")
 	if err := os.WriteFile(domainPath, []byte(domainContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2217,11 +2201,11 @@ func TestLinkifyFiles_Idempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	projectDir := filepath.Join(root, ".claude", "project")
-	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+	wikiDir := filepath.Join(root, "docs", "wiki")
+	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	routerPath := filepath.Join(projectDir, "signals.md")
+	routerPath := filepath.Join(wikiDir, "index.md")
 	if err := os.WriteFile(routerPath, []byte("# router\n\nSee `agents/atomic-builder.md`.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -2241,12 +2225,68 @@ func TestLinkifyFiles_Idempotent(t *testing.T) {
 	}
 }
 
-// TestLinkifyFiles_NoOp_WhenNoFiles verifies no error when signals.md and
-// signals/ directory don't exist.
+// TestLinkifyFiles_NoOp_WhenNoFiles verifies no error when docs/wiki/index.md
+// and docs/wiki/ directory don't exist.
 func TestLinkifyFiles_NoOp_WhenNoFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := signals.LinkifyFilesWithBase(root, root); err != nil {
 		t.Errorf("expected no error on empty root: %v", err)
+	}
+}
+
+// TestLinkifyFiles_ExcludesSpecialFiles verifies that scan.md and CLAUDE.md
+// inside docs/wiki/ are NOT linkified — they are excluded by name.
+// WHY: scan.md is the raw deterministic dump (linkifying it corrupts structure);
+// CLAUDE.md is the steering file (managed separately, not a domain narrative).
+func TestLinkifyFiles_ExcludesSpecialFiles(t *testing.T) {
+	root := t.TempDir()
+
+	// Target that tokens could resolve to.
+	targetPath := filepath.Join(root, "agents", "atomic-builder.md")
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(targetPath, []byte("# builder\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	wikiDir := filepath.Join(root, "docs", "wiki")
+	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	rawContent := "# scan\n\n`agents/atomic-builder.md` appears here.\n"
+	scanPath := filepath.Join(wikiDir, "scan.md")
+	if err := os.WriteFile(scanPath, []byte(rawContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	claudeContent := "# steering\n\n`agents/atomic-builder.md` referenced.\n"
+	claudePath := filepath.Join(wikiDir, "CLAUDE.md")
+	if err := os.WriteFile(claudePath, []byte(claudeContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := signals.LinkifyFilesWithBase(root, root); err != nil {
+		t.Fatalf("LinkifyFilesWithBase: %v", err)
+	}
+
+	// scan.md must be unchanged (not linkified).
+	gotScan, err := os.ReadFile(scanPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotScan) != rawContent {
+		t.Errorf("scan.md was modified; must be excluded:\ngot: %q\nwant: %q", gotScan, rawContent)
+	}
+
+	// CLAUDE.md must be unchanged (not linkified).
+	gotClaude, err := os.ReadFile(claudePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotClaude) != claudeContent {
+		t.Errorf("CLAUDE.md was modified; must be excluded:\ngot: %q\nwant: %q", gotClaude, claudeContent)
 	}
 }
 
@@ -2269,7 +2309,7 @@ func TestScanWithOptions_DoesNotMutateOpts(t *testing.T) {
 	})
 
 	// Share ONE Options value (zero-value — all fields empty).
-	opts := &signals.Options{Clock: fixedClockFn}
+	opts := &signals.Options{}
 
 	// Snapshot the caller's fields before any scan.
 	beforeExclude := opts.ExcludeGlobs
@@ -2298,6 +2338,54 @@ func TestScanWithOptions_DoesNotMutateOpts(t *testing.T) {
 	}
 }
 
+// ---- CP1 (wiki-storage-relocation): new path constants and no-frontmatter contract ----
+
+// TestNewStoragePaths_PathConstants asserts that SignalsPath and PrevPath resolve
+// to the new docs/wiki/ and tmp/ layout rather than the old .claude/project/ paths.
+// WHY: CP1 relocates signalsFile → "docs/wiki/scan.md" and prevFile → "tmp/.scan.prev.md"
+// so that the deterministic substrate lives alongside committed wiki output.
+func TestNewStoragePaths_PathConstants(t *testing.T) {
+	root := t.TempDir()
+	wantScanPath := filepath.Join(root, "docs", "wiki", "scan.md")
+	wantPrevPath := filepath.Join(root, "tmp", ".scan.prev.md")
+
+	if got := signals.SignalsPath(root); got != wantScanPath {
+		t.Errorf("SignalsPath:\n  want: %s\n   got: %s", wantScanPath, got)
+	}
+	if got := signals.PrevPath(root); got != wantPrevPath {
+		t.Errorf("PrevPath:\n  want: %s\n   got: %s", wantPrevPath, got)
+	}
+}
+
+// TestNewStoragePaths_NoFrontmatter asserts that scan output does not start with
+// a YAML frontmatter delimiter (---).
+// WHY: docs/wiki/scan.md is a raw deterministic dump (not an OKF-formatted file);
+// frontmatter belongs on index.md and domain files, not on the scan substrate.
+func TestNewStoragePaths_NoFrontmatter(t *testing.T) {
+	root := makeRepo(t, map[string]string{
+		"main.go": "package main\n",
+	})
+	if err := signals.Scan(root); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	data, err := os.ReadFile(signals.SignalsPath(root))
+	if err != nil {
+		t.Fatalf("read scan output: %v", err)
+	}
+	content := string(data)
+	if strings.HasPrefix(content, "---") {
+		preview := content
+		if len(preview) > 80 {
+			preview = preview[:80]
+		}
+		t.Errorf("scan output must not start with YAML frontmatter delimiter; first 80 bytes:\n%q", preview)
+	}
+	// The body must still begin with the expected heading.
+	if !strings.HasPrefix(strings.TrimSpace(content), "# Deterministic signals") {
+		t.Errorf("scan output must start with '# Deterministic signals' heading; got:\n%q", content[:min(80, len(content))])
+	}
+}
+
 // ---- f-2: assembleBody is output-preserving after I/O-reduction refactor ----
 
 // TestAssembleBody_OutputPreserved is a characterization test: the tree, manifests,
@@ -2316,7 +2404,7 @@ func TestAssembleBody_OutputPreserved(t *testing.T) {
 		"Makefile":       "all:\n\tgo build\n",
 	})
 
-	opts := &signals.Options{Clock: fixedClockFn}
+	opts := &signals.Options{}
 	if err := signals.ScanWithOptions(root, opts); err != nil {
 		t.Fatalf("first ScanWithOptions: %v", err)
 	}
@@ -2328,7 +2416,7 @@ func TestAssembleBody_OutputPreserved(t *testing.T) {
 	// A second scan on the same repo must produce byte-identical output.
 	// (idempotency is already tested elsewhere; this test's purpose is to serve
 	// as a characterization anchor for the f-2 refactor.)
-	if err := signals.ScanWithOptions(root, &signals.Options{Clock: fixedClockFn}); err != nil {
+	if err := signals.ScanWithOptions(root, &signals.Options{}); err != nil {
 		t.Fatalf("second ScanWithOptions: %v", err)
 	}
 	secondBytes, err := os.ReadFile(signals.SignalsPath(root))

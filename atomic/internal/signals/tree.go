@@ -50,11 +50,14 @@ var skipDirs = map[string]bool{
 
 // skipPrefixes are repo-relative path prefixes excluded in all enumeration modes.
 // .claude/.scratchpad/ is working memory — not interesting for signals.
-// .claude/project/ contains signals output — including it would make the scan
-// non-idempotent (the output file appears in subsequent scans).
+// .claude/project/ contains legacy signals output (pre-wiki-relocation layout).
+// docs/wiki/scan.md is the raw deterministic dump written by this scanner —
+// excluding it prevents the output file from appearing in subsequent scans
+// (which would make the scan non-idempotent).
 var skipPrefixes = []string{
 	".claude/.scratchpad/",
 	".claude/project/",
+	"docs/wiki/scan.md",
 }
 
 // enumerateFiles returns repo-relative file paths for all tracked (and
