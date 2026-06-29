@@ -32,16 +32,19 @@ ignored in wiki-output and bucket-synthesis modes (those have their own pipeline
 
 Insert a new first step before the `atomic signals stale` check:
 
-> 0. **docs-only guard.** Inspect the commit's changed-file set (`git diff --name-only` of what
->    is being committed). If **every** changed path is documentation, skip the refresh entirely
->    (do not run `atomic signals stale`). A path is documentation when it is under a `docs/`
->    directory at any depth, OR is a top-level `README*` / `CHANGELOG*` / `CONTRIBUTING*` /
->    `CODE_OF_CONDUCT*` / `SECURITY*` / `LICENSE*`. Any other path — source, config, build
->    files, `CLAUDE.md`, or any bundled-artifact `.md` under `agents/` `commands/` `skills/`
->    `rules/` `output-styles/` — means it is NOT docs-only; continue to the staleness check.
->    **Why:** the deterministic substrate counts per-language LOC, so a docs-only commit trips
->    `stale` exit 1 and dispatches the inferrer for no real map change. In a config repo the
->    artifact `.md` files are the product, so they must count as source, not docs.
+> 0. **docs-only guard.** Inspect the staged file set with `git diff --cached --name-only`. If
+>    the staged set is **empty** (e.g., in a post-merge or post-squash context where the commit
+>    already landed and nothing remains staged), skip the docs-only check and fall through to
+>    the staleness check — an empty staged set does not mean all paths are documentation. If the
+>    staged set is non-empty and **every** staged path is documentation, skip the refresh
+>    entirely (do not run `atomic signals stale`). A path is documentation when it is under a
+>    `docs/` directory at any depth, OR is a top-level `README*` / `CHANGELOG*` /
+>    `CONTRIBUTING*` / `CODE_OF_CONDUCT*` / `SECURITY*` / `LICENSE*`. Any other path — source,
+>    config, build files, `CLAUDE.md`, or any bundled-artifact `.md` under `agents/` `commands/`
+>    `skills/` `rules/` `output-styles/` — means it is NOT docs-only; continue to the staleness
+>    check. **Why:** the deterministic substrate counts per-language LOC, so a docs-only commit
+>    trips `stale` exit 1 and dispatches the inferrer for no real map change. In a config repo
+>    the artifact `.md` files are the product, so they must count as source, not docs.
 
 The existing exit-code handling (0 fresh → skip; 1 stale → refresh; 2 error → report + skip)
 is unchanged and follows the docs-only guard. Add a one-line WHY noting that the staleness
@@ -148,3 +151,11 @@ New child spec. Moves the primary signals refresh from commit-time to implementa
 finalize, scoped to the loop's SHA range via a new `changed_range` inferrer arg; adds a
 docs-only skip to the commit-time `signals-gate` fallback. Coordination is the existing
 content-based `atomic signals stale` exit code — no marker file. No Go change.
+
+### 2026-06-29 — Gate uses staged set
+
+C2 guard updated: uses `git diff --cached --name-only` (the staged set about to be committed)
+instead of `git diff --name-only` (unstaged changes). An empty staged set now falls through to
+the `atomic signals stale` check rather than being treated as all-docs — prevents the
+post-merge or post-squash defense-in-depth gate from short-circuiting to a skip when nothing
+is staged.
