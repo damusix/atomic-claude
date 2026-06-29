@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -14,6 +15,52 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/prompt"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
+
+// TestRootCmdExact17Verbs verifies the Cobra root command has exactly the 17
+// expected top-level verbs and no extra auto-generated commands (completion,
+// help) leaked into the visible command set.
+// WHY: DisableDefaultCmd and SetHelpCommand suppress Cobra's auto-adds;
+// this test is the gate that catches any regression where Cobra re-adds them
+// or a new verb is accidentally introduced.
+func TestRootCmdExact17Verbs(t *testing.T) {
+	var repoOverride string
+	root := buildRootCmd(&repoOverride)
+
+	want := []string{
+		"claude", "code", "config", "docker", "docs", "doctor",
+		"followups", "hooks", "migrate", "profile", "prompt", "reminder",
+		"serve", "signals", "update", "validate", "wiki",
+	}
+
+	// Collect visible (non-hidden) commands only.
+	var visible []string
+	for _, cmd := range root.Commands() {
+		if !cmd.Hidden {
+			visible = append(visible, cmd.Name())
+		}
+	}
+	sort.Strings(visible)
+
+	if len(visible) != len(want) {
+		t.Errorf("got %d top-level verbs, want %d\ngot:  %v\nwant: %v",
+			len(visible), len(want), visible, want)
+	}
+	for i, name := range visible {
+		if i >= len(want) {
+			break
+		}
+		if name != want[i] {
+			t.Errorf("verb[%d]: got %q, want %q", i, name, want[i])
+		}
+	}
+
+	// Confirm no completion or help leaked into visible commands.
+	for _, name := range visible {
+		if name == "completion" || name == "help" {
+			t.Errorf("unexpected command leaked into top-level: %q", name)
+		}
+	}
+}
 
 // sha256HexString returns the hex-encoded SHA256 of data.
 func sha256HexString(data []byte) string {

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
-	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	codecli "github.com/damusix/atomic-claude/atomic/internal/codeintel/cli"
 	"github.com/damusix/atomic-claude/atomic/internal/coldprompt"
@@ -36,57 +35,41 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/validate"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
+	"github.com/spf13/cobra"
 )
 
 func main() {
-	fs := flag.NewFlagSet("atomic", flag.ContinueOnError)
-	fs.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: atomic [flags] <command> [args]\n\n")
-		fmt.Fprintf(os.Stderr, "Commands:\n")
-		cliusage.RenderCommandsBlock(os.Stderr)
-		fmt.Fprintf(os.Stderr, "\nFlags:\n")
-		fs.PrintDefaults()
-	}
-
-	var showVersion bool
-	var repoOverride string
+	// Pre-scan 1: strip --no-update-check from os.Args in any position before
+	// Cobra runs. flag.FlagSet stops at the first non-flag argument (the
+	// subcommand), so "atomic signals scan --no-update-check" would not be
+	// seen by Cobra's persistent flag on the root. Stripping it here also
+	// prevents the sub-handler's own flag parser from tripping over it.
 	var noUpdateCheck bool
-	fs.BoolVar(&showVersion, "version", false, "print version and exit")
-	fs.BoolVar(&showVersion, "v", false, "print version and exit (short)")
-	fs.StringVar(&repoOverride, "repo", "", "repo root override (default: detect via git)")
-	// Registered for --help documentation only; the actual value is set by
-	// scanNoUpdateCheck (which pre-scans all argv positions before flag.Parse,
-	// since flag.FlagSet stops at the first non-flag argument).
-	fs.BoolVar(&noUpdateCheck, "no-update-check", false, "suppress background update check")
-
-	// Pre-scan all argv for --no-update-check before flag.Parse, because
-	// flag.FlagSet stops at the first non-flag argument (the subcommand), so
-	// "atomic signals scan --no-update-check" would not set noUpdateCheck via
-	// fs.Parse alone. We strip the flag from args so subcommands don't see it.
 	noUpdateCheck, os.Args = scanNoUpdateCheck(os.Args)
 
-	if err := fs.Parse(os.Args[1:]); err != nil {
-		os.Exit(2)
+	// Pre-scan 2: handle --version / -v before Cobra so the output format
+	// ("atomic X.Y.Z (commit)") and exit code (0) are preserved exactly.
+	// These flags are also registered as persistent flags for --help docs.
+	for _, a := range os.Args[1:] {
+		if a == "--version" || a == "-v" {
+			fmt.Printf("atomic %s (%s)\n", version.Version, version.Commit)
+			os.Exit(0)
+		}
 	}
 
-	if showVersion {
-		fmt.Printf("atomic %s (%s)\n", version.Version, version.Commit)
-		return
-	}
+	// Build the Cobra command tree. repoOverride is populated by Cobra's
+	// persistent-flag parsing for "--repo" placed before the subcommand.
+	var repoOverride string
+	rootCmd := buildRootCmd(&repoOverride)
 
-	args := fs.Args()
-	if len(args) == 0 {
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	// Background update check: spawned for every command except "update" and
-	// when --no-update-check is set. The goroutine writes to the cache; only
-	// the main thread prints the banner after the subcommand finishes.
+	// Background update check: spawned before verb execution so it runs
+	// concurrently with the handler; banner is printed after Execute() returns.
+	// We find the first verb by scanning os.Args, skipping flags and their
+	// values. Only --repo takes a value among root-level flags.
 	var bgUpdateCh <-chan selfupdate.Result
 	var cacheEntry selfupdate.CacheEntry
 	var cachePath string
-	if !noUpdateCheck && args[0] != "update" {
+	if !noUpdateCheck && findFirstVerb(os.Args[1:]) != "update" {
 		cp, err := selfupdate.DefaultCachePath()
 		if err == nil {
 			cachePath = cp
@@ -96,48 +79,10 @@ func main() {
 		}
 	}
 
-	switch args[0] {
-	case "signals":
-		runSignals(args[1:], repoOverride)
-	case "reminder":
-		runReminder(args[1:], repoOverride)
-	case "hooks":
-		runHooks(args[1:], repoOverride)
-	case "claude":
-		runClaude(args[1:])
-	case "doctor":
-		runDoctor(args[1:])
-	case "docker":
-		runDocker(args[1:])
-	case "update":
-		runUpdate(args[1:])
-	case "config":
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "atomic config: resolve home dir: %v\n", err)
-			os.Exit(2)
-		}
-		os.Exit(config.Run(args[1:], filepath.Join(home, ".claude"), os.Stdout, os.Stderr))
-	case "followups":
-		runFollowups(args[1:], repoOverride)
-	case "validate":
-		os.Exit(validate.Run(args[1:]))
-	case "docs":
-		runDocs(args[1:], repoOverride)
-	case "profile":
-		runProfile(args[1:])
-	case "code":
-		runCode(args[1:], repoOverride)
-	case "wiki":
-		runWiki(args[1:])
-	case "prompt":
-		runPrompt(args[1:])
-	case "serve":
-		os.Exit(serve.Run(args[1:], os.Stdout, os.Stderr))
-	case "migrate":
-		runMigrate(args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "atomic: unknown command %q\n", args[0])
+	// Execute the Cobra command tree. SilenceErrors is set on rootCmd so we
+	// handle the error ourselves and control the exit code explicitly.
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -158,6 +103,210 @@ func main() {
 			// goroutine not done yet — skip banner this run
 		}
 	}
+}
+
+// buildRootCmd constructs the Cobra root command with all 17 top-level verb
+// stubs. Each stub delegates to the existing runXxx handler with the post-verb
+// args, preserving all existing dispatch behavior unchanged. The nested
+// sub-switches inside handlers (code, wiki, signals, etc.) stay intact and are
+// ported to Cobra sub-commands in later checkpoints.
+//
+// DisableFlagParsing: true on every verb passes the full arg slice
+// (sub-verbs + flags) through to the existing handler unmodified, so the
+// handler's own flag.NewFlagSet / sub-switch continues to work identically.
+func buildRootCmd(repoOverride *string) *cobra.Command {
+	rootCmd := &cobra.Command{
+		Use:           "atomic",
+		Short:         "Holistic Claude Code configuration CLI",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		// Run is called when no subcommand is given. Print help and exit 1,
+		// matching the old behavior of fs.Usage() + os.Exit(1).
+		Run: func(cmd *cobra.Command, args []string) {
+			_ = cmd.Help()
+			os.Exit(1)
+		},
+	}
+
+	// Suppress the auto-generated "completion" subcommand so the visible
+	// verb set stays exactly the current 17.
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
+
+	// Replace the auto-generated "help" subcommand with a hidden no-op so it
+	// does not appear in the visible verb list.
+	rootCmd.SetHelpCommand(&cobra.Command{
+		Use:    "help [command]",
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return nil
+		},
+	})
+
+	// Override the help template to omit the hard-coded "(eq .Name "help")"
+	// exception that Cobra's default template uses. Without this, the hidden
+	// "help" command appears in `atomic --help` output even though Hidden: true.
+	rootCmd.SetHelpTemplate(`{{with .Short}}{{. | trimRightSpace}}{{end}}
+
+Usage:
+  {{.UseLine}}{{if .HasAvailableSubCommands}}
+  {{.CommandPath}} [command]{{end}}
+
+Available Commands:{{range .Commands}}{{if .IsAvailableCommand}}
+  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}
+
+Flags:
+{{.LocalFlags.FlagUsages | trimRightSpace}}
+
+Use "{{.CommandPath}} [command] --help" for more information about a command.
+`)
+
+	// Persistent flags: registered on root for --help documentation.
+	//
+	// --no-update-check is stripped from os.Args by scanNoUpdateCheck() before
+	// Execute() runs, so Cobra's persistent-flag parser never sees it in the
+	// argv. The Bool registration below is purely for `atomic --help` docs.
+	//
+	// --version / -v is handled by a pre-scan in main() that exits before
+	// Execute(); the BoolP registration is for `atomic --help` docs only.
+	//
+	// --repo is the only flag Cobra actually parses and applies at runtime
+	// (for arguments placed before the subcommand name).
+	rootCmd.PersistentFlags().StringVar(repoOverride, "repo", "", "repo root override (default: detect via git)")
+	rootCmd.PersistentFlags().Bool("no-update-check", false, "suppress background update check")
+	rootCmd.PersistentFlags().BoolP("version", "v", false, "print version and exit")
+
+	// --- 17 top-level verb stubs -----------------------------------------
+
+	rootCmd.AddCommand(makeVerb("signals",
+		"Project context pipeline (scan|show|stale|diff|linkify)",
+		func(args []string) { runSignals(args, *repoOverride) }))
+
+	rootCmd.AddCommand(makeVerb("reminder",
+		"Manage session reminders (add|list|show|rm|set-due)",
+		func(args []string) { runReminder(args, *repoOverride) }))
+
+	rootCmd.AddCommand(makeVerb("hooks",
+		"Manage session-start hooks (session-start|install|uninstall)",
+		func(args []string) { runHooks(args, *repoOverride) }))
+
+	rootCmd.AddCommand(makeVerb("claude",
+		"Install, update, or manage ~/.claude artifacts (install|update|list|diff|uninstall)",
+		func(args []string) { runClaude(args) }))
+
+	rootCmd.AddCommand(makeVerb("doctor",
+		"Integrity check",
+		func(args []string) { runDoctor(args) }))
+
+	rootCmd.AddCommand(makeVerb("docker",
+		"Docker eval environment scaffolding (init)",
+		func(args []string) { runDocker(args) }))
+
+	rootCmd.AddCommand(makeVerb("update",
+		"Self-update the atomic binary, then refresh ~/.claude artifacts",
+		func(args []string) { runUpdate(args) }))
+
+	rootCmd.AddCommand(&cobra.Command{
+		Use:                "config",
+		Short:              "Read and write atomic config (get|set|unset|list|path|agents)",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "atomic config: resolve home dir: %v\n", err)
+				os.Exit(2)
+			}
+			os.Exit(config.Run(args, filepath.Join(home, ".claude"), os.Stdout, os.Stderr))
+			return nil
+		},
+	})
+
+	rootCmd.AddCommand(makeVerb("followups",
+		"Manage typed follow-up entries (list|add|close|render|path)",
+		func(args []string) { runFollowups(args, *repoOverride) }))
+
+	rootCmd.AddCommand(&cobra.Command{
+		Use:                "validate",
+		Short:              "Lint repo artifacts",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			os.Exit(validate.Run(args))
+			return nil
+		},
+	})
+
+	rootCmd.AddCommand(makeVerb("docs",
+		"Docs surface scanning (scan|stale)",
+		func(args []string) { runDocs(args, *repoOverride) }))
+
+	rootCmd.AddCommand(makeVerb("profile",
+		"User profile management (refresh)",
+		func(args []string) { runProfile(args) }))
+
+	rootCmd.AddCommand(makeVerb("code",
+		"Code-intel engine (index|sync|status|search|callers|callees|impact|node|files|affected|explore|mcp)",
+		func(args []string) { runCode(args, *repoOverride) }))
+
+	rootCmd.AddCommand(makeVerb("wiki",
+		"Wiki management (scan|stale|linkify|bucket)",
+		func(args []string) { runWiki(args) }))
+
+	rootCmd.AddCommand(makeVerb("prompt",
+		"Emit cold-op briefs (git-cleanup|claude-merge)",
+		func(args []string) { runPrompt(args) }))
+
+	rootCmd.AddCommand(&cobra.Command{
+		Use:                "serve",
+		Short:              "Start a local read-only HTTP server for exploring wiki + code-intel",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			os.Exit(serve.Run(args, os.Stdout, os.Stderr))
+			return nil
+		},
+	})
+
+	rootCmd.AddCommand(makeVerb("migrate",
+		"Run versioned atomic migrations",
+		func(args []string) { runMigrate(args) }))
+
+	return rootCmd
+}
+
+// makeVerb returns a *cobra.Command that delegates all post-verb args to fn.
+// DisableFlagParsing passes the full slice (sub-verbs + flags) through to fn
+// unchanged so the existing handler's own sub-dispatch and flag.NewFlagSet
+// continue to work without modification.
+func makeVerb(use, short string, fn func([]string)) *cobra.Command {
+	return &cobra.Command{
+		Use:                use,
+		Short:              short,
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fn(args)
+			return nil
+		},
+	}
+}
+
+// findFirstVerb scans argv (os.Args[1:] after scanNoUpdateCheck) for the
+// first positional argument, skipping flags and their values. Only --repo
+// takes a value among the root-level flags; all other root flags are booleans.
+// Used to gate the background update goroutine (skip when verb == "update").
+func findFirstVerb(argv []string) string {
+	for i := 0; i < len(argv); i++ {
+		a := argv[i]
+		if a == "--repo" {
+			i++ // skip the value token
+			continue
+		}
+		if strings.HasPrefix(a, "--repo=") {
+			continue
+		}
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		return a
+	}
+	return ""
 }
 
 // scanNoUpdateCheck pre-scans argv for --no-update-check (and
