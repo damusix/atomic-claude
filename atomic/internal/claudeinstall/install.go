@@ -16,6 +16,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
+	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 )
 
@@ -56,11 +57,75 @@ type FileAction struct {
 	ProposedPath string // set when ActionMergeRequired
 }
 
+// loadAgentOverrides reads the config and returns the [agents] override map.
+// Best-effort: returns nil when the config is absent, unreadable, or has no
+// [agents] entries so callers treat nil as "no overrides, use bundled defaults".
+func loadAgentOverrides(targetDir string) map[string]string {
+	cfgPath := config.TOMLPath(targetDir)
+	cfg, _, err := config.Load(cfgPath)
+	if err != nil || len(cfg.Agents) == 0 {
+		return nil
+	}
+	return cfg.Agents
+}
+
+// patchAgentContent rewrites the model: key in an agent artifact's frontmatter
+// to the configured tier, preserving all other keys and their source order.
+//
+// It is a no-op when:
+//   - overrides is nil or has no entry for this agent name
+//   - target does not start with "agents/"
+//   - the file has no parseable frontmatter block
+//   - frontmatter parsing or emission fails (returns original content unchanged)
+//
+// This is called from both Plan (to compute the correct expected SHA) and
+// Apply (to write the patched bytes) so both sides agree on the on-disk content.
+func patchAgentContent(target string, content []byte, overrides map[string]string) []byte {
+	if len(overrides) == 0 || !strings.HasPrefix(target, "agents/") {
+		return content
+	}
+	// Agent name is the basename without the .md suffix.
+	agentName := strings.TrimSuffix(filepath.Base(filepath.FromSlash(target)), ".md")
+	tier, ok := overrides[agentName]
+	if !ok || tier == "" {
+		return content
+	}
+
+	kvs, body, err := frontmatter.ParseOrdered(string(content))
+	if err != nil || len(kvs) == 0 {
+		// No parseable frontmatter — leave unchanged; the agent runtime will use
+		// its built-in default (LLM-exception: we cannot patch without a block).
+		return content
+	}
+
+	// Set existing model: key or append it when absent.
+	found := false
+	for i := range kvs {
+		if kvs[i].Key == "model" {
+			kvs[i].Value = tier
+			found = true
+			break
+		}
+	}
+	if !found {
+		kvs = append(kvs, frontmatter.KV{Key: "model", Value: tier})
+	}
+
+	result, err := frontmatter.EmitOrdered(kvs, body)
+	if err != nil {
+		return content // best-effort: return original on serialisation failure
+	}
+	return []byte(result)
+}
+
 // Plan computes the per-file action list without writing anything.
+// It loads the [agents] config overrides and factors the patched content into
+// the SHA comparison so the plan correctly reflects what Apply will write.
 func Plan(targetDir string, manifest []embedded.Artifact) ([]FileAction, error) {
+	overrides := loadAgentOverrides(targetDir)
 	var plan []FileAction
 	for _, a := range manifest {
-		fa, err := planArtifact(targetDir, a)
+		fa, err := planArtifact(targetDir, a, overrides)
 		if err != nil {
 			return nil, err
 		}
@@ -69,13 +134,16 @@ func Plan(targetDir string, manifest []embedded.Artifact) ([]FileAction, error) 
 	return plan, nil
 }
 
-func planArtifact(targetDir string, a embedded.Artifact) (FileAction, error) {
+func planArtifact(targetDir string, a embedded.Artifact, agentOverrides map[string]string) (FileAction, error) {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(a.Target))
 
 	embeddedData, err := fs.ReadFile(embedded.FS, a.Source)
 	if err != nil {
 		return FileAction{}, fmt.Errorf("read embedded %s: %w", a.Source, err)
 	}
+
+	// Patch before SHA so the plan reflects the bytes Apply will write to disk.
+	embeddedData = patchAgentContent(a.Target, embeddedData, agentOverrides)
 
 	embeddedSHA := hexSHA256(embeddedData)
 
@@ -117,6 +185,10 @@ func planArtifact(targetDir string, a embedded.Artifact) (FileAction, error) {
 
 // Apply executes a plan. If dryRun is true, no filesystem writes occur.
 // clock is used for the backup timestamp — pass RealClock for production use.
+//
+// Apply loads the [agents] config overrides from targetDir and patches each
+// agent artifact's model: frontmatter key before writing, so the user's
+// configured tier is always re-applied on every install/update.
 func Apply(targetDir string, plan []FileAction, dryRun bool, clock Clock) error {
 	// Capture the run-start time once so all backups in this run share the same
 	// timestamp directory, regardless of when the first ActionUpdated is encountered.
@@ -131,8 +203,12 @@ func Apply(targetDir string, plan []FileAction, dryRun bool, clock Clock) error 
 		}
 	}
 
+	// Load agent model-tier overrides once for the whole apply run.
+	// Best-effort: nil means no overrides → bundled defaults used.
+	agentOverrides := loadAgentOverrides(targetDir)
+
 	for i := range plan {
-		if err := applyAction(targetDir, &plan[i], dryRun, backupTimestamp); err != nil {
+		if err := applyAction(targetDir, &plan[i], dryRun, backupTimestamp, agentOverrides); err != nil {
 			return err
 		}
 	}
@@ -194,13 +270,18 @@ func populateProfile(targetDir string, clock Clock) {
 	_, _ = ProfileRefresh(targetDir, today, profile.DefaultRefreshDays)
 }
 
-func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp string) error {
+func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]string) error {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(fa.Artifact.Target))
 
 	embeddedData, err := fs.ReadFile(embedded.FS, fa.Artifact.Source)
 	if err != nil {
 		return fmt.Errorf("read embedded %s: %w", fa.Artifact.Source, err)
 	}
+
+	// Patch agent frontmatter with configured model tier before any write.
+	// This ensures the user's tier choice survives every install/update cycle,
+	// including binary upgrades that ship new bundled agent content.
+	embeddedData = patchAgentContent(fa.Artifact.Target, embeddedData, agentOverrides)
 
 	switch fa.Kind {
 	case ActionInstalled:

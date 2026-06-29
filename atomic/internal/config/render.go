@@ -9,8 +9,19 @@ import (
 // Render produces a deterministic markdown snapshot of resolved config values.
 // Keys are sorted. No timestamps. Byte-stable for same input.
 // An empty Config still renders a file with the header so the @-ref resolves.
+//
+// Unlike Resolved (the user-facing list), Render includes machine-written
+// sections such as [agents] so the auto-loaded config.resolved.md reflects
+// the full active configuration including per-agent model tier overrides.
 func Render(cfg *Config) string {
+	// Start from user-settable keys.
 	m := Resolved(cfg)
+	// Merge in [agents] overrides. These are machine-written (not user-settable
+	// via `atomic config set`), but belong in the rendered file so sessions
+	// reading config.resolved.md can see which agents are pinned to which tier.
+	for agentName, tier := range cfg.Agents {
+		m["agents."+agentName] = tier
+	}
 
 	// Sort keys for determinism.
 	keys := make([]string, 0, len(m))

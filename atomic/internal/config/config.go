@@ -43,15 +43,30 @@ var knownSchemaKeys = func() []string {
 	return append(knownKeys[:len(knownKeys):len(knownKeys)], extra...)
 }()
 
+// opaqueSections is the set of top-level TOML table names whose child keys are
+// structurally arbitrary (any string key is valid). checkUnknownKeys accepts
+// any child key of an opaque section without producing a structural warning;
+// semantic validation (value allowlist, known-key check) is left to Validate /
+// AgentWarnings.
+var opaqueSections = map[string]bool{
+	"agents": true,
+}
+
 // knownSections is the set of known top-level TOML table names.
 // Derived once from knownSchemaKeys (full schema, not just settable keys) so that
 // machine-written sections like [install] don't trigger unknown-section warnings.
+// opaqueSections are also included so their top-level table names are recognized.
 var knownSections = func() map[string]bool {
 	m := map[string]bool{}
 	for _, k := range knownSchemaKeys {
 		if dot := strings.IndexByte(k, '.'); dot > 0 {
 			m[k[:dot]] = true
 		}
+	}
+	// Opaque sections have arbitrary child keys; add them explicitly so
+	// checkUnknownKeys recognizes the top-level table name without warning.
+	for k := range opaqueSections {
+		m[k] = true
 	}
 	return m
 }()
@@ -99,6 +114,27 @@ type installSection struct {
 	Artifacts installArtifactsSection `toml:"artifacts"`
 }
 
+// validTiers is the allowlist of model tier values for [agents] overrides.
+// "fable" is forward-reserved and may not yet correspond to a recognized Claude Code
+// model tier at runtime, but is allowlisted to avoid validation churn when it lands.
+var validTiers = map[string]bool{
+	"haiku":  true,
+	"sonnet": true,
+	"opus":   true,
+	"fable":  true, // forward-reserved; may not be a live Claude Code model tier yet
+}
+
+// knownAtomicAgents is the static set of bundled atomic agent filenames (no .md suffix).
+// Used as the fallback known-agent set when [install.artifacts].agents is absent.
+// Must stay in sync with the agent files shipped under agents/ in the repo.
+var knownAtomicAgents = map[string]bool{
+	"atomic-implementer":   true,
+	"atomic-investigator":  true,
+	"atomic-reviewer":      true,
+	"atomic-strategist":    true,
+	"atomic-wiki-inferrer": true,
+}
+
 // Config is the parsed + defaulted configuration.
 // Fields track explicit set values; zero values mean "use built-in default".
 type Config struct {
@@ -106,6 +142,10 @@ type Config struct {
 	Update updateSection `toml:"update"`
 	// Install is omitted from TOML when zero-valued (no install manifest yet).
 	Install installSection `toml:"install,omitempty"`
+	// Agents maps bundled agent filenames (no .md suffix) to model tier strings.
+	// Machine-written by `atomic config agents` (CP3); re-applied at install time (CP4).
+	// Omitted from TOML when empty. NOT in knownKeys — not user-settable via `atomic config set`.
+	Agents map[string]string `toml:"agents,omitempty"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -236,6 +276,12 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 				})
 				continue
 			}
+			// Opaque sections (e.g. [agents]) accept arbitrary child keys.
+			// Do not recurse — structural checking is skipped for their children.
+			// Semantic validation (value allowlist, known-key check) is in Validate / AgentWarnings.
+			if opaqueSections[k] {
+				continue
+			}
 		} else {
 			// For nested keys, accept both leaf keys and known intermediate prefixes.
 			// knownPrefixes covers cases like "output.signals" which is a sub-table,
@@ -267,7 +313,46 @@ func Validate(cfg *Config) error {
 	if cfg.Install.Version != "" && !selfupdate.IsValidSemver(cfg.Install.Version) {
 		return fmt.Errorf("config: install.version %q is not a valid semver string (e.g. \"1.2.0\")", cfg.Install.Version)
 	}
+	// [agents]: any value outside the tier allowlist is a hard validation failure.
+	// A key that is not a known agent name is a non-fatal warning (see AgentWarnings).
+	for agentName, tier := range cfg.Agents {
+		if !validTiers[tier] {
+			return fmt.Errorf("config: agents.%s: invalid tier %q; must be one of: haiku, sonnet, opus, fable", agentName, tier)
+		}
+	}
 	return nil
+}
+
+// AgentWarnings returns non-fatal warnings for [agents] keys that are not in the
+// known bundled-agent set. An unknown key does not prevent loading or rendering —
+// the user may have a custom agent or may have removed a bundled one.
+//
+// The known-agent set is derived from cfg.Install.Artifacts.Agents (the install
+// manifest, filenames including .md suffix) when available; otherwise falls back
+// to knownAtomicAgents (the static set of the 5 shipped atomic-* agents).
+func AgentWarnings(cfg *Config) []Warning {
+	if len(cfg.Agents) == 0 {
+		return nil
+	}
+
+	// Derive the known-agent set: prefer the install manifest, fall back to static.
+	known := knownAtomicAgents
+	if len(cfg.Install.Artifacts.Agents) > 0 {
+		known = make(map[string]bool, len(cfg.Install.Artifacts.Agents))
+		for _, fname := range cfg.Install.Artifacts.Agents {
+			known[strings.TrimSuffix(fname, ".md")] = true
+		}
+	}
+
+	var warns []Warning
+	for agentName := range cfg.Agents {
+		if !known[agentName] {
+			warns = append(warns, Warning{
+				Message: fmt.Sprintf("config: agents.%s: unknown agent (not in installed set); tier override stored but agent must exist at apply time", agentName),
+			})
+		}
+	}
+	return warns
 }
 
 // Get returns the resolved value for a dotted key.

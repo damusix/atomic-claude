@@ -95,6 +95,12 @@ var commands = []Command{
 		Description: "Print path to config.toml",
 	},
 	{
+		Path:        []string{"config", "agents"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Set per-agent model tiers interactively",
+	},
+	{
 		Path:        []string{"docker", "init"},
 		Args:        "",
 		Flags:       []string{"--target", "--force"},

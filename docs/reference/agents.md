@@ -30,3 +30,38 @@ These handle system-level tasks.
 | Agent | What it does | Model |
 |-------|-------------|-------|
 | `atomic-wiki-inferrer` | Owns the full signals pipeline: scans the repo via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), writes `signals.md` (and per-domain files on large repos), wires the `@-ref` into `CLAUDE.md`. Dispatched by `/refresh-wiki` and silently by ship verbs. | Sonnet |
+
+
+## Model tier overrides
+
+Each agent's `model:` frontmatter defaults to its bundled tier (shown in the tables above). You can pin any installed atomic agent to a different tier via `atomic config agents`, which prompts interactively and writes the choice to `config.toml [agents]`.
+
+```
+atomic config agents
+```
+
+Available tiers: `haiku`, `sonnet`, `opus`. (`fable` is forward-reserved and may not correspond to a live Claude Code model tier yet.)
+
+**Bundled defaults:**
+
+| Agent | Default tier |
+|-------|-------------|
+| `atomic-investigator` | haiku |
+| `atomic-implementer` | sonnet |
+| `atomic-reviewer` | sonnet |
+| `atomic-wiki-inferrer` | sonnet |
+| `atomic-strategist` | opus |
+
+**How it works.** The choice is stored in `config.toml [agents]` (machine-owned — not hand-edited). On every `atomic claude install` or `atomic claude update` the installer reads the map and patches `model:` in each agent file before writing it to `~/.claude/agents/`. An absent entry leaves the bundled default unchanged. Upgrades never clobber the choice because the tier is re-derived from config on every install, not baked into the installed file.
+
+**Viewing active overrides.** `~/.claude/.atomic/config.resolved.md` (auto-loaded every session) includes a `[agents]` section listing any active overrides:
+
+```
+## [agents]
+
+- `agents.atomic-implementer` = `haiku`
+```
+
+No override stored → no `[agents]` section in the file.
+
+**Note:** only bundled artifacts tracked by `[install.artifacts]` are patched. Agents you added manually to `~/.claude/agents/` are not touched.

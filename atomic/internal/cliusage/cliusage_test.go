@@ -116,6 +116,7 @@ const goldenCommandsBlock = "" +
 	"  config unset         <key>                                                                   Revert key to built-in default\n" +
 	"  config list          [--json]                                                                List all resolved key=value pairs\n" +
 	"  config path                                                                                  Print path to config.toml\n" +
+	"  config agents                                                                                Set per-agent model tiers interactively\n" +
 	"  docker init          [--target] [--force]                                                    Scaffold Docker eval environment\n" +
 	"  doctor               [--fix] [--json] [--only] [--skip] [--stale-days] [--verbose]           Integrity check\n" +
 	"  hooks session-start  [--format]                                                              Print session-start hook payload\n" +
