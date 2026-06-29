@@ -472,5 +472,51 @@ func TestNodeMeta_SnippetSkipsDashLine(t *testing.T) {
 	}
 }
 
+// TestNodeType_IndexAndDomain verifies that frontmatter `type: Index` maps to
+// the "index" FE class and `type: Domain` maps to "domain", while the pre-existing
+// OKF types (knowledge, concern, repo, bucket) are unaffected.
+// This is the CP5 success criterion for the wiki-storage-relocation spec.
+func TestNodeType_IndexAndDomain(t *testing.T) {
+	root := t.TempDir()
+
+	// Write files with explicit OKF frontmatter type values.
+	writeFile(t, filepath.Join(root, "wiki-index.md"),
+		"---\ntype: Index\ndescription: Signals index\n---\n# Index\n")
+	writeFile(t, filepath.Join(root, "wiki-domain.md"),
+		"---\ntype: Domain\ndescription: A domain file\n---\n# Domain\n")
+	// Existing types — verify they are unaffected.
+	writeFile(t, filepath.Join(root, "k.md"),
+		"---\ntype: Knowledge\n---\n# K\n")
+	writeFile(t, filepath.Join(root, "c.md"),
+		"---\ntype: Concern\n---\n# C\n")
+	writeFile(t, filepath.Join(root, "r.md"),
+		"---\ntype: Repo\n---\n# R\n")
+	writeFile(t, filepath.Join(root, "b.md"),
+		"---\ntype: Bucket\n---\n# B\n")
+	// No-frontmatter page falls back to "page".
+	writeFile(t, filepath.Join(root, "plain.md"), "# Plain\n")
+
+	g := serve.BuildLinkGraph(root)
+
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"wiki-index.md", "index"},
+		{"wiki-domain.md", "domain"},
+		{"k.md", "knowledge"},
+		{"c.md", "concern"},
+		{"r.md", "repo"},
+		{"b.md", "bucket"},
+		{"plain.md", "page"},
+	}
+	for _, tc := range cases {
+		got := g.NodeType(tc.path)
+		if got != tc.want {
+			t.Errorf("NodeType(%q): got %q, want %q", tc.path, got, tc.want)
+		}
+	}
+}
+
 // Stub to avoid "declared and not used" issues for the OS import.
 var _ = os.DevNull
