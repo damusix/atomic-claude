@@ -1,5 +1,18 @@
 # Changelog
 
+## [5.9.0](https://github.com/damusix/atomic-claude/compare/v5.8.0...v5.9.0) (2026-06-29)
+
+
+### Features
+
+* **signals:** refresh at implementation-phase finalize, scoped to SHA range ([63d460b](https://github.com/damusix/atomic-claude/commit/63d460b22029c8843d3cb5c4e2a11940c7194a02))
+* **signals:** SHA-range inferrer scoping + docs-only commit gate ([12cdf24](https://github.com/damusix/atomic-claude/commit/12cdf24077325f149fb8b15f6e56227fb29a9527))
+
+
+### Bug Fixes
+
+* **code-intel:** name-resolve Relationships edges ([496d7fb](https://github.com/damusix/atomic-claude/commit/496d7fb9b93bb457eaff663e81dcb3c10cfa7ef4))
+
 ## [5.8.0](https://github.com/damusix/atomic-claude/compare/v5.7.0...v5.8.0) (2026-06-25)
 
 
