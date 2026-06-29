@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	routerFile   = ".claude/project/signals.md"
-	routerRef    = "@.claude/project/signals.md"
-	domainSubdir = ".claude/project/signals"
+	routerFile   = "docs/wiki/index.md"
+	routerRef    = "@docs/wiki/index.md"
+	domainSubdir = "docs/wiki"
 )
 
 // checkSignals implements category 3: signals freshness + router integrity.
@@ -80,13 +80,13 @@ func RunCheckSignalsWith(root string, staleDays int) Result {
 	}
 }
 
-// RunCheckRouterWith validates the router (signals.md) integrity for the repo at root.
+// RunCheckRouterWith validates the router (docs/wiki/index.md) integrity for the repo at root.
 //
 // Checks (all WARN, never FAIL — pre-migration state is valid):
-//  1. signals.md absent → WARN (pre-migration; old flat files still valid)
-//  2. signals.md present but not @-ref'd in any CLAUDE.md-family file → WARN
+//  1. docs/wiki/index.md absent → WARN
+//  2. docs/wiki/index.md present but not @-ref'd in any CLAUDE.md-family file → WARN
 //  3. domain files referenced in router table missing on disk → WARN
-//  4. orphan domain files under signals/ not in router table → WARN
+//  4. orphan domain files under docs/wiki/ not in router table → WARN
 //
 // Exported for testing; production callers use checkSignals.
 func RunCheckRouterWith(root string) Result {
@@ -94,14 +94,14 @@ func RunCheckRouterWith(root string) Result {
 	raw, err := os.ReadFile(routerPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return Result{Severity: WARN, Detail: "signals.md not present; run 'atomic signals scan' to migrate"}
+			return Result{Severity: WARN, Detail: "docs/wiki/index.md not present; run 'atomic signals scan' to generate"}
 		}
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not read signals.md: %v", err)}
+		return Result{Severity: WARN, Detail: fmt.Sprintf("could not read docs/wiki/index.md: %v", err)}
 	}
 
 	// Check @-ref wired in a CLAUDE.md-family file.
 	if !routerRefWired(root) {
-		return Result{Severity: WARN, Detail: "signals.md not @-ref'd in CLAUDE.md, claude.local.md, CLAUDE.local.md, or claude.md"}
+		return Result{Severity: WARN, Detail: "docs/wiki/index.md not @-ref'd in CLAUDE.md, claude.local.md, CLAUDE.local.md, or claude.md"}
 	}
 
 	// Parse domain file paths from the router table (Detail column).
@@ -109,7 +109,7 @@ func RunCheckRouterWith(root string) Result {
 
 	// Check all referenced domain files exist.
 	for _, rel := range referenced {
-		full := filepath.Join(root, ".claude", "project", rel)
+		full := filepath.Join(root, domainSubdir, rel)
 		if _, err := os.Stat(full); os.IsNotExist(err) {
 			return Result{Severity: WARN, Detail: fmt.Sprintf("domain file referenced in router table missing: %s", rel)}
 		}
@@ -124,7 +124,7 @@ func RunCheckRouterWith(root string) Result {
 	return Result{Severity: PASS, Detail: "router present, @-ref'd, all domain files consistent"}
 }
 
-// routerRefWired returns true if @.claude/project/signals.md appears in any
+// routerRefWired returns true if @docs/wiki/index.md appears in any
 // CLAUDE.md-family file at the repo root.
 func routerRefWired(root string) bool {
 	for _, name := range candidateFiles {
@@ -141,13 +141,14 @@ func routerRefWired(root string) bool {
 
 // parseRouterDomains extracts non-empty Detail column values from the Domains
 // table in the router file content. The Detail column is the 4th pipe-separated
-// column. Returns relative paths like "signals/auth.md" or "signals/auth/index.md".
+// column. Returns relative paths like "auth.md" (bare filenames in the flat
+// docs/wiki/ layout).
 //
-// The Detail cell may be either a bare path (e.g. "signals/auth.md") or a
-// linkified markdown link (e.g. "[`signals/auth.md`](signals/auth.md)"). In the
-// latter case the link TARGET (the `](...)` part) is extracted, since that is the
-// actual relative path on disk. The spec requires that linkify emits targets that
-// join correctly as root/.claude/project/<target>.
+// The Detail cell may be either a bare path (e.g. "auth.md") or a linkified
+// markdown link (e.g. "[`docs/wiki/auth.md`](auth.md)"). In the latter case the
+// link TARGET (the `](...)` part) is extracted, since that is the actual relative
+// path on disk. The spec requires that linkify emits targets that join correctly
+// as root/docs/wiki/<target>.
 func parseRouterDomains(content string) []string {
 	var result []string
 	inTable := false
@@ -214,8 +215,20 @@ func extractLinkTarget(cell string) (string, bool) {
 	return target, true
 }
 
-// findOrphanDomains lists files under .claude/project/signals/ that are not
-// in the referenced set. Returns relative paths like "signals/stale.md".
+// excludedWikiFiles lists filenames in docs/wiki/ that are never domain files.
+// They must be excluded from orphan enumeration even when absent from the router
+// table: index.md is the router itself, scan.md is the raw deterministic dump,
+// CLAUDE.md is the steering / nested-memory file.
+var excludedWikiFiles = map[string]bool{
+	"index.md":  true,
+	"scan.md":   true,
+	"CLAUDE.md": true,
+}
+
+// findOrphanDomains lists files under docs/wiki/ that are not in the referenced
+// set, excluding the router (index.md), raw dump (scan.md), and steering
+// (CLAUDE.md). The new layout is flat: subdirectories are not domain files.
+// Returns bare filenames like "auth.md".
 func findOrphanDomains(root string, referenced []string) []string {
 	// Build lookup set of referenced paths (O(1) check).
 	refSet := make(map[string]bool, len(referenced))
@@ -233,26 +246,14 @@ func findOrphanDomains(root string, referenced []string) []string {
 	var orphans []string
 	for _, e := range entries {
 		if e.IsDir() {
-			// Check for index.md inside sub-dirs.
-			subDir := filepath.Join(dir, e.Name())
-			subEntries, err := os.ReadDir(subDir)
-			if err != nil {
-				continue
-			}
-			for _, se := range subEntries {
-				if se.IsDir() {
-					continue
-				}
-				rel := "signals/" + e.Name() + "/" + se.Name()
-				if !refSet[rel] {
-					orphans = append(orphans, rel)
-				}
-			}
-			continue
+			continue // flat layout: subdirectories are not domain files
 		}
-		rel := "signals/" + e.Name()
-		if !refSet[rel] {
-			orphans = append(orphans, rel)
+		name := e.Name()
+		if excludedWikiFiles[name] {
+			continue // router / scan / steering are never domain files
+		}
+		if !refSet[name] {
+			orphans = append(orphans, name)
 		}
 	}
 	return orphans

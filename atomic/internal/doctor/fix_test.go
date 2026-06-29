@@ -410,7 +410,7 @@ func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 		t.Fatalf("CLAUDE.md not created: %v", err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "@.claude/project/signals.md") {
+	if !strings.Contains(content, "@docs/wiki/index.md") {
 		t.Errorf("signals ref missing from CLAUDE.md")
 	}
 }
@@ -437,7 +437,7 @@ func TestRepair_Refs_OneCandidateExisting_SingleYesNo(t *testing.T) {
 		t.Errorf("Applied = %d, want 1\noutput:\n%s", summary.Applied, sb.String())
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	if !strings.Contains(string(data), "@.claude/project/signals.md") {
+	if !strings.Contains(string(data), "@docs/wiki/index.md") {
 		t.Errorf("signals ref not appended to existing CLAUDE.md")
 	}
 }
@@ -477,12 +477,12 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 	localData, _ := os.ReadFile(filepath.Join(dir, "claude.local.md"))
 	globalData, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 
-	localHasRef := strings.Contains(string(localData), "@.claude/project/signals.md")
+	localHasRef := strings.Contains(string(localData), "@docs/wiki/index.md")
 	if localHasRef {
 		t.Errorf("claude.local.md should not have been patched (index 2 maps to CLAUDE.md); content:\n%s", string(localData))
 	}
 
-	refCount := strings.Count(string(globalData), "@.claude/project/signals.md")
+	refCount := strings.Count(string(globalData), "@docs/wiki/index.md")
 	if refCount != 1 {
 		t.Errorf("CLAUDE.md: signals ref count=%d (want 1)\ncontent:\n%s", refCount, string(globalData))
 	}
@@ -510,7 +510,7 @@ func TestRepair_Refs_Idempotent(t *testing.T) {
 		t.Fatalf("CLAUDE.md not found: %v", err)
 	}
 	content := string(data)
-	count := strings.Count(content, "@.claude/project/signals.md")
+	count := strings.Count(content, "@docs/wiki/index.md")
 	if count != 1 {
 		t.Errorf("signals ref appears %d times (want 1) — idempotency broken", count)
 	}
@@ -543,7 +543,7 @@ func TestRepair_Refs_ExistingContent_AppendsRef(t *testing.T) {
 	}
 	content := string(data)
 
-	refCount := strings.Count(content, "@.claude/project/signals.md")
+	refCount := strings.Count(content, "@docs/wiki/index.md")
 	if refCount != 1 {
 		t.Errorf("signals ref appears %d times (want 1)", refCount)
 	}
