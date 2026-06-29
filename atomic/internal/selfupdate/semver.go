@@ -81,6 +81,24 @@ func cmpInt(a, b int) int {
 	return 0
 }
 
+// CompareSemver compares two semver strings a and b.
+// Returns -1 if a < b, 0 if a == b, 1 if a > b.
+//
+// Malformed inputs (unparseable by parseSemver) are treated as "0.0.0" (the
+// floor), so CompareSemver("bad", "1.0.0") returns -1 and
+// CompareSemver("bad", "0.0.0") returns 0. This is the canonical exported
+// compare for consumers that cannot access the unexported semver type.
+func CompareSemver(a, b string) int {
+	sv := func(s string) semver {
+		v, err := parseSemver(s)
+		if err != nil {
+			return semver{} // zero value == 0.0.0
+		}
+		return v
+	}
+	return sv(a).compare(sv(b))
+}
+
 // newerThan returns true when b.TagName is newer than aVersion string.
 func newerThan(current string, latest string) (bool, error) {
 	a, err := parseSemver(current)
