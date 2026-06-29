@@ -25,14 +25,35 @@ Migrate the `atomic` CLI from a hand-rolled `flag`/`switch` dispatch tree to [Co
 
 Walk the Cobra root command tree to produce `[]cliusage.Command` (design decision row 4 in [docs/design/signals-wiki-unification.md](../design/signals-wiki-unification.md)); the A1 linter's data source is repointed, its logic is untouched.
 
+## Nested command inventory (the full porting scope)
+
+`cliusage.Commands()` currently holds **58 command paths**: 5 top-level-only verbs + **53 nested subcommands across 12 verbs**. Every nested path must become a real Cobra subcommand so `deriveCommands` (CP4) can walk the tree and reproduce the slice. The spec previously checkpointed only `code` + `wiki`; the true scope is all of the below. The builder grounds the exact handler/file location for each (some nested switches live in `main.go`, others in their package: `codeintel/cli/code.go`, `wiki/action.go`, `config/cli.go`).
+
+| Parent verb | Nested subcommands | Likely location |
+|-------------|--------------------|-----------------|
+| `claude` | install, update, list, diff, uninstall | main.go |
+| `config` | get, set, unset, list, path, agents | config/cli.go |
+| `docker` | init | main.go |
+| `hooks` | session-start, install, uninstall | main.go |
+| `reminder` | add, list, show, rm | main.go |
+| `signals` | scan, show, stale, diff, linkify | main.go |
+| `followups` | list, add, close, render, path | main.go / followups pkg |
+| `docs` | scan, stale | main.go / docs pkg |
+| `profile` | refresh | main.go / profile pkg |
+| `code` | index, sync, status, search, callers, callees, impact, node (per code.go switch) | codeintel/cli/code.go |
+| `wiki` | scan, stale, stamp, mark-dirty (+ any others per action.go switch) | wiki/action.go |
+| `wiki bucket` | add, list, diff, promote (3-level nesting) | wiki/action.go |
+
+Top-level-only (no subcommands): the remaining 5 of the 17 (e.g. `doctor`, `update`, `validate`, `serve`, `prompt` — confirm against the slice). Each ported subcommand routes to its EXISTING handler unchanged (no behavior change). Each carries `Annotations["args_hint"]` = its `Args` string (e.g. `<query>`, `[pattern]`) and registers its existing `--flags` so `deriveCommands` reproduces `Command{Path, Args, Flags, Description}` exactly.
+
 ## Checkpoints
 
 | # | Checkpoint | Files / areas | Agent | Est. files | Verifies |
 |---|------------|---------------|-------|-----------|----------|
 | 0 | Add cobra dependency | `atomic/go.mod`, `atomic/go.sum` — `go get github.com/spf13/cobra@latest`; `go mod tidy` | implementer | 2 | `go build ./...` resolves cobra |
 | 1 | Cobra root + top-level verbs | `atomic/cmd/atomic/main.go` — replace the top-level switch and `fs.Usage` block with a Cobra root command + one `*cobra.Command` stub per current top-level verb (17: signals, reminder, hooks, claude, doctor, docker, update, config, followups, validate, docs, profile, code, wiki, prompt, serve, migrate); wire `--repo`, `--version`, `--no-update-check` as persistent/global flags; keep `runXxx` call-throughs identical | implementer | 1 | `atomic --help` shows all 17 verbs; `go test ./...` green |
-| 2 | Port nested `code` subcommands | `atomic/internal/codeintel/cli/code.go` — replace 11-case switch (`code.go:70`) with 11 Cobra sub-commands under a `code` parent; route each to its existing `runXxx` handler | implementer | 1 | `atomic code --help` lists all 11 verbs; existing code tests green |
-| 3 | Port nested `wiki` + `bucket` subcommands | `atomic/internal/wiki/action.go` — replace 6-case switch (`action.go:36`) and 4-case `bucket` switch (`action.go:246`) with Cobra sub-commands under `wiki` and `wiki bucket` parents | implementer | 1 | `atomic wiki --help`, `atomic wiki bucket --help` list correct verbs; wiki tests green |
+| 2 | Port `main.go`-resident nested switches → Cobra subcommands: `claude` (install/update/list/diff/uninstall), `docker` (init), `hooks` (session-start/install/uninstall), `reminder` (add/list/show/rm), `signals` (scan/show/stale/diff/linkify), `followups`, `docs`, `profile` (whichever dispatch in main.go). Each subcommand routes to its existing handler unchanged; carries `Annotations["args_hint"]` + its existing `--flags` | `atomic/cmd/atomic/main.go` (+ followups/docs/profile pkg entry points if their switch lives there) | implementer | 2–4 | `atomic <verb> --help` lists correct subcommands for each; exit codes/flags identical; `go test ./...` green |
+| 3 | Port package-resident nested switches → Cobra subcommands: `code` (codeintel/cli/code.go switch → subcommands under `code`), `config` (config/cli.go get/set/unset/list/path/agents → subcommands under `config`), `wiki` + `wiki bucket` (wiki/action.go 2 switches → subcommands under `wiki` and the 3-level `wiki bucket`). Re-wire only entry points; handler internals unchanged | `atomic/internal/codeintel/cli/code.go`, `atomic/internal/config/cli.go`, `atomic/internal/wiki/action.go` | implementer | 3–4 | `atomic code/config/wiki/wiki bucket --help` list correct verbs; respective package tests green |
 | 4 | `cliusage` derivation + A1 repoint | `atomic/internal/cliusage/cliusage.go` — add `deriveCommands(root *cobra.Command) []Command` that walks the Cobra tree recursively and maps each leaf to `Command{Path, Args, Flags, Description}`; populate the `commands` var by calling it from an `init()` or a `SetRoot(root)` setter called from `main()`; remove `RenderCommandsBlock` | implementer | 1 | `Commands()`, `LookupByPath()`, `TopLevelVerbs()` return correct data; A1 linter passes |
 | 5 | Help rendering | `atomic/cmd/atomic/main.go` — remove the manual `fs.Usage` block that called `cliusage.RenderCommandsBlock`; confirm Cobra's built-in help is the only path; add a table-driven test asserting `rootCmd.Find(path)` returns non-nil for all 56 paths | implementer | 2 | SC3 + SC5 |
 | 6 | Remove old switch scaffolding | `atomic/cmd/atomic/main.go` — delete the `flag.FlagSet`, the `switch args[0]` block, and any dead helper code; `atomic/internal/cliusage/cliusage.go` — delete `RenderCommandsBlock` if not already removed; run `go vet ./...` | implementer | 2 | `go vet` clean; `go test ./...` green; SC1–SC5 all hold |
@@ -49,6 +70,14 @@ Walk the Cobra root command tree to produce `[]cliusage.Command` (design decisio
 | Background update goroutine timing — `bgUpdateCh` select block at `main.go:138` — must survive the Cobra `Execute()` call replacing the switch | Low | Move the banner select block to a `PersistentPostRunE` on the root command or retain it after `rootCmd.Execute()` returns |
 
 ## Change log
+
+### 2026-06-29 — Full nested-command inventory (true porting scope)
+
+**What changed:** Added the "Nested command inventory" section documenting all 58 cliusage paths (5 top-level-only + 53 nested across 12 verbs). Rewrote CP2 and CP3 to cover ALL nested switches (claude, config, docker, hooks, reminder, signals, followups, docs, profile, code, wiki, wiki bucket) — not just `code` and `wiki`. Each ported subcommand routes to its existing handler unchanged and carries `Annotations["args_hint"]` + its existing flags so `deriveCommands` reproduces the slice exactly.
+
+**Why:** Discovered during CP1 that `cliusage.Commands()` holds 53 nested paths, not the ~13 (`code` + `wiki`) the original CP2/CP3 implied. `deriveCommands` (CP4) walks the Cobra tree, so every nested path must be a real Cobra subcommand or the derived slice would be incomplete and the A1 linter would break. The original spec under-scoped the migration by ~4×.
+
+**Superseded:** the original CP2 ("port `code` only") and CP3 ("port `wiki`+`bucket` only") — both replaced by the full-inventory porting checkpoints.
 
 ### 2026-06-29 — Current-truth verb set + derive-don't-hardcode counts
 
