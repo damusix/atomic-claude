@@ -7,6 +7,132 @@ import (
 	"testing"
 )
 
+// TestInstallRoundTrip: config with [install] version + artifact lists survives WritePersist→Load.
+func TestInstallRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	cfg.Install.Version = "1.2.3"
+	cfg.Install.Artifacts.Agents = []string{"atomic-implementer.md", "atomic-reviewer.md"}
+	cfg.Install.Artifacts.Commands = []string{"commit.md", "autopilot.md"}
+	cfg.Install.Artifacts.Skills = []string{"atomic-tdd"}
+	cfg.Install.Artifacts.OutputStyles = []string{"atomic.md"}
+	cfg.Install.Artifacts.Rules = []string{"typescript/style.md"}
+
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+
+	if loaded.Install.Version != "1.2.3" {
+		t.Errorf("Install.Version = %q, want %q", loaded.Install.Version, "1.2.3")
+	}
+	if len(loaded.Install.Artifacts.Agents) != 2 || loaded.Install.Artifacts.Agents[0] != "atomic-implementer.md" {
+		t.Errorf("Install.Artifacts.Agents = %v, want [atomic-implementer.md atomic-reviewer.md]", loaded.Install.Artifacts.Agents)
+	}
+	if len(loaded.Install.Artifacts.Commands) != 2 || loaded.Install.Artifacts.Commands[0] != "commit.md" {
+		t.Errorf("Install.Artifacts.Commands = %v, want [commit.md autopilot.md]", loaded.Install.Artifacts.Commands)
+	}
+	if len(loaded.Install.Artifacts.Skills) != 1 || loaded.Install.Artifacts.Skills[0] != "atomic-tdd" {
+		t.Errorf("Install.Artifacts.Skills = %v, want [atomic-tdd]", loaded.Install.Artifacts.Skills)
+	}
+	if len(loaded.Install.Artifacts.OutputStyles) != 1 || loaded.Install.Artifacts.OutputStyles[0] != "atomic.md" {
+		t.Errorf("Install.Artifacts.OutputStyles = %v, want [atomic.md]", loaded.Install.Artifacts.OutputStyles)
+	}
+	if len(loaded.Install.Artifacts.Rules) != 1 || loaded.Install.Artifacts.Rules[0] != "typescript/style.md" {
+		t.Errorf("Install.Artifacts.Rules = %v, want [typescript/style.md]", loaded.Install.Artifacts.Rules)
+	}
+}
+
+// TestInstallVersionInvalid: Validate rejects a non-semver install.version.
+func TestInstallVersionInvalid(t *testing.T) {
+	cfg := Default()
+	cfg.Install.Version = "not-a-semver"
+	if err := Validate(cfg); err == nil {
+		t.Fatal("Validate should error on invalid install.version, got nil")
+	}
+}
+
+// TestInstallVersionValidVariants: empty version (pre-framework) and standard semver forms pass.
+func TestInstallVersionValidVariants(t *testing.T) {
+	cases := []string{
+		"", // pre-framework install — no [install] table
+		"1.0.0",
+		"v1.2.3",
+		"0.1.0-alpha",
+		"2.10.0+build.1",
+	}
+	for _, v := range cases {
+		cfg := Default()
+		cfg.Install.Version = v
+		if err := Validate(cfg); err != nil {
+			t.Errorf("Validate with install.version=%q: unexpected error: %v", v, err)
+		}
+	}
+}
+
+// TestInstallAbsent: Load of a TOML without [install] produces zero-value Install, no warnings, valid.
+func TestInstallAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[output.signals]\nmax_depth = 3\n[update]\nrun_doctor = true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings for config without [install]: %v", warns)
+	}
+	if cfg.Install.Version != "" {
+		t.Errorf("Install.Version = %q, want empty (absent)", cfg.Install.Version)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate on config without [install] should not error: %v", err)
+	}
+}
+
+// TestInstallNoUnknownKeyWarnings: [install] and [install.artifacts.*] do not produce unknown-key warnings.
+func TestInstallNoUnknownKeyWarnings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := `[install]
+version = "1.0.0"
+[install.artifacts]
+agents = ["atomic-implementer.md"]
+commands = ["commit.md"]
+skills = ["atomic-tdd"]
+output-styles = ["atomic.md"]
+rules = ["typescript/style.md"]
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "install") {
+			t.Errorf("unexpected warning for [install] key: %q", w.Message)
+		}
+	}
+}
+
 // TestSetUnknownKey: Set returns error on unknown key and includes a suggestion for near-matches.
 func TestSetUnknownKey(t *testing.T) {
 	cfg := Default()

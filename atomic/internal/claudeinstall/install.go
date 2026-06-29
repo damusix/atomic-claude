@@ -304,6 +304,21 @@ func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) 
 		}
 	}
 
+	// Load the old config NOW to detect stale artifacts from the prior install.
+	// Must happen before Plan/Apply so we read the old manifest, not the one we
+	// are about to write. Best-effort: if the config doesn't exist yet (first-ever
+	// install) storedTargetSlice returns nil → prune is a no-op.
+	var staleTargets []string
+	if !dryRun {
+		cfgPath := config.TOMLPath(targetDir)
+		if oldCfg, _, cfgErr := config.Load(cfgPath); cfgErr == nil {
+			stored := storedTargetSlice(oldCfg)
+			if len(stored) > 0 {
+				staleTargets = PruneDiff(stored, currentBundleTargetSet())
+			}
+		}
+	}
+
 	plan, err := Plan(targetDir, manifest)
 	if err != nil {
 		return nil, err
@@ -327,6 +342,19 @@ func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) 
 		// Best-effort: any error or panic is swallowed — install must not fail
 		// because detection failed (mirrors the session-start hook's swallow behavior).
 		populateProfile(targetDir, clock)
+
+		// Prune stale artifacts — those present in the old [install.artifacts] but
+		// absent from the current bundle (removed or renamed upstream).
+		// Batched confirm: the seam (PruneConfirm) lists all stale paths to the user
+		// before removing anything. Non-interactive terminals silently skip.
+		if _, err := runPrune(targetDir, staleTargets); err != nil {
+			return nil, err
+		}
+
+		// Write the updated [install] manifest so the next run knows what is installed.
+		if err := writeInstallManifest(targetDir, plan); err != nil {
+			return nil, fmt.Errorf("write install manifest: %w", err)
+		}
 	}
 	return plan, nil
 }

@@ -370,6 +370,12 @@ var commands = []Command{
 		Flags:       []string{"--port", "--host", "--open"},
 		Description: "Start a local read-only HTTP server for exploring wiki + code-intel",
 	},
+	{
+		Path:        []string{"migrate"},
+		Args:        "",
+		Flags:       []string{"--repo", "--realm"},
+		Description: "Run versioned atomic migrations",
+	},
 }
 
 // Commands returns the ordered command surface. The returned slice is a copy;

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -16,17 +17,38 @@ const runDoctorDefault = true
 // signalsMaxDepthDefault is the built-in default for output.signals.max_depth.
 const signalsMaxDepthDefault = 3
 
-// knownKeys is the exhaustive list of v1 dotted keys.
+// knownKeys is the list of user-settable leaf keys exposed via Get/Set/Unset/Resolved.
+// Machine-written sections (e.g. [install]) are NOT included here — they are not
+// user-settable via `atomic config set` and do not appear in `atomic config list`.
 var knownKeys = []string{
 	"output.signals.max_depth",
 	"update.run_doctor",
 }
 
+// knownSchemaKeys is the exhaustive set of recognized dotted keys across all
+// schema versions. It is a superset of knownKeys: machine-written sections like
+// [install] (written by atomic claude install, C3+) are valid TOML but are NOT
+// user-settable. knownSchemaKeys is used only by checkUnknownKeys to avoid
+// producing false-positive unknown-key warnings for these fields.
+var knownSchemaKeys = func() []string {
+	extra := []string{
+		"install.version",
+		"install.artifacts.agents",
+		"install.artifacts.commands",
+		"install.artifacts.skills",
+		"install.artifacts.output-styles",
+		"install.artifacts.rules",
+	}
+	// Safe append: knownKeys[:len:len] prevents mutation of the backing array.
+	return append(knownKeys[:len(knownKeys):len(knownKeys)], extra...)
+}()
+
 // knownSections is the set of known top-level TOML table names.
-// Derived once from knownKeys rather than rebuilt on every checkUnknownKeys call.
+// Derived once from knownSchemaKeys (full schema, not just settable keys) so that
+// machine-written sections like [install] don't trigger unknown-section warnings.
 var knownSections = func() map[string]bool {
 	m := map[string]bool{}
-	for _, k := range knownKeys {
+	for _, k := range knownSchemaKeys {
 		if dot := strings.IndexByte(k, '.'); dot > 0 {
 			m[k[:dot]] = true
 		}
@@ -56,11 +78,34 @@ type updateSection struct {
 	RunDoctor bool `toml:"run_doctor"`
 }
 
+// installArtifactsSection is the [install.artifacts] TOML sub-table.
+// Each field is the list of artifact file names (relative to their kind directory)
+// that were copied by the last `atomic claude install` invocation.
+type installArtifactsSection struct {
+	Agents       []string `toml:"agents"`
+	Commands     []string `toml:"commands"`
+	Skills       []string `toml:"skills"`
+	OutputStyles []string `toml:"output-styles"`
+	Rules        []string `toml:"rules"`
+}
+
+// installSection is the [install] TOML table (schema v2).
+// It is written by atomic claude install (C3) and read by the migration
+// runner (C4) and the prune logic (C3). A missing [install] table means the
+// config was written before the migration framework existed (pre-framework
+// install) — this is valid and treated as version "0.0.0".
+type installSection struct {
+	Version   string                  `toml:"version"`
+	Artifacts installArtifactsSection `toml:"artifacts"`
+}
+
 // Config is the parsed + defaulted configuration.
 // Fields track explicit set values; zero values mean "use built-in default".
 type Config struct {
 	Output outputSection `toml:"output"`
 	Update updateSection `toml:"update"`
+	// Install is omitted from TOML when zero-valued (no install manifest yet).
+	Install installSection `toml:"install,omitempty"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -145,24 +190,25 @@ func Load(path string) (*Config, []Warning, error) {
 	return cfg, warns, nil
 }
 
-// knownLeaves is the set of known dotted leaf keys, computed once.
+// knownLeaves is the set of known dotted leaf keys, computed once from the full
+// schema (knownSchemaKeys) so that [install] leaf keys don't produce warnings.
 var knownLeaves = func() map[string]bool {
 	m := map[string]bool{}
-	for _, k := range knownKeys {
+	for _, k := range knownSchemaKeys {
 		m[k] = true
 	}
 	return m
 }()
 
 // knownPrefixes is the set of known intermediate dotted paths (non-leaf sections),
-// computed once. Example: "output.signals" is a prefix of "output.signals.max_depth".
+// computed once from the full schema. Example: "output.signals" is a prefix of
+// "output.signals.max_depth"; "install.artifacts" is a prefix of "install.artifacts.agents".
 var knownPrefixes = func() map[string]bool {
 	m := map[string]bool{}
-	for _, k := range knownKeys {
+	for _, k := range knownSchemaKeys {
 		for i := 0; i < len(k); i++ {
 			if k[i] == '.' {
 				prefix := k[:i]
-				// Deduplicate: skip if this prefix was already added.
 				if !m[prefix] {
 					m[prefix] = true
 				}
@@ -215,6 +261,11 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 func Validate(cfg *Config) error {
 	if cfg.Output.Signals.MaxDepth <= 0 {
 		return fmt.Errorf("config: output.signals.max_depth must be a positive integer, got %d", cfg.Output.Signals.MaxDepth)
+	}
+	// install.version must be a parseable semver when present.
+	// An empty string is valid — it means no [install] table yet (pre-framework install).
+	if cfg.Install.Version != "" && !selfupdate.IsValidSemver(cfg.Install.Version) {
+		return fmt.Errorf("config: install.version %q is not a valid semver string (e.g. \"1.2.0\")", cfg.Install.Version)
 	}
 	return nil
 }
