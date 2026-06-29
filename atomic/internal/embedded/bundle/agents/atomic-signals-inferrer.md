@@ -35,6 +35,7 @@ The caller (command or ship verb) passes mode and context via the dispatch promp
 - **`mode: silent`** — scan + infer + wire. Suppress report. Discard concerns.
 - **`steering:`** block — contents of `signals-steering.md`, if it exists. Treat as ground truth — steering wins over inference.
 - **`first_run: true`** — no prior signals exist. Run full pipeline, not incremental.
+- **`changed_range: <from-sha>..<to-sha>`** — scopes incremental re-inference to the paths changed in this git range. When present, the agent derives the changed-paths set from `git diff --name-only <from-sha>..<to-sha>` unioned with uncommitted changes (`git diff --name-only <from-sha>`), instead of the `deterministic-signals.prev.md` vs `deterministic-signals.md` diff. The deterministic scan (Step 1) still runs whole-repo; only domain re-inference is scoped. Absent → unchanged behavior (prev/current snapshot diff drives incremental mode). Ignored in wiki-output and bucket-synthesis modes.
 - **`target_repo: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates wiki-output mode. Both must be present together. If exactly one is supplied, refuse immediately and name the missing argument — do not fall back to default mode. See the **Wiki-output mode** steps in the workflow below.
 - **`bucket_name: <name>`** + **`bucket_path: <abs-path>`** + **`wiki_dir: <abs-path>`** — activates bucket-synthesis mode. All three must be present together. If `bucket_name` or `bucket_path` is supplied and any of the three is missing, refuse immediately and name the missing arg(s) — do not fall back to default or wiki-output mode. `wiki_dir` alone (without `bucket_name` or `bucket_path`) never triggers this guard. See the **Bucket-synthesis mode** steps in the workflow below.
 
@@ -442,7 +443,7 @@ Add `--json` to any query verb for machine-parseable output when processing resu
 
 Preconditions: `signals.md` already exists AND a diff (changed paths set) is available.
 
-1. Read the changed-paths set from the diff between prev and current `deterministic-signals.md`.
+1. Read the changed-paths set from the `changed_range` git diff when the caller supplied one (`git diff --name-only <from-sha>..<to-sha>` unioned with `git diff --name-only <from-sha>` for uncommitted changes), else from the diff between prev and current `deterministic-signals.md`.
 2. Identify which domain files reference the changed paths.
 3. Skip `[generated]` entries — changed content SHAs on generated-flagged files do not trigger domain refresh.
 4. Dispatch sub-agents only for affected domains. Leave unaffected domains untouched.
