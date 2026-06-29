@@ -553,6 +553,35 @@ func TestRepair_Refs_ExistingContent_AppendsRef(t *testing.T) {
 	}
 }
 
+func TestRepair_Refs_HeadingIsProjectWiki(t *testing.T) {
+	// The refsBlock constant must use "## Project wiki (auto-loaded)" as the
+	// heading, not "## Project signals (auto-loaded)". This test pins the heading
+	// so a rename doesn't silently regress the user-visible section title.
+	dir := t.TempDir()
+
+	rp := nopRepairer()
+	rp.RepoRootFn = func() string { return dir }
+
+	results := []doctor.Result{
+		makeResult(4, "refs", doctor.FAIL, "refs not present"),
+	}
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("CLAUDE.md not created: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "## Project wiki (auto-loaded)") {
+		t.Errorf("refsBlock heading should be '## Project wiki (auto-loaded)'; content:\n%s", content)
+	}
+	if strings.Contains(content, "## Project signals") {
+		t.Errorf("refsBlock must not use old 'Project signals' heading; content:\n%s", content)
+	}
+}
+
 // -- summary line --
 
 func TestRepair_SummaryLine(t *testing.T) {

@@ -19,7 +19,7 @@ Split `/documentation` into two artifacts: a new `atomic-documentation` skill th
 - [ ] Skill encodes the surface taxonomy (README, CLAUDE.md, guides, specs, designs, signals refs) with one row per surface: audience, voice, when-to-update, when-NOT-to-update.
 - [ ] Skill encodes the two-voice distinction (atomic TUI / everything written in files) and routes each surface to the right voice: narrative docs → `atomic-prose`, all others (specs, designs, CLAUDE.md, signals) → terse technical prose.
 - [ ] `/documentation` command is rewritten to be a thin orchestrator: scope detection → invoke skill → walk proposed surfaces → apply edits → stage. Voice rules and surface taxonomy are deleted from the command and live only in the skill.
-- [ ] Ship verbs (`/commit-only`, `/commit-and-push`, `/commit-and-pr`, `/commit-and-merge`, `/commit-and-squash`, `/squash-only`, `/squash-and-merge`) invoke `atomic-documentation` between `atomic-signals-inferrer` (existing) and `atomic-commit` (existing).
+- [ ] Ship verbs (`/commit-only`, `/commit-and-push`, `/commit-and-pr`, `/commit-and-merge`, `/commit-and-squash`, `/squash-only`, `/squash-and-merge`) invoke `atomic-documentation` between `atomic-wiki-inferrer` (existing) and `atomic-commit` (existing).
 - [ ] Ship-verb invocation is scoped to the staged diff (just-in-time mode), not the whole branch.
 - [ ] `/documentation` invocation is scoped to a user-supplied range (`HEAD~5..HEAD`, `main..HEAD`, etc.) or defaults to `<base>..HEAD` (full mode).
 - [ ] When the skill returns "no surfaces affected", ship verbs proceed silently — no extra prompt.
@@ -71,7 +71,7 @@ For non-atomic repos, the routing table is overridden via the calling project's 
 
 ## Override format for other repos
 
-A repo may declare custom surfaces. Search order matches `atomic-signals-inferrer` precedent verbatim: `claude.local.md` / `CLAUDE.local.md` first (treated as a pair — whichever exists on this filesystem), then `claude.md` / `CLAUDE.md` (same pair semantics). First file containing a `## Documentation surfaces` heading wins; remaining files ignored. The pair phrasing accommodates case-sensitive filesystems (Linux ext4) and case-insensitive ones (macOS APFS default) without forcing a choice.
+A repo may declare custom surfaces. Search order matches `atomic-wiki-inferrer` precedent verbatim: `claude.local.md` / `CLAUDE.local.md` first (treated as a pair — whichever exists on this filesystem), then `claude.md` / `CLAUDE.md` (same pair semantics). First file containing a `## Documentation surfaces` heading wins; remaining files ignored. The pair phrasing accommodates case-sensitive filesystems (Linux ext4) and case-insensitive ones (macOS APFS default) without forcing a choice.
 
 ```markdown
 ## Documentation surfaces
@@ -194,7 +194,7 @@ The section name updates from "Four doc voices, four surfaces" to "Two doc voice
 | 10 | Update `docs/reference/skills.md` | `docs/reference/skills.md` | New row for atomic-documentation; matches existing format |
 | 11 | Update README.md skills table | `README.md` | New row for atomic-documentation; one-line description |
 | 12 | Bundle regeneration — final parity check | `make -C atomic bundle`; verify `git diff --exit-code atomic/internal/embedded/` | Final bundle parity. **Per-checkpoint regen is handled automatically by `.githooks/pre-commit` when installed** (any commit touching `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or root `CLAUDE.md` triggers regen and re-stages bundle outputs). If the hook is absent, prior checkpoints touching source artifacts (CP1, CP4, CP6, CP7, CP8) must each regen-and-stage in their own commit. CP12 is the final exit check, not the only regen point |
-| 13 | Spec change-log + signals refresh | `docs/spec/documentation-skill-split.md` change-log section + `/refresh-signals` | Spec captures shipped outcome; signals reflect new skill |
+| 13 | Spec change-log + signals refresh | `docs/spec/documentation-skill-split.md` change-log section + `/refresh-wiki` | Spec captures shipped outcome; signals reflect new skill |
 
 ## Naming
 
@@ -209,7 +209,7 @@ Rejected: `atomic-doc-impact`, `atomic-docs`, `atomic-doc-review`. The skill is 
 | Existing skill | Relationship |
 |---------------|--------------|
 | `atomic-prose` | Callee. `atomic-documentation` invokes it whenever the target surface is README, guides, or CHANGELOG narrative. |
-| `atomic-signals-inferrer` | Sibling. Both run in ship-verb flows; signals agent dispatched first (refreshes project map), documentation fires second (consumes the up-to-date map). |
+| `atomic-wiki-inferrer` | Sibling. Both run in ship-verb flows; signals agent dispatched first (refreshes project map), documentation fires second (consumes the up-to-date map). |
 | `atomic-commit` | Sibling. Documentation fires before commit message synthesis. Doc-skip lines flow through to body. |
 | `atomic-tdd`, `atomic-verify`, `atomic-debug` | No direct relationship. Documentation is a doc-surface skill, not a code-quality skill. |
 | `atomic-review` | Indirect. `atomic-review` rules cover PR comment compression; if PR body needs doc references, `atomic-documentation` may surface them but does not generate review comments. |

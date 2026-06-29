@@ -104,7 +104,7 @@ Flow from the wiki producer (stamp / scan / agent) through the OKF bundle to ser
 ```mermaid
 flowchart LR
     subgraph producer["wiki producer"]
-        agent["atomic-signals-inferrer<br/>(wiki-output / bucket-synth)"]
+        agent["atomic-wiki-inferrer<br/>(wiki-output / bucket-synth)"]
         stamp["atomic wiki stamp<br/>writes type/description"]
         scan["atomic wiki scan<br/>OKF index listing"]
     end

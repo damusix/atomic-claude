@@ -2,12 +2,12 @@
 
 Signals are [context engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) for your repo: the project's working knowledge, kept as files the agent reads rather than facts you re-type each session. They teach Claude the shape of your project so it stops guessing. Instead of hallucinating build commands or inventing framework conventions, Claude reads two files that describe what is actually in the repo.
 
-Run `/refresh-signals` to generate (or update) them:
+Run `/refresh-wiki` to generate (or update) them:
 
 - **`docs/wiki/scan.md`** — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
-- **`docs/wiki/index.md`** — inferred meaning: framework, build/test/lint commands, architectural style, domain index. Produced by the `atomic-signals-inferrer` agent.
+- **`docs/wiki/index.md`** — inferred meaning: framework, build/test/lint commands, architectural style, domain index. Produced by the `atomic-wiki-inferrer` agent.
 
-Both files live in `docs/wiki/`, are committed, and auto-load into every Claude session via `@`-refs. The `atomic-signals-inferrer` agent keeps them fresh. Three trigger points: `/refresh-signals` on demand; the implementation loop (`/subagent-implementation`, `/autopilot`) at finalize, scoped to the task's SHA range (primary); and ship commands (`/commit` and related verbs) as an ad-hoc fallback for real-code commits — docs-only commits (README, CHANGELOG, `docs/` tree) are skipped, and a freshness check prevents double-dispatch after the loop already ran.
+Both files live in `docs/wiki/`, are committed, and auto-load into every Claude session via `@`-refs. The `atomic-wiki-inferrer` agent keeps them fresh. Three trigger points: `/refresh-wiki` on demand; the implementation loop (`/subagent-implementation`, `/autopilot`) at finalize, scoped to the task's SHA range (primary); and ship commands (`/commit` and related verbs) as an ad-hoc fallback for real-code commits — docs-only commits (README, CHANGELOG, `docs/` tree) are skipped, and a freshness check prevents double-dispatch after the loop already ran.
 
 Requires the `atomic` binary. Without it, a degraded tree-only fallback runs instead.
 
@@ -63,12 +63,12 @@ Do not recurse into submodules or create domains for them.
 
 ### How it works
 
-1. `/refresh-signals` dispatches the `atomic-signals-inferrer` agent
+1. `/refresh-wiki` dispatches the `atomic-wiki-inferrer` agent
 2. The agent runs `atomic signals scan` to produce the deterministic file, then reads it + `docs/wiki/CLAUDE.md` (if present)
 3. Steering directives override inference — if steering says "this is NestJS", the inferrer writes NestJS regardless of what `package.json` implies
 4. When the project has been indexed with `atomic code index`, the agent also reads real import and call edges from the symbol graph to corroborate domain boundaries. Files that call each other heavily cluster together regardless of directory layout; filename heuristics are the fallback when no index is present
 5. The inferrer writes `docs/wiki/index.md` (and domain files at `docs/wiki/<domain>.md`)
-6. On the next `/refresh-signals`, changes to steering take effect immediately
+6. On the next `/refresh-wiki`, changes to steering take effect immediately
 
 
 ### Bootstrap

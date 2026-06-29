@@ -253,9 +253,9 @@ Every path/name change must ripple through the surfaces below or it ships an inv
 - [ ] `atomic/internal/doctor/checks_signals.go:15-17` — `routerFile` / `routerRef` / `domainSubdir` constants; `:43` `SignalsPath` call
 - [ ] `atomic/internal/doctor/checks_refs.go:19` — `signalsRef`; `:12-17,42-49` candidate-file search order
 - [ ] `atomic/internal/doctor/checks_signals_test.go:34`, `checks_refs_test.go:57` — fixtures
-- [ ] `templates/agents/atomic-signals-inferrer.md` Step 8 — `@`-ref write target + search order (rendered `agents/atomic-signals-inferrer.md:36,188,190-194`)
+- [ ] `templates/agents/atomic-wiki-inferrer.md` Step 8 — `@`-ref write target + search order (rendered `agents/atomic-wiki-inferrer.md:36,188,190-194`)
 - [ ] `templates/shared/signals-gate.md` — staged-file paths post-infer
-- [ ] `commands/refresh-signals.md:34-157`, `commands/refresh-wiki.md:39-40` (+ templates) — path references
+- [ ] `commands/refresh-wiki.md:34-157`, `commands/refresh-wiki.md:39-40` (+ templates) — path references
 - [ ] `atomic/internal/cliusage/cliusage.go:155,161` — `signals scan`/`show` descriptions mention `deterministic-signals.md`
 - [ ] `.gitignore:35` — prev-file path; add `docs/wiki/` negation if committed
 - [ ] `README.md:102` — `.claude/project/deterministic-signals.md` reference

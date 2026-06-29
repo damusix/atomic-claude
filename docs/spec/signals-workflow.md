@@ -13,7 +13,7 @@ This spec depends on [`atomic-binary.md`](./atomic-binary.md) — the `atomic` b
 | Path | Source | Purpose |
 |------|--------|---------|
 | `.claude/project/deterministic-signals.md` | `atomic signals scan` (regenerated every run) | Pure facts: tree, manifests, languages, lockfile presence |
-| `.claude/project/signals.md` | `atomic-signals-inferrer` subagent (regenerated every run) | Inferred meaning: framework, build commands, test runner, deployment target, architectural style |
+| `.claude/project/signals.md` | `atomic-wiki-inferrer` subagent (regenerated every run) | Inferred meaning: framework, build commands, test runner, deployment target, architectural style |
 
 
 Both files are gitignored (project-specific, regenerated on demand). They are auto-referenced via `@`-refs from the project's `CLAUDE.md` (or `claude.local.md`) so the harness loads them on every session. The inferrer gets an incremental-diff source for free via `atomic signals diff` — a thin wrapper that delegates to `git diff` in a git repo or unix `diff` against `.deterministic-signals.prev.md` (a snapshot `scan` writes before overwriting) outside one.
@@ -25,11 +25,11 @@ Both files are gitignored (project-specific, regenerated on demand). They are au
 | Artifact | Type | Path |
 |----------|------|------|
 | ~~`atomic-signals`~~ | ~~skill~~ | ~~`skills/atomic-signals/SKILL.md`~~ — **removed 2026-05-27**, absorbed into agent |
-| `atomic-signals-inferrer` | agent | `agents/atomic-signals-inferrer.md` — now handles full pipeline (scan + infer + wire) |
-| ~~`/initialize-signals`~~ | ~~command~~ | ~~`commands/initialize-signals.md`~~ — **removed**, replaced by `/refresh-signals` |
-| `/refresh-signals` | command | `commands/refresh-signals.md` — dispatches `atomic-signals-inferrer` agent |
+| `atomic-wiki-inferrer` | agent | `agents/atomic-wiki-inferrer.md` — now handles full pipeline (scan + infer + wire) |
+| ~~`/initialize-signals`~~ | ~~command~~ | ~~`commands/initialize-signals.md`~~ — **removed**, replaced by `/refresh-wiki` |
+| `/refresh-wiki` | command | `commands/refresh-wiki.md` — dispatches `atomic-wiki-inferrer` agent |
 | `/commit-only` (edit) | command | `commands/commit-only.md` — dispatches agent pre-commit when source changed |
-| `/atomic-setup` (edit) | command | `commands/atomic-setup.md` — propose binary install + `/refresh-signals` |
+| `/atomic-setup` (edit) | command | `commands/atomic-setup.md` — propose binary install + `/refresh-wiki` |
 | `CLAUDE.md` (edit) | bundled global | this repo's root `CLAUDE.md` (the one that ships as `~/.claude/CLAUDE.md` via the embed bundle) gets a section mentioning the signals workflow so users know it exists |
 
 
@@ -39,10 +39,10 @@ Distinct from the bundled-global `CLAUDE.md` above, the per-project `CLAUDE.md` 
 ## ~~Skill: `atomic-signals`~~ (removed 2026-05-27)
 
 
-**Removed.** The skill's responsibilities (scan, staleness check, dispatch inferrer, wire `@-refs`, fallback flow, concerns surfacing) were absorbed into the `atomic-signals-inferrer` agent. See the agent definition at `agents/atomic-signals-inferrer.md` for the current pipeline. See [changelog entry](#2026-05-27--remove-atomic-signals-skill-agent-absorbs-full-pipeline) for rationale.
+**Removed.** The skill's responsibilities (scan, staleness check, dispatch inferrer, wire `@-refs`, fallback flow, concerns surfacing) were absorbed into the `atomic-wiki-inferrer` agent. See the agent definition at `agents/atomic-wiki-inferrer.md` for the current pipeline. See [changelog entry](#2026-05-27--remove-atomic-signals-skill-agent-absorbs-full-pipeline) for rationale.
 
 
-## Agent: `atomic-signals-inferrer`
+## Agent: `atomic-wiki-inferrer`
 
 
 ### Frontmatter
@@ -50,7 +50,7 @@ Distinct from the bundled-global `CLAUDE.md` above, the per-project `CLAUDE.md` 
 
 ```yaml
 ---
-name: atomic-signals-inferrer
+name: atomic-wiki-inferrer
 description: Reads deterministic-signals.md and produces signals.md — framework detection, command guesses, architectural style. Read-write but scoped to .claude/project/.
 tools: Read, Write, Grep, Glob
 model: sonnet
@@ -142,19 +142,19 @@ source: .claude/project/deterministic-signals.md
 ## ~~Command: `/initialize-signals`~~ (removed)
 
 
-**Removed.** `/initialize-signals` was merged into `/refresh-signals`, which handles both first-run initialization and subsequent refreshes. See `templates/commands/refresh-signals.md` for the current contract.
+**Removed.** `/initialize-signals` was merged into `/refresh-wiki`, which handles both first-run initialization and subsequent refreshes. See `templates/commands/refresh-wiki.md` for the current contract.
 
 
 ## Integration with `/commit-only`
 
 
-Ship verbs dispatch the `atomic-signals-inferrer` agent in silent mode before the commit, gated on `atomic` being installed and signals being stale:
+Ship verbs dispatch the `atomic-wiki-inferrer` agent in silent mode before the commit, gated on `atomic` being installed and signals being stale:
 
 
 ```
 1. Stage check (existing).
 2. If atomic is installed AND atomic signals stale exits 1:
-   - Dispatch atomic-signals-inferrer agent in silent mode.
+   - Dispatch atomic-wiki-inferrer agent in silent mode.
    - If signals regenerated, stage the resulting deterministic-signals.md + signals.md.
 3. Continue with existing commit flow.
 ```
@@ -197,7 +197,7 @@ All of the above delegate to the `signals-gate` partial — the same probe `/com
 0. **docs-only guard.** Inspect the staged set (`git diff --cached --name-only`). If the set is empty, fall through to the staleness check (empty staged set does not mean all paths are documentation). If the set is non-empty and **every** staged path is documentation (`docs/` subtree, or a top-level `README*`/`CHANGELOG*`/`CONTRIBUTING*`/`CODE_OF_CONDUCT*`/`SECURITY*`/`LICENSE*` file), skip the refresh entirely. Any other path — source, config, `CLAUDE.md`, bundled-artifact `.md` under `agents/` `commands/` `skills/` `rules/` `output-styles/` — means it is NOT docs-only; continue. Full guard spec: [`docs/spec/signals-refresh-timing.md`](./signals-refresh-timing.md) §C2.
 1. `command -v atomic` — skip silently if the binary is absent.
 2. `atomic signals stale` — act on the exit code (0 fresh → skip; 1 stale → refresh mandatory; 2 error → report and skip). Content-based, not mtime-based. **Why:** this staleness check also acts as the no-op guard when the implementation loop already refreshed — a fresh stored signals file returns exit 0, so ship-verb dispatch is skipped automatically.
-3. On exit 1, dispatch `atomic-signals-inferrer` in silent mode, then stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`.
+3. On exit 1, dispatch `atomic-wiki-inferrer` in silent mode, then stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`.
 4. `atomic wiki mark-dirty` (best-effort) so a registered wiki's next session nudge fires.
 
 
@@ -245,8 +245,8 @@ Proposed actions:
 ## Success criteria
 
 
-- A fresh project can run `/refresh-signals` and end with both signals files written, `CLAUDE.md` updated, and `signals.md` referenced via `@`.
-- Re-running `/refresh-signals` is a no-op (the agent detects fresh state via `atomic signals stale`).
+- A fresh project can run `/refresh-wiki` and end with both signals files written, `CLAUDE.md` updated, and `signals.md` referenced via `@`.
+- Re-running `/refresh-wiki` is a no-op (the agent detects fresh state via `atomic signals stale`).
 - A `/commit-only` that touches `src/foo.ts` regenerates signals and stages the updated docs alongside the commit.
 - A `/commit-only` that only touches `README.md` does NOT regenerate signals.
 - A `/commit-only` that touches `package.json` (or any other manifest on the trigger list) regenerates signals and stages the updated docs alongside the commit.
@@ -259,9 +259,9 @@ Proposed actions:
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| S-1 | `atomic-signals-inferrer` agent | `agents/atomic-signals-inferrer.md` | |
+| S-1 | `atomic-wiki-inferrer` agent | `agents/atomic-wiki-inferrer.md` | |
 | S-2 | ~~`atomic-signals` skill~~ | ~~`skills/atomic-signals/SKILL.md`~~ | **removed 2026-05-27** — absorbed into agent |
-| S-3 | ~~`/initialize-signals` command~~ | ~~`commands/initialize-signals.md`~~ | **removed** — replaced by `/refresh-signals` |
+| S-3 | ~~`/initialize-signals` command~~ | ~~`commands/initialize-signals.md`~~ | **removed** — replaced by `/refresh-wiki` |
 | S-4 | Edit `/commit-only` to dispatch agent pre-commit | `commands/commit-only.md` | |
 | S-5 | Edit `/atomic-setup` audit + propose flow | `commands/atomic-setup.md` | |
 | S-6 | Update `CLAUDE.md` + `README.md` tables to document signals | `CLAUDE.md`, `README.md` | |
@@ -279,7 +279,7 @@ Built across 6 iterations of `/subagent-implementation` plus two follow-up polis
 Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 
 
-- `88f9bf4` → rebased to `9695f8f` — CP S-1 `atomic-signals-inferrer` agent
+- `88f9bf4` → rebased to `9695f8f` — CP S-1 `atomic-wiki-inferrer` agent
 - `d6b21e5` → `e9b301c` — CP S-2 `atomic-signals` skill
 - `3d59677` → `f0921c9` — CP S-3 `/initialize-signals` command
 - `5bc18e3` → `bf9e1d3` — CP S-4 `/commit-only` invokes atomic-signals pre-commit
@@ -359,7 +359,7 @@ Iteration trail before squash (oldest first, all collapsed into `3feaa63`):
 
 ### 2026-05-27 — Remove atomic-signals skill; agent absorbs full pipeline
 
-**What changed:** The `atomic-signals` skill (`skills/atomic-signals/SKILL.md`) is deleted. Its responsibilities — running `atomic signals scan`, dispatching the inferrer, wiring `@-refs`, staleness checks, fallback flow, and concerns surfacing — are absorbed into the `atomic-signals-inferrer` agent (`agents/atomic-signals-inferrer.md`). The agent gains the `Bash` tool to run scan commands. `/refresh-signals` now dispatches the agent directly instead of delegating to the skill. The `signals-gate` shared partial (used by ship verbs) dispatches the agent in silent mode instead of invoking the skill.
+**What changed:** The `atomic-signals` skill (`skills/atomic-signals/SKILL.md`) is deleted. Its responsibilities — running `atomic signals scan`, dispatching the inferrer, wiring `@-refs`, staleness checks, fallback flow, and concerns surfacing — are absorbed into the `atomic-wiki-inferrer` agent (`agents/atomic-wiki-inferrer.md`). The agent gains the `Bash` tool to run scan commands. `/refresh-wiki` now dispatches the agent directly instead of delegating to the skill. The `signals-gate` shared partial (used by ship verbs) dispatches the agent in silent mode instead of invoking the skill.
 
 **Why:** The skill was an unnecessary indirection layer. Everything the skill did could be put into the agent definition, with the command just dispatching the agent. Commands auto-fire in practice (Claude picks up on descriptions), so the skill's auto-trigger surface is not lost. Simplifies the architecture from three artifacts (skill + agent + command) to two (agent + command).
 

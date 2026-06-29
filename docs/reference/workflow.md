@@ -11,14 +11,14 @@ Before your first session in a new project, two commands teach Claude what it is
 
 ```
 /atomic-setup
-/refresh-signals
+/refresh-wiki
 ```
 
-`/atomic-setup` audits your repo for missing conventions (`.gitignore` entries, `docs/` layout, starter `CLAUDE.md`) and proposes only what is missing. `/refresh-signals` scans the project and generates the [signals files](/reference/signals-workflow) that give Claude a map of your framework, build commands, and project structure.
+`/atomic-setup` audits your repo for missing conventions (`.gitignore` entries, `docs/` layout, starter `CLAUDE.md`) and proposes only what is missing. `/refresh-wiki` scans the project and generates the [signals files](/reference/signals-workflow) that give Claude a map of your framework, build commands, and project structure.
 
 You only need to do this once per repo. Signals refresh automatically after that — ship commands re-scan whenever source files change.
 
-For deeper structural queries, run `atomic code index` to build a symbol graph of the project. Once indexed, you can ask `atomic code explore "<question>"` for a one-shot context digest, and the implementation agents query the graph for callers and blast radius instead of grepping. This is also a one-time setup step. `atomic code sync` keeps the index current, and the ship commands and `/refresh-signals` run it for you. See the [code-intel reference](/reference/code-intel).
+For deeper structural queries, run `atomic code index` to build a symbol graph of the project. Once indexed, you can ask `atomic code explore "<question>"` for a one-shot context digest, and the implementation agents query the graph for callers and blast radius instead of grepping. This is also a one-time setup step. `atomic code sync` keeps the index current, and the ship commands and `/refresh-wiki` run it for you. See the [code-intel reference](/reference/code-intel).
 
 If you work across several repos in one realm — a folder of services, a set of libraries, your client projects — a wiki gives Claude a map of how they relate, one level up from per-repo signals. Set one up with `/refresh-wiki`; see [wiki workflow](/reference/wiki-workflow).
 

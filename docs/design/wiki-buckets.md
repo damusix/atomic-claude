@@ -66,7 +66,7 @@ flowchart LR
 - Code writes structure, the model writes meaning: `bucket add` stubs the `CLAUDE.md` section and bucket `index.md` with purpose placeholders; the `/refresh-wiki` offer flow prompts the model (asking the user where needed) to describe what each bucket is for in both places. Unfilled placeholders surface in the disposition output.
 - `removed` files are reported in the diff and surfaced during synthesis; nothing is auto-deleted from `wiki/knowledge/`.
 - Phase order inside `/refresh-wiki` is upstream-before-downstream: repo summaries → bucket synthesis (knowledge) → concern staleness recheck against fresh hashes → concern re-author → stamp-as-written → linkify. The DAG guarantees one pass converges; no fixpoint loop.
-- Bucket synthesis is dispatched to `atomic-signals-inferrer` in a new bucket-synthesis mode — fresh context per bucket (raw dumps can be large), consistent with repo summaries in wiki mode.
+- Bucket synthesis is dispatched to `atomic-wiki-inferrer` in a new bucket-synthesis mode — fresh context per bucket (raw dumps can be large), consistent with repo summaries in wiki mode.
 
 ## Approaches
 

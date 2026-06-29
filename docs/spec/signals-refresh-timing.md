@@ -11,7 +11,7 @@ coordinator — no marker file.
 
 ## Contract
 
-### C1 — Inferrer accepts `changed_range` (agent: `atomic-signals-inferrer`)
+### C1 — Inferrer accepts `changed_range` (agent: `atomic-wiki-inferrer`)
 
 Add to the agent's **Caller-provided context** list:
 
@@ -59,7 +59,7 @@ refreshed: a fresh stored signals file returns exit 0.
   signals scoped to the loop's range.
   1. `command -v atomic` absent → skip.
   2. `atomic signals stale` exit 0 → skip (nothing material changed). Exit 2 → report + skip.
-  3. Exit 1 → dispatch `atomic-signals-inferrer` with `mode: silent`, `first_run: false`, and
+  3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and
      `changed_range: <loop-base>..HEAD` (HEAD after docs commits). Run `atomic wiki mark-dirty`
      best-effort. Stage `.claude/project/deterministic-signals.md` + `.claude/project/signals.md`
      (and any `.claude/project/signals/**`).
@@ -98,7 +98,7 @@ step so a reader knows the gate's no-op is intended.
 - **`docs/reference/signals-workflow.md`**: update the human-facing description of when refresh
   fires.
 - **`templates/commands/atomic-help.md`**: the `signals` topic row currently reads "Ship verbs
-  auto-dispatch `atomic-signals-inferrer` on source-tree changes." Update it to name the
+  auto-dispatch `atomic-wiki-inferrer` on source-tree changes." Update it to name the
   implement-loop/autopilot finalize refresh as primary and the ship-verb refresh as the ad-hoc
   fallback (docs-only skipped). One line.
 
@@ -118,7 +118,7 @@ This change touches **source artifacts** (`templates/` → rendered `commands/` 
 
 ## Success criteria
 
-- SC1 — `atomic-signals-inferrer` documents and consumes `changed_range`; absent → identical
+- SC1 — `atomic-wiki-inferrer` documents and consumes `changed_range`; absent → identical
   prior behavior.
 - SC2 — `signals-gate` skips when the committed change set is docs-only; refreshes for any
   source/artifact change; the staleness check still gates the non-docs path.
@@ -136,7 +136,7 @@ This change touches **source artifacts** (`templates/` → rendered `commands/` 
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| 1 | Mechanism — C1 (inferrer `changed_range` arg) + C2 (gate docs-only guard, staged-set based) | `templates/agents/atomic-signals-inferrer.md`, `templates/shared/signals-gate.md` | `changed_range` documented + consumed in Incremental mode (absent → prior behavior); gate skips docs-only staged sets before staleness, empty staged set falls through; render+bundle parity clean |
+| 1 | Mechanism — C1 (inferrer `changed_range` arg) + C2 (gate docs-only guard, staged-set based) | `templates/agents/atomic-wiki-inferrer.md`, `templates/shared/signals-gate.md` | `changed_range` documented + consumed in Incremental mode (absent → prior behavior); gate skips docs-only staged sets before staleness, empty staged set falls through; render+bundle parity clean |
 | 2 | Dispatch sites — C3 (`/subagent-implementation` finalize refresh) + C4 (`/autopilot` refresh before ship) | `templates/commands/subagent-implementation.md`, `templates/commands/autopilot.md` | Loop base SHA recorded; once-at-finalize range-scoped staleness-gated refresh committed `chore(signals)`; ship-gate no-op documented; render+bundle parity clean |
 | 3 | Surfaces — C5 (timing described everywhere) | `CLAUDE.md`, `CLAUDE.local.md` (out-of-band, untracked), `docs/spec/signals-workflow.md`, `docs/reference/signals-workflow.md`, `templates/commands/atomic-help.md` | No surface claims ship verbs are the primary/only trigger; parent spec points to this child; `/atomic-help` MISSING-scan zero; render+bundle parity clean |
 

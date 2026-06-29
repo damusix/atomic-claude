@@ -172,7 +172,7 @@ Per `claude.local.md` → "Adding a new artifact" checklist, the spec PRs must i
 | `README.md` commands table | Add `/subagent-diagnose` with one-line description. |
 | `commands/_templates/` | No new templates needed — reuse `implementer-prompt.md` + `reviewer-prompt.md`. |
 | Bundle inclusion | No `bundlemirror/mirror.go` change — `commands/*.md` auto-bundles. |
-| Signals refresh | `/refresh-signals` after command file lands. |
+| Signals refresh | `/refresh-wiki` after command file lands. |
 
 
 ## Resolved open questions

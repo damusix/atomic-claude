@@ -111,7 +111,7 @@ Indexing is owned by orchestrator commands, never by the agents they dispatch. A
 
 | State | What happens |
 |-------|--------------|
-| Cold — no database | The first `index` can take seconds to minutes. `/refresh-signals`, `/subagent-implementation`, and `/autopilot` all build it automatically without prompting — indexing is cheap and idempotent, so there is nothing to ask. Nothing auto-indexes at session start. |
+| Cold — no database | The first `index` can take seconds to minutes. `/refresh-wiki`, `/subagent-implementation`, and `/autopilot` all build it automatically without prompting — indexing is cheap and idempotent, so there is nothing to ask. Nothing auto-indexes at session start. |
 | Warm — database exists | Orchestrators run `atomic code sync` before dispatching work. Incremental and cheap. |
 | Per iteration | The implementation loop runs `sync` after each committed change so the next review queries current state. |
 
@@ -135,7 +135,7 @@ flowchart TD
         gp["general-purpose (model: haiku)"]
         impl["atomic-implementer"]
         rev["atomic-reviewer"]
-        sig["atomic-signals-inferrer"]
+        sig["atomic-wiki-inferrer"]
     end
     db[("index<br/>.claude/.atomic-index/atomic.db")]
     grep["sg / grep / heuristics"]
@@ -157,7 +157,7 @@ What each consumer does with the graph:
 | `atomic-investigator` | Answer "where is X / what calls Y / map this area" from real edges instead of grep. The keystone — parents that delegate exploration to it inherit code-intel for free. |
 | `atomic-implementer` | Run a bounded `impact`/`callers` on a symbol before editing it, so the change accounts for every call site. |
 | `atomic-reviewer` | Check that a diff's blast radius matches what actually changed — catch callers the diff missed. |
-| `atomic-signals-inferrer` | Cluster domains from actual dependency edges, not directory names. Used by `/refresh-signals` and per-repo in `/refresh-wiki`. |
+| `atomic-wiki-inferrer` | Cluster domains from actual dependency edges, not directory names. Used by `/refresh-wiki` and per-repo in `/refresh-wiki`. |
 | `/atomic-plan`, `/documentation` | Delegate structural exploration to a subagent — never query inline. |
 | `/gather-evidence` | Treat `atomic code callers`/`impact` as a Tier-1 (primary-source) answer to "X is called from N places" / "changing X affects Y". |
 
