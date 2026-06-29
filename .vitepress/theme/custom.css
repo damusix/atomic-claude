@@ -330,17 +330,14 @@ code, kbd, samp, pre {
     transform: none;
 }
 
-/* Mobile: VitePress bleeds the image with negative margins and centers it.
-   Flush it to the content edge and left-align instead. */
+/* Mobile: VitePress bleeds the image with negative margins. Drop the bleed and
+   center the terminal in the column. */
 @media (max-width: 959px) {
     .VPHero .image {
         margin: 0 0 2rem;
     }
     .VPHero .image-container {
-        margin: 0;
-    }
-    .VPHero .image-container .ac-term {
-        margin-inline: 0;
+        margin: 0 auto;
     }
 }
 
@@ -381,6 +378,16 @@ code, kbd, samp, pre {
 .VPFeature .details {
     line-height: 1.65;
     color: var(--vp-c-text-2);
+}
+
+/* Six cards default to grid-6: 1-up below 640, 2-up at 640, then 3-up at 768.
+   The hero stays stacked until 960px, so 3-up across 768–959 is cramped on
+   phones/tablets. Hold 2-up through the whole stacked range; 3-up only on the
+   real desktop layout (>=960). */
+@media (min-width: 640px) and (max-width: 959px) {
+    .VPFeatures .item.grid-6 {
+        width: calc(100% / 2);
+    }
 }
 
 /* ─────────────────────────────────────────────

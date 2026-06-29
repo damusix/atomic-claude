@@ -35,12 +35,18 @@ const defined_html_tags = new Set([
     'thead', 'time', 'title', 'tr', 'track', 'u', 'ul', 'var', 'video', 'wbr',
 ])
 
+// Vue components intentionally embedded in markdown (PascalCase). The escape pass
+// below leaves these alone so they render as components, not literal text. Add a
+// component here when you use it inside a .md page.
+const vue_components = new Set(['SessionPlayer'])
+
 function escapeTags(text: string): string {
     // Handle backslash-escaped angle brackets: \< and \>
     let result = text.replace(/\\</g, '&lt;').replace(/\\>/g, '&gt;')
     // Escape <...> where the tag name is NOT a known HTML element
     result = result.replace(/<(\/?[a-zA-Z][^>]*)>/g, (match, inner) => {
         const tagName = inner.replace(/^\//, '').split(/[\s/|\\,[\](){}.:;!?='"]/)[0]
+        if (vue_components.has(tagName)) return match
         if (defined_html_tags.has(tagName.toLowerCase())) return match
         return `&lt;${inner}&gt;`
     })

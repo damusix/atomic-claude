@@ -13,13 +13,6 @@ You need these tools on your `PATH` before installing:
 - **Docker** — only needed for the [evaluation environment](./evaluations.md), not for normal use
 
 
-## Windows
-
-Use **WSL2** (Ubuntu, Debian, or similar). Native Windows (cmd / PowerShell) is not supported.
-
-Install WSL2, install your distro, install Node + Claude Code + git inside the distro, and run `claude` from the WSL shell. Keep repos inside the Linux home (`~/projects/...`) for sane file watching and performance.
-
-
 ## Quick install
 
 Two commands. The first installs the `atomic` binary; the second wires everything else up.
@@ -36,6 +29,7 @@ Install the artifact bundle (CLAUDE.md, agents, commands, skills, output styles,
 
 ```bash
 atomic claude install
+atomic hooks install  # optional: session-start hook (see "After installing")
 ```
 
 That is it. Verify the install with `atomic doctor`, which runs integrity checks and names anything missing. Then activate the output style with `/config` → **Output style** → **Atomic** in any Claude Code session.
@@ -48,6 +42,11 @@ For a project-scoped install instead of global: `atomic claude install --target 
 The installer prints two manual steps it cannot automate:
 
 1. **Activate the output style** — run `/config` in Claude Code, select **Output style**, pick **Atomic**
+
+    ![The /config screen with Output style highlighted](/img/output-style-config.png)
+
+    ![The output style picker with Atomic selected](/img/output-style-picker.png)
+
 2. **Scan your repos** — run `/refresh-signals` in each repo. It builds the signals files, Claude's standing map of that repo's framework, commands, and layout
 
 A few optional steps go further:
@@ -95,11 +94,21 @@ atomic config set update.run_doctor false
 
 ## If you already have a CLAUDE.md
 
-If your file already contains an `<atomic>...</atomic>` block from a prior install, the installer updates that block in place and leaves everything outside it alone. Your own sections are never touched, and a file whose block is current does not count as drift in `atomic claude diff` or `atomic doctor`. The previous version is backed up to `~/.claude/.atomic/backups/` before any change.
+How the installer treats your file depends on whether it already carries an `<atomic>...</atomic>` block.
 
-If your file has no `<atomic>` block yet (a pre-block install, or hand-edited tags), the installer will not overwrite it. Instead, it writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and tells you to run `atomic prompt claude-merge` inside a subagent from any Claude Code session.
+**Your file already has an `<atomic>` block** (from a prior install):
 
-That command emits a merge brief for a disposable subagent. The subagent reads both files, writes the merged result to `~/.claude/CLAUDE.md.atomic-merged`, and returns a report with the proposed apply command. Your instructions are preserved; the `<atomic>` block is updated. After this one-time merge wraps the atomic content in `<atomic>` tags, future updates apply on their own.
+- The installer updates the block in place; everything outside it is left alone.
+- Your own sections are never touched.
+- A file whose block is current does not count as drift in `atomic claude diff` or `atomic doctor`.
+- The previous version is backed up to `~/.claude/.atomic/backups/` before any change.
+
+**Your file has no `<atomic>` block yet** (a pre-block install, or hand-edited tags):
+
+- The installer will not overwrite it. It writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md`.
+- In any Claude Code session, run `atomic prompt claude-merge`. It prints a brief that Claude follows to merge the new `<atomic>` block into your file.
+- Claude writes the result to a staging file (`~/.claude/CLAUDE.md.atomic-merged`) and gives you the command to apply it; your live file is never overwritten automatically. Your own sections are preserved.
+- This one-time merge wraps the atomic content in `<atomic>` tags, so future updates apply on their own.
 
 
 ## Manual install
@@ -133,3 +142,10 @@ The CLI reads the snapshot taken during install, figures out what to restore and
 5. Prints the `rm` command to remove the binary (it never auto-removes the binary)
 
 If you run the command in a plain terminal instead of a Claude session, it detects this and tells you how to proceed.
+
+
+## Windows
+
+Use **WSL2** (Ubuntu, Debian, or similar). Native Windows (cmd / PowerShell) is not supported.
+
+Install WSL2, install your distro, install Node + Claude Code + git inside the distro, and run `claude` from the WSL shell. Keep repos inside the Linux home (`~/projects/...`) for sane file watching and performance.

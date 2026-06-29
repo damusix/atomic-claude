@@ -1,7 +1,8 @@
 import DefaultTheme from 'vitepress/theme'
 import { h, nextTick, onMounted, watch } from 'vue'
 import { useRoute } from 'vitepress'
-import AutopilotDemo from './AutopilotDemo.vue'
+import SessionPlayer from './SessionPlayer.vue'
+import { SESSION } from './session-script'
 import { setupScrollAnimations } from './scroll-animate'
 import '@fortawesome/fontawesome-free/css/solid.min.css'
 import './custom.css'
@@ -29,8 +30,8 @@ export default {
             watch(() => route.path, run)
             return () =>
                 h(DefaultTheme.Layout, null, {
-                    // Replace the hero image with a live terminal demo instead of a static asset.
-                    'home-hero-image': () => h(AutopilotDemo),
+                    // Scripted, navigable Atomic Claude session as the hero image.
+                    'home-hero-image': () => h(SessionPlayer, { session: SESSION }),
                 })
         },
     },
