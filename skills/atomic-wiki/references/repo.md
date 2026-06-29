@@ -21,15 +21,29 @@ Every sentence in a signals file must be verifiable by reading the source. If it
 
 ### Step 1 — Scan
 
-Run `atomic signals scan`. This writes `docs/wiki/scan.md` and copies the prior content to `tmp/.scan.prev.md` (gitignored) so diff works regardless of git state.
+Run `atomic signals scan`. This writes `docs/wiki/scan.md` and copies the prior content to `tmp/.scan.prev.md` (gitignored). The `tmp/.scan.prev.md` copy is a fallback diff source for environments where git is unavailable; in repos with a committed `docs/wiki/scan.md`, the scope-computation step (Step 2b) uses `git diff HEAD -- docs/wiki/scan.md` as the canonical diff baseline instead.
 
 ### Step 2 — Read inputs
 
-Read `docs/wiki/scan.md` end-to-end. On incremental runs, also run `atomic signals diff` or compare prev vs current to determine the changed-paths set.
+Read `docs/wiki/scan.md` end-to-end.
 
 Steering directives, when present, are provided by the caller in the dispatch prompt inside a `<steering>` block. If a `<steering>` block is present, treat its content as ground truth — steering wins over what the deterministic scan implies. If no `<steering>` block is in the prompt, proceed with pure inference.
 
 Naming continuity check: read existing `docs/wiki/*.md` domain filenames (excluding `index.md`, `scan.md`, and `CLAUDE.md`). For each existing domain file, check whether the underlying repo paths in the router table still match. Keep filename if paths match; rename (remove old, write new) if paths no longer match. This prevents churn when code is unchanged.
+
+### Step 2b — Compute scope
+
+Determine `scope` (`full` or `incremental`) once, before any sub-dispatch. If the caller already passed `scope: full` or `scope: incremental` in the dispatch brief, use that value and skip this step. `first_run: true` in the brief is equivalent to `scope: full`.
+
+**Decision tree (stop at the first match):**
+
+1. **No prior `docs/wiki/index.md`** → `scope = full` (first run; no diff baseline exists).
+2. **`<scan-sha>` tiebreaker** — Read the `<scan-sha>` value stored in `docs/wiki/index.md` (the blob SHA written at the last successful INFER). Run `git rev-parse HEAD:docs/wiki/scan.md` to get the committed blob SHA of the current `scan.md`. If the two values differ, `docs/wiki/scan.md` was committed without a matching re-infer (double-scan or stale-scan) → `scope = full`. **This check is the sole purpose of `<scan-sha>`; it is not consulted in any other staleness decision.**
+3. **Git diff line-delta** — Run `git diff HEAD -- docs/wiki/scan.md` to compare the committed `scan.md` against the working-tree `scan.md`. Count lines added plus lines removed. If the delta exceeds ~20% of the committed file's total line count → `scope = full` (large change; full re-infer is safer). Otherwise → `scope = incremental`.
+
+**Fallback (git unavailable or scan.md not yet committed):**
+
+When `git rev-parse HEAD:docs/wiki/scan.md` exits non-zero (scan.md is untracked, the repo has no such commit, or the working tree is not a git repo at all), log a warning: `"git diff unavailable for docs/wiki/scan.md; defaulting to full re-infer"`. Set `scope = full`. Consult `atomic signals stale` as a sanity gate: exit 0 (content-hash fresh) → nothing changed, infer can be skipped entirely; exit 1 (stale) → proceed. The `tmp/.scan.prev.md` copy written by Step 1 remains available as the change-set source for any future incremental path in this environment; it is not used when scope is `full`.
 
 ### Step 3 — Infer domain partitioning (vertical slices)
 
@@ -179,7 +193,7 @@ description: <concise repo summary — one line>
 
 where:
 - `<wiki-type>repo</wiki-type>` — literal `repo` (this agent runs in repo scope).
-- `<scan-sha>SHA</scan-sha>` — compute the blob sha of `docs/wiki/scan.md` via `git hash-object docs/wiki/scan.md` and substitute the output. This is a content fingerprint of the current scan, not a git HEAD sha.
+- `<scan-sha>SHA</scan-sha>` — compute the blob sha of `docs/wiki/scan.md` via `git hash-object docs/wiki/scan.md` and substitute the output. This records the content fingerprint of `scan.md` **as of this successful INFER**. On future refreshes, the Step 2b scope-computation compares this stored value against the committed blob SHA (`git rev-parse HEAD:docs/wiki/scan.md`): a mismatch means `scan.md` was committed without a matching re-infer, triggering `scope = full`. This is the only role of `<scan-sha>`; routine diff decisions use `git diff HEAD -- docs/wiki/scan.md` directly.
 - `<wiki-schema>1</wiki-schema>` — literal `1`.
 
 Then write the router body (see **Router shape** below) starting with `# Project signals`.
@@ -275,20 +289,29 @@ In **silent mode**, produce no output beyond writing the files.
 
 ## Incremental vs full mode
 
-### Incremental (preferred)
+`scope` is determined once at Step 2b (or supplied by the caller) and does not change during the run. See the decision tree in Step 2b for how `scope` is set.
 
-Preconditions: `docs/wiki/index.md` already exists AND a diff (changed paths set) is available.
+### Incremental (`scope = incremental`)
 
-1. Read the changed-paths set from the `changed_range` git diff when the caller supplied one (`git diff --name-only <from-sha>..<to-sha>` unioned with `git diff --name-only <from-sha>` for uncommitted changes), else from the diff between prev and current `docs/wiki/scan.md`.
-2. Identify which domain files reference the changed paths.
-3. Skip `[generated]` entries — changed content SHAs on generated-flagged files do not trigger domain refresh.
-4. Dispatch sub-agents only for affected domains. Leave unaffected domains untouched.
-5. After all affected domain files pass reviewer, re-wire cross-domain references for changed domains only.
-6. Update `docs/wiki/index.md` to reflect any updated domain content.
+Triggered when: Step 2b produced `incremental` (prior `docs/wiki/index.md` exists, `<scan-sha>` tiebreaker did not fire, and git diff line-delta is below the threshold), and the caller did not override to `full`.
 
-### Full (first run or fallback)
+The **change set** (the set of repo paths that changed) is sourced, in priority order:
 
-Preconditions: `docs/wiki/index.md` does not exist, OR no prior `docs/wiki/scan.md` is available for diffing.
+1. **`changed_range` from caller** — when `changed_range: <from>..<to>` was passed in the brief, run `git diff --name-only <from>..<to>` unioned with `git diff --name-only <from>` for uncommitted changes. This scopes by code-change range rather than scan-diff range.
+2. **`git diff HEAD -- docs/wiki/scan.md`** (primary, git available) — extract the repo paths that appear in added or removed lines of the committed→working-tree scan diff.
+3. **`tmp/.scan.prev.md` vs `docs/wiki/scan.md` diff** (fallback, git unavailable) — compare the two files line-by-line to extract changed repo paths.
+
+Once the change set is available:
+
+1. Identify which domain files reference paths in the change set.
+2. Skip `[generated]` entries — changed content SHAs on generated-flagged files do not trigger domain refresh.
+3. Dispatch sub-agents only for affected domains. Leave unaffected domains untouched.
+4. After all affected domain files pass reviewer, re-wire cross-domain references for changed domains only.
+5. Update `docs/wiki/index.md` to reflect any updated domain content.
+
+### Full (`scope = full`)
+
+Triggered when: no prior `docs/wiki/index.md` exists (first run), the `<scan-sha>` tiebreaker fired (scan committed without re-infer), the git diff line-delta exceeds ~20%, the fallback path was taken (git unavailable), or the caller explicitly passed `scope: full` / `first_run: true`.
 
 Run the complete pipeline across all inferred domains.
 
@@ -420,7 +443,7 @@ docs/wiki/
 └── cli.md            # domain file, OKF type: Domain
 ```
 
-Domain files are flat — one `docs/wiki/<domain>.md` per functional concern. `tmp/.scan.prev.md` holds the prior scan for diffing (not committed, not under `docs/wiki/`).
+Domain files are flat — one `docs/wiki/<domain>.md` per functional concern. `tmp/.scan.prev.md` holds the prior scan content (written by Step 1) as a fallback diff source for environments where git is unavailable; the primary change-set source is `git diff HEAD -- docs/wiki/scan.md`.
 
 
 ## Scope rule
