@@ -3,7 +3,7 @@ layout: home
 hero:
     name: Atomic Claude
     text: "A local code graph that grounds loops and wikis."
-    tagline: "31 languages, plus SQL lineage across T-SQL, Snowflake, and dbt. Local, free, MIT, never uploaded."
+    tagline: "31 languages, plus SQL lineage across Snowflake, dbt, and T-SQL. Local, free, MIT, never uploaded."
     actions:
         - theme: brand
           text: Get Started
@@ -15,21 +15,21 @@ hero:
           text: GitHub
           link: https://github.com/damusix/atomic-claude
 features:
-    - icon: "\uE522"
-      title: A Karpathy-inspired repo explorer
-      details: One scan and Claude builds a standing model of your codebase, covering framework, build and test commands, and a domain map of what lives where. It reads that before it reads your code, and ship commands keep it fresh.
-    - icon: "\uF542"
-      title: A cross-repo knowledge layer
-      details: "Signals map one repo; a wiki maps a realm of them: a folder of services, libraries, or client projects and how they relate. /refresh-wiki points at the repos that already have signals, summarizes the ones that don't without touching them, and writes up the concerns they share."
-    - icon: "\uF5B0"
-      title: Autopilot, task to PR, hands-off
-      details: Hand it a description or a GitHub issue number. It plans, implements with test-first subagents, reviews its own diff, and ships. The only decision left to you is how to merge.
-    - icon: "\uF5DC"
-      title: A config that learns from you
-      details: After a rough session, /atomic-improve mines your history for friction, corrections, and misbehavior, then proposes fixes to your own skills and rules. The setup gets sharper the more you use it.
     - icon: "\uF0E8"
       title: A queryable map of your code
-      details: "One command parses your repo into a symbol graph across 31 languages and 23 web frameworks, no compiler required: definitions, callers, call sites, and the blast radius of any change. SQL is included, graphed from .sql across Postgres, MySQL, and T-SQL. Claude queries the graph instead of grepping."
+      details: "One command parses your repo into a symbol graph across 31 languages and 23 web frameworks, no compiler required: definitions, callers, call sites, and the blast radius of any change. Claude queries the graph instead of grepping, so it spends tokens on the change, not on rediscovering your repo every session."
+    - icon: "\uF1C0"
+      title: SQL nobody else graphs for free
+      details: "SQL is a first-class citizen of the graph. Snowflake lineage (task DAGs, streams, stages, and COPY INTO), the dbt ref/source DAG, and T-SQL stored-procedure lineage (temp tables, OUTPUT INTO, PIVOT/UNPIVOT, column-level), all static with no database connection. It even pulls SQL out of string literals inside your Go, Python, and TypeScript and graphs that too, across 20 host languages. The enterprise tools that come close cost six figures a year."
+    - icon: "\uF5B0"
+      title: Autopilot, task to PR, hands-off
+      details: "Hand it a description or a GitHub issue number. It plans, implements with test-first subagents, checks blast radius against the code graph before each change, and reviews its own diff in a fresh context that never saw the reasoning. Grounded in the graph the whole way, not another autonomous agent guessing from grep. The only decision left to you is how to merge."
+    - icon: "\uE522"
+      title: A standing model of your repo
+      details: "One scan and Claude builds a standing model of your codebase: framework, build and test commands, and a domain map of what lives where. It reads that before it reads your code, and ship commands keep it fresh."
+    - icon: "\uF542"
+      title: A cross-repo knowledge layer
+      details: "Signals map one repo; a wiki maps a realm of them: a folder of services, libraries, or client projects and how they relate. It is a working build of Karpathy's LLM-wiki pattern for codebases, conforming to Google's Open Knowledge Format. /refresh-wiki points at the repos that already have signals, summarizes the ones that don't without touching them, and writes up the concerns they share."
     - icon: "\uE4E2"
       title: See what Claude sees
       details: "`atomic serve` opens the maps Claude navigates (wiki concepts and the code graph) as a browsable site on localhost. The Open Knowledge Format in practice for your repo: pages with a live right rail, a whole-system view colored by concept type, federated code search, and a source viewer wired to the code graph. Read-only, no auth, nothing leaves your machine."
