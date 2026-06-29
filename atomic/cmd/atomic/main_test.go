@@ -843,6 +843,30 @@ func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
 	}
 }
 
+// TestCP5FindAllPaths verifies that rootCmd.Find returns a non-nil, non-root
+// command for every path in cliusage.Commands(). WHY (SC3): every command path
+// registered in the golden cliusage surface must be reachable in the live Cobra
+// tree so that --help rendering and DeriveCommands produce complete output. A
+// missing path means a command is declared in the fixture but absent from the
+// tree — the A1 linter would pass while the actual command is unreachable.
+//
+// Paths are sourced from cliusage.Commands() so the assertion automatically
+// covers whatever the current command set is; no hardcoded count is used.
+func TestCP5FindAllPaths(t *testing.T) {
+	var repoOverride string
+	root := buildRootCmd(&repoOverride)
+
+	for _, cmd := range cliusage.Commands() {
+		path := cmd.Path
+		t.Run(strings.Join(path, "/"), func(t *testing.T) {
+			found, _, _ := root.Find(path)
+			if found == nil || found == root {
+				t.Errorf("Find(%v) returned nil or root — command not reachable in Cobra tree", path)
+			}
+		})
+	}
+}
+
 // --- post-update artifact auto-refresh ---
 
 // artifactRefreshArgs builds the re-exec argv for the post-swap refresh.

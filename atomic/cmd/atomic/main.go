@@ -220,22 +220,6 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	return rootCmd
 }
 
-// makeVerb returns a *cobra.Command that delegates all post-verb args to fn.
-// DisableFlagParsing passes the full slice (sub-verbs + flags) through to fn
-// unchanged so the existing handler's own sub-dispatch and flag.NewFlagSet
-// continue to work without modification.
-func makeVerb(use, short string, fn func([]string)) *cobra.Command {
-	return &cobra.Command{
-		Use:                use,
-		Short:              short,
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fn(args)
-			return nil
-		},
-	}
-}
-
 // --- CP2: parent commands with Cobra subcommands ---------------------------
 //
 // Each builder creates a parent *cobra.Command whose children correspond to the
