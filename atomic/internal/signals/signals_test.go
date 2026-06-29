@@ -1073,6 +1073,84 @@ func TestEnumerateFiles_GitExcludesScratchpad(t *testing.T) {
 	}
 }
 
+// ---- U4: docs/wiki/ excluded from scan (generated signals output) ----
+
+// TestEnumerateFiles_ExcludesDocsWiki asserts that the entire docs/wiki/ directory
+// is excluded from the scan in both the WalkDir path (non-git) and the git path.
+// WHY: docs/wiki/ is generated signals output (router index.md, domain files,
+// scan.md, steering CLAUDE.md). Including any of those files in the scan tree
+// makes the scan self-referential — the inferrer writes a <scan-sha> hash into
+// docs/wiki/index.md, which changes its blob SHA, which changes the scan tree,
+// which makes `atomic signals stale` return exit 1 forever (circular staleness).
+// This mirrors .claude/project/ (the prior signals output location), which is
+// already fully skipped.
+func TestEnumerateFiles_ExcludesDocsWiki(t *testing.T) {
+	// WalkDir path (no git) — covers enumWalk.
+	t.Run("walkdir", func(t *testing.T) {
+		root := makeRepo(t, map[string]string{
+			"main.go":               "package main\n",
+			"docs/wiki/index.md":    "# router\n",
+			"docs/wiki/bundle.md":   "# bundle domain\n",
+			"docs/wiki/CLAUDE.md":   "# steering\n",
+			"docs/wiki/scan.md":     "# raw scan\n",
+			"docs/wiki/workflow.md": "# workflow domain\n",
+			"docs/guide/install.md": "# install guide (NOT wiki)\n",
+		})
+		out, err := signals.ScanTree(root)
+		if err != nil {
+			t.Fatalf("ScanTree (walkdir): %v", err)
+		}
+		// All docs/wiki/* files must be absent.
+		for _, bad := range []string{"index.md", "bundle.md", "CLAUDE.md", "scan.md", "workflow.md"} {
+			// Only fail if the file appears under a "wiki" directory line.
+			if strings.Contains(out, "wiki/") {
+				t.Errorf("docs/wiki/ directory should be excluded but 'wiki/' found in output:\n%s", out)
+				break
+			}
+			_ = bad
+		}
+		// docs/guide/ is NOT wiki — it must be included.
+		if !strings.Contains(out, "install.md") {
+			t.Errorf("expected docs/guide/install.md to be included in scan:\n%s", out)
+		}
+		// main.go must be included.
+		if !strings.Contains(out, "main.go") {
+			t.Errorf("expected main.go to be included in scan:\n%s", out)
+		}
+	})
+
+	// Git path — covers enumGit (git ls-files).
+	t.Run("git", func(t *testing.T) {
+		root := makeRepo(t, map[string]string{
+			"main.go":               "package main\n",
+			"docs/wiki/index.md":    "# router\n",
+			"docs/wiki/bundle.md":   "# bundle domain\n",
+			"docs/wiki/CLAUDE.md":   "# steering\n",
+			"docs/guide/install.md": "# install guide (NOT wiki)\n",
+		})
+		initGit(t, root)
+		exec.Command("git", "-C", root, "add", ".").Run()
+		exec.Command("git", "-C", root, "commit", "-m", "init").Run()
+
+		out, err := signals.ScanTree(root)
+		if err != nil {
+			t.Fatalf("ScanTree (git): %v", err)
+		}
+		// docs/wiki/ must be absent.
+		if strings.Contains(out, "wiki/") {
+			t.Errorf("docs/wiki/ directory should be excluded but 'wiki/' found in output:\n%s", out)
+		}
+		// docs/guide/ is NOT wiki — it must be included.
+		if !strings.Contains(out, "install.md") {
+			t.Errorf("expected docs/guide/install.md to be included in scan:\n%s", out)
+		}
+		// main.go must be included.
+		if !strings.Contains(out, "main.go") {
+			t.Errorf("expected main.go to be included in scan:\n%s", out)
+		}
+	})
+}
+
 // ---- U3: Languages file count format ----
 
 func TestScanLanguages_FileCountFormat(t *testing.T) {

@@ -51,13 +51,17 @@ var skipDirs = map[string]bool{
 // skipPrefixes are repo-relative path prefixes excluded in all enumeration modes.
 // .claude/.scratchpad/ is working memory — not interesting for signals.
 // .claude/project/ contains legacy signals output (pre-wiki-relocation layout).
-// docs/wiki/scan.md is the raw deterministic dump written by this scanner —
-// excluding it prevents the output file from appearing in subsequent scans
-// (which would make the scan non-idempotent).
+// docs/wiki/ is the generated signals output directory (router index.md, domain
+// files, scan.md, steering CLAUDE.md). Including any file from it in the scan
+// tree would make the scan self-referential: the inferrer writes a <scan-sha>
+// hash into docs/wiki/index.md, which changes index.md's blob SHA, which
+// changes the scan tree, which makes `atomic signals stale` return exit 1
+// forever (circular staleness). Excluding the whole directory mirrors the
+// treatment of .claude/project/ in the prior layout.
 var skipPrefixes = []string{
 	".claude/.scratchpad/",
 	".claude/project/",
-	"docs/wiki/scan.md",
+	"docs/wiki/",
 }
 
 // enumerateFiles returns repo-relative file paths for all tracked (and
