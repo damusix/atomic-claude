@@ -91,3 +91,62 @@ func TestRenderUpdateSectionFalse(t *testing.T) {
 		t.Errorf("expected 'false' in render after Set, got: %q", out)
 	}
 }
+
+// TestRenderAgentsSection: Render includes the [agents] section when overrides are set.
+func TestRenderAgentsSection(t *testing.T) {
+	cfg := Default()
+	cfg.Agents = map[string]string{
+		"atomic-implementer":  "sonnet",
+		"atomic-investigator": "haiku",
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, "## [agents]") {
+		t.Errorf("expected '## [agents]' section in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, "agents.atomic-implementer") {
+		t.Errorf("expected 'agents.atomic-implementer' in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, "sonnet") {
+		t.Errorf("expected 'sonnet' tier in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, "agents.atomic-investigator") {
+		t.Errorf("expected 'agents.atomic-investigator' in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, "haiku") {
+		t.Errorf("expected 'haiku' tier in render, got:\n%s", out)
+	}
+}
+
+// TestRenderAgentsSectionAbsent: Render omits the [agents] section when no overrides are set.
+func TestRenderAgentsSectionAbsent(t *testing.T) {
+	cfg := Default()
+	out := Render(cfg)
+	if strings.Contains(out, "## [agents]") {
+		t.Errorf("expected no '## [agents]' section when no overrides set, got:\n%s", out)
+	}
+}
+
+// TestRenderAgentsInRenderedFileOnly: agents.* appear in Render output (config.resolved.md)
+// but NOT in Resolved (the user-settable list). Render includes machine-written
+// sections so sessions reading the file see the full active configuration.
+func TestRenderAgentsInRenderedFileOnly(t *testing.T) {
+	cfg := Default()
+	cfg.Agents = map[string]string{"atomic-implementer": "opus"}
+
+	// Render (config.resolved.md) must include the agents entry.
+	rendered := Render(cfg)
+	if !strings.Contains(rendered, "agents.atomic-implementer") {
+		t.Errorf("Render: expected 'agents.atomic-implementer' in rendered output, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "opus") {
+		t.Errorf("Render: expected 'opus' tier in rendered output, got:\n%s", rendered)
+	}
+
+	// Resolved (atomic config list) must NOT include agents — machine-written section.
+	m := Resolved(cfg)
+	for k := range m {
+		if strings.HasPrefix(k, "agents") {
+			t.Errorf("Resolved: unexpected agents key %q — agents is machine-written, must not appear in config list", k)
+		}
+	}
+}
