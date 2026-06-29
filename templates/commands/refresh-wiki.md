@@ -115,7 +115,7 @@ If there are `pending` repos from the Step 2 scan:
 Present them as a numbered list and ask the user which ones to handle via `/refresh-signals` (which will produce signals files and promote them to `indexed`). Repos not selected here go to the `atomic-signals-inferrer` wiki-output pass in Step 7.
 
 ```
-Pending repos (no signals.md found):
+Pending repos (no docs/wiki/index.md found):
 
   1. /path/to/repo-a
   2. /path/to/repo-b

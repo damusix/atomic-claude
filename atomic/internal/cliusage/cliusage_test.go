@@ -125,11 +125,11 @@ const goldenCommandsBlock = "" +
 	"  reminder list                                                                                List all reminders\n" +
 	"  reminder show        <id>                                                                    Print body of a reminder\n" +
 	"  reminder rm          <id>                                                                    Delete a reminder\n" +
-	"  signals scan         [--out]                                                                 Walk repo and write deterministic-signals.md\n" +
-	"  signals show                                                                                 Print deterministic-signals.md to stdout\n" +
+	"  signals scan         [--out]                                                                 Walk repo and write docs/wiki/scan.md\n" +
+	"  signals show                                                                                 Print docs/wiki/scan.md to stdout\n" +
 	"  signals stale                                                                                Exit 0 fresh, 1 stale, 2 error\n" +
 	"  signals diff                                                                                 Print unified diff of signals file\n" +
-	"  signals linkify                                                                              Linkify path tokens in signals.md and signals/*.md\n" +
+	"  signals linkify                                                                              Linkify path tokens in docs/wiki/index.md and docs/wiki/*.md\n" +
 	"  update               [--check] [--channel] [--no-doctor] [--skip-claude-update]              Self-update the atomic binary, then refresh ~/.claude artifacts\n" +
 	"  followups list       [--stale] [--json]                                                      List open follow-up entries\n" +
 	"  followups add        [--id] [--title] [--kind] [--severity] [--origin] [--file] [--body]     Create entry\n" +
