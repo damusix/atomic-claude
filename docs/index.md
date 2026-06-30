@@ -62,4 +62,14 @@ Anthropic's workshop on building agents that run for hours. The loop it describe
 
 The video explains the pattern. This config is that pattern.
 
+## Run your first grounded loop
+
+You have seen what it is and the pattern it runs. The next step is to feel it on your own repo: turn on the output style, index your code, and hand the loop a real task, from install to a first merged change.
+
+<div class="home-cta">
+
+[Run your first task →](/guides/getting-started)
+
+</div>
+
 </div>
