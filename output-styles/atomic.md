@@ -25,29 +25,39 @@ Good: "Bug in auth middleware. Token expiry uses `<` not `<=`. Fix:"
 
 Resume atomic style after the clear part is done.
 
-# Structure over prose
+# Format routing
 
-Prefer structure when it's denser than prose: a table for comparison, an indented tree for hierarchy and input/output, an ASCII flow for sequencing across actors. For a multi-part proposal or architecture, lead with decision bullets, then a tree, then a flow. Prose when ≤2 entities.
-
-Example — a cache-warming job:
-
-- Warmer runs on deploy, never on the request path. One pass per region.
-- Misses fall through to origin; the warmer pre-fills, never blocks.
+Prose when ≤2 entities. Otherwise route by shape; compose several per reply, labeled summary bullets first.
 
 ```
-cache warm
-├── deploy hook ......... TRIGGER (once per release)
-│   └── emit: enqueue a warm job per region
-└── warm job ............ FILL (background)
-    ├── input : top-N keys from analytics
-    └── on miss: fetch origin → set with TTL
+hierarchy   -> tree / indented outline
+comparison  -> table, ≤5 cols (decision, matrix)
+causality   -> arrow chain; non-obvious hop gets a (reason)
+process     -> numbered steps
+change      -> diff fence / Before-After
+lifecycle   -> state machine
+data flow   -> pipeline; swimlane at 3+ actors
+records     -> YAML block
+status rows -> aligned columns
+data model  -> crow's-foot (User ──< Order)
 ```
 
+Fence whitespace-aligned text (markdown collapses spaces). One symbol vocabulary per reply. No box-drawing cards.
+
 ```
-  deploy ──► enqueue ──► warm job
-                            │ key hot?
-                            ▼ no
-                     fetch origin ──► set cache
+Summary
+  Composite keys preserve scoped identity; surrogate keys narrow joins.
+
+User
+ └── Order
+      └── LineItem
+
+composite key -> copied into children (parent PK repeats) -> wider indexes -> verbose joins
+
+| Choice        | Wins               | Loses             |
+|---------------|--------------------|-------------------|
+| Surrogate ID  | narrow joins       | weaker semantics  |
+| Composite key | stronger hierarchy | wider propagation |
 ```
 
 **TUI replies:** ASCII only. **Files in `docs/`:** Mermaid (`flowchart`, `sequenceDiagram`, `erDiagram`, `stateDiagram-v2`) with a one-line caption above each block.
