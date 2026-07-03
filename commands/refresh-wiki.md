@@ -82,45 +82,12 @@ Set `first_run=true`. Continue to R3.
 ### R3 — Steering file check
 
 ```bash
-test -f docs/wiki/CLAUDE.md
+atomic wiki init --scope repo
 ```
 
-If the file does not exist, create it with the default scaffold.
+This is idempotent: it writes `docs/wiki/CLAUDE.md` with the default scaffold if the file does not exist, and no-ops silently if it already exists. On creation the command prints `created <path>` on stdout — relay that line, followed by `(edit to steer the inferrer).`
 
-<!-- Canonical scaffold — must stay byte-identical to Step 8c in skills/atomic-wiki/references/repo.md.
-     Edit both together if the scaffold changes. -->
-
-```bash
-mkdir -p docs/wiki
-cat > docs/wiki/CLAUDE.md << 'EOF'
----
-type: Steering
-description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
----
-
-<steering note: user hints to correct framework detection / domain grouping / build-test commands;
- the inferrer reads this and treats it as authoritative>
-
-## Framework
-# NestJS monorepo (not plain Express)
-
-## Domains
-# - src/billing/ and src/payments/ are one domain ("payments")
-# - src/internal-tools/ is scratch code — not a real domain
-
-## Build
-# - Build: pnpm turbo build
-# - Test: pnpm test:ci (not pnpm test — that runs watch mode)
-
-## Ignore for domains
-# - vendor/
-# - generated/
-EOF
-```
-
-Print: `created docs/wiki/CLAUDE.md (edit to steer the inferrer).`
-
-If the file already exists, read its contents for the dispatch prompt.
+If the file already exists (no output from the command), read its contents for the dispatch prompt.
 
 ### R4 — Code-intel index lifecycle
 
