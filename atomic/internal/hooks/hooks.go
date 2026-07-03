@@ -12,6 +12,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
+	"github.com/damusix/atomic-claude/atomic/internal/where"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
@@ -74,6 +75,62 @@ func checkWikiStaleness(now time.Time) []string {
 	return nudges
 }
 
+// WherePositionFn is the function signature for orientation position resolution.
+type WherePositionFn func(cwd, claudeMDPath string) (where.Report, error)
+
+// DefaultWherePosition is the real implementation used in production.
+// Exposed so tests can restore the original after overriding WherePosition.
+var DefaultWherePosition WherePositionFn = where.Resolve
+
+// WherePosition is an injectable seam for tests: swap it with a stub to
+// control the resolved Report without real disk I/O or dependency on the
+// developer machine's ~/.claude/CLAUDE.md <wikis> registry.
+// Production code always calls DefaultWherePosition; only tests override this.
+var WherePosition WherePositionFn = DefaultWherePosition
+
+// checkWherePosition performs a best-effort orientation check.
+// Errors are silent — the hook must never block. Returns nil when the
+// resolved position is the plain no-wiki/no-realm case (nothing interesting
+// to report) or when resolution fails.
+func checkWherePosition(cwd string) []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	claudeMDPath := filepath.Join(home, ".claude", "CLAUDE.md")
+	report, err := WherePosition(cwd, claudeMDPath)
+	if err != nil {
+		return nil
+	}
+	if isPlainPosition(report) {
+		return nil
+	}
+	return []string{whereNudgeLine(report)}
+}
+
+// isPlainPosition reports whether report describes the plain no-wiki/no-realm
+// case — no repo-scope wiki, and cwd is not under any registered realm.
+func isPlainPosition(report where.Report) bool {
+	return !report.RepoScope.Found && report.RealmScope.Position == where.RealmNone
+}
+
+// whereNudgeLine renders report as a single terse orientation line.
+func whereNudgeLine(report where.Report) string {
+	var parts []string
+	if report.RepoScope.Found {
+		parts = append(parts, fmt.Sprintf("repo-scope wiki at %s", report.RepoScope.Path))
+	}
+	switch report.RealmScope.Position {
+	case where.RealmRoot:
+		parts = append(parts, fmt.Sprintf("realm root (%s)", report.RealmScope.RealmRoot))
+	case where.RealmMember:
+		parts = append(parts, fmt.Sprintf("realm member of %s", report.RealmScope.RealmRoot))
+	case where.RealmOrphaned:
+		parts = append(parts, fmt.Sprintf("orphaned under realm root %s (not a registered member)", report.RealmScope.RealmRoot))
+	}
+	return strings.Join(parts, "; ") + " — run `atomic where` for full detail"
+}
+
 const (
 	// sessionStartCommand is the command registered directly in settings.json's
 	// SessionStart hook. Claude Code runs hook commands through a shell, so the
@@ -94,14 +151,18 @@ const (
 )
 
 // SessionStart returns the JSON hook payload for the SessionStart event.
-// If no reminders are pending and no wiki nudges exist, it returns an empty
-// string (no-op for Claude).
+// If no reminders are pending, no wiki nudges exist, and the orientation
+// position is plain (no repo-scope wiki, not under any registered realm),
+// it returns an empty string (no-op for Claude).
 // now is the reference time used for relative date formatting (allows testing).
 func SessionStart(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
 
 	// Best-effort wiki staleness nudges — swallowed on error (ride-along).
 	wikiNudges := checkWikiStaleness(now)
+
+	// Best-effort orientation nudge — swallowed on error (ride-along).
+	whereNudges := checkWherePosition(repoRoot)
 
 	// Call reminder.List once and filter to past-due immediately so both the
 	// body builder and the systemMessage count use the same surfaced set.
@@ -112,7 +173,7 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 
 	pastDue := filterPastDue(rows, now)
 
-	body, err := buildBody(pastDue, wikiNudges, now)
+	body, err := buildBody(pastDue, wikiNudges, whereNudges, now)
 	if err != nil {
 		return "", err
 	}
@@ -160,44 +221,52 @@ func SessionStart(repoRoot string, now time.Time) (string, error) {
 }
 
 // SessionStartText returns the plain-markdown version of the session-start
-// context (no JSON envelope). Returns empty string when no reminders or wiki
-// nudges exist.
+// context (no JSON envelope). Returns empty string when no reminders, wiki
+// nudges, or orientation nudges exist.
 func SessionStartText(repoRoot string, now time.Time) (string, error) {
 	refreshProfile(now)
 
 	wikiNudges := checkWikiStaleness(now)
+	whereNudges := checkWherePosition(repoRoot)
 
 	rows, err := reminder.List(repoRoot)
 	if err != nil {
 		return "", fmt.Errorf("hooks session-start: list reminders: %w", err)
 	}
-	return buildBody(filterPastDue(rows, now), wikiNudges, now)
+	return buildBody(filterPastDue(rows, now), wikiNudges, whereNudges, now)
 }
 
-// buildBody constructs the full markdown body from past-due reminders and wiki
-// nudge lines. Wiki nudges appear first as a dedicated section; reminders follow.
-// Returns empty string when both slices are empty.
-func buildBody(pastDue []reminder.Row, wikiNudges []string, now time.Time) (string, error) {
+// buildBody constructs the full markdown body from past-due reminders, wiki
+// nudge lines, and orientation nudge lines. Orientation appears first, then
+// wiki staleness, then reminders. Returns empty string when all three are empty.
+func buildBody(pastDue []reminder.Row, wikiNudges []string, whereNudges []string, now time.Time) (string, error) {
 	reminderBody, err := buildBodyFromPastDue(pastDue, now)
 	if err != nil {
 		return "", err
 	}
 
-	if len(wikiNudges) == 0 {
-		return reminderBody, nil
+	var sections []string
+	if len(whereNudges) > 0 {
+		sections = append(sections, buildNudgeSection("## Orientation", whereNudges))
+	}
+	if len(wikiNudges) > 0 {
+		sections = append(sections, buildNudgeSection(fmt.Sprintf("## Wiki staleness (%d)", len(wikiNudges)), wikiNudges))
+	}
+	if reminderBody != "" {
+		sections = append(sections, reminderBody)
 	}
 
+	return strings.Join(sections, "\n\n"), nil
+}
+
+// buildNudgeSection renders a markdown header followed by one bullet per nudge.
+func buildNudgeSection(header string, nudges []string) string {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "## Wiki staleness (%d)\n", len(wikiNudges))
-	for _, nudge := range wikiNudges {
+	fmt.Fprintf(&sb, "%s\n", header)
+	for _, nudge := range nudges {
 		fmt.Fprintf(&sb, "- %s\n", nudge)
 	}
-	wikiSection := strings.TrimRight(sb.String(), "\n")
-
-	if reminderBody == "" {
-		return wikiSection, nil
-	}
-	return wikiSection + "\n\n" + reminderBody, nil
+	return strings.TrimRight(sb.String(), "\n")
 }
 
 // buildBodyFromPastDue constructs the markdown body from an already-filtered
