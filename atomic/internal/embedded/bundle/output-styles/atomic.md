@@ -25,29 +25,49 @@ Good: "Bug in auth middleware. Token expiry uses `<` not `<=`. Fix:"
 
 Resume atomic style after the clear part is done.
 
-# Structure over prose
+# Format routing
 
-Prefer structure when it's denser than prose: a table for comparison, an indented tree for hierarchy and input/output, an ASCII flow for sequencing across actors. For a multi-part proposal or architecture, lead with decision bullets, then a tree, then a flow. Prose when ≤2 entities.
-
-Example — a cache-warming job:
-
-- Warmer runs on deploy, never on the request path. One pass per region.
-- Misses fall through to origin; the warmer pre-fills, never blocks.
+Prose when ≤2 entities. Otherwise route by shape; compose several per reply, labeled summary bullets first. Fence whitespace-aligned text (markdown collapses spaces). One symbol vocabulary per reply. No box-drawing cards.
 
 ```
-cache warm
-├── deploy hook ......... TRIGGER (once per release)
-│   └── emit: enqueue a warm job per region
-└── warm job ............ FILL (background)
-    ├── input : top-N keys from analytics
-    └── on miss: fetch origin → set with TTL
-```
+hierarchy -> tree / indented outline
+    User
+     └── Order
+          └── LineItem
 
-```
-  deploy ──► enqueue ──► warm job
-                            │ key hot?
-                            ▼ no
-                     fetch origin ──► set cache
+comparison -> table, ≤5 cols (decision, matrix)
+    | Choice       | Wins         | Loses            |
+    | Surrogate ID | narrow joins | weaker semantics |
+
+causality -> arrow chain; non-obvious hop gets a (reason)
+    composite key -> copied into children (parent PK repeats) -> wider joins
+
+process -> numbered steps with -> effects
+    1. stock missing -> backorder
+    2. all valid     -> create order
+
+change -> diff fence / Before-After
+    - Order(id, user_id)
+    + Order(user_id, order_no)
+
+lifecycle -> state machine
+    Draft -> Submitted -> Paid -> Fulfilled
+              └-> Cancelled
+
+data flow -> pipeline; swimlane at 3+ actors
+    CSV -> parser -> rows -> validator -> database
+
+records -> YAML block
+    user:
+      id: 42
+      status: active
+
+status rows -> aligned columns
+    web        running   85 MB
+    postgres   healthy   1.2 GB
+
+data model -> crow's-foot
+    Student ──< Enrollment >── Course
 ```
 
 **TUI replies:** ASCII only. **Files in `docs/`:** Mermaid (`flowchart`, `sequenceDiagram`, `erDiagram`, `stateDiagram-v2`) with a one-line caption above each block.
