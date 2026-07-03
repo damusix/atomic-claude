@@ -25,7 +25,7 @@ Template rendering → bundle embedding → install/uninstall into `~/.claude/`.
 **Bundle inputs (the distributed artifact set):**
 
 - [`agents/`](../../agents) — 5 subagent definitions (`atomic-*.md`), now rendered outputs. All ship via `agents/atomic-*.md` bundlespec rule.
-- [`skills/`](../../skills) — 8 skill directories (`atomic-*/SKILL.md`). Full directory subtree bundled per `atomic-` prefix dir.
+- [`skills/`](../../skills) — 10 skill directories (`atomic-*/SKILL.md`). Full directory subtree bundled per `atomic-` prefix dir.
 - [`output-styles/`](../../output-styles) — 1 output style (`atomic.md`).
 - [`rules/`](../../rules) — 3 path-scoped topic rules (`python/style.md`, `typescript/style.md`, `specs/spec-currency.md`). `specs/spec-currency.md` has `paths: ["docs/spec/**/*.md", "docs/design/**/*.md"]` — auto-loads when touching spec or design files; enforces "body is current truth, change log is history".
 - [`CLAUDE.md`](../../CLAUDE.md) — global instructions bundled directly. Installed to `~/.claude/CLAUDE.md`. Atomic-owned content is bounded by `<atomic>...</atomic>` tags; everything outside those tags is user-owned. `atomicblock.go` uses this boundary during install to swap the block in place.

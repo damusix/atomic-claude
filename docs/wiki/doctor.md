@@ -50,7 +50,7 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 
 `checks_hooks.go` (category 2) scope bug fixed: `checkHooks` passes `$HOME` to `RunCheckHooksWith` — not `~/.claude`. The prior bug passed `~/.claude` as scopeRoot, causing `hooks.IsInstalled` to look for `~/.claude/.claude/settings.json` (double [`.claude`](../..) segment). `RunCheckHooksWith(scopeRoot string)` is exported for tests; `checks_hooks_internal_test.go` holds internal package tests. `drifted=true` response from `hooks.IsInstalled` produces WARN "session-start hook uses legacy wrapper script — run `atomic hooks install` to migrate".
 
-`checks_refs.go` checks for `@docs/wiki/index.md` only (updated for `docs/wiki/` relocation per wiki-storage-relocation CP2). Candidate files searched in order: [`claude.local.md`](../../claude.local.md), [`CLAUDE.local.md`](../../CLAUDE.local.md), [`CLAUDE.md`](../../CLAUDE.md), [`claude.md`](../../claude.md).
+`checks_refs.go` checks for `@docs/wiki/index.md` only (updated for [`docs/wiki/`](.) relocation per wiki-storage-relocation CP2). Candidate files searched in order: [`claude.local.md`](../../claude.local.md), [`CLAUDE.local.md`](../../CLAUDE.local.md), [`CLAUDE.md`](../../CLAUDE.md), [`claude.md`](../../claude.md).
 
 `checks_followups.go` — walks [`.claude/project/followups/`](../followups) via `followups.LoadEntriesWithErrors`. Byte-compares re-rendered INDEX against on-disk to detect drift. Two repair functions: `followupsRenderRepair` (re-renders INDEX), `followupsMigrateRepair` (runs migrate for legacy `followups.md`).
 
@@ -103,7 +103,7 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 - **→ bundle**: `validate/artifacts.go` calls `bundlemirror.Enumerate(repoRoot)` to discover the artifact corpus for A1 scanning. Changes to bundle inclusion rules (bundle domain) change which files `validate artifacts` scans.
 - **→ self (cliusage)**: `validate/artifacts.go` imports `cliusage.TopLevelVerbs()` and `cliusage.Lookup()`. Any change to the command surface table in `cliusage.go` (new verb, removed verb, flag added/removed) directly changes what A1 considers valid — the table and the binary's registered `flag.FlagSet` calls must stay in sync.
 - **→ signals**: `checks_refs.go` reads candidate CLAUDE files for `@docs/wiki/index.md`. The `signalsRef` const is the single source of truth — changes to the expected @-ref path require updating this const and the signals domain's wiring convention simultaneously.
-- **→ signals**: `checks_signals.go` verifies `docs/wiki/scan.md` exists and is not stale. Staleness logic tracks the signals domain's scan output.
+- **→ signals**: `checks_signals.go` verifies [`docs/wiki/scan.md`](scan.md) exists and is not stale. Staleness logic tracks the signals domain's scan output.
 - **→ config**: `checks_config.go` imports [`atomic/internal/config`](../../atomic/internal/config) directly. Config schema changes (config domain) must be reflected in `checks_config.go` validation.
 - **→ config**: `updatedoctor` skip indices `[3, 8]` are hardcoded. Adding or renumbering doctor categories requires updating `updatedoctor.go` to match.
 - **→ workflow**: `checks_followups.go` imports [`atomic/internal/followups`](../../atomic/internal/followups). Follow-up schema changes (config domain) affect what doctor accepts as valid.
