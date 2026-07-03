@@ -226,6 +226,12 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-prose |
 | `docs/reference/code-intel.md` | code-intel engine: verbs, index, lifecycle, workflow integration | atomic-prose |
 | `docs/reference/output-style.md` | atomic output style reference | atomic-prose |
+| `docs/reference/concepts.md` | how atomic-claude fits together, the atomic binary, code intelligence flow | atomic-prose |
+| `docs/reference/conventions.md` | atomic style scope, CLAUDE.md hygiene, commit bylines, scratchpad/tmp rules, worktree auto-detect | atomic-prose |
+| `docs/reference/serve.md` | `atomic serve` usage, scope resolution, browsing wiki + code graph locally | atomic-prose |
+| `docs/reference/wiki-workflow.md` | wiki setup, repo/realm scope, wiki verbs (scan/stale/linkify/bucket) | atomic-prose |
+| `docs/credits.md` | inspirations, prior-art credits | atomic-prose |
+| `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-prose |
 | `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
 
 
