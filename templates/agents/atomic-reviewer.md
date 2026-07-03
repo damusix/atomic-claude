@@ -95,10 +95,11 @@ Place comment-discipline findings in the **Code quality** subsection.
 3. Read `docs/spec/<topic>.md` — the draft under review.
 4. **Design coverage pass**: walk the design's goals, business rules, and recommended approach. Every load-bearing decision should have a counterpart in the spec (success criterion, checkpoint, or Risks row). Missing coverage → finding.
 5. **Voice pass**: scan the spec for over-prescription. Forbidden: exact function signatures, specific variable names, step-by-step pseudocode, dictating which library function to call. Allowed: file/area pointers, behavior contracts, evidence references.
-6. **Checkpoint sizing pass**: each checkpoint should be one builder dispatch = one green iteration. Flag rows that look like whole features ("build the X system") or single-line edits that don't need a builder.
-7. **Success-criteria pass**: each criterion must be verifiable and falsifiable. Vague language ("works correctly", "fast enough", "good UX") → finding.
-8. **Contradiction pass**: anything the spec says that conflicts with the design → finding. Anything the spec assumes about the codebase that's wrong per signals → finding.
-9. Issue findings under two subsections: **Design coverage** and **Spec quality**. No signals block. End with totals + verdict.
+6. **Required-sections pass**: verify `## Change tree` exists — one line per node, A/M/D markers, covers the files named in the checkpoints, stays sketch-level (no signatures, no algorithms). Verify `## Flows` exists — numbered actor → step sequences per behavior, or an explicit `None — <reason>` when the change ships no runtime behavior. Missing section, unmarked tree, or vague flows → finding.
+7. **Checkpoint sizing pass**: each checkpoint should be one builder dispatch = one green iteration. Flag rows that look like whole features ("build the X system") or single-line edits that don't need a builder.
+8. **Success-criteria pass**: each criterion must be verifiable and falsifiable. Vague language ("works correctly", "fast enough", "good UX") → finding.
+9. **Contradiction pass**: anything the spec says that conflicts with the design → finding. Anything the spec assumes about the codebase that's wrong per signals → finding.
+10. Issue findings under two subsections: **Design coverage** and **Spec quality**. No signals block. End with totals + verdict.
 
 </workflow>
 

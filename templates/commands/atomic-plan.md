@@ -158,6 +158,35 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
 
 <chosen approach, one line> — see `docs/design/<topic>.md`.
 
+## Change tree
+
+<!-- Indented file tree of what this spec touches. One line per node.
+     Markers: A created, M modified, D removed. Optional parenthetical for
+     symbols touched — sketch-level, same altitude as the Checkpoints table's
+     Files/areas column, never a signature contract. Example:
+
+     atomic/internal/wiki/
+     ├── bucket.go ............ M  (PromoteBucket: new rotate step)
+     ├── bucket_test.go ....... M  (tests for rotation)
+     └── manifest.go .......... A  (new: manifest read/write)
+     docs/reference/wiki-workflow.md  M  (bucket section) -->
+
+<tree>
+
+## Flows
+
+<!-- One numbered actor -> step sequence per behavior being implemented.
+     A change that ships no runtime behavior (pure docs/config) writes
+     `None — <reason>` instead of omitting the section — presence is what
+     the reviewer checks, not omission. Example:
+
+     Flow: bucket promote
+     1. user runs `atomic wiki bucket promote <name>`
+     2. CLI resolves bucket manifest -> rotates baseline -> previous
+     3. CLI writes new baseline, prints summary -->
+
+<flows, or `None — <reason>`>
+
 ## Checkpoints
 
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
@@ -192,6 +221,8 @@ Iter 2: atomic-reviewer (spec-mode) reads design + spec → reports gaps:
         - Contradictions between design and spec?
         - Body forward-only — no decision history, prior-version refs, or rejected-fork enumeration?
         - `## Approach` a one-line pointer to the design, not a copied Approaches/Recommendation table?
+        - Change tree present with A/M/D markers covering every checkpoint's files?
+        - Flows present as actor → step sequences (or explicit `None — <reason>`)?
 Iter 3+: builder applies feedback; reviewer re-checks.
 Terminate on VERDICT: PASS or hard-cap (5 iters; configurable via memory).
 ```
@@ -207,6 +238,8 @@ Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md
 - Checkpoints are cohesive slices, not line-by-line code.
 - Voice is evidence-backed, not prescriptive.
 - Body is forward-only — no decision history, prior-version references, or rejected-alternative enumeration; `## Approach` points to the design rather than copying its tables.
+- `## Change tree` present, one line per node, A/M/D markers covering every checkpoint's files.
+- `## Flows` present as numbered actor → step sequences (or explicit `None — <reason>`).
 - No contradictions between design and spec.
 - Risks table honestly enumerates likelihood + mitigation.
 
@@ -272,6 +305,10 @@ A spec SHOULD say:
 - What we're not doing — non-goals, explicit scope boundary.
 - The slices — checkpoints, cohesion units the implementer can dispatch as one builder pass.
 - The chosen approach — a one-line `## Approach` pointer to the design, which holds the Approaches deliberation + evidence. Only a trivial inline spec with no design carries the Approaches + Recommendation itself.
+- The blast radius — `## Change tree`, a sketch-level file tree with A/M/D markers.
+- The behavior — `## Flows`, numbered actor → step sequences for what's being implemented.
+
+**Voice reconciliation for the change tree.** The change tree does not conflict with forward-only or anti-over-prescription: it is a sketch of the intended surface, the same altitude as the checkpoint table's `Files/areas` column, never a signature contract. Success criteria remain the only binding contract; the implementer may deviate from the tree — add a helper file, split a symbol — without amendment, unless the deviation breaks a success criterion.
 
 Implementation details belong in code, not specs:
 

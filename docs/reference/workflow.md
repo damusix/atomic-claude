@@ -29,7 +29,7 @@ If you work across several repos in one realm — a folder of services, a set of
 /atomic-plan
 ```
 
-You and Claude produce a spec together. For small tasks, this is an inline checkpoint table in `docs/spec/`. For larger work, Claude writes a design doc first (`docs/design/`) and then derives the spec from it. Nothing gets implemented until you approve the plan.
+You and Claude produce a spec together. For small tasks, this is an inline checkpoint table in `docs/spec/`. For larger work, Claude writes a design doc first (`docs/design/`) and then derives the spec from it. Nothing gets implemented until you approve the plan. Every spec also carries a change tree of the files it will create, modify, or remove, and the flows it implements, so you can inspect blast radius and behavior before you approve it.
 
 If the plan rests on an unverified hunch, `/atomic-plan` will suggest `/gather-evidence` before continuing — you decide whether to gather first or proceed at risk.
 
