@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals, do
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>6580a7d0bdb67d4d9c57b26fb209eae97987e6d1</scan-sha>
+<scan-sha>319c12db5c005761eac99af32a97497cdd1bcad3</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals
@@ -132,7 +132,7 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 
 **[`output-styles/atomic.md`](../../output-styles/atomic.md) reframed**: intensity levels removed. Style organized as clarity goal + drop-list + pattern + Auto-Clarity escape hatch + format routing + subagents section. `agent-atomic-voice` partial carries response-voice rule into each agent.
 
-**Format routing (docs-meta domain, `legible-tui` branch, GitHub issue #113 re-scoped)**: [`output-styles/atomic.md`](../../output-styles/atomic.md) `# Structure over prose` section replaced by `# Format routing` — a ten-route content-shape-to-format table (hierarchy→tree, comparison→table ≤5 cols, causality→arrow chain, process→numbered steps, change→diff fence/Before-After, lifecycle→state machine, data flow→pipeline, records→YAML block, status rows→aligned columns, data model→crow's-foot), three discipline caps (fence whitespace-aligned text, one symbol vocabulary per reply, no box-drawing cards), and one worked composition example; the trailing TUI-ASCII/docs-Mermaid boundary line is unchanged. [`docs/reference/output-style.md`](../../docs/reference/output-style.md) gained a matching `## Format routing vocabulary` section for human readers. No new skill, command, or agent — a first attempt (closed PR #117) built a rendered-HTML-page escalation and was explicitly rejected; this branch stays TUI-only. Design: [`docs/design/legible-output.md`](../../docs/design/legible-output.md). Spec: [`docs/spec/legible-output.md`](../../docs/spec/legible-output.md).
+**Format routing (docs-meta domain, `legible-tui` branch, GitHub issue #113 re-scoped)**: [`output-styles/atomic.md`](../../output-styles/atomic.md) `# Structure over prose` section replaced by `# Format routing` — a ten-route content-shape-to-format table (hierarchy→tree, comparison→table ≤5 cols, causality→arrow chain, process→numbered steps, change→diff fence/Before-After, lifecycle→state machine, data flow→pipeline, records→YAML block, status rows→aligned columns, data model→crow's-foot), three discipline caps (fence whitespace-aligned text, one symbol vocabulary per reply, no box-drawing cards), and (as of `319c12d`, user feedback after the first landing) a micro-example under every one of the ten routes, all inside one shared fence — the section spans 46 lines heading-to-boundary-line inclusive, and the earlier single standalone composition example was dropped in favor of the per-route examples; the trailing TUI-ASCII/docs-Mermaid boundary line is unchanged. [`docs/reference/output-style.md`](../../docs/reference/output-style.md) gained a matching `## Format routing vocabulary` section for human readers. No new skill, command, or agent — a first attempt (closed PR #117) built a rendered-HTML-page escalation and was explicitly rejected; this branch stays TUI-only. Design: [`docs/design/legible-output.md`](../../docs/design/legible-output.md). Spec: [`docs/spec/legible-output.md`](../../docs/spec/legible-output.md).
 
 **[`.claude/rules/authoring/`](../rules/authoring)**: repo-only rules (never bundled) — `axioms.md`, `agent-config.md`, `claude-code-refs.md`, `prompting.md`. Path-scoped to load only when editing artifact sources.
 
