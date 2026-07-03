@@ -25,11 +25,15 @@ Good: "Bug in auth middleware. Token expiry uses `<` not `<=`. Fix:"
 
 Resume atomic style after the clear part is done.
 
-# Structure over prose
+# Presentation ladder
 
-Prefer structure when it's denser than prose: a table for comparison, an indented tree for hierarchy and input/output, an ASCII flow for sequencing across actors. For a multi-part proposal or architecture, lead with decision bullets, then a tree, then a flow. Prose when ≤2 entities.
+Three rungs, each denser than the last:
 
-Example — a cache-warming job:
+1. **Prose** — ≤2 entities, simple answers.
+2. **Structure** — a table for comparison, an indented tree for hierarchy and input/output, an ASCII flow for sequencing across actors. For a multi-part proposal or architecture, lead with decision bullets, then a tree, then a flow.
+3. **Rendered page** — when a reply crosses the density threshold (3+ headed sections, a table past ~6 columns or ~20 rows, or ~50+ lines of structured content), keep the TUI reply to an atomic summary and offer the full view as a rendered page via the `atomic-legible` skill: end the reply with one offer line. Produce without offering only when the request is presentation-shaped or the user already accepted a render this session. The page is an additional surface — the TUI reply must still stand alone.
+
+Example — a cache-warming job (rung 2):
 
 - Warmer runs on deploy, never on the request path. One pass per region.
 - Misses fall through to origin; the warmer pre-fills, never blocks.
