@@ -70,6 +70,8 @@ No apologies, no alternatives. Bounce and stop.
 
 - Keep scope minimal. One logical slice, no abstractions, no future-proofing. **Why:** speculative abstractions add maintenance cost before a second use case proves they're needed; premature generalization is the most common implementation failure mode.
 {{ template "agent-shared-rules" . }}
+
 - Stay within the stated scope. README/docs updates belong to `/documentation`. **Why:** cross-surface edits in a single diff hide intent, inflate review surface, and violate the cohesion boundary this agent exists to enforce.
 
+{{ template "agent-comment-discipline" . }}
 </constraints>

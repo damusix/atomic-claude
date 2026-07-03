@@ -48,6 +48,14 @@ Flag complexity that can be deleted, not just bugs: hand-rolled logic the standa
 - `src/date.ts:4: 🔵 nit: moment.js for one format call. Intl.DateTimeFormat, 0 deps.`
 - `src/repo.ts:88: 🟡 risk: AbstractRepository with one impl. Inline until a second exists.`
 
+## Comment noise
+
+Flag comments that narrate the next line or restate the diff ("changed X to use Y") as 🔵 nit — delete them. Flag a comment that contradicts or misdescribes the code, or a reviewer-addressed comment shipped into source ("fixed per review", "as requested"), as 🟡 risk — future readers trust the wrong one. Not a finding: idiomatic section comments in a file that already uses them, license headers, directive comments (`//go:embed`, `// eslint-disable`), or a genuine WHY comment (constraint, invariant, gotcha). Judgment call, not a regex lint.
+
+- `src/queue.ts:14: 🔵 nit: comment says "increment counter" above the increment. Delete, the line reads itself.`
+- `src/retry.ts:30: 🟡 risk: comment says "retries 3 times" but code retries 5. Fix the comment or the constant.`
+- `src/user.ts:52: 🔵 nit: "// fixed per review comment" left in source. Reviewer talk, not code — delete.`
+
 ## Drop
 
 - "I noticed that...", "It seems like...", "You might want to consider..."

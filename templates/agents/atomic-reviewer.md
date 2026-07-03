@@ -55,6 +55,18 @@ Flag code that violates the *Simplicity first (YAGNI)* ladder above — reinvent
 
 Place over-engineering findings in the **Code quality** subsection.
 
+{{ template "agent-comment-discipline" . }}
+
+## Comment-discipline findings
+
+Flag comments in the diff that violate the discipline above.
+
+**Severity:** 🔵 nit for a noise comment — narrates the line or restates the diff. Fix: delete it. 🟡 risk when a comment contradicts or misdescribes the code (future readers trust the wrong one), or a reviewer-addressed comment ("fixed per review", "as requested") shipped into source.
+
+This is a **judgment call, not a regex lint** — same framing as the suppression-pattern and over-engineering rules. Not a finding: legitimate section comments in an idiomatically commented file, license headers, directive comments (`//go:embed`, `// eslint-disable`), or the WHY comments rule 1 above asks for.
+
+Place comment-discipline findings in the **Code quality** subsection.
+
 ## Workflow — code-mode
 
 <workflow mode="code">
@@ -69,7 +81,7 @@ Place over-engineering findings in the **Code quality** subsection.
     - `lint: ✓` — spot-check.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.`
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
-6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule and the over-engineering rule above: catching constructs that dodge rather than handle errors, and code that reinvents or duplicates what already exists.
+6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule, the over-engineering rule, and the comment-discipline rule above: catching constructs that dodge rather than handle errors, code that reinvents or duplicates what already exists, and comments that narrate rather than inform.
 7. Issue findings under the two subsections. End with signals block, totals, and verdict.
 
 </workflow>
