@@ -71,7 +71,7 @@ Inspect the repo. Build this status table:
 | `.claude/project/deterministic-signals.md` | `test -f .claude/project/deterministic-signals.md` | exists / missing |
 | `CLAUDE.md` references signals.md | `test -f CLAUDE.md && grep -qF '@.claude/project/signals.md' CLAUDE.md` (if `test -f CLAUDE.md` fails → n/a). Only `signals.md` is `@-ref`'d — `deterministic-signals.md` is too large for context. | yes / no / n/a |
 | `.signalsignore` at repo root | `test -f .signalsignore` | exists / missing |
-| `.claude/project/signals-steering.md` | `test -f .claude/project/signals-steering.md` | exists / missing |
+| `docs/wiki/CLAUDE.md` | `test -f docs/wiki/CLAUDE.md` | exists / missing |
 
 Classify the repo:
 
@@ -103,7 +103,7 @@ For each missing item, propose an action. Skip items already present.
 | `deterministic-signals.md` missing but `atomic` present | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
 | `CLAUDE.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
 | `.signalsignore` missing | Create `.signalsignore` with commented explanation (see `.signalsignore` subsection in Step 4). Never overwrite if it exists. |
-| `.claude/project/signals-steering.md` missing | Create `.claude/project/signals-steering.md` with commented explanation (see `signals-steering.md` subsection in Step 4). Never overwrite if it exists. |
+| `docs/wiki/CLAUDE.md` missing | Create `docs/wiki/CLAUDE.md` via `atomic wiki init --scope repo` (see `docs/wiki/CLAUDE.md` subsection in Step 4). Never overwrite if it exists. |
 
 Present the proposed actions as a numbered list:
 
@@ -177,40 +177,13 @@ EOF
 fi
 ```
 
-### `signals-steering.md`
-
-Refuse to overwrite if file exists (audit already gated this — defensive double-check).
-
-Write the file only when `.claude/project/signals-steering.md` is absent:
+### `docs/wiki/CLAUDE.md`
 
 ```bash
-if ! test -f .claude/project/signals-steering.md; then
-  mkdir -p .claude/project
-  cat > .claude/project/signals-steering.md << 'EOF'
-# Signals steering
-#
-# User-provided hints for the signals inferrer. When this file exists,
-# the inferrer reads it before writing signals.md and treats its
-# content as ground truth — steering wins over detection when they
-# conflict. Delete sections you don't need.
-#
-# ## Framework
-# NestJS monorepo (not plain Express)
-#
-# ## Domains
-# - src/billing/ and src/payments/ are one domain ("payments")
-# - src/internal-tools/ is scratch code — not a real domain
-#
-# ## Build
-# - Build: pnpm turbo build
-# - Test: pnpm test:ci (not pnpm test — that runs watch mode)
-#
-# ## Ignore for domains
-# - vendor/
-# - generated/
-EOF
-fi
+atomic wiki init --scope repo
 ```
+
+This is idempotent: it writes `docs/wiki/CLAUDE.md` with the default scaffold if the file does not exist, and no-ops silently if it already exists. On creation the command prints `created <path>` on stdout — relay that line, followed by `(edit to steer the inferrer).`
 
 ### `CLAUDE.md` survey
 
