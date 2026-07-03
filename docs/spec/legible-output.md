@@ -42,7 +42,7 @@ Add a section documenting the format-routing vocabulary for human readers, in th
 2. The replaced section is ≤ 36 lines and the file's net line delta vs commit `6e7fb3c` is ≤ +10 (`git diff --numstat 6e7fb3c -- output-styles/atomic.md`).
 3. `docs/reference/output-style.md` describes all ten routes and all three caps, ≤ 45 added lines, no contradiction with the style file.
 4. Bundle regen committed in the same commit: `make -C atomic bundle` then `git diff --exit-code atomic/internal/embedded` clean; `make render` then `git diff --exit-code commands/ agents/` clean (no-op expected).
-5. Scope guard: no other file changes — no skills/, commands/, templates/, agents/, README, CLAUDE.md edits; the string `atomic-legible` appears nowhere in the tree.
+5. Scope guard: no other file changes — no skills/, commands/, templates/, agents/, README, CLAUDE.md edits; the string `atomic-legible` appears nowhere in the tree except this spec's change log (recorded history of the rejected approach).
 6. `go -C atomic test ./...` — no new failures vs the branch-point baseline; `atomic validate spec` reports no FAIL for `docs/spec/legible-output.md`.
 
 
