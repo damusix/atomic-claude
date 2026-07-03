@@ -28,7 +28,7 @@ func WikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 // Returns an exit code: 0 on success, 1 on usage/soft error, 2 on hard error.
 func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki <scan|stale|linkify|bucket> [flags]\n")
+		fmt.Fprintf(os.Stderr, "Usage: atomic wiki <scan|stale|linkify|bucket|init> [flags]\n")
 		return 1
 	}
 
@@ -46,6 +46,8 @@ func wikiAction(args []string, claudeHome, cwd string, out io.Writer) int {
 		return wikiLinkifyAction(args[1:], cwd)
 	case "bucket":
 		return wikiBucketAction(args[1:], cwd, out)
+	case "init":
+		return wikiInitAction(args[1:], cwd, out)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic wiki: unknown verb %q\n", verb)
 		return 1
@@ -223,6 +225,58 @@ func wikiLinkifyAction(args []string, cwd string) int {
 	if err := LinkifyWiki(absRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki linkify: %v\n", err)
 		return 1
+	}
+	return 0
+}
+
+// wikiInitAction implements `atomic wiki init --scope repo|realm [--root=<path>]`.
+// It writes the fixed-content CLAUDE.md scaffold for the given scope
+// deterministically — repo scope writes docs/wiki/CLAUDE.md (steering); realm
+// scope writes wiki/CLAUDE.md (self-reference, "@index.md" only). Both writes
+// are idempotent no-ops when the target file already exists. --scope is
+// required; a missing or unrecognized value exits 1 with a usage error and
+// writes nothing.
+func wikiInitAction(args []string, cwd string, out io.Writer) int {
+	fs := flag.NewFlagSet("wiki-init", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var scope, root string
+	fs.StringVar(&scope, "scope", "", "scaffold scope: repo or realm")
+	fs.StringVar(&root, "root", "", "root directory (default: cwd)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	if scope != "repo" && scope != "realm" {
+		fmt.Fprintf(os.Stderr, "Usage: atomic wiki init --scope repo|realm [--root=<path>]\n")
+		return 1
+	}
+
+	if root == "" {
+		root = cwd
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki init: resolve root: %v\n", err)
+		return 1
+	}
+
+	var path string
+	var created bool
+	switch scope {
+	case "repo":
+		path = filepath.Join(absRoot, "docs", "wiki", "CLAUDE.md")
+		created, err = InitRepoScope(absRoot)
+	case "realm":
+		path = filepath.Join(absRoot, "wiki", "CLAUDE.md")
+		created, err = InitRealmScope(absRoot)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki init: %v\n", err)
+		return 1
+	}
+
+	if created {
+		fmt.Fprintf(out, "created %s\n", path)
 	}
 	return 0
 }

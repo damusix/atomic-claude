@@ -418,6 +418,7 @@ func discoverSummary(wikiDir, rel string) string {
 //   - wiki/repos/
 //   - wiki/concerns/
 //   - wiki/.gitignore (ignoring .dirty)
+//   - wiki/CLAUDE.md (realm self-reference, "@index.md" only — via InitRealmScope)
 //   - runs git init in wiki/ if not already a git repo
 func scaffold(wikiDir, root string) error {
 	// Create all subdirs.
@@ -425,6 +426,12 @@ func scaffold(wikiDir, root string) error {
 		if err := os.MkdirAll(sub, 0o755); err != nil {
 			return fmt.Errorf("mkdir %s: %w", sub, err)
 		}
+	}
+
+	// wiki/CLAUDE.md — realm self-reference so cd'ing directly into the wiki
+	// repo auto-loads index.md at session start. No-op if already present.
+	if _, err := InitRealmScope(root); err != nil {
+		return fmt.Errorf("init realm CLAUDE.md: %w", err)
 	}
 
 	// .gitignore — ignores the .dirty marker.
