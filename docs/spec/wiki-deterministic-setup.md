@@ -70,3 +70,27 @@ New `atomic wiki init --scope repo|realm --root <path>` CLI verb, following the 
 
 
 <!-- empty on creation; first entry on first post-approval amendment -->
+
+
+## Implementation log
+
+
+### shipped — 2026-07-03
+
+
+Built across 4 iterations of `/subagent-implementation` on branch `wiki-deterministic-setup` (worktree). Commits (chronological):
+
+
+- `271d74c` — CP1: `atomic wiki init --scope repo|realm` verb, `Scan()` hook, Cobra/cliusage/golden-test wiring, 10 new tests
+- `915715b` — CP2: retired both scaffold heredocs (`refresh-wiki.md` R3, `atomic-wiki` skill Step 8c), both now call the verb
+- `79af97f` — CP3: `atomic-setup.md` steering fix (was still creating `.claude/project/signals-steering.md`), stale-wording cleanup, `atomic-help.md` mention
+- `742af57` — polish: `buildWikiCmd()` Short-text `init` mention, one remaining stray `signals-steering.md` reference
+
+
+**Out-of-scope work performed during this build:** none — CP3's implementer self-flagged a second stray `signals-steering.md` reference (`atomic-setup.md:272`) and correctly left it untouched per the spec's non-goals; the user later approved a targeted one-line fix for that specific reference in the polish iteration (commit `742af57`), still excluding the ~10 other pre-existing `.claude/project/signals.md` references in that file.
+
+
+**Unforeseens — surprises that emerged during implementation:** the design doc's ripple checklist (written during `/atomic-plan`) pointed the CP2 heredoc at `templates/agents/atomic-wiki-inferrer.md`; grounding during CP2's own spec-authoring pass found workstream D had already relocated it to `skills/atomic-wiki/references/repo.md` Step 8c. Both the design doc and this spec were corrected before implementation started, so no build iteration was misdirected by it.
+
+
+**Deferred items still open:** none. Both non-blocking reviewer findings (F-1: `buildWikiCmd()` Short text omitted `init`; F-2: stray `signals-steering.md` reference outside CP3's scoped rows) were disposed `fix-now` by the user and closed in the polish iteration (`742af57`). `FOLLOWUPS.md` has zero open entries.
