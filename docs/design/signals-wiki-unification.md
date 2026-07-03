@@ -66,7 +66,7 @@ flowchart TD
 | `docs/wiki/index.md` | `.claude/project/signals.md` | **yes** (from root `CLAUDE.md`/`CLAUDE.local.md`) | inferrer | `Index` |
 | `docs/wiki/<domain>.md` | `.claude/project/signals/<domain>.md` | no | inferrer | `Domain` |
 | `docs/wiki/scan.md` | `.claude/project/deterministic-signals.md` | **no** (thousands of lines) | `atomic signals scan` | **none** — raw output, never FM, not a graph node |
-| `docs/wiki/CLAUDE.md` | `.claude/project/signals-steering.md` | no (lazy nested-memory) | user / setup | OKF FM + citations |
+| `docs/wiki/CLAUDE.md` | `.claude/project/signals-steering.md` | no (lazy nested-memory) | `atomic wiki init --scope repo` (idempotent CLI verb); user edits after creation | OKF FM + citations |
 
 Control blocks inside `index.md` (machine-managed, mirroring the existing `<wiki-scan>` / `<wiki-buckets>` block pattern):
 
@@ -93,6 +93,21 @@ Verified against `code.claude.com/docs/en/memory.md` (claude-code-guide agent, t
 - `@`-ref imports recurse to max depth 4, expanded at load time.
 
 Design: `index.md` is `@`-ref'd from the root `CLAUDE.md`/`CLAUDE.local.md` (loads at session start, as today). Steering becomes `docs/wiki/CLAUDE.md` — it does **not** load at session start, but it **does** lazy-load as nested memory whenever Claude reads a file under `docs/wiki/`, which is exactly when the inferrer operates. This leverages Claude Code's own loading instead of telling the agent to read a `steering.md`. Two caveats, both settled by experiment (this session): (1) the file must be uppercase `CLAUDE.md`; (2) a *dispatched subagent* **does** get the nested-memory lazy-load — confirmed: a subagent that read a file under the dir had that dir's `CLAUDE.md` injected into its context as a system reminder, on a single Read with no separate access to the CLAUDE.md. **But** subagents apply injection-skepticism to nested CLAUDE.md surfaced mid-task and declined to follow it in both runs. So nested-memory guarantees *delivery*, not *compliance* — the inferrer's dispatch brief (and the `atomic-wiki-inferrer` system prompt, which we author) must explicitly name `docs/wiki/CLAUDE.md` as authoritative steering to read and follow.
+
+
+## Deterministic scaffold creation (workstream G)
+
+
+Both scopes need a boilerplate `CLAUDE.md` written once, idempotently, on first touch:
+
+- repo scope: `docs/wiki/CLAUDE.md` — the steering scaffold (OKF FM + commented hint sections).
+- realm scope: `<root>/wiki/CLAUDE.md` — new, contains only `@index.md`. Closes an asymmetry: a member repo's own root `CLAUDE.md` already carries `@docs/wiki/index.md` (loads at session start), but a realm's wiki repo had no self-referencing `CLAUDE.md` at all — cd into it directly and nothing auto-loads `index.md`. The global `<wikis>` block in `~/.claude/CLAUDE.md` (`atomic/internal/wiki/registry.go:34-56`) stays as-is for cross-realm staleness tracking; it is deliberately never `@-ref`'d (a flat list spanning every realm on the machine) and is not a substitute for a repo loading its own memory file.
+
+Fixed content with no judgment call is a deterministic transform (`CLAUDE.md` Principles: "prefer code over the model for … deterministic transforms"). Two places wrote it as an LLM-executed bash heredoc instead: `templates/commands/refresh-wiki.md` R3 and `skills/atomic-wiki/references/repo.md` Step 8c (repo scope only; realm scope had no creation path at all). Both carry a comment demanding the scaffold text stay byte-identical across the two copies — a duplication burden a single Go source eliminates.
+
+**Resolution:** new `atomic wiki init --scope repo|realm --root <path>` CLI verb, following the `RegisterWiki` idiom already established in `atomic/internal/wiki/registry.go` (guard-check existing state, atomic write via temp+rename, no-op if already present). `repo` scope writes `docs/wiki/CLAUDE.md` with the scaffold currently embedded in the two template heredocs (moved verbatim into Go — not redesigned). `realm` scope writes `<root>/wiki/CLAUDE.md` containing only `@index.md`, hooked off the same "wiki root touched" event `wiki.Scan()` (`atomic/internal/wiki/wiki.go:81`) already owns (repo directory scaffolding), so every `atomic wiki scan` on a realm ensures the file exists with no separate template call needed. `templates/commands/refresh-wiki.md` and `skills/atomic-wiki/references/repo.md` call the CLI verb instead of embedding the heredoc.
+
+`templates/commands/atomic-setup.md` still audits/creates the pre-relocation `.claude/project/signals-steering.md` (Step 1/2/4) — a leftover from before workstream B, not a new decision. It moves to auditing `docs/wiki/CLAUDE.md` and calling the same CLI verb.
 
 
 ## Skill-router architecture
@@ -196,6 +211,8 @@ Program-level decisions are locked (see Recommendation). Rows below were resolve
 | 4 | Cobra ↔ cliusage source of truth | duplicate command list vs derive cliusage from Cobra tree | **derive** — walk the Cobra root command tree to produce `[]cliusage.Command`; A1 linter (`TopLevelVerbs`/`LookupByPath`/`cmd.Flags`) keeps working with its data source repointed, logic untouched |
 | 5 | Artifact-prune UX | per-artifact prompt vs batched vs auto | **batched confirm** — one prompt listing all removed artifacts (axiom 3); only ever touches `install.artifacts`, never user-added. `atomic uninstall` also reads `[install]` to remove the agents/commands/etc atomic installed |
 | 6 | config.toml hygiene | hand-edit vs machine-owned | **machine-owned** — no hand-editing; `[agents]` set via interactive `atomic config agents` (huh), `[install]`/`[repos]` written by install/migrate. Comment-preservation hazard moot |
+| 7 | Scaffold-file creation mechanism | LLM-executed heredoc (current, repo scope only) vs new CLI verb vs fold into `atomic migrate` | **new `atomic wiki init --scope repo\|realm` verb** — fixed content is a deterministic transform, not a judgment call; `atomic migrate` is reserved for one-time version-gated layout changes (wrong semantic fit for "ensure this scaffold exists," which must be safe to re-run outside any version bump) |
+| 8 | Realm self-reference | leave as-is (only the global `<wikis>` registry) vs add `<root>/wiki/CLAUDE.md` | **add it** — `@index.md` only, written by the same CLI verb from decision 7, hooked off `wiki.Scan()`. Symmetric with repo scope's member-root `@docs/wiki/index.md`; does not replace the global registry (different job: cross-realm staleness vs single-repo memory load) |
 
 
 ## Recommendation
@@ -208,6 +225,7 @@ Locked program decisions:
 - `atomic-wiki` skill-router + `references/repo.md|realm.md`; agent renamed `atomic-wiki-inferrer`.
 - `refresh-signals` folds into `refresh-wiki`; new `migrate` verb (`--repo`/`--realm`); `update` auto-runs migrations.
 - Cobra migration as its own last workstream, deriving cliusage from the command tree.
+- Scaffold `CLAUDE.md` creation (repo steering + new realm self-ref) moves to a deterministic `atomic wiki init --scope repo|realm` verb, replacing the template heredoc and closing the realm gap.
 
 Sub-decisions: per the leans in the table above, finalized in each workstream spec.
 
@@ -225,6 +243,9 @@ flowchart LR
     D --> A
     E --> A
     F --> A
+    B --> G["G · deterministic scaffold verb"]
+    D --> G
+    G --> A
 ```
 
 
@@ -235,6 +256,7 @@ flowchart LR
 | D | `refresh-signals`→`refresh-wiki`; `atomic-signals-inferrer`→`atomic-wiki-inferrer`; skill-router | `docs/spec/wiki-unify-commands.md` | depends B |
 | E | `<scan-sha>` drift → full-vs-incremental scope, reconciled with `signals stale` | `docs/spec/wiki-drift-scope.md` | depends D (edits the skill-router + renamed agent) |
 | F | Agent model overrides: `config.toml [agents]` (full agent-name keys) set via interactive `atomic config agents` + install-time `model:` frontmatter patch | `docs/spec/agent-model-overrides.md` | depends C (config schema v2) |
+| G | Deterministic `atomic wiki init --scope repo\|realm` verb; retire the repo-scope heredoc; add realm-scope `<root>/wiki/CLAUDE.md`; fix `atomic-setup.md`'s stale `signals-steering.md` path | `docs/spec/wiki-deterministic-setup.md` | depends B (steering concept), D (`refresh-wiki.md`/`atomic-wiki` skill are the call sites) |
 | A | Cobra migration; derive cliusage from command tree; preserve A1 linter | `docs/spec/cli-cobra.md` | independent; last |
 
 
@@ -289,6 +311,19 @@ Every path/name change must ripple through the surfaces below or it ships an inv
 - [ ] `docs/reference/agents.md` — note the override mechanism
 
 
+### Workstream G (deterministic scaffold verb)
+
+
+- [ ] new `atomic/internal/wiki/init.go` (or similar) — repo-scope `docs/wiki/CLAUDE.md` write (scaffold moved verbatim from the template heredoc) + realm-scope `<root>/wiki/CLAUDE.md` write (`@index.md` only); both idempotent, atomic-write via the `registry.go:200-225` `writeFileAtomic` idiom
+- [ ] `atomic/internal/wiki/wiki.go:81` `Scan()` — call the realm-scope writer as part of existing wiki-root scaffolding
+- [ ] `atomic/cmd/atomic/main.go` `buildWikiCmd()` (~line 626) — new `init` subcommand (`--scope`, `--root` flags); `atomic/internal/wiki/action.go` `WikiAction` — dispatch wiring
+- [ ] `atomic/internal/cliusage/cliusage.go` (~line 320-360, wiki command block) — register `wiki init` path + flags + description
+- [ ] `templates/commands/refresh-wiki.md` (R3, ~line 82-119) + `skills/atomic-wiki/references/repo.md` Step 8c — replace heredoc with `atomic wiki init --scope repo` call
+- [ ] `templates/commands/atomic-setup.md` — Step 1 audit (~line 74), Step 2 propose (~line 106), Step 4 write (~line 180-208): stop referencing `.claude/project/signals-steering.md`; audit `docs/wiki/CLAUDE.md` existence, call `atomic wiki init --scope repo` to create
+- [ ] `claude.local.md` (this repo, ~line 200) + `skills/atomic-wiki/references/repo.md` (lines 73, 203) — stale `signals-steering.md` mentions
+- [ ] `make render` + `make bundle` for every touched artifact under `agents/ commands/ skills/` or `CLAUDE.md`
+
+
 ### Workstream A (Cobra)
 
 
@@ -301,7 +336,7 @@ Every path/name change must ripple through the surfaces below or it ships an inv
 ## Per-workstream spec set
 
 
-Six specs, derived from this design, in sequence **B → C → D → E → F → A** (E depends on D's skill-router + renamed agent; F on C's config v2; A last for a stable verb set). Each is its own `/subagent-implementation` loop + PR. This design doc is the shared contract they all cite. All six are written: `docs/spec/wiki-storage-relocation.md`, `atomic-migrate-framework.md`, `wiki-unify-commands.md`, `wiki-drift-scope.md`, `agent-model-overrides.md`, `cli-cobra.md`.
+Seven specs, derived from this design, in sequence **B → C → D → E → F → G → A** (E depends on D's skill-router + renamed agent; F on C's config v2; G on B + D; A last for a stable verb set). Each is its own `/subagent-implementation` loop + PR. This design doc is the shared contract they all cite. All seven are written: `docs/spec/wiki-storage-relocation.md`, `atomic-migrate-framework.md`, `wiki-unify-commands.md`, `wiki-drift-scope.md`, `agent-model-overrides.md`, `wiki-deterministic-setup.md`, `cli-cobra.md`.
 
 
 ## Resolved this session
@@ -325,3 +360,16 @@ Six specs, derived from this design, in sequence **B → C → D → E → F →
 
 
 - **Cobra ↔ cliusage** (row 4): derive from the Cobra tree vs duplicate — finalized in the A spec (`cli-cobra.md`).
+
+
+## Change log
+
+
+### 2026-07-02 — Deterministic scaffold verb (workstream G)
+
+
+**What changed:** Added workstream G: a new `atomic wiki init --scope repo|realm` CLI verb replaces the LLM-executed bash heredoc that currently writes `docs/wiki/CLAUDE.md` (repo scope only), and extends the same mechanism to write a new `<root>/wiki/CLAUDE.md` (`@index.md` only) for realm scope, which previously had no self-referencing memory file at all. `atomic-setup.md`'s stale `.claude/project/signals-steering.md` audit/create logic (a pre-workstream-B leftover) is folded into the same fix.
+
+**Why:** Post-merge audit of `next` found (1) fixed-content file creation implemented as an agent-executed heredoc instead of deterministic code, contradicting this repo's own "prefer code over the model for deterministic transforms" principle, and (2) realm-scope wiki repos had no `CLAUDE.md`, unlike repo scope's member-root `@docs/wiki/index.md` — an asymmetry with no design rationale, just an omission.
+
+**Superseded:** The `docs/wiki/` layout table's `docs/wiki/CLAUDE.md` "Written by" cell (`user / setup`) — now `atomic wiki init --scope repo`. Row 1 of the sub-decisions table ("Steering file name") is unaffected — the file name/location/loading-mechanism decision stands; only *how it gets created* changed.
