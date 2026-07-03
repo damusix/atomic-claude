@@ -335,6 +335,12 @@ var commands = []Command{
 		Description: "Linkify path tokens in wiki artifacts in-place",
 	},
 	{
+		Path:        []string{"wiki", "init"},
+		Args:        "",
+		Flags:       []string{"--scope", "--root"},
+		Description: "Write the fixed-content CLAUDE.md scaffold for --scope repo|realm (idempotent)",
+	},
+	{
 		Path:        []string{"wiki", "bucket", "add"},
 		Args:        "<name>",
 		Flags:       []string{"--root"},

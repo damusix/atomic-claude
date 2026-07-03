@@ -659,6 +659,10 @@ func buildWikiCmd() *cobra.Command {
 	addSub("linkify", "Linkify path tokens in wiki artifacts in-place", "", func(c *cobra.Command) {
 		c.Flags().String("root", "", "realm root directory (default: cwd)")
 	})
+	addSub("init", "Write the fixed-content CLAUDE.md scaffold for --scope repo|realm (idempotent)", "", func(c *cobra.Command) {
+		c.Flags().String("scope", "", "scaffold scope: repo or realm (required)")
+		c.Flags().String("root", "", "root directory (default: cwd)")
+	})
 
 	// 3-level nesting: wiki bucket → add|list|diff|promote.
 	// The bucket intermediate command routes through dispatch as well so that
