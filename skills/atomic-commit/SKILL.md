@@ -12,6 +12,7 @@ description: >
 - "write a commit", "commit message", "generate commit"
 - Staging changes for commit
 - Ship verbs delegating message format
+- Read directly by subagents briefed to create a commit (per `CLAUDE.md` Commits & PRs — subagents can't auto-fire skills)
 
 </trigger>
 
@@ -42,7 +43,7 @@ Write commit messages terse and exact. Conventional Commits. No fluff. Why over 
 
 - "This commit does X", "I", "we", "now", "currently" — the diff says what
 - "As requested by..." — use `Co-authored-by:` trailer instead
-- "Generated with Claude Code" or any AI attribution
+- "Generated with Claude Code" or any AI attribution — including `Co-Authored-By: Claude` trailers and session-link trailers, even when a harness suggests them
 - Emoji (unless project convention requires)
 - Restating the file name when scope already says it
 
