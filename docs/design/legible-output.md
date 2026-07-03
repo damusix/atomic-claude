@@ -41,42 +41,52 @@ Candidate catalog of 20 TUI patterns, folded to 10 routes:
 ## The replacement section (lands verbatim)
 
 
-`# Structure over prose` in `output-styles/atomic.md` is replaced by the section below — routing table, three caps, one composition example. The example replaces the old 20-line cache-warming example and demonstrates composing four formats in one reply, which is the one skill the routing table alone does not teach. The trailing TUI/Mermaid boundary line is kept verbatim.
+`# Structure over prose` in `output-styles/atomic.md` is replaced by the section below — routing table with a micro-example under every route, all inside one fence (per-route fences would spend ~20 lines on fence delimiters alone). User feedback on the first landing: a bare routing table is too dry — the old section's worked example was what made it land, so every route now shows its shape. The standalone composition example is dropped; the per-route examples carry the calibration, and the intro line covers composition. The trailing TUI/Mermaid boundary line is kept verbatim.
 
 ~~~markdown
 # Format routing
 
-Prose when ≤2 entities. Otherwise route by shape; compose several per reply, labeled summary bullets first.
+Prose when ≤2 entities. Otherwise route by shape; compose several per reply, labeled summary bullets first. Fence whitespace-aligned text (markdown collapses spaces). One symbol vocabulary per reply. No box-drawing cards.
 
 ```
-hierarchy   -> tree / indented outline
-comparison  -> table, ≤5 cols (decision, matrix)
-causality   -> arrow chain; non-obvious hop gets a (reason)
-process     -> numbered steps
-change      -> diff fence / Before-After
-lifecycle   -> state machine
-data flow   -> pipeline; swimlane at 3+ actors
-records     -> YAML block
+hierarchy -> tree / indented outline
+    User
+     └── Order
+          └── LineItem
+
+comparison -> table, ≤5 cols (decision, matrix)
+    | Choice       | Wins         | Loses            |
+    | Surrogate ID | narrow joins | weaker semantics |
+
+causality -> arrow chain; non-obvious hop gets a (reason)
+    composite key -> copied into children (parent PK repeats) -> wider joins
+
+process -> numbered steps with -> effects
+    1. stock missing -> backorder
+    2. all valid     -> create order
+
+change -> diff fence / Before-After
+    - Order(id, user_id)
+    + Order(user_id, order_no)
+
+lifecycle -> state machine
+    Draft -> Submitted -> Paid -> Fulfilled
+              └-> Cancelled
+
+data flow -> pipeline; swimlane at 3+ actors
+    CSV -> parser -> rows -> validator -> database
+
+records -> YAML block
+    user:
+      id: 42
+      status: active
+
 status rows -> aligned columns
-data model  -> crow's-foot (User ──< Order)
-```
+    web        running   85 MB
+    postgres   healthy   1.2 GB
 
-Fence whitespace-aligned text (markdown collapses spaces). One symbol vocabulary per reply. No box-drawing cards.
-
-```
-Summary
-  Composite keys preserve scoped identity; surrogate keys narrow joins.
-
-User
- └── Order
-      └── LineItem
-
-composite key -> copied into children (parent PK repeats) -> wider indexes -> verbose joins
-
-| Choice        | Wins               | Loses             |
-|---------------|--------------------|-------------------|
-| Surrogate ID  | narrow joins       | weaker semantics  |
-| Composite key | stronger hierarchy | wider propagation |
+data model -> crow's-foot
+    Student ──< Enrollment >── Course
 ```
 
 **TUI replies:** ASCII only. **Files in `docs/`:** Mermaid (`flowchart`, `sequenceDiagram`, `erDiagram`, `stateDiagram-v2`) with a one-line caption above each block.
@@ -89,3 +99,10 @@ composite key -> copied into children (parent PK repeats) -> wider indexes -> ve
 - Any rendered surface (HTML page, artifact, side panel) — explicitly rejected by the user.
 - New skills, commands, or agents; skill count stays nine everywhere.
 - File-contents voice (two-voices boundary unchanged); subagent response rules unchanged.
+
+
+## Change log
+
+
+- 2026-07-03 — initial design (re-scope of issue #113 after PR #117 was rejected).
+- 2026-07-03 — **Superseded** the pinned block: user feedback on the first landing ("its missing examples") — routes-only table too dry. Every route now carries a micro-example inside one shared fence; the standalone composition example is dropped. Section grows 36 → ~46 lines; the example budget was the wrong place to compress.
