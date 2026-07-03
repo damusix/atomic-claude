@@ -630,7 +630,7 @@ func buildWikiCmd() *cobra.Command {
 	dispatch := func(args []string) { runWiki(args) }
 	parent := &cobra.Command{
 		Use:   "wiki",
-		Short: "Wiki management (scan|stale|linkify|bucket)",
+		Short: "Wiki management (scan|stale|linkify|bucket|init)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
