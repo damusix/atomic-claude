@@ -113,6 +113,12 @@ var commands = []Command{
 		Description: "Integrity check",
 	},
 	{
+		Path:        []string{"where"},
+		Args:        "",
+		Flags:       []string{"--json"},
+		Description: "Report cwd's wiki/realm/code-index position",
+	},
+	{
 		Path:        []string{"hooks", "session-start"},
 		Args:        "",
 		Flags:       []string{"--format"},

@@ -35,6 +35,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/updatedoctor"
 	"github.com/damusix/atomic-claude/atomic/internal/validate"
 	"github.com/damusix/atomic-claude/atomic/internal/version"
+	"github.com/damusix/atomic-claude/atomic/internal/where"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 	"github.com/spf13/cobra"
 )
@@ -111,7 +112,7 @@ func main() {
 	}
 }
 
-// buildRootCmd constructs the Cobra root command with all 17 top-level verb
+// buildRootCmd constructs the Cobra root command with all 18 top-level verb
 // stubs. Each stub delegates to the existing runXxx handler with the post-verb
 // args, preserving all existing dispatch behavior unchanged. The nested
 // sub-switches inside handlers (code, wiki, signals, etc.) stay intact and are
@@ -181,7 +182,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	rootCmd.PersistentFlags().Bool("no-update-check", false, "suppress background update check")
 	rootCmd.PersistentFlags().BoolP("version", "v", false, "print version and exit")
 
-	// --- 17 top-level verb stubs -----------------------------------------
+	// --- 18 top-level verb stubs -----------------------------------------
 
 	rootCmd.AddCommand(buildSignalsCmd(repoOverride))
 
@@ -192,6 +193,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	rootCmd.AddCommand(buildClaudeCmd())
 
 	rootCmd.AddCommand(buildDoctorCmd())
+
+	rootCmd.AddCommand(buildWhereCmd())
 
 	rootCmd.AddCommand(buildDockerCmd())
 
@@ -778,6 +781,22 @@ func buildDoctorCmd() *cobra.Command {
 	return c
 }
 
+// buildWhereCmd returns the "where" top-level command with flag metadata.
+func buildWhereCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:                "where",
+		Short:              "Report cwd's wiki/realm/code-index position",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			runWhere(args)
+			return nil
+		},
+	}
+	c.Flags().Bool("json", false, "emit machine-readable JSON output")
+	return c
+}
+
 // buildUpdateCmd returns the "update" top-level command with flag metadata.
 func buildUpdateCmd() *cobra.Command {
 	c := &cobra.Command{
@@ -968,6 +987,54 @@ func doctorProjectName() string {
 		return filepath.Base(cwd)
 	}
 	return "unknown"
+}
+
+// runWhere is the os.Exit-aware entry point for the "where" top-level verb.
+// It reports cwd's position across three independent axes — repo-scope wiki
+// presence, realm-scope position, and code-index scope — as a descriptive
+// report (no PASS/WARN/FAIL severity).
+func runWhere(args []string) {
+	fs := flag.NewFlagSet("where", flag.ContinueOnError)
+	cliutil.SetUsage(fs, "atomic where [--json]")
+	var jsonOut bool
+	fs.BoolVar(&jsonOut, "json", false, "emit machine-readable JSON output")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			os.Exit(0)
+		}
+		os.Exit(2)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic where: get cwd: %v\n", err)
+		os.Exit(2)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic where: get home dir: %v\n", err)
+		os.Exit(2)
+	}
+	claudeMDPath := filepath.Join(home, ".claude", "CLAUDE.md")
+
+	report, err := where.Resolve(cwd, claudeMDPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic where: %v\n", err)
+		os.Exit(2)
+	}
+
+	if jsonOut {
+		data, jerr := where.FormatJSON(report)
+		if jerr != nil {
+			fmt.Fprintf(os.Stderr, "atomic where: marshal json: %v\n", jerr)
+			os.Exit(2)
+		}
+		fmt.Println(data)
+		os.Exit(0)
+	}
+
+	fmt.Print(where.FormatHuman(report))
+	os.Exit(0)
 }
 
 func runUpdate(args []string) {
