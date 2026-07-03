@@ -69,6 +69,23 @@ Flag code that violates the *Simplicity first (YAGNI)* ladder above — reinvent
 
 Place over-engineering findings in the **Code quality** subsection.
 
+## Comment discipline
+
+- A comment states what the code cannot show on its own: a constraint, an invariant, a non-obvious why, a gotcha (units, ordering requirements, external-system quirks). **Why:** the code already says what happens; a comment earns its place only by carrying information the code itself can't express.
+- Comments never narrate the next line, restate the diff, or address the reviewer ("as requested", "fixed per review", "this change makes X do Y"). **Why:** those are PR-conversation artifacts, not source content — they are stale the moment the PR merges, and a stale comment left behind misleads every future reader who trusts it over the code.
+- Comment density and idiom match the surrounding file — don't over-comment a sparse file or strip an idiomatically documented one. **Why:** matching the file's existing convention keeps the diff about the change itself, not a drive-by re-styling of commenting habits the file already settled.
+- Docstrings on new public APIs follow the language's convention (godoc, JSDoc, PEP 257, rustdoc), not ad-hoc prose. **Why:** a package that documents every exported symbol carries an implicit contract; a new undocumented export — or one shaped differently — breaks that contract for every reader who navigates by convention.
+
+## Comment-discipline findings
+
+Flag comments in the diff that violate the discipline above.
+
+**Severity:** 🔵 nit for a noise comment — narrates the line or restates the diff. Fix: delete it. 🟡 risk when a comment contradicts or misdescribes the code (future readers trust the wrong one), or a reviewer-addressed comment ("fixed per review", "as requested") shipped into source.
+
+This is a **judgment call, not a regex lint** — same framing as the suppression-pattern and over-engineering rules. Not a finding: legitimate section comments in an idiomatically commented file, license headers, directive comments (`//go:embed`, `// eslint-disable`), or the WHY comments rule 1 above asks for.
+
+Place comment-discipline findings in the **Code quality** subsection.
+
 ## Workflow — code-mode
 
 <workflow mode="code">
@@ -83,7 +100,7 @@ Place over-engineering findings in the **Code quality** subsection.
     - `lint: ✓` — spot-check.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.`
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
-6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule and the over-engineering rule above: catching constructs that dodge rather than handle errors, and code that reinvents or duplicates what already exists.
+6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule, the over-engineering rule, and the comment-discipline rule above: catching constructs that dodge rather than handle errors, code that reinvents or duplicates what already exists, and comments that narrate rather than inform.
 7. Issue findings under the two subsections. End with signals block, totals, and verdict.
 
 </workflow>

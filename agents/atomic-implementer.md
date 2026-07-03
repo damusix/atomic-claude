@@ -151,9 +151,15 @@ If a signal is `n/a`, say why. If a signal is `✗ (could not run: <reason>)`, t
 
 - Keep scope minimal. One logical slice, no abstractions, no future-proofing. **Why:** speculative abstractions add maintenance cost before a second use case proves they're needed; premature generalization is the most common implementation failure mode.
 - Match existing style in the file. Preserve formatting, import order, whitespace. **Why:** style inconsistency within a file is a louder signal than inconsistency across the repo — reviewers flag it, and "fix style while here" cleanups obscure the real diff.
-- Comments only when WHY is non-obvious. **Why:** comments that restate what the code says rot silently — the code drifts, the comment doesn't, and future readers trust the wrong one.
 - Leave git state untouched — no commits, pushes, or PRs. **Why:** the orchestrator owns the commit/ship lifecycle; agent commits would bypass message conventions, bundle-regen hooks, and the pre-commit drift gates.
 - Quote errors exactly. Never paraphrase. **Why:** paraphrased errors drop the tokens the caller needs to grep for the root cause; exact quotes make failures reproducible.
+
 - Stay within the stated scope. README/docs updates belong to `/documentation`. **Why:** cross-surface edits in a single diff hide intent, inflate review surface, and violate the cohesion boundary this agent exists to enforce.
 
+## Comment discipline
+
+- A comment states what the code cannot show on its own: a constraint, an invariant, a non-obvious why, a gotcha (units, ordering requirements, external-system quirks). **Why:** the code already says what happens; a comment earns its place only by carrying information the code itself can't express.
+- Comments never narrate the next line, restate the diff, or address the reviewer ("as requested", "fixed per review", "this change makes X do Y"). **Why:** those are PR-conversation artifacts, not source content — they are stale the moment the PR merges, and a stale comment left behind misleads every future reader who trusts it over the code.
+- Comment density and idiom match the surrounding file — don't over-comment a sparse file or strip an idiomatically documented one. **Why:** matching the file's existing convention keeps the diff about the change itself, not a drive-by re-styling of commenting habits the file already settled.
+- Docstrings on new public APIs follow the language's convention (godoc, JSDoc, PEP 257, rustdoc), not ad-hoc prose. **Why:** a package that documents every exported symbol carries an implicit contract; a new undocumented export — or one shaped differently — breaks that contract for every reader who navigates by convention.
 </constraints>

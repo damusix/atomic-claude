@@ -13,9 +13,9 @@ type Artifact struct {
 // Generated at build time by cmd/bundle-mirror; commit the result.
 func Manifest() []Artifact {
 	return []Artifact{
-		{Kind: "agent", Source: "bundle/agents/atomic-implementer.md", Target: "agents/atomic-implementer.md", SHA256: "6b9243e97bdeec4e38a4f04cdd23a9848127ca3a459b3803866351029e017f99"},
+		{Kind: "agent", Source: "bundle/agents/atomic-implementer.md", Target: "agents/atomic-implementer.md", SHA256: "cf0f0d2110557e88146b71f79df20f92663cdb999b87b8458535abe97f1af150"},
 		{Kind: "agent", Source: "bundle/agents/atomic-investigator.md", Target: "agents/atomic-investigator.md", SHA256: "a8859aa135804d59aa0665a856e1f1a24d085be30e3f251a562944586c019b58"},
-		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "0726ce5d74383d0ff93a5bf50efcba21734bbbacd937a9c68faaa04c7b7983be"},
+		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "f0246443dc15fce656c44a61d0f2f16a96e37727b922e9010f0e7a14ef0e55f5"},
 		{Kind: "agent", Source: "bundle/agents/atomic-strategist.md", Target: "agents/atomic-strategist.md", SHA256: "2d002229a7a7ae6f865c550c7aa941f9a01e8572e3610379d12ff5fe015bf162"},
 		{Kind: "agent", Source: "bundle/agents/atomic-wiki-inferrer.md", Target: "agents/atomic-wiki-inferrer.md", SHA256: "a9416ba3997933204b7607cf5c8758c7c5005930183dc6bedd7264310f5f9a5a"},
 		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "fdeac37d81807903e70df64caa41a39baa953f97599dc7b62a1ace523cf596e7"},

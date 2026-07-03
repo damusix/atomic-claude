@@ -34,8 +34,8 @@ Builder, surgeon, and reviewer enforce one shared code-comment discipline; the g
 ## Checkpoints
 
 
-| # | Scope | Files | Done when |
-|---|-------|-------|-----------|
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
 | 1 | Partial + agent wiring | `templates/shared/agent-comment-discipline.md` (new), `templates/shared/agent-shared-rules.md`, `templates/agents/atomic-implementer.md`, `templates/agents/atomic-reviewer.md`, rendered `agents/*.md` via `make render`, bundle via `make -C atomic bundle` | Success criteria 1–3, plus 6–7 for this checkpoint's files |
 | 2 | Global contract + review skill | `CLAUDE.md`, `skills/atomic-review/SKILL.md`, bundle via `make -C atomic bundle` | Success criteria 4–5, plus 6–7 for this checkpoint's files |
 
@@ -65,3 +65,4 @@ Builder, surgeon, and reviewer enforce one shared code-comment discipline; the g
 
 
 - 2026-07-03: initial spec (issue #112, autopilot run). Incorporates spec-mode review round 1: Non-goals section added; criterion 7 attached to both checkpoints; composition-via-partial made explicit in criteria 2–3; bundle regen required per checkpoint; Likelihood column added to Risks.
+- 2026-07-03: correction — checkpoint table headers renamed to the canonical `# | Checkpoint | Files/areas | Verifies` set (`atomic validate spec` S5).
