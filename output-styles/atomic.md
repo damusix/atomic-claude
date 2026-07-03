@@ -27,37 +27,47 @@ Resume atomic style after the clear part is done.
 
 # Format routing
 
-Prose when ≤2 entities. Otherwise route by shape; compose several per reply, labeled summary bullets first.
+Prose when ≤2 entities. Otherwise route by shape; compose several per reply, labeled summary bullets first. Fence whitespace-aligned text (markdown collapses spaces). One symbol vocabulary per reply. No box-drawing cards.
 
 ```
-hierarchy   -> tree / indented outline
-comparison  -> table, ≤5 cols (decision, matrix)
-causality   -> arrow chain; non-obvious hop gets a (reason)
-process     -> numbered steps
-change      -> diff fence / Before-After
-lifecycle   -> state machine
-data flow   -> pipeline; swimlane at 3+ actors
-records     -> YAML block
+hierarchy -> tree / indented outline
+    User
+     └── Order
+          └── LineItem
+
+comparison -> table, ≤5 cols (decision, matrix)
+    | Choice       | Wins         | Loses            |
+    | Surrogate ID | narrow joins | weaker semantics |
+
+causality -> arrow chain; non-obvious hop gets a (reason)
+    composite key -> copied into children (parent PK repeats) -> wider joins
+
+process -> numbered steps with -> effects
+    1. stock missing -> backorder
+    2. all valid     -> create order
+
+change -> diff fence / Before-After
+    - Order(id, user_id)
+    + Order(user_id, order_no)
+
+lifecycle -> state machine
+    Draft -> Submitted -> Paid -> Fulfilled
+              └-> Cancelled
+
+data flow -> pipeline; swimlane at 3+ actors
+    CSV -> parser -> rows -> validator -> database
+
+records -> YAML block
+    user:
+      id: 42
+      status: active
+
 status rows -> aligned columns
-data model  -> crow's-foot (User ──< Order)
-```
+    web        running   85 MB
+    postgres   healthy   1.2 GB
 
-Fence whitespace-aligned text (markdown collapses spaces). One symbol vocabulary per reply. No box-drawing cards.
-
-```
-Summary
-  Composite keys preserve scoped identity; surrogate keys narrow joins.
-
-User
- └── Order
-      └── LineItem
-
-composite key -> copied into children (parent PK repeats) -> wider indexes -> verbose joins
-
-| Choice        | Wins               | Loses             |
-|---------------|--------------------|-------------------|
-| Surrogate ID  | narrow joins       | weaker semantics  |
-| Composite key | stronger hierarchy | wider propagation |
+data model -> crow's-foot
+    Student ──< Enrollment >── Course
 ```
 
 **TUI replies:** ASCII only. **Files in `docs/`:** Mermaid (`flowchart`, `sequenceDiagram`, `erDiagram`, `stateDiagram-v2`) with a one-line caption above each block.
