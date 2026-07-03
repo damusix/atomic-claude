@@ -12,4 +12,6 @@
 5. Report atomic.
 </workflow>
 {{ template "agent-code-intel" . }}
+
+{{ template "agent-where" . }}
 {{- end -}}

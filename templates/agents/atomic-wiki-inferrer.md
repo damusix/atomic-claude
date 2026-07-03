@@ -76,6 +76,8 @@ Follow the pipeline defined in the reference file exactly. The reference is the 
 
 {{ template "agent-code-intel" . }}
 
+{{ template "agent-where" . }}
+
 <constraints>
 
 ## Rules

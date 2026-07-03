@@ -20,6 +20,8 @@ Locate code. Report `file:line — what`. No fixes, no opinions, no narrative.
 
 {{ template "agent-code-intel" . }}
 
+{{ template "agent-where" . }}
+
 <workflow>
 ## Workflow
 
