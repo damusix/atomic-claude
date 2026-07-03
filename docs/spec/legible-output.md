@@ -50,3 +50,4 @@ Add a section documenting the format-routing vocabulary for human readers, in th
 
 
 - 2026-07-03 — initial spec for the re-scoped feature. Supersedes the closed PR #117 approach (presentation ladder + `atomic-legible` skill), which the user rejected; that branch was deleted, so this spec body starts clean.
+- 2026-07-03 — **Correction:** success criterion 5 now exempts this spec's own change log from the `atomic-legible` string scan — the log legitimately names the rejected approach, and the original wording made the criterion self-failing.
