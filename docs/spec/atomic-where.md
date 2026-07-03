@@ -116,3 +116,21 @@ one `atomic where` verb — see
 ## Change log
 
 <!-- empty on creation; first entry on first post-approval amendment -->
+
+## Implementation log
+
+### shipped — 2026-07-03
+
+Built via `/autopilot` on branch `atomic-where` (worktree). Commits (chronological):
+
+- `1327b47` — CP1: `internal/where` package (repo-scope git-boundary walk, realm-scope root/member/orphaned/none, code-index scope via unmodified `codeintel/realm.Resolve`) + `atomic where [--json]` CLI verb, Cobra/cliusage/golden-test wiring
+- `7cd200c` — CP2: session-start hook orientation nudge, interesting-only suppression
+- `f30bba5` — CP3: `agent-where` shared partial (composed into the same agents as `agent-code-intel`), `/atomic-help` topic-row + Stage 4 tour wiring, render/bundle regen
+
+**Out-of-scope work performed during this build:** none. CP2's reviewer flagged a coverage gap (`whereNudgeLine`'s `RealmRoot`/`RealmOrphaned` branches untested) across two follow-up rounds within the same checkpoint — both closed before commit, no deferral.
+
+**Unforeseens:** none — spec citations (verified twice during planning) held up through implementation with zero corrections needed.
+
+**Deferred items still open:** none. `FOLLOWUPS.md` has zero open entries (autopilot mode — every reviewer finding addressed in-iteration).
+
+**Pre-existing gaps surfaced, not fixed (out of scope):** `atomic signals stale` exits 2 for this repo's own repo-scope `docs/wiki/` layout (already filed as project followup `signals-stale-repo-scope-gap`). `atomic validate spec` reports 2 pre-existing FAILs on unrelated specs (`atomic-migrate-framework.md`, `cli-cobra.md`) that predate this branch's base SHA — `docs/spec/atomic-where.md` itself validates clean.
