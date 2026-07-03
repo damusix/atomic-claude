@@ -70,7 +70,7 @@ Source paths in this domain: <list from deterministic tree>
 </source_paths>
 
 <steering>
-<include steering directives here if signals-steering.md was provided by the caller>
+<include steering directives here if docs/wiki/CLAUDE.md was provided by the caller>
 </steering>
 
 <instructions>
@@ -200,7 +200,7 @@ Then write the router body (see **Router shape** below) starting with `# Project
 
 ### Step 8 — Ensure @-ref is wired
 
-Only `docs/wiki/index.md` is `@-ref`'d — it is the compact router that every session needs. `docs/wiki/scan.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. `signals-steering.md` is also NOT `@-ref`'d.
+Only `docs/wiki/index.md` is `@-ref`'d — it is the compact router that every session needs. `docs/wiki/scan.md` is NOT `@-ref`'d — it can be thousands of lines on large repos and would blow up context. `docs/wiki/CLAUDE.md` (steering) is also NOT `@-ref`'d — it lazy-loads as nested memory whenever Claude reads a file under `docs/wiki/`.
 
 Check, in order, for `@docs/wiki/index.md` in any of:
 

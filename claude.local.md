@@ -197,7 +197,7 @@ Zero `MISSING:` lines = pass. Any output = blocker.
 ## Signals `@-ref` must stay wired (in this repo: `claude.local.md`)
 
 
-Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. The inferrer reads it on demand; sessions do not need it. `signals-steering.md` is also NOT `@-ref`'d — the skill reads it at dispatch time and passes it to the inferrer.
+Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. The inferrer reads it on demand; sessions do not need it. `docs/wiki/CLAUDE.md` (steering) is also NOT `@-ref`'d — it lazy-loads as nested memory whenever Claude reads a file under `docs/wiki/`, which is exactly when the inferrer operates.
 
 
 **In this repo specifically**, the ref lives in `claude.local.md` (this file) — not in `CLAUDE.md`. Reason: `CLAUDE.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for the project-scoped `@`-ref.
