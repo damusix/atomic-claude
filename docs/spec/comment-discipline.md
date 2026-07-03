@@ -61,6 +61,20 @@ Builder, surgeon, and reviewer enforce one shared code-comment discipline; the g
 | Reviewer over-fires on legitimate comments | Medium | Explicit not-a-finding list + judgment-call framing, same as suppression-pattern section |
 
 
+## Implementation log
+
+
+### v1 — 2026-07-03
+
+
+Built in a worktree (`comment-discipline`, cut from `next`) across 2 checkpoints of the autopilot subagent loop, each builder→reviewer with findings folded in-iteration.
+
+- CP1 (`0089295`) — `agent-comment-discipline` partial (four rules, declarative voice, per-rule WHY) composed into implementer and reviewer templates; superseded one-line comment bullet removed from `agent-shared-rules`; reviewer gained the Comment-discipline findings section + workflow step 6 mention. Review round 1: 2🟡 (severity-tier contradiction on reviewer-addressed comments; partial composed mid-list splitting the Rules bullets) — fixed via surgical pass, round 2 PASS.
+- CP2 (`6681343`) — CLAUDE.md Principles bullet (distilled, with WHY; resolves the `atomic-prose` dangling pointer) + `atomic-review` skill Comment noise section. Review round 1: 1🔴 (nested backticks broke an example's code span) — fixed, round 2 PASS.
+
+**Out-of-scope work:** none. **Unforeseens:** `atomic validate spec` S5 required the canonical checkpoint-table columns (corrected, see change log); `atomic code index` failed in the fresh worktree (FK constraint) so the run degraded to sg/grep. **Deferred items still open:** none — every reviewer finding was folded in-iteration.
+
+
 ## Change log
 
 
