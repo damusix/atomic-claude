@@ -96,3 +96,4 @@ After the template edit run `make render` from the repo root; the rendered `comm
 
 - 2026-07-03 — initial spec (autopilot, issue #113).
 - 2026-07-03 — correct: Checkpoints table reshaped to the S5 validator column contract (`Files/areas`, trailing `Verifies`); no behavioral change.
+- 2026-07-03 — implemented: CP1 `010f0bc` (skill + ladder, +4 net lines to the style), CP2 `d45ff92` (discovery surfaces). Both reviewer passes clean (0 findings). Verified: full `go test` green, render + bundle parity clean, `atomic validate` artifacts/bundle 0 FAIL (worktree-built binary), MISSING-scan zero. Success criteria 1–8 met.
