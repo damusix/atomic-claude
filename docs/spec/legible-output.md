@@ -51,3 +51,4 @@ Add a section documenting the format-routing vocabulary for human readers, in th
 
 - 2026-07-03 — initial spec for the re-scoped feature. Supersedes the closed PR #117 approach (presentation ladder + `atomic-legible` skill), which the user rejected; that branch was deleted, so this spec body starts clean.
 - 2026-07-03 — **Correction:** success criterion 5 now exempts this spec's own change log from the `atomic-legible` string scan — the log legitimately names the rejected approach, and the original wording made the criterion self-failing.
+- 2026-07-03 — implemented: `719871b` (style section verbatim, net +10 lines exactly at cap; reference doc +22 lines). Reviewer PASS; one 🟡 (missing change-log entry for the criterion-5 correction) fixed in `0e8eb51`. Verified: `go test ./...` exit 0, render + bundle parity clean, `atomic validate` spec/bundle clean for this branch's files. Success criteria 1–6 met.
