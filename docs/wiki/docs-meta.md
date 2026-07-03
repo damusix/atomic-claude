@@ -50,6 +50,8 @@ None. The docs-meta domain is entirely Claude Code artifacts. No Go packages imp
 
 Every `docs/spec/<topic>.md` ends with `## Change log`. New entry per amendment: `### YYYY-MM-DD — <title>` + **What changed** + **Why** + (if behavior changed) **Superseded:** one-line prior contract. The only case where the body mutates without an additive section is a factual correction — prefixed `**Correction:**` in the log.
 
+**Spec required-content rule ([`rules/specs/spec-currency.md`](../../rules/specs/spec-currency.md)):** every spec body also carries `## Change tree` (indented file tree, one line per node, `A`/`M`/`D` markers, sketch-level symbol notes only) and `## Flows` (numbered actor → step sequences per behavior, or `None — <reason>` when the change ships no runtime behavior). Applies forward-only — governs specs drafted after the rule shipped; a pre-existing spec is not backfilled by an unrelated line-level amendment. Format defined in [`templates/commands/atomic-plan.md`](../../templates/commands/atomic-plan.md)'s Spec structure block (indented tree, `A`/`M`/`D` marker syntax, worked example), enforced by its spec-loop criteria and spec-mode brief, gated by `atomic-reviewer`'s spec-mode Required-sections pass (step 6 of 10).
+
 **Artifact additions checklist (from [`claude.local.md`](../../claude.local.md)):**
 
 Adding a new artifact (command/agent/skill/output-style/rule) requires updating: (1) the artifact file, (2) [`CLAUDE.md`](../../CLAUDE.md), (3) [`CLAUDE.md`](../../CLAUDE.md), (4) [`README.md`](../../README.md), (5) `docs/spec/<topic>.md` if non-trivial, (6) cross-references in other artifacts, (7) bundle inclusion if new artifact kind, (8) signals refresh, (9) [`claude.local.md`](../../claude.local.md) if conventions change.
