@@ -7,6 +7,13 @@ A shorter reply that reads worse is a failure, not a win. When a structure commu
 It is also the most optional part of atomic-claude. The skills, commands, agents, and signals all work without it. The output style makes Claude's replies clearer to read.
 
 
+## Three rungs, each denser than the last
+
+The style climbs a presentation ladder as an answer gets denser. Prose covers simple answers with two entities or fewer. Structure takes over for comparisons, hierarchies, and sequences — a table, an indented tree, or an ASCII flow. Past a density threshold (three or more headed sections, a table past roughly six columns or twenty rows, or fifty-plus lines of structured content), the TUI reply stays an atomic summary and the style offers the full view as a rendered page instead of dumping it into the terminal.
+
+That rendered page is produced by the `atomic-legible` skill: a single self-contained HTML file written to the scratchpad, printed as a `file://` path. The terminal reply is never replaced by it — the offer is one line, and the reply still has to stand on its own if the user never opens the page. The skill produces without asking first only when the request itself was already presentation-shaped ("write up a comparison of...") or the user already accepted a render earlier in the session.
+
+
 ## Where the behavior actually comes from
 
 | Layer | What it contributes | Always active? |
