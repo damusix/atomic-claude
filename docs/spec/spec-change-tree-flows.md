@@ -139,4 +139,8 @@ Two required body sections threaded through the spec template, the
 
 ## Change log
 
-<!-- Empty. First entry on the first amendment after this spec ships. -->
+### 2026-07-03 — Implemented
+
+**What changed:** All checkpoints delivered on branch `feat/spec-change-tree-flows`. CP1 (`a6a2263`): contract threaded through `templates/commands/atomic-plan.md`, `templates/agents/atomic-reviewer.md` (spec-mode step 6, steps renumbered 1-10), `rules/specs/spec-currency.md` (`## Required content`), `docs/reference/workflow.md`; rendered outputs + embedded bundle regenerated. CP2 (`6d77bf9`): `docs/research/design-docs-html.md`. Verified: render + bundle parity gates, `go test ./...`, `go vet`, `atomic validate` (branch-built binary), `/atomic-help` MISSING-scan — all green.
+
+**Why:** Implementation log; issue #114.
