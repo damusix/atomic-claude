@@ -13,10 +13,10 @@ Add a third presentation rung to the atomic output style (prose → structure �
 ## Checkpoints
 
 
-| # | Checkpoint | Files | Mode |
-|---|-----------|-------|------|
-| 1 | Skill + output-style ladder | `skills/atomic-legible/SKILL.md` (new), `output-styles/atomic.md` | feature |
-| 2 | Discovery surfaces | `README.md`, `docs/reference/skills.md`, `docs/reference/output-style.md`, `templates/commands/atomic-help.md` (+ `make render` output `commands/atomic-help.md`) | feature |
+| # | Checkpoint | Files/areas | Mode | Verifies |
+|---|-----------|-------------|------|----------|
+| 1 | Skill + output-style ladder | `skills/atomic-legible/SKILL.md` (new), `output-styles/atomic.md` | feature | Success criteria 1, 2; criterion 4 (bundle regen) |
+| 2 | Discovery surfaces | `README.md`, `docs/reference/skills.md`, `docs/reference/output-style.md`, `templates/commands/atomic-help.md` (+ `make render` output `commands/atomic-help.md`) | feature | Success criteria 3, 6; criterion 4 (render + bundle regen) |
 
 
 Both checkpoints are markdown-artifact work: no runtime code, no tests to write. TDD is skipped with an explicit "skipped because: pure markdown artifact change" note. Regen contract per checkpoint — each regen lands in the same commit as its source change (the pre-commit hook enforces this; run the commands explicitly anyway):
@@ -95,3 +95,4 @@ After the template edit run `make render` from the repo root; the rendered `comm
 
 
 - 2026-07-03 — initial spec (autopilot, issue #113).
+- 2026-07-03 — correct: Checkpoints table reshaped to the S5 validator column contract (`Files/areas`, trailing `Verifies`); no behavioral change.
