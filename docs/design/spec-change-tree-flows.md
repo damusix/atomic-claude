@@ -45,11 +45,11 @@ A. The spec body is already the single contract read by both audiences; the miss
 - `## Change tree` — an indented tree of files, annotated per node with one of three markers and, where meaningful, the symbols touched:
 
     ```
-    atomic/internal/wiki/
-    ├── bucket.go ............ M  (PromoteBucket: new rotate step)
-    ├── bucket_test.go ....... M  (tests for rotation)
-    └── manifest.go .......... A  (new: manifest read/write)
-    docs/reference/wiki-workflow.md  M  (bucket section)
+    src/auth/
+    ├── session.ts ........... M  (SessionStore: rotation support)
+    ├── session.test.ts ...... M  (tests for rotation)
+    └── rotate.ts ............ A  (new: rotation policy)
+    docs/guides/sessions.md .. M  (rotation section)
     ```
 
     Markers: `A` created, `M` modified, `D` removed. Symbol notes in parentheses, sketch-level.
@@ -57,10 +57,10 @@ A. The spec body is already the single contract read by both audiences; the miss
 - `## Flows` — one numbered actor → step sequence per behavior being implemented:
 
     ```
-    Flow: bucket promote
-    1. user runs `atomic wiki bucket promote <name>`
-    2. CLI resolves bucket manifest → rotates baseline → previous
-    3. CLI writes new baseline, prints summary
+    Flow: session rotation
+    1. client presents a token older than the rotation interval
+    2. middleware calls SessionStore.rotate → new token issued, old retired
+    3. response carries the new token; old honored until grace period ends
     ```
 
     A spec whose change ships no runtime behavior (pure docs/config) writes `None — <reason>` under `## Flows` instead of omitting the section; presence is what the reviewer checks.
@@ -71,17 +71,17 @@ A. The spec body is already the single contract read by both audiences; the miss
 - `## Outline` — per file, the named pieces of the work: functions/types for code, sections/blocks for markdown artifacts. A mixed change uses each file's natural unit — code files list symbols, doc files list sections, side by side in one outline. One line per piece, `name — responsibility`; members nest one level under their parent piece (a type's methods, a section's subsections):
 
     ```
-    bucket.go
-      Manifest — bucket manifest state
-        Read   — load baseline/previous from disk
-        Rotate — rotate baseline → previous
-      PromoteBucket — CLI entry for bucket promotion
+    src/auth/session.ts
+      SessionStore — session persistence
+        rotate — swap current token, retire previous
+        prune  — drop retired tokens past grace period
+      isExpired — token age check against policy
 
-    bucket_test.go
-      TestPromoteRotation — proves rotation survives restart
+    src/auth/session.test.ts
+      rotation survives restart — retired token honored during grace
 
-    docs/reference/wiki-workflow.md
-      Bucket promote — usage + rotation semantics
+    docs/guides/sessions.md
+      Token rotation — behavior + grace-period semantics
     ```
 
     Hollow means empty inside: names and responsibilities only — never signatures, bodies, or algorithms. Nesting stops at one level because what happens inside a member is implementation; a second level is over-prescription creep. A change with no nameable pieces writes `None — <reason>`.

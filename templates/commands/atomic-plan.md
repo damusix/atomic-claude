@@ -165,11 +165,11 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
      symbols touched — sketch-level, same altitude as the Checkpoints table's
      Files/areas column, never a signature contract. Example:
 
-     atomic/internal/wiki/
-     ├── bucket.go ............ M  (PromoteBucket: new rotate step)
-     ├── bucket_test.go ....... M  (tests for rotation)
-     └── manifest.go .......... A  (new: manifest read/write)
-     docs/reference/wiki-workflow.md  M  (bucket section) -->
+     src/auth/
+     ├── session.ts ........... M  (SessionStore: rotation support)
+     ├── session.test.ts ...... M  (tests for rotation)
+     └── rotate.ts ............ A  (new: rotation policy)
+     docs/guides/sessions.md .. M  (rotation section) -->
 
 <tree>
 
@@ -187,17 +187,17 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
      every piece here is a promise the diff should keep (or visibly deviate
      from). Example:
 
-     bucket.go
-       Manifest — bucket manifest state
-         Read   — load baseline/previous from disk
-         Rotate — rotate baseline -> previous
-       PromoteBucket — CLI entry for bucket promotion
+     src/auth/session.ts
+       SessionStore — session persistence
+         rotate — swap current token, retire previous
+         prune  — drop retired tokens past grace period
+       isExpired — token age check against policy
 
-     bucket_test.go
-       TestPromoteRotation — proves rotation survives restart
+     src/auth/session.test.ts
+       rotation survives restart — retired token honored during grace
 
-     docs/reference/wiki-workflow.md
-       Bucket promote — usage + rotation semantics -->
+     docs/guides/sessions.md
+       Token rotation — behavior + grace-period semantics -->
 
 <outline, or `None — <reason>`>
 
@@ -208,10 +208,11 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
      `None — <reason>` instead of omitting the section — presence is what
      the reviewer checks, not omission. Example:
 
-     Flow: bucket promote
-     1. user runs `atomic wiki bucket promote <name>`
-     2. CLI resolves bucket manifest -> rotates baseline -> previous
-     3. CLI writes new baseline, prints summary -->
+     Flow: session rotation
+     1. client presents a token older than the rotation interval
+     2. middleware calls SessionStore.rotate -> new token issued, old retired
+     3. response carries the new token; the old one is honored until the
+        grace period ends -->
 
 <flows, or `None — <reason>`>
 
