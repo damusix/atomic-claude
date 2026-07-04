@@ -32,7 +32,8 @@ var embeddedFS embed.FS
 
 // systemGraphFragmentHTML is the htmx fragment for the /graph (Network View) page.
 // The [data-system-graph] container is the seam the shell's onLoad handler keys on
-// to mount Cytoscape; the loading line is removed once the layout settles.
+// to mount cosmos.gl (system-graph.js); the loading line is removed once the
+// simulation settles.
 const systemGraphFragmentHTML = `<div id="system-cy" data-system-graph></div>
 <p class="loading system-graph-loading">Laying out graph…</p>`
 

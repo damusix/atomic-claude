@@ -71,7 +71,7 @@ Calm by default, alive on interaction. The physics primitives were verified agai
 | Fresh mount (no cached positions) | Sim runs to rest (`onSimulationEnd`), then pauses |
 | Cached open, unchanged fingerprint | Seed positions, pause immediately — exact replay, zero motion, zero cool ("seed-and-pause"); seed is applied before the first sim tick |
 | Drag | Bounded local reheat; non-neighborhood stays put (pinning); release → cool → pause |
-| At rest + viewport idle | Zero per-frame work — no readback, no DOM label writes, no render churn |
+| At rest + viewport idle | Zero view-owned per-frame work — no readback, no DOM label writes, no JS-side animation loops. cosmos.gl's internal rAF redraw of the static scene continues: `pause()` stops only the simulation and `stopFrames()` is private (verified against unminified 3.1.0 source, 2026-07-04) — accepted upstream ceiling, candidate upstream feature request |
 | Position saves | On drag release only (as today) — no per-open cache rewrite |
 
 
