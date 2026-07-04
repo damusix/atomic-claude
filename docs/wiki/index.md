@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals, do
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>06a225bf8cfe1b03addd922a2365039fe9e88f1e</scan-sha>
+<scan-sha>9acbd39d38c2f647008245a49bef29261de470c9</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals
@@ -41,9 +41,9 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Go | 147606 | 416 | 60% |
-| Markdown | 52650 | 324 | 21% |
-| TypeScript | 29270 | 159 | 12% |
+| Go | 147621 | 416 | 60% |
+| Markdown | 54054 | 335 | 22% |
+| TypeScript | 29270 | 159 | 11% |
 | JavaScript | 4179 | 5 | 1% |
 | CSS | 2966 | 2 | 1% |
 | JSON | 2491 | 10 | 1% |
@@ -52,7 +52,7 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 | Vue | 782 | 3 | 0% |
 | YAML | 478 | 10 | 0% |
 
-Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed. File-count growth since the last refresh (Go 413→416, Markdown 313→324) spans several merged commits, not only this branch: new files include [`docs/spec/challenge-swarm.md`](../../docs/spec/challenge-swarm.md), [`commands/challenge-swarm.md`](../../commands/challenge-swarm.md), [`templates/commands/challenge-swarm.md`](../../templates/commands/challenge-swarm.md) (this branch), plus [`docs/design/comment-discipline.md`](../../docs/design/comment-discipline.md), [`docs/spec/comment-discipline.md`](../../docs/spec/comment-discipline.md), and [`templates/shared/agent-comment-discipline.md`](../../templates/shared/agent-comment-discipline.md) from an earlier merged commit. Markdown LOC also grew from [`docs/design/spec-change-tree-flows.md`](../../docs/design/spec-change-tree-flows.md) and [`docs/spec/spec-change-tree-flows.md`](../../docs/spec/spec-change-tree-flows.md) expanding in place (also an earlier commit).
+Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed. Go LOC grew by 15 lines from the `atomic wiki stamp` public-subcommand registration ([`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go), [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go), [`atomic/cmd/atomic/main_test.go`](../../atomic/cmd/atomic/main_test.go), [`atomic/internal/wiki/action.go`](../../atomic/internal/wiki/action.go)). Markdown file-count growth (324→335) is mixed provenance: [`docs/design/cosmos-system-graph.md`](../../docs/design/cosmos-system-graph.md) and [`docs/spec/cosmos-system-graph.md`](../../docs/spec/cosmos-system-graph.md) are committed (an earlier commit not yet reflected by the prior scan); [`docs/design/serve-live-reload.md`](../design/serve-live-reload.md), [`docs/spec/serve-live-reload.md`](../spec/serve-live-reload.md), and 7 files under [`marketing/`](../../marketing) are untracked on disk as of this scan — not yet committed, so their content is not otherwise represented in domain files.
 
 ## DevOps & CI
 
@@ -165,3 +165,5 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 **`atomic-visual-options` skill (workflow domain)**: [`skills/atomic-visual-options/SKILL.md`](../../skills/atomic-visual-options/SKILL.md) auto-fires on visual-comparison phrases ("show me a few options", "mock up some variants", "compare these layouts", etc.) and is invoked just-in-time by `/atomic-plan` Diverge phase when a design question passes the see-it-over-read-it gate. Renders 2–4 side-by-side variants per dimension as a single throwaway self-contained HTML file; user picks by typing terminal codes (e.g. `A2 B3`); chosen codes recorded in the design doc. Scope: visual choices (layout, color, spacing, hierarchy, diagram) — not conceptual or text decisions.
 
 **`/challenge-swarm` post-design gate (workflow domain, `feat/challenge-swarm` branch)**: new command [`commands/challenge-swarm.md`](../../commands/challenge-swarm.md), adapted from Stanford's STORM (perspective-diverse multi-agent synthesis), inserted into the lifecycle between `/atomic-plan` and `/subagent-implementation`. Dispatches 4-6 isolated `general-purpose` subagent lenses in a single message (never a new agent type) against a target design/spec/plan, communicating only through a workspace at `.claude/.scratchpad/<yyyy-mm-dd>-challenge-swarm-<slug>/` (`lens-instructions.md`, `lenses/<lens>.md`, `findings/`) so lenses stay isolated from each other. Aggregates `findings/*.md` into a contradiction map (conflicts / reinforced findings / unexamined assumptions) reported in six sections; report-only, never modifies the target or code; explicit-invocation only, not dispatched by `/autopilot`. Wired as a named alternative alongside `/pressure-test` in [`templates/commands/atomic-plan.md`](../../templates/commands/atomic-plan.md) ("Challenge surface", renamed from "Pressure-test surface"), [`templates/commands/pressure-test.md`](../../templates/commands/pressure-test.md) (close-out suggestion), [`templates/commands/gather-evidence.md`](../../templates/commands/gather-evidence.md) (workflow-position diagram), and [`templates/commands/atomic-help.md`](../../templates/commands/atomic-help.md) (`challenge-swarm`/`swarm` topic row + tour Stage 1 command count `~22`→`~23`); [`CLAUDE.md`](../../CLAUDE.md) Workflow step 1 gains a "Post-design gate" clause; [`docs/reference/commands.md`](../../docs/reference/commands.md) and [`docs/reference/workflow.md`](../../docs/reference/workflow.md) gain matching rows/sections; [`docs/credits.md`](../../docs/credits.md) gains a STORM prior-art section. Spec: [`docs/spec/challenge-swarm.md`](../../docs/spec/challenge-swarm.md).
+
+**`atomic wiki stamp` promoted to a registered public subcommand (wiki domain)**: `buildWikiCmd()` in [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) now registers `stamp <file>` via `addSub` with flags `--repo`/`--root`/`--cites`/`--knowledge`/`--sources`, and the parent `wiki` command's `Short` text lists `stamp` alongside `scan|stale|linkify|bucket|init`. [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) gained a matching `Command` entry (`Path: ["wiki", "stamp"]`) so `--help` and the A1 citation lint recognize it. [`atomic/internal/wiki/action.go`](../../atomic/internal/wiki/action.go) `wikiStampAction`'s doc comment no longer calls it an "INTERNAL helper" — it now states the function is invoked by `/refresh-wiki` and the atomic-wiki realm pipeline and is registered as a public subcommand. `mark-dirty` remains the sole internal-only `wiki` verb. A follow-up (`a1-unknown-verb-path-silent-pass`) was filed noting the A1 lint silently passes citations of unknown verb paths (`atomic/internal/validate/artifacts.go:186`) — a pre-existing gap, not a regression from this change.

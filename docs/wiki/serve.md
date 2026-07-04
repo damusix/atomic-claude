@@ -48,6 +48,7 @@ The UI is a single persistent Obsidian-style shell: top bar (breadcrumb + `md|co
 - [`docs/spec/atomic-serve.md`](../../docs/spec/atomic-serve.md) — success criteria, non-goals, security contract
 - [`docs/design/atomic-serve.md`](../../docs/design/atomic-serve.md) — design decisions: scope model, asset vendoring, route list, Cytoscape+ELK choice
 - [`docs/reference/serve.md`](../../docs/reference/serve.md) — user-facing reference for all flags, scope resolution table, every route
+- [`docs/design/cosmos-system-graph.md`](../../docs/design/cosmos-system-graph.md), [`docs/spec/cosmos-system-graph.md`](../../docs/spec/cosmos-system-graph.md) — design + spec proposing replacement of the system-graph engine (Cytoscape canvas 2D + one-shot cola layout) with cosmos.gl (GPU simulation + GPU rendering); scoped to the full-pane `[system]` network view only (rail mini-graph stays on Cytoscape `concentric` layout; `/graph/data` JSON contract unchanged). Not yet implemented — no [`atomic/internal/serve/`](../../atomic/internal/serve) code reflects this change as of this refresh.
 
 ## Coupling
 
