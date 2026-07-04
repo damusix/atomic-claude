@@ -4,7 +4,7 @@ description: Repo-local project wiki for atomic-claude — framework signals, do
 ---
 
 <wiki-type>repo</wiki-type>
-<scan-sha>42eefead1a24e4becb905c805de8173b5dcb2e24</scan-sha>
+<scan-sha>06a225bf8cfe1b03addd922a2365039fe9e88f1e</scan-sha>
 <wiki-schema>1</wiki-schema>
 
 # Project signals
@@ -41,8 +41,8 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 
 | Language | LOC | Files | % |
 |----------|-----|-------|---|
-| Go | 146569 | 413 | 61% |
-| Markdown | 50643 | 313 | 21% |
+| Go | 147606 | 416 | 60% |
+| Markdown | 52650 | 324 | 21% |
 | TypeScript | 29270 | 159 | 12% |
 | JavaScript | 4179 | 5 | 1% |
 | CSS | 2966 | 2 | 1% |
@@ -52,7 +52,7 @@ CI gates: (1) `make render && git diff --exit-code` — stale [`commands/`](../.
 | Vue | 782 | 3 | 0% |
 | YAML | 478 | 10 | 0% |
 
-Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed. Table corrected this refresh — the prior table had drifted from actual committed content: the VitePress theme (`.vitepress/theme/*.ts`, `*.vue`) and [`scripts/code-eval`](../../scripts/code-eval) TypeScript fixtures were already committed but never reflected here, and `marketing/` has been removed from the tree since the last full scan. Go LOC growth (394→413 files) includes [`atomic/internal/wiki/init.go`](../../atomic/internal/wiki/init.go) + `init_test.go` (wiki-deterministic-setup work) among other additions on branches merged since the last refresh. Markdown LOC growth includes this branch's [`docs/design/legible-output.md`](../../docs/design/legible-output.md) and [`docs/spec/legible-output.md`](../../docs/spec/legible-output.md).
+Note: C sources (`tsbinding/src/`) are vendored-on-demand and no longer committed. File-count growth since the last refresh (Go 413→416, Markdown 313→324) spans several merged commits, not only this branch: new files include [`docs/spec/challenge-swarm.md`](../../docs/spec/challenge-swarm.md), [`commands/challenge-swarm.md`](../../commands/challenge-swarm.md), [`templates/commands/challenge-swarm.md`](../../templates/commands/challenge-swarm.md) (this branch), plus [`docs/design/comment-discipline.md`](../../docs/design/comment-discipline.md), [`docs/spec/comment-discipline.md`](../../docs/spec/comment-discipline.md), and [`templates/shared/agent-comment-discipline.md`](../../templates/shared/agent-comment-discipline.md) from an earlier merged commit. Markdown LOC also grew from [`docs/design/spec-change-tree-flows.md`](../../docs/design/spec-change-tree-flows.md) and [`docs/spec/spec-change-tree-flows.md`](../../docs/spec/spec-change-tree-flows.md) expanding in place (also an earlier commit).
 
 ## DevOps & CI
 
@@ -163,3 +163,5 @@ Each domain groups ALL files across ALL layers (artifacts + CLI code + docs) for
 **`atomic serve` FE polish (serve domain)**: nav-item links now render amber (`var(--amber)`) to match right-rail OUT/IN links; left inset set to 20px (section headers stay at 8px, leaves indent inside them); visited/hover/active states pinned explicitly — independent of global `a:visited` color. Brand element upgraded from `<span>` to `<a href={{.LandingURL}}>` with htmx nav attributes (clicking the logo navigates home without a full reload). `chromaHighlight` and `chromaHighlightLines` no longer call `lexers.Analyse` (content-based guessing) — unknown fence language falls through to plaintext (no spurious highlighting). Search JS in `layout.html` now boots with a `window.__atomicSearchBooted` guard and uses delegated `document.addEventListener('click')` listeners so they survive htmx 4 history-restore body swaps; `btn-graph` click similarly migrated to a delegated listener. `htmx:after:swap` handler resets `#main-pane.scrollTop = 0` on content swaps; modal resets `scrollTop = 0` on open.
 
 **`atomic-visual-options` skill (workflow domain)**: [`skills/atomic-visual-options/SKILL.md`](../../skills/atomic-visual-options/SKILL.md) auto-fires on visual-comparison phrases ("show me a few options", "mock up some variants", "compare these layouts", etc.) and is invoked just-in-time by `/atomic-plan` Diverge phase when a design question passes the see-it-over-read-it gate. Renders 2–4 side-by-side variants per dimension as a single throwaway self-contained HTML file; user picks by typing terminal codes (e.g. `A2 B3`); chosen codes recorded in the design doc. Scope: visual choices (layout, color, spacing, hierarchy, diagram) — not conceptual or text decisions.
+
+**`/challenge-swarm` post-design gate (workflow domain, `feat/challenge-swarm` branch)**: new command [`commands/challenge-swarm.md`](../../commands/challenge-swarm.md), adapted from Stanford's STORM (perspective-diverse multi-agent synthesis), inserted into the lifecycle between `/atomic-plan` and `/subagent-implementation`. Dispatches 4-6 isolated `general-purpose` subagent lenses in a single message (never a new agent type) against a target design/spec/plan, communicating only through a workspace at `.claude/.scratchpad/<yyyy-mm-dd>-challenge-swarm-<slug>/` (`lens-instructions.md`, `lenses/<lens>.md`, `findings/`) so lenses stay isolated from each other. Aggregates `findings/*.md` into a contradiction map (conflicts / reinforced findings / unexamined assumptions) reported in six sections; report-only, never modifies the target or code; explicit-invocation only, not dispatched by `/autopilot`. Wired as a named alternative alongside `/pressure-test` in [`templates/commands/atomic-plan.md`](../../templates/commands/atomic-plan.md) ("Challenge surface", renamed from "Pressure-test surface"), [`templates/commands/pressure-test.md`](../../templates/commands/pressure-test.md) (close-out suggestion), [`templates/commands/gather-evidence.md`](../../templates/commands/gather-evidence.md) (workflow-position diagram), and [`templates/commands/atomic-help.md`](../../templates/commands/atomic-help.md) (`challenge-swarm`/`swarm` topic row + tour Stage 1 command count `~22`→`~23`); [`CLAUDE.md`](../../CLAUDE.md) Workflow step 1 gains a "Post-design gate" clause; [`docs/reference/commands.md`](../../docs/reference/commands.md) and [`docs/reference/workflow.md`](../../docs/reference/workflow.md) gain matching rows/sections; [`docs/credits.md`](../../docs/credits.md) gains a STORM prior-art section. Spec: [`docs/spec/challenge-swarm.md`](../../docs/spec/challenge-swarm.md).
