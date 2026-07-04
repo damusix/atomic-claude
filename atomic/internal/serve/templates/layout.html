@@ -103,16 +103,14 @@
          and returns the shell, which htmx swaps into <body>. No client config is
          needed — htmx 4 removed the htmx-config historyRestoreAsHxRequest key. -->
     <script src="/static/vendor/htmx.min.js"></script>
-    <!-- Cytoscape + cola — LOAD ORDER IS LOAD-BEARING: cytoscape → cola → cytoscape-cola.
-         Powers the rail mini-graph (FE2) and the Network View (FE3). cola is the
-         force-directed layout engine (one-shot). webcola exports window.cola while
-         cytoscape-cola's browser path reads window.webcola, so bridge the name
-         before registering. -->
+    <!-- Cytoscape — powers the rail mini-graph (FE2) only, with a `concentric`
+         layout (no force-layout adapter needed). -->
     <script src="/static/vendor/cytoscape.min.js"></script>
-    <script src="/static/vendor/cola.min.js"></script>
-    <script>window.webcola = window.cola;</script>
-    <script src="/static/vendor/cytoscape-cola.js"></script>
-    <script>try { if (window.cytoscapeCola) { cytoscape.use(cytoscapeCola); } } catch (e) {}</script>
+    <!-- cosmos.gl — GPU simulation + rendering for the Network View (FE3) system
+         graph. Vendored single-file IIFE bundle exposing window.Cosmos; see
+         cosmos-graph.provenance.txt alongside it for the exact package version,
+         dependency pins, and bundling command. -->
+    <script src="/static/vendor/cosmos-graph.js"></script>
     <!-- Single-source type→color map. atomicCyStyle() reads it to build per-type
          node selectors; the system-graph legend (Deliverable A) reads it for swatch
          colors. Hex values are defined ONCE here — neither atomicCyStyle() nor the
