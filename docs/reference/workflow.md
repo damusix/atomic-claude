@@ -45,6 +45,17 @@ When the work ahead rests on a factual hunch ("library X supports Y", "our codeb
 Returns one of `SUPPORTED`, `UNSUPPORTED`, `MIXED`, or `INCONCLUSIVE` with a clear recommendation: proceed to `/atomic-plan`, abandon, refine the hypothesis, or dig deeper. Skip this step when the work is grounded in code you've already read — but reach for it the moment you catch yourself assuming.
 
 
+### Challenge the written design (optional)
+
+```
+/challenge-swarm @docs/spec/<topic>.md
+```
+
+Once a design or spec exists, `/challenge-swarm` subjects it to independent expert scrutiny before any code gets written. It picks 4-6 lenses that fit the change — security, performance, future maintainer, API consumer, ops, tester, end user — and dispatches each as an isolated subagent that cannot see the others' findings. The results merge into a contradiction map: where the lenses pull in opposite directions, where they independently agree, and what they all assumed without checking. The disagreements are the point — they name the trade-off decisions the design still has to make explicit.
+
+The report lives in the conversation; fold accepted findings back through `/atomic-plan` or file them as follow-ups. Where `/pressure-test` is a dialogue in which you defend your thinking, `/challenge-swarm` is a parallel attack on the written artifact. Run either or both.
+
+
 ## 2. Implement
 
 ```

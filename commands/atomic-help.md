@@ -77,9 +77,10 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `lifecycle` / `workflow` | Four stages: `/atomic-plan` → `/subagent-implementation` → ship verb → `/documentation`. Each stage uses fresh-context subagents. Or run all four hands-off with `/autopilot`. |
 | `autopilot` / `auto` | `/autopilot <task \| issue#> [merge-verb]` — the whole lifecycle, hands-off, with one decision: how to merge. Always uses the `/subagent-implementation` loop, fixes every reviewer finding in-iteration, auto-dispatches `atomic-strategist` (read-only) when stuck, keeps the spec currency-clean. For work you trust the system to drive. |
-| `plan` | `/atomic-plan` writes design (`docs/design/`) + spec (`docs/spec/`). Pair with `/gather-evidence` (chase the hunch) and `/pressure-test` (challenge the design) before approving. |
+| `plan` | `/atomic-plan` writes design (`docs/design/`) + spec (`docs/spec/`). Pair with `/gather-evidence` (chase the hunch) and `/pressure-test` (challenge the design) before approving; `/challenge-swarm` attacks the written result before implementation. |
 | `gather-evidence` / `evidence` | `/gather-evidence [<hypothesis> \| @<path>]` — pre-design hunch verification. Primary-source evidence with cited tier. Returns SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE. |
-| `pressure-test` | `/pressure-test [<topic> \| @<path>]` — Socratic challenger, no artifacts. Pre-approval gate. |
+| `pressure-test` | `/pressure-test [<topic> \| @<path>]` — Socratic challenger, no artifacts. Pre-approval gate. Complement: `/challenge-swarm` attacks the written design in parallel instead of dialogue. |
+| `challenge-swarm` / `swarm` | `/challenge-swarm [<path> \| @<path>]` — 4-6 isolated expert lenses (security, perf, maintainer, ops, tester, ...) review a design/spec in parallel; report is a contradiction map (conflicts / reinforced / unexamined assumptions). Post-design gate before `/subagent-implementation`. |
 | `implement` | `/subagent-implementation` reads spec, runs implement→review loop with `atomic-implementer`+`atomic-reviewer`, commits per green iteration. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
 | `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`. |
@@ -153,7 +154,7 @@ atomic-claude — opinionated Claude Code config. Five surfaces compose:
 
   output style    terse TUI replies (atomic — drop filler, fragments OK)
   skills          9 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing, visual options)
-  commands        ~22 explicit verbs (/autopilot, /atomic-plan, /commit, ...)
+  commands        ~23 explicit verbs (/autopilot, /atomic-plan, /commit, ...)
   agents          5 dispatchable subagents (implementer, reviewer, investigator, ...)
   binary          atomic CLI — signals scan, doctor, validate, update, install
 
@@ -172,6 +173,8 @@ Prompt: continue to lifecycle / show me the surfaces in detail / exit tour.
 3. Ship         /commit [token]     — commit, then optionally push / pr / merge / squash
 4. Sync docs    /documentation      — README + CLAUDE.md + spec/design updated to match
 
+Challenge gates:  /pressure-test (defend the idea in dialogue) and /challenge-swarm
+                  (isolated expert lenses attack the written design) sit between plan and implement.
 Branch isolation: /subagent-implementation and /autopilot create .worktrees/<branch>/ at loop start.
 Diagnose failures: /subagent-diagnose ci|bug runs the same loop from a failure seed.
 Hands-off:        /autopilot <task|issue#> runs stages 1-3 autonomously; asks only how to merge.

@@ -278,21 +278,22 @@ Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md
 
 Print the spec path. Summarize in 3-5 lines.
 
-**Pressure-test surface** — conditional, not always. Surface `/pressure-test` only when any of:
+**Challenge surface** — conditional, not always. Surface `/pressure-test` and `/challenge-swarm` only when any of:
 
 - `## Open questions` is non-empty.
 - Recommendation row is hedged ("probably A, but B if X").
 - User's clarify answers contained hedges ("maybe", "not sure", "could go either way").
 - Cross-system blast radius (≥2 subsystems or ≥3 affected areas).
-- `atomic-strategist` was dispatched (the question was hard enough to need opus — hard enough to pressure-test).
+- `atomic-strategist` was dispatched (the question was hard enough to need opus — hard enough to challenge).
 
-When triggered, print the reason and the copyable command:
+When triggered, print the reason and the copyable commands:
 
 ```
 This spec has <open questions / hedged recommendation / cross-system scope / strategist-reviewed>.
-Pressure-test before implementing:
+Challenge before implementing:
 
-    /pressure-test @docs/spec/<topic>.md
+    /pressure-test @docs/spec/<topic>.md      defend it in dialogue
+    /challenge-swarm @docs/spec/<topic>.md    isolated expert lenses + contradiction map
 
 Or proceed:
 
