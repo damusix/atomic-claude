@@ -158,6 +158,64 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
 
 <chosen approach, one line> — see `docs/design/<topic>.md`.
 
+## Change tree
+
+<!-- Indented file tree of what this spec touches. One line per node.
+     Markers: A created, M modified, D removed. Optional parenthetical for
+     symbols touched — sketch-level, same altitude as the Checkpoints table's
+     Files/areas column, never a signature contract. Example:
+
+     src/auth/
+     ├── session.ts ........... M  (SessionStore: rotation support)
+     ├── session.test.ts ...... M  (tests for rotation)
+     └── rotate.ts ............ A  (new: rotation policy)
+     docs/guides/sessions.md .. M  (rotation section) -->
+
+<tree>
+
+## Outline
+
+<!-- Hollow outline of the work: per file, the named pieces to be created or
+     reshaped — functions/types for code, sections/blocks for markdown
+     artifacts; a mixed change uses each file's natural unit. One line per
+     piece: `name — responsibility`. Members nest one level under their
+     parent piece — a type's methods, a section's subsections — and no
+     deeper: what happens inside a member is implementation. Hollow means
+     empty inside: no signatures, no bodies, no algorithms. A change with no
+     nameable pieces writes `None — <reason>` instead of omitting the
+     section. The reviewer walks this outline against the delivered work, so
+     every piece here is a promise the diff should keep (or visibly deviate
+     from). Example:
+
+     src/auth/session.ts
+       SessionStore — session persistence
+         rotate — swap current token, retire previous
+         prune  — drop retired tokens past grace period
+       isExpired — token age check against policy
+
+     src/auth/session.test.ts
+       rotation survives restart — retired token honored during grace
+
+     docs/guides/sessions.md
+       Token rotation — behavior + grace-period semantics -->
+
+<outline, or `None — <reason>`>
+
+## Flows
+
+<!-- One numbered actor -> step sequence per behavior being implemented.
+     A change that ships no runtime behavior (pure docs/config) writes
+     `None — <reason>` instead of omitting the section — presence is what
+     the reviewer checks, not omission. Example:
+
+     Flow: session rotation
+     1. client presents a token older than the rotation interval
+     2. middleware calls SessionStore.rotate -> new token issued, old retired
+     3. response carries the new token; the old one is honored until the
+        grace period ends -->
+
+<flows, or `None — <reason>`>
+
 ## Checkpoints
 
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
@@ -192,6 +250,9 @@ Iter 2: atomic-reviewer (spec-mode) reads design + spec → reports gaps:
         - Contradictions between design and spec?
         - Body forward-only — no decision history, prior-version refs, or rejected-fork enumeration?
         - `## Approach` a one-line pointer to the design, not a copied Approaches/Recommendation table?
+        - Change tree present with A/M/D markers covering every checkpoint's files?
+        - Outline present — per-file named pieces with one-line responsibilities, hollow (or explicit `None — <reason>`)?
+        - Flows present as actor → step sequences (or explicit `None — <reason>`)?
 Iter 3+: builder applies feedback; reviewer re-checks.
 Terminate on VERDICT: PASS or hard-cap (5 iters; configurable via memory).
 ```
@@ -207,6 +268,9 @@ Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md
 - Checkpoints are cohesive slices, not line-by-line code.
 - Voice is evidence-backed, not prescriptive.
 - Body is forward-only — no decision history, prior-version references, or rejected-alternative enumeration; `## Approach` points to the design rather than copying its tables.
+- `## Change tree` present, one line per node, A/M/D markers covering every checkpoint's files.
+- `## Outline` present — per file, named pieces with a one-line responsibility each, no signatures or bodies (or explicit `None — <reason>`).
+- `## Flows` present as numbered actor → step sequences (or explicit `None — <reason>`).
 - No contradictions between design and spec.
 - Risks table honestly enumerates likelihood + mitigation.
 
@@ -272,6 +336,11 @@ A spec SHOULD say:
 - What we're not doing — non-goals, explicit scope boundary.
 - The slices — checkpoints, cohesion units the implementer can dispatch as one builder pass.
 - The chosen approach — a one-line `## Approach` pointer to the design, which holds the Approaches deliberation + evidence. Only a trivial inline spec with no design carries the Approaches + Recommendation itself.
+- The blast radius — `## Change tree`, a sketch-level file tree with A/M/D markers.
+- The shape — `## Outline`, per-file named pieces with one-line responsibilities, hollow.
+- The behavior — `## Flows`, numbered actor → step sequences for what's being implemented.
+
+**Voice reconciliation for the change tree and outline.** Neither conflicts with forward-only or anti-over-prescription: the tree is a sketch of the intended surface, the same altitude as the checkpoint table's `Files/areas` column, never a signature contract; the outline is hollow by definition — it names pieces and states each one's responsibility, never signatures, bodies, or algorithms. Success criteria remain the only binding contract; the implementer may deviate from either — add a helper file, split or rename a piece — without amendment, unless the deviation breaks a success criterion. Deviations from the outline surface in review (`atomic-reviewer` code-mode walks the delivered work against it), not as silent drift.
 
 Implementation details belong in code, not specs:
 

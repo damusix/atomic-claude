@@ -20,6 +20,14 @@ This holds for a *fresh* spec as much as an amended one. The body describes only
 
 Negative scope in `## Non-goals` is fine — "no `--db` flag" is a current-truth constraint on what to build, not history. The test: a sentence that only makes sense to someone who watched the plan evolve does not belong in the body.
 
+## Required content
+
+Every spec body carries three sections beyond Goal/Non-goals/Success criteria/Checkpoints/Risks: `## Change tree` — an indented tree of files, one line per node, marked `A` created / `M` modified / `D` removed, with sketch-level symbol notes only — `## Outline` — a hollow outline of the work: per file, the named pieces to be created or reshaped (functions/types for code, sections/blocks for markdown artifacts; a mixed change uses each file's natural unit), one line each as `name — responsibility`, members nesting one level under their parent piece (a type's methods, a section's subsections) and no deeper, never signatures or bodies, or `None — <reason>` when the change has no nameable pieces — and `## Flows` — numbered actor → step sequences per behavior being implemented, or `None — <reason>` when the change ships no runtime behavior. A human approves the spec before any code exists; these sections are what make blast radius, shape, and behavior inspectable without reverse-engineering prose — and the outline is what the reviewer walks the delivered work against.
+
+This applies forward only: it governs specs drafted after this rule ships. A pre-existing spec is not backfilled by an unrelated line-level amendment. Backfill happens only when a scope-changing amendment rewrites the body anyway — at that point the tree, outline, and flows describe the amended scope like every other section.
+
+Amendments keep all three sections current — that is the body-is-current-truth rule above applied to these sections, not a new lifecycle rule.
+
 ## Amendment rules
 
 Every spec ends with a `## Change log` section. Append a dated entry per amendment; never delete prior entries. The log is the audit trail, but it never substitutes for keeping the body current.
