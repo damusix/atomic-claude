@@ -633,7 +633,7 @@ func buildWikiCmd() *cobra.Command {
 	dispatch := func(args []string) { runWiki(args) }
 	parent := &cobra.Command{
 		Use:   "wiki",
-		Short: "Wiki management (scan|stale|linkify|bucket|init)",
+		Short: "Wiki management (scan|stale|linkify|bucket|init|stamp)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -666,10 +666,17 @@ func buildWikiCmd() *cobra.Command {
 		c.Flags().String("scope", "", "scaffold scope: repo or realm (required)")
 		c.Flags().String("root", "", "root directory (default: cwd)")
 	})
+	addSub("stamp", "Write reflects_rev/reflects/sources fingerprint frontmatter (summary|concern|knowledge)", "<file>", func(c *cobra.Command) {
+		c.Flags().String("repo", "", "repo path (summary mode)")
+		c.Flags().String("root", "", "wiki root (concern mode)")
+		c.Flags().String("cites", "", "comma-separated cited repo ids (concern mode)")
+		c.Flags().Bool("knowledge", false, "knowledge page mode: stamp sources: list")
+		c.Flags().String("sources", "", "comma-separated sources entries (knowledge mode)")
+	})
 
 	// 3-level nesting: wiki bucket → add|list|diff|promote.
 	// The bucket intermediate command routes through dispatch as well so that
-	// internal verbs (stamp, mark-dirty) and the no-args usage path all still
+	// the internal verb (mark-dirty) and the no-args usage path all still
 	// reach wiki.WikiAction unchanged.
 	bucketParent := &cobra.Command{
 		Use:   "bucket",

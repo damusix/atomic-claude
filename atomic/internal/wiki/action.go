@@ -93,7 +93,8 @@ var knowledgeTopicRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*\.md$`)
 //	atomic wiki stamp <file> --root <wiki-root> --cites a,b,c      (concern mode)
 //	atomic wiki stamp <file> --knowledge --sources <entries>        (knowledge mode)
 //
-// It is an INTERNAL helper invoked by /refresh-wiki — not surfaced in /atomic-help.
+// Invoked by /refresh-wiki and the atomic-wiki realm pipeline; registered as a
+// public subcommand so `atomic wiki --help` and the A1 citation lint see it.
 func wikiStampAction(args []string) int {
 	fs := flag.NewFlagSet("wiki-stamp", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
