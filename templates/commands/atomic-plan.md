@@ -173,6 +173,26 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
 
 <tree>
 
+## Outline
+
+<!-- Hollow outline of the work: per file, the named pieces to be created or
+     reshaped — functions/types for code, sections/blocks for markdown
+     artifacts. One line per piece: `name — responsibility`. Hollow means
+     empty inside: no signatures, no bodies, no algorithms. A change with no
+     nameable pieces writes `None — <reason>` instead of omitting the
+     section. The reviewer walks this outline against the delivered work, so
+     every piece here is a promise the diff should keep (or visibly deviate
+     from). Example:
+
+     bucket.go
+       PromoteBucket — rotate baseline -> previous
+       readManifest  — parse .buckets/<name>/manifest
+
+     bucket_test.go
+       TestPromoteRotation — proves rotation survives restart -->
+
+<outline, or `None — <reason>`>
+
 ## Flows
 
 <!-- One numbered actor -> step sequence per behavior being implemented.
@@ -222,6 +242,7 @@ Iter 2: atomic-reviewer (spec-mode) reads design + spec → reports gaps:
         - Body forward-only — no decision history, prior-version refs, or rejected-fork enumeration?
         - `## Approach` a one-line pointer to the design, not a copied Approaches/Recommendation table?
         - Change tree present with A/M/D markers covering every checkpoint's files?
+        - Outline present — per-file named pieces with one-line responsibilities, hollow (or explicit `None — <reason>`)?
         - Flows present as actor → step sequences (or explicit `None — <reason>`)?
 Iter 3+: builder applies feedback; reviewer re-checks.
 Terminate on VERDICT: PASS or hard-cap (5 iters; configurable via memory).
@@ -239,6 +260,7 @@ Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md
 - Voice is evidence-backed, not prescriptive.
 - Body is forward-only — no decision history, prior-version references, or rejected-alternative enumeration; `## Approach` points to the design rather than copying its tables.
 - `## Change tree` present, one line per node, A/M/D markers covering every checkpoint's files.
+- `## Outline` present — per file, named pieces with a one-line responsibility each, no signatures or bodies (or explicit `None — <reason>`).
 - `## Flows` present as numbered actor → step sequences (or explicit `None — <reason>`).
 - No contradictions between design and spec.
 - Risks table honestly enumerates likelihood + mitigation.
@@ -306,9 +328,10 @@ A spec SHOULD say:
 - The slices — checkpoints, cohesion units the implementer can dispatch as one builder pass.
 - The chosen approach — a one-line `## Approach` pointer to the design, which holds the Approaches deliberation + evidence. Only a trivial inline spec with no design carries the Approaches + Recommendation itself.
 - The blast radius — `## Change tree`, a sketch-level file tree with A/M/D markers.
+- The shape — `## Outline`, per-file named pieces with one-line responsibilities, hollow.
 - The behavior — `## Flows`, numbered actor → step sequences for what's being implemented.
 
-**Voice reconciliation for the change tree.** The change tree does not conflict with forward-only or anti-over-prescription: it is a sketch of the intended surface, the same altitude as the checkpoint table's `Files/areas` column, never a signature contract. Success criteria remain the only binding contract; the implementer may deviate from the tree — add a helper file, split a symbol — without amendment, unless the deviation breaks a success criterion.
+**Voice reconciliation for the change tree and outline.** Neither conflicts with forward-only or anti-over-prescription: the tree is a sketch of the intended surface, the same altitude as the checkpoint table's `Files/areas` column, never a signature contract; the outline is hollow by definition — it names pieces and states each one's responsibility, never signatures, bodies, or algorithms. Success criteria remain the only binding contract; the implementer may deviate from either — add a helper file, split or rename a piece — without amendment, unless the deviation breaks a success criterion. Deviations from the outline surface in review (`atomic-reviewer` code-mode walks the delivered work against it), not as silent drift.
 
 Implementation details belong in code, not specs:
 
