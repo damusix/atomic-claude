@@ -46,6 +46,13 @@ Why this repo exists alongside it: superpowers leans hard on auto-firing skills 
 Why this repo's version exists alongside it: claude-improve is a standalone skill targeted at any Claude Code setup. `/atomic-improve` adapts the same pipeline to atomic-claude's primitives — reusing `atomic-investigator`, Haiku-backed `general-purpose` runners, and `atomic-strategist` for the parallel scans, storing run logs in `~/.claude/.atomic/improve-runs/` instead of a flat learnings file, and following the indexed-selection axiom for finding presentation instead of paginated `AskUserQuestion`.
 
 
+## STORM
+
+**[STORM](https://github.com/stanford-oval/storm)** by Stanford OVAL ([paper](https://arxiv.org/abs/2402.14207), Shao et al.) — Synthesis of Topic Outlines through Retrieval and Multi-perspective Question Asking. STORM writes grounded, Wikipedia-like articles by simulating perspective-diverse research conversations before any writing happens: agents with genuinely different viewpoints interrogate a topic independently, and the synthesis is built from what they surface. The insight is that independent perspectives find what any single pass misses, and that the perspective definition carries enough specialization for smaller models to do the work well.
+
+`/challenge-swarm` transplants that mechanism from article research to design review. Isolated expert lenses (security, performance, ops, tester, and so on) attack a written design in parallel, grounded in the codebase instead of the web, and the synthesis maps their disagreements — the contradiction map — rather than their consensus.
+
+
 ## Comparison
 
 Grouped by capability. Atomic borrows visibly from both caveman and superpowers.

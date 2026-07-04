@@ -10,6 +10,7 @@ Commands are explicit actions you invoke with a slash. They never auto-fire — 
 | `/atomic-plan` | Produce a spec for the work ahead. Small tasks get an inline checkpoint table; larger work gets a design doc and a derived spec. Nothing is implemented until you approve. |
 | `/gather-evidence` | Chase a hunch through primary sources before sinking a planning session into it. Pulls evidence from context7, official docs, source code, ast-grep, and run-it experiments. Returns `SUPPORTED` / `UNSUPPORTED` / `MIXED` / `INCONCLUSIVE` with cited evidence trail. Hearsay (blog posts, forum opinions) cannot produce `SUPPORTED`. |
 | `/pressure-test` | Challenge a design decision before committing to it. Asks hard questions, surfaces contradictions, and forces fuzzy maybes into yes or no. Pairs well with `/atomic-plan` as a pre-approval gate. |
+| `/challenge-swarm` | Attack a written design or spec from 4-6 isolated expert lenses running in parallel — security, performance, future maintainer, API consumer, ops, tester, end user. Reports a contradiction map: where the lenses conflict, where they independently agree, and what they all assumed without checking. Post-design gate before implementation. |
 
 
 ## Implementation

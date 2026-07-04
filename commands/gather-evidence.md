@@ -12,8 +12,8 @@ Not a code reviewer (`atomic-reviewer`). Not a strategist (`atomic-strategist`).
 ## Workflow position
 
 ```
-hunch → /gather-evidence → /pressure-test → /atomic-plan → /subagent-implementation
-        (does it hold?)    (is design right?)  (write spec)    (build it)
+hunch → /gather-evidence → /pressure-test → /atomic-plan → /challenge-swarm → /subagent-implementation
+        (does it hold?)    (is design right?)  (write spec)   (lenses attack it)   (build it)
 ```
 
 `/gather-evidence` is the first gate. Don't sink a planning session into a hunch that disintegrates on contact with reality.
