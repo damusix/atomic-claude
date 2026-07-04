@@ -177,7 +177,10 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
 
 <!-- Hollow outline of the work: per file, the named pieces to be created or
      reshaped — functions/types for code, sections/blocks for markdown
-     artifacts. One line per piece: `name — responsibility`. Hollow means
+     artifacts; a mixed change uses each file's natural unit. One line per
+     piece: `name — responsibility`. Members nest one level under their
+     parent piece — a type's methods, a section's subsections — and no
+     deeper: what happens inside a member is implementation. Hollow means
      empty inside: no signatures, no bodies, no algorithms. A change with no
      nameable pieces writes `None — <reason>` instead of omitting the
      section. The reviewer walks this outline against the delivered work, so
@@ -185,11 +188,16 @@ Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-tri
      from). Example:
 
      bucket.go
-       PromoteBucket — rotate baseline -> previous
-       readManifest  — parse .buckets/<name>/manifest
+       Manifest — bucket manifest state
+         Read   — load baseline/previous from disk
+         Rotate — rotate baseline -> previous
+       PromoteBucket — CLI entry for bucket promotion
 
      bucket_test.go
-       TestPromoteRotation — proves rotation survives restart -->
+       TestPromoteRotation — proves rotation survives restart
+
+     docs/reference/wiki-workflow.md
+       Bucket promote — usage + rotation semantics -->
 
 <outline, or `None — <reason>`>
 

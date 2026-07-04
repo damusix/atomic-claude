@@ -35,8 +35,9 @@ the work is delivered (`atomic-reviewer` code-mode outline pass).
 - [ ] `templates/commands/atomic-plan.md`'s spec-structure code fence shows
       `## Change tree`, `## Outline`, and `## Flows` sections, each with
       inline format guidance (markers `A`/`M`/`D`; per-file
-      `name — responsibility` pieces; numbered actor → step sequences),
-      placed between `## Approach` and `## Checkpoints`.
+      `name — responsibility` pieces with members nesting one level under
+      their parent and no deeper; numbered actor → step sequences), placed
+      between `## Approach` and `## Checkpoints`.
 - [ ] The spec-structure fence documents the `None — <reason>` escape for
       `## Outline` (change has no nameable pieces) and `## Flows` (change
       ships no runtime behavior) — presence of each section is what the
@@ -193,6 +194,12 @@ Two required body sections threaded through the spec template, the
 | Spec bloat on trivial inline specs from adding two more required sections | low | Trivial change tree is 1-3 lines by design (no exemption); trivial Flows is one short numbered list or the `None — <reason>` escape |
 
 ## Change log
+
+### 2026-07-04 — Outline unit semantics: nesting + mixed changes
+
+**What changed:** Outline format guidance clarified across the template fence, `spec-currency.md`, the reviewer's spec-mode pass, and the design doc: a mixed code+docs change uses each file's natural unit side by side (symbols for code files, sections for doc files); members nest one level under their parent piece — a type's methods, a section's subsections — and no deeper, since what happens inside a member is implementation. Over-nested outlines are now a spec-mode finding.
+
+**Why:** The initial guidance showed only flat piece lists and never said whether a class's methods belong in the outline or how a mixed change is written.
 
 ### 2026-07-04 — Add ## Outline (hollow work skeleton)
 

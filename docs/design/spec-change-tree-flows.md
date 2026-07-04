@@ -68,18 +68,23 @@ A. The spec body is already the single contract read by both audiences; the miss
 ### Outline (hollow work skeleton)
 
 
-- `## Outline` — per file, the named pieces of the work: functions/types for code, sections/blocks for markdown artifacts. One line per piece, `name — responsibility`:
+- `## Outline` — per file, the named pieces of the work: functions/types for code, sections/blocks for markdown artifacts. A mixed change uses each file's natural unit — code files list symbols, doc files list sections, side by side in one outline. One line per piece, `name — responsibility`; members nest one level under their parent piece (a type's methods, a section's subsections):
 
     ```
     bucket.go
-      PromoteBucket — rotate baseline → previous
-      readManifest  — parse .buckets/<name>/manifest
+      Manifest — bucket manifest state
+        Read   — load baseline/previous from disk
+        Rotate — rotate baseline → previous
+      PromoteBucket — CLI entry for bucket promotion
 
     bucket_test.go
       TestPromoteRotation — proves rotation survives restart
+
+    docs/reference/wiki-workflow.md
+      Bucket promote — usage + rotation semantics
     ```
 
-    Hollow means empty inside: names and responsibilities only — never signatures, bodies, or algorithms. A change with no nameable pieces writes `None — <reason>`.
+    Hollow means empty inside: names and responsibilities only — never signatures, bodies, or algorithms. Nesting stops at one level because what happens inside a member is implementation; a second level is over-prescription creep. A change with no nameable pieces writes `None — <reason>`.
 
 - **Why a separate section, not a deeper tree.** Nesting symbol nodes inside the change tree was considered and rejected: it clutters the file-level blast radius (the tree's one job at a glance), and the two layers move at different rates — the file set stabilizes early while pieces shift during implementation. Separation keeps each section honest at its own altitude. A scaffold commit (real stub code committed by the plan phase and reviewed before the loop fills bodies) was also rejected: heaviest option, touches the implement loop, and stubs rot when the plan shifts.
 
