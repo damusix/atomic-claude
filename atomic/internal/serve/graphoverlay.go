@@ -267,8 +267,16 @@ func NewGraphDataHandler(root string) http.Handler {
 // uses the supplied pre-built graph instead of rebuilding it on every request.
 // g must not be nil. This is the preferred constructor when the caller already
 // builds a link graph at startup (as serve.go does via BuildLinkGraph).
+//
+// CP1 (live-reload): the full-view cache is backed by a snapshotStore seeded
+// with g, so a request no longer serves a startup-frozen graph forever — once
+// the realm changes on disk, the store's lazy fingerprint check rebuilds it.
+// The node-specific local-view branch below still reads the static g field
+// (handler migration to the store is checkpoint 2).
 func NewGraphDataHandlerWithGraph(root string, g *Graph) http.Handler {
-	cache := newGraphDataCache(root, g)
+	store := newSnapshotStore(root, defaultTickInterval, defaultQuietWindow)
+	store.seed(g)
+	cache := newGraphDataCache(root, store)
 	// Warm the full-view assembly in the background so the first Network View open
 	// serves cached bytes instead of waiting on the provenance walk.
 	go cache.warm()
