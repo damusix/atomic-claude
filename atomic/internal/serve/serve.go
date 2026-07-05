@@ -156,6 +156,11 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	// synchronous startup cost the old BuildLinkGraph(navRoot) call did here.
 	store := NewSnapshotStore(navRoot)
 
+	// eventsRegistry tracks connected /events (SSE) subscribers. The ticker
+	// started below reads its count to decide whether to do any work at all
+	// (SC12); NewEventsHandler registers/unregisters through it per connection.
+	eventsRegistry := newSubscriberRegistry()
+
 	navOpts := NavOptions{
 		RealmRoot:     navRoot,
 		IsRealmScope:  isRealmScope,
@@ -235,6 +240,11 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		// Seams are nil → production defaults wired inside NewHealthHandler.
 	}
 	mux.Handle("/status", NewHealthHandler(healthOpts))
+
+	// /events — live-reload SSE stream (CP3): register, resync push, stream
+	// until the request context ends. Distinct route from /status — a health
+	// probe and the live-reload push channel are different concerns.
+	mux.Handle("/events", NewEventsHandler(store, eventsRegistry))
 
 	// /search — dedicated full-pane search page (streams results via SSE).
 	// Document loads are shell-wrapped; the search dialog links here for "view all".
@@ -363,7 +373,19 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		mux.ServeHTTP(w, r)
 	})
 
-	srv := &http.Server{Handler: handler}
+	srv := &http.Server{
+		Handler: handler,
+		// BaseContext ties every request's context to the same ctx that
+		// drives graceful shutdown below. srv.Shutdown does not itself cancel
+		// in-flight request contexts — without this, an open /events
+		// connection's ctx.Done() would never fire, and Shutdown would block
+		// on it for the full 5s grace window instead of returning promptly.
+		BaseContext: func(net.Listener) context.Context { return ctx },
+	}
+
+	// The live-reload ticker (CP3) is bound to the same ctx: it must stop
+	// exactly when the server starts shutting down, never before or after.
+	startTicker(ctx, store, eventsRegistry, store.tickInterval)
 
 	// Serve in a background goroutine.
 	serveErr := make(chan error, 1)
