@@ -60,13 +60,33 @@ window.SystemGraph = (function() {
   // to cool down slower" — backwards from the actual formula. Store.alphaDecay
   // is `1 - Q^(1/simulationDecay)` (Q = the 0.001 end threshold), which makes
   // simulationDecay exactly the number of ticks from alpha=1 to end,
-  // independent of Q — SMALLER values settle FASTER, not slower. Measured on
-  // the real bundle (Playwright, 320 nodes/600 links): decay=5000 (default)
-  // ~42.7s; decay=100 ~2.8s median. Chosen to land under the ~3s target with
-  // margin for slower hardware than the measurement machine, without
-  // touching repulsion/link-strength (layout shape unaffected — only the
-  // tick BUDGET to reach the same layout shrinks).
-  var SETTLE_SIMULATION_DECAY = 100;
+  // independent of Q — SMALLER values settle FASTER, not slower.
+  //
+  // CORRECTION (Playwright-measured against this repo's own 358-node/331-edge
+  // realm, not a synthetic fixture): decay=100 alone reaches onSimulationEnd
+  // in ~2-3s, but 100 ticks is NOT enough for simulationLinkSpring to pull
+  // connected components together against simulationRepulsion — the prior
+  // claim that "layout shape is unaffected, only the tick budget shrinks" is
+  // false. At decay=100 the fitView camera lands at zoom~0.22-0.35 (repulsion
+  // has spread every component across most of spaceSize) and EVERY edge's
+  // resulting on-screen length is smaller than its own endpoints' point
+  // radius — edges are being drawn, just fully occluded by the two circles
+  // they connect (pixel-sampled: rendered edge color, not background;
+  // rendered edges are just shorter on screen than a point's own diameter).
+  // Reference run (decay=5000, ~82s on this dataset) settles into a
+  // recognizable hub-and-satellite layout (fitView zoom lands >1, i.e.
+  // camera zooms IN because the converged bounding box is small relative to
+  // the viewport). SETTLE_SIMULATION_GRAVITY and SETTLE_SIMULATION_REPULSION
+  // below compensate at LOW tick counts: raising gravity (pulls every point
+  // toward the shared center, compacting the overall spread) and lowering
+  // repulsion (less push-apart per tick) let 200 ticks reach a layout
+  // visually equivalent to the 5000-tick reference (Playwright-measured
+  // structure ratio ~1.9-2.1 at decay=200 vs ~2.1 at decay=5000; screenshot-
+  // confirmed same hub/satellite/singleton shape) in ~3.5-4.6s wall clock,
+  // stable across reseeds (random initial scatter differs every mount).
+  var SETTLE_SIMULATION_DECAY = 200;
+  var SETTLE_SIMULATION_GRAVITY = 1.2;
+  var SETTLE_SIMULATION_REPULSION = 0.4;
 
   // isWebGL2Available must run BEFORE constructing Cosmos.Graph — WebGL2
   // absence surfaces as getContext('webgl2') returning null, not a thrown
@@ -731,6 +751,8 @@ window.SystemGraph = (function() {
           fitViewOnInit: false,
           enableDrag: true,
           simulationDecay: SETTLE_SIMULATION_DECAY,
+          simulationGravity: SETTLE_SIMULATION_GRAVITY,
+          simulationRepulsion: SETTLE_SIMULATION_REPULSION,
           onSimulationEnd: function() {
             graph.pause();
             if (pendingSaveIndex != null) {
