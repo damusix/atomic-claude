@@ -212,6 +212,5 @@ Built across 8 iterations of /subagent-implementation on branch `serve-live-relo
 - CP-5 → polish: a stale aborted mount could clear the shared in-flight flag under a newer mount — all shared-state writes are now gated on mount ownership (`systemMountAbort === abortController`).
 
 **Deferred items still open:**
-- FOLLOWUPS F-5 (🔵): `isNilGraphProvider` assumes pointer implementors (documented assumption; recommend drop unless a value-type provider ever appears).
 - Browser-visual manual gate: scroll-preserve paint, connectivity-dot transitions, and Cytoscape patch visuals verified by static trace + server-level curl only; eyeball pass pending (`atomic serve` + edit files).
 - Pre-existing `atomic validate spec` S5 failures on three unrelated specs (`atomic-migrate-framework`, `challenge-swarm`, `cli-cobra`) — present on `next` before this branch.
