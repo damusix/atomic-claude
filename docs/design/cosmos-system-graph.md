@@ -111,6 +111,7 @@ Every behavior the swap must preserve (from ground pass, 2026-07-04):
 | Degree-based node sizing | computed in JS from edges (`layout.html:888-895`) |
 | Node type colors (OKF) | `atomicCyTypeColors` (`layout.html:120-191`), types from `graph.go:133-200` |
 | Provenance edges | `fingerprint` / `fingerprint drift` classes (`graphoverlay.go:339-388`) — need distinct link styling in cosmos |
+| Edge-kind colors | wikilink (`edge-strong`) vs md-link (`edge`) color distinction. Dash patterns are unsupported by cosmos's link API — color + width carry the contract |
 | Position persistence | IndexedDB `atomic-serve/graph-layout`, keyed by `X-Graph-Fingerprint` (`layout.html:826-855`, `graphcache.go:58-90`) |
 | Mount/teardown lifecycle | htmx delegated mount (`layout.html:999-1004`), `mode-system` body class, history-restore survival |
 | Lifecycle guards | Double-mount flag (`layout.html:861-863`), instance destroy on swap-out (`teardownSystemGraph`, `layout.html:726-748`), mid-fetch teardown safety. Under WebGL the destroy is load-bearing: browsers cap live GL contexts, so a leaked instance per open/close cycle eventually blacks out the view |

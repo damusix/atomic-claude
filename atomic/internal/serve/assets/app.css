@@ -1295,8 +1295,11 @@ body.mode-system #main-pane {
     overflow: hidden;
 }
 
-/* System-cy container fills #main-pane (no content-header row above it) */
+/* System-cy container fills #main-pane (no content-header row above it).
+   position:relative anchors the CP5 label overlay (.graph-label-layer),
+   whose children are positioned absolute to this box, not the page. */
 #system-cy {
+    position: relative;
     width: 100%;
     height: 100%;
     min-height: calc(100vh - var(--header-height) - var(--footer-height));
@@ -1371,6 +1374,39 @@ body.mode-system #main-pane {
     height: 9px;
     border-radius: 50%;
     flex-shrink: 0;
+}
+
+/* System graph DOM label overlay (CP5, SC5) — one <div> per rendered label,
+   positioned via `transform` from cosmos.gl screen-space coordinates.
+   pointer-events: none on both layers so labels never fight cosmos's own
+   canvas hit-testing; the fade is a CSS opacity transition, toggled by the
+   JS via .graph-label-faded as the zoom threshold is crossed. */
+.graph-label-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.graph-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--paper-raised) 82%, transparent);
+    color: var(--ink-soft);
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.4;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.18s ease;
+}
+
+.graph-label.graph-label-faded {
+    opacity: 0;
 }
 
 /* ============================================================

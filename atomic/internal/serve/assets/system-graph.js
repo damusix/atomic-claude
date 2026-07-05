@@ -13,7 +13,10 @@
 // degree-based sizing, OKF type coloring, and provenance/drift edge styling
 // (relocated here from the shell's shared atomicCyStyle() — cosmos has no
 // CSS selectors and no link dash-pattern API, so styling is computed and
-// pushed per-point/per-link instead). The DOM label overlay remains for CP5.
+// pushed per-point/per-link instead). CP5 adds the DOM label overlay: a
+// screen-projected <div> per visible label, culled by the pure
+// computeLabelSet() (exported below for scripts/test-system-graph-culling.cjs)
+// and faded by zoom via a CSS class.
 window.SystemGraph = (function() {
 
   // The live cosmos.gl instance, or null when no system graph is mounted.
@@ -178,10 +181,14 @@ window.SystemGraph = (function() {
   var FINGERPRINT_DRIFT_WIDTH = 2.5;
 
   // computeLinkStyling assigns per-link color/width from the edge's classes
-  // string ("fingerprint" or "fingerprint drift" — graphoverlay.go's format);
-  // everything else (md-link, wikilink) gets the default themed edge color.
+  // string ("fingerprint" or "fingerprint drift" — graphoverlay.go's format).
+  // wikilink gets the edge-strong color — mirrors the rail's atomicCyStyle()
+  // edge.wikilink selector (dash pattern has no cosmos link-style API, so
+  // color is the parity contract; see the design's Edge-kind colors row).
+  // md-link and anything else gets the default themed edge color.
   function computeLinkStyling(adapted, colors) {
     var defaultColor = hexToRGBA01(colors['edge'], 1);
+    var wikilinkColor = hexToRGBA01(colors['edge-strong'], 1);
     var n = adapted.linkClasses.length;
     var linkColors = new Float32Array(n * 4);
     var linkWidths = new Float32Array(n);
@@ -189,8 +196,10 @@ window.SystemGraph = (function() {
       var classes = adapted.linkClasses[i];
       var isFingerprint = classes.indexOf('fingerprint') !== -1;
       var isDrift = classes.indexOf('drift') !== -1;
+      var isWikilink = classes.indexOf('wikilink') !== -1;
       var rgba = isFingerprint && isDrift ? FINGERPRINT_DRIFT_COLOR
         : isFingerprint ? FINGERPRINT_COLOR
+        : isWikilink ? wikilinkColor
         : defaultColor;
       linkColors[i * 4] = rgba[0];
       linkColors[i * 4 + 1] = rgba[1];
@@ -292,6 +301,77 @@ window.SystemGraph = (function() {
       legend.appendChild(chip);
     });
     mainPane.appendChild(legend);
+  }
+
+  // ── Label overlay: DOM projection + culling (CP5) ──────────────────────────
+
+  // LABEL_CAP bounds the DOM label element count (SC5) as the realm grows —
+  // implementer-tunable by editing this constant.
+  var LABEL_CAP = 150;
+
+  // LABEL_CANDIDATE_POOL bounds the per-event projection cost independent of
+  // total node count: only the top-N-by-degree indices are tracked (via
+  // trackPointPositionsByIndices in mount()) and re-projected on every
+  // tick/zoom — never the whole node set. Ranked globally by degree, not by
+  // current viewport, so a panned-into low-degree cluster may show fewer
+  // than LABEL_CAP labels even with screen room to spare; accepted at
+  // current realm scale. The hovered node is exempt from this pool — it is
+  // always projected separately in updateLabels below.
+  var LABEL_CANDIDATE_POOL = LABEL_CAP * 3;
+
+  // LABEL_FADE_ZOOM_THRESHOLD is the zoom level below which labels fade out
+  // (Obsidian-style): the realm-wide fit-on-open view starts faded, and
+  // labels fade in as the user zooms toward individual nodes. Tunable.
+  var LABEL_FADE_ZOOM_THRESHOLD = 1;
+
+  // rankByDegree returns node indices sorted by degree descending, sliced to
+  // LABEL_CANDIDATE_POOL. Degree is static for the session, so this runs
+  // once at mount rather than on every label update.
+  function rankByDegree(degrees) {
+    var indices = degrees.map(function(_, i) { return i; });
+    indices.sort(function(a, b) { return degrees[b] - degrees[a]; });
+    return indices.slice(0, LABEL_CANDIDATE_POOL);
+  }
+
+  // computeLabelSet is the pure culling policy behind the DOM label overlay
+  // (SC5) — no DOM, no cosmos instance, so it is callable directly from a
+  // node test with synthetic fixtures (scripts/test-system-graph-culling.cjs).
+  //
+  //   candidates — [{ id, x, y, degree }]; x/y are already projected to the
+  //     mount container's SCREEN-space coordinates by the caller (kept out
+  //     of this function so it stays pure).
+  //   viewport   — { width, height } of the mount container in screen pixels.
+  //   zoom       — current cosmos zoom level (Graph#getZoomLevel()).
+  //   opts       — { cap, fadeZoomThreshold, hoveredId }, all optional.
+  //
+  // Returns { render, faded } (both arrays of id):
+  //   render — labels to keep mounted this tick: on-screen candidates ranked
+  //     by degree descending, bounded by opts.cap, plus the hovered id
+  //     unconditionally — even off-screen or over cap (SC5: "always shows
+  //     regardless of zoom or cull set").
+  //   faded  — the render ids below opts.fadeZoomThreshold; the hovered id
+  //     is never faded.
+  function computeLabelSet(candidates, viewport, zoom, opts) {
+    opts = opts || {};
+    var cap = opts.cap != null ? opts.cap : LABEL_CAP;
+    var threshold = opts.fadeZoomThreshold != null ? opts.fadeZoomThreshold : LABEL_FADE_ZOOM_THRESHOLD;
+    var hoveredId = opts.hoveredId != null ? opts.hoveredId : null;
+
+    var onScreen = candidates.filter(function(c) {
+      return c.id !== hoveredId
+        && c.x >= 0 && c.x <= viewport.width
+        && c.y >= 0 && c.y <= viewport.height;
+    });
+    onScreen.sort(function(a, b) { return b.degree - a.degree; });
+
+    var render = onScreen.slice(0, cap).map(function(c) { return c.id; });
+    if (hoveredId != null) { render.push(hoveredId); }
+
+    var faded = zoom < threshold
+      ? render.filter(function(id) { return id !== hoveredId; })
+      : [];
+
+    return { render: render, faded: faded };
   }
 
   // randomPositions scatters points across cosmos's coordinate space so the
@@ -483,6 +563,9 @@ window.SystemGraph = (function() {
         var filteredTypes = {};      // type -> true while its legend chip is toggled off (alpha-0 + hover/click guard)
         var hoverIndex = null;       // point index the preview card is currently anchored to, or null
         var hoverSpacePos = null;    // that point's last-known SPACE position, refreshed by onPointMouseOver/onSimulationTick
+        var labelCandidateIndices = rankByDegree(degrees); // top-N by degree, static for the session
+        var labelPool = {};    // node id -> mounted <div class="graph-label"> element
+        var labelLayer = null; // lazily-created overlay holding every label div, appended to `container`
 
         // reanchorHoverCard re-projects hoverSpacePos into screen coordinates and
         // re-renders the card there — spaceToScreenPosition is a pure
@@ -495,13 +578,96 @@ window.SystemGraph = (function() {
           window.AtomicGraphUI.showPreviewCard(nodeMeta(adapted, hoverIndex), { x: screenPos[0], y: screenPos[1] }, container);
         }
 
+        function ensureLabelLayer() {
+          if (labelLayer) { return labelLayer; }
+          labelLayer = document.createElement('div');
+          labelLayer.className = 'graph-label-layer';
+          container.appendChild(labelLayer);
+          return labelLayer;
+        }
+
+        // labelTextById mirrors nodeMeta's title/label priority — the same
+        // text the hover preview card shows for the same node.
+        function labelTextById(id) {
+          var n = adapted.nodes[adapted.idToIndex[id]];
+          var raw = (n && n.data) || {};
+          return raw.title || raw.label || id;
+        }
+
+        // updateLabels re-projects the degree-ranked candidate pool (bounded
+        // cost via the tracked-indices readback below — never the whole node
+        // set) plus the hovered node's own position, runs the pure culling
+        // policy, and reconciles the DOM label pool: divs are added/removed
+        // only on cull-set membership changes, repositioned on every call.
+        // Called only from tick/zoom/hover/legend events (SC1's idle clause) —
+        // never from a self-scheduled loop.
+        function updateLabels() {
+          var viewport = { width: container.clientWidth, height: container.clientHeight };
+          var zoom = graph.getZoomLevel();
+          var candidates = [];
+          graph.getTrackedPointPositionsMap().forEach(function(spacePos, idx) {
+            if (filteredTypes[typeOf(adapted, idx)]) { return; } // legend-hidden: no floating label over an invisible point
+            var screenPos = graph.spaceToScreenPosition(spacePos);
+            candidates.push({ id: adapted.indexToId[idx], x: screenPos[0], y: screenPos[1], degree: degrees[idx] });
+          });
+
+          var hoveredId = null;
+          if (hoverIndex != null && hoverSpacePos && !filteredTypes[typeOf(adapted, hoverIndex)]) {
+            hoveredId = adapted.indexToId[hoverIndex];
+            var hoverScreen = graph.spaceToScreenPosition(hoverSpacePos);
+            // Pushed explicitly so a screen position is available even when
+            // the hovered node isn't part of the degree-ranked candidate pool.
+            candidates.push({ id: hoveredId, x: hoverScreen[0], y: hoverScreen[1], degree: degrees[hoverIndex] });
+          }
+
+          var result = computeLabelSet(candidates, viewport, zoom, {
+            cap: LABEL_CAP, fadeZoomThreshold: LABEL_FADE_ZOOM_THRESHOLD, hoveredId: hoveredId
+          });
+
+          var posById = {};
+          candidates.forEach(function(c) { posById[c.id] = c; });
+          var fadedSet = {};
+          result.faded.forEach(function(id) { fadedSet[id] = true; });
+          var wanted = {};
+          result.render.forEach(function(id) { wanted[id] = true; });
+
+          Object.keys(labelPool).forEach(function(id) {
+            if (!wanted[id]) { labelPool[id].remove(); delete labelPool[id]; }
+          });
+
+          result.render.forEach(function(id) {
+            var pos = posById[id];
+            if (!pos) { return; } // defensive — every render id came from candidates above
+            var el = labelPool[id];
+            if (!el) {
+              el = document.createElement('div');
+              el.className = 'graph-label';
+              el.textContent = labelTextById(id);
+              ensureLabelLayer().appendChild(el);
+              labelPool[id] = el;
+            }
+            el.style.transform = 'translate(' + (pos.x + 6).toFixed(1) + 'px, ' + (pos.y + 4).toFixed(1) + 'px)';
+            el.classList.toggle('graph-label-faded', !!fadedSet[id]);
+          });
+        }
+
         // onLegendToggle updates filteredTypes and restyles. The layout never
         // reflows: applyStyling only touches colors/sizes via
         // setPointColors/setPointSizes/setLinkColors/setLinkWidths + create(),
         // never setPointPositions.
         function onLegendToggle(type, hidden) {
           if (hidden) { filteredTypes[type] = true; } else { delete filteredTypes[type]; }
+          if (hidden && hoverIndex != null && typeOf(adapted, hoverIndex) === type) {
+            // F-5 carry-along: hiding the hovered node's own type would
+            // otherwise leave the preview card frozen at its last position —
+            // the point is now alpha-0 and guarded from hover/click, so its
+            // card is unreachable until the type is shown again. Clear it.
+            hoverIndex = null;
+            hoverSpacePos = null;
+            if (window.AtomicGraphUI) { window.AtomicGraphUI.hidePreviewCard(); }
+          }
           applyStyling(graph, adapted, filteredTypes, degrees);
+          updateLabels();
         }
 
         // saveFullSnapshot reads every current point's live position via
@@ -559,6 +725,7 @@ window.SystemGraph = (function() {
             }
             buildLegend(adapted, atomicCyTypeColors(), mainPane, onLegendToggle);
             clearLoading(mainPane);
+            updateLabels();
             recording = true;
           },
           // Bounded local reheat: pin everything except the dragged point and
@@ -600,6 +767,7 @@ window.SystemGraph = (function() {
             // Re-anchor for ANY zoom/pan, not only user-driven ones — the
             // hovered node's screen position moves either way.
             reanchorHoverCard();
+            updateLabels();
             // userDriven excludes our own fitView/setZoomTransformByPointPositions
             // camera moves — cosmos.gl reports it directly, no timer-based guess needed.
             if (!recording || !userDriven) { return; }
@@ -615,11 +783,13 @@ window.SystemGraph = (function() {
             hoverIndex = index;
             hoverSpacePos = pointPosition;
             reanchorHoverCard();
+            updateLabels();
           },
           onPointMouseOut: function() {
             hoverIndex = null;
             hoverSpacePos = null;
             if (window.AtomicGraphUI) { window.AtomicGraphUI.hidePreviewCard(); }
+            updateLabels();
           },
           onPointClick: function(index, pointPosition) {
             if (filteredTypes[typeOf(adapted, index)] || !window.AtomicGraphUI) { return; }
@@ -636,10 +806,14 @@ window.SystemGraph = (function() {
               hoverSpacePos = tickPointPosition;
               reanchorHoverCard();
             }
+            updateLabels();
           }
         });
         instance = graph;
         instance.__atomicRetheme = function() { applyStyling(graph, adapted, filteredTypes, degrees); };
+        // Bounded readback: only the degree-ranked candidate pool is tracked,
+        // never the whole node set — see LABEL_CANDIDATE_POOL's comment.
+        graph.trackPointPositionsByIndices(labelCandidateIndices);
 
         var seed = hit ? seedFromCache(adapted, cachePositions, graph.config.spaceSize)
           : randomPositions(adapted.nodes.length, graph.config.spaceSize);
@@ -704,5 +878,12 @@ window.SystemGraph = (function() {
     }
   });
 
-  return { mount: mount, teardown: teardown, retheme: retheme };
+  return {
+    mount: mount, teardown: teardown, retheme: retheme,
+    // Exported for scripts/test-system-graph-culling.cjs — the pure culling
+    // policy behind SC5's label overlay, plus its tunable defaults.
+    computeLabelSet: computeLabelSet,
+    LABEL_CAP: LABEL_CAP,
+    LABEL_FADE_ZOOM_THRESHOLD: LABEL_FADE_ZOOM_THRESHOLD
+  };
 }());
