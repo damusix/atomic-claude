@@ -245,11 +245,13 @@ func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
 // It accepts an optional ?node=<relpath>&depth=<1|2> for local views.
 type GraphDataHandler struct {
 	root string
-	// graph is an optional pre-built link graph. When non-nil it is used directly
-	// instead of rebuilding on every request (FE8: cache the graph at startup).
-	// When nil, BuildLinkGraph is called per-request (original behaviour, kept for
-	// NewGraphDataHandler callers that do not have a pre-built graph).
-	graph *Graph
+	// store is the shared snapshot store (CP2 live-reload). When non-nil,
+	// both the full-view cache and the node-specific local-view branch below
+	// read the current graph through it, so a file added, edited, or removed
+	// after startup is reflected on the next request without a restart. nil
+	// for the per-request NewGraphDataHandler constructor, which falls back
+	// to a fresh BuildLinkGraph call per request (original behaviour).
+	store *snapshotStore
 	// cache caches the full-view (no ?node=) assembly — provenance walk + element
 	// build + marshal — keyed by a filesystem fingerprint, warmed in the background
 	// at startup. nil for the per-request NewGraphDataHandler constructor.
@@ -258,29 +260,23 @@ type GraphDataHandler struct {
 
 // NewGraphDataHandler returns an http.Handler for /graph/data that builds the
 // link graph on every request. Prefer NewGraphDataHandlerWithGraph when a
-// startup-built graph is available to avoid per-request latency.
+// shared snapshot store is available to avoid per-request latency.
 func NewGraphDataHandler(root string) http.Handler {
 	return &GraphDataHandler{root: root}
 }
 
-// NewGraphDataHandlerWithGraph returns an http.Handler for /graph/data that
-// uses the supplied pre-built graph instead of rebuilding it on every request.
-// g must not be nil. This is the preferred constructor when the caller already
-// builds a link graph at startup (as serve.go does via BuildLinkGraph).
-//
-// CP1 (live-reload): the full-view cache is backed by a snapshotStore seeded
-// with g, so a request no longer serves a startup-frozen graph forever — once
-// the realm changes on disk, the store's lazy fingerprint check rebuilds it.
-// The node-specific local-view branch below still reads the static g field
-// (handler migration to the store is checkpoint 2).
-func NewGraphDataHandlerWithGraph(root string, g *Graph) http.Handler {
-	store := newSnapshotStore(root, defaultTickInterval, defaultQuietWindow)
-	store.seed(g)
+// NewGraphDataHandlerWithGraph returns an http.Handler for /graph/data backed
+// by store: both the full-view cache and the node-specific local-view branch
+// read the current graph through store.currentGraph, so a request no longer
+// serves a startup-frozen graph — once the realm changes on disk, the store's
+// lazy fingerprint check (shared with the nav/page/rail handlers — SC7)
+// rebuilds it. store must not be nil.
+func NewGraphDataHandlerWithGraph(root string, store *snapshotStore) http.Handler {
 	cache := newGraphDataCache(root, store)
 	// Warm the full-view assembly in the background so the first Network View open
 	// serves cached bytes instead of waiting on the provenance walk.
 	go cache.warm()
-	return &GraphDataHandler{root: root, graph: g, cache: cache}
+	return &GraphDataHandler{root: root, store: store, cache: cache}
 }
 
 func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -303,9 +299,12 @@ func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// On assemble error, fall through to the live path below.
 	}
 
-	// Use the injected graph when available; fall back to per-request build.
-	g := h.graph
-	if g == nil {
+	// Use the shared store when available (resolves once per request, live);
+	// fall back to a fresh per-request build (NewGraphDataHandler callers).
+	var g *Graph
+	if h.store != nil {
+		g = h.store.currentGraph()
+	} else {
 		g = BuildLinkGraph(h.root)
 	}
 

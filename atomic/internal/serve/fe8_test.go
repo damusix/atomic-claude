@@ -326,24 +326,26 @@ func TestBreadcrumbTopLevelPageHasNoAncestorLinks(t *testing.T) {
 // ─── 6. GraphDataHandler uses injected graph ──────────────────────────────────
 
 // TestGraphDataHandlerUsesInjectedGraph verifies that NewGraphDataHandlerWithGraph
-// uses the provided graph instead of rebuilding BuildLinkGraph per request.
+// uses the graph resolved through the given store instead of rebuilding
+// BuildLinkGraph(root) per request.
 //
 // WHY: rebuilding the link graph on every /graph/data request causes per-request
-// latency proportional to realm size. The graph is built once at startup in serve.go
-// and should be shared with GraphDataHandler.
+// latency proportional to realm size. The graph is resolved from the shared
+// snapshot store (CP2), not from GraphDataHandler's own root, on every request.
 func TestGraphDataHandlerUsesInjectedGraph(t *testing.T) {
 	// Use an empty temp dir as root. If GraphDataHandler rebuilt the graph from root,
-	// it would return 0 nodes (no .md files). We inject an empty graph explicitly
-	// and confirm the response reflects it — proving the injected graph is used.
+	// it would return 0 nodes (no .md files). We inject a store rooted at a
+	// different, empty directory and confirm the response reflects that store's
+	// (empty) graph — proving the injected store is used, not root.
 	root := t.TempDir()
 	// Write a markdown file so that a per-request BuildLinkGraph would produce nodes.
 	writeFile(t, filepath.Join(root, "page.md"), "# Page\n")
 
-	// Build an empty graph (not from root) to inject.
-	emptyRoot := t.TempDir() // empty dir → 0 nodes
-	injectedGraph := serve.BuildLinkGraph(emptyRoot)
+	// Store rooted at a different, empty dir (not root) → 0 nodes.
+	emptyRoot := t.TempDir()
+	store := serve.NewSnapshotStore(emptyRoot)
 
-	handler := serve.NewGraphDataHandlerWithGraph(root, injectedGraph)
+	handler := serve.NewGraphDataHandlerWithGraph(root, store)
 
 	req := httptest.NewRequest(http.MethodGet, "/graph/data", nil)
 	rr := httptest.NewRecorder()

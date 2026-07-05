@@ -227,8 +227,10 @@ type notFoundFragmentData struct {
 // Without shell, missing pages produce bare http.NotFound; found pages fall
 // back to the fragment template (unit tests that don't need the shell use this).
 //
-// g may be nil; nil degrades to NewPageHandler with no rail wiring.
-func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) http.Handler {
+// g may be nil; nil degrades to NewPageHandler with no rail wiring. g is
+// typically the shared *snapshotStore (CP2 live-reload) so the graph read
+// below reflects the realm as of this request, not the state at construction.
+func NewPageHandlerWithGraph(root string, g graphProvider, shell ...*ShellRenderer) http.Handler {
 	var sh *ShellRenderer
 	if len(shell) > 0 {
 		sh = shell[0]
@@ -243,6 +245,10 @@ func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) htt
 			http.NotFound(w, r)
 			return
 		}
+
+		// Resolved once per request so the render below reflects one
+		// consistent graph even if a live rebuild lands mid-request.
+		graph := g.currentGraph()
 
 		isHX := fragmentRequest(r)
 
@@ -275,7 +281,7 @@ func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) htt
 					serve404(w, r, relPath, "/page/"+relPath, isHX, sh)
 					return
 				}
-				bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, idxRel, g)
+				bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, idxRel, graph)
 				if err != nil {
 					http.Error(w, "render error", http.StatusInternalServerError)
 					return
@@ -291,7 +297,7 @@ func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) htt
 				serve404(w, r, relPath, "/page/"+relPath, isHX, sh)
 				return
 			}
-			bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, normRelPath(relPath), g)
+			bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, normRelPath(relPath), graph)
 			if err != nil {
 				http.Error(w, "render error", http.StatusInternalServerError)
 				return

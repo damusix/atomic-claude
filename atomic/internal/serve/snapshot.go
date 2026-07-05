@@ -102,6 +102,46 @@ func newSnapshotStore(root string, tickInterval, quietWindow time.Duration) *sna
 	return s
 }
 
+// NewSnapshotStore constructs the shared realm-snapshot store, at production
+// defaults, that backs the nav/page/rail/graph-data handlers (CP2).
+// RunWithContext constructs exactly one and injects it into every handler
+// constructor so a single walk — and a single rebuild funnel — is shared
+// across all of them, instead of each handler tracking its own copy (SC1,
+// SC7). Exported so tests exercising the handlers' post-startup live-reload
+// behavior through the public API can construct one the same way.
+//
+// The store is warmed synchronously before this returns (unlike the
+// unexported newSnapshotStore, which starts empty): a caller of an exported
+// constructor must never observe a nil graph, including a handler's
+// background cache-warm goroutine racing the caller's own first request.
+func NewSnapshotStore(root string) *snapshotStore {
+	s := newSnapshotStore(root, defaultTickInterval, defaultQuietWindow)
+	s.ensureFresh()
+	return s
+}
+
+// graphProvider is the seam the page, rail, and graph-data handlers read the
+// current link graph through. *Graph satisfies it as a static, single-shot
+// value (pre-CP2 callers, tests that build one graph and never expect it to
+// change); *snapshotStore satisfies it by calling ensureFresh on every read —
+// the same accessor the ticker and startup warm use (SC7) — so a file added,
+// edited, or deleted after construction is reflected on the next call without
+// the caller reconstructing the handler.
+type graphProvider interface {
+	currentGraph() *Graph
+}
+
+// currentGraph makes *Graph a graphProvider: a bare graph is one immutable
+// snapshot, so it simply returns itself.
+func (g *Graph) currentGraph() *Graph { return g }
+
+// currentGraph makes *snapshotStore a graphProvider: every call revalidates
+// the realm fingerprint (and rebuilds when stale) before returning the graph.
+func (s *snapshotStore) currentGraph() *Graph {
+	snap, _ := s.ensureFresh()
+	return snap.graph
+}
+
 // seed publishes an initial snapshot built from an already-constructed graph
 // (e.g. one built once at server startup) instead of performing a rebuild
 // walk. The snapshot's fingerprint reflects the current on-disk state, so a
