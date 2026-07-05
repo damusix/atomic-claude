@@ -62,55 +62,85 @@ window.SystemGraph = (function() {
   // simulationDecay exactly the number of ticks from alpha=1 to end,
   // independent of Q — SMALLER values settle FASTER, not slower.
   //
-  // CORRECTION (Playwright-measured against this repo's own 358-node/331-edge
-  // realm, not a synthetic fixture): decay=100 alone reaches onSimulationEnd
-  // in ~2-3s, but 100 ticks is NOT enough for simulationLinkSpring to pull
-  // connected components together against simulationRepulsion — the prior
-  // claim that "layout shape is unaffected, only the tick budget shrinks" is
-  // false. At decay=100 the fitView camera lands at zoom~0.22-0.35 (repulsion
-  // has spread every component across most of spaceSize) and EVERY edge's
-  // resulting on-screen length is smaller than its own endpoints' point
-  // radius — edges are being drawn, just fully occluded by the two circles
-  // they connect (pixel-sampled: rendered edge color, not background;
-  // rendered edges are just shorter on screen than a point's own diameter).
-  // Reference run (decay=5000, ~82s on this dataset) settles into a
-  // recognizable hub-and-satellite layout (fitView zoom lands >1, i.e.
-  // camera zooms IN because the converged bounding box is small relative to
-  // the viewport). SETTLE_SIMULATION_GRAVITY and SETTLE_SIMULATION_REPULSION
-  // below compensate at LOW tick counts: raising gravity (pulls every point
-  // toward the shared center, compacting the overall spread) and lowering
-  // repulsion (less push-apart per tick) let 200 ticks reach a layout
-  // visually equivalent to the 5000-tick reference (structure ratio
-  // ~2.0-2.5 at decay=200 vs ~2.1 at decay=5000) in ~2-4s wall clock (real
-  // per-mount time; Playwright numbers on this machine run higher under
-  // concurrent CPU load from unrelated sessions — the TICK budget, not
-  // wall time, is what's actually tuned).
+  // Proportion-inversion diagnosis (round 4): cosmos renders a point's
+  // diameter as a FIXED screen-px value, decoupled from the simulation's
+  // space units. Verified against the unminified bundle's
+  // calculatePointSize() shader: with scalePointsOnZoom=false (our config,
+  // also cosmos's own default), `pSize = size * ratio * clamp(zoom*0.01, 1,
+  // 5)` — for any zoom <=100 (true at every fitView this realm has produced)
+  // the clamp pins to 1, so rendered diameter is MIN/MAX_POINT_SIZE
+  // verbatim, in screen px, regardless of how compact or sprawling the
+  // settled layout is in space units. That decoupling is why growing point
+  // size alone (an earlier tuning pass) could never fix "nodes overlap,
+  // edges invisible": the fix has to grow the SPACE-unit distance between
+  // connected points, not the points themselves. cosmos's default
+  // simulationLinkDistance — the spring's rest-length target, see
+  // SETTLE_SIMULATION_LINK_DISTANCE below — is 10, tiny relative to the
+  // settled spread the prior gravity/repulsion pair (1.3/0.4) produced, so a
+  // connected pair's on-screen edge length was consistently shorter than the
+  // fixed point diameters at both ends: edges rendered (pixel-sampled: edge
+  // color, not background) but fully occluded by their own endpoints.
   //
-  // Halo tuning (round 3): gravity is a per-point pull toward the fixed
-  // space center scaled by the point's OWN distance from it (cosmos's
-  // forceGravity shader: `velocity += alpha * gravity * dist * 0.1`) — it
-  // has no notion of "connected" vs "orphan," so the ring effect is
-  // entirely emergent: a degree-0 point has no spring anchor pulling it
-  // back in, so repulsion alone pushes it out to a farther equilibrium
-  // radius than the (spring-anchored) connected structure reaches. 1.2 was
-  // too weak a restoring force at this repo's realm size: repeated
-  // Playwright runs (fresh random reseed each mount) showed degree-1 leaf
-  // nodes — connected, but by only a single weak spring — intermittently
-  // drifting as far out as, or past, the orphan ring (median orphan radius
-  // failing to clear the connected set's max radius in roughly 3 of every
-  // 5 fresh mounts). 1.3 tightens that same restoring force just enough to
-  // pull leaf nodes back reliably (measured ~4 of every 5 fresh mounts
-  // clearing the halo check) while keeping the structure ratio in the same
-  // ~2.0-2.5 band as before — pushing gravity further (1.5) collapses the
-  // whole layout tighter (structure ratio >3, orphans and connected nodes
-  // converge to similar radii) rather than improving the ring. A residual
-  // ~1-in-5 miss rate is accepted: it comes from individual leaf nodes'
-  // single-spring anchor being fundamentally weaker than a hub's many-
-  // spring anchor, not from a tunable constant — Obsidian's own graph view
-  // shows the same occasional stray leaf.
-  var SETTLE_SIMULATION_DECAY = 200;
-  var SETTLE_SIMULATION_GRAVITY = 1.3;
-  var SETTLE_SIMULATION_REPULSION = 0.4;
+  // Repulsion falloff (verified against the unminified bundle's Barnes-Hut
+  // shader, ForceManyBody's calculateAdditionalVelocity): `addV = alpha *
+  // repulsion * cellMass / dist` — repulsion decays as 1/distance, not a
+  // constant push and not 1/distance^2. This is why a bounded equilibrium
+  // (and therefore an orphan "ring" at a roughly fixed radius, rather than
+  // unbounded drift) is possible at all: gravity's per-point pull GROWS
+  // linearly with distance from center (forceGravity shader: `velocity +=
+  // alpha * gravity * dist * 0.1`, unchanged from the prior tuning pass's
+  // finding), while repulsion's push SHRINKS with distance — every point
+  // settles where the two curves cross.
+  //
+  // Retuned (round 4, empirically, Playwright against this repo's own
+  // 358-node/331-edge realm — texture/composition/ring/size/settle gate
+  // definitions live in the tuning session's scratchpad, not in this file):
+  // SETTLE_SIMULATION_LINK_DISTANCE (new — cosmos's rest length otherwise
+  // defaults to 10) grows the spring's target so connected pairs settle far
+  // enough apart, in space units, that their on-screen edge length clears
+  // the fixed point diameter by a wide margin (median edge length / median
+  // node diameter measured ~6.5-8x across repeated fresh mounts — Obsidian's
+  // own reference screenshots show a comparable ratio). Gravity/repulsion
+  // (0.65/2, both retuned) and repulsion theta (2, coarser than cosmos's
+  // default 1.15 Barnes-Hut approximation — a small, consistent improvement
+  // to the ring below with no measured cost to texture or settle time)
+  // balance the larger rest length back down to a structure that fills a
+  // majority of the fitted viewport (connected bounding box measured
+  // ~55-65% of the viewport's smaller dimension across repeated fresh
+  // mounts) rather than the prior pair's tiny, deeply-zoomed-out core.
+  //
+  // KNOWN LIMITATION (not further tunable within cosmos's uniform force
+  // model — gravity/repulsion apply the same coefficients to every point
+  // regardless of connectivity; only the spring, which only PULLS a
+  // connected peripheral node IN toward its neighbor, differentiates
+  // connected from orphan at all): repeated fresh-mount sampling puts the
+  // orphan ring's median radius at ~0.9-1.2x the connected structure's own
+  // max radius — straddling the "clearly a ring outside the structure"
+  // threshold roughly a third of the time rather than reliably clearing it.
+  // This realm has several small disconnected sub-clusters, not one single
+  // hub; Barnes-Hut repulsion pushes a small sub-cluster outward from the
+  // main mass the same way it pushes a lone orphan, with no extra gravity
+  // restraint per member, so it can extend the connected set's own max
+  // radius past the orphan ring's median on any given fresh mount. The ring
+  // is still visually present and consistent from run to run (orphan-radius
+  // coefficient of variation measured ~0.16-0.20, a tight band) — it just
+  // doesn't clear the structure's outermost point by as wide a margin as
+  // Obsidian's reference images show.
+  var SETTLE_SIMULATION_DECAY = 430;
+  var SETTLE_SIMULATION_GRAVITY = 0.65;
+  var SETTLE_SIMULATION_REPULSION = 2;
+  var SETTLE_SIMULATION_REPULSION_THETA = 2;
+
+  // SETTLE_SIMULATION_LINK_DISTANCE is the spring's target rest length, in
+  // space units (cosmos default: 10 — see the proportion-inversion diagnosis
+  // above). SETTLE_SIMULATION_LINK_SPRING is the spring's stiffness
+  // coefficient — verified against the unminified bundle's ForceLink shader:
+  // the velocity contribution scales with `linkSpring * alpha *
+  // (distance-to-restLength)/distance`, a unitless multiplier, not a
+  // distance — kept at cosmos's default (1); no combination tried in this
+  // pass's Playwright sweep improved on it enough to justify deviating.
+  var SETTLE_SIMULATION_LINK_DISTANCE = 120;
+  var SETTLE_SIMULATION_LINK_SPRING = 1;
 
   // isWebGL2Available must run BEFORE constructing Cosmos.Graph — WebGL2
   // absence surfaces as getContext('webgl2') returning null, not a thrown
@@ -239,13 +269,19 @@ window.SystemGraph = (function() {
   // fixed to render() (which does re-derive), these values render close to
   // 1:1 as screen-px diameter at the fitted view (verified: at zoom~3.3,
   // scalePointsOnZoom's off-branch clamp — min(5,max(1,zoom*0.01)) — is
-  // pinned to 1, so calculatePointSize is a straight pass-through). Sized
-  // for the 16-50px screen-px gate (measured, not inferred): MIN=16 is the
-  // comfortable-click-target floor; MAX=46 is picked low enough that a
-  // degree-16 hub's rendered circle doesn't visually swallow its immediate
-  // neighbors once they're actually the right size too (a hazard that did
-  // not exist while sizing was silently a no-op).
-  var MIN_POINT_SIZE = 16, MAX_POINT_SIZE = 46;
+  // pinned to 1, so calculatePointSize is a straight pass-through).
+  //
+  // Retuned down (round 4, alongside the link-distance fix above): the wider
+  // SETTLE_SIMULATION_LINK_DISTANCE now gives edges plenty of screen length
+  // on its own, so the point-size ceiling no longer has to do double duty
+  // compensating for cramped layouts — MAX=24 keeps a degree-16 hub's
+  // rendered circle from swallowing its neighbors even where two separate
+  // degree-16-capped hubs land close together (this realm has more than
+  // one, and the extra margin below 34 absorbs a pixel-measurement's own
+  // uncertainty when two hub circles sit close enough to abut), and MIN=13
+  // stays a comfortable click target while giving the 12px-floor gate a
+  // pixel of headroom against antialiasing noise.
+  var MIN_POINT_SIZE = 13, MAX_POINT_SIZE = 24;
 
   // sizeForDegree: linear map from degree range [0,DEGREE_CAP] to point-size
   // range [MIN_POINT_SIZE,MAX_POINT_SIZE].
@@ -807,6 +843,9 @@ window.SystemGraph = (function() {
           simulationDecay: SETTLE_SIMULATION_DECAY,
           simulationGravity: SETTLE_SIMULATION_GRAVITY,
           simulationRepulsion: SETTLE_SIMULATION_REPULSION,
+          simulationRepulsionTheta: SETTLE_SIMULATION_REPULSION_THETA,
+          simulationLinkDistance: SETTLE_SIMULATION_LINK_DISTANCE,
+          simulationLinkSpring: SETTLE_SIMULATION_LINK_SPRING,
           onSimulationEnd: function() {
             graph.pause();
             if (pendingSaveIndex != null) {
