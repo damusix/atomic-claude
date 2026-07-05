@@ -213,19 +213,26 @@ type notFoundFragmentData struct {
 }
 
 // isNilGraphProvider reports whether g represents "no graph": a bare nil
-// interface, or a typed-nil pointer (nil *Graph, nil *snapshotStore, ...)
-// boxed into the graphProvider interface. A boxed typed-nil pointer carries a
-// non-nil type descriptor, so a plain `g == nil` comparison is always false
-// for it — the interface only equals nil when both its type and value are
-// unset — even though the underlying pointer has nothing to read. Every
-// graphProvider implementation in this package is a pointer type, so the
-// Kind check makes the IsNil call safe.
+// interface, or a typed-nil value (nil *Graph, nil *snapshotStore, or any
+// other nilable-kind implementor) boxed into the graphProvider interface. A
+// boxed typed-nil value carries a non-nil type descriptor, so a plain
+// `g == nil` comparison is always false for it — the interface only equals
+// nil when both its type and value are unset — even though the underlying
+// value has nothing to read. The Kind switch covers every nilable reflect
+// kind (Ptr, Map, Slice, Chan, Func, Interface) so any typed-nil provider
+// degrades, not just pointer implementors; IsNil panics on a non-nilable
+// kind, which is why the switch guards it.
 func isNilGraphProvider(g graphProvider) bool {
 	if g == nil {
 		return true
 	}
 	v := reflect.ValueOf(g)
-	return v.Kind() == reflect.Ptr && v.IsNil()
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 // NewPageHandlerWithGraph returns an http.Handler for /page/* that renders

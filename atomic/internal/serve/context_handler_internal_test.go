@@ -20,6 +20,24 @@ import (
 	"testing"
 )
 
+// nilMapGraphProvider is a defined map type implementing graphProvider (FOLLOWUPS
+// F-5): isNilGraphProvider must catch a typed-nil non-pointer implementor, not
+// just nil pointers.
+type nilMapGraphProvider map[string]int
+
+func (nilMapGraphProvider) currentGraph() *Graph { return nil }
+
+// TestIsNilGraphProvider_NonPointerTypedNil proves isNilGraphProvider degrades
+// for a typed-nil implementor whose underlying kind is not reflect.Ptr — the
+// same trap the pointer cases below guard against, just on a map instead.
+func TestIsNilGraphProvider_NonPointerTypedNil(t *testing.T) {
+	var m nilMapGraphProvider // nil map value
+	var g graphProvider = m
+	if !isNilGraphProvider(g) {
+		t.Error("isNilGraphProvider(nil map-typed provider) = false, want true")
+	}
+}
+
 // TestNewPageHandlerWithGraph_TypedNilGraphProviderDegradesWithoutPanic verifies
 // that a typed-nil *snapshotStore or *Graph takes the exact same no-graph
 // degrade path as NewPageHandlerWithGraph(root, nil) — not a panic when the
