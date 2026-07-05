@@ -72,7 +72,7 @@ Calm by default, alive on interaction. The physics primitives were verified agai
 | Cached open, unchanged fingerprint | Seed positions, pause immediately — exact replay, zero motion, zero cool ("seed-and-pause"); seed is applied before the first sim tick |
 | Drag | Bounded local reheat; non-neighborhood stays put (pinning); release → cool → pause |
 | At rest + viewport idle | Zero view-owned per-frame work — no readback, no DOM label writes, no JS-side animation loops. cosmos.gl's internal rAF redraw of the static scene continues: `pause()` stops only the simulation and `stopFrames()` is private (verified against unminified 3.1.0 source, 2026-07-04) — accepted upstream ceiling, candidate upstream feature request |
-| Position saves | On drag release only (as today) — no per-open cache rewrite |
+| Position saves | Full snapshot once when a fresh mount settles (cache-miss path) and full snapshot on drag release — a cache-hit open never rewrites the cache; the hit gate requires full node-set coverage. Matches today's semantics (the pre-swap code saved the fresh settle at `layout.html:943`); "no per-open rewrite" bans seed-and-cool churn, not the one-time settle save |
 
 
 This preserves today's contracts the swap must not regress: exact position replay and hand-arranged maps (`layout.html:899-901,943,973`), zero idle cost, and the no-lurch rule recorded at `layout.html:967-973`.
