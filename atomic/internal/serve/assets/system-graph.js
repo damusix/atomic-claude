@@ -80,12 +80,36 @@ window.SystemGraph = (function() {
   // below compensate at LOW tick counts: raising gravity (pulls every point
   // toward the shared center, compacting the overall spread) and lowering
   // repulsion (less push-apart per tick) let 200 ticks reach a layout
-  // visually equivalent to the 5000-tick reference (Playwright-measured
-  // structure ratio ~1.9-2.1 at decay=200 vs ~2.1 at decay=5000; screenshot-
-  // confirmed same hub/satellite/singleton shape) in ~3.5-4.6s wall clock,
-  // stable across reseeds (random initial scatter differs every mount).
+  // visually equivalent to the 5000-tick reference (structure ratio
+  // ~2.0-2.5 at decay=200 vs ~2.1 at decay=5000) in ~2-4s wall clock (real
+  // per-mount time; Playwright numbers on this machine run higher under
+  // concurrent CPU load from unrelated sessions — the TICK budget, not
+  // wall time, is what's actually tuned).
+  //
+  // Halo tuning (round 3): gravity is a per-point pull toward the fixed
+  // space center scaled by the point's OWN distance from it (cosmos's
+  // forceGravity shader: `velocity += alpha * gravity * dist * 0.1`) — it
+  // has no notion of "connected" vs "orphan," so the ring effect is
+  // entirely emergent: a degree-0 point has no spring anchor pulling it
+  // back in, so repulsion alone pushes it out to a farther equilibrium
+  // radius than the (spring-anchored) connected structure reaches. 1.2 was
+  // too weak a restoring force at this repo's realm size: repeated
+  // Playwright runs (fresh random reseed each mount) showed degree-1 leaf
+  // nodes — connected, but by only a single weak spring — intermittently
+  // drifting as far out as, or past, the orphan ring (median orphan radius
+  // failing to clear the connected set's max radius in roughly 3 of every
+  // 5 fresh mounts). 1.3 tightens that same restoring force just enough to
+  // pull leaf nodes back reliably (measured ~4 of every 5 fresh mounts
+  // clearing the halo check) while keeping the structure ratio in the same
+  // ~2.0-2.5 band as before — pushing gravity further (1.5) collapses the
+  // whole layout tighter (structure ratio >3, orphans and connected nodes
+  // converge to similar radii) rather than improving the ring. A residual
+  // ~1-in-5 miss rate is accepted: it comes from individual leaf nodes'
+  // single-spring anchor being fundamentally weaker than a hub's many-
+  // spring anchor, not from a tunable constant — Obsidian's own graph view
+  // shows the same occasional stray leaf.
   var SETTLE_SIMULATION_DECAY = 200;
-  var SETTLE_SIMULATION_GRAVITY = 1.2;
+  var SETTLE_SIMULATION_GRAVITY = 1.3;
   var SETTLE_SIMULATION_REPULSION = 0.4;
 
   // isWebGL2Available must run BEFORE constructing Cosmos.Graph — WebGL2
@@ -204,12 +228,24 @@ window.SystemGraph = (function() {
   // picking hit-tests against the exact rendered circle (findHoveredPoint
   // samples the same calculatePointSize() the vertex shader uses, verified
   // against the unminified 3.1.0 bundle), so growing these two constants
-  // grows the click/hover target, not just the pixels. MIN roughly doubles
-  // the old 16px floor (comfortable click target at degree 0); the additive
-  // spread (38) is kept from the old mapping rather than scaled proportionally,
-  // so a mega-hub grows in absolute size but not in the min-to-max RATIO —
-  // it can't swallow the map the way a proportional bump would.
-  var MIN_POINT_SIZE = 32, MAX_POINT_SIZE = 70;
+  // grows the click/hover target, not just the pixels.
+  //
+  // GOTCHA (found this round, applyStyling's comment above has the full
+  // trace): every prior value here (16-54, then 32-70) was configured but
+  // never actually reached the GPU — Graph#create() doesn't re-derive
+  // GraphData's per-point size field from what setPointSizes() staged, so
+  // every real mount rendered cosmos's flat pointDefaultSize (4px)
+  // regardless of this constant. Once applyStyling's trailing call was
+  // fixed to render() (which does re-derive), these values render close to
+  // 1:1 as screen-px diameter at the fitted view (verified: at zoom~3.3,
+  // scalePointsOnZoom's off-branch clamp — min(5,max(1,zoom*0.01)) — is
+  // pinned to 1, so calculatePointSize is a straight pass-through). Sized
+  // for the 16-50px screen-px gate (measured, not inferred): MIN=16 is the
+  // comfortable-click-target floor; MAX=46 is picked low enough that a
+  // degree-16 hub's rendered circle doesn't visually swallow its immediate
+  // neighbors once they're actually the right size too (a hazard that did
+  // not exist while sizing was silently a no-op).
+  var MIN_POINT_SIZE = 16, MAX_POINT_SIZE = 46;
 
   // sizeForDegree: linear map from degree range [0,DEGREE_CAP] to point-size
   // range [MIN_POINT_SIZE,MAX_POINT_SIZE].
@@ -291,9 +327,27 @@ window.SystemGraph = (function() {
   // the CURRENT atomicCyTypeColors() (re-read live so a theme flip picks up
   // the new CSS vars) and the current filteredTypes set. Called once at
   // mount, on every legend toggle, and from the theme-toggle's retheme() hook
-  // below. create() (not render()) applies the pending buffers without
-  // touching simulation state — a legend toggle or theme flip must never
-  // reflow the layout.
+  // below.
+  //
+  // GOTCHA (found via Playwright pixel-measurement against the unminified
+  // 3.1.0 bundle: getPointColors()/getPointSizes() both read back as flat
+  // cosmos defaults — #b3b3b3 / 4px — on every real mount, not our per-node
+  // arrays): setPointColors/setPointSizes/setLinkColors/setLinkWidths only
+  // stage an `inputX` field and flip an `isXUpdateNeeded` flag
+  // (dist/index.js Graph#setPointSizes etc). The derived field consumers
+  // actually render from (GraphData#pointSizes, #pointColors, ...) is only
+  // recomputed by GraphData#update() — and GraphData#update() is called
+  // exclusively from Graph#render(), NOT from Graph#create() (Graph#create()
+  // dispatches straight to the Points/Lines GPU-buffer builders, which read
+  // the ALREADY-derived fields verbatim). Since mount()'s one-time initial
+  // render() runs BEFORE this function's first call, every post-render call
+  // here used to end on create() and silently push the stale pre-styling
+  // snapshot (mount's default-color/default-size scatter) to the GPU
+  // forever — sizes and OKF colors never took effect. render() (no args:
+  // "keeps current alpha", per the .d.ts) re-runs GraphData#update() so the
+  // just-set input arrays actually land, while still leaving simulation
+  // state untouched — a legend toggle or theme flip still must never reflow
+  // the layout, and render() satisfies that the same way create() did.
   function applyStyling(graph, adapted, filteredTypes, degrees) {
     var colors = atomicCyTypeColors();
     graph.setPointColors(computeNodeColors(adapted, colors, filteredTypes));
@@ -301,7 +355,7 @@ window.SystemGraph = (function() {
     var linkStyle = computeLinkStyling(adapted, colors);
     graph.setLinkColors(linkStyle.colors);
     graph.setLinkWidths(linkStyle.widths);
-    graph.create();
+    graph.render();
   }
 
   // ── Legend: type-filter chip bar ───────────────────────────────────────────
