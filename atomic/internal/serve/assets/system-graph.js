@@ -53,6 +53,21 @@ window.SystemGraph = (function() {
   // would relayout more than the local neighborhood.
   var DRAG_REHEAT_ALPHA = 0.1;
 
+  // SETTLE_SIMULATION_DECAY replaces cosmos's default (5000) so a fresh
+  // mount reaches onSimulationEnd in a few seconds instead of tens of
+  // seconds. GOTCHA verified against the unminified 3.1.0 bundle: the
+  // config.d.ts prose reads "use smaller values if you want the simulation
+  // to cool down slower" — backwards from the actual formula. Store.alphaDecay
+  // is `1 - Q^(1/simulationDecay)` (Q = the 0.001 end threshold), which makes
+  // simulationDecay exactly the number of ticks from alpha=1 to end,
+  // independent of Q — SMALLER values settle FASTER, not slower. Measured on
+  // the real bundle (Playwright, 320 nodes/600 links): decay=5000 (default)
+  // ~42.7s; decay=100 ~2.8s median. Chosen to land under the ~3s target with
+  // margin for slower hardware than the measurement machine, without
+  // touching repulsion/link-strength (layout shape unaffected — only the
+  // tick BUDGET to reach the same layout shrinks).
+  var SETTLE_SIMULATION_DECAY = 100;
+
   // isWebGL2Available must run BEFORE constructing Cosmos.Graph — WebGL2
   // absence surfaces as getContext('webgl2') returning null, not a thrown
   // error, so the fetch-chain .catch below would never see it.
@@ -164,10 +179,22 @@ window.SystemGraph = (function() {
     return deg;
   }
 
-  // sizeForDegree mirrors atomicCyStyle()'s 'mapData(deg, 0, 16, 16, 54)' —
-  // linear map from degree range [0,16] to point-size range [16,54].
+  // MIN_POINT_SIZE/MAX_POINT_SIZE replace the old 1:1 port of
+  // atomicCyStyle()'s 'mapData(deg, 0, 16, 16, 54)' — cosmos's GPU point
+  // picking hit-tests against the exact rendered circle (findHoveredPoint
+  // samples the same calculatePointSize() the vertex shader uses, verified
+  // against the unminified 3.1.0 bundle), so growing these two constants
+  // grows the click/hover target, not just the pixels. MIN roughly doubles
+  // the old 16px floor (comfortable click target at degree 0); the additive
+  // spread (38) is kept from the old mapping rather than scaled proportionally,
+  // so a mega-hub grows in absolute size but not in the min-to-max RATIO —
+  // it can't swallow the map the way a proportional bump would.
+  var MIN_POINT_SIZE = 32, MAX_POINT_SIZE = 70;
+
+  // sizeForDegree: linear map from degree range [0,DEGREE_CAP] to point-size
+  // range [MIN_POINT_SIZE,MAX_POINT_SIZE].
   function sizeForDegree(deg) {
-    return 16 + (Math.min(deg, DEGREE_CAP) / DEGREE_CAP) * (54 - 16);
+    return MIN_POINT_SIZE + (Math.min(deg, DEGREE_CAP) / DEGREE_CAP) * (MAX_POINT_SIZE - MIN_POINT_SIZE);
   }
 
   // Provenance edge colors. cosmos.gl links carry no dash-pattern API (checked
@@ -703,6 +730,7 @@ window.SystemGraph = (function() {
           // manually once onSimulationEnd fires.
           fitViewOnInit: false,
           enableDrag: true,
+          simulationDecay: SETTLE_SIMULATION_DECAY,
           onSimulationEnd: function() {
             graph.pause();
             if (pendingSaveIndex != null) {
