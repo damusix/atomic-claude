@@ -188,3 +188,30 @@ atomic/internal/serve/
 | SSE-triggered scroll-preserve bypass interacts with the existing unconditional `htmx:after:swap` scroll reset used by ordinary navigation | Low | Bypass is scoped to swaps carrying the `live-swap` marker only; ordinary htmx navigation keeps today's reset behavior |
 
 ## Change log
+
+## Implementation log
+
+### shipped — 2026-07-05
+
+Built across 8 iterations of /subagent-implementation on branch `serve-live-reload` (worktree). Commits (chronological):
+
+- `88d7106` — CP-1 snapshot store (fp + nav + link graph, atomic swap, generation-keyed funnel)
+- `fdc5da4` — CP-2 handler migration (nav/page/rail/graph-data on the store; frozen singleton retired; `?live=1` staleness skip)
+- `f94e7b7` — CP-3 `/events` SSE + subscriber-gated ticker (coalescing slots, write deadlines, fast shutdown)
+- `c71f107` — CP-4 client page-mode reconcile (EventSource boot, fp seed, `HX-Live-Swap` per-request marker, connectivity dot)
+- `5c6dbc3` — CP-5 system-graph incremental patch (id-diff, neighbor seeding, scoped cola, IndexedDB re-key + prune)
+- `78d75be` — polish: typed-nil graphProvider degrade (page + rail), abortable mount with ownership-gated shared-state writes
+
+**Out-of-scope work performed during this build:**
+- Rail handler typed-nil guard: same defect class as the page handler's F-3, surfaced during the polish pass and fixed for consistency.
+
+**Unforeseens — surprises that emerged during implementation:**
+- CP-2: cold store raced the warm goroutine to a nil-graph snapshot (CAS loser returned the placeholder) — fixed by eager warm in the exported constructor.
+- CP-4: unseeded `lastSeenFp` made the resync push trigger a spurious full refetch on every page load — first message now seeds only.
+- CP-4: a shared DOM-attribute scroll-bypass marker raced overlapping swaps — replaced with a per-request `HX-Live-Swap` header read from htmx's request context.
+- CP-5 → polish: a stale aborted mount could clear the shared in-flight flag under a newer mount — all shared-state writes are now gated on mount ownership (`systemMountAbort === abortController`).
+
+**Deferred items still open:**
+- FOLLOWUPS F-5 (🔵): `isNilGraphProvider` assumes pointer implementors (documented assumption; recommend drop unless a value-type provider ever appears).
+- Browser-visual manual gate: scroll-preserve paint, connectivity-dot transitions, and Cytoscape patch visuals verified by static trace + server-level curl only; eyeball pass pending (`atomic serve` + edit files).
+- Pre-existing `atomic validate spec` S5 failures on three unrelated specs (`atomic-migrate-framework`, `challenge-swarm`, `cli-cobra`) — present on `next` before this branch.
