@@ -69,10 +69,12 @@ Links and backlinks come from `mdlink.ExtractLinks`, which parses markdown links
 
 ### System graph
 
-The `[ page | system ]` toggle swaps the middle pane to the whole-realm graph (Cytoscape + ELK, fed by `/graph/data`) and collapses the right rail.
+The `[ page | system ]` toggle swaps the middle pane to the whole-realm graph, rendered by [cosmos.gl](https://cosmos.gl) (GPU simulation and GPU rendering, fed by `/graph/data`), and collapses the right rail. The layout runs as a continuous physics simulation instead of a one-shot layout pass: it settles to rest and pauses on first open, and the settled positions are cached per realm, so reopening an unchanged graph replays the same layout instantly with no visible motion.
 
 - Nodes are colored by OKF concept type. The type is resolved via a hybrid strategy: frontmatter `type:` (title-case values `Knowledge`, `Concern`, `Repo Summary` mapped to short lowercase classes) takes priority, then path-convention fallback (`wiki/repos/` → `repo`, `wiki/concerns/` → `concern`, `wiki/knowledge/` → `knowledge`, `wiki/.buckets/` → `bucket`, `http(s)://` hrefs → `external`), then `page` as a default.
 - Nodes render in **A-style**: a solid background with a colored glow ring. Colors are read from CSS custom properties at render time and track the active theme automatically.
+- Node labels render as a DOM overlay that fades in as you zoom in and fades out as you zoom out, so a dense graph stays readable from a distance. The hovered node's label always shows, regardless of zoom.
+- Dragging a node reheats the simulation locally: the dragged node follows the pointer while the rest of the graph stays put. Releasing the drag settles the simulation back to rest and saves the new position to the cache.
 - A **type legend** appears below the graph. Each chip shows the type name and its count of visible nodes. Clicking a chip toggles that type's nodes on or off, so you can isolate concerns, or hide repos to see only knowledge pages and the edges between them.
 - Edges are drawn in three classes: markdown links, wikilinks, and fingerprint/provenance links (dashed). A provenance edge whose recorded fingerprint differs from the live content hash is drawn red — the drift signal from the `reflects:` / `sources:` chain.
 - Code edges are per-member sub-graphs; no cross-repo edges are drawn (federation, not merging).
@@ -81,7 +83,9 @@ The `[ page | system ]` toggle swaps the middle pane to the whole-realm graph (C
 
 **Node-click content modal.** Clicking a node in the system graph opens a modal over the dimmed graph — not a navigation away. The modal fetches the page's rendered HTML from `/page/<id>`, displays it inline, and offers an "Open full page →" button to navigate into the full page view when you want more context. The modal closes on Esc, the close button, or a click on the dimmed backdrop. Graph state is preserved; clicking a node no longer loses your place in the graph.
 
-The vendored graph scripts (`cytoscape.min.js`, `elk.bundled.js`, `cytoscape-elk.min.js`) load once in the shell, in that load-bearing order, and power both the rail mini-graph and the system view.
+**WebGL2 requirement.** The system graph needs WebGL2 to run. If the browser lacks it, the toggle shows a message naming the requirement instead of a blank pane or a stuck spinner. The rail mini-graph runs on Cytoscape and needs no WebGL2, so it works in any browser.
+
+The rail mini-graph runs on the vendored `cytoscape.min.js`; the system graph runs on a separately vendored cosmos.gl bundle. Both load once in the shell and are embedded via `go:embed`, with no runtime build step.
 
 ### Code modal
 
@@ -132,7 +136,7 @@ The realm-health view, reachable but no longer the landing page. Renders `wiki.S
 
 `atomic serve` ships with a light and dark theme, both derived from the same CSS custom-property set.
 
-**Theme toggle.** The top-bar sun / moon button switches themes. Before any page content paints, an inline script reads the `atomic-serve-theme` key from `localStorage` and falls back to the OS `prefers-color-scheme` media query. Toggling writes the choice back to `localStorage` and re-applies the Cytoscape styles on the live graph instances (`window.__systemCy`, `window.__railCy`) so the graph colors update immediately without a page reload.
+**Theme toggle.** The top-bar sun / moon button switches themes. Before any page content paints, an inline script reads the `atomic-serve-theme` key from `localStorage` and falls back to the OS `prefers-color-scheme` media query. Toggling writes the choice back to `localStorage`, re-themes the cosmos.gl system graph, and re-applies the Cytoscape styles on the live rail graph instance (`window.__railCy`), so both graphs' colors update immediately without a page reload.
 
 **Light theme.** Warm paper background, charcoal text, amber accent.
 
