@@ -824,8 +824,20 @@ window.SystemGraph = (function() {
         // onSimulationEnd through the same shared handler above.
         graph.setPointPositions(seed, hit);
         graph.setLinks(adapted.links);
-        applyStyling(graph, adapted, filteredTypes, degrees);
+        // render() MUST run before applyStyling()'s create() call: a fresh
+        // Cosmos.Graph starts store.pointsTextureSize at 0, and that field is
+        // only ever computed inside render()->update(). Calling create()
+        // (which applyStyling ends with) before the first render() makes
+        // Points#updatePositions() bail out on that still-zero size WITHOUT
+        // creating hoveredFbo, while still clearing the isPointPositionsUpdateNeeded
+        // flag that would otherwise retry it — so hoveredFbo (used by every
+        // hover-pick readback) is silently skipped forever. Verified via a
+        // real-browser repro against the vendored bundle: reversing this
+        // order reproduces "Cannot destructure property 'device' of 't' as
+        // it is undefined" in findHoveredPoint on the very first hover, and
+        // fixes it once render() runs first.
         graph.render(hit ? 0 : undefined);
+        applyStyling(graph, adapted, filteredTypes, degrees);
       })
       .catch(function(e) {
         if (activeContainer !== container) { return; }
