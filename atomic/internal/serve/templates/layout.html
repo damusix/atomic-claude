@@ -710,6 +710,7 @@
       var VIEW_DEBOUNCE_MS = 250;   // how long after the last zoom/pan before writing the URL
       var systemLayoutCacheKey = null; // current IndexedDB key (CP5: hash of the mounted element-id set)
       var systemMountInFlight = false; // CP5: true from mount start until window.__systemCy is set (or the mount fails) — guards against a live-reload event racing a second concurrent mountSystemGraph
+      var systemMountAbort = null; // F-4: AbortController for the mount's in-flight /graph/data fetch — teardownSystemGraph aborts it so a stale fetch can't outlive a navigate-away and clobber a later mount's state
 
       function inSystemMode() { return document.body.classList.contains('mode-system'); }
 
@@ -726,6 +727,14 @@
       // dismiss any open card/modal. Called when #main-pane settles with non-graph
       // content (nav click, node "open full page", Back to a page, etc.).
       function teardownSystemGraph() {
+        // Cleared here, synchronously, rather than left for the abandoned mount's
+        // own (async) fetch chain to clear: that chain's bail branches check
+        // ownership (systemMountAbort === their own controller) before touching
+        // ANY shared state, so once torn down they must no-op even for this flag —
+        // otherwise a stale mount's late-settling chain could clear it out from
+        // under a fresh mount that started in the meantime.
+        systemMountInFlight = false;
+        if (systemMountAbort) { systemMountAbort.abort(); systemMountAbort = null; }
         if (window.__systemCy) { try { window.__systemCy.destroy(); } catch (e) {} window.__systemCy = null; }
         document.body.classList.remove('mode-system');
         updateGraphBtnState(false);
@@ -904,14 +913,30 @@
         document.body.classList.add('mode-system');
         updateGraphBtnState(true);
 
+        // F-4: this mount's own controller — passed to fetch so teardownSystemGraph's
+        // abort() actually cancels the in-flight network request. isCurrentMount is
+        // the real guard against a stale mount's chain settling late and clobbering
+        // a fresh one: `signal.aborted` alone only covers the case where THIS mount
+        // was the one aborted, not "some later mount has since taken over
+        // systemMountAbort" — ownership (=== the live systemMountAbort) covers both.
+        var abortController = new AbortController();
+        systemMountAbort = abortController;
+        var signal = abortController.signal;
+        function isCurrentMount() { return systemMountAbort === abortController; }
+
         function clearSystemLoading() {
           var l = mainPane.querySelector('.system-graph-loading');
           if (l) { l.remove(); }
         }
 
-        fetch('/graph/data')
+        fetch('/graph/data', { signal: signal })
           .then(function(r) { return r.json(); })
           .then(function(elems) {
+            // Superseded (torn down and/or a later mount has since taken ownership
+            // of systemMountAbort) between the fetch settling and this callback
+            // running: bail before touching systemLayoutCacheKey — teardownSystemGraph
+            // already cleared systemMountInFlight, so nothing shared gets touched here.
+            if (!isCurrentMount()) { return null; }
             // Look up a cached layout for this exact mounted-element-id shape, then mount.
             // Capture the outgoing key before overwriting it — the degenerate-fallback
             // remount path (fullSystemRelayout) leaves systemLayoutCacheKey pointing at
@@ -923,6 +948,10 @@
             return loadCachedLayout(systemLayoutCacheKey).then(function(cachedPos) { return { elems: elems, cachedPos: cachedPos }; });
           })
           .then(function(bundle) {
+            // bundle is null when the guard above already bailed, or ownership was
+            // lost during the IndexedDB lookup that followed it — either way, no
+            // Cytoscape instance gets built for a superseded mount.
+            if (!bundle || !isCurrentMount()) { return; }
             var elems = bundle.elems;
             var cachedPos = bundle.cachedPos;
 
@@ -954,6 +983,12 @@
               minZoom: 0.02,
               maxZoom: 2.2
             });
+            // Nothing async happens between the guard above and here (cytoscape's
+            // constructor is synchronous), so ownership cannot have changed in
+            // between — this re-check is an explicit invariant rather than a live
+            // race, kept so a future edit that adds an async step here doesn't
+            // silently reopen the gap.
+            if (!isCurrentMount()) { try { cy.destroy(); } catch (e) {} return; }
             window.__systemCy = cy;
             systemMountInFlight = false;
 
@@ -1033,6 +1068,12 @@
             });
           })
           .catch(function(e) {
+            // Ownership-gated like every branch above: a superseded mount's error
+            // (including its own AbortError from teardownSystemGraph) reports
+            // nothing — there's no loading indicator left in the DOM that's still
+            // this mount's, and systemMountInFlight already reflects the mount
+            // that's actually current.
+            if (!isCurrentMount()) { return; }
             systemMountInFlight = false;
             var l = mainPane.querySelector('.system-graph-loading');
             if (l) { l.textContent = 'Could not render the system graph.'; }

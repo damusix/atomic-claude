@@ -130,7 +130,17 @@ type railTmplData struct {
 // through g (a static *Graph for tests, or the shared *snapshotStore in
 // production — CP2 live-reload). Traversal outside root and pages absent from
 // the graph yield 404.
+//
+// g may be nil — including a typed-nil *Graph or *snapshotStore boxed into
+// the interface (see isNilGraphProvider) — in which case every request
+// degrades to 404: with no graph there is nothing to confirm a page's
+// membership against, the same outcome the graph-membership check below
+// already produces for a page the graph doesn't know about.
 func NewRailHandler(root string, g graphProvider) http.Handler {
+	if isNilGraphProvider(g) {
+		return http.HandlerFunc(http.NotFound)
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		relPath := strings.TrimPrefix(r.URL.Path, "/rail/")
 		if relPath == "" || relPath == "/" {

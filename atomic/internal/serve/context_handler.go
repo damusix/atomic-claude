@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -211,6 +212,22 @@ type notFoundFragmentData struct {
 	Path string
 }
 
+// isNilGraphProvider reports whether g represents "no graph": a bare nil
+// interface, or a typed-nil pointer (nil *Graph, nil *snapshotStore, ...)
+// boxed into the graphProvider interface. A boxed typed-nil pointer carries a
+// non-nil type descriptor, so a plain `g == nil` comparison is always false
+// for it — the interface only equals nil when both its type and value are
+// unset — even though the underlying pointer has nothing to read. Every
+// graphProvider implementation in this package is a pointer type, so the
+// Kind check makes the IsNil call safe.
+func isNilGraphProvider(g graphProvider) bool {
+	if g == nil {
+		return true
+	}
+	v := reflect.ValueOf(g)
+	return v.Kind() == reflect.Ptr && v.IsNil()
+}
+
 // NewPageHandlerWithGraph returns an http.Handler for /page/* that renders
 // markdown and wires the right rail. htmx fragment requests emit one OOB loader
 // into #rail-graph-content; the loader fires GET /rail/<relpath> which returns
@@ -227,15 +244,17 @@ type notFoundFragmentData struct {
 // Without shell, missing pages produce bare http.NotFound; found pages fall
 // back to the fragment template (unit tests that don't need the shell use this).
 //
-// g may be nil; nil degrades to NewPageHandler with no rail wiring. g is
-// typically the shared *snapshotStore (CP2 live-reload) so the graph read
-// below reflects the realm as of this request, not the state at construction.
+// g may be nil — including a typed-nil *Graph or *snapshotStore boxed into
+// the interface (see isNilGraphProvider) — and degrades to NewPageHandler
+// with no rail wiring. g is typically the shared *snapshotStore (CP2
+// live-reload) so the graph read below reflects the realm as of this
+// request, not the state at construction.
 func NewPageHandlerWithGraph(root string, g graphProvider, shell ...*ShellRenderer) http.Handler {
 	var sh *ShellRenderer
 	if len(shell) > 0 {
 		sh = shell[0]
 	}
-	if g == nil {
+	if isNilGraphProvider(g) {
 		return NewPageHandler(root)
 	}
 
