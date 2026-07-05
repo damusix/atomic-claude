@@ -7,10 +7,11 @@
 //
 // CP2 landed mount/teardown lifecycle, the JSON→cosmos data adapter, WebGL2
 // detection, and the fresh-mount motion policy (sim runs to rest, then
-// pauses). CP3 added the seed-and-pause position cache, bounded local drag
-// reheat, and URL view-state read/write. CP4 adds the legend type-filter
-// chips, hover/click wiring into AtomicGraphUI, theme-flip re-styling,
-// degree-based sizing, OKF type coloring, and provenance/drift edge styling
+// pauses). CP3 added the seed-and-pause position cache, a bounded unpinned
+// live-simulation drag reheat, and URL view-state read/write. CP4 adds the
+// legend type-filter chips, hover/click wiring into AtomicGraphUI,
+// theme-flip re-styling, degree-based sizing, OKF type coloring, and
+// provenance/drift edge styling
 // (relocated here from the shell's shared atomicCyStyle() — cosmos has no
 // CSS selectors and no link dash-pattern API, so styling is computed and
 // pushed per-point/per-link instead). CP5 adds the DOM label overlay: a
@@ -47,10 +48,20 @@ window.SystemGraph = (function() {
   // How long after the last user-driven zoom/pan before writing it to the URL.
   var VIEW_DEBOUNCE_MS = 250;
 
-  // Bounded reheat energy for a node drag — enough for the dragged point's
-  // immediate neighborhood to spring-adjust to its new position; too small a
-  // value would leave the tick loop idle (see onDrag's comment), too large
-  // would relayout more than the local neighborhood.
+  // Reheat energy for a node drag, applied to the LIVE simulation with no
+  // pinning (2026-07-05 spec amendment — dragging is a live reheat, not a
+  // pin-the-rest-of-the-graph containment). Every force scales by this
+  // alpha, so it mainly exists to keep the tick loop running for the
+  // duration of the drag — see onDrag's comment — and to bound the overall
+  // energy budget; too large would perturb nodes well outside the drag's
+  // neighborhood on its own.
+  //
+  // A first pass tuned only this alpha (0.02-0.1, 30+ trials) and found a
+  // structural tension: simulationGravity's uniform center-pull and
+  // simulationRepulsion's close-range separating kick both scale by the
+  // same alpha, so damping the far field down also damped the overlap kick.
+  // DRAG_REPULSION_BOOST (below) resolves that by scaling repulsion alone,
+  // via a live config mutation independent of alpha — see its own comment.
   var DRAG_REHEAT_ALPHA = 0.1;
 
   // SETTLE_SIMULATION_DECAY replaces cosmos's default (5000) so a fresh
@@ -130,6 +141,35 @@ window.SystemGraph = (function() {
   var SETTLE_SIMULATION_GRAVITY = 0.65;
   var SETTLE_SIMULATION_REPULSION = 2;
   var SETTLE_SIMULATION_REPULSION_THETA = 2;
+
+  // DRAG_REPULSION_BOOST scales simulationRepulsion (only) for the duration
+  // of a drag, restored to SETTLE_SIMULATION_REPULSION in onDragEnd before
+  // the release cooldown runs — so the overlap-separating kick gets
+  // boosted energy while the user is actively dragging, without also
+  // boosting simulationGravity's uniform far-field pull (a separate config
+  // field, read independently — verified against the unminified 3.1.0
+  // bundle's ForceManyBody/ForceGravity uniform builders) and without
+  // perturbing the settle-tuned cooldown physics. graph.setConfigPartial()
+  // is the live mechanism: it shallow-merges the given keys into the same
+  // config object ForceManyBody.run() reads simulationRepulsion from every
+  // tick (`repulsion: this.config.simulationRepulsion` inline in the
+  // uniform builder, dist/index.js ~line 2218) — no position reset, no GPU
+  // buffer reallocation, no branch in updateStateFromConfig() for this
+  // field at all, so the change is live on the very next simulation step.
+  //
+  // Tuned empirically (Playwright against real /graph/data,
+  // tmp/cosmos-tune/drag-repulsion-sweep.js, boost factors 1x-8x, 10 trials
+  // each on a typical moderate-degree node pair): 1x (no boost) resolved
+  // overlap on 8/10 and stayed calm on 8/10; 2x/3x/4x all cleared overlap
+  // resolution and far-field calm (<=25% of drag displacement) on 9-10/10;
+  // 6x/8x reliably resolved overlap but blew the far-field budget on every
+  // trial (repulsion is a global per-tick force in cosmos's Barnes-Hut
+  // pass, not local to the drop point, so a large enough boost measurably
+  // moves points well outside the drag's neighborhood too). 3x is the
+  // middle of the clean-pass band: full 10/10 overlap resolution (the more
+  // central "repulsion resolves overlaps" behavior) with only one far-field
+  // miss (a 29% overshoot, not wildly off) across 10 trials.
+  var DRAG_REPULSION_BOOST = 3;
 
   // SETTLE_SIMULATION_LINK_DISTANCE is the spring's target rest length, in
   // space units (cosmos default: 10 — see the proportion-inversion diagnosis
@@ -823,11 +863,11 @@ window.SystemGraph = (function() {
         }
 
         // flushPendingSave writes the full snapshot once the dragged node's
-        // cooldown reaches rest — not at raw pointer-release, since its
-        // neighbors (unpinned during the drag) can still nudge positions
-        // while cooling. Also called from onDragStart so a second drag
-        // started before the first one's cooldown finishes doesn't lose the
-        // write.
+        // cooldown reaches rest — not at raw pointer-release, since nothing
+        // is pinned during the drag and the rest of the graph can still
+        // nudge positions while cooling. Also called from onDragStart so a
+        // second drag started before the first one's cooldown finishes
+        // doesn't lose the write.
         function flushPendingSave() {
           if (pendingSaveIndex == null) { return; }
           saveFullSnapshot();
@@ -857,7 +897,6 @@ window.SystemGraph = (function() {
               // rewrite the cache (SC1).
               saveFullSnapshot();
             }
-            graph.setPinnedPoints(null); // unconditional; a no-op before any drag has pinned anyone
             if (mountFinished) { return; } // a post-drag cooldown, not the initial mount — nothing else to do
             mountFinished = true;
             var saved = readViewFromURL();
@@ -871,24 +910,34 @@ window.SystemGraph = (function() {
             updateLabels();
             recording = true;
           },
-          // Bounded local reheat: pin everything except the dragged point and
-          // its immediate neighbors (the design's "non-dragged neighborhood"),
-          // so only that local cluster can respond to forces — the rest of
-          // the graph is frozen for the whole drag + cooldown, matching SC1's
-          // "leaves the rest of the graph in place." start(alpha) also resumes
-          // the tick loop, which the drag's own per-frame position write rides
-          // on — dragging while paused would otherwise never render.
-          onDragStart: function(e) {
-            var idx = e.subject && e.subject.index;
+          // Live reheat, no pinning. cosmos already glues the dragged point
+          // to the pointer every frame regardless of pin state — its
+          // dragPointCommand shader overwrites that point's position
+          // unconditionally whenever dragInstance.isActive, verified against
+          // the unminified 3.1.0 bundle (dist/index.js's Points.drag():
+          // `if (index >= 0.0 && index == pointPosition.b) { pointPosition.rg
+          // = mousePos.rg; }`, called from the render loop independent of
+          // isSimulationRunning). start(alpha) here exists only to resume the
+          // tick loop so springs pull direct neighbors and n-body repulsion
+          // pushes apart whatever the drop overlaps — boosted for the
+          // duration of the drag via DRAG_REPULSION_BOOST (see its comment).
+          //
+          // GOTCHA verified against the unminified 3.1.0 bundle: config.d.ts
+          // types e.subject as {index, position} (its `Hovered` alias), but
+          // the compiled runtime never overrides d3-drag's default subject
+          // function — e.subject is actually {x, y} screen coordinates, so
+          // e.subject.index is always undefined. graph.store.draggingPointIndex
+          // is what cosmos itself sets from store.hoveredPoint.index
+          // immediately before invoking this callback, and is the one live
+          // source of the dragged point's index (empirically confirmed;
+          // store isn't in the public .d.ts, but it's a plain instance
+          // property, not a private field).
+          onDragStart: function() {
+            var idx = graph.store && graph.store.draggingPointIndex;
             if (idx == null) { return; }
             flushPendingSave();
             draggedIndex = idx;
-            var keep = {};
-            keep[idx] = true;
-            graph.getNeighboringPointIndices(idx).forEach(function(n) { keep[n] = true; });
-            var pin = [];
-            for (var i = 0; i < adapted.nodes.length; i++) { if (!keep[i]) { pin.push(i); } }
-            graph.setPinnedPoints(pin);
+            graph.setConfigPartial({ simulationRepulsion: SETTLE_SIMULATION_REPULSION * DRAG_REPULSION_BOOST });
             graph.start(DRAG_REHEAT_ALPHA);
           },
           onDrag: function() {
@@ -901,6 +950,11 @@ window.SystemGraph = (function() {
           },
           onDragEnd: function() {
             if (draggedIndex == null) { return; }
+            // Restored before the cooldown runs, not after — the release
+            // settle (springs/repulsion still nudging positions while alpha
+            // decays to the pause threshold) uses the same normal-strength
+            // repulsion as a fresh mount, not the drag's boosted value.
+            graph.setConfigPartial({ simulationRepulsion: SETTLE_SIMULATION_REPULSION });
             // Saved once the cooldown reaches onSimulationEnd, not here — see
             // the Flow's release -> cools -> save ordering and flushPendingSave.
             pendingSaveIndex = draggedIndex;
