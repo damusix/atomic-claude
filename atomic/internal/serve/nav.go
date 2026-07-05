@@ -73,15 +73,44 @@ type NavOptions struct {
 	// production default (computeStaleness) is used.  Tests may inject a
 	// stub to avoid disk/git I/O.
 	StalenessFn StalenessFn
+
+	// Store is the shared snapshot store (CP2 live-reload) backing the
+	// repo-scope nav tree's file list, shared with the page/rail/graph-data
+	// handlers so a single walk serves all of them. Realm-scope nav does not
+	// read Store — members/concerns/knowledge/buckets are read from the wiki
+	// index and their own directories directly (unchanged).
+	//
+	// nil is a valid fallback for callers (tests) that construct NavOptions
+	// directly without a shared store: NewNavHandler builds a private
+	// one-off store rooted at RealmRoot, so repo-scope nav still works, just
+	// without sharing its walk with any other handler.
+	Store *snapshotStore
+}
+
+// sseLiveParam is the query parameter CP4's client-side EventSource-triggered
+// nav refetch sets on GET /nav (e.g. "/nav?live=1") so the handler can skip
+// computeStaleness — a git-subprocess-backed check — on every live-reload
+// refresh. An ordinary navigation request (no param) still runs it.
+const sseLiveParam = "live"
+
+// isSSETriggered reports whether r carries the SSE-triggered nav marker.
+func isSSETriggered(r *http.Request) bool {
+	return r.URL.Query().Get(sseLiveParam) != ""
 }
 
 // NewNavHandler returns an http.Handler for the /nav route.
 func NewNavHandler(opts NavOptions) http.Handler {
+	store := opts.Store
+	if store == nil && !opts.IsRealmScope {
+		store = newSnapshotStore(opts.RealmRoot, defaultTickInterval, defaultQuietWindow)
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-		// Resolve staleness once per request.
-		if opts.IsRealmScope {
+		// Resolve staleness once per request — skipped for an SSE-triggered
+		// refresh so a live-reload tick never pays the git-subprocess cost.
+		if opts.IsRealmScope && !isSSETriggered(r) {
 			fn := opts.StalenessFn
 			if fn == nil {
 				fn = computeStaleness
@@ -95,7 +124,8 @@ func NewNavHandler(opts NavOptions) http.Handler {
 		if opts.IsRealmScope {
 			renderRealmNav(&sb, opts)
 		} else {
-			renderRepoNav(&sb, opts.RealmRoot)
+			snap, _ := store.ensureFresh()
+			renderRepoNav(&sb, snap.navPaths)
 		}
 
 		fmt.Fprint(w, sb.String())
@@ -196,20 +226,37 @@ func memberLinkRel(realmRoot string, m wiki.Member) string {
 // ─── repo nav ────────────────────────────────────────────────────────────────
 
 // renderRepoNav writes a docs file tree nav for a bare repo (no wiki).
-func renderRepoNav(sb *strings.Builder, root string) {
+//
+// navPaths is the snapshot's root-relative .md file list (CP2 live-reload):
+// the same single walk that produces the fingerprint and link graph, instead
+// of this function performing its own independent filesystem walk. A file
+// added, edited, or removed since the last snapshot rebuild is reflected here
+// because the caller (NewNavHandler) re-derives navPaths via ensureFresh on
+// every request.
+func renderRepoNav(sb *strings.Builder, navPaths []string) {
 	// ── README.md (top-level markdown files) ──────────────────────────────
 	sb.WriteString("<details open>\n")
 	sb.WriteString("<summary class=\"nav-group\">Docs</summary>\n")
 
-	// Top-level .md files (README.md and siblings).
-	topMDs := walkMarkdownFiles(root)
+	// Top-level .md files (README.md and siblings) — navPaths entries with no
+	// "/" are direct children of root; navPaths is already sorted, so the
+	// filtered subsets stay sorted without a second sort.
+	var topMDs []string
+	var docsFiles []string // relative to "docs/", i.e. with the prefix stripped
+	for _, p := range navPaths {
+		if !strings.Contains(p, "/") {
+			topMDs = append(topMDs, p)
+			continue
+		}
+		if rest, ok := strings.CutPrefix(p, "docs/"); ok {
+			docsFiles = append(docsFiles, rest)
+		}
+	}
 	for _, name := range topMDs {
 		writeNavLeaf(sb, stripMDExt(name), name)
 	}
 
 	// docs/**/*.md — render as nested <details> folder tree.
-	docsDir := filepath.Join(root, "docs")
-	docsFiles := walkMarkdownFilesRecursive(docsDir)
 	writeNavFolderTree(sb, "docs", docsFiles)
 
 	sb.WriteString("</details>\n")

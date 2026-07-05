@@ -41,9 +41,9 @@ Adapted from Stanford's STORM: perspective-diverse agents grounded in a corpus (
 ## Checkpoints
 
 
-| # | Checkpoint | Proof |
-|---|-----------|-------|
-| CP1 | Command template + cross-artifact wiring + reference docs + render/bundle in one commit | `make render` and `make -C atomic bundle` leave a clean diff; help-router verification loop reports no `MISSING:` line for `/challenge-swarm` |
+| # | Checkpoint | Files/areas | Verifies |
+|---|-----------|-------------|----------|
+| CP1 | Command template + cross-artifact wiring + reference docs + render/bundle in one commit | `templates/commands/challenge-swarm.md` (+ rendered `commands/challenge-swarm.md`); cross-references in `templates/commands/atomic-plan.md`, `pressure-test.md`, `gather-evidence.md`, `atomic-help.md`; `CLAUDE.md`; `docs/reference/commands.md`, `docs/reference/workflow.md`; `docs/credits.md`; embedded bundle | `make render` and `make -C atomic bundle` leave a clean diff; help-router verification loop reports no `MISSING:` line for `/challenge-swarm` |
 
 
 ## Risks
@@ -126,3 +126,12 @@ atomic/internal/embedded/**             M  bundle regen (make -C atomic bundle)
 **What changed:** New command `/challenge-swarm` — multi-lens design challenger with isolated parallel subagents and a contradiction-map report, wired as the post-design gate across `/atomic-plan`, `/pressure-test`, `/gather-evidence`, `/atomic-help`, `CLAUDE.md`, and the reference docs.
 
 **Why:** The lifecycle had single-voice challenge gates only (`/pressure-test` dialogue, `atomic-reviewer` spec-mode alignment, `atomic-strategist` single heavyweight opinion). Nothing attacked a written design from multiple independent perspectives, and nothing surfaced the *disagreements between* perspectives — the highest-value signal for the trade-off decisions a design still owes.
+
+
+### 2026-07-05 — Correction: Checkpoints table columns
+
+**What changed:** The Checkpoints table used `# | Checkpoint | Proof`; reshaped to the required `# | Checkpoint | Files/areas | Verifies` — `Proof` folded into `Verifies`, `Files/areas` populated from the checkpoint's actual wiring. The single checkpoint's scope is unchanged.
+
+**Why:** `atomic validate spec` rule S5 requires the `# | Checkpoint | Files/areas | … | Verifies` column contract as an exact ordered subsequence; the `Proof` shorthand failed the gate.
+
+**Correction:** Found by `atomic validate spec` reporting S5 FAIL at the Checkpoints table.

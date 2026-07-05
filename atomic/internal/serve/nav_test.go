@@ -527,3 +527,40 @@ func TestNavTreeBucketFolderIsBrowsable(t *testing.T) {
 		t.Errorf("bucket should no longer render a dead nav-leaf span, got:\n%s", body)
 	}
 }
+
+// TestNavTreeSSETriggeredRequestSkipsStaleness verifies CP2: a nav request
+// carrying the SSE-triggered marker (?live=1) does not invoke the staleness
+// seam at all, while an ordinary navigation request (no marker) still does.
+//
+// WHY: computeStaleness is git-subprocess-backed; a live-reload refresh that
+// fires on every on-disk change must not pay that cost on every tick.
+func TestNavTreeSSETriggeredRequestSkipsStaleness(t *testing.T) {
+	root := buildMinimalWikiRealm(t)
+
+	var calls int
+	handler := serve.NewNavHandler(serve.NavOptions{
+		RealmRoot:     root,
+		IsRealmScope:  true,
+		WikiIndexPath: filepath.Join(root, "wiki", "index.md"),
+		StalenessFn: func(_, _ string) (map[string]bool, map[string]bool) {
+			calls++
+			return map[string]bool{}, map[string]bool{}
+		},
+	})
+
+	// SSE-triggered request: the staleness seam must not be called.
+	req := httptest.NewRequest(http.MethodGet, "/nav?live=1", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if calls != 0 {
+		t.Errorf("SSE-triggered nav request must skip StalenessFn, got %d calls", calls)
+	}
+
+	// Ordinary navigation request: the staleness seam must still run.
+	req2 := httptest.NewRequest(http.MethodGet, "/nav", nil)
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	if calls != 1 {
+		t.Errorf("ordinary nav request must still call StalenessFn, got %d calls", calls)
+	}
+}

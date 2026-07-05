@@ -708,6 +708,9 @@
     (function() {
       var currentPage = null;       // last /page/ URL loaded (for the "back to page" toggle)
       var VIEW_DEBOUNCE_MS = 250;   // how long after the last zoom/pan before writing the URL
+      var systemLayoutCacheKey = null; // current IndexedDB key (CP5: hash of the mounted element-id set)
+      var systemMountInFlight = false; // CP5: true from mount start until window.__systemCy is set (or the mount fails) — guards against a live-reload event racing a second concurrent mountSystemGraph
+      var systemMountAbort = null; // F-4: AbortController for the mount's in-flight /graph/data fetch — teardownSystemGraph aborts it so a stale fetch can't outlive a navigate-away and clobber a later mount's state
 
       function inSystemMode() { return document.body.classList.contains('mode-system'); }
 
@@ -724,11 +727,20 @@
       // dismiss any open card/modal. Called when #main-pane settles with non-graph
       // content (nav click, node "open full page", Back to a page, etc.).
       function teardownSystemGraph() {
+        // Cleared here, synchronously, rather than left for the abandoned mount's
+        // own (async) fetch chain to clear: that chain's bail branches check
+        // ownership (systemMountAbort === their own controller) before touching
+        // ANY shared state, so once torn down they must no-op even for this flag —
+        // otherwise a stale mount's late-settling chain could clear it out from
+        // under a fresh mount that started in the meantime.
+        systemMountInFlight = false;
+        if (systemMountAbort) { systemMountAbort.abort(); systemMountAbort = null; }
         if (window.__systemCy) { try { window.__systemCy.destroy(); } catch (e) {} window.__systemCy = null; }
         document.body.classList.remove('mode-system');
         updateGraphBtnState(false);
         AtomicGraphUI.hidePreviewCard();
         AtomicGraphUI.closePageModal();
+        systemLayoutCacheKey = null;
       }
 
       // Track current page + clean up system mode whenever #main-pane swaps. htmx 4:
@@ -815,14 +827,18 @@
         mainPane.appendChild(legend);
       }
 
-      // ── Layout cache (IndexedDB, keyed by the realm sha256 fingerprint) ────────
-      // The ELK 'stress' layout is the real cost of opening the Network View — it
-      // recomputes node positions every mount (the Cytoscape instance is destroyed
-      // on exit). We cache the computed positions in IndexedDB keyed by the server's
-      // filesystem fingerprint (the X-Graph-Fingerprint header — a sha256 over the
-      // realm that changes on ANY edit, so it invalidates correctly). Subsequent
-      // opens replay the saved positions with a 'preset' layout (no algorithm) so
-      // the graph appears instantly, and IndexedDB persists across browser sessions.
+      // ── Layout cache (IndexedDB, keyed by the mounted element-id set) ───────────
+      // The ELK 'stress' / cola layout is the real cost of opening the Network View
+      // — it recomputes node positions every mount (the Cytoscape instance is
+      // destroyed on exit). We cache the computed positions in IndexedDB keyed by a
+      // hash of the sorted ids of every node + edge currently mounted (not the realm
+      // fingerprint — CP5: a live-reload patch changes the mounted set without a
+      // full remount, so the key must track what's actually on screen). Subsequent
+      // opens of the same graph shape replay the saved positions with a 'preset'
+      // layout (no algorithm) so the graph appears instantly; IndexedDB persists
+      // across browser sessions. Every re-key — cold mount, degenerate-fallback
+      // remount, or incremental patch — prunes the entry for the key it
+      // superseded, if any, so stale shapes don't accumulate.
       var LAYOUT_DB = 'atomic-serve', LAYOUT_STORE = 'graph-layout';
 
       function idbOpen() {
@@ -854,6 +870,36 @@
           db.transaction(LAYOUT_STORE, 'readwrite').objectStore(LAYOUT_STORE).put(positions, key);
         }).catch(function() {});
       }
+      function deleteCachedLayout(key) {
+        if (!key) { return; }
+        idbOpen().then(function(db) {
+          db.transaction(LAYOUT_STORE, 'readwrite').objectStore(LAYOUT_STORE).delete(key);
+        }).catch(function() {});
+      }
+
+      // collectElementIds flattens a /graph/data response into one id array
+      // (nodes + edges) for hashing.
+      function collectElementIds(elems) {
+        var ids = [];
+        (elems.nodes || []).forEach(function(n) { if (n.data && n.data.id != null) { ids.push(n.data.id); } });
+        (elems.edges || []).forEach(function(e) { if (e.data && e.data.id != null) { ids.push(e.data.id); } });
+        return ids;
+      }
+
+      // elementIdSetHash derives a deterministic IndexedDB key from a set of
+      // element ids: sort (order-independent), join, FNV-1a hash. Not a
+      // cryptographic digest — uniqueness across graph shapes is all that's
+      // needed, so a synchronous string hash avoids an async crypto.subtle
+      // round trip in the mount/reconcile chain.
+      function elementIdSetHash(ids) {
+        var str = ids.slice().sort().join('|'); // separator avoids a false collision between differently-split concatenations of the same ids
+        var h = 0x811c9dc5;
+        for (var i = 0; i < str.length; i++) {
+          h ^= str.charCodeAt(i);
+          h = (h * 0x01000193) >>> 0;
+        }
+        return 'idset-' + h.toString(16);
+      }
 
       // Mount the system graph into the [data-system-graph] container delivered by
       // the /graph fragment. Guarded against double-mount (a dataset flag).
@@ -861,24 +907,51 @@
         if (container.dataset.systemMounted === '1') { return; }
         if (typeof cytoscape === 'undefined') { return; }
         container.dataset.systemMounted = '1';
+        systemMountInFlight = true;
 
         var mainPane = document.getElementById('main-pane');
         document.body.classList.add('mode-system');
         updateGraphBtnState(true);
+
+        // F-4: this mount's own controller — passed to fetch so teardownSystemGraph's
+        // abort() actually cancels the in-flight network request. isCurrentMount is
+        // the real guard against a stale mount's chain settling late and clobbering
+        // a fresh one: `signal.aborted` alone only covers the case where THIS mount
+        // was the one aborted, not "some later mount has since taken over
+        // systemMountAbort" — ownership (=== the live systemMountAbort) covers both.
+        var abortController = new AbortController();
+        systemMountAbort = abortController;
+        var signal = abortController.signal;
+        function isCurrentMount() { return systemMountAbort === abortController; }
 
         function clearSystemLoading() {
           var l = mainPane.querySelector('.system-graph-loading');
           if (l) { l.remove(); }
         }
 
-        var graphFP = null; // realm fingerprint from the response header (cache key)
-        fetch('/graph/data')
-          .then(function(r) { graphFP = r.headers.get('X-Graph-Fingerprint'); return r.json(); })
+        fetch('/graph/data', { signal: signal })
+          .then(function(r) { return r.json(); })
           .then(function(elems) {
-            // Look up a cached layout for this exact realm state, then mount.
-            return loadCachedLayout(graphFP).then(function(cachedPos) { return { elems: elems, cachedPos: cachedPos }; });
+            // Superseded (torn down and/or a later mount has since taken ownership
+            // of systemMountAbort) between the fetch settling and this callback
+            // running: bail before touching systemLayoutCacheKey — teardownSystemGraph
+            // already cleared systemMountInFlight, so nothing shared gets touched here.
+            if (!isCurrentMount()) { return null; }
+            // Look up a cached layout for this exact mounted-element-id shape, then mount.
+            // Capture the outgoing key before overwriting it — the degenerate-fallback
+            // remount path (fullSystemRelayout) leaves systemLayoutCacheKey pointing at
+            // the pre-fallback shape, so its IndexedDB entry must be pruned here too
+            // (mirrors rekeyLayoutCache's incremental-patch prune, SC20).
+            var supersededKey = systemLayoutCacheKey;
+            systemLayoutCacheKey = elementIdSetHash(collectElementIds(elems));
+            if (supersededKey && supersededKey !== systemLayoutCacheKey) { deleteCachedLayout(supersededKey); }
+            return loadCachedLayout(systemLayoutCacheKey).then(function(cachedPos) { return { elems: elems, cachedPos: cachedPos }; });
           })
           .then(function(bundle) {
+            // bundle is null when the guard above already bailed, or ownership was
+            // lost during the IndexedDB lookup that followed it — either way, no
+            // Cytoscape instance gets built for a superseded mount.
+            if (!bundle || !isCurrentMount()) { return; }
             var elems = bundle.elems;
             var cachedPos = bundle.cachedPos;
 
@@ -910,7 +983,14 @@
               minZoom: 0.02,
               maxZoom: 2.2
             });
+            // Nothing async happens between the guard above and here (cytoscape's
+            // constructor is synchronous), so ownership cannot have changed in
+            // between — this re-check is an explicit invariant rather than a live
+            // race, kept so a future edit that adds an async step here doesn't
+            // silently reopen the gap.
+            if (!isCurrentMount()) { try { cy.destroy(); } catch (e) {} return; }
             window.__systemCy = cy;
+            systemMountInFlight = false;
 
             var saved = readViewFromURL();
             var recording = false; // ignore programmatic initial view; record user changes after
@@ -955,12 +1035,12 @@
             // lets continuous physics and the layout cache coexist).
             var saveTimer = null;
             function scheduleSave() {
-              if (!graphFP) { return; }
+              if (!systemLayoutCacheKey) { return; }
               clearTimeout(saveTimer);
               saveTimer = setTimeout(function() {
                 var positions = {};
                 cy.nodes().forEach(function(n) { var p = n.position(); positions[n.id()] = { x: p.x, y: p.y }; });
-                saveCachedLayout(graphFP, positions);
+                saveCachedLayout(systemLayoutCacheKey, positions);
               }, 800);
             }
 
@@ -988,11 +1068,163 @@
             });
           })
           .catch(function(e) {
+            // Ownership-gated like every branch above: a superseded mount's error
+            // (including its own AbortError from teardownSystemGraph) reports
+            // nothing — there's no loading indicator left in the DOM that's still
+            // this mount's, and systemMountInFlight already reflects the mount
+            // that's actually current.
+            if (!isCurrentMount()) { return; }
+            systemMountInFlight = false;
             var l = mainPane.querySelector('.system-graph-loading');
             if (l) { l.textContent = 'Could not render the system graph.'; }
             console.error('system-graph /graph/data:', e);
           });
       }
+
+      // ── System-mode reconcile (CP5, spec Flow 4) ────────────────────────────
+      // Registers on CP4's `atomic:live-reload` dispatch, which only fires once
+      // the fp has already been confirmed to differ — no re-check needed here.
+      // No boot guard: this whole script lives in <head>, which htmx never
+      // swaps, so it runs exactly once per real page load (unlike the <body>
+      // live-reload script below, which guards against a history-restore
+      // body-innerHTML re-execution).
+
+      // seedPositionNear places a newly added node near a neighbor already on
+      // screen (a survivor, or an added node placed earlier in the same batch)
+      // so the scoped cola pass below refines a local cluster instead of
+      // scattering new nodes across the canvas. Falls back to the viewport
+      // center when no such neighbor is found yet.
+      function seedPositionNear(cy, nodeId, addedEdges, fallbackCenter) {
+        for (var i = 0; i < addedEdges.length; i++) {
+          var d = addedEdges[i].data;
+          if (!d) { continue; }
+          var other = d.source === nodeId ? d.target : (d.target === nodeId ? d.source : null);
+          if (!other) { continue; }
+          var neighbor = cy.getElementById(other);
+          if (neighbor.length && neighbor.isNode()) {
+            var p = neighbor.position();
+            return { x: p.x + (Math.random() - 0.5) * 40, y: p.y + (Math.random() - 0.5) * 40 };
+          }
+        }
+        return { x: fallbackCenter.x, y: fallbackCenter.y };
+      }
+
+      // fullSystemRelayout is the degenerate-fallback path: tear down and
+      // remount from scratch via the existing cold-mount flow (its own fetch,
+      // cache lookup, and cola/preset layout) instead of duplicating that logic
+      // here. Used both when the diff exceeds the 50% threshold and when no
+      // Cytoscape instance is mounted to diff against.
+      function fullSystemRelayout(container) {
+        if (!container) { container = document.querySelector('[data-system-graph]'); }
+        if (!container) { return; }
+        if (window.__systemCy) { try { window.__systemCy.destroy(); } catch (e) {} window.__systemCy = null; }
+        container.dataset.systemMounted = '';
+        mountSystemGraph(container);
+      }
+
+      // rekeyLayoutCache re-derives the IndexedDB key from the just-patched cy
+      // instance's element ids, saves the current positions under it, and
+      // prunes the entry for the key it superseded (SC20).
+      function rekeyLayoutCache(cy) {
+        var ids = [];
+        cy.nodes().forEach(function(n) { ids.push(n.id()); });
+        cy.edges().forEach(function(e) { ids.push(e.id()); });
+        var newKey = elementIdSetHash(ids);
+        var oldKey = systemLayoutCacheKey;
+        if (newKey === oldKey) { return; }
+        var positions = {};
+        cy.nodes().forEach(function(n) { var p = n.position(); positions[n.id()] = { x: p.x, y: p.y }; });
+        saveCachedLayout(newKey, positions);
+        if (oldKey) { deleteCachedLayout(oldKey); }
+        systemLayoutCacheKey = newKey;
+      }
+
+      // systemModeReconcile diffs a fresh /graph/data response against the
+      // mounted Cytoscape instance by element id (nodes AND edges) and either
+      // patches in place or falls back to a full relayout above the 50%
+      // threshold. No-op outside system mode — the page-mode reconcile (body
+      // script, below) owns everything else.
+      function systemModeReconcile() {
+        if (!inSystemMode()) { return; }
+        // An initial mount's /graph/data fetch is still in flight — it will render
+        // the current state on its own once it resolves, so no-op rather than race
+        // fullSystemRelayout into a second concurrent mountSystemGraph on the same
+        // container (window.__systemCy isn't set yet during this stretch, so the
+        // no-instance-mounted check below can't tell "still mounting" from "torn down").
+        if (systemMountInFlight) { return; }
+        var container = document.querySelector('[data-system-graph]');
+        var cy = window.__systemCy;
+        if (!cy || !container) { fullSystemRelayout(container); return; }
+
+        fetch('/graph/data')
+          .then(function(r) { return r.json(); })
+          .then(function(elems) {
+            var freshNodes = elems.nodes || [];
+            var freshEdges = elems.edges || [];
+
+            var mountedNodeIds = {}, mountedEdgeIds = {};
+            cy.nodes().forEach(function(n) { mountedNodeIds[n.id()] = true; });
+            cy.edges().forEach(function(e) { mountedEdgeIds[e.id()] = true; });
+            var mountedTotal = cy.nodes().length + cy.edges().length;
+
+            var freshNodeIds = {}, freshEdgeIds = {};
+            freshNodes.forEach(function(n) { if (n.data) { freshNodeIds[n.data.id] = true; } });
+            freshEdges.forEach(function(e) { if (e.data) { freshEdgeIds[e.data.id] = true; } });
+
+            var addedNodes = freshNodes.filter(function(n) { return n.data && !mountedNodeIds[n.data.id]; });
+            var addedEdges = freshEdges.filter(function(e) { return e.data && !mountedEdgeIds[e.data.id]; });
+            var removedIds = Object.keys(mountedNodeIds).filter(function(id) { return !freshNodeIds[id]; })
+              .concat(Object.keys(mountedEdgeIds).filter(function(id) { return !freshEdgeIds[id]; }));
+
+            var changedCount = addedNodes.length + addedEdges.length + removedIds.length;
+            var ratio = mountedTotal > 0 ? changedCount / mountedTotal : 1;
+            if (ratio > 0.5) { fullSystemRelayout(container); return; }
+
+            var toRemove = cy.collection();
+            removedIds.forEach(function(id) { toRemove = toRemove.union(cy.getElementById(id)); });
+            cy.remove(toRemove);
+
+            // Degree over the fresh full edge set so a brand-new hub sizes
+            // correctly on first appearance (mirrors the cold-mount calc above).
+            var deg = {};
+            freshEdges.forEach(function(e) {
+              var s = e.data && e.data.source, t = e.data && e.data.target;
+              if (s != null) { deg[s] = (deg[s] || 0) + 1; }
+              if (t != null) { deg[t] = (deg[t] || 0) + 1; }
+            });
+
+            var extent = cy.extent();
+            var fallbackCenter = { x: (extent.x1 + extent.x2) / 2, y: (extent.y1 + extent.y2) / 2 };
+
+            var addedCollection = cy.collection();
+            addedNodes.forEach(function(n) {
+              var pos = seedPositionNear(cy, n.data.id, addedEdges, fallbackCenter);
+              n.data.deg = Math.min(deg[n.data.id] || 0, 16);
+              addedCollection = addedCollection.union(cy.add({ group: 'nodes', data: n.data, position: pos }));
+            });
+            addedEdges.forEach(function(e) {
+              addedCollection = addedCollection.union(cy.add({ group: 'edges', data: e.data, classes: e.classes }));
+            });
+
+            // Scoped pass on the new collection only — cytoscape-cola drops any
+            // link whose endpoint sits outside `eles` (its nonparentNodes
+            // filter), so pre-existing nodes/edges are neither moved nor
+            // considered; `fit: false` also suppresses cola's own internal
+            // cy.fit() call, on top of never calling cy.fit() ourselves.
+            if (addedCollection.length) {
+              addedCollection.layout({
+                name: 'cola', fit: false, animate: true, randomize: false,
+                avoidOverlap: true, nodeSpacing: function() { return 8; },
+                edgeLength: 100, maxSimulationTime: 1500, infinite: false
+              }).run();
+            }
+
+            rekeyLayoutCache(cy);
+          })
+          .catch(function(e) { console.error('system-graph reconcile /graph/data:', e); });
+      }
+
+      document.addEventListener('atomic:live-reload', systemModeReconcile);
 
       // Delegated mount: fires whenever the /graph fragment ([data-system-graph])
       // lands in #main-pane (button click, refresh, Back/Forward).
@@ -1042,6 +1274,14 @@
             <kbd class="search-trigger-kbd">⌘K</kbd>
         </button>
     </div>
+    <!-- Live-reload connectivity indicator: reflects the /events EventSource's
+         readyState (live / reconnecting / disconnected). Painted by the
+         live-reload boot script below; the initial markup is the pre-connect
+         state so there is no flash of an unstyled dot before JS runs. -->
+    <span id="conn-indicator" class="conn-indicator" data-conn-state="reconnecting" title="Live reload: connecting…">
+        <span class="conn-dot" aria-hidden="true"></span>
+        <span class="conn-label">connecting…</span>
+    </span>
     <!-- Network / graph view toggle: shows/hides the full system graph -->
     <button class="theme-toggle" id="btn-graph" type="button"
             aria-label="Network view — toggle full graph" title="Network view"
@@ -1216,12 +1456,24 @@
      opened from a scrolled position would otherwise land mid-document. Keyed on
      the swap target so only content swaps reset (intel/rail swaps are left
      alone); history restores swap <body>, not #main-pane, so Back/Forward keep
-     their restored position. -->
+     their restored position.
+
+     A swap the live-reload script triggered carries an `HX-Live-Swap` request
+     header (set via the `headers` option on the triggering `htmx.ajax()` call,
+     below) so it can be told apart from ordinary navigation here. The header
+     lives on `evt.detail.ctx.request` — a fresh object per in-flight request,
+     not a DOM attribute on the shared target — so two swaps racing on the same
+     target (an ordinary nav vs. a live refetch, or two overlapping live
+     refetches) can never read or clear each other's marker; each swap's
+     `htmx:after:swap` event sees only its own request's headers. -->
 <script>
 document.addEventListener('htmx:after:swap', function(evt) {
   var ctx = evt.detail && evt.detail.ctx;
   var tgt = ctx && ctx.target;
-  if (tgt && tgt.id === 'main-pane') { tgt.scrollTop = 0; }
+  if (!tgt) { return; }
+  var headers = ctx.request && ctx.request.headers;
+  if (headers && headers['HX-Live-Swap']) { return; }
+  if (tgt.id === 'main-pane') { tgt.scrollTop = 0; }
 });
 </script>
 
@@ -1628,6 +1880,119 @@ document.addEventListener('htmx:after:swap', function(evt) {
     e.preventDefault();
     htmx.ajax('GET', '/page/' + folder + '/', { target: '#main-pane', swap: 'innerHTML' });
   });
+}());
+</script>
+
+<!-- Live reload (CP4): EventSource boot, page-mode reconcile, connectivity
+     indicator. Bound once via the same boot-guard idiom the search dialog
+     script uses (window.__atomicSearchBooted, above): a history-restore body
+     swap re-runs this inline script, but window.__atomicEventsBooted stops it
+     re-connecting — the original EventSource and its closure survive the swap
+     untouched (htmx 4 history-restore replaces <body>'s innerHTML, not the
+     document, so the connection is never torn down).
+
+     Dispatch point for checkpoint 5 (system-mode graph diff/patch): every
+     processed {fp, changed} message is re-broadcast as an `atomic:live-reload`
+     DOM CustomEvent (detail = the message) — CP5 registers its own
+     `document.addEventListener('atomic:live-reload', …)` alongside
+     pageModeReconcile below without touching this script. -->
+<script>
+(function() {
+  if (window.__atomicEventsBooted) { return; }
+  window.__atomicEventsBooted = true;
+
+  var lastSeenFp = null;
+
+  // ── connectivity indicator ──────────────────────────────────────────────
+  var connState = 'reconnecting'; // 'live' | 'reconnecting' | 'disconnected'
+  var connLabels = { live: 'live', reconnecting: 'connecting…', disconnected: 'disconnected' };
+
+  // Re-applies connState to the current #conn-indicator node. Called on every
+  // htmx:after:swap (not just state changes) because a full-body swap (history
+  // restore) replaces the indicator with a fresh, unpainted DOM node — the
+  // EventSource itself survives the swap, only its visual readout needs resync.
+  function paintConnIndicator() {
+    var el = document.getElementById('conn-indicator');
+    if (!el) { return; }
+    el.setAttribute('data-conn-state', connState);
+    el.title = 'Live reload: ' + connLabels[connState];
+    var label = el.querySelector('.conn-label');
+    if (label) { label.textContent = connLabels[connState]; }
+  }
+
+  function setConnState(next) {
+    connState = next;
+    paintConnIndicator();
+  }
+
+  document.addEventListener('htmx:after:swap', paintConnIndicator);
+
+  // ── page-mode reconcile (spec Flow 3) ───────────────────────────────────
+
+  // currentDisplayedRelpath returns the realm-root-relative path of the page
+  // currently shown in #main-pane, or '' when main-pane holds anything else
+  // (system graph, 404, search page) — the pane-refetch step below is a no-op
+  // in that case, which is also how it avoids clobbering the system graph
+  // without a separate mode check.
+  function currentDisplayedRelpath() {
+    var pc = document.querySelector('#main-pane #page-content[data-relpath]');
+    return pc ? pc.getAttribute('data-relpath') : '';
+  }
+
+  // liveSwap tags the request with an HX-Live-Swap header so the scroll-reset
+  // listener (above) can recognize this specific swap by its own request
+  // context rather than a shared DOM attribute, then performs the refetch
+  // through htmx's JS API so any OOB fragments in the response (breadcrumb,
+  // rail loader) still process.
+  function liveSwap(url, target) {
+    if (!target) { return; }
+    htmx.ajax('GET', url, { target: target, swap: 'innerHTML', headers: { 'HX-Live-Swap': '1' } });
+  }
+
+  function pageModeReconcile(ev) {
+    liveSwap('/nav?live=1', document.getElementById('nav-pane'));
+
+    var changed = ev.changed; // absent → cap exceeded → treat everything as changed
+    var rel = currentDisplayedRelpath();
+    if (rel && (!changed || changed.indexOf(rel) !== -1)) {
+      // The /page/<rel> fragment response carries the rail's OOB loader
+      // (context_handler.go pageWithGraphFragmentTmplStr), which itself
+      // hx-trigger="load"s GET /rail/<rel> — a separate rail refetch here
+      // would just re-request what that loader already triggers.
+      liveSwap('/page/' + rel, document.getElementById('main-pane'));
+    }
+  }
+
+  document.addEventListener('atomic:live-reload', function(e) { pageModeReconcile(e.detail); });
+
+  // ── EventSource boot (spec Flow 2: subscribe) ───────────────────────────
+  var es = new EventSource('/events');
+
+  es.onopen = function() { setConnState('live'); };
+
+  // onerror fires both for a genuine terminal failure and for the browser's
+  // built-in retry attempts; readyState tells them apart (CLOSED only after
+  // the browser gives up, which does not happen for a plain reconnect loop).
+  es.onerror = function() {
+    setConnState(es.readyState === EventSource.CLOSED ? 'disconnected' : 'reconnecting');
+  };
+
+  es.onmessage = function(msgEvt) {
+    var ev;
+    try { ev = JSON.parse(msgEvt.data); } catch (e) { return; }
+    // The resync push (Flow 2 step 3) is always the first message a connection
+    // receives, sent unconditionally regardless of whether anything changed
+    // since the page was rendered. lastSeenFp starts null, so treat this first
+    // message as fp-seeding only — dispatching it would spuriously refetch
+    // freshly rendered content on every page load.
+    if (lastSeenFp === null) {
+      lastSeenFp = ev.fp;
+      return;
+    }
+    if (ev.fp === lastSeenFp) { return; } // outer no-op guard (Flow 3 step 2)
+    document.dispatchEvent(new CustomEvent('atomic:live-reload', { detail: ev }));
+    lastSeenFp = ev.fp; // Flow 3 step 7
+  };
 }());
 </script>
 

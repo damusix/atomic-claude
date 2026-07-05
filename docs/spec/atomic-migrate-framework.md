@@ -42,7 +42,7 @@ Ordered registry of idempotent `Migration` steps in a new `atomic/internal/migra
 
 ## Checkpoints
 
-| # | Checkpoint | Files / areas | Agent | Est. files | Verifies |
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|-----------|--------------|-------|-----------|---------|
 | C1 | `migrate` package: `Migration` type, ordered registry, runner (read version → run steps > recorded → write version), semver reuse | `atomic/internal/migrate/` (new); `atomic/internal/selfupdate/semver.go` (export or add thin exported wrapper) | builder | 3–5 | runner applies only steps with `TargetVersion > recorded`; idempotent re-run changes nothing; semver compare matches `selfupdate` behavior |
 | C2 | Config schema v2: `[install]` table in `internal/config`; `checks_config.go` validation | `atomic/internal/config/` (extend schema); `atomic/internal/doctor/checks_config.go` | builder | 3–5 | `config.toml` with `[install].version` and `[install.artifacts]` round-trips; invalid keys reported; missing `[install]` (pre-framework install) is valid (not an error) |
