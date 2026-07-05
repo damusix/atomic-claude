@@ -1042,6 +1042,14 @@
             <kbd class="search-trigger-kbd">⌘K</kbd>
         </button>
     </div>
+    <!-- Live-reload connectivity indicator: reflects the /events EventSource's
+         readyState (live / reconnecting / disconnected). Painted by the
+         live-reload boot script below; the initial markup is the pre-connect
+         state so there is no flash of an unstyled dot before JS runs. -->
+    <span id="conn-indicator" class="conn-indicator" data-conn-state="reconnecting" title="Live reload: connecting…">
+        <span class="conn-dot" aria-hidden="true"></span>
+        <span class="conn-label">connecting…</span>
+    </span>
     <!-- Network / graph view toggle: shows/hides the full system graph -->
     <button class="theme-toggle" id="btn-graph" type="button"
             aria-label="Network view — toggle full graph" title="Network view"
@@ -1216,12 +1224,24 @@
      opened from a scrolled position would otherwise land mid-document. Keyed on
      the swap target so only content swaps reset (intel/rail swaps are left
      alone); history restores swap <body>, not #main-pane, so Back/Forward keep
-     their restored position. -->
+     their restored position.
+
+     A swap the live-reload script triggered carries an `HX-Live-Swap` request
+     header (set via the `headers` option on the triggering `htmx.ajax()` call,
+     below) so it can be told apart from ordinary navigation here. The header
+     lives on `evt.detail.ctx.request` — a fresh object per in-flight request,
+     not a DOM attribute on the shared target — so two swaps racing on the same
+     target (an ordinary nav vs. a live refetch, or two overlapping live
+     refetches) can never read or clear each other's marker; each swap's
+     `htmx:after:swap` event sees only its own request's headers. -->
 <script>
 document.addEventListener('htmx:after:swap', function(evt) {
   var ctx = evt.detail && evt.detail.ctx;
   var tgt = ctx && ctx.target;
-  if (tgt && tgt.id === 'main-pane') { tgt.scrollTop = 0; }
+  if (!tgt) { return; }
+  var headers = ctx.request && ctx.request.headers;
+  if (headers && headers['HX-Live-Swap']) { return; }
+  if (tgt.id === 'main-pane') { tgt.scrollTop = 0; }
 });
 </script>
 
@@ -1628,6 +1648,119 @@ document.addEventListener('htmx:after:swap', function(evt) {
     e.preventDefault();
     htmx.ajax('GET', '/page/' + folder + '/', { target: '#main-pane', swap: 'innerHTML' });
   });
+}());
+</script>
+
+<!-- Live reload (CP4): EventSource boot, page-mode reconcile, connectivity
+     indicator. Bound once via the same boot-guard idiom the search dialog
+     script uses (window.__atomicSearchBooted, above): a history-restore body
+     swap re-runs this inline script, but window.__atomicEventsBooted stops it
+     re-connecting — the original EventSource and its closure survive the swap
+     untouched (htmx 4 history-restore replaces <body>'s innerHTML, not the
+     document, so the connection is never torn down).
+
+     Dispatch point for checkpoint 5 (system-mode graph diff/patch): every
+     processed {fp, changed} message is re-broadcast as an `atomic:live-reload`
+     DOM CustomEvent (detail = the message) — CP5 registers its own
+     `document.addEventListener('atomic:live-reload', …)` alongside
+     pageModeReconcile below without touching this script. -->
+<script>
+(function() {
+  if (window.__atomicEventsBooted) { return; }
+  window.__atomicEventsBooted = true;
+
+  var lastSeenFp = null;
+
+  // ── connectivity indicator ──────────────────────────────────────────────
+  var connState = 'reconnecting'; // 'live' | 'reconnecting' | 'disconnected'
+  var connLabels = { live: 'live', reconnecting: 'connecting…', disconnected: 'disconnected' };
+
+  // Re-applies connState to the current #conn-indicator node. Called on every
+  // htmx:after:swap (not just state changes) because a full-body swap (history
+  // restore) replaces the indicator with a fresh, unpainted DOM node — the
+  // EventSource itself survives the swap, only its visual readout needs resync.
+  function paintConnIndicator() {
+    var el = document.getElementById('conn-indicator');
+    if (!el) { return; }
+    el.setAttribute('data-conn-state', connState);
+    el.title = 'Live reload: ' + connLabels[connState];
+    var label = el.querySelector('.conn-label');
+    if (label) { label.textContent = connLabels[connState]; }
+  }
+
+  function setConnState(next) {
+    connState = next;
+    paintConnIndicator();
+  }
+
+  document.addEventListener('htmx:after:swap', paintConnIndicator);
+
+  // ── page-mode reconcile (spec Flow 3) ───────────────────────────────────
+
+  // currentDisplayedRelpath returns the realm-root-relative path of the page
+  // currently shown in #main-pane, or '' when main-pane holds anything else
+  // (system graph, 404, search page) — the pane-refetch step below is a no-op
+  // in that case, which is also how it avoids clobbering the system graph
+  // without a separate mode check.
+  function currentDisplayedRelpath() {
+    var pc = document.querySelector('#main-pane #page-content[data-relpath]');
+    return pc ? pc.getAttribute('data-relpath') : '';
+  }
+
+  // liveSwap tags the request with an HX-Live-Swap header so the scroll-reset
+  // listener (above) can recognize this specific swap by its own request
+  // context rather than a shared DOM attribute, then performs the refetch
+  // through htmx's JS API so any OOB fragments in the response (breadcrumb,
+  // rail loader) still process.
+  function liveSwap(url, target) {
+    if (!target) { return; }
+    htmx.ajax('GET', url, { target: target, swap: 'innerHTML', headers: { 'HX-Live-Swap': '1' } });
+  }
+
+  function pageModeReconcile(ev) {
+    liveSwap('/nav?live=1', document.getElementById('nav-pane'));
+
+    var changed = ev.changed; // absent → cap exceeded → treat everything as changed
+    var rel = currentDisplayedRelpath();
+    if (rel && (!changed || changed.indexOf(rel) !== -1)) {
+      // The /page/<rel> fragment response carries the rail's OOB loader
+      // (context_handler.go pageWithGraphFragmentTmplStr), which itself
+      // hx-trigger="load"s GET /rail/<rel> — a separate rail refetch here
+      // would just re-request what that loader already triggers.
+      liveSwap('/page/' + rel, document.getElementById('main-pane'));
+    }
+  }
+
+  document.addEventListener('atomic:live-reload', function(e) { pageModeReconcile(e.detail); });
+
+  // ── EventSource boot (spec Flow 2: subscribe) ───────────────────────────
+  var es = new EventSource('/events');
+
+  es.onopen = function() { setConnState('live'); };
+
+  // onerror fires both for a genuine terminal failure and for the browser's
+  // built-in retry attempts; readyState tells them apart (CLOSED only after
+  // the browser gives up, which does not happen for a plain reconnect loop).
+  es.onerror = function() {
+    setConnState(es.readyState === EventSource.CLOSED ? 'disconnected' : 'reconnecting');
+  };
+
+  es.onmessage = function(msgEvt) {
+    var ev;
+    try { ev = JSON.parse(msgEvt.data); } catch (e) { return; }
+    // The resync push (Flow 2 step 3) is always the first message a connection
+    // receives, sent unconditionally regardless of whether anything changed
+    // since the page was rendered. lastSeenFp starts null, so treat this first
+    // message as fp-seeding only — dispatching it would spuriously refetch
+    // freshly rendered content on every page load.
+    if (lastSeenFp === null) {
+      lastSeenFp = ev.fp;
+      return;
+    }
+    if (ev.fp === lastSeenFp) { return; } // outer no-op guard (Flow 3 step 2)
+    document.dispatchEvent(new CustomEvent('atomic:live-reload', { detail: ev }));
+    lastSeenFp = ev.fp; // Flow 3 step 7
+  };
 }());
 </script>
 
