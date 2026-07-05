@@ -285,9 +285,12 @@ func TestGraphPageServesNetworkView(t *testing.T) {
 }
 
 // TestShellContainsAtomicCyStyleFunction verifies that the root shell defines
-// exactly ONE atomicCyStyle() function (the shared style factory used by both
-// the rail mini-graph and the FE3 system graph). Duplication is detected by
-// counting occurrences; > 1 means the style was copy-pasted, which is a bug.
+// exactly ONE atomicCyStyle() function — the Cytoscape style factory used by
+// the rail mini-graph (FE2) only. The FE3 system graph moved to cosmos.gl
+// (CP1/CP2) and builds its own styling in system-graph.js; it has no
+// Cytoscape style objects to consume, so this function is rail-only as of
+// CP4. Duplication is detected by counting occurrences; > 1 means the style
+// was copy-pasted, which is a bug.
 func TestShellContainsAtomicCyStyleFunction(t *testing.T) {
 	root := buildGraphOverlayRealm(t)
 
@@ -310,10 +313,12 @@ func TestShellContainsAtomicCyStyleFunction(t *testing.T) {
 	}
 }
 
-// TestShellContainsFingerprintStyleInSharedFunction verifies that the shared
-// atomicCyStyle() function in the shell includes the "fingerprint" and
-// "fingerprint drift" selectors. The style must live in the shell, not in the
-// removed /graph page.
+// TestShellContainsFingerprintStyleInSharedFunction verifies that the
+// distinct "fingerprint" / "fingerprint drift" provenance-edge styling lives
+// in system-graph.js — the cosmos.gl-powered Network View script — not in the
+// shell's (now rail-only) atomicCyStyle(). CP4 relocated it there: cosmos.gl
+// links carry no dash-pattern API, so unlike the removed Cytoscape selectors
+// (dashed), the distinct-styling contract is color (+ width) only.
 func TestShellContainsFingerprintStyleInSharedFunction(t *testing.T) {
 	root := buildGraphOverlayRealm(t)
 
@@ -321,25 +326,26 @@ func TestShellContainsFingerprintStyleInSharedFunction(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/")
+	resp, err := http.Get(baseURL + "/static/system-graph.js")
 	if err != nil {
-		t.Fatalf("GET /: %v", err)
+		t.Fatalf("GET /static/system-graph.js: %v", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
+	js := string(body)
 
-	// fingerprint selector must appear in the shell (not in the removed /graph page).
-	if !strings.Contains(html, "fingerprint") {
-		t.Error("shell missing 'fingerprint' — edge class must be styled in atomicCyStyle() for CP10")
+	// fingerprint provenance styling must live in system-graph.js (not the
+	// removed shell selectors).
+	if !strings.Contains(js, "fingerprint") {
+		t.Error("system-graph.js missing 'fingerprint' — provenance edge classes must be styled there, not in the shell's (rail-only) atomicCyStyle()")
 	}
-	// drift selector required for SC12.
-	if !strings.Contains(html, "edge.fingerprint.drift") {
-		t.Error("shell missing 'edge.fingerprint.drift' — drifted provenance edges must render red (SC12)")
+	// drift styling required for SC12.
+	if !strings.Contains(js, "drift") {
+		t.Error("system-graph.js missing 'drift' — drifted provenance edges must be distinctly styled (SC12)")
 	}
 	// Red color token for drift.
-	if !strings.Contains(html, "#f38ba8") {
-		t.Error("shell does not set red color (#f38ba8) for drift edges — SC12 visual requirement")
+	if !strings.Contains(js, "#f38ba8") {
+		t.Error("system-graph.js does not set red color (#f38ba8) for drift edges — SC12 visual requirement")
 	}
 }
 

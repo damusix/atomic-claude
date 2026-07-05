@@ -7,9 +7,13 @@
 //
 // CP2 landed mount/teardown lifecycle, the JSON→cosmos data adapter, WebGL2
 // detection, and the fresh-mount motion policy (sim runs to rest, then
-// pauses). CP3 adds the seed-and-pause position cache, bounded local drag
-// reheat, and URL view-state read/write. The legend, hover/click, theme-flip,
-// and label overlay remain for later checkpoints.
+// pauses). CP3 added the seed-and-pause position cache, bounded local drag
+// reheat, and URL view-state read/write. CP4 adds the legend type-filter
+// chips, hover/click wiring into AtomicGraphUI, theme-flip re-styling,
+// degree-based sizing, OKF type coloring, and provenance/drift edge styling
+// (relocated here from the shell's shared atomicCyStyle() — cosmos has no
+// CSS selectors and no link dash-pattern API, so styling is computed and
+// pushed per-point/per-link instead). The DOM label overlay remains for CP5.
 window.SystemGraph = (function() {
 
   // The live cosmos.gl instance, or null when no system graph is mounted.
@@ -91,6 +95,7 @@ window.SystemGraph = (function() {
     });
 
     var linkPairs = [];
+    var linkClasses = []; // parallel to linkPairs' pair index — e.g. "fingerprint" or "fingerprint drift"
     ((elems && elems.edges) || []).forEach(function(e) {
       var s = idToIndex[e.data.source];
       var t = idToIndex[e.data.target];
@@ -98,14 +103,195 @@ window.SystemGraph = (function() {
       // this is defense-in-depth against an edge whose endpoint didn't resolve.
       if (s === undefined || t === undefined) { return; }
       linkPairs.push(s, t);
+      linkClasses.push(e.classes || '');
     });
 
     return {
       nodes: nodes,
       idToIndex: idToIndex,
       indexToId: indexToId,
-      links: new Float32Array(linkPairs)
+      links: new Float32Array(linkPairs),
+      linkClasses: linkClasses
     };
+  }
+
+  // ── Node meta + type resolution (shared by styling and AtomicGraphUI calls) ──
+
+  // typeOf resolves a point index's OKF type, defaulting to 'page' — the same
+  // fallback atomicCyStyle() uses for untyped nodes.
+  function typeOf(adapted, index) {
+    var n = adapted.nodes[index];
+    return (n && n.data && n.data.type) || 'page';
+  }
+
+  // nodeMeta builds the plain-data object AtomicGraphUI's engine-neutral
+  // showPreviewCard/openPageModal expect — cosmos has no per-point .data(), so
+  // the adapter's own node list (indexed by point index) is the lookup.
+  function nodeMeta(adapted, index) {
+    var raw = (adapted.nodes[index] && adapted.nodes[index].data) || {};
+    return { type: raw.type, title: raw.title, label: raw.label, description: raw.description, snippet: raw.snippet };
+  }
+
+  // ── Styling: degree-based sizing, OKF type coloring, provenance edges ──────
+
+  // hexToRGBA01 parses a 6-digit "#rrggbb" string into cosmos's expected
+  // [r, g, b, a] format — each channel 0..1, not 0..255.
+  function hexToRGBA01(hex, alpha) {
+    var h = String(hex).replace('#', '');
+    return [
+      parseInt(h.slice(0, 2), 16) / 255,
+      parseInt(h.slice(2, 4), 16) / 255,
+      parseInt(h.slice(4, 6), 16) / 255,
+      alpha == null ? 1 : alpha
+    ];
+  }
+
+  // DEGREE_CAP mirrors atomicCyStyle()'s degree-sizing input cap (16) — a
+  // single mega-hub can't dwarf the rest of the graph.
+  var DEGREE_CAP = 16;
+
+  // computeDegrees counts each point's link count (both directions).
+  function computeDegrees(adapted) {
+    var deg = new Array(adapted.nodes.length).fill(0);
+    var links = adapted.links;
+    for (var i = 0; i < links.length; i += 2) {
+      deg[links[i]] = Math.min(deg[links[i]] + 1, DEGREE_CAP);
+      deg[links[i + 1]] = Math.min(deg[links[i + 1]] + 1, DEGREE_CAP);
+    }
+    return deg;
+  }
+
+  // sizeForDegree mirrors atomicCyStyle()'s 'mapData(deg, 0, 16, 16, 54)' —
+  // linear map from degree range [0,16] to point-size range [16,54].
+  function sizeForDegree(deg) {
+    return 16 + (Math.min(deg, DEGREE_CAP) / DEGREE_CAP) * (54 - 16);
+  }
+
+  // Provenance edge colors. cosmos.gl links carry no dash-pattern API (checked
+  // against the unminified 3.1.0 .d.ts: GraphConfigInterface has no line-style
+  // option), so unlike the removed edge.fingerprint / edge.fingerprint.drift
+  // Cytoscape selectors (dashed), the distinct-styling contract here is COLOR
+  // (+ width) only — same hex values, same visual language, different renderer.
+  var FINGERPRINT_COLOR = hexToRGBA01('#fab387', 1);
+  var FINGERPRINT_DRIFT_COLOR = hexToRGBA01('#f38ba8', 1);
+  var FINGERPRINT_WIDTH = 1.5;
+  var FINGERPRINT_DRIFT_WIDTH = 2.5;
+
+  // computeLinkStyling assigns per-link color/width from the edge's classes
+  // string ("fingerprint" or "fingerprint drift" — graphoverlay.go's format);
+  // everything else (md-link, wikilink) gets the default themed edge color.
+  function computeLinkStyling(adapted, colors) {
+    var defaultColor = hexToRGBA01(colors['edge'], 1);
+    var n = adapted.linkClasses.length;
+    var linkColors = new Float32Array(n * 4);
+    var linkWidths = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      var classes = adapted.linkClasses[i];
+      var isFingerprint = classes.indexOf('fingerprint') !== -1;
+      var isDrift = classes.indexOf('drift') !== -1;
+      var rgba = isFingerprint && isDrift ? FINGERPRINT_DRIFT_COLOR
+        : isFingerprint ? FINGERPRINT_COLOR
+        : defaultColor;
+      linkColors[i * 4] = rgba[0];
+      linkColors[i * 4 + 1] = rgba[1];
+      linkColors[i * 4 + 2] = rgba[2];
+      linkColors[i * 4 + 3] = rgba[3];
+      linkWidths[i] = isFingerprint && isDrift ? FINGERPRINT_DRIFT_WIDTH
+        : isFingerprint ? FINGERPRINT_WIDTH
+        : 1;
+    }
+    return { colors: linkColors, widths: linkWidths };
+  }
+
+  // computeNodeColors builds the per-point RGBA array from each node's OKF
+  // type (atomicCyTypeColors() — single source of truth, also used by the
+  // rail). A filtered-out type gets alpha 0 rather than being dropped from
+  // the array: the point stays in the sim (no reflow), just invisible — the
+  // hover/click guard (in mount()) is what actually excludes it from
+  // interaction, since alpha-0 points still GPU-pick in cosmos.
+  function computeNodeColors(adapted, colors, filteredTypes) {
+    var n = adapted.nodes.length;
+    var out = new Float32Array(n * 4);
+    for (var i = 0; i < n; i++) {
+      var type = typeOf(adapted, i);
+      var rgba = hexToRGBA01(colors[type] || colors['default-fill'], filteredTypes[type] ? 0 : 1);
+      out[i * 4] = rgba[0];
+      out[i * 4 + 1] = rgba[1];
+      out[i * 4 + 2] = rgba[2];
+      out[i * 4 + 3] = rgba[3];
+    }
+    return out;
+  }
+
+  // computeNodeSizes is degree-only — unaffected by the legend filter (a
+  // filtered point keeps its size, just goes transparent).
+  function computeNodeSizes(degrees) {
+    var out = new Float32Array(degrees.length);
+    for (var i = 0; i < degrees.length; i++) { out[i] = sizeForDegree(degrees[i]); }
+    return out;
+  }
+
+  // applyStyling recomputes and pushes point/link colors + point sizes from
+  // the CURRENT atomicCyTypeColors() (re-read live so a theme flip picks up
+  // the new CSS vars) and the current filteredTypes set. Called once at
+  // mount, on every legend toggle, and from the theme-toggle's retheme() hook
+  // below. create() (not render()) applies the pending buffers without
+  // touching simulation state — a legend toggle or theme flip must never
+  // reflow the layout.
+  function applyStyling(graph, adapted, filteredTypes, degrees) {
+    var colors = atomicCyTypeColors();
+    graph.setPointColors(computeNodeColors(adapted, colors, filteredTypes));
+    graph.setPointSizes(computeNodeSizes(degrees));
+    var linkStyle = computeLinkStyling(adapted, colors);
+    graph.setLinkColors(linkStyle.colors);
+    graph.setLinkWidths(linkStyle.widths);
+    graph.create();
+  }
+
+  // ── Legend: type-filter chip bar ───────────────────────────────────────────
+
+  // buildLegend constructs the chip bar from the types present in the current
+  // node set (mirrors the removed Cytoscape buildLegend's "types seen in
+  // elements" approach). onToggle(type, hidden) is called with the NEW hidden
+  // state so the caller can update filteredTypes and restyle.
+  function buildLegend(adapted, colors, mainPane, onToggle) {
+    var seenTypes = {};
+    adapted.nodes.forEach(function(n) {
+      var t = n.data && n.data.type;
+      if (t) { seenTypes[t] = true; }
+    });
+    var types = Object.keys(seenTypes).sort();
+    if (!types.length) { return; }
+
+    var legend = document.createElement('div');
+    legend.id = 'graph-legend';
+    legend.className = 'graph-legend';
+
+    types.forEach(function(type) {
+      var color = colors[type] || colors['default-fill'];
+      var chip = document.createElement('button');
+      chip.className = 'graph-legend-chip graph-legend-chip-active';
+      chip.type = 'button';
+      chip.setAttribute('data-type', type);
+      chip.setAttribute('aria-pressed', 'true');
+
+      var swatch = document.createElement('span');
+      swatch.className = 'graph-legend-swatch';
+      swatch.style.background = color;
+      var label = document.createElement('span');
+      label.textContent = type;
+      chip.appendChild(swatch);
+      chip.appendChild(label);
+
+      chip.addEventListener('click', function() {
+        var hidden = chip.classList.contains('graph-legend-chip-active'); // active → clicking hides it
+        chip.classList.toggle('graph-legend-chip-active', !hidden);
+        chip.setAttribute('aria-pressed', hidden ? 'false' : 'true');
+        onToggle(type, hidden);
+      });
+      legend.appendChild(chip);
+    });
+    mainPane.appendChild(legend);
   }
 
   // randomPositions scatters points across cosmos's coordinate space so the
@@ -293,6 +479,30 @@ window.SystemGraph = (function() {
         var mountFinished = false;   // gates the once-only fit/restore/clearLoading below from re-running after a drag's cooldown
         var recording = false;       // ignore our own programmatic camera moves; record only user-driven ones
         var viewTimer = null;
+        var degrees = computeDegrees(adapted);
+        var filteredTypes = {};      // type -> true while its legend chip is toggled off (alpha-0 + hover/click guard)
+        var hoverIndex = null;       // point index the preview card is currently anchored to, or null
+        var hoverSpacePos = null;    // that point's last-known SPACE position, refreshed by onPointMouseOver/onSimulationTick
+
+        // reanchorHoverCard re-projects hoverSpacePos into screen coordinates and
+        // re-renders the card there — spaceToScreenPosition is a pure
+        // camera-matrix multiply, not a GPU readback, so calling it from the
+        // tick/zoom handlers below stays clear of SC1's idle per-frame-work ban.
+        function reanchorHoverCard() {
+          if (hoverIndex == null || !hoverSpacePos || !window.AtomicGraphUI) { return; }
+          if (filteredTypes[typeOf(adapted, hoverIndex)]) { return; }
+          var screenPos = graph.spaceToScreenPosition(hoverSpacePos);
+          window.AtomicGraphUI.showPreviewCard(nodeMeta(adapted, hoverIndex), { x: screenPos[0], y: screenPos[1] }, container);
+        }
+
+        // onLegendToggle updates filteredTypes and restyles. The layout never
+        // reflows: applyStyling only touches colors/sizes via
+        // setPointColors/setPointSizes/setLinkColors/setLinkWidths + create(),
+        // never setPointPositions.
+        function onLegendToggle(type, hidden) {
+          if (hidden) { filteredTypes[type] = true; } else { delete filteredTypes[type]; }
+          applyStyling(graph, adapted, filteredTypes, degrees);
+        }
 
         // saveFullSnapshot reads every current point's live position via
         // getPointPositions() — an event-driven, once-per-settle/release
@@ -347,6 +557,7 @@ window.SystemGraph = (function() {
             } else {
               graph.fitView(undefined, undefined, false);
             }
+            buildLegend(adapted, atomicCyTypeColors(), mainPane, onLegendToggle);
             clearLoading(mainPane);
             recording = true;
           },
@@ -386,14 +597,49 @@ window.SystemGraph = (function() {
             draggedIndex = null;
           },
           onZoom: function(e, userDriven) {
+            // Re-anchor for ANY zoom/pan, not only user-driven ones — the
+            // hovered node's screen position moves either way.
+            reanchorHoverCard();
             // userDriven excludes our own fitView/setZoomTransformByPointPositions
             // camera moves — cosmos.gl reports it directly, no timer-based guess needed.
             if (!recording || !userDriven) { return; }
             clearTimeout(viewTimer);
             viewTimer = setTimeout(function() { writeViewToURL(graph, container); }, VIEW_DEBOUNCE_MS);
+          },
+          // hoverIndex/hoverSpacePos (declared above) track the currently
+          // hovered node for reanchorHoverCard. The legend filter guard
+          // excludes filtered-out points from hover/click — alpha-0 points
+          // still GPU-pick in cosmos, so the guard has to live here.
+          onPointMouseOver: function(index, pointPosition) {
+            if (filteredTypes[typeOf(adapted, index)]) { return; }
+            hoverIndex = index;
+            hoverSpacePos = pointPosition;
+            reanchorHoverCard();
+          },
+          onPointMouseOut: function() {
+            hoverIndex = null;
+            hoverSpacePos = null;
+            if (window.AtomicGraphUI) { window.AtomicGraphUI.hidePreviewCard(); }
+          },
+          onPointClick: function(index, pointPosition) {
+            if (filteredTypes[typeOf(adapted, index)] || !window.AtomicGraphUI) { return; }
+            window.AtomicGraphUI.hidePreviewCard();
+            window.AtomicGraphUI.openPageModal(adapted.indexToId[index], nodeMeta(adapted, index));
+          },
+          // onSimulationTick's hoveredIndex/pointPosition (populated only while
+          // a point is under the pointer) is cosmos's already-computed
+          // per-frame hover state — reusing it means "re-anchor while the sim
+          // moves the hovered node" costs no extra readback, and it only fires
+          // while the sim is actively running (never while idle, per SC1).
+          onSimulationTick: function(alpha, tickHoveredIndex, tickPointPosition) {
+            if (hoverIndex != null && tickHoveredIndex === hoverIndex && tickPointPosition) {
+              hoverSpacePos = tickPointPosition;
+              reanchorHoverCard();
+            }
           }
         });
         instance = graph;
+        instance.__atomicRetheme = function() { applyStyling(graph, adapted, filteredTypes, degrees); };
 
         var seed = hit ? seedFromCache(adapted, cachePositions, graph.config.spaceSize)
           : randomPositions(adapted.nodes.length, graph.config.spaceSize);
@@ -404,6 +650,7 @@ window.SystemGraph = (function() {
         // onSimulationEnd through the same shared handler above.
         graph.setPointPositions(seed, hit);
         graph.setLinks(adapted.links);
+        applyStyling(graph, adapted, filteredTypes, degrees);
         graph.render(hit ? 0 : undefined);
       })
       .catch(function(e) {
@@ -414,11 +661,27 @@ window.SystemGraph = (function() {
       });
   }
 
+  // retheme re-pushes point/link colors from the live cosmos.gl instance's
+  // stored adapter/filter state — called by the shell's theme-toggle handler.
+  // A no-op with no live instance (page view, or mid-fetch before the
+  // instance is constructed).
+  function retheme() {
+    if (instance && instance.__atomicRetheme) { instance.__atomicRetheme(); }
+  }
+
   // #btn-graph: in page view → open /graph; in graph view → back to the last
   // page (or landing). Delegated on document so it survives htmx
   // history-restore body swaps — a direct element listener would be lost
   // when #btn-graph is replaced.
   document.addEventListener('DOMContentLoaded', function() {
+    // Modal dismiss wiring (scrim backdrop, corner ×, Close button, Esc). The
+    // old shell called this from its own DOMContentLoaded block; CP2's
+    // mount-body trim removed that whole block along with it, leaving the
+    // page modal with no way to close once click→openPageModal (below and in
+    // mount()) opens one. Restored here as part of this checkpoint's click
+    // wiring; wireDismiss() is itself idempotent.
+    if (window.AtomicGraphUI) { window.AtomicGraphUI.wireDismiss(); }
+
     document.addEventListener('click', function(e) {
       if (!e.target.closest || !e.target.closest('#btn-graph')) { return; }
       var target = inSystemMode() ? (currentPage || landingURL()) : '/graph';
@@ -441,5 +704,5 @@ window.SystemGraph = (function() {
     }
   });
 
-  return { mount: mount, teardown: teardown };
+  return { mount: mount, teardown: teardown, retheme: retheme };
 }());

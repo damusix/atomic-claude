@@ -193,9 +193,12 @@
       };
     }
     </script>
-    <!-- Shared Cytoscape style factory — used by BOTH the rail mini-graph (FE2) and
-         the system-graph toggle (FE3). One definition, two consumers. Do NOT copy
-         the style array into either consumer; call atomicCyStyle() instead.
+    <!-- Cytoscape style factory — rail mini-graph (FE2) only. The system-graph
+         toggle (FE3) moved to cosmos.gl (CP1/CP2); it has no Cytoscape style
+         objects to consume, so it builds its own point/link styling in
+         system-graph.js, reusing only atomicCyTypeColors() below (the shared
+         color source of truth) — not this function. Do NOT copy the style
+         array elsewhere; call atomicCyStyle() instead.
 
          A-style glowing nodes: circular wash fill + typed outer stroke + soft drop-shadow.
          All colors read from atomicCyTypeColors() which reads CSS vars — so the graph
@@ -298,28 +301,6 @@
           }
         },
         {
-          // fingerprint: dashed orange — provenance/reflects: edges (CP10).
-          selector: 'edge.fingerprint',
-          style: {
-            'line-color': '#fab387',
-            'line-style': 'dashed',
-            'line-dash-pattern': [4, 4],
-            'target-arrow-color': '#fab387',
-            'target-arrow-shape': 'triangle',
-            'curve-style': 'bezier',
-            'width': 1.5
-          }
-        },
-        {
-          // fingerprint drift: red — drifted provenance edges (SC12).
-          selector: 'edge.fingerprint.drift',
-          style: {
-            'line-color': '#f38ba8',
-            'target-arrow-color': '#f38ba8',
-            'width': 2.5
-          }
-        },
-        {
           // Selected: amber solid gradient (theme-aware).
           selector: ':selected',
           style: {
@@ -373,15 +354,20 @@
         return el;
       }
 
-      // Show the hover preview for a node, positioned relative to anchorEl — the
-      // pane the graph renders in (#main-pane for the system graph, the rail
-      // container for the mini-graph).
-      function showPreviewCard(cyNode, anchorEl) {
+      // Show the hover preview for a node. Engine-neutral: node is a plain data
+      // object ({type, title, label, description, snippet}), not a Cytoscape
+      // node — the rail passes its .data(); the system graph's cosmos.gl
+      // adapter has no per-point .data(), so it passes its own node lookup.
+      // screenPos ({x, y}) must already be in containerEl's OWN coordinate
+      // frame (top-left origin) — Cytoscape's renderedPosition() and cosmos's
+      // spaceToScreenPosition() both use this convention, so each caller
+      // converts with its own engine's primitive before calling here.
+      function showPreviewCard(node, screenPos, containerEl) {
         var card = getOrCreatePreviewCard();
-        var type  = cyNode.data('type') || 'page';
-        var title = cyNode.data('title') || cyNode.data('label') || '';
-        var desc  = cyNode.data('description') || '';
-        var snip  = cyNode.data('snippet') || '';
+        var type  = node.type || 'page';
+        var title = node.title || node.label || '';
+        var desc  = node.description || '';
+        var snip  = node.snippet || '';
 
         var html = '<span class="cy-pc-chip ' + type + '">' + escapeHTML(type) + '</span>' +
                    '<div class="cy-pc-title">' + escapeHTML(title) + '</div>';
@@ -389,22 +375,18 @@
         if (snip) { html += '<div class="cy-pc-snip">' + escapeHTML(snip) + '</div>'; }
         card.innerHTML = html;
 
-        // renderedPosition() is relative to the Cytoscape CONTAINER element, so anchor
-        // to that exact element's viewport rect — not a passed-in pane, which may not
-        // share the container's origin. The card is position:fixed on <body>, so
-        // rect.left/top (viewport coords) + the rendered offset land it on the node.
-        var pos  = cyNode.renderedPosition();
-        var container = (cyNode.cy().container && cyNode.cy().container())
-          || anchorEl || document.getElementById('main-pane');
+        // The card is position:fixed on <body>, so rect.left/top (viewport coords)
+        // + screenPos (containerEl-relative) land it on the node.
+        var container = containerEl || document.getElementById('main-pane');
         var rect = container.getBoundingClientRect();
         var cardW = 284;
         var cardH = card.offsetHeight || 170;
         var gap = 14;
-        var left = rect.left + pos.x + gap;
-        var top  = rect.top  + pos.y + gap;
+        var left = rect.left + screenPos.x + gap;
+        var top  = rect.top  + screenPos.y + gap;
         // Flip to the node's left if the card would overflow the right edge, then
         // clamp fully on-screen on both axes (no off-viewport corners).
-        if (left + cardW + 8 > window.innerWidth) { left = rect.left + pos.x - cardW - gap; }
+        if (left + cardW + 8 > window.innerWidth) { left = rect.left + screenPos.x - cardW - gap; }
         if (left < 8) { left = 8; }
         if (top + cardH + 8 > window.innerHeight) { top = window.innerHeight - cardH - 8; }
         if (top < 8) { top = 8; }
@@ -419,9 +401,11 @@
       }
 
       // ── Page modal ────────────────────────────────────────────────────────────
-      // Look up node metadata from the passed cy instance, load the /page/ fragment
-      // into the modal body, wire "Open full page", and show the scrim.
-      function openPageModal(nodeID, cy) {
+      // Engine-neutral: nodeData is a plain object (or falsy when unresolved),
+      // not a cy instance to look up — the rail passes .data(); the system
+      // graph passes its adapter's node lookup. Loads the /page/ fragment into
+      // the modal body, wires "Open full page", and shows the scrim.
+      function openPageModal(nodeID, nodeData) {
         var scrim = document.getElementById('cy-page-modal-scrim');
         if (!scrim) { return; }
         var modalBody  = document.getElementById('cy-modal-body');
@@ -430,11 +414,9 @@
         var modalDesc  = document.getElementById('cy-modal-desc');
         var openBtn    = document.getElementById('cy-modal-open-btn');
 
-        var cyNode  = cy && cy.getElementById(nodeID);
-        var hasNode = cyNode && cyNode.length;
-        var type  = hasNode ? (cyNode.data('type') || 'page') : 'page';
-        var title = hasNode ? (cyNode.data('title') || cyNode.data('label') || nodeID) : nodeID;
-        var desc  = hasNode ? (cyNode.data('description') || '') : '';
+        var type  = nodeData ? (nodeData.type || 'page') : 'page';
+        var title = nodeData ? (nodeData.title || nodeData.label || nodeID) : nodeID;
+        var desc  = nodeData ? (nodeData.description || '') : '';
 
         if (modalChip)  { modalChip.className = 'cy-modal-chip ' + type; modalChip.textContent = type; }
         if (modalTitle) { modalTitle.textContent = title; }
@@ -606,7 +588,14 @@
           //           navigateToPage does a plain htmx swap into #main-pane).
           if (window.AtomicGraphUI) {
             railCy.on('mouseover', 'node', function(evt) {
-              AtomicGraphUI.showPreviewCard(evt.target, container);
+              var n = evt.target;
+              AtomicGraphUI.showPreviewCard({
+                type: n.data('type'),
+                title: n.data('title'),
+                label: n.data('label'),
+                description: n.data('description'),
+                snippet: n.data('snippet')
+              }, n.renderedPosition(), container);
             });
             railCy.on('mouseout', 'node', function() {
               AtomicGraphUI.hidePreviewCard();
@@ -885,11 +874,11 @@
     var next = current === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
     try { localStorage.setItem('atomic-serve-theme', next); } catch (e) {}
-    // Re-apply Cytoscape styles now that CSS vars have flipped.
-    // atomicCyStyle() reads getComputedStyle at call time, so calling it
-    // AFTER the data-theme flip returns the new-theme colors.
-    if (window.__systemCy) {
-      window.__systemCy.style(atomicCyStyle());
+    // Re-apply styles now that CSS vars have flipped. atomicCyStyle() and
+    // atomicCyTypeColors() both read getComputedStyle at call time, so calling
+    // them AFTER the data-theme flip returns the new-theme colors.
+    if (window.SystemGraph && window.SystemGraph.retheme) {
+      window.SystemGraph.retheme();
     }
     if (window.__railCy) {
       window.__railCy.style(atomicCyStyle());
