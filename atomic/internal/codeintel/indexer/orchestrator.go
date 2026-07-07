@@ -547,13 +547,45 @@ func (o *Orchestrator) storeExtractionResult(
 		// on Language==SQL to stamp Provenance:"embedded" on resolved edges.
 		// For all other refs (from normal host-language extraction), Language is
 		// empty at this point, so the assignment sets it correctly.
+		//
+		// Owner guard: unresolved_refs.from_node_id has a FOREIGN KEY REFERENCES
+		// nodes(id). An extractor bug can emit a ref whose owner was never added
+		// to result.Nodes (e.g. attributed to a node the extractor stripped) —
+		// without this guard that single ref FK-fails the whole file's transaction,
+		// which bubbles up through indexFiles → IndexAll and skips the resolution
+		// phase entirely (contradicting IndexAll's documented per-file-error
+		// contract). Skip the ref instead: record the miss in this file's errors
+		// column (fail loud, not fatal) and keep storing the rest of the file.
+		localNodeIDs := make(map[string]bool, len(result.Nodes))
+		for _, n := range result.Nodes {
+			localNodeIDs[n.ID] = true
+		}
+		var skippedRefs []string
 		for _, ref := range result.UnresolvedReferences {
 			ref.FilePath = relPath
 			if ref.Language == "" {
 				ref.Language = lang
 			}
+			if !localNodeIDs[ref.FromNodeID] {
+				exists, err := tx.NodeExists(ctx, ref.FromNodeID)
+				if err != nil {
+					return fmt.Errorf("storeExtractionResult: check owner node %s: %w", ref.FromNodeID, err)
+				}
+				if !exists {
+					skippedRefs = append(skippedRefs, fmt.Sprintf(
+						"skipped unresolved ref %s (%s): owner node %s not found", ref.ID, ref.ReferenceName, ref.FromNodeID))
+					continue
+				}
+			}
 			if err := tx.InsertUnresolvedRef(ctx, ref); err != nil {
 				return fmt.Errorf("storeExtractionResult: insert unresolved ref %s: %w", ref.ID, err)
+			}
+		}
+
+		if len(skippedRefs) > 0 {
+			allErrors := append(append([]string{}, result.Errors...), skippedRefs...)
+			if merged, err := json.Marshal(allErrors); err == nil {
+				fr.Errors = merged
 			}
 		}
 

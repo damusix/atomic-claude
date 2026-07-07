@@ -221,7 +221,16 @@ func (e *VueExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		}
 
 		// Append unresolved refs. No line-offset needed: positions are file-absolute.
+		// Re-wire the same file:→component substitution as edges above: a call at
+		// the top level of the script (e.g. `onMounted(...)` in <script setup>, not
+		// inside any named function) is attributed by the tree-sitter extractor to
+		// the enclosing scope — the file: node — which this loop strips from
+		// result.Nodes. Left un-rewired, the ref's owner is absent from the file's
+		// stored nodes and InsertUnresolvedRef's from_node_id FK fails.
 		for _, ref := range scriptResult.UnresolvedReferences {
+			if ref.FromNodeID == "file:"+filePath {
+				ref.FromNodeID = comp.ID
+			}
 			result.UnresolvedReferences = append(result.UnresolvedReferences, ref)
 		}
 

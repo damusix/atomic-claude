@@ -768,6 +768,87 @@ func TestVue_HandlerBindingLineNumbers(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Vue — dangling-owner-ref regression (checkpoint 1, SC1)
+// ---------------------------------------------------------------------------
+
+// vueTopLevelCallFixture reproduces the construct found in this repo's
+// .vitepress/theme/AtomCore.vue and SessionPlayer.vue: a <script setup> block
+// with a call at the top level of the script (not inside any named function),
+// e.g. `onMounted(() => { ... })`. The tree-sitter extractor attributes such a
+// call's owner to its enclosing scope, which at script top level is the file:
+// node (extractor.go: "The parentID at this point is the enclosing scope (file
+// node at top level)"). The Vue extractor strips file: nodes from the result
+// (they're replaced by the component node) but, pre-fix, only rewired edges
+// whose source was the file: node — not refs. A ref with FromNodeID == the
+// stripped file: node has no owner in result.Nodes, which FK-fails the
+// unresolved_refs insert (from_node_id REFERENCES nodes(id)).
+const vueTopLevelCallFixture = `<script setup lang="ts">
+import { onMounted } from 'vue'
+
+function boot() {
+  console.log('boot')
+}
+
+onMounted(() => {
+  boot()
+})
+</script>
+<template><div /></template>
+`
+
+const vueTopLevelCallFixturePath = "src/AtomCore.vue"
+
+// TestVue_TopLevelScriptSetupCallOwnerIsComponent verifies that a call at the
+// top level of <script setup> (owner = file: node in the sub-extractor's
+// result) is rewired to the component node — the same rewrite already applied
+// to edges — so every ref's FromNodeID names a node present in result.Nodes.
+func TestVue_TopLevelScriptSetupCallOwnerIsComponent(t *testing.T) {
+	pool := newPool(t)
+	ext := standalone.NewVueExtractor(pool)
+
+	result, err := ext.Extract(vueTopLevelCallFixturePath, vueTopLevelCallFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+
+	comp := findNode(result.Nodes, types.NodeKindComponent, "")
+	if comp == nil {
+		t.Fatalf("no component node found; nodes: %v", result.Nodes)
+	}
+
+	present := map[string]bool{}
+	for _, n := range result.Nodes {
+		present[n.ID] = true
+	}
+
+	sawOnMounted, sawBoot := false, false
+	for _, r := range result.UnresolvedReferences {
+		if !present[r.FromNodeID] {
+			t.Errorf("ref %s (%s) has dangling owner %q — not present in result.Nodes; would FK-fail InsertUnresolvedRef",
+				r.ID, r.ReferenceName, r.FromNodeID)
+		}
+		switch r.ReferenceName {
+		case "onMounted":
+			sawOnMounted = true
+			if r.FromNodeID != comp.ID {
+				t.Errorf("onMounted ref owner = %q, want component id %q", r.FromNodeID, comp.ID)
+			}
+		case "boot":
+			sawBoot = true
+			if r.FromNodeID != comp.ID {
+				t.Errorf("boot ref owner = %q, want component id %q", r.FromNodeID, comp.ID)
+			}
+		}
+	}
+	if !sawOnMounted {
+		t.Errorf("no ref for top-level onMounted() call; refs: %v", result.UnresolvedReferences)
+	}
+	if !sawBoot {
+		t.Errorf("no ref for boot() call inside the onMounted callback; refs: %v", result.UnresolvedReferences)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // For() routing
 // ---------------------------------------------------------------------------
 

@@ -12,6 +12,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
@@ -67,6 +68,21 @@ func (t *Tx) DeleteFile(ctx context.Context, path string) error {
 		return fmt.Errorf("codeintel/db: Tx.DeleteFile %s: %w", path, err)
 	}
 	return nil
+}
+
+// NodeExists reports whether a node with the given id exists within the
+// transaction — used by storeExtractionResult to verify an unresolved ref's
+// owner before insert (from_node_id has a FOREIGN KEY REFERENCES nodes(id)).
+func (t *Tx) NodeExists(ctx context.Context, id string) (bool, error) {
+	var exists int
+	err := t.tx.QueryRowContext(ctx, "SELECT 1 FROM nodes WHERE id = ? LIMIT 1", id).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("codeintel/db: Tx.NodeExists %s: %w", id, err)
+	}
+	return true, nil
 }
 
 // UpsertNodeAt inserts or replaces a node within the transaction with an
