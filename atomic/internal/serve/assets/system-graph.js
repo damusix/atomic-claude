@@ -18,6 +18,10 @@
 // screen-projected <div> per visible label, culled by the pure
 // computeLabelSet() (exported below for scripts/test-system-graph-culling.cjs)
 // and faded by zoom via a CSS class.
+//
+// debugState() (below, exported) is a test-only read-only accessor added for
+// the code-graph spec's SC3 gate harness (scripts/graph-gates.mjs) — it never
+// participates in the production mount/render/drag/cache flow above.
 window.SystemGraph = (function() {
 
   // The live cosmos.gl instance, or null when no system graph is mounted.
@@ -1008,6 +1012,11 @@ window.SystemGraph = (function() {
         });
         instance = graph;
         instance.__atomicRetheme = function() { applyStyling(graph, adapted, filteredTypes, degrees); };
+        // __atomicDebug (test-only, read-only) — exposes just enough of this
+        // closure's already-computed state for debugState() below, which
+        // scripts/graph-gates.mjs (SC3 gate harness) polls via page.evaluate.
+        // Nothing here is mutated by debugState() — it only reads.
+        instance.__atomicDebug = { adapted: adapted, degrees: degrees, cacheHit: hit };
         // Bounded readback: only the degree-ranked candidate pool is tracked,
         // never the whole node set — see LABEL_CANDIDATE_POOL's comment.
         graph.trackPointPositionsByIndices(labelCandidateIndices);
@@ -1052,6 +1061,40 @@ window.SystemGraph = (function() {
     if (instance && instance.__atomicRetheme) { instance.__atomicRetheme(); }
   }
 
+  // debugState (test-only, read-only) — recomputes every node's current
+  // SPACE position (the simulation's own coordinates — camera-independent,
+  // what the layout cache stores) and SCREEN position (for mouse-driven
+  // gates: drag targeting, hover), plus rendered size (diameter,
+  // sizeForDegree), from the live cosmos instance on every call (never
+  // cached). Also reports isSimulationRunning and whether the current mount
+  // replayed from the layout cache. Returns null with no live instance.
+  // Consumed by scripts/graph-gates.mjs (SC3 gate harness) via
+  // page.evaluate — never called from production code.
+  //
+  // space vs. screen matters for the cache-replay zero-motion gate
+  // specifically: fitView()/setZoomTransformByPointPositions() (called once
+  // per mount, right after settle) animate the CAMERA over a short
+  // transition, so screen positions can still be moving for a beat after
+  // mount even though the simulation itself is fully at rest — only space
+  // coordinates isolate "did the cached layout replay without simulation
+  // drift" from "is the camera still easing into its fitted view."
+  function debugState() {
+    if (!instance || !instance.__atomicDebug) { return null; }
+    var dbg = instance.__atomicDebug;
+    var flat = instance.getPointPositions();
+    var nodes = {};
+    for (var i = 0; i < dbg.adapted.nodes.length; i++) {
+      var space = [flat[i * 2], flat[i * 2 + 1]];
+      var screen = instance.spaceToScreenPosition(space);
+      nodes[dbg.adapted.indexToId[i]] = {
+        space: { x: space[0], y: space[1] },
+        screen: { x: screen[0], y: screen[1] },
+        size: sizeForDegree(dbg.degrees[i])
+      };
+    }
+    return { isSimulationRunning: instance.isSimulationRunning, cacheHit: dbg.cacheHit, nodes: nodes };
+  }
+
   // #btn-graph: in page view → open /graph; in graph view → back to the last
   // page (or landing). Delegated on document so it survives htmx
   // history-restore body swaps — a direct element listener would be lost
@@ -1093,6 +1136,9 @@ window.SystemGraph = (function() {
     // policy behind SC5's label overlay, plus its tunable defaults.
     computeLabelSet: computeLabelSet,
     LABEL_CAP: LABEL_CAP,
-    LABEL_FADE_ZOOM_THRESHOLD: LABEL_FADE_ZOOM_THRESHOLD
+    LABEL_FADE_ZOOM_THRESHOLD: LABEL_FADE_ZOOM_THRESHOLD,
+    // Exported for scripts/graph-gates.mjs (SC3 gate harness) — see
+    // debugState's own comment.
+    debugState: debugState
   };
 }());
