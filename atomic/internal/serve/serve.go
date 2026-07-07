@@ -295,6 +295,15 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		mux.Handle(route, explorerHandler)
 	}
 
+	// /code/graph/data — full-repo code graph export for the code graph view
+	// (code-graph spec CP2, SC2).
+	mux.Handle("/code/graph/data", NewCodeGraphHandler(CodeGraphOptions{
+		RealmRoot:     opts.TargetDir,
+		ClaudeMDPath:  opts.ClaudeMDPath,
+		WikiIndexPath: wikiIndexPath,
+		// EngineProvider nil → DefaultEngineProvider.
+	}))
+
 	// / — Obsidian shell (FE1: breadcrumb + search + [page|system] toggle + right rail).
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {

@@ -55,7 +55,9 @@ func (e *recordingEngine) GetNodesByKind(context.Context, types.NodeKind) ([]typ
 func (e *recordingEngine) GetOutgoingEdges(context.Context, string) ([]types.Edge, error) {
 	return nil, nil
 }
-func (e *recordingEngine) Close() {}
+func (e *recordingEngine) GetAllNodes(context.Context) ([]types.Node, error) { return nil, nil }
+func (e *recordingEngine) GetAllEdges(context.Context) ([]types.Edge, error) { return nil, nil }
+func (e *recordingEngine) Close()                                            {}
 
 // buildSelfIndexedRealm builds a wiki realm with one self-indexed member and
 // returns (realmRoot, claudeMDPath). No code.toml — federation is absent, exactly

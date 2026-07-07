@@ -43,6 +43,8 @@ type fakeCodeEngine struct {
 	files         []types.FileRecord
 	nodesInFile   []types.Node
 	nodesByKind   map[types.NodeKind][]types.Node
+	allNodes      []types.Node
+	allEdges      []types.Edge
 	nodeErr       error
 	subgraphDepth int // last depth passed to callers/callees/impact
 }
@@ -79,6 +81,12 @@ func (f *fakeCodeEngine) GetNodesByKind(_ context.Context, kind types.NodeKind) 
 }
 func (f *fakeCodeEngine) GetOutgoingEdges(_ context.Context, _ string) ([]types.Edge, error) {
 	return nil, nil
+}
+func (f *fakeCodeEngine) GetAllNodes(_ context.Context) ([]types.Node, error) {
+	return f.allNodes, f.nodeErr
+}
+func (f *fakeCodeEngine) GetAllEdges(_ context.Context) ([]types.Edge, error) {
+	return f.allEdges, f.nodeErr
 }
 func (f *fakeCodeEngine) Close() {}
 
@@ -423,7 +431,9 @@ func (r *richFakeCodeEngine) GetNodesByKind(_ context.Context, kind types.NodeKi
 func (r *richFakeCodeEngine) GetOutgoingEdges(_ context.Context, nodeID string) ([]types.Edge, error) {
 	return r.outgoingEdges[nodeID], nil
 }
-func (r *richFakeCodeEngine) Close() {}
+func (r *richFakeCodeEngine) GetAllNodes(_ context.Context) ([]types.Node, error) { return nil, nil }
+func (r *richFakeCodeEngine) GetAllEdges(_ context.Context) ([]types.Edge, error) { return nil, nil }
+func (r *richFakeCodeEngine) Close()                                              {}
 
 // ─── 7. SQL schema: no SQL nodes → empty state ───────────────────────────────
 

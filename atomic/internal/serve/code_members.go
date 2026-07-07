@@ -29,6 +29,40 @@ import (
 // localIndexRel is the per-repo index path, relative to a repo root.
 const localIndexRel = ".claude/.atomic-index/atomic.db"
 
+// memberResolver resolves the code members for a served scope and the local
+// single-repo db path. Embedded by every /code/* handler (codeExplorerHandler,
+// codeGraphHandler) so member resolution — federation ∪ self-index discovery,
+// the local-db fallback path — lives in exactly one place.
+type memberResolver struct {
+	// realmRoot is the root of the repository (or realm) being served.
+	realmRoot string
+	// claudeMDPath is used by realm.Resolve to discover federation members.
+	claudeMDPath string
+	// wikiIndexPath is the realm wiki/index.md, used to discover self-indexed
+	// members. Defaults to <realmRoot>/wiki/index.md when empty.
+	wikiIndexPath string
+}
+
+// members discovers the code members for the served scope (federation ∪
+// per-member self-indexes). Resolved per request — cheap (reads config + the
+// wiki scan).
+func (m memberResolver) members() []codeMember {
+	res, err := realm.Resolve(m.realmRoot, m.claudeMDPath)
+	if err != nil {
+		return nil
+	}
+	wikiIndexPath := m.wikiIndexPath
+	if wikiIndexPath == "" && res.RealmRoot != "" {
+		wikiIndexPath = filepath.Join(res.RealmRoot, "wiki", "index.md")
+	}
+	return discoverCodeMembers(res, m.realmRoot, wikiIndexPath)
+}
+
+// localDBPath returns the canonical local db path for the realm root.
+func (m memberResolver) localDBPath() string {
+	return filepath.Join(m.realmRoot, localIndexRel)
+}
+
 // codeMember is one code-queryable repo within the served scope.
 type codeMember struct {
 	// Key is the group header shown in search results. For self-indexed members
