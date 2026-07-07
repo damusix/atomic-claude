@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 'use strict';
 
-// Unit test for system-graph.js's exported label-culling policy (SC5,
-// cosmos-system-graph checkpoint 5). NOT a CI gate — this repo has no
-// headless-browser step, so there is nowhere in CI to run it. Run manually
-// after touching the label-overlay code in
-// atomic/internal/serve/assets/system-graph.js:
+// Unit test for graph-core.js's exported label-culling policy (SC5,
+// cosmos-system-graph checkpoint 5 — computeLabelSet moved from
+// system-graph.js into graph-core.js under code-graph checkpoint 4's
+// core/profile split). NOT a CI gate — this repo has no headless-browser
+// step, so there is nowhere in CI to run it. Run manually after touching the
+// label-overlay code in atomic/internal/serve/assets/graph-core.js:
 //
 //   node scripts/test-system-graph-culling.cjs
 //
-// Loads the REAL system-graph.js source in a minimal window/document
-// sandbox — the file's only top-level (load-time) DOM calls are two
-// document.addEventListener() registrations, stubbed here as no-ops and
-// never invoked — then calls window.SystemGraph.computeLabelSet() directly
+// Loads the REAL graph-core.js source in a minimal window/document sandbox —
+// the file has zero top-level (load-time) DOM calls (the document.addEventListener
+// stub below is unused but kept for parity with the sandbox this test used
+// pre-extraction) — then calls window.GraphCore.computeLabelSet() directly
 // with synthetic viewport/degree/zoom fixtures. No cosmos.gl instance, no
 // browser, no mocked internals: this exercises the shipped function.
 
@@ -22,7 +23,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const SRC_PATH = path.join(
-  __dirname, '..', 'atomic', 'internal', 'serve', 'assets', 'system-graph.js'
+  __dirname, '..', 'atomic', 'internal', 'serve', 'assets', 'graph-core.js'
 );
 
 function loadSystemGraph() {
@@ -38,12 +39,12 @@ function loadSystemGraph() {
   global.window = {};
   global.document = { addEventListener: function() {} };
   vm.runInThisContext(source, { filename: SRC_PATH });
-  const sg = global.window.SystemGraph;
+  const sg = global.window.GraphCore;
   global.window = previousWindow;
   global.document = previousDocument;
 
   assert.ok(sg && typeof sg.computeLabelSet === 'function',
-    'system-graph.js must export window.SystemGraph.computeLabelSet');
+    'graph-core.js must export window.GraphCore.computeLabelSet');
   return sg;
 }
 

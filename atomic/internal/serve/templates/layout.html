@@ -111,10 +111,16 @@
          cosmos-graph.provenance.txt alongside it for the exact package version,
          dependency pins, and bundling command. -->
     <script src="/static/vendor/cosmos-graph.js"></script>
-    <!-- system-graph.js — mount lifecycle, data adapter, and motion-policy sim
-         control for the Network View. Lives here (not inline) because the
-         rewrite touches nearly every line anyway; see the Code home
-         sub-decision in docs/design/cosmos-system-graph.md. -->
+    <!-- graph-core.js — the view-agnostic cosmos.gl engine (mount/teardown/
+         retheme lifecycle, motion policy, layout cache, label overlay,
+         legend, drag handling). Must load before any per-view profile —
+         see docs/spec/code-graph.md checkpoint 4. -->
+    <script src="/static/graph-core.js"></script>
+    <!-- system-graph.js — the docs Network View profile over graph-core.js:
+         /graph/data fetch + adapter, OKF palette, and hover/click wiring.
+         Lives here (not inline) because the rewrite touches nearly every
+         line anyway; see the Code home sub-decision in
+         docs/design/cosmos-system-graph.md. -->
     <script src="/static/system-graph.js"></script>
     <!-- Single-source type→color map. atomicCyStyle() reads it to build per-type
          node selectors; the system-graph legend (Deliverable A) reads it for swatch

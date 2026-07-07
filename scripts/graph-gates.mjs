@@ -7,7 +7,7 @@
 // drag/overlap resolution, IndexedDB cache-replay with zero motion, and
 // hover preview. Exits non-zero on ANY gate failure. This is a LOCAL tool —
 // CI carries Go/unit coverage only (no browser/GPU in CI); run it by hand
-// after touching atomic/internal/serve/assets/{system-graph,code-graph}.js
+// after touching atomic/internal/serve/assets/{graph-core,system-graph,code-graph}.js
 // or templates/layout.html.
 //
 // Usage:
@@ -108,6 +108,22 @@ function freePort() {
   });
 }
 
+// killChild sends SIGTERM and waits for the process to actually exit before
+// resolving — an un-awaited child.kill() lets main() (and this script's
+// process.exit()) return before the OS has reaped the child, which can leave
+// an orphaned `atomic serve` behind a short-lived script run. Escalates to
+// SIGKILL if the child hasn't exited within killTimeoutMs.
+function killChild(child, killTimeoutMs) {
+  return new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
+    child.once('exit', () => resolve());
+    child.kill('SIGTERM');
+    setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); }
+    }, killTimeoutMs);
+  });
+}
+
 async function waitForServer(baseURL, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -196,10 +212,13 @@ async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
 
       let dragSettleErr = null;
       try {
-        await page.waitForFunction(() => {
-          const s = window.SystemGraph.debugState();
-          return !!s && s.isSimulationRunning === false;
-        }, { timeout: settleBudgetMs });
+        // Polls the cheap O(1) simRunning() accessor rather than the O(n)
+        // debugState() — this waitForFunction re-invokes on every animation
+        // frame while the drag's post-release cooldown ticks down, and
+        // debugState() recomputes every node's space+screen position on each
+        // call (fine for the point-in-time reads elsewhere in this file, not
+        // for a per-frame poll at graph scale).
+        await page.waitForFunction(() => window.SystemGraph.simRunning() === false, { timeout: settleBudgetMs });
       } catch (e) { dragSettleErr = 'post-drag cooldown did not settle within ' + settleBudgetMs + 'ms'; }
 
       if (dragSettleErr) {
@@ -359,7 +378,7 @@ async function main() {
     }
     return allPass ? 0 : 1;
   } finally {
-    if (child) { child.kill('SIGTERM'); }
+    if (child) { await killChild(child, 5000); }
   }
 }
 
