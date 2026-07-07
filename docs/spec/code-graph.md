@@ -18,7 +18,7 @@
 - [ ] SC1 — **Index integrity**: `atomic code index` on this repo (which contains the two `.vitepress/theme/*.vue` files) exits 0 with no FK-constraint errors and produces `calls` edges > 0. A per-file store failure never prevents the resolution phase from running (per `IndexAll`'s documented contract). A ref whose owner node is absent from the store is skipped with the skip recorded in that file's `errors` column — never a fatal error. Regression-tested with a fixture that reproduces the dangling-owner ref.
 - [ ] SC2 — **Data endpoint**: `GET /code/graph/data` returns the resolved member's full graph as JSON: a server-computed `fingerprint` (changes iff the index content changes), `nodes` (id, label, kind, file, line, language), `edges` (source, target, kind). `?member=<prefix>` resolves via the same member-resolution path as the sibling `/code/*` routes; single-repo mode needs no param. Unknown member or missing index returns a non-200 with a JSON error body. Covered by httptest against a fixture DB.
 - [ ] SC3 — **Committed gate harness + system view unchanged**: a committed script under `scripts/` drives headless Chromium (Playwright) against a running `atomic serve` and checks, for a named view: mount with zero console errors, settle-then-pause within a time budget, drag reheat that resolves a forced overlap, IndexedDB cache replay with zero motion on reopen, and hover preview appearance. It exits non-zero on any gate failure and skips with a clear message when Playwright or a browser is unavailable (local tool; CI carries Go/unit coverage only). The harness passes against the docs system view *before* the shared-core refactor (baseline) and *after* it (regression gate).
-- [ ] SC4 — **Code view renders at scale**: on this repo's index (~17.5k nodes, ~20k edges incl. `contains`; approximate — exact counts settle after SC1 lands), the code view passes the same harness gates: mounts clean, settles and pauses, live-drag reheats locally, and reopening with an unchanged fingerprint replays the cached layout with zero motion.
+- [ ] SC4 — **Code view renders at scale**: on this repo's index (~17.5k nodes, ~55k edges incl. `contains` and ~34k `calls`), the code view passes the same harness gates: mounts clean, settles and pauses, live-drag reheats locally, and reopening with an unchanged fingerprint replays the cached layout with zero motion.
 - [ ] SC5 — **Styling legibility**: node color derives from a kind→group mapping (~8 visual groups) with a legend that filters groups client-side; `contains` edges render visually subordinate (fainter/thinner) to `calls`/`imports`; node size scales with degree inside the existing min/max window; DOM labels cap at 150 by degree with zoom fade. Theme toggle restyles without remount.
 - [ ] SC6 — **Explorer integration**: hovering a node shows name, kind, `file:line` (signature when present); clicking opens the existing code-explorer node view for that symbol, member-aware. WebGL2-less browsers get the existing detect-and-message fallback.
 - [ ] SC7 — **Per-repo selection**: in realm mode the code view offers a member picker listing code members (indexed state visible); switching members swaps the graph; single-repo mode shows no picker. View choice and member survive in URL state alongside the existing graph view state.
@@ -116,4 +116,10 @@ docs/
 
 ## Change log
 
-<!-- First amendment logs here. -->
+### 2026-07-07 — SC4 edge count corrected to measured post-SC1 scale
+
+**What changed:** SC4's scale figure updated from "~20k edges (approximate)" to the measured "~55k edges incl. `contains` and ~34k `calls`".
+
+**Why:** Correction: SC1's index-integrity fix landed and a fresh index of this repo measures 17,502 nodes / 54,472 edges (33,655 `calls`) — the pre-fix estimate was extrapolated from an older, partially resolved index.
+
+**Superseded:** the ~20k approximate edge figure.
