@@ -123,3 +123,89 @@ func TestStoreExtractionResult_DanglingOwnerRefSkippedNotFatal(t *testing.T) {
 		t.Errorf("file errors %v do not mention the skipped ref %q / owner %q", errs, danglingRef.ID, danglingRef.FromNodeID)
 	}
 }
+
+// TestStoreExtractionResult_OwnerExistsInDB_RefInsertedNoSkip verifies the
+// guard's other branch: when a ref's owner is absent from the *current*
+// file's result.Nodes but was already committed to the DB by a prior file's
+// store (a cross-file / already-indexed owner), tx.NodeExists finds it and
+// the ref is inserted normally — no skip, no error recorded.
+func TestStoreExtractionResult_OwnerExistsInDB_RefInsertedNoSkip(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	database, err := db.Open(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	orch := &Orchestrator{db: database}
+
+	// First store: the owner node, indexed as its own file.
+	const ownerPath = "owner.go"
+	ownerAbsPath := filepath.Join(dir, ownerPath)
+	if err := os.WriteFile(ownerAbsPath, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write owner fixture: %v", err)
+	}
+	ownerStat, err := os.Stat(ownerAbsPath)
+	if err != nil {
+		t.Fatalf("stat owner fixture: %v", err)
+	}
+	ownerNode := types.Node{
+		ID:       "function:owner",
+		Kind:     types.NodeKindFunction,
+		Name:     "Owner",
+		FilePath: ownerPath,
+		Language: types.LanguageGo,
+	}
+	ownerResult := types.ExtractionResult{Nodes: []types.Node{ownerNode}}
+	if err := orch.storeExtractionResult(ctx, ownerPath, "hashA", types.LanguageGo, ownerStat, ownerResult); err != nil {
+		t.Fatalf("storeExtractionResult (owner file): %v", err)
+	}
+
+	// Second store: a different file whose ref names the first file's node as
+	// owner. That node is absent from this file's own result.Nodes, but it now
+	// exists in the DB — the guard's tx.NodeExists branch.
+	const consumerPath = "consumer.go"
+	consumerAbsPath := filepath.Join(dir, consumerPath)
+	if err := os.WriteFile(consumerAbsPath, []byte("y"), 0o644); err != nil {
+		t.Fatalf("write consumer fixture: %v", err)
+	}
+	consumerStat, err := os.Stat(consumerAbsPath)
+	if err != nil {
+		t.Fatalf("stat consumer fixture: %v", err)
+	}
+	crossFileRef := types.UnresolvedReference{
+		ID:            "ref:cross-file",
+		FromNodeID:    ownerNode.ID,
+		ReferenceName: "helper",
+		ReferenceKind: types.EdgeKindCalls,
+		FilePath:      consumerPath,
+	}
+	consumerResult := types.ExtractionResult{
+		UnresolvedReferences: []types.UnresolvedReference{crossFileRef},
+	}
+	if err := orch.storeExtractionResult(ctx, consumerPath, "hashB", types.LanguageGo, consumerStat, consumerResult); err != nil {
+		t.Fatalf("storeExtractionResult (consumer file): %v", err)
+	}
+
+	// The ref landed — the DB-hit branch does not skip it.
+	refs, err := database.GetUnresolvedRefs(ctx, 0, 0)
+	if err != nil {
+		t.Fatalf("GetUnresolvedRefs: %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("got %d unresolved refs, want 1 (owner exists in DB, ref must be inserted); refs: %+v", len(refs), refs)
+	}
+	if refs[0].ID != crossFileRef.ID {
+		t.Errorf("surviving ref ID = %q, want %q", refs[0].ID, crossFileRef.ID)
+	}
+
+	// No skip recorded: the consumer file's errors column stays empty.
+	fr, err := database.GetFile(ctx, consumerPath)
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if len(fr.Errors) != 0 {
+		t.Errorf("file record Errors = %s, want empty (owner existed in DB — no skip should be recorded)", fr.Errors)
+	}
+}
