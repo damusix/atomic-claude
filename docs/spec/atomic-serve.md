@@ -86,20 +86,32 @@ only what gets built.
       view: `table`/`view` nodes with their `column` children and constraints, an FK graph
       from `references` edges, and a writers-vs-readers split from `writes` edges. The
       schema view is derived from graph nodes/edges — there is no `atomic code schema` verb.
-- [ ] **SC11** — Graph overlay: `cytoscape.min.js`, `elk.bundled.js`, and
-      `cytoscape-elk.min.js` are vendored via `go:embed` and loaded in that order
-      (`cytoscape.use(cytoscapeElk)` after). `/graph` renders a global realm graph and a
-      local depth-1–2 view from a node. Three edge classes — md-link, wikilink, and
-      fingerprint/provenance (dashed) — are drawn distinctly. Code edges are per-member
-      sub-graphs entered from a repo node; no cross-repo edges are drawn.
+- [ ] **SC11** — Graph overlay: `cytoscape.min.js` is vendored via `go:embed` for the rail
+      mini-graph. The middle-pane graph mode hosts two views behind a nested **Docs |
+      Code** control. **Docs** is the whole-realm system view, rendered by cosmos.gl, a
+      separately vendored bundle (rendering contract: `docs/spec/cosmos-system-graph.md`).
+      `/graph` renders a global realm graph and a local depth-1–2 view from a node. Three
+      edge classes — md-link, wikilink, and fingerprint/provenance (dashed) — are drawn
+      distinctly. **Code** renders one repo's code-intel symbol graph (nodes + resolved
+      `contains`/`calls`/`imports` edges from that repo's `atomic.db`), fetched from
+      `GET /code/graph/data[?member=<prefix>]` and sharing the Docs view's cosmos.gl core
+      (contract: `docs/spec/code-graph.md`). In realm scope, `GET /code/graph/members`
+      backs a member picker listing code members with their indexed state; switching
+      members swaps the graph. Single-repo/member scope shows no picker — one graph per
+      repo, never merged (no cross-repo edges are drawn; federation, not merging). An
+      unindexed member renders the message "index not available — run `atomic code
+      index`" instead of a blank pane.
       Graph nodes glow in A-style with theme-aware colors read from CSS custom properties
       (no hard-coded palette). `/graph/data` node objects carry `title`, `description`, and
-      `snippet` metadata (from `Graph.Meta` / `extractNodeMeta`). Hovering a node shows a
-      floating preview card (type chip, title, description, snippet). Clicking a node in
-      the system graph opens a content modal that fetches `/page/<id>`, renders the page
-      over a dimmed graph backdrop, and offers an "Open full page →" button; closing the
-      modal returns focus to the graph without navigation. The prior behavior — tap on a
-      system-graph node navigates away to the page view — is superseded.
+      `snippet` metadata (from `Graph.Meta` / `extractNodeMeta`); `/code/graph/data` node
+      objects carry `label`, `kind`, `file`, `line`, `language` instead. Hovering a node
+      shows a floating preview card (type chip, title, description, snippet in Docs; name,
+      kind, `file:line` in Code). Clicking a node in the Docs view opens a content modal
+      that fetches `/page/<id>`, renders the page over a dimmed graph backdrop, and offers
+      an "Open full page →" button; closing the modal returns focus to the graph without
+      navigation. The prior behavior — tap on a system-graph node navigates away to the
+      page view — is superseded. Clicking a node in the Code view opens the existing
+      code-explorer node modal for that symbol, member-aware.
 - [ ] **SC12** — Provenance DAG walk: a new frontmatter reader extracts `reflects:` /
       `sources:` from concern and knowledge pages; the concern → knowledge → bucket-file
       chain is walkable; a stamp whose recorded fingerprint differs from the live content
@@ -116,8 +128,14 @@ only what gets built.
 
 Decided in `docs/design/atomic-serve.md`: one `atomic serve` verb, a presentation-only
 leaf package (`internal/serve/`) importing wiki + code-intel and imported by neither;
-goldmark + chroma + mermaid render; htmx UI; Cytoscape.js + ELK graph; all assets
-vendored via `go:embed`; scope resolution shared with `atomic code` via `realm.Resolve`.
+goldmark + chroma + mermaid render; htmx UI; the rail mini-graph on Cytoscape.js
+(`concentric` layout), the system graph on cosmos.gl (GPU simulation + GPU rendering —
+`docs/spec/cosmos-system-graph.md`); all assets vendored via `go:embed`; scope
+resolution shared with `atomic code` via `realm.Resolve`. The middle-pane graph mode
+hosts two views behind a nested Docs | Code control — the whole-realm system graph
+above, and a per-repo code-intel symbol graph — sharing one cosmos.gl core
+(`graph-core.js`) with a docs profile (`system-graph.js`) and a code profile
+(`code-graph.js`); contract at `docs/spec/code-graph.md`.
 
 
 ## Checkpoints
@@ -136,7 +154,7 @@ a dispatch hint, not a hard roster.
 | 6 | **Realm-health front page** — render `wiki.Stale`/`CheckStaleness` (stale.go:52, staleness.go:88) + aggregate code-index health (reuse doctor `checks_code_index.go` realm aggregation) as badges; bucket-diff counts | `internal/serve/`, `wiki.Stale`, `wiki.CheckStaleness`, `doctor/checks_code_index.go` | builder | SC8 |
 | 7 | **Federated code search** — `/code/search?q=` over `realm.Resolve` members; `engine.NewWithDBPath(memberPath, res.DBPath(key))` (engine.go:104) + `SearchNodes` (engine.go:451); `[key]`-grouped; cold member skipped+noted; `only`/`exclude` param; single-index in repo/member scope | `internal/serve/`, `engine` query layer, `realm` resolver | builder | SC9 |
 | 8 | **Per-repo Code Explorer + SQL schema** — repo Code tab: node detail (`GetNode` engine.go:418), callers/callees/impact (`Subgraph`, engine.go:615-631) as edge-kind chips, files (`GetFiles` engine.go:530); SQL schema view from `table`/`view`/`column` nodes + `references`/`writes` edges (types/types.go:122-157) | `internal/serve/`, `engine` query layer, `types` enums | builder | SC10 |
-| 9 | **Graph overlay** — vendor `cytoscape.min.js`+`elk.bundled.js`+`cytoscape-elk.min.js` (load order load-bearing) via `go:embed`; `/graph` global + local depth-1–2; 3 edge classes styled (md-link/wikilink/fingerprint-dashed); code sub-graph entered via repo node | `internal/serve/` (graph routes, JSON for cytoscape), vendored assets | builder | SC11 |
+| 9 | **Graph overlay** — vendor `cytoscape.min.js` via `go:embed` for the rail mini-graph; the middle-pane graph mode hosts the whole-realm system view (cosmos.gl, see `docs/spec/cosmos-system-graph.md`) and, behind a nested Docs\|Code control, a per-repo code-intel symbol graph (see `docs/spec/code-graph.md`); `/graph` global + local depth-1–2; 3 edge classes styled (md-link/wikilink/fingerprint-dashed); code graph is one repo at a time via the Docs\|Code control (realm member picker), never merged | `internal/serve/` (graph routes, JSON for the rail's cytoscape), `internal/serve/codegraph.go`, `internal/serve/code_graph_members.go`, `internal/serve/assets/` (cosmos.gl vendor + `graph-core.js` + `system-graph.js` + `code-graph.js`) | builder | SC11 |
 | 10 | **Provenance DAG** — frontmatter reader for `reflects:`/`sources:`; concern→knowledge→bucket-file walk; live-hash vs stamped mismatch → red edge + node flag; reuse `wiki` fingerprint resolution | `internal/serve/`, `wiki/stamp.go` resolution (resolveFingerprint:91), new frontmatter reader | builder | SC12 |
 | 11 | **Artifact checklist + docs + parity** — cliusage flags; `CLAUDE.md` registry+workflow; `README.md`; `docs/reference/serve.md` (+ commands table); `/atomic-help` cli row + tour; `atomic validate artifacts`; `make render` + `make -C atomic bundle` clean; signals refresh | `cliusage.go`, `CLAUDE.md`, `README.md`, `docs/reference/`, `templates/commands/atomic-help.md`, `docs/reference/commands.md` | surgeon | SC13 |
 
@@ -151,9 +169,10 @@ is extended. All changes are additive to the existing shell; no engine changes.
 
 A light/dark theme toggle lives in the top bar (sun / moon icon). Before paint, an inline
 script reads `localStorage` key `atomic-serve-theme`, falls back to `prefers-color-scheme`,
-and sets `data-theme` on `<html>`. Toggling writes the choice back to `localStorage` and
-calls `.style()` on all live Cytoscape instances (`window.__systemCy`, `window.__railCy`)
-so the graph re-themes without a page reload.
+and sets `data-theme` on `<html>`. Toggling writes the choice back to `localStorage`, calls
+`window.SystemGraph.retheme()` to re-push point/link colors on the cosmos.gl system graph, and
+calls `.style()` on the live rail Cytoscape instance (`window.__railCy`) — so both graphs
+re-theme without a page reload.
 
 Two CSS-variable theme sets are defined in `app.css`: a warm paper light theme and a warm
 charcoal dark theme. Typography: Newsreader (serif) for display headings, Inter for UI
@@ -175,6 +194,22 @@ card anchored near the pointer. The card contains: a type chip, the node `title`
 `description` (first sentence of frontmatter or inferred), and a `snippet` (the opening
 prose). These fields come from the `meta` object in the `/graph/data` JSON, populated by
 `extractNodeMeta` / `Graph.Meta` in `graph.go`. The card dismisses on pointer-leave.
+
+In the cosmos.gl main graph pane (both the Docs and Code views — shared `graph-core.js`),
+hovering a node also highlights that node, its direct neighbors, and the edges between
+them (full color/width), dimming everything else via cosmos's native
+`highlightedPointIndices`/`highlightedLinkIndices` greyout. Hovering an edge (native
+`onLinkMouseOver`/`onLinkMouseOut` link hit-testing) highlights the edge and both endpoint
+nodes the same way, and shows a preview card reading `<source> —<kind>→ <target>` anchored
+at the pointer, reusing the same preview-card machinery as node hover. Unhovering either
+restores the full-color/full-opacity view. Zoom is clamped both directions: the zoom-in
+ceiling (`ZOOM_MAX`) is a fixed constant derived from cosmos's own point-size zoom-scaling
+curve (see `graph-core.js`'s `ZOOM_MAX` comment for the derivation); the zoom-out floor
+(`effectiveZoomMin`) is fit-anchored, not node-size-derived — computed per mount from that
+graph's own settled-layout bounding box (`computeFitZoomApprox() * 0.6`), since a fixed
+node-size-derived floor sat an order of magnitude below any real fitted view and never
+engaged (see `graph-core.js`'s `computeFitZoomApprox`/`onSimulationEnd` comments). The rail
+mini-graph (Cytoscape, not cosmos.gl) is unaffected by this paragraph.
 
 ### Node-click content modal (system graph)
 
@@ -215,10 +250,18 @@ grep. Canonical UI picture: design doc § "Frontend interaction model".
       Properties slot (`#rail-props-content`) listing its key/values in **source order**
       (parsed via `frontmatter.ParseOrdered`); a page with no frontmatter shows no
       Properties slot. List-valued keys (e.g. `sources:`) render as a comma-joined value.
-- [ ] **FE-SC3** — System graph mode: the `[page | system]` toggle swaps the middle pane to
-      the whole-realm Cytoscape/ELK graph (reusing the existing graph data); the right rail
-      collapses; clicking a node returns to page view focused on it. The standalone `/graph`
-      view is reachable only through this toggle, not a separate nav destination.
+- [ ] **FE-SC3** — Graph mode: the `[page | system]` toggle swaps the middle pane into
+      graph mode, which hosts two views behind a nested **Docs | Code** control. **Docs**
+      is the whole-realm cosmos.gl graph (reusing the existing graph data); the right rail
+      collapses; clicking a node opens the content modal (SC11), not an immediate
+      navigation. **Code** is a per-repo code-intel symbol graph (`docs/spec/code-graph.md`)
+      fetched from `GET /code/graph/data`; in realm scope a member picker
+      (`GET /code/graph/members`) lists code members with their indexed state, and
+      switching members swaps the graph, while single-repo/member scope shows no picker;
+      clicking a symbol node opens the existing code-explorer node modal, member-aware; an
+      unindexed member shows a message naming `atomic code index` instead of an empty
+      graph. The selected graph view and member persist in URL state. The standalone
+      `/graph` view is reachable only through this toggle, not a separate nav destination.
 - [ ] **FE-SC4** — Code modal: clicking a code node, `file:line`, or link-to-a-source-file
       opens a modal over the dimmed page — left = chroma-highlighted source, right =
       code-intel relationships (imports, exports/defs, callers/impact, callees) when the
@@ -252,7 +295,7 @@ grep. Canonical UI picture: design doc § "Frontend interaction model".
 |---|-----------|-------------|-------|----------|
 | FE1 | **Shell + page-view skeleton** — rewrite `layout.html` to the Obsidian shell (top bar breadcrumb + `md|code` search box [toggle may be inert this CP], left nav, middle content with `[page|system]` toggle, right rail with 3 slots); remove the dead context-pane; breadcrumb from the focused page; default landing = page view of the realm index; demote `/health` to `/status` | `internal/serve/templates/layout.html`, `internal/serve/serve.go`, `internal/serve/assets/app.css`, `internal/serve/health.go` | builder | FE-SC1, FE-SC6 |
 | FE2 | **Right-rail compositing** — a rail endpoint (e.g. `/rail?page=`) returning this-page graph (depth-1 `BuildLinkGraph`) + OUT (`ExtractLinks`) + IN (backlinks from `context_handler`); htmx wires content nav → rail refresh | `internal/serve/context_handler.go`, `internal/serve/graph.go`, `internal/serve/render.go` | builder | FE-SC2 |
-| FE3 | **System graph mode** — `[page|system]` toggle swaps middle to the realm graph (reuse `/graph/data`); node click → page view; rail collapses in system mode | `internal/serve/graphoverlay.go`, `layout.html`, `app.css` | builder | FE-SC3 |
+| FE3 | **Graph mode: Docs + Code views** — `[page\|system]` toggle swaps middle pane into graph mode; a nested Docs\|Code control switches between the whole-realm cosmos.gl graph (node click → content modal per SC11; rail collapses) and the per-repo code-intel symbol graph (node click → code-explorer node modal, member-aware; realm member picker; URL view+member state; not-indexed message). Docs view: `system-graph.js` — see `docs/spec/cosmos-system-graph.md`. Code view: shared `graph-core.js` + `code-graph.js` profile + `codegraph.go`/`code_graph_members.go` (`GET /code/graph/data`, `GET /code/graph/members`) — see `docs/spec/code-graph.md` | `internal/serve/graphoverlay.go`, `internal/serve/codegraph.go`, `internal/serve/code_graph_members.go`, `internal/serve/codeexplorer.go`, `internal/serve/assets/system-graph.js`, `internal/serve/assets/graph-core.js`, `internal/serve/assets/code-graph.js`, `layout.html`, `app.css` | builder | FE-SC3 |
 | FE4 | **Code modal** — code node / `file:line` / source-link opens a modal: chroma source + code-intel relations (imports/exports/callers/callees via `codeexplorer`); clickable jumps; degrade to source-only | `internal/serve/codeexplorer.go`, `internal/serve/render.go`, `layout.html`, `app.css` | builder | FE-SC4 |
 | FE5 | **Search dialog + page** — search is a command-palette dialog (`#search-modal`, opened by the top-bar trigger / `⌘K` / `/`) with the `md\|code` toggle + live results; selecting navigates (md→`#main-pane`, code→code modal); `Enter` / "view all" opens the dedicated `/search?q=&src=` page (`search_page.go`, shell-wrapped, `All\|Markdown\|Code` tabs) which composes the `/search/md` + `/code/search` fragments. `md` grep handler `search_md.go`; federated `codesearch.go` | `internal/serve/search_page.go`, `search_md.go`, `codesearch.go`, `layout.html`, `app.css`, `serve.go` | builder | FE-SC5 |
 | FE6 | **Parity + docs** — render/bundle clean; `docs/reference/serve.md` + `/atomic-help` row reflect the Obsidian UI; signals refresh; full verify | `docs/reference/serve.md`, `templates/commands/atomic-help.md`, signals | surgeon | FE-SC7 |
@@ -267,8 +310,8 @@ None.
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| Vendored JS (~5.3 MB: mermaid 3.24, elk 1.57, cytoscape 0.43) inflates the `atomic` binary | High (certain) | Accepted per design (graph is the point). Embed via `go:embed`; consider gzip-at-rest + serve decompressed only if binary size becomes a complaint. Documented, not silent. |
-| Cytoscape+ELK load order wrong → silent "ELK is undefined" | Medium | CP9 spec pins the order `cytoscape → elk.bundled → cytoscape-elk`, then `cytoscape.use`. Verify the graph actually lays out, not just that the page loads. |
+| Vendored JS (~4.6 MB: mermaid 3.31, cosmos-graph.js 0.82, cytoscape 0.44) inflates the `atomic` binary | High (certain) | Accepted per design (graph is the point). Embed via `go:embed`; consider gzip-at-rest + serve decompressed only if binary size becomes a complaint. Documented, not silent. |
+| Vendor script order wrong (`system-graph.js`/`code-graph.js` reference the global `Cosmos` that `cosmos-graph.js` exports, and both profiles depend on the shared `graph-core.js` mounting before them) → the mount throws a `ReferenceError` and the graph pane renders blank | Medium | `layout.html` loads `cytoscape.min.js` (rail), then `cosmos-graph.js`, then `graph-core.js`, then `system-graph.js`, then `code-graph.js`, in that order. `TestShellLoadsGraphScriptsInOrder` asserts the scripts are present and the removed ELK/cola artifacts are gone; it does not assert relative ordering, so verify the sequence manually on any script-tag reshuffle. The committed headless-Chromium gate harness (`scripts/graph-gates.mjs`; contract: `docs/spec/code-graph.md` SC3) runs mount/settle/drag/cache/hover gates against both the Docs and Code views and catches a load-order regression at the mount gate. |
 | `mdlink.ExtractLinks` diverges from `Linkify`'s fence handling → links matched inside code spans | Medium | CP4 reuses the existing fence-tracking internals rather than a fresh regex; test with fenced/inline-code fixtures. |
 | Run scope is large (11 checkpoints) — partial completion | High | Commit-per-green: each checkpoint lands committed and independently valuable. Foundation (CP1–6) is usable without the code/graph layers. Report remaining checkpoints honestly. |
 | Path-traversal / arbitrary file read via `/page/*` or `file:line` route | Medium | CP1/CP2: every served path is resolved against the scope root and rejected (404) if it escapes; never `os.ReadFile` an unvalidated request path. localhost bind limits blast radius. |
@@ -277,6 +320,158 @@ None.
 
 
 ## Change log
+
+### 2026-07-08 — Graph pane: node/edge hover highlighting, zoom clamp, smaller node sizes, brighter edges
+
+**What changed:** Six UX changes to the shared cosmos.gl graph layer (`graph-core.js` +
+the `system-graph.js`/`code-graph.js` profiles + `app.css`), inherited by both the Docs and
+Code graph views. (1) Node size range: `MIN_POINT_SIZE`/`MAX_POINT_SIZE` 13-24 → 8-14px.
+(2)/(3) Zoom is clamped both directions via the `onZoom` handler (cosmos has no native
+scaleExtent config). The zoom-in ceiling (`ZOOM_MAX=500`) is a fixed constant derived from
+`calculatePointSize()`'s own zoom-scaling curve (a literal "80-100px apparent" reading is
+not reachable under this engine's screen-space-constant sizing mode; ZOOM_MAX is the closest
+node-size-derived analog, and was confirmed working empirically). The zoom-out floor
+(`effectiveZoomMin`) is fit-anchored, not node-size-derived: a fixed constant derived the
+same way as ZOOM_MAX (`MAX_POINT_SIZE` / typical settled edge length) was tried first and
+found empirically wrong by the orchestrator's browser gate — it sat roughly an order of
+magnitude below any real fitted view for this repo's docs realm and never engaged, so
+wheel-out collapsed the graph toward a speck before it caught. `effectiveZoomMin` is instead
+computed once per mount from that graph's own just-settled layout
+(`computeFitZoomApprox() * 0.6`, `graph-core.js`), so it scales with whatever dataset is
+actually mounted. (4)
+Edge visibility: `--edge`/`--edge-strong` brightened in both themes (light: `#cabfae`/`#b1a48f`
+→ `#9c8f74`/`#7d6f52`; dark: `#4a4330`/`#6a5f43` → `#6b5f41`/`#8f8058`), plus modest default
+link-width bumps in both profiles — the code view's `contains` tier is explicitly unchanged
+(stays the faintest tier). (5) Hovering a node highlights it, its direct neighbors, and the
+edges between them via cosmos's native `highlightedPointIndices`/`highlightedLinkIndices`
+greyout (adjacency built once per data load, no per-hover graph walk); everything else dims.
+(6) Hovering an edge uses cosmos's native link hit-testing (`onLinkMouseOver`/`onLinkMouseOut`
+— previously unregistered, so link hovering was inert) to highlight both endpoints and show
+an `<source> —<kind>→ <target>` preview card, reusing the existing preview-card machinery.
+
+**Why:** UX polish request (`graph-interactions` brief) — nodes read as oversized, edges as
+nearly invisible, and hover offered no way to trace a node's or edge's connections.
+
+### 2026-07-08 — Code modal: impact-radius node hydration, Back-stack via htmx events, node-view source sync
+
+**What changed:** Three code-modal/graph-engine fixes, reproduced via a Playwright probe
+(`tmp/probe-modal.mjs`).
+(1) `graph.GetImpactRadius`'s container path fetches child nodes via `GetNodesByIds` but
+never added them to the returned `Subgraph.Nodes` — only the per-child `impactBFS`
+sub-traversal's own neighbors were hydrated — so an impact radius rendered on a container
+(file/class/struct/…) showed raw node-ID fallbacks (`renderSubgraph`) for the container's
+own children. `GetImpactRadius` (container and non-container paths) and the symmetric
+`GetCallers`/`GetCallees` now also hydrate their own start node into the returned
+`Subgraph`, so every edge endpoint resolves (`atomic/internal/codeintel/graph/graph.go`).
+(2) The Back-stack forward-push in `layout.html`'s FE4 code-modal script was a
+`document.addEventListener('click', …)` walking up to an `A[hx-get]` inside
+`#code-modal-intel` — htmx 4's own delegated click handling consumes the click first, so
+this listener never fired and the Back button never appeared after a drill-down. The push
+now happens in the existing `htmx:before:request` handler (reads the request URL off
+`ctx.request.action`); the dead click listener is removed.
+(3) A `/code/node` view swapped into the intel pane (edge-chip or file-defines click)
+updated the intel pane only — the modal's source pane and title stayed on whatever was
+shown before. `renderNodeDetail` (codeexplorer.go) now stamps `data-file`/`data-line`/
+`data-name` on its root element (member-aware, reusing `joinMemberPath`); a new
+`htmx:after:swap` handler on `#code-modal-intel` reads those attrs and reloads
+`#code-modal-source`, scrolls to the line, and updates `#code-modal-title` — list views
+(callers/callees/impact chips, file-defines) carry no such attrs and are left untouched.
+
+**Why:** Three user-reported bugs in the shipped code-graph feature (PR #123).
+
+**Correction:** the 2026-06-15 "Code modal intel pane has a Back button" entry's
+forward-push mechanism (a document-level `click` listener) never actually fired under
+htmx 4 — verified empirically with the Playwright probe. The Back button existed in the
+DOM but never populated its stack via a real drill-down.
+
+### 2026-07-08 — Code graph view added to the graph pane
+
+**What changed:** The middle-pane graph mode now hosts two views behind a nested Docs |
+Code control, not the system graph alone. Docs is the existing whole-realm cosmos.gl
+graph (unchanged); Code is a new per-repo code-intel symbol graph rendered by the same
+cosmos.gl engine, split into a shared core (`graph-core.js`, view-agnostic mount/motion/
+cache/legend/label lifecycle) plus two thin profiles — `system-graph.js` (docs, now
+slimmed to the docs-specific data adapter and shell glue) and `code-graph.js` (code,
+new). The server gained `GET /code/graph/data[?member=<prefix>]` (the resolved member's
+full symbol graph as flat JSON — `id`/`label`/`kind`/`file`/`line`/`language` nodes,
+`source`/`target`/`kind` edges — plus a content-derived `fingerprint`; an unresolved
+`?member=` or unopenable index is a non-200 JSON error, never a silent local-index
+fallback) and `GET /code/graph/members` (the scope's code members with each one's
+indexed state, backing the realm member picker). In realm scope a member picker swaps
+which repo's graph is shown — one graph per repo, never merged, matching the code-intel
+engine's per-repo isolation; single-repo/member scope shows no picker. The graph view and
+selected member persist in URL state (`view=`, `member=`), so a shared link reopens the
+same graph. Clicking a symbol node opens the existing code-explorer node modal,
+member-aware, instead of the Docs view's page-content modal. An unindexed member renders
+"index not available — run `atomic code index`" instead of a blank pane. The layout cache
+namespaces code-view entries `code:<member>:<fingerprint>` so they never collide with the
+docs profile's own cache entries in the same IndexedDB store. SC11, FE-SC3, the FE3 and
+checkpoint-9 rows, the Approach paragraph, and the vendor-script-order risk row are
+rewritten to describe this current shape; none of them claim the system graph is the only
+graph view, or that the rail's Cytoscape/cola powers anything beyond the rail mini-graph.
+Full feature contract (endpoint shapes, styling, layout cache, drag-physics
+regression-testing, the committed `scripts/graph-gates.mjs` Playwright gate harness that
+verifies both views): `docs/spec/code-graph.md`.
+
+**Why:** The code-intel engine already computes a per-repo symbol graph
+(`atomic.db`/`engine`); the graph pane already had a proven cosmos.gl render/motion/cache
+stack for the docs system graph. Splitting that stack into a shared core plus per-view
+profiles let the code graph reuse the hand-tuned physics, cache, and interaction grammar
+without re-deriving them, while keeping the two graphs — and their independently
+resolvable data sources — visually and behaviorally distinct behind one toggle.
+
+**Superseded:** SC11's "Code edges are per-member sub-graphs entered from a repo node"
+clause (there was no such entry point; the mechanism is the Docs | Code control described
+above) and its implicit single-view graph pane; FE-SC3's "the whole-realm cosmos.gl graph"
+as the sole content of graph mode, and its "clicking a node returns to page view" claim
+(superseded earlier, 2026-06-18, by the content-modal behavior — corrected here while the
+clause was already being rewritten); the FE3 and checkpoint-9 rows' single-view Files/areas
+scope and "code sub-graph entered via repo node" wording; the vendor-script-order risk
+row's two-script load-order claim (now five scripts, `graph-core.js` and `code-graph.js`
+added).
+
+### 2026-07-04 — System graph: cosmos.gl replaces Cytoscape+cola
+
+**What changed:** The Approach paragraph, FE-SC3, and the FE3 checkpoint row now describe the
+system graph (the `[page|system]` toggle's whole-realm view) as rendered by cosmos.gl (GPU
+simulation + GPU rendering) rather than Cytoscape. The rail mini-graph is unaffected — it stays
+on Cytoscape.js with the `concentric` layout, unmentioned by this change. FE3's Files/areas
+column now names `internal/serve/assets/system-graph.js`, the new client asset that owns the
+cosmos.gl mount lifecycle, data adapter, motion policy, styling parity, and label overlay. The
+"Visual redesign" section's theme-toggle paragraph is corrected to match: the toggle calls
+`window.SystemGraph.retheme()` for the cosmos.gl system graph, not `.style()` on a
+`window.__systemCy` Cytoscape instance (which no longer exists); the rail's
+`window.__railCy.style()` call is unchanged. SC11 and the CP9 checkpoint row are corrected the
+same way: SC11 no longer claims the system view vendors/loads `elk.bundled.js` +
+`cytoscape-elk.min.js` (neither file exists in `assets/vendor/`) or renders via Cytoscape — it
+now vendors `cytoscape.min.js` for the rail only and points the system-view rendering contract
+at `docs/spec/cosmos-system-graph.md`; CP9's row drops the same false vendor/load-order
+instruction and its Files/areas column adds `internal/serve/assets/` (cosmos.gl vendor +
+`system-graph.js`). The Risks table's vendored-JS footprint row is re-accounted against the
+actual current `assets/vendor/` contents (mermaid 3.31 MB, cosmos-graph.js 0.82 MB, cytoscape
+0.44 MB — elk and cola are gone), and its Cytoscape+ELK load-order row is replaced with the
+current order-sensitive risk: `system-graph.js` depends on the global `Cosmos` that
+`cosmos-graph.js` exports, so the vendor `<script>` tags must load `cosmos-graph.js` before
+`system-graph.js`.
+
+**Why:** The full engine-swap contract lives in `docs/spec/cosmos-system-graph.md`
+(cosmos.gl replaces Cytoscape canvas 2D + one-shot cola layout for the system-graph view only,
+for continuous GPU physics and headroom at scale); this amendment points the serve spec's
+system-view description at that contract instead of leaving stale Cytoscape wording in place.
+The spec-currency rule applies to the whole body, not only the sections the cosmos-system-graph
+checkpoint named — SC11, CP9, and the Risks table were flagged in review as additional stale
+claims left over from an earlier, undocumented ELK-to-cola engine swap that predates this
+migration; fixing them here keeps the body internally consistent rather than leaving three more
+false claims for the next reader.
+
+**Superseded:** the Approach paragraph's "Cytoscape.js + ELK graph" description of the graph
+stack (as applied to the system view — the rail's Cytoscape usage is current and unchanged);
+FE-SC3's "whole-realm Cytoscape/ELK graph" wording; FE3's `graphoverlay.go`-only file scope for
+the client-side system-graph mount; the theme-toggle paragraph's `window.__systemCy` Cytoscape
+instance reference; SC11's `cytoscape.min.js`+`elk.bundled.js`+`cytoscape-elk.min.js` vendor/
+load-order claim for the system view; CP9's identical vendor/load-order instruction; the Risks
+table's "mermaid 3.24, elk 1.57, cytoscape 0.43" footprint accounting and its "Cytoscape+ELK
+load order wrong" risk row.
 
 ### 2026-06-23 — `--host` flag for LAN exposure
 

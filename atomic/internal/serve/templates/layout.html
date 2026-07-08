@@ -103,16 +103,34 @@
          and returns the shell, which htmx swaps into <body>. No client config is
          needed — htmx 4 removed the htmx-config historyRestoreAsHxRequest key. -->
     <script src="/static/vendor/htmx.min.js"></script>
-    <!-- Cytoscape + cola — LOAD ORDER IS LOAD-BEARING: cytoscape → cola → cytoscape-cola.
-         Powers the rail mini-graph (FE2) and the Network View (FE3). cola is the
-         force-directed layout engine (one-shot). webcola exports window.cola while
-         cytoscape-cola's browser path reads window.webcola, so bridge the name
-         before registering. -->
+    <!-- Cytoscape — powers the rail mini-graph (FE2) only, with a `concentric`
+         layout (no force-layout adapter needed). -->
     <script src="/static/vendor/cytoscape.min.js"></script>
-    <script src="/static/vendor/cola.min.js"></script>
-    <script>window.webcola = window.cola;</script>
-    <script src="/static/vendor/cytoscape-cola.js"></script>
-    <script>try { if (window.cytoscapeCola) { cytoscape.use(cytoscapeCola); } } catch (e) {}</script>
+    <!-- cosmos.gl — GPU simulation + rendering for the Network View (FE3) system
+         graph. Vendored single-file IIFE bundle exposing window.Cosmos; see
+         cosmos-graph.provenance.txt alongside it for the exact package version,
+         dependency pins, and bundling command. -->
+    <script src="/static/vendor/cosmos-graph.js"></script>
+    <!-- graph-core.js — the view-agnostic cosmos.gl engine (mount/teardown/
+         retheme lifecycle, motion policy, layout cache, label overlay,
+         legend, drag handling). Must load before any per-view profile —
+         see docs/spec/code-graph.md checkpoint 4. -->
+    <script src="/static/graph-core.js"></script>
+    <!-- system-graph.js — the docs Network View profile over graph-core.js:
+         /graph/data fetch + adapter, OKF palette, and hover/click wiring.
+         Lives here (not inline) because the rewrite touches nearly every
+         line anyway; see the Code home sub-decision in
+         docs/design/cosmos-system-graph.md. -->
+    <script src="/static/system-graph.js"></script>
+    <!-- code-graph.js — the Code Graph view profile over graph-core.js:
+         /code/graph/data fetch + adapter, kind→group palette (reusing the
+         docs profile's 8 theme-aware type colors), edge-kind styling, and
+         hover/click wiring into AtomicGraphUI / AtomicCodeExplorer. Mounted
+         by system-graph.js's renderGraphPane() when the Docs|Code switcher
+         (checkpoint 6) selects Code, or directly by the gate harness
+         (scripts/graph-gates.mjs --view code) via a real click on that same
+         switcher. See docs/spec/code-graph.md checkpoint 6. -->
+    <script src="/static/code-graph.js"></script>
     <!-- Single-source type→color map. atomicCyStyle() reads it to build per-type
          node selectors; the system-graph legend (Deliverable A) reads it for swatch
          colors. Hex values are defined ONCE here — neither atomicCyStyle() nor the
@@ -132,50 +150,58 @@
       }).join('');
     }
 
+    // RAMP_FALLBACK: the DARK theme's bright+dusky ramps (docs/spec/code-graph.md
+    // 8-hue x 5-shade x 2-band palette), used only when a --ramp-* CSS var comes
+    // back empty (stylesheet failed to load, etc.) — mirrors the per-type
+    // fallback convention atomicCyTypeColors() already used below.
+    var RAMP_FALLBACK = {
+      gold:    { bright: ['#f7e1a8','#f5c860','#e0a83a','#c08a26','#96691a'], dusky: ['#d6c08d','#c2a45f','#a58743','#866b30','#665022'] },
+      slate:   { bright: ['#c3d0e8','#9fb4d6','#7d94bd','#5f769e','#47597b'], dusky: ['#a4afc5','#8c98ac','#6d7b95','#566174','#3f4757'] },
+      moss:    { bright: ['#d5d9a8','#b8c078','#99a355','#7b843d','#5e662c'], dusky: ['#adaf8f','#898d6e','#6b6e52','#555a34','#3e4224'] },
+      plum:    { bright: ['#dcc4ea','#c19fd9','#a57dc0','#875f9f','#68477c'], dusky: ['#bba3c8','#a18bb0','#876c99','#695674','#4f3f58'] },
+      magenta: { bright: ['#eab6ca','#d98ba9','#bf6a8b','#9e506e','#7a3a53'], dusky: ['#c994a9','#b0778d','#955c72','#724858','#553340'] },
+      terra:   { bright: ['#f2c4a0','#e89f68','#d17f42','#ad6330','#854a22'], dusky: ['#d7a279','#c38150','#9e663d','#7c4e2d','#5c381f'] },
+      cyan:    { bright: ['#b3dfe0','#85c5c8','#62a8ab','#48878a','#346467'], dusky: ['#97b9b9','#789798','#5c7879','#3e5f60','#2b4244'] },
+      gray:    { bright: ['#d9d2c5','#bab2a2','#9a917f','#7b7263','#5d564a'], dusky: ['#b5aea0','#968f80','#787163','#5c564b','#423d35'] }
+    };
+
+    // atomicRampColors reads the 8-hue x 5-shade x 2-band ramp vars (app.css's
+    // --ramp-<hue>-<n> / --ramp-<hue>-dusky-<n>) into one flat map keyed
+    // "<hue>-<n>" (bright) / "<hue>-dusky-<n>" (dusky), n=1..5. Sibling to
+    // atomicCyTypeColors() below — profiles resolve a per-shade color
+    // (degree-quintile fill, graph-core.js's computeNodeColors) through this
+    // map instead of the single base color atomicCyTypeColors()/code-graph.js's
+    // colors() return per type/group.
+    function atomicRampColors() {
+      var style = getComputedStyle(document.documentElement);
+      function v(name, fallback) { var x = style.getPropertyValue(name).trim(); return x || fallback; }
+      var out = {};
+      Object.keys(RAMP_FALLBACK).forEach(function(hue) {
+        for (var i = 1; i <= 5; i++) {
+          out[hue + '-' + i] = v('--ramp-' + hue + '-' + i, RAMP_FALLBACK[hue].bright[i - 1]);
+          out[hue + '-dusky-' + i] = v('--ramp-' + hue + '-dusky-' + i, RAMP_FALLBACK[hue].dusky[i - 1]);
+        }
+      });
+      return out;
+    }
+
+    // TYPE_HUE maps each docs OKF type to its ramp hue — docs/spec/code-graph.md's
+    // hue -> role table (gold/page, slate/repo, moss/domain, plum/concern,
+    // magenta/knowledge, terra/bucket, cyan/index, gray/external). The docs
+    // graph reads the DUSKY band; the code graph (code-graph.js) reads the
+    // BRIGHT band via its own GROUP_HUE table — same hue per paired role.
+    var TYPE_HUE = {
+      page: 'gold', repo: 'slate', domain: 'moss', concern: 'plum',
+      knowledge: 'magenta', bucket: 'terra', index: 'cyan', external: 'gray'
+    };
+
     function atomicCyTypeColors() {
       // Read ALL graph color tokens from CSS custom properties so the graph
       // re-themes automatically on light/dark toggle. Provides safe fallbacks.
       var style = getComputedStyle(document.documentElement);
       function v(name) { return style.getPropertyValue(name).trim(); }
-      var pageColor      = v('--c-page')      || '#89b4fa';
-      var repoColor      = v('--c-repo')      || '#a6e3a1';
-      var concernColor   = v('--c-concern')   || '#cba6f7';
-      var knowledgeColor = v('--c-knowledge') || '#f38ba8';
-      var bucketColor    = v('--c-bucket')    || '#fab387';
-      var externalColor  = v('--c-external')  || '#6c7086';
-      var indexColor     = v('--c-index')     || '#74c7ec';
-      var domainColor    = v('--c-domain')    || '#94e2d5';
-      return {
-        // Node type solid colors (used as gradient base + derived darker stop).
-        'page':      pageColor,
-        'repo':      repoColor,
-        'concern':   concernColor,
-        'knowledge': knowledgeColor,
-        'bucket':    bucketColor,
-        'external':  externalColor,
-        'index':     indexColor,
-        'domain':    domainColor,
-        // Derived 10%-darker gradient stop for each type.
-        'page-dark':      darken(pageColor,      0.10),
-        'repo-dark':      darken(repoColor,      0.10),
-        'concern-dark':   darken(concernColor,   0.10),
-        'knowledge-dark': darken(knowledgeColor, 0.10),
-        'bucket-dark':    darken(bucketColor,    0.10),
-        'external-dark':  darken(externalColor,  0.10),
-        'index-dark':     darken(indexColor,     0.10),
-        'domain-dark':    darken(domainColor,    0.10),
-        // Per-type ink colors (node label text color).
-        'page-ink':      v('--c-page-ink')      || '#3a63a8',
-        'repo-ink':      v('--c-repo-ink')      || '#3f7a3a',
-        'concern-ink':   v('--c-concern-ink')   || '#6f4aa6',
-        'knowledge-ink': v('--c-knowledge-ink') || '#9c2f4c',
-        'bucket-ink':    v('--c-bucket-ink')    || '#8a4a1a',
-        'external-ink':  v('--c-external-ink')  || '#4a4e63',
-        'index-ink':     v('--c-index-ink')     || '#1a6a8a',
-        'domain-ink':    v('--c-domain-ink')    || '#2a7a6e',
-        // Default node colors (for nodes whose type is unknown or empty).
-        'default-fill':  pageColor,
-        'default-dark':  darken(pageColor, 0.10),
+      var ramps = atomicRampColors();
+      var out = {
         'default-label': v('--ink')         || '#211d18',
         // Label chip: a paper-surface pill behind each label so text stays legible
         // over the graph canvas in both themes (was hardcoded to the page color,
@@ -188,11 +214,36 @@
         // Selected state — amber glow.
         'selected':      v('--amber-bright') || '#d99a1f'
       };
+      Object.keys(TYPE_HUE).forEach(function(type) {
+        var hue = TYPE_HUE[type];
+        // Full 5-shade dusky ramp for this type — degree-quintile shading
+        // indexes into this (graph-core.js's computeNodeColors; quintile
+        // 1..5 maps to index 0..4). RAMP_FALLBACK's dark-theme values back
+        // every entry, so a missing var never yields an empty shade.
+        var duskyRamp = [1, 2, 3, 4, 5].map(function(n) { return ramps[hue + '-dusky-' + n]; });
+        var fill = v('--c-' + type) || duskyRamp[1];      // shade 2 — the default/legend-chip color.
+        var ink  = v('--c-' + type + '-ink') || duskyRamp[0]; // dark-theme ink convention: shade 1 (lightest).
+        out[type] = fill;
+        out[type + '-ink'] = ink;
+        // Gradient dark stop: the next-deeper ramp shade (3) when resolvable,
+        // else the old 10%-darken transform as a last-resort fallback.
+        out[type + '-dark'] = duskyRamp[2] || darken(fill, 0.10);
+        out[type + '-ramp'] = duskyRamp;
+      });
+      // Default node colors (for nodes whose type is unknown or empty) mirror
+      // the 'page' type, same fallback typeOf() (graph-core.js) uses.
+      out['default-fill'] = out['page'];
+      out['default-dark'] = out['page-dark'];
+      out['default-ramp'] = out['page-ramp'];
+      return out;
     }
     </script>
-    <!-- Shared Cytoscape style factory — used by BOTH the rail mini-graph (FE2) and
-         the system-graph toggle (FE3). One definition, two consumers. Do NOT copy
-         the style array into either consumer; call atomicCyStyle() instead.
+    <!-- Cytoscape style factory — rail mini-graph (FE2) only. The system-graph
+         toggle (FE3) moved to cosmos.gl (CP1/CP2); it has no Cytoscape style
+         objects to consume, so it builds its own point/link styling in
+         system-graph.js, reusing only atomicCyTypeColors() below (the shared
+         color source of truth) — not this function. Do NOT copy the style
+         array elsewhere; call atomicCyStyle() instead.
 
          A-style glowing nodes: circular wash fill + typed outer stroke + soft drop-shadow.
          All colors read from atomicCyTypeColors() which reads CSS vars — so the graph
@@ -295,28 +346,6 @@
           }
         },
         {
-          // fingerprint: dashed orange — provenance/reflects: edges (CP10).
-          selector: 'edge.fingerprint',
-          style: {
-            'line-color': '#fab387',
-            'line-style': 'dashed',
-            'line-dash-pattern': [4, 4],
-            'target-arrow-color': '#fab387',
-            'target-arrow-shape': 'triangle',
-            'curve-style': 'bezier',
-            'width': 1.5
-          }
-        },
-        {
-          // fingerprint drift: red — drifted provenance edges (SC12).
-          selector: 'edge.fingerprint.drift',
-          style: {
-            'line-color': '#f38ba8',
-            'target-arrow-color': '#f38ba8',
-            'width': 2.5
-          }
-        },
-        {
           // Selected: amber solid gradient (theme-aware).
           selector: ':selected',
           style: {
@@ -370,15 +399,20 @@
         return el;
       }
 
-      // Show the hover preview for a node, positioned relative to anchorEl — the
-      // pane the graph renders in (#main-pane for the system graph, the rail
-      // container for the mini-graph).
-      function showPreviewCard(cyNode, anchorEl) {
+      // Show the hover preview for a node. Engine-neutral: node is a plain data
+      // object ({type, title, label, description, snippet}), not a Cytoscape
+      // node — the rail passes its .data(); the system graph's cosmos.gl
+      // adapter has no per-point .data(), so it passes its own node lookup.
+      // screenPos ({x, y}) must already be in containerEl's OWN coordinate
+      // frame (top-left origin) — Cytoscape's renderedPosition() and cosmos's
+      // spaceToScreenPosition() both use this convention, so each caller
+      // converts with its own engine's primitive before calling here.
+      function showPreviewCard(node, screenPos, containerEl) {
         var card = getOrCreatePreviewCard();
-        var type  = cyNode.data('type') || 'page';
-        var title = cyNode.data('title') || cyNode.data('label') || '';
-        var desc  = cyNode.data('description') || '';
-        var snip  = cyNode.data('snippet') || '';
+        var type  = node.type || 'page';
+        var title = node.title || node.label || '';
+        var desc  = node.description || '';
+        var snip  = node.snippet || '';
 
         var html = '<span class="cy-pc-chip ' + type + '">' + escapeHTML(type) + '</span>' +
                    '<div class="cy-pc-title">' + escapeHTML(title) + '</div>';
@@ -386,22 +420,18 @@
         if (snip) { html += '<div class="cy-pc-snip">' + escapeHTML(snip) + '</div>'; }
         card.innerHTML = html;
 
-        // renderedPosition() is relative to the Cytoscape CONTAINER element, so anchor
-        // to that exact element's viewport rect — not a passed-in pane, which may not
-        // share the container's origin. The card is position:fixed on <body>, so
-        // rect.left/top (viewport coords) + the rendered offset land it on the node.
-        var pos  = cyNode.renderedPosition();
-        var container = (cyNode.cy().container && cyNode.cy().container())
-          || anchorEl || document.getElementById('main-pane');
+        // The card is position:fixed on <body>, so rect.left/top (viewport coords)
+        // + screenPos (containerEl-relative) land it on the node.
+        var container = containerEl || document.getElementById('main-pane');
         var rect = container.getBoundingClientRect();
         var cardW = 284;
         var cardH = card.offsetHeight || 170;
         var gap = 14;
-        var left = rect.left + pos.x + gap;
-        var top  = rect.top  + pos.y + gap;
+        var left = rect.left + screenPos.x + gap;
+        var top  = rect.top  + screenPos.y + gap;
         // Flip to the node's left if the card would overflow the right edge, then
         // clamp fully on-screen on both axes (no off-viewport corners).
-        if (left + cardW + 8 > window.innerWidth) { left = rect.left + pos.x - cardW - gap; }
+        if (left + cardW + 8 > window.innerWidth) { left = rect.left + screenPos.x - cardW - gap; }
         if (left < 8) { left = 8; }
         if (top + cardH + 8 > window.innerHeight) { top = window.innerHeight - cardH - 8; }
         if (top < 8) { top = 8; }
@@ -416,9 +446,11 @@
       }
 
       // ── Page modal ────────────────────────────────────────────────────────────
-      // Look up node metadata from the passed cy instance, load the /page/ fragment
-      // into the modal body, wire "Open full page", and show the scrim.
-      function openPageModal(nodeID, cy) {
+      // Engine-neutral: nodeData is a plain object (or falsy when unresolved),
+      // not a cy instance to look up — the rail passes .data(); the system
+      // graph passes its adapter's node lookup. Loads the /page/ fragment into
+      // the modal body, wires "Open full page", and shows the scrim.
+      function openPageModal(nodeID, nodeData) {
         var scrim = document.getElementById('cy-page-modal-scrim');
         if (!scrim) { return; }
         var modalBody  = document.getElementById('cy-modal-body');
@@ -427,11 +459,9 @@
         var modalDesc  = document.getElementById('cy-modal-desc');
         var openBtn    = document.getElementById('cy-modal-open-btn');
 
-        var cyNode  = cy && cy.getElementById(nodeID);
-        var hasNode = cyNode && cyNode.length;
-        var type  = hasNode ? (cyNode.data('type') || 'page') : 'page';
-        var title = hasNode ? (cyNode.data('title') || cyNode.data('label') || nodeID) : nodeID;
-        var desc  = hasNode ? (cyNode.data('description') || '') : '';
+        var type  = nodeData ? (nodeData.type || 'page') : 'page';
+        var title = nodeData ? (nodeData.title || nodeData.label || nodeID) : nodeID;
+        var desc  = nodeData ? (nodeData.description || '') : '';
 
         if (modalChip)  { modalChip.className = 'cy-modal-chip ' + type; modalChip.textContent = type; }
         if (modalTitle) { modalTitle.textContent = title; }
@@ -603,7 +633,14 @@
           //           navigateToPage does a plain htmx swap into #main-pane).
           if (window.AtomicGraphUI) {
             railCy.on('mouseover', 'node', function(evt) {
-              AtomicGraphUI.showPreviewCard(evt.target, container);
+              var n = evt.target;
+              AtomicGraphUI.showPreviewCard({
+                type: n.data('type'),
+                title: n.data('title'),
+                label: n.data('label'),
+                description: n.data('description'),
+                snippet: n.data('snippet')
+              }, n.renderedPosition(), container);
             });
             railCy.on('mouseout', 'node', function() {
               AtomicGraphUI.hidePreviewCard();
@@ -695,562 +732,22 @@
       };
     });
     </script>
-    <!-- FE3 Network View — its own page (/graph), not a client-only toggle.
-         The #btn-graph button in the top bar navigates to /graph (htmx, push:url), so
-         the view is URL-addressable, history-tracked, and refresh-survivable. The
-         /graph fragment carries a [data-system-graph] container; the htmx.onLoad
-         handler below mounts Cytoscape+ELK into it (same delegated pattern as the rail
-         mini-graph), restores zoom/pan from the URL, and records subsequent zoom/pan
-         changes back into the URL (?z=&px=&py=) via replaceState.
-         Node interactions: mouseover → preview card · mouseout → hide · tap → content
-         modal over the blurred graph ("Open full page →" navigates to the page). -->
+    <!-- FE3 Network View mount delegation — thin htmx.onLoad hook into
+         system-graph.js's exported enterGraphMode. The /graph fragment lands
+         once per graph-mode entry (via #btn-graph or a document load/reload);
+         enterGraphMode reads the URL's view/member (code-graph checkpoint 6)
+         and renders the matching profile — see system-graph.js's own
+         comment on renderGraphPane. Everything else (data adapter, WebGL2
+         detection, motion policy, lifecycle guards, mode toggling,
+         teardown-on-nav-out) lives in system-graph.js / graph-core.js — see
+         the Code home sub-decision in docs/design/cosmos-system-graph.md. -->
     <script>
-    (function() {
-      var currentPage = null;       // last /page/ URL loaded (for the "back to page" toggle)
-      var VIEW_DEBOUNCE_MS = 250;   // how long after the last zoom/pan before writing the URL
-      var systemLayoutCacheKey = null; // current IndexedDB key (CP5: hash of the mounted element-id set)
-      var systemMountInFlight = false; // CP5: true from mount start until window.__systemCy is set (or the mount fails) — guards against a live-reload event racing a second concurrent mountSystemGraph
-      var systemMountAbort = null; // F-4: AbortController for the mount's in-flight /graph/data fetch — teardownSystemGraph aborts it so a stale fetch can't outlive a navigate-away and clobber a later mount's state
-
-      function inSystemMode() { return document.body.classList.contains('mode-system'); }
-
-      // updateGraphBtnState syncs #btn-graph aria-pressed + active class to the mode.
-      function updateGraphBtnState(active) {
-        var btn = document.getElementById('btn-graph');
-        if (!btn) { return; }
-        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        if (active) { btn.classList.add('btn-graph-active'); }
-        else { btn.classList.remove('btn-graph-active'); }
-      }
-
-      // Leaving the graph: destroy the instance, drop system mode, reset the button,
-      // dismiss any open card/modal. Called when #main-pane settles with non-graph
-      // content (nav click, node "open full page", Back to a page, etc.).
-      function teardownSystemGraph() {
-        // Cleared here, synchronously, rather than left for the abandoned mount's
-        // own (async) fetch chain to clear: that chain's bail branches check
-        // ownership (systemMountAbort === their own controller) before touching
-        // ANY shared state, so once torn down they must no-op even for this flag —
-        // otherwise a stale mount's late-settling chain could clear it out from
-        // under a fresh mount that started in the meantime.
-        systemMountInFlight = false;
-        if (systemMountAbort) { systemMountAbort.abort(); systemMountAbort = null; }
-        if (window.__systemCy) { try { window.__systemCy.destroy(); } catch (e) {} window.__systemCy = null; }
-        document.body.classList.remove('mode-system');
-        updateGraphBtnState(false);
-        AtomicGraphUI.hidePreviewCard();
-        AtomicGraphUI.closePageModal();
-        systemLayoutCacheKey = null;
-      }
-
-      // Track current page + clean up system mode whenever #main-pane swaps. htmx 4:
-      // colon-format events carry detail.ctx (ctx.target = resolved swap target,
-      // ctx.request.action = request path); listen on document — a detached source
-      // element dispatches there, not on body.
-      document.addEventListener('htmx:after:swap', function(evt) {
-        var ctx = evt.detail && evt.detail.ctx;
-        var tgt = ctx && ctx.target;
-        if (!tgt || tgt.id !== 'main-pane') { return; }
-        var path = ctx.request && ctx.request.action;
-        if (path && path.indexOf('/page/') === 0) { currentPage = path; }
-        // Anything that isn't the system graph means we're no longer in system mode.
-        if (!tgt.querySelector('[data-system-graph]') && inSystemMode()) {
-          teardownSystemGraph();
-        }
-      });
-
-      // ── URL view-state (zoom + pan) ──────────────────────────────────────────
-      // /graph?z=<zoom>&px=<panX>&py=<panY>. Restored on mount; written with
-      // replaceState (never push) so dragging/zooming can't flood the history.
-      function readViewFromURL() {
-        var p = new URLSearchParams(window.location.search);
-        var z = parseFloat(p.get('z')), px = parseFloat(p.get('px')), py = parseFloat(p.get('py'));
-        if (isFinite(z) && isFinite(px) && isFinite(py)) { return { zoom: z, pan: { x: px, y: py } }; }
-        return null;
-      }
-      function writeViewToURL(cy) {
-        if (window.location.pathname !== '/graph') { return; }
-        var pan = cy.pan();
-        var qs = 'z=' + cy.zoom().toFixed(4) + '&px=' + pan.x.toFixed(2) + '&py=' + pan.y.toFixed(2);
-        try { window.history.replaceState(window.history.state, '', '/graph?' + qs); } catch (e) {}
-      }
-
-      // buildLegend constructs the type-filter chip bar from the types present in the
-      // graph. Colors come from atomicCyTypeColors() (single source of truth). Each
-      // chip toggles visibility of the matching nodes in the live instance.
-      function buildLegend(cy, elems, mainPane) {
-        var seenTypes = {};
-        var nodeList = Array.isArray(elems) ? elems : ((elems && elems.nodes) || []);
-        nodeList.forEach(function(el) { if (el.data && el.data.type) { seenTypes[el.data.type] = true; } });
-        var types = Object.keys(seenTypes).sort();
-        if (!types.length) { return; }
-
-        var colorMap = atomicCyTypeColors();
-        var hiddenTypes = {};
-
-        var legend = document.createElement('div');
-        legend.id = 'graph-legend';
-        legend.className = 'graph-legend';
-
-        types.forEach(function(type) {
-          var color = colorMap[type] || '#89b4fa';
-          var chip = document.createElement('button');
-          chip.className = 'graph-legend-chip graph-legend-chip-active';
-          chip.type = 'button';
-          chip.setAttribute('data-type', type);
-          chip.setAttribute('aria-pressed', 'true');
-
-          var swatch = document.createElement('span');
-          swatch.className = 'graph-legend-swatch';
-          swatch.style.background = color;
-          var label = document.createElement('span');
-          label.textContent = type;
-          chip.appendChild(swatch);
-          chip.appendChild(label);
-
-          chip.addEventListener('click', function() {
-            if (!cy) { return; }
-            if (hiddenTypes[type]) {
-              cy.nodes('[type="' + type + '"]').style('display', 'element');
-              delete hiddenTypes[type];
-              chip.classList.add('graph-legend-chip-active');
-              chip.setAttribute('aria-pressed', 'true');
-            } else {
-              cy.nodes('[type="' + type + '"]').style('display', 'none');
-              hiddenTypes[type] = true;
-              chip.classList.remove('graph-legend-chip-active');
-              chip.setAttribute('aria-pressed', 'false');
-            }
-          });
-          legend.appendChild(chip);
-        });
-        mainPane.appendChild(legend);
-      }
-
-      // ── Layout cache (IndexedDB, keyed by the mounted element-id set) ───────────
-      // The ELK 'stress' / cola layout is the real cost of opening the Network View
-      // — it recomputes node positions every mount (the Cytoscape instance is
-      // destroyed on exit). We cache the computed positions in IndexedDB keyed by a
-      // hash of the sorted ids of every node + edge currently mounted (not the realm
-      // fingerprint — CP5: a live-reload patch changes the mounted set without a
-      // full remount, so the key must track what's actually on screen). Subsequent
-      // opens of the same graph shape replay the saved positions with a 'preset'
-      // layout (no algorithm) so the graph appears instantly; IndexedDB persists
-      // across browser sessions. Every re-key — cold mount, degenerate-fallback
-      // remount, or incremental patch — prunes the entry for the key it
-      // superseded, if any, so stale shapes don't accumulate.
-      var LAYOUT_DB = 'atomic-serve', LAYOUT_STORE = 'graph-layout';
-
-      function idbOpen() {
-        return new Promise(function(resolve, reject) {
-          if (!window.indexedDB) { reject(new Error('no indexedDB')); return; }
-          var req = indexedDB.open(LAYOUT_DB, 1);
-          req.onupgradeneeded = function() {
-            if (!req.result.objectStoreNames.contains(LAYOUT_STORE)) {
-              req.result.createObjectStore(LAYOUT_STORE);
-            }
-          };
-          req.onsuccess = function() { resolve(req.result); };
-          req.onerror = function() { reject(req.error); };
-        });
-      }
-      function loadCachedLayout(key) {
-        if (!key) { return Promise.resolve(null); }
-        return idbOpen().then(function(db) {
-          return new Promise(function(resolve) {
-            var rq = db.transaction(LAYOUT_STORE, 'readonly').objectStore(LAYOUT_STORE).get(key);
-            rq.onsuccess = function() { resolve(rq.result || null); };
-            rq.onerror = function() { resolve(null); };
-          });
-        }).catch(function() { return null; });
-      }
-      function saveCachedLayout(key, positions) {
-        if (!key) { return; }
-        idbOpen().then(function(db) {
-          db.transaction(LAYOUT_STORE, 'readwrite').objectStore(LAYOUT_STORE).put(positions, key);
-        }).catch(function() {});
-      }
-      function deleteCachedLayout(key) {
-        if (!key) { return; }
-        idbOpen().then(function(db) {
-          db.transaction(LAYOUT_STORE, 'readwrite').objectStore(LAYOUT_STORE).delete(key);
-        }).catch(function() {});
-      }
-
-      // collectElementIds flattens a /graph/data response into one id array
-      // (nodes + edges) for hashing.
-      function collectElementIds(elems) {
-        var ids = [];
-        (elems.nodes || []).forEach(function(n) { if (n.data && n.data.id != null) { ids.push(n.data.id); } });
-        (elems.edges || []).forEach(function(e) { if (e.data && e.data.id != null) { ids.push(e.data.id); } });
-        return ids;
-      }
-
-      // elementIdSetHash derives a deterministic IndexedDB key from a set of
-      // element ids: sort (order-independent), join, FNV-1a hash. Not a
-      // cryptographic digest — uniqueness across graph shapes is all that's
-      // needed, so a synchronous string hash avoids an async crypto.subtle
-      // round trip in the mount/reconcile chain.
-      function elementIdSetHash(ids) {
-        var str = ids.slice().sort().join('|'); // separator avoids a false collision between differently-split concatenations of the same ids
-        var h = 0x811c9dc5;
-        for (var i = 0; i < str.length; i++) {
-          h ^= str.charCodeAt(i);
-          h = (h * 0x01000193) >>> 0;
-        }
-        return 'idset-' + h.toString(16);
-      }
-
-      // Mount the system graph into the [data-system-graph] container delivered by
-      // the /graph fragment. Guarded against double-mount (a dataset flag).
-      function mountSystemGraph(container) {
-        if (container.dataset.systemMounted === '1') { return; }
-        if (typeof cytoscape === 'undefined') { return; }
-        container.dataset.systemMounted = '1';
-        systemMountInFlight = true;
-
-        var mainPane = document.getElementById('main-pane');
-        document.body.classList.add('mode-system');
-        updateGraphBtnState(true);
-
-        // F-4: this mount's own controller — passed to fetch so teardownSystemGraph's
-        // abort() actually cancels the in-flight network request. isCurrentMount is
-        // the real guard against a stale mount's chain settling late and clobbering
-        // a fresh one: `signal.aborted` alone only covers the case where THIS mount
-        // was the one aborted, not "some later mount has since taken over
-        // systemMountAbort" — ownership (=== the live systemMountAbort) covers both.
-        var abortController = new AbortController();
-        systemMountAbort = abortController;
-        var signal = abortController.signal;
-        function isCurrentMount() { return systemMountAbort === abortController; }
-
-        function clearSystemLoading() {
-          var l = mainPane.querySelector('.system-graph-loading');
-          if (l) { l.remove(); }
-        }
-
-        fetch('/graph/data', { signal: signal })
-          .then(function(r) { return r.json(); })
-          .then(function(elems) {
-            // Superseded (torn down and/or a later mount has since taken ownership
-            // of systemMountAbort) between the fetch settling and this callback
-            // running: bail before touching systemLayoutCacheKey — teardownSystemGraph
-            // already cleared systemMountInFlight, so nothing shared gets touched here.
-            if (!isCurrentMount()) { return null; }
-            // Look up a cached layout for this exact mounted-element-id shape, then mount.
-            // Capture the outgoing key before overwriting it — the degenerate-fallback
-            // remount path (fullSystemRelayout) leaves systemLayoutCacheKey pointing at
-            // the pre-fallback shape, so its IndexedDB entry must be pruned here too
-            // (mirrors rekeyLayoutCache's incremental-patch prune, SC20).
-            var supersededKey = systemLayoutCacheKey;
-            systemLayoutCacheKey = elementIdSetHash(collectElementIds(elems));
-            if (supersededKey && supersededKey !== systemLayoutCacheKey) { deleteCachedLayout(supersededKey); }
-            return loadCachedLayout(systemLayoutCacheKey).then(function(cachedPos) { return { elems: elems, cachedPos: cachedPos }; });
-          })
-          .then(function(bundle) {
-            // bundle is null when the guard above already bailed, or ownership was
-            // lost during the IndexedDB lookup that followed it — either way, no
-            // Cytoscape instance gets built for a superseded mount.
-            if (!bundle || !isCurrentMount()) { return; }
-            var elems = bundle.elems;
-            var cachedPos = bundle.cachedPos;
-
-            // Degree (link count) per node → 'deg' data, capped, which drives the
-            // degree-based node sizing in atomicCyStyle (hubs bigger, leaves smaller).
-            var deg = {};
-            (elems.edges || []).forEach(function(e) {
-              var s = e.data && e.data.source, t = e.data && e.data.target;
-              if (s != null) { deg[s] = (deg[s] || 0) + 1; }
-              if (t != null) { deg[t] = (deg[t] || 0) + 1; }
-            });
-            (elems.nodes || []).forEach(function(n) {
-              if (n.data) { n.data.deg = Math.min(deg[n.data.id] || 0, 16); }
-            });
-
-            // Cached positions → 'preset' (instant). Fresh → cola, the force-directed
-            // layout engine (one-shot, Obsidian-like organic arrangement).
-            var layout = cachedPos
-              ? { name: 'preset', positions: cachedPos, fit: false }
-              : { name: 'cola', animate: true, fit: true, maxSimulationTime: 2500, avoidOverlap: true, nodeSpacing: function() { return 8; }, edgeLength: 100, randomize: false, infinite: false };
-
-            var cy = cytoscape({
-              container: container,
-              elements: elems,
-              layout: layout,
-              style: atomicCyStyle(),
-              // Wide bound at construction so the initial fit (which can need a small
-              // zoom for a big graph) isn't clamped; finishMount tightens it below.
-              minZoom: 0.02,
-              maxZoom: 2.2
-            });
-            // Nothing async happens between the guard above and here (cytoscape's
-            // constructor is synchronous), so ownership cannot have changed in
-            // between — this re-check is an explicit invariant rather than a live
-            // race, kept so a future edit that adds an async step here doesn't
-            // silently reopen the gap.
-            if (!isCurrentMount()) { try { cy.destroy(); } catch (e) {} return; }
-            window.__systemCy = cy;
-            systemMountInFlight = false;
-
-            var saved = readViewFromURL();
-            var recording = false; // ignore programmatic initial view; record user changes after
-
-            // finishMount applies the initial view, builds the legend, caches a
-            // freshly computed layout, and turns on zoom/pan→URL recording.
-            // Idempotent so it runs exactly once whether fired by layoutstop (ELK,
-            // async) or the preset fallback below. A 'preset' layout (cached
-            // positions) settles synchronously during construction — before this
-            // listener attaches — so without the fallback layoutstop is missed and
-            // recording would stay off, killing the URL params on cached opens.
-            var finished = false;
-            function finishMount() {
-              if (finished) { return; }
-              finished = true;
-              clearSystemLoading();
-              cy.resize();
-              // Fit once to measure the "whole graph fills the viewport" zoom, then cap
-              // zoom-out at half that (graph can shrink to ~half size, no further — no
-              // zooming into an unreadable speck) and keep a sane zoom-in ceiling.
-              cy.fit(undefined, 24);
-              var fitZoom = cy.zoom();
-              cy.minZoom(fitZoom * 0.5);
-              cy.maxZoom(2.2);
-              // Restore the saved view from the URL if present (else keep the fit).
-              if (saved) { cy.zoom(saved.zoom); cy.pan(saved.pan); }
-              buildLegend(cy, elems, mainPane);
-              // Persist the freshly computed layout (debounced) so the next open
-              // replays it instantly. Cached opens haven't changed anything yet.
-              if (!cachedPos) { scheduleSave(); }
-              setTimeout(function() { recording = true; }, 60);
-            }
-            cy.one('layoutstop', finishMount);
-            // Preset settles immediately; ensure finishMount still runs even if
-            // layoutstop fired before the listener attached. Force layouts are async
-            // and rely on layoutstop alone (no premature fit before they complete).
-            if (cachedPos) { setTimeout(finishMount, 0); }
-            cy.ready(function() { cy.resize(); });
-
-            // Debounced position save: continuous physics keeps nudging positions,
-            // so writes to IndexedDB are coalesced rather than thrashed (this is what
-            // lets continuous physics and the layout cache coexist).
-            var saveTimer = null;
-            function scheduleSave() {
-              if (!systemLayoutCacheKey) { return; }
-              clearTimeout(saveTimer);
-              saveTimer = setTimeout(function() {
-                var positions = {};
-                cy.nodes().forEach(function(n) { var p = n.position(); positions[n.id()] = { x: p.x, y: p.y }; });
-                saveCachedLayout(systemLayoutCacheKey, positions);
-              }, 800);
-            }
-
-            // Dragging moves only the grabbed node (its own edges follow); the rest
-            // of the graph stays put. An on-drag force sim was tried but any global
-            // simulation repositions other nodes — and moving a neighbouring hub
-            // swings all ITS edges, so unrelated edges lurch. The force-directed look
-            // comes from the one-shot initial layout; manual drags just refine it and
-            // persist on release.
-            cy.on('dragfree', 'node', function() { scheduleSave(); });
-
-            // Record user zoom/pan into the URL (debounced, replaceState).
-            var viewTimer = null;
-            cy.on('viewport', function() {
-              if (!recording) { return; }
-              clearTimeout(viewTimer);
-              viewTimer = setTimeout(function() { writeViewToURL(cy); }, VIEW_DEBOUNCE_MS);
-            });
-
-            cy.on('mouseover', 'node', function(evt) { AtomicGraphUI.showPreviewCard(evt.target, mainPane); });
-            cy.on('mouseout', 'node', function() { AtomicGraphUI.hidePreviewCard(); });
-            cy.on('tap', 'node', function(evt) {
-              AtomicGraphUI.hidePreviewCard();
-              AtomicGraphUI.openPageModal(evt.target.data('id'), cy);
-            });
-          })
-          .catch(function(e) {
-            // Ownership-gated like every branch above: a superseded mount's error
-            // (including its own AbortError from teardownSystemGraph) reports
-            // nothing — there's no loading indicator left in the DOM that's still
-            // this mount's, and systemMountInFlight already reflects the mount
-            // that's actually current.
-            if (!isCurrentMount()) { return; }
-            systemMountInFlight = false;
-            var l = mainPane.querySelector('.system-graph-loading');
-            if (l) { l.textContent = 'Could not render the system graph.'; }
-            console.error('system-graph /graph/data:', e);
-          });
-      }
-
-      // ── System-mode reconcile (CP5, spec Flow 4) ────────────────────────────
-      // Registers on CP4's `atomic:live-reload` dispatch, which only fires once
-      // the fp has already been confirmed to differ — no re-check needed here.
-      // No boot guard: this whole script lives in <head>, which htmx never
-      // swaps, so it runs exactly once per real page load (unlike the <body>
-      // live-reload script below, which guards against a history-restore
-      // body-innerHTML re-execution).
-
-      // seedPositionNear places a newly added node near a neighbor already on
-      // screen (a survivor, or an added node placed earlier in the same batch)
-      // so the scoped cola pass below refines a local cluster instead of
-      // scattering new nodes across the canvas. Falls back to the viewport
-      // center when no such neighbor is found yet.
-      function seedPositionNear(cy, nodeId, addedEdges, fallbackCenter) {
-        for (var i = 0; i < addedEdges.length; i++) {
-          var d = addedEdges[i].data;
-          if (!d) { continue; }
-          var other = d.source === nodeId ? d.target : (d.target === nodeId ? d.source : null);
-          if (!other) { continue; }
-          var neighbor = cy.getElementById(other);
-          if (neighbor.length && neighbor.isNode()) {
-            var p = neighbor.position();
-            return { x: p.x + (Math.random() - 0.5) * 40, y: p.y + (Math.random() - 0.5) * 40 };
-          }
-        }
-        return { x: fallbackCenter.x, y: fallbackCenter.y };
-      }
-
-      // fullSystemRelayout is the degenerate-fallback path: tear down and
-      // remount from scratch via the existing cold-mount flow (its own fetch,
-      // cache lookup, and cola/preset layout) instead of duplicating that logic
-      // here. Used both when the diff exceeds the 50% threshold and when no
-      // Cytoscape instance is mounted to diff against.
-      function fullSystemRelayout(container) {
-        if (!container) { container = document.querySelector('[data-system-graph]'); }
-        if (!container) { return; }
-        if (window.__systemCy) { try { window.__systemCy.destroy(); } catch (e) {} window.__systemCy = null; }
-        container.dataset.systemMounted = '';
-        mountSystemGraph(container);
-      }
-
-      // rekeyLayoutCache re-derives the IndexedDB key from the just-patched cy
-      // instance's element ids, saves the current positions under it, and
-      // prunes the entry for the key it superseded (SC20).
-      function rekeyLayoutCache(cy) {
-        var ids = [];
-        cy.nodes().forEach(function(n) { ids.push(n.id()); });
-        cy.edges().forEach(function(e) { ids.push(e.id()); });
-        var newKey = elementIdSetHash(ids);
-        var oldKey = systemLayoutCacheKey;
-        if (newKey === oldKey) { return; }
-        var positions = {};
-        cy.nodes().forEach(function(n) { var p = n.position(); positions[n.id()] = { x: p.x, y: p.y }; });
-        saveCachedLayout(newKey, positions);
-        if (oldKey) { deleteCachedLayout(oldKey); }
-        systemLayoutCacheKey = newKey;
-      }
-
-      // systemModeReconcile diffs a fresh /graph/data response against the
-      // mounted Cytoscape instance by element id (nodes AND edges) and either
-      // patches in place or falls back to a full relayout above the 50%
-      // threshold. No-op outside system mode — the page-mode reconcile (body
-      // script, below) owns everything else.
-      function systemModeReconcile() {
-        if (!inSystemMode()) { return; }
-        // An initial mount's /graph/data fetch is still in flight — it will render
-        // the current state on its own once it resolves, so no-op rather than race
-        // fullSystemRelayout into a second concurrent mountSystemGraph on the same
-        // container (window.__systemCy isn't set yet during this stretch, so the
-        // no-instance-mounted check below can't tell "still mounting" from "torn down").
-        if (systemMountInFlight) { return; }
-        var container = document.querySelector('[data-system-graph]');
-        var cy = window.__systemCy;
-        if (!cy || !container) { fullSystemRelayout(container); return; }
-
-        fetch('/graph/data')
-          .then(function(r) { return r.json(); })
-          .then(function(elems) {
-            var freshNodes = elems.nodes || [];
-            var freshEdges = elems.edges || [];
-
-            var mountedNodeIds = {}, mountedEdgeIds = {};
-            cy.nodes().forEach(function(n) { mountedNodeIds[n.id()] = true; });
-            cy.edges().forEach(function(e) { mountedEdgeIds[e.id()] = true; });
-            var mountedTotal = cy.nodes().length + cy.edges().length;
-
-            var freshNodeIds = {}, freshEdgeIds = {};
-            freshNodes.forEach(function(n) { if (n.data) { freshNodeIds[n.data.id] = true; } });
-            freshEdges.forEach(function(e) { if (e.data) { freshEdgeIds[e.data.id] = true; } });
-
-            var addedNodes = freshNodes.filter(function(n) { return n.data && !mountedNodeIds[n.data.id]; });
-            var addedEdges = freshEdges.filter(function(e) { return e.data && !mountedEdgeIds[e.data.id]; });
-            var removedIds = Object.keys(mountedNodeIds).filter(function(id) { return !freshNodeIds[id]; })
-              .concat(Object.keys(mountedEdgeIds).filter(function(id) { return !freshEdgeIds[id]; }));
-
-            var changedCount = addedNodes.length + addedEdges.length + removedIds.length;
-            var ratio = mountedTotal > 0 ? changedCount / mountedTotal : 1;
-            if (ratio > 0.5) { fullSystemRelayout(container); return; }
-
-            var toRemove = cy.collection();
-            removedIds.forEach(function(id) { toRemove = toRemove.union(cy.getElementById(id)); });
-            cy.remove(toRemove);
-
-            // Degree over the fresh full edge set so a brand-new hub sizes
-            // correctly on first appearance (mirrors the cold-mount calc above).
-            var deg = {};
-            freshEdges.forEach(function(e) {
-              var s = e.data && e.data.source, t = e.data && e.data.target;
-              if (s != null) { deg[s] = (deg[s] || 0) + 1; }
-              if (t != null) { deg[t] = (deg[t] || 0) + 1; }
-            });
-
-            var extent = cy.extent();
-            var fallbackCenter = { x: (extent.x1 + extent.x2) / 2, y: (extent.y1 + extent.y2) / 2 };
-
-            var addedCollection = cy.collection();
-            addedNodes.forEach(function(n) {
-              var pos = seedPositionNear(cy, n.data.id, addedEdges, fallbackCenter);
-              n.data.deg = Math.min(deg[n.data.id] || 0, 16);
-              addedCollection = addedCollection.union(cy.add({ group: 'nodes', data: n.data, position: pos }));
-            });
-            addedEdges.forEach(function(e) {
-              addedCollection = addedCollection.union(cy.add({ group: 'edges', data: e.data, classes: e.classes }));
-            });
-
-            // Scoped pass on the new collection only — cytoscape-cola drops any
-            // link whose endpoint sits outside `eles` (its nonparentNodes
-            // filter), so pre-existing nodes/edges are neither moved nor
-            // considered; `fit: false` also suppresses cola's own internal
-            // cy.fit() call, on top of never calling cy.fit() ourselves.
-            if (addedCollection.length) {
-              addedCollection.layout({
-                name: 'cola', fit: false, animate: true, randomize: false,
-                avoidOverlap: true, nodeSpacing: function() { return 8; },
-                edgeLength: 100, maxSimulationTime: 1500, infinite: false
-              }).run();
-            }
-
-            rekeyLayoutCache(cy);
-          })
-          .catch(function(e) { console.error('system-graph reconcile /graph/data:', e); });
-      }
-
-      document.addEventListener('atomic:live-reload', systemModeReconcile);
-
-      // Delegated mount: fires whenever the /graph fragment ([data-system-graph])
-      // lands in #main-pane (button click, refresh, Back/Forward).
-      htmx.onLoad(function(elt) {
-        var c = (elt.matches && elt.matches('[data-system-graph]'))
-          ? elt
-          : (elt.querySelector ? elt.querySelector('[data-system-graph]') : null);
-        if (c) { mountSystemGraph(c); }
-      });
-
-      document.addEventListener('DOMContentLoaded', function() {
-        // #btn-graph: in page view → open /graph; in graph view → back to the page.
-        // Delegated on document so it survives htmx history-restore body swaps —
-        // a direct element listener would be lost when #btn-graph is replaced.
-        document.addEventListener('click', function(e) {
-          if (!e.target.closest || !e.target.closest('#btn-graph')) { return; }
-          // In graph view → back to the last page (or landing); in page view → /graph.
-          var target = inSystemMode() ? (currentPage || '{{.LandingURL}}') : '/graph';
-          htmx.ajax('GET', target, { target: '#main-pane', swap: 'innerHTML' });
-          if (window.history && window.history.pushState) { window.history.pushState(null, '', target); }
-        });
-
-        // Modal dismiss wiring (scrim backdrop, corner ×, Close button, Esc).
-        AtomicGraphUI.wireDismiss();
-      });
-    }());
+    htmx.onLoad(function(elt) {
+      var c = (elt.matches && elt.matches('[data-system-graph]'))
+        ? elt
+        : (elt.querySelector ? elt.querySelector('[data-system-graph]') : null);
+      if (c) { SystemGraph.enterGraphMode(); }
+    });
     </script>
 </head>
 <body>
@@ -1434,11 +931,11 @@
     var next = current === 'dark' ? 'light' : 'dark';
     root.setAttribute('data-theme', next);
     try { localStorage.setItem('atomic-serve-theme', next); } catch (e) {}
-    // Re-apply Cytoscape styles now that CSS vars have flipped.
-    // atomicCyStyle() reads getComputedStyle at call time, so calling it
-    // AFTER the data-theme flip returns the new-theme colors.
-    if (window.__systemCy) {
-      window.__systemCy.style(atomicCyStyle());
+    // Re-apply styles now that CSS vars have flipped. atomicCyStyle() and
+    // atomicCyTypeColors() both read getComputedStyle at call time, so calling
+    // them AFTER the data-theme flip returns the new-theme colors.
+    if (window.SystemGraph && window.SystemGraph.retheme) {
+      window.SystemGraph.retheme();
     }
     if (window.__railCy) {
       window.__railCy.style(atomicCyStyle());
@@ -1664,6 +1161,29 @@ document.addEventListener('htmx:after:swap', function(evt) {
   var modalTitle = document.getElementById('code-modal-title');
   var closeBtn = document.getElementById('code-modal-close');
 
+  // currentSourcePath tracks the member-aware /file/ path currently loaded in
+  // #code-modal-source. Navigating between symbols in the same file (edge-chip
+  // clicks, code-graph node clicks) must not re-fetch/re-flash the source pane —
+  // only the line-scroll and title need to update. loadSource is the single
+  // place that fetches source + updates the tracker; every caller that loads
+  // source goes through it.
+  var currentSourcePath = null;
+  function loadSource(filePath, onLoaded) {
+    if (filePath === currentSourcePath) {
+      onLoaded();
+      return;
+    }
+    modalSrc.innerHTML = '<p class="loading">Loading…</p>';
+    htmx.ajax('GET', '/file/' + filePath, {
+      target: '#code-modal-source',
+      swap: 'innerHTML',
+      headers: { 'HX-Request': 'true' }
+    }).then(function() {
+      currentSourcePath = filePath;
+      onLoaded();
+    });
+  }
+
   // Intel-pane navigation stack. The intel pane drills defines → callers → node →
   // … by swapping #code-modal-intel in place; without a stack there is no way back
   // to the previous view. intelStack holds the URLs loaded into the pane; the
@@ -1688,28 +1208,40 @@ document.addEventListener('htmx:after:swap', function(evt) {
   }
   if (modalIntelBack) { modalIntelBack.addEventListener('click', intelGoBack); }
 
-  // Record forward drill-downs: a click on an hx-get link inside #code-modal-intel
-  // pushes its URL so Back can return here. htmx still performs the swap.
-  document.addEventListener('click', function(e) {
-    if (!modalIntel) { return; }
-    var el = e.target;
-    while (el && el !== modalIntel) {
-      if (el.tagName === 'A' && el.getAttribute && el.getAttribute('hx-get')) { break; }
-      el = el.parentElement;
-    }
-    if (!el || el === modalIntel || el.tagName !== 'A' || !modalIntel.contains(el)) { return; }
-    var url = el.getAttribute('hx-get');
-    if (url && url !== intelTop()) { intelStack.push(url); updateIntelBack(); }
-  });
-
-  // Loading feedback: whenever a request targets the intel pane (a drill-down or
-  // Back), show a spinner immediately so the click registers before the swap.
+  // Record forward drill-downs AND show loading feedback via the htmx event path:
+  // htmx 4's own delegated click handling consumes drill-down clicks before a
+  // document-level `click` listener ever sees them, so that approach never fires
+  // (verified empirically). htmx:before:request DOES fire on every drill-down
+  // and Back request — push the request URL onto intelStack there instead. The
+  // url !== intelTop() guard is what stops Back's own reload (loadIntel → same
+  // event) from re-pushing.
   document.addEventListener('htmx:before:request', function(e) {
     var ctx = e.detail && e.detail.ctx;
     var t = ctx && ctx.target;
-    if (t && t.id === 'code-modal-intel') {
-      t.innerHTML = '<p class="loading">Loading…</p>';
-    }
+    if (!t || t.id !== 'code-modal-intel') { return; }
+    t.innerHTML = '<p class="loading">Loading…</p>';
+    var url = ctx.request && ctx.request.action;
+    if (url && url !== intelTop()) { intelStack.push(url); updateIntelBack(); }
+  });
+
+  // A /code/node view swapped into the intel pane stamps data-file/data-line/
+  // data-name on its root element (renderNodeDetail, codeexplorer.go) — mirror
+  // the source pane + title to match. List views (impact/callers/callees,
+  // file-defines) carry no such attrs and leave the source pane untouched.
+  document.addEventListener('htmx:after:swap', function(e) {
+    var ctx = e.detail && e.detail.ctx;
+    var t = ctx && ctx.target;
+    if (!t || t.id !== 'code-modal-intel') { return; }
+    var view = t.querySelector('[data-file]');
+    if (!view) { return; }
+    var filePath = view.getAttribute('data-file');
+    var line = view.getAttribute('data-line');
+    var name = view.getAttribute('data-name');
+    if (name) { modalTitle.textContent = name; }
+    loadSource(filePath, function() {
+      var el = line ? document.getElementById('L' + line) : null;
+      if (el) { el.scrollIntoView({ block: 'center' }); } else { modalSrc.scrollTop = 0; }
+    });
   });
 
   function getExtension(href) {
@@ -1753,16 +1285,12 @@ document.addEventListener('htmx:after:swap', function(evt) {
 
   function openModal(filePath, anchor) {
     modalTitle.textContent = filePath;
-    modalSrc.innerHTML = '<p class="loading">Loading…</p>';
     modalIntel.innerHTML = '<p class="loading">Loading…</p>';
     modal.classList.add('open');
 
-    // Load highlighted source as fragment into #code-modal-source.
-    htmx.ajax('GET', '/file/' + filePath, {
-      target: '#code-modal-source',
-      swap: 'innerHTML',
-      headers: { 'HX-Request': 'true' }
-    }).then(function() {
+    // Load highlighted source as fragment into #code-modal-source (skipped when
+    // this file is already the one loaded — see loadSource).
+    loadSource(filePath, function() {
       // If the original href had a line anchor, scroll to it; otherwise reset to
       // the top so a file opened after scrolling another one starts at line 1.
       if (anchor) {
@@ -1780,6 +1308,48 @@ document.addEventListener('htmx:after:swap', function(evt) {
     updateIntelBack();
     loadIntel(intelURL);
   }
+
+  // openCodeNode opens the existing code-explorer node view for one symbol —
+  // the code graph view's click hook (code-graph spec SC6), member-aware.
+  // Reuses the same #code-modal machinery as openModal(filePath, anchor)
+  // above (source pane + intel pane, intel-stack Back button), but the intel
+  // pane loads /code/node?id=<id>&member=<prefix> — the node's own detail
+  // view (name, kind, location, signature, callers/callees/impact nav) —
+  // instead of /code/file?path=<path>'s file-defines list. member is the
+  // realm-relative prefix (code-graph.js's buildProfile closure); "" in
+  // single-repo scope, where memberQuery-style query-param omission matches
+  // the server's own convention (codeexplorer.go's memberQuery).
+  function openCodeNode(id, member, meta) {
+    var mq = member ? ('&member=' + encodeURIComponent(member)) : '';
+    modalTitle.textContent = (meta && meta.title) || id;
+    modalIntel.innerHTML = '<p class="loading">Loading…</p>';
+    modal.classList.add('open');
+
+    if (meta && meta.file) {
+      var filePath = member ? (member + '/' + meta.file) : meta.file;
+      loadSource(filePath, function() {
+        var el = meta.line ? document.getElementById('L' + meta.line) : null;
+        if (el) { el.scrollIntoView({ block: 'center' }); } else { modalSrc.scrollTop = 0; }
+      });
+    } else {
+      // No location for this node — currentSourcePath no longer reflects what's
+      // on screen, so the next loadSource call (even for the same path as
+      // before) must not skip its fetch.
+      currentSourcePath = null;
+      modalSrc.innerHTML = '<p class="loading">No source available.</p>';
+    }
+
+    var intelURL = '/code/node?id=' + encodeURIComponent(id) + mq;
+    intelStack = [intelURL];
+    updateIntelBack();
+    loadIntel(intelURL);
+  }
+
+  // Exposed for code-graph.js's onClick — that profile has no access to this
+  // IIFE's local modal/intel-stack state, so the modal-open capability is
+  // published here instead (mirrors window.AtomicGraphUI's own pattern for
+  // the docs preview-card/page-modal hooks).
+  window.AtomicCodeExplorer = { openNode: openCodeNode };
 
   function closeModal() {
     modal.classList.remove('open');

@@ -70,9 +70,9 @@ Calm by default, alive on interaction. The physics primitives were verified agai
 |-------|----------|
 | Fresh mount (no cached positions) | Sim runs to rest (`onSimulationEnd`), then pauses |
 | Cached open, unchanged fingerprint | Seed positions, pause immediately — exact replay, zero motion, zero cool ("seed-and-pause"); seed is applied before the first sim tick |
-| Drag | Bounded local reheat; non-neighborhood stays put (pinning); release → cool → pause |
-| At rest + viewport idle | Zero per-frame work — no readback, no DOM label writes, no render churn |
-| Position saves | On drag release only (as today) — no per-open cache rewrite |
+| Drag | Live bounded-energy reheat, no pinning — springs move neighbors, repulsion resolves overlaps, damping quiets the far field; release → cool → pause. (Reversed from pin-based containment after live testing 2026-07-05: the stays-put rule guarded against cola's solver lurch, which cosmos's damped physics doesn't exhibit; pinned drags left overlaps unresolved and felt inert) |
+| At rest + viewport idle | Zero view-owned per-frame work — no readback, no DOM label writes, no JS-side animation loops. cosmos.gl's internal rAF redraw of the static scene continues: `pause()` stops only the simulation and `stopFrames()` is private (verified against unminified 3.1.0 source, 2026-07-04) — accepted upstream ceiling, candidate upstream feature request |
+| Position saves | Full snapshot once when a fresh mount settles (cache-miss path) and full snapshot on drag release — a cache-hit open never rewrites the cache; the hit gate requires full node-set coverage. Matches today's semantics (the pre-swap code saved the fresh settle at `layout.html:943`); "no per-open rewrite" bans seed-and-cool churn, not the one-time settle save |
 
 
 This preserves today's contracts the swap must not regress: exact position replay and hand-arranged maps (`layout.html:899-901,943,973`), zero idle cost, and the no-lurch rule recorded at `layout.html:967-973`.
@@ -111,6 +111,7 @@ Every behavior the swap must preserve (from ground pass, 2026-07-04):
 | Degree-based node sizing | computed in JS from edges (`layout.html:888-895`) |
 | Node type colors (OKF) | `atomicCyTypeColors` (`layout.html:120-191`), types from `graph.go:133-200` |
 | Provenance edges | `fingerprint` / `fingerprint drift` classes (`graphoverlay.go:339-388`) — need distinct link styling in cosmos |
+| Edge-kind colors | wikilink (`edge-strong`) vs md-link (`edge`) color distinction. Dash patterns are unsupported by cosmos's link API — color + width carry the contract |
 | Position persistence | IndexedDB `atomic-serve/graph-layout`, keyed by `X-Graph-Fingerprint` (`layout.html:826-855`, `graphcache.go:58-90`) |
 | Mount/teardown lifecycle | htmx delegated mount (`layout.html:999-1004`), `mode-system` body class, history-restore survival |
 | Lifecycle guards | Double-mount flag (`layout.html:861-863`), instance destroy on swap-out (`teardownSystemGraph`, `layout.html:726-748`), mid-fetch teardown safety. Under WebGL the destroy is load-bearing: browsers cap live GL contexts, so a leaked instance per open/close cycle eventually blacks out the view |

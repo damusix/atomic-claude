@@ -26,13 +26,11 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
-	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
@@ -53,6 +51,8 @@ type CodeEngine interface {
 	GetNodesInFile(ctx context.Context, filePath string) ([]types.Node, error)
 	GetNodesByKind(ctx context.Context, kind types.NodeKind) ([]types.Node, error)
 	GetOutgoingEdges(ctx context.Context, nodeID string) ([]types.Edge, error)
+	GetAllNodes(ctx context.Context) ([]types.Node, error)
+	GetAllEdges(ctx context.Context) ([]types.Edge, error)
 	Close()
 }
 
@@ -95,10 +95,8 @@ type CodeExplorerOptions struct {
 
 // codeExplorerHandler implements http.Handler for all /code/* explorer routes.
 type codeExplorerHandler struct {
-	realmRoot     string
-	claudeMDPath  string
-	wikiIndexPath string
-	provider      EngineProvider
+	memberResolver
+	provider EngineProvider
 }
 
 // NewCodeExplorerHandler returns an http.Handler for Code Explorer routes.
@@ -110,25 +108,13 @@ func NewCodeExplorerHandler(opts CodeExplorerOptions) http.Handler {
 		prov = DefaultEngineProvider()
 	}
 	return &codeExplorerHandler{
-		realmRoot:     opts.RealmRoot,
-		claudeMDPath:  opts.ClaudeMDPath,
-		wikiIndexPath: opts.WikiIndexPath,
-		provider:      prov,
+		memberResolver: memberResolver{
+			realmRoot:     opts.RealmRoot,
+			claudeMDPath:  opts.ClaudeMDPath,
+			wikiIndexPath: opts.WikiIndexPath,
+		},
+		provider: prov,
 	}
-}
-
-// members discovers the code members for the served scope (federation ∪ per-member
-// self-indexes). Resolved per request — cheap (reads config + the wiki scan).
-func (h *codeExplorerHandler) members() []codeMember {
-	res, err := realm.Resolve(h.realmRoot, h.claudeMDPath)
-	if err != nil {
-		return nil
-	}
-	wikiIndexPath := h.wikiIndexPath
-	if wikiIndexPath == "" && res.RealmRoot != "" {
-		wikiIndexPath = filepath.Join(res.RealmRoot, "wiki", "index.md")
-	}
-	return discoverCodeMembers(res, h.realmRoot, wikiIndexPath)
 }
 
 // memberByPrefix finds a discovered member by its realm-relative Prefix. The
@@ -183,11 +169,6 @@ func (h *codeExplorerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	default:
 		http.NotFound(w, r)
 	}
-}
-
-// localDBPath returns the canonical local db path for the realm root.
-func (h *codeExplorerHandler) localDBPath() string {
-	return filepath.Join(h.realmRoot, ".claude", ".atomic-index", "atomic.db")
 }
 
 // engineForRequest opens the engine for the member named by the ?member= query
@@ -267,8 +248,27 @@ func (h *codeExplorerHandler) handleNode(w http.ResponseWriter, r *http.Request,
 // member's realm-relative path: it prefixes the /file/ location link and rides
 // along on the callers/callees/impact drill-down links so each opens the same
 // member's index.
+//
+// The root element carries data-file/data-line/data-name when the node has a
+// location — layout.html's htmx:after:swap handler reads these to mirror the
+// modal's source pane + title onto this view (list views such as
+// renderSubgraph's callers/callees/impact chips carry no such attrs, so the
+// source pane is left untouched for those).
 func renderNodeDetail(sb *strings.Builder, n types.Node, prefix string) {
-	sb.WriteString(`<div class="code-node-detail">`)
+	sb.WriteString(`<div class="code-node-detail"`)
+	if n.FilePath != "" {
+		sb.WriteString(` data-file="`)
+		sb.WriteString(template.HTMLEscapeString(joinMemberPath(prefix, n.FilePath)))
+		sb.WriteString(`"`)
+		if n.StartLine > 0 {
+			sb.WriteString(` data-line="`)
+			sb.WriteString(strconv.Itoa(n.StartLine))
+			sb.WriteString(`"`)
+		}
+	}
+	sb.WriteString(` data-name="`)
+	sb.WriteString(template.HTMLEscapeString(n.Name))
+	sb.WriteString(`">`)
 	sb.WriteString(`<h2 class="code-node-name">`)
 	sb.WriteString(template.HTMLEscapeString(n.Name))
 	sb.WriteString(`</h2>`)

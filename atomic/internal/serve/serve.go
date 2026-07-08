@@ -32,7 +32,8 @@ var embeddedFS embed.FS
 
 // systemGraphFragmentHTML is the htmx fragment for the /graph (Network View) page.
 // The [data-system-graph] container is the seam the shell's onLoad handler keys on
-// to mount Cytoscape; the loading line is removed once the layout settles.
+// to mount cosmos.gl (system-graph.js); the loading line is removed once the
+// simulation settles.
 const systemGraphFragmentHTML = `<div id="system-cy" data-system-graph></div>
 <p class="loading system-graph-loading">Laying out graph…</p>`
 
@@ -308,6 +309,23 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	} {
 		mux.Handle(route, explorerHandler)
 	}
+
+	// /code/graph/data — full-repo code graph export for the code graph view
+	// (code-graph spec CP2, SC2).
+	mux.Handle("/code/graph/data", NewCodeGraphHandler(CodeGraphOptions{
+		RealmRoot:     opts.TargetDir,
+		ClaudeMDPath:  opts.ClaudeMDPath,
+		WikiIndexPath: wikiIndexPath,
+		// EngineProvider nil → DefaultEngineProvider.
+	}))
+
+	// /code/graph/members — realm member list + indexed state for the code
+	// view's member picker (code-graph spec CP6, SC7).
+	mux.Handle("/code/graph/members", NewCodeGraphMembersHandler(CodeGraphOptions{
+		RealmRoot:     opts.TargetDir,
+		ClaudeMDPath:  opts.ClaudeMDPath,
+		WikiIndexPath: wikiIndexPath,
+	}))
 
 	// / — Obsidian shell (FE1: breadcrumb + search + [page|system] toggle + right rail).
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

@@ -25,7 +25,7 @@ The server shuts down cleanly on SIGINT. It prints the URL on start; under a wil
 
 | Detected shape | Scope | What is served |
 |---------------|-------|----------------|
-| Registered `<wikis>` realm root | **Realm** | Full realm: nav tree (Realm / Repos / Concerns / Knowledge / Buckets / External), the whole-system graph, federated code search across all members. The landing page is the realm index (`wiki/index.md`). |
+| Registered `<wikis>` realm root | **Realm** | Full realm: nav tree (Realm / Repos / Concerns / Knowledge / Buckets / External), graph mode (the whole-realm docs graph, and a code graph per member via a picker), federated code search across all members. The landing page is the realm index (`wiki/index.md`). |
 | Inside a member repo with a wiki | **Member** | Single-repo nav, pages, and code intelligence; realm chrome absent. |
 | Bare repo with a code index but no wiki | **Repo** | Pages and code intelligence, no wiki chrome. The landing page is the repo `README.md`. |
 
@@ -38,7 +38,7 @@ The UI is a single persistent shell — navigating never reloads it; only the fo
 
 - **Top bar** — a breadcrumb (`realm › member › page`), a search trigger that opens the command-palette dialog (`⌘K`), and a light/dark theme toggle.
 - **Left nav** — the collapsible tree (`/nav`).
-- **Middle** — the focused page, or the whole-system graph. A `[ page | system ]` toggle switches between them.
+- **Middle** — the focused page, or graph mode. A `[ page | system ]` toggle switches between them; graph mode itself holds the whole-realm docs graph and a per-repo code graph behind a nested Docs | Code toggle.
 - **Right rail** — four slots tracking the focused page: its YAML frontmatter properties, its local link graph, its outbound links, and its inbound links (backlinks).
 - **Code modal** — a source file opens in an overlay: highlighted source on the left, code intelligence on the right.
 
@@ -61,27 +61,43 @@ In all three cases, resolved routes become `/page/<relpath>` for markdown pages 
 For the focused page, a single request populates four slots:
 
 - **Properties** — YAML frontmatter key-value pairs, rendered as a table at the top of the rail. Scalar values pass through as-is; list values are comma-joined. The slot is hidden when no frontmatter is present. A frontmatter `resource:` key (or any property whose value is an `http(s)://` URL) is rendered as a clickable link — the OKF recommended form for surfacing an underlying asset or canonical source.
-- **This-page graph** — a depth-1 local link graph rendered as a compact Cytoscape mini-graph (data from `/graph/data?node=<page>&depth=1`). Nodes are colored by type, using the same hybrid resolver as the system graph.
+- **This-page graph** — a depth-1 local link graph rendered as a compact Cytoscape mini-graph (data from `/graph/data?node=<page>&depth=1`). Nodes are colored by type, using the same hybrid resolver as the docs graph.
 - **OUT links** — outbound links the page contains, with broken / ambiguous / external annotations. Links to source files open the code modal.
 - **IN links** — backlinks; an orphan note appears when nothing links to the page.
 
 Links and backlinks come from `mdlink.ExtractLinks`, which parses markdown links `[text](path)` and Obsidian wikilinks `[[page]]` / `[[page|alias]]` (fenced code spans excluded). Wikilinks resolve by a nearest-then-alphabetical rule; ambiguous resolutions are surfaced.
 
-### System graph
+### Graph mode
 
-The `[ page | system ]` toggle swaps the middle pane to the whole-realm graph (Cytoscape + ELK, fed by `/graph/data`) and collapses the right rail.
+The `[ page | system ]` toggle swaps the middle pane into graph mode and collapses the right rail. Graph mode holds two views behind a nested **Docs | Code** toggle: the whole-realm docs graph, and a per-repo code graph.
+
+**Docs graph.** The whole-realm graph, rendered by [cosmos.gl](https://cosmos.gl) (GPU simulation and GPU rendering, fed by `/graph/data`). The layout runs as a continuous physics simulation instead of a one-shot layout pass: it settles to rest and pauses on first open, and the settled positions are cached per realm, so reopening an unchanged graph replays the same layout instantly with no visible motion.
 
 - Nodes are colored by OKF concept type. The type is resolved via a hybrid strategy: frontmatter `type:` (title-case values `Knowledge`, `Concern`, `Repo Summary` mapped to short lowercase classes) takes priority, then path-convention fallback (`wiki/repos/` → `repo`, `wiki/concerns/` → `concern`, `wiki/knowledge/` → `knowledge`, `wiki/.buckets/` → `bucket`, `http(s)://` hrefs → `external`), then `page` as a default.
 - Nodes render in **A-style**: a solid background with a colored glow ring. Colors are read from CSS custom properties at render time and track the active theme automatically.
+- Node labels render as a DOM overlay that fades in as you zoom in and fades out as you zoom out, so a dense graph stays readable from a distance. The hovered node's label always shows, regardless of zoom.
+- Dragging a node reheats the simulation locally: the dragged node follows the pointer while the rest of the graph stays put. Releasing the drag settles the simulation back to rest and saves the new position to the cache.
 - A **type legend** appears below the graph. Each chip shows the type name and its count of visible nodes. Clicking a chip toggles that type's nodes on or off, so you can isolate concerns, or hide repos to see only knowledge pages and the edges between them.
-- Edges are drawn in three classes: markdown links, wikilinks, and fingerprint/provenance links (dashed). A provenance edge whose recorded fingerprint differs from the live content hash is drawn red — the drift signal from the `reflects:` / `sources:` chain.
-- Code edges are per-member sub-graphs; no cross-repo edges are drawn (federation, not merging).
+- Edges are drawn in three classes: markdown links, wikilinks, and fingerprint/provenance links (dashed). A provenance edge whose recorded fingerprint differs from the live content hash is drawn red, the drift signal from the `reflects:` / `sources:` chain.
 
-**Node hover preview.** Hovering a node in the system graph (or the rail mini-graph) shows a floating card near the pointer with a type chip, title, short description, and a snippet. These come from `title`, `description`, and `snippet` fields in the `/graph/data` JSON payload. The card dismisses on pointer-leave.
+Hovering a node shows a floating card near the pointer with a type chip, title, short description, and a snippet, taken from `title`, `description`, and `snippet` fields in the `/graph/data` JSON payload; it dismisses on pointer-leave. Clicking a node opens a modal over the dimmed graph, not a navigation away: the modal fetches the page's rendered HTML from `/page/<id>`, displays it inline, and offers an "Open full page →" button for when you want more context. The modal closes on Esc, the close button, or a click on the dimmed backdrop, and graph state is preserved throughout.
 
-**Node-click content modal.** Clicking a node in the system graph opens a modal over the dimmed graph — not a navigation away. The modal fetches the page's rendered HTML from `/page/<id>`, displays it inline, and offers an "Open full page →" button to navigate into the full page view when you want more context. The modal closes on Esc, the close button, or a click on the dimmed backdrop. Graph state is preserved; clicking a node no longer loses your place in the graph.
+**Code graph.** A per-repo view of the code-intel index, fetched from `GET /code/graph/data`: the repo's symbols as nodes, and their `contains`, `calls`, and `imports` relationships as edges. It shares the docs graph's cosmos.gl engine, so the same continuous physics, drag behavior, and settle-then-pause motion apply; only the data source and styling differ.
 
-The vendored graph scripts (`cytoscape.min.js`, `elk.bundled.js`, `cytoscape-elk.min.js`) load once in the shell, in that load-bearing order, and power both the rail mini-graph and the system view.
+- Nodes are colored by kind (functions, types, modules, and so on), collapsed into a small set of visual groups with a filterable legend, the same interaction as the docs graph's type legend: click a chip to toggle a group on or off.
+- `contains` edges (a file containing its symbols) render fainter than `calls` and `imports`, so the structural skeleton doesn't drown out the relationships you actually care about.
+- Node size scales with how connected a symbol is, within the same size window the docs graph uses.
+- Hovering a node shows its name, kind, and `file:line` in place of the docs graph's title, description, and snippet. Clicking a node opens the existing code-explorer view for that symbol, the same view reached from code search and the code modal, member-aware in realm scope.
+- In a wiki realm, a member picker next to the Docs | Code toggle lists the repos with a code index, and switching members swaps the graph to that repo. A single-repo or member-scoped server has only one repo to show, so no picker appears.
+- If the selected repo has no code index, the pane shows a message naming `atomic code index` as the fix, instead of an empty graph.
+- Positions are cached per repo, keyed to that repo's index fingerprint: re-indexing changes the fingerprint, so a stale layout is never replayed against fresh data, while reopening an unchanged index replays the cached layout with no visible motion.
+- One graph per repo; there is no merged, cross-repo code graph, the same federation-not-merging rule federated code search follows.
+
+The selected view, and in a realm the selected member, are kept in the URL, so a link to a specific graph reopens the same one.
+
+**WebGL2 requirement.** Graph mode needs WebGL2 to run, in both the Docs and Code view. If the browser lacks it, the toggle shows a message naming the requirement instead of a blank pane or a stuck spinner. The rail mini-graph runs on Cytoscape and needs no WebGL2, so it works in any browser.
+
+The rail mini-graph runs on the vendored `cytoscape.min.js`; graph mode runs on a separately vendored cosmos.gl bundle shared by both the Docs and Code views. Both load once in the shell and are embedded via `go:embed`, with no runtime build step.
 
 ### Code modal
 
@@ -118,6 +134,7 @@ The code modal and code search build on the per-repo query routes, each composin
 - `/code/files` — the indexed file list.
 - `/code/file?path=` — the symbols defined in one file (`engine.GetNodesInFile`); the modal's intelligence pane.
 - `/code/schema` — for indexes containing `table` / `view` nodes: tables and views with their `column` children, an FK graph from `references` edges, and a writers-vs-readers split from `writes` edges. Derived from graph nodes and edges — there is no `atomic code schema` verb.
+- `/code/graph/data`, `/code/graph/members` — the code graph's data export and member list; see Graph mode above.
 
 ### External-link registry (`/external`)
 
@@ -143,7 +160,7 @@ Provenance hashing and the full graph JSON stay lazy: they are computed when the
 
 `atomic serve` ships with a light and dark theme, both derived from the same CSS custom-property set.
 
-**Theme toggle.** The top-bar sun / moon button switches themes. Before any page content paints, an inline script reads the `atomic-serve-theme` key from `localStorage` and falls back to the OS `prefers-color-scheme` media query. Toggling writes the choice back to `localStorage` and re-applies the Cytoscape styles on the live graph instances (`window.__systemCy`, `window.__railCy`) so the graph colors update immediately without a page reload.
+**Theme toggle.** The top-bar sun / moon button switches themes. Before any page content paints, an inline script reads the `atomic-serve-theme` key from `localStorage` and falls back to the OS `prefers-color-scheme` media query. Toggling writes the choice back to `localStorage`, re-themes whichever graph is mounted in graph mode (Docs or Code, via the shared cosmos.gl core), and re-applies the Cytoscape styles on the live rail graph instance (`window.__railCy`), so every visible graph's colors update immediately without a page reload.
 
 **Light theme.** Warm paper background, charcoal text, amber accent.
 

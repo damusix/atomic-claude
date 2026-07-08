@@ -543,6 +543,16 @@ func (e *Engine) GetRoutingManifest(ctx context.Context) ([]types.Node, error) {
 	return e.indexDB.GetNodesByKind(ctx, types.NodeKindRoute)
 }
 
+// GetAllNodes returns every node in the index. Used by full-graph export
+// (e.g. the code graph view) — a full table scan, intended for one bulk read
+// per request rather than per-node querying.
+func (e *Engine) GetAllNodes(ctx context.Context) ([]types.Node, error) {
+	if err := e.requireDB(); err != nil {
+		return nil, err
+	}
+	return e.indexDB.GetAllNodes(ctx)
+}
+
 // ---------------------------------------------------------------------------
 // Edges
 // ---------------------------------------------------------------------------
@@ -561,6 +571,15 @@ func (e *Engine) GetIncomingEdges(ctx context.Context, nodeID string) ([]types.E
 		return nil, err
 	}
 	return e.indexDB.GetEdgesByTarget(ctx, nodeID)
+}
+
+// GetAllEdges returns every edge in the index. Used by full-graph export
+// alongside GetAllNodes.
+func (e *Engine) GetAllEdges(ctx context.Context) ([]types.Edge, error) {
+	if err := e.requireDB(); err != nil {
+		return nil, err
+	}
+	return e.indexDB.GetAllEdges(ctx)
 }
 
 // ---------------------------------------------------------------------------

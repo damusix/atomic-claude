@@ -300,14 +300,11 @@ func TestRailGraphContainerCarriesDataRailGraphURL(t *testing.T) {
 }
 
 // TestShellLoadsGraphScriptsInOrder verifies that the root shell (GET /)
-// includes the Cytoscape scripts in the load-bearing order:
-//
-//  1. cytoscape.min.js
-//  2. cola.min.js        (webcola — the cola layout's force engine)
-//  3. cytoscape-cola.js  (the cytoscape adapter)
-//
-// AND that cytoscape.use( appears after all three. The graph (rail mini-graph +
-// the Network View) uses cola for layout; the dead ELK engine was removed.
+// loads the cosmos.gl bundle (Network View / system graph, FE3) and that
+// cytoscape.min.js is still present (rail mini-graph, FE2 — it uses a
+// `concentric` layout, not cola). The cola triplet (cola.min.js,
+// cytoscape-cola.js, and the cytoscape.use(cytoscapeCola) registration) is
+// removed — cosmos.gl replaces cola as the Network View's layout/render engine.
 func TestShellLoadsGraphScriptsInOrder(t *testing.T) {
 	root := buildRailRealm(t)
 
@@ -328,15 +325,15 @@ func TestShellLoadsGraphScriptsInOrder(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	html := string(body)
 
-	// All three scripts must be present in the shell.
+	// The rail's cytoscape script and the Network View's cosmos.gl bundle
+	// must both be present in the shell.
 	scripts := []string{
 		"/static/vendor/cytoscape.min.js",
-		"/static/vendor/cola.min.js",
-		"/static/vendor/cytoscape-cola.js",
+		"/static/vendor/cosmos-graph.js",
 	}
 	for _, s := range scripts {
 		if !strings.Contains(html, s) {
-			t.Errorf("shell missing graph script %q — the cola layout requires all three in shell", s)
+			t.Errorf("shell missing graph script %q", s)
 		}
 	}
 
@@ -347,22 +344,11 @@ func TestShellLoadsGraphScriptsInOrder(t *testing.T) {
 		}
 	}
 
-	// Confirm load ORDER by byte position.
-	posC := strings.Index(html, scripts[0])
-	posCola := strings.Index(html, scripts[1])
-	posCC := strings.Index(html, scripts[2])
-	if !(posC < posCola && posCola < posCC) {
-		t.Errorf("shell script load order violated: cytoscape@%d cola@%d cytoscape-cola@%d — want C < cola < CC",
-			posC, posCola, posCC)
-	}
-
-	// cytoscape.use(cytoscapeCola) must appear after cytoscape-cola.js reference.
-	posUse := strings.Index(html, "cytoscape.use(cytoscapeCola)")
-	if posUse == -1 {
-		t.Error("shell missing cytoscape.use(cytoscapeCola) — cola layout will not register")
-	} else if posUse < posCC {
-		t.Errorf("shell: cytoscape.use(cytoscapeCola) at %d appears before cytoscape-cola.js at %d — wrong order",
-			posUse, posCC)
+	// The removed cola triplet must be gone (scripts + registration).
+	for _, gone := range []string{"cola.min.js", "cytoscape-cola.js", "cytoscape.use(cytoscapeCola)"} {
+		if strings.Contains(html, gone) {
+			t.Errorf("shell still references removed cola artifact %q — cosmos.gl replaces it", gone)
+		}
 	}
 }
 

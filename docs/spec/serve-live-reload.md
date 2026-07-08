@@ -2,7 +2,7 @@
 
 ## Goal
 
-`atomic serve` reflects filesystem changes (new/edited/deleted files) in the nav tree, link graph, rail, and system view without a restart or manual refresh — with near-zero idle cost when no browser tab is watching. An open page preserves scroll position; an open system view preserves node positions and viewport.
+`atomic serve` reflects filesystem changes (new/edited/deleted files) in the nav tree, link graph, and rail without a restart or manual refresh — with near-zero idle cost when no browser tab is watching. An open page preserves scroll position. The graph pane reflects changes on its next `/graph/data` fetch, not in place (see change log 2026-07-08).
 
 ## Non-goals
 
@@ -35,9 +35,7 @@
 - [ ] The SSE payload is `{fp, changed: [relpaths]}`, a manifest diff capped at ~100 entries; over the cap the field is omitted and clients treat everything as changed; the fp-equal check remains the outer no-op guard.
 - [ ] In page mode, the pane and rail refetch only when the displayed page's relpath is in `changed` (or the field is omitted); nav refetches on any change, and an SSE-triggered nav refetch skips `computeStaleness`.
 - [ ] SSE-triggered swaps carry the `live-swap` marker and bypass the `htmx:after:swap` scroll reset; scroll position is unchanged after a page-mode refetch.
-- [ ] In system mode, elements are diffed by id: removed nodes/edges are removed, added ones are seeded at a connected neighbor's position and laid out with a scoped pass only; the existing viewport is untouched and pre-existing positions do not move.
-- [ ] When `(added + removed) / (nodes + edges currently mounted) > 0.5`, or no Cytoscape instance is mounted, the system view falls back to a full re-layout.
-- [ ] The IndexedDB layout cache is keyed by a hash of the sorted mounted element-id set, not the realm fingerprint; the entry for the superseded key is pruned on re-key.
+- System-mode client patching: none. Live-reload events do nothing while the graph pane is mounted; the graph reflects changes on the next `/graph/data` fetch (re-entry or reload). The cosmos engine's own fingerprint-keyed layout cache handles invalidation when the data changes. Rebuilding in-place reconcile against cosmos is tracked by follow-up `cosmos-graph-live-reload-reconcile`.
 - [ ] A connectivity indicator reflects the `EventSource`'s live / reconnecting / disconnected state.
 - [ ] `go test ./...` from `atomic/` is green, `go vet ./...` is clean, and the new concurrency surface in `atomic/internal/serve` passes under `go test -race`.
 
@@ -176,7 +174,7 @@ atomic/internal/serve/
 | 2 | Handler migration: nav, page, rail, graph/data handlers read the snapshot; retire the startup-frozen `BuildLinkGraph` singleton and the per-request nav walk | `atomic/internal/serve/nav.go`, `atomic/internal/serve/context_handler.go`, `atomic/internal/serve/rail_handler.go`, `atomic/internal/serve/graphoverlay.go`, `atomic/internal/serve/serve.go` (route wiring, startup construction) | atomic-implementer (feature) | 5 | Go test: nav/page/rail/graph-data handlers source content from the shared snapshot; a file added after server start appears in nav, rail OUT/IN, and graph/data on the next request without restart; a wikilink to that newly created file resolves (not rendered broken) on the next page request; an SSE-triggered nav request skips `computeStaleness` while an ordinary navigation request still runs it; existing serve package tests stay green |
 | 3 | SSE endpoint + subscriber-gated ticker: new `/events` route, one ticker goroutine (10s default, constructor-injectable) gated on subscriber count, quiet-window rebuild, coalesced broadcast, fast shutdown | new file `atomic/internal/serve/events.go` (SSE handler + subscriber registry + ticker), `atomic/internal/serve/serve.go` (route registration, ticker goroutine bound to server context) | atomic-implementer (feature) | 2 | `httptest.NewServer` + a real streaming client with a bounded context (not the `search_stream_test.go` `ResponseRecorder` pattern): a subscribed client receives `{fp, changed}` after an on-disk change and a tick; a new subscription receives an immediate fp push before the next tick; no rebuild occurs when the fp is unchanged; the ticker performs no work at 0 subscribers; a slow subscriber's coalesced slot never blocks broadcast to others; `Shutdown` with a live subscriber connected completes inside the 5s window at exit code 0; `go test -race ./internal/serve/...` clean |
 | 4 | Client: EventSource boot + page-mode reconcile (fp compare, refetch page pane + rail + nav, `live-swap`-marked scroll preserve, connectivity indicator) | `atomic/internal/serve/templates/layout.html` (EventSource boot script, `live-swap` marker, `htmx:after:swap` scroll-reset bypass, connectivity indicator) | atomic-implementer (surgical) | 1 | No JS test rig exists for inline `layout.html` script — manual `atomic serve` scenario (accepted risk): open a page, edit the underlying file on disk, observe the pane/rail/nav refetch within one tick with scroll position unchanged; an SSE event whose fp matches the currently displayed fp produces zero refetches; an event whose `changed` list excludes the displayed page still refetches nav but not pane/rail; the connectivity dot reflects a manual server stop/restart |
-| 5 | Client: system-mode graph diff/patch (id-diff add/remove, neighbor-seeded position, scoped layout, no `fit()`, degenerate full-relayout fallback, IndexedDB re-key by element-id-set hash); registers its handler on checkpoint 4's EventSource dispatcher — system mode patches via raw `/graph/data` fetch, so the `live-swap` htmx marker does not apply here | `atomic/internal/serve/templates/layout.html` (`mountSystemGraph` area: SSE-triggered `/graph/data` refetch, id-diff, IndexedDB re-key) | atomic-implementer (surgical) | 1 | No JS test rig exists for inline `layout.html` script — manual `atomic serve` scenario (accepted risk): open the system graph, add/remove files on disk, observe only the changed nodes/edges patched with viewport and existing node positions untouched; a >50%-changed edit triggers full re-layout instead; the IndexedDB entry keyed to the prior element-id-set hash is gone after the re-key |
+| 5 | ~~Client: system-mode graph diff/patch~~ — removed at the cosmos engine merge (see change log 2026-07-08); successor work tracked by follow-up `cosmos-graph-live-reload-reconcile` | — | — | — | — |
 
 ## Risks
 
@@ -188,6 +186,14 @@ atomic/internal/serve/
 | SSE-triggered scroll-preserve bypass interacts with the existing unconditional `htmx:after:swap` scroll reset used by ordinary navigation | Low | Bypass is scoped to swaps carrying the `live-swap` marker only; ordinary htmx navigation keeps today's reset behavior |
 
 ## Change log
+
+### 2026-07-08 — System-mode client patching removed at the cosmos engine merge
+
+**What changed:** the Goal line, the three system-mode success criteria (id-diff patch, Cytoscape >50% full-relayout fallback, element-id-set IndexedDB re-key), and checkpoint 5 no longer describe in-place graph reconcile. Current truth: live-reload events do nothing while the graph pane is mounted; the graph reflects changes on its next `/graph/data` fetch, and the cosmos engine's fingerprint-keyed layout cache invalidates on data change.
+
+**Why:** CP5 was built against the Cytoscape system-graph client (`mountSystemGraph`, `window.__systemCy`). The cosmos engine swap (PR #123) replaced that client wholesale, and the two branches merged after both had shipped — the Cytoscape-specific reconcile had no surviving attachment point. Rebuilding reconcile against cosmos is real new work, tracked by follow-up `cosmos-graph-live-reload-reconcile`.
+
+**Superseded:** CP5's implementation (commit `5c6dbc3`, plus its `systemMountInFlight`/abort-ownership polish in `78d75be`) and success criteria as shipped 2026-07-05; server-side flows (snapshot store, `/events`, page-mode reconcile) are untouched and remain current.
 
 ## Implementation log
 

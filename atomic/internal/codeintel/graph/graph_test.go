@@ -147,6 +147,23 @@ func subgraphNodeIDs(sg types.Subgraph) map[string]bool {
 	return m
 }
 
+// assertEdgeEndpointsResolve fails the test if any edge in sg.Edges has a
+// Source or Target that does not resolve in sg.Nodes. This is the invariant
+// renderSubgraph (atomic/internal/serve/codeexplorer.go) depends on: an
+// unresolved endpoint falls back to rendering the raw node ID instead of its
+// name/kind/location.
+func assertEdgeEndpointsResolve(t *testing.T, sg types.Subgraph) {
+	t.Helper()
+	for _, e := range sg.Edges {
+		if _, ok := sg.Nodes[e.Source]; !ok {
+			t.Errorf("edge %s--%s-->%s: source %q does not resolve in Subgraph.Nodes", e.Source, e.Kind, e.Target, e.Source)
+		}
+		if _, ok := sg.Nodes[e.Target]; !ok {
+			t.Errorf("edge %s--%s-->%s: target %q does not resolve in Subgraph.Nodes", e.Source, e.Kind, e.Target, e.Target)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // GetCallees — follow calls edges outgoing
 // ---------------------------------------------------------------------------
@@ -264,6 +281,78 @@ func TestGetImpactRadius_DefaultDepth(t *testing.T) {
 	if !ids["nodeA"] {
 		t.Errorf("expected nodeA in impact(B) with default depth")
 	}
+}
+
+// TestGetImpactRadius_EveryEdgeEndpointResolves is the regression test for
+// the modal-drilldown-fixes bug: renderSubgraph fell back to raw node IDs
+// (e.g. "function:b3ff...") because impactBFS never hydrated its own start
+// node into the returned Subgraph.Nodes — only *its* neighbors were. The
+// container path in GetImpactRadius runs one impactBFS per child, so every
+// child (already fetched via GetNodesByIds) was silently dropped.
+func TestGetImpactRadius_EveryEdgeEndpointResolves(t *testing.T) {
+	d := openTestDB(t)
+	ctx := context.Background()
+
+	// A container (class) with two method children. An external caller node
+	// calls method1 — this is the incoming non-contains edge that must
+	// resolve to a hydrated method1 node in the impact radius.
+	nodes := []types.Node{
+		makeNode("classContainer", "class", "MyContainer", "container.go", false),
+		makeNode("method1", "method", "Method1", "container.go", false),
+		makeNode("method2", "method", "Method2", "container.go", false),
+		makeNode("externalCaller", "function", "ExternalCaller", "caller.go", false),
+	}
+	for _, n := range nodes {
+		if err := d.UpsertNode(ctx, n); err != nil {
+			t.Fatalf("upsert %s: %v", n.ID, err)
+		}
+	}
+	edges := []types.Edge{
+		makeEdge("classContainer", "method1", types.EdgeKindContains),
+		makeEdge("classContainer", "method2", types.EdgeKindContains),
+		makeEdge("externalCaller", "method1", types.EdgeKindCalls),
+	}
+	for _, e := range edges {
+		if _, err := d.InsertEdge(ctx, e); err != nil {
+			t.Fatalf("insert edge %s->%s: %v", e.Source, e.Target, err)
+		}
+	}
+
+	m := graph.NewManager(d)
+	sg, err := m.GetImpactRadius(ctx, "classContainer", 3)
+	if err != nil {
+		t.Fatalf("GetImpactRadius: %v", err)
+	}
+
+	ids := subgraphNodeIDs(sg)
+	if !ids["method1"] {
+		t.Errorf("expected method1 (container child, edge endpoint) hydrated in Nodes, got %v", ids)
+	}
+	if !ids["externalCaller"] {
+		t.Errorf("expected externalCaller in Nodes, got %v", ids)
+	}
+	assertEdgeEndpointsResolve(t, sg)
+}
+
+// TestGetImpactRadius_NonContainerStartNodeHydrated covers the non-container
+// path (and the childless-container fallthrough, F-45): the start node
+// itself must land in the returned Subgraph.Nodes since it is always an
+// endpoint of the first-level incoming edges in sg.Edges.
+func TestGetImpactRadius_NonContainerStartNodeHydrated(t *testing.T) {
+	d := openTestDB(t)
+	m := buildFixture(t, d)
+	ctx := context.Background()
+
+	// impact(nodeB, 3): nodeB is a function (non-container). nodeA calls it.
+	sg, err := m.GetImpactRadius(ctx, "nodeB", 3)
+	if err != nil {
+		t.Fatalf("GetImpactRadius: %v", err)
+	}
+	ids := subgraphNodeIDs(sg)
+	if !ids["nodeB"] {
+		t.Errorf("expected start node nodeB hydrated in Nodes, got %v", ids)
+	}
+	assertEdgeEndpointsResolve(t, sg)
 }
 
 // ---------------------------------------------------------------------------
@@ -673,6 +762,49 @@ func TestFindDeadCode_Deterministic(t *testing.T) {
 			t.Errorf("dead code not sorted: dead[%d].ID=%s < dead[%d].ID=%s", i, dead1[i].ID, i-1, dead1[i-1].ID)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Start-node hydration — GetCallers/GetCallees symmetric gap
+// ---------------------------------------------------------------------------
+
+// TestGetCallers_StartNodeHydrated: the first-level edge collected by
+// bfsIncoming has Target == startID, so startID must resolve in Subgraph.Nodes
+// for the invariant to hold (renderSubgraph's rootID substitution happens to
+// paper over this in the UI, but the Subgraph contract itself — consumed
+// directly by `atomic code` CLI/MCP callers too — should not have a hollow
+// endpoint).
+func TestGetCallers_StartNodeHydrated(t *testing.T) {
+	d := openTestDB(t)
+	m := buildFixture(t, d)
+	ctx := context.Background()
+
+	sg, err := m.GetCallers(ctx, "nodeC", 2)
+	if err != nil {
+		t.Fatalf("GetCallers: %v", err)
+	}
+	ids := subgraphNodeIDs(sg)
+	if !ids["nodeC"] {
+		t.Errorf("expected start node nodeC hydrated in Nodes, got %v", ids)
+	}
+	assertEdgeEndpointsResolve(t, sg)
+}
+
+// TestGetCallees_StartNodeHydrated is the symmetric case for outgoing edges.
+func TestGetCallees_StartNodeHydrated(t *testing.T) {
+	d := openTestDB(t)
+	m := buildFixture(t, d)
+	ctx := context.Background()
+
+	sg, err := m.GetCallees(ctx, "nodeA", 2)
+	if err != nil {
+		t.Fatalf("GetCallees: %v", err)
+	}
+	ids := subgraphNodeIDs(sg)
+	if !ids["nodeA"] {
+		t.Errorf("expected start node nodeA hydrated in Nodes, got %v", ids)
+	}
+	assertEdgeEndpointsResolve(t, sg)
 }
 
 // ---------------------------------------------------------------------------

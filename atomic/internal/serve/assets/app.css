@@ -21,45 +21,160 @@
     --amber-wash:   #fbf3e0;
     --amber-edge:   #ecd9aa;
 
-    /* Type identity hues — exact shipped palette + ink/wash for light bg */
-    --c-knowledge:        #f38ba8;
-    --c-knowledge-ink:    #9c2f4c;
-    --c-knowledge-wash:   #fdeef2;
-    --c-knowledge-edge:   #f6d2dc;
-    --c-repo:             #a6e3a1;
-    --c-repo-ink:         #3f7a3a;
-    --c-repo-wash:        #ecf8ea;
-    --c-repo-edge:        #cdebc8;
-    --c-concern:          #cba6f7;
-    --c-concern-ink:      #6f4aa6;
-    --c-concern-wash:     #f4eefd;
-    --c-concern-edge:     #e4d3f8;
-    --c-page:             #89b4fa;
-    --c-page-ink:         #3a63a8;
-    --c-page-wash:        #ecf2fe;
-    --c-page-edge:        #cfdffb;
-    --c-external:         #6c7086;
-    --c-external-ink:     #4a4e63;
-    --c-external-wash:    #eef0f4;
-    --c-external-edge:    #d8dae2;
-    --c-bucket:           #fab387;
-    --c-bucket-ink:       #8a4a1a;
-    --c-bucket-wash:      #fef3eb;
-    --c-bucket-edge:      #f8d4b3;
-    --c-index:            #74c7ec;
-    --c-index-ink:        #1a6a8a;
-    --c-index-wash:       #e6f7fd;
-    --c-index-edge:       #b8e4f7;
-    --c-domain:           #94e2d5;
-    --c-domain-ink:       #2a7a6e;
-    --c-domain-wash:      #e8f9f7;
-    --c-domain-edge:      #bee8e1;
+    /* ============================================================
+       GRAPH PALETTE — 8-hue x 5-shade x 2-band ramp system
+       (docs/spec/code-graph.md styling clause). BRIGHT band = code graph
+       node fills; DUSKY band = docs graph node fills, derived from the
+       bright ramp via a per-shade HSL saturation/lightness reduction
+       (tmp/compute-dusky-ramps.py — gold/gray shades are the approved
+       exemplars verbatim, the other 6 hues are the calibrated transform
+       applied to their own bright shade). Shade 1 = lightest, 5 = deepest;
+       a node's fill picks its hue's shade by the node's degree quintile
+       within its graph (graph-core.js computeNodeColors) — shade 2 is the
+       default/legend-chip color for both bands.
+       ============================================================ */
+    --ramp-gold-1: #e3b84d;
+    --ramp-gold-2: #c98f1c;
+    --ramp-gold-3: #a87415;
+    --ramp-gold-4: #875c10;
+    --ramp-gold-5: #66450b;
+    --ramp-gold-dusky-1: #bfa45e;
+    --ramp-gold-dusky-2: #a4873f;
+    --ramp-gold-dusky-3: #886e30;
+    --ramp-gold-dusky-4: #6c5624;
+    --ramp-gold-dusky-5: #503f19;
+
+    --ramp-slate-1: #7d94bd;
+    --ramp-slate-2: #5c76a3;
+    --ramp-slate-3: #47608c;
+    --ramp-slate-4: #354a70;
+    --ramp-slate-5: #263752;
+    --ramp-slate-dusky-1: #7d8aa1;
+    --ramp-slate-dusky-2: #6c7688;
+    --ramp-slate-dusky-3: #525f74;
+    --ramp-slate-dusky-4: #3c485c;
+    --ramp-slate-dusky-5: #2a3342;
+
+    --ramp-moss-1: #99a355;
+    --ramp-moss-2: #7c8a3a;
+    --ramp-moss-3: #64702c;
+    --ramp-moss-4: #4c561f;
+    --ramp-moss-5: #373f15;
+    --ramp-moss-dusky-1: #7a7e5e;
+    --ramp-moss-dusky-2: #6b7346;
+    --ramp-moss-dusky-3: #555c34;
+    --ramp-moss-dusky-4: #3f4524;
+    --ramp-moss-dusky-5: #2c3017;
+
+    --ramp-plum-1: #a57dc0;
+    --ramp-plum-2: #8a63ad;
+    --ramp-plum-3: #71508f;
+    --ramp-plum-4: #5a3f73;
+    --ramp-plum-5: #452f58;
+    --ramp-plum-dusky-1: #947ca5;
+    --ramp-plum-dusky-2: #837095;
+    --ramp-plum-dusky-3: #6a5c77;
+    --ramp-plum-dusky-4: #53475e;
+    --ramp-plum-dusky-5: #3e3447;
+
+    --ramp-magenta-1: #bf6a8b;
+    --ramp-magenta-2: #a05673;
+    --ramp-magenta-3: #85445d;
+    --ramp-magenta-4: #6a3449;
+    --ramp-magenta-5: #4f2536;
+    --ramp-magenta-dusky-1: #a36a80;
+    --ramp-magenta-dusky-2: #866572;
+    --ramp-magenta-dusky-3: #6e4e5b;
+    --ramp-magenta-dusky-4: #573b46;
+    --ramp-magenta-dusky-5: #3f2932;
+
+    --ramp-terra-1: #d17f42;
+    --ramp-terra-2: #b0642c;
+    --ramp-terra-3: #925220;
+    --ramp-terra-4: #744017;
+    --ramp-terra-5: #562f0f;
+    --ramp-terra-dusky-1: #b27345;
+    --ramp-terra-dusky-2: #96623b;
+    --ramp-terra-dusky-3: #7b4e2b;
+    --ramp-terra-dusky-4: #603b1e;
+    --ramp-terra-dusky-5: #452a14;
+
+    --ramp-cyan-1: #62a8ab;
+    --ramp-cyan-2: #4d8f92;
+    --ramp-cyan-3: #3b797c;
+    --ramp-cyan-4: #2b6265;
+    --ramp-cyan-5: #1d4b4e;
+    --ramp-cyan-dusky-1: #688889;
+    --ramp-cyan-dusky-2: #5b7879;
+    --ramp-cyan-dusky-3: #446566;
+    --ramp-cyan-dusky-4: #315152;
+    --ramp-cyan-dusky-5: #203c3e;
+
+    --ramp-gray-1: #a89f8d;
+    --ramp-gray-2: #8a8171;
+    --ramp-gray-3: #6f675a;
+    --ramp-gray-4: #554e43;
+    --ramp-gray-5: #3d382f;
+    --ramp-gray-dusky-1: #948c7c;
+    --ramp-gray-dusky-2: #7d766a;
+    --ramp-gray-dusky-3: #635d52;
+    --ramp-gray-dusky-4: #4a453c;
+    --ramp-gray-dusky-5: #332f28;
+
+    /* --c-<type> family (docs graph, dusky band) — aliases into the ramp above.
+       wash/edge derive from the fill via color-mix() rather than hand-picked hex,
+       so any future ramp/hue change stays internally coherent for free. */
+    --c-page:      var(--ramp-gold-dusky-2);
+    --c-page-ink:  var(--ramp-gold-dusky-5);
+    --c-page-wash: color-mix(in srgb, var(--c-page) 12%, var(--paper));
+    --c-page-edge: color-mix(in srgb, var(--c-page) 34%, var(--paper));
+    --c-repo:      var(--ramp-slate-dusky-2);
+    --c-repo-ink:  var(--ramp-slate-dusky-5);
+    --c-repo-wash: color-mix(in srgb, var(--c-repo) 12%, var(--paper));
+    --c-repo-edge: color-mix(in srgb, var(--c-repo) 34%, var(--paper));
+    --c-domain:      var(--ramp-moss-dusky-2);
+    --c-domain-ink:  var(--ramp-moss-dusky-5);
+    --c-domain-wash: color-mix(in srgb, var(--c-domain) 12%, var(--paper));
+    --c-domain-edge: color-mix(in srgb, var(--c-domain) 34%, var(--paper));
+    --c-concern:      var(--ramp-plum-dusky-2);
+    --c-concern-ink:  var(--ramp-plum-dusky-5);
+    --c-concern-wash: color-mix(in srgb, var(--c-concern) 12%, var(--paper));
+    --c-concern-edge: color-mix(in srgb, var(--c-concern) 34%, var(--paper));
+    --c-knowledge:      var(--ramp-magenta-dusky-2);
+    --c-knowledge-ink:  var(--ramp-magenta-dusky-5);
+    --c-knowledge-wash: color-mix(in srgb, var(--c-knowledge) 12%, var(--paper));
+    --c-knowledge-edge: color-mix(in srgb, var(--c-knowledge) 34%, var(--paper));
+    --c-bucket:      var(--ramp-terra-dusky-2);
+    --c-bucket-ink:  var(--ramp-terra-dusky-5);
+    --c-bucket-wash: color-mix(in srgb, var(--c-bucket) 12%, var(--paper));
+    --c-bucket-edge: color-mix(in srgb, var(--c-bucket) 34%, var(--paper));
+    --c-index:      var(--ramp-cyan-dusky-2);
+    --c-index-ink:  var(--ramp-cyan-dusky-5);
+    --c-index-wash: color-mix(in srgb, var(--c-index) 12%, var(--paper));
+    --c-index-edge: color-mix(in srgb, var(--c-index) 34%, var(--paper));
+    --c-external:      var(--ramp-gray-dusky-2);
+    --c-external-ink:  var(--ramp-gray-dusky-5);
+    --c-external-wash: color-mix(in srgb, var(--c-external) 12%, var(--paper));
+    --c-external-edge: color-mix(in srgb, var(--c-external) 34%, var(--paper));
+
+    /* --cc-<group> family (code graph, bright band) — shade 2, the legend/default fill. */
+    --cc-callable: var(--ramp-gold-2);
+    --cc-module-file: var(--ramp-slate-2);
+    --cc-value: var(--ramp-moss-2);
+    --cc-type: var(--ramp-plum-2);
+    --cc-sql-data: var(--ramp-magenta-2);
+    --cc-sql-routine: var(--ramp-terra-2);
+    --cc-import-export: var(--ramp-cyan-2);
+    --cc-other: var(--ramp-gray-2);
 
     /* Graph surface */
     --graph-bg:       #fafaf8;
     --graph-grid:     rgba(33,29,24,0.035);
-    --edge:           #cabfae;
-    --edge-strong:    #b1a48f;
+    /* edge/edge-strong (graph-interactions brief, item 4): darkened from
+       #cabfae/#b1a48f — those sat at ~1.7:1 contrast against --graph-bg
+       (near-white), reading as "blends into the canvas"; ~3:1/~4.6:1 here. */
+    --edge:           #9c8f74;
+    --edge-strong:    #7d6f52;
 
     /* Modals + overlays */
     --shadow-card:  0 18px 44px -18px rgba(33,29,24,0.34), 0 2px 8px rgba(33,29,24,0.07);
@@ -109,43 +224,159 @@
     --amber-wash:   #2c2410;
     --amber-edge:   #5a4a1f;
 
-    --c-knowledge:        #f38ba8;
-    --c-knowledge-ink:    #f4a7bd;
-    --c-knowledge-wash:   #34141d;
-    --c-knowledge-edge:   #5e2433;
-    --c-repo:             #a6e3a1;
-    --c-repo-ink:         #b6e7b1;
-    --c-repo-wash:        #15240f;
-    --c-repo-edge:        #2c4a24;
-    --c-concern:          #cba6f7;
-    --c-concern-ink:      #d6b9f8;
-    --c-concern-wash:     #221733;
-    --c-concern-edge:     #3d2a59;
-    --c-page:             #89b4fa;
-    --c-page-ink:         #a6c6fb;
-    --c-page-wash:        #131f33;
-    --c-page-edge:        #29426b;
-    --c-external:         #9095ab;
-    --c-external-ink:     #a3a8bd;
-    --c-external-wash:    #1c1d24;
-    --c-external-edge:    #34363f;
-    --c-bucket:           #fab387;
-    --c-bucket-ink:       #f5c09a;
-    --c-bucket-wash:      #2a1a0a;
-    --c-bucket-edge:      #5a3a1a;
-    --c-index:            #74c7ec;
-    --c-index-ink:        #8fd6f5;
-    --c-index-wash:       #0c2233;
-    --c-index-edge:       #1b4360;
-    --c-domain:           #94e2d5;
-    --c-domain-ink:       #a8eae0;
-    --c-domain-wash:      #0e2320;
-    --c-domain-edge:      #1a4039;
+    /* ============================================================
+       GRAPH PALETTE — 8-hue x 5-shade x 2-band ramp system
+       (docs/spec/code-graph.md styling clause). BRIGHT band = code graph
+       node fills; DUSKY band = docs graph node fills, derived from the
+       bright ramp via a per-shade HSL saturation/lightness reduction
+       (tmp/compute-dusky-ramps.py — gold/gray shades are the approved
+       exemplars verbatim, the other 6 hues are the calibrated transform
+       applied to their own bright shade). Shade 1 = lightest, 5 = deepest;
+       a node's fill picks its hue's shade by the node's degree quintile
+       within its graph (graph-core.js computeNodeColors) — shade 2 is the
+       default/legend-chip color for both bands.
+       ============================================================ */
+    --ramp-gold-1: #f7e1a8;
+    --ramp-gold-2: #f5c860;
+    --ramp-gold-3: #e0a83a;
+    --ramp-gold-4: #c08a26;
+    --ramp-gold-5: #96691a;
+    --ramp-gold-dusky-1: #d6c08d;
+    --ramp-gold-dusky-2: #c2a45f;
+    --ramp-gold-dusky-3: #a58743;
+    --ramp-gold-dusky-4: #866b30;
+    --ramp-gold-dusky-5: #665022;
+
+    --ramp-slate-1: #c3d0e8;
+    --ramp-slate-2: #9fb4d6;
+    --ramp-slate-3: #7d94bd;
+    --ramp-slate-4: #5f769e;
+    --ramp-slate-5: #47597b;
+    --ramp-slate-dusky-1: #a4afc5;
+    --ramp-slate-dusky-2: #8c98ac;
+    --ramp-slate-dusky-3: #6d7b95;
+    --ramp-slate-dusky-4: #566174;
+    --ramp-slate-dusky-5: #3f4757;
+
+    --ramp-moss-1: #d5d9a8;
+    --ramp-moss-2: #b8c078;
+    --ramp-moss-3: #99a355;
+    --ramp-moss-4: #7b843d;
+    --ramp-moss-5: #5e662c;
+    --ramp-moss-dusky-1: #adaf8f;
+    --ramp-moss-dusky-2: #898d6e;
+    --ramp-moss-dusky-3: #6b6e52;
+    --ramp-moss-dusky-4: #555a34;
+    --ramp-moss-dusky-5: #3e4224;
+
+    --ramp-plum-1: #dcc4ea;
+    --ramp-plum-2: #c19fd9;
+    --ramp-plum-3: #a57dc0;
+    --ramp-plum-4: #875f9f;
+    --ramp-plum-5: #68477c;
+    --ramp-plum-dusky-1: #bba3c8;
+    --ramp-plum-dusky-2: #a18bb0;
+    --ramp-plum-dusky-3: #876c99;
+    --ramp-plum-dusky-4: #695674;
+    --ramp-plum-dusky-5: #4f3f58;
+
+    --ramp-magenta-1: #eab6ca;
+    --ramp-magenta-2: #d98ba9;
+    --ramp-magenta-3: #bf6a8b;
+    --ramp-magenta-4: #9e506e;
+    --ramp-magenta-5: #7a3a53;
+    --ramp-magenta-dusky-1: #c994a9;
+    --ramp-magenta-dusky-2: #b0778d;
+    --ramp-magenta-dusky-3: #955c72;
+    --ramp-magenta-dusky-4: #724858;
+    --ramp-magenta-dusky-5: #553340;
+
+    --ramp-terra-1: #f2c4a0;
+    --ramp-terra-2: #e89f68;
+    --ramp-terra-3: #d17f42;
+    --ramp-terra-4: #ad6330;
+    --ramp-terra-5: #854a22;
+    --ramp-terra-dusky-1: #d7a279;
+    --ramp-terra-dusky-2: #c38150;
+    --ramp-terra-dusky-3: #9e663d;
+    --ramp-terra-dusky-4: #7c4e2d;
+    --ramp-terra-dusky-5: #5c381f;
+
+    --ramp-cyan-1: #b3dfe0;
+    --ramp-cyan-2: #85c5c8;
+    --ramp-cyan-3: #62a8ab;
+    --ramp-cyan-4: #48878a;
+    --ramp-cyan-5: #346467;
+    --ramp-cyan-dusky-1: #97b9b9;
+    --ramp-cyan-dusky-2: #789798;
+    --ramp-cyan-dusky-3: #5c7879;
+    --ramp-cyan-dusky-4: #3e5f60;
+    --ramp-cyan-dusky-5: #2b4244;
+
+    --ramp-gray-1: #d9d2c5;
+    --ramp-gray-2: #bab2a2;
+    --ramp-gray-3: #9a917f;
+    --ramp-gray-4: #7b7263;
+    --ramp-gray-5: #5d564a;
+    --ramp-gray-dusky-1: #b5aea0;
+    --ramp-gray-dusky-2: #968f80;
+    --ramp-gray-dusky-3: #787163;
+    --ramp-gray-dusky-4: #5c564b;
+    --ramp-gray-dusky-5: #423d35;
+
+    /* --c-<type> family (docs graph, dusky band) — aliases into the ramp above.
+       wash/edge derive from the fill via color-mix() rather than hand-picked hex,
+       so any future ramp/hue change stays internally coherent for free. */
+    --c-page:      var(--ramp-gold-dusky-2);
+    --c-page-ink:  var(--ramp-gold-dusky-1);
+    --c-page-wash: color-mix(in srgb, var(--c-page) 20%, var(--paper-sunk));
+    --c-page-edge: color-mix(in srgb, var(--c-page) 42%, var(--paper-sunk));
+    --c-repo:      var(--ramp-slate-dusky-2);
+    --c-repo-ink:  var(--ramp-slate-dusky-1);
+    --c-repo-wash: color-mix(in srgb, var(--c-repo) 20%, var(--paper-sunk));
+    --c-repo-edge: color-mix(in srgb, var(--c-repo) 42%, var(--paper-sunk));
+    --c-domain:      var(--ramp-moss-dusky-2);
+    --c-domain-ink:  var(--ramp-moss-dusky-1);
+    --c-domain-wash: color-mix(in srgb, var(--c-domain) 20%, var(--paper-sunk));
+    --c-domain-edge: color-mix(in srgb, var(--c-domain) 42%, var(--paper-sunk));
+    --c-concern:      var(--ramp-plum-dusky-2);
+    --c-concern-ink:  var(--ramp-plum-dusky-1);
+    --c-concern-wash: color-mix(in srgb, var(--c-concern) 20%, var(--paper-sunk));
+    --c-concern-edge: color-mix(in srgb, var(--c-concern) 42%, var(--paper-sunk));
+    --c-knowledge:      var(--ramp-magenta-dusky-2);
+    --c-knowledge-ink:  var(--ramp-magenta-dusky-1);
+    --c-knowledge-wash: color-mix(in srgb, var(--c-knowledge) 20%, var(--paper-sunk));
+    --c-knowledge-edge: color-mix(in srgb, var(--c-knowledge) 42%, var(--paper-sunk));
+    --c-bucket:      var(--ramp-terra-dusky-2);
+    --c-bucket-ink:  var(--ramp-terra-dusky-1);
+    --c-bucket-wash: color-mix(in srgb, var(--c-bucket) 20%, var(--paper-sunk));
+    --c-bucket-edge: color-mix(in srgb, var(--c-bucket) 42%, var(--paper-sunk));
+    --c-index:      var(--ramp-cyan-dusky-2);
+    --c-index-ink:  var(--ramp-cyan-dusky-1);
+    --c-index-wash: color-mix(in srgb, var(--c-index) 20%, var(--paper-sunk));
+    --c-index-edge: color-mix(in srgb, var(--c-index) 42%, var(--paper-sunk));
+    --c-external:      var(--ramp-gray-dusky-2);
+    --c-external-ink:  var(--ramp-gray-dusky-1);
+    --c-external-wash: color-mix(in srgb, var(--c-external) 20%, var(--paper-sunk));
+    --c-external-edge: color-mix(in srgb, var(--c-external) 42%, var(--paper-sunk));
+
+    /* --cc-<group> family (code graph, bright band) — shade 2, the legend/default fill. */
+    --cc-callable: var(--ramp-gold-2);
+    --cc-module-file: var(--ramp-slate-2);
+    --cc-value: var(--ramp-moss-2);
+    --cc-type: var(--ramp-plum-2);
+    --cc-sql-data: var(--ramp-magenta-2);
+    --cc-sql-routine: var(--ramp-terra-2);
+    --cc-import-export: var(--ramp-cyan-2);
+    --cc-other: var(--ramp-gray-2);
 
     --graph-bg:       #1a180f;
     --graph-grid:     rgba(241,234,217,0.03);
-    --edge:           #4a4330;
-    --edge-strong:    #6a5f43;
+    /* edge/edge-strong (graph-interactions brief, item 4): brightened from
+       #4a4330/#6a5f43 — those sat at ~1.9:1 contrast against --graph-bg
+       (near-black); ~3:1/~4.8:1 here, same warm-tan hue family. */
+    --edge:           #6b5f41;
+    --edge-strong:    #8f8058;
 
     --shadow-card:  0 22px 50px -16px rgba(0,0,0,0.66), 0 2px 10px rgba(0,0,0,0.4);
     --scrim:        rgba(8,6,3,0.62);
@@ -1333,8 +1564,13 @@ body.mode-system #main-pane {
     overflow: hidden;
 }
 
-/* System-cy container fills #main-pane (no content-header row above it) */
-#system-cy {
+/* System-cy / code-cy: the two graph-mode mount containers (docs, code —
+   code-graph checkpoint 6) share this box treatment. Both fill #main-pane (no
+   content-header row above it); position:relative anchors each mount's own
+   CP5 label overlay (.graph-label-layer), whose children are positioned
+   absolute to this box, not the page. */
+#system-cy, #code-cy {
+    position: relative;
     width: 100%;
     height: 100%;
     min-height: calc(100vh - var(--header-height) - var(--footer-height));
@@ -1357,6 +1593,46 @@ body.mode-system #main-pane {
     color: var(--ink-faint);
     font-size: 13px;
     font-style: italic;
+}
+
+/* Not-indexed / fetch-error message (SC7 polish) — a settled statement, not
+   an in-progress spinner caption: drop the italic, widen the read measure. */
+.system-graph-loading.system-graph-error {
+    font-style: normal;
+    color: var(--ink-soft);
+    max-width: 380px;
+    line-height: 1.5;
+}
+
+/* Graph pane controls (checkpoint 6): Docs|Code switcher + realm member
+   picker, floated top-right of the pane so they never collide with the
+   bottom-left legend. Rebuilt fresh on every view/member switch — see
+   system-graph.js's renderGraphPane(). */
+.graph-pane-controls {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.graph-view-switch {
+    backdrop-filter: blur(6px);
+}
+
+.graph-member-select {
+    background: color-mix(in srgb, var(--paper-raised) 88%, transparent);
+    border: 1px solid var(--hairline-2);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-family: var(--sans);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink);
+    backdrop-filter: blur(6px);
+    cursor: pointer;
 }
 
 /* System graph legend — type-filter chip bar */
@@ -1409,6 +1685,39 @@ body.mode-system #main-pane {
     height: 9px;
     border-radius: 50%;
     flex-shrink: 0;
+}
+
+/* System graph DOM label overlay (CP5, SC5) — one <div> per rendered label,
+   positioned via `transform` from cosmos.gl screen-space coordinates.
+   pointer-events: none on both layers so labels never fight cosmos's own
+   canvas hit-testing; the fade is a CSS opacity transition, toggled by the
+   JS via .graph-label-faded as the zoom threshold is crossed. */
+.graph-label-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.graph-label {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--paper-raised) 82%, transparent);
+    color: var(--ink-soft);
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.4;
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 1;
+    transition: opacity 0.18s ease;
+}
+
+.graph-label.graph-label-faded {
+    opacity: 0;
 }
 
 /* ============================================================
