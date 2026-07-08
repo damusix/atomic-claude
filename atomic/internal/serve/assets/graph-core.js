@@ -23,9 +23,15 @@
 // label/meta resolvers (labelText()/nodeMeta()), hover/click hooks
 // (onHover()/onHoverOut()/onClick()), and an optional onTeardown() cleanup
 // hook (fired by teardown() below if the profile defines one — e.g. to
-// dismiss whatever hover/click UI the profile opened). system-graph.js is
-// the current sole profile (the docs Network View, over /graph/data); a
-// code-graph profile (over /code/graph/data) is checkpoint 5's job.
+// dismiss whatever hover/click UI the profile opened). system-graph.js (the
+// docs Network View, over /graph/data) and code-graph.js (over
+// /code/graph/data, checkpoint 5) are the two current profiles; both run the
+// core's drag physics constants verbatim (docs/spec/code-graph.md checkpoint
+// 5 follow-up: an empirical sweep found the constants were never the
+// bottleneck for a forced drag overlap at code-graph scale — the gate's own
+// drag-target pick was, see scripts/graph-gates.mjs's gate 3 node-pick
+// comment). A per-profile override is not exposed — re-add when a real
+// profile actually needs one.
 window.GraphCore = (function() {
 
   // The live cosmos.gl instance, or null when no graph is mounted.
@@ -988,7 +994,13 @@ window.GraphCore = (function() {
       .catch(function(e) {
         if (activeContainer !== container) { return; }
         container.dataset.systemMounted = ''; // allow a retry on re-navigation
-        showError(mainPane, 'Could not render the system graph.');
+        // e.message surfaces a profile-thrown fetch error verbatim (the code
+        // profile's fetchData() rejects with the server's own JSON error
+        // body — codegraph.go's graphErrorResponse, e.g. "unknown member: x"
+        // — docs/spec/code-graph.md checkpoint 5's "show the response's JSON
+        // error in the pane"); the generic fallback covers errors with no
+        // useful message (a thrown non-Error, or none at all).
+        showError(mainPane, (e && e.message) || 'Could not render the system graph.');
         console.error('graph-core mount:', e);
       });
   }

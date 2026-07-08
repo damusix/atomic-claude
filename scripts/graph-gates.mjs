@@ -15,11 +15,20 @@
 //   node scripts/graph-gates.mjs --view docs --serve-bin bin/atomic
 //
 // Flags:
-//   --view <docs|code>       Target graph view. Only "docs" is wired up as of
-//                            this checkpoint (code-graph CP3) — "code" prints
-//                            a one-line "not wired yet" message and exits 0;
-//                            it becomes runnable once CP5/CP6 land the code
-//                            view's UI wiring (docs/spec/code-graph.md).
+//   --view <docs|code>       Target graph view. "docs" navigates straight to
+//                            /graph, which auto-mounts window.SystemGraph via
+//                            the htmx.onLoad delegation in layout.html. "code"
+//                            has no user-facing mount trigger yet (checkpoint
+//                            6 adds the Docs|Code switcher + URL routing) —
+//                            this harness bridges the gap by navigating to
+//                            the landing page and calling
+//                            window.CodeGraph.mount() directly via
+//                            page.evaluate (see VIEWS.code.navigate below);
+//                            CP6 will replace that bridge with a real UI
+//                            toggle click. Every gate below reads state
+//                            through window.GraphCore (the shared engine both
+//                            profiles forward verbatim), so gates 1-5 run
+//                            identically regardless of which profile mounted.
 //   --url <base>             Drive an ALREADY-RUNNING atomic serve instance
 //                            at this base URL. Mutually exclusive with
 //                            --serve-bin.
@@ -33,10 +42,17 @@
 //                            levels up from this script).
 //   --settle-budget-ms <n>   Hard time budget for gate 2 (settle-then-pause)
 //                            and the post-drag re-settle wait in gate 3.
-//                            Default 15000 — the tuned docs view settles in
-//                            ~3s. Lowering this is how to prove the harness
-//                            CAN fail (temporarily pass e.g. `1` and observe
-//                            a non-zero exit), not a flag for normal runs.
+//                            Default 30000. Measured (11 real runs, this
+//                            repo's own index, GPU-accelerated launch — see
+//                            chromium.launch()'s args below): docs settles in
+//                            ~4-10s, code (17.5k nodes/54k edges) in
+//                            ~9.8-10.4s, both with low run-to-run variance —
+//                            30000 keeps roughly the same ~3x headroom over
+//                            code's measured settle the prior 15000 default
+//                            gave docs. Lowering this is how to prove the
+//                            harness CAN fail (temporarily pass e.g. `1` and
+//                            observe a non-zero exit), not a flag for normal
+//                            runs.
 //   --simulate-no-playwright Force the skip path without touching module
 //                            resolution — prints the skip message and exits
 //                            0, for testing the skip path itself.
@@ -60,19 +76,66 @@ import net from 'node:net';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-// VIEWS maps --view to the URL path that boots straight into that graph's
-// mount (a document load of this path triggers #main-pane's hx-get="{{.LandingURL}}"
-// on load, which fetches the fragment and runs SystemGraph.mount() via the
-// htmx.onLoad delegation in layout.html). "code" has no such path yet — the
-// code view UI wiring (Docs|Code switcher, URL view state) is CP5/CP6, not
-// this checkpoint's scope (see docs/spec/code-graph.md checkpoints table).
+// VIEWS maps --view to a navigate(page, baseURL) that gets that view's graph
+// mounted and its container + `.system-graph-loading` marker into the DOM,
+// returning once the triggering navigation's 'load' event fires (gate 2 then
+// waits on the loading marker separately, in runGates below).
 const VIEWS = {
-  docs: { path: '/graph', wired: true },
-  code: { path: null, wired: false }
+  // docs: a document load of /graph triggers #main-pane's
+  // hx-get="{{.LandingURL}}" on load, which fetches the systemGraphFragmentHTML
+  // fragment (serve.go) and runs SystemGraph.mount() via the htmx.onLoad
+  // delegation keyed on [data-system-graph] (layout.html).
+  docs: {
+    async navigate(page, baseURL) {
+      await page.goto(baseURL + '/graph', { waitUntil: 'load' });
+    }
+  },
+  // code: no user-facing mount trigger exists yet — checkpoint 6 adds the
+  // Docs|Code switcher and the URL routing /graph's auto-mount relies on
+  // (docs/spec/code-graph.md checkpoints table). Bridges the gap per
+  // checkpoint 5's "the harness may mount via page.evaluate against
+  // window.CodeGraph.mount(...) into the graph container": navigates to the
+  // landing page (NOT /graph — that path would auto-mount the DOCS profile
+  // instead) so no profile is mounted yet, then builds the same container +
+  // loading-marker shape systemGraphFragmentHTML gives the docs view and
+  // mounts CodeGraph onto it directly. The container has no permanent
+  // markup/CSS home yet (checkpoint 6 owns that), so sizing is set inline
+  // here rather than in assets/app.css — without an explicit width/height a
+  // freshly-created <div> has intrinsic height 0, and cosmos would render
+  // its canvas into a zero-size viewport.
+  code: {
+    async navigate(page, baseURL) {
+      // waitUntil:'networkidle', not 'load' — every full-page shell render
+      // (this landing page included) carries #main-pane's own
+      // hx-get="{{.LandingURL}}" auto-fetch (FE8), which races against this
+      // function's own innerHTML overwrite below: 'load' (the browser's load
+      // event) can fire before htmx's async fetch resolves, so overwriting
+      // #main-pane immediately after 'load' sometimes wins the race and
+      // sometimes loses it — when it loses, htmx's own later swap replaces
+      // the just-mounted container and fires system-graph.js's
+      // htmx:after:swap listener, which calls teardown() (mode-system is
+      // true, and that listener's [data-system-graph] check doesn't
+      // recognize [data-code-graph] as "still a graph") — a torn-down
+      // instance is what turned debugState() null and crashed gate 4 during
+      // this checkpoint's own tuning runs. networkidle waits for htmx's own
+      // fetch to actually finish first, so no swap remains pending when this
+      // function starts mutating #main-pane itself.
+      await page.goto(baseURL + '/', { waitUntil: 'networkidle' });
+      await page.evaluate(() => {
+        const mainPane = document.getElementById('main-pane');
+        mainPane.innerHTML = '<div id="code-cy" data-code-graph></div><p class="loading system-graph-loading">Laying out graph…</p>';
+        const container = document.getElementById('code-cy');
+        container.style.position = 'relative';
+        container.style.width = '100%';
+        container.style.height = '100%';
+        window.CodeGraph.mount(container);
+      });
+    }
+  }
 };
 
 function parseArgs(argv) {
-  const args = { view: null, url: null, serveBin: null, repoRoot: REPO_ROOT, settleBudgetMs: 15000, simulateNoPlaywright: false };
+  const args = { view: null, url: null, serveBin: null, repoRoot: REPO_ROOT, settleBudgetMs: 30000, simulateNoPlaywright: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--view') { args.view = argv[++i]; }
@@ -141,8 +204,23 @@ async function waitForServer(baseURL, timeoutMs) {
 // for a GATE failure (those are recorded in the array), only for
 // harness-level errors (browser launch, navigation, etc.), which the caller
 // may treat as a skip (e.g. no cached browser available).
-async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
-  const browser = await chromium.launch({ headless: true });
+async function runGates(chromium, baseURL, view, settleBudgetMs) {
+  // GPU args: Playwright's default headless launch renders WebGL2 through
+  // SwiftShader (software) — confirmed via WEBGL_debug_renderer_info against
+  // this harness's own launch (no args: "ANGLE (Google, Vulkan ... SwiftShader
+  // Device ..., SwiftShader driver)"). Cosmos.gl's simulation is GPU-compute
+  // heavy; under SwiftShader the code view's settle-then-pause (17.5k nodes)
+  // was still running past 98s. These three flags let ANGLE pick the
+  // platform's real GPU backend when one is available (confirmed on this
+  // machine: "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, ...)"), which
+  // brought the same settle down to ~12-13s — the number the settle budget
+  // below is sized against. A machine with no usable GPU falls back to
+  // ANGLE's own software path same as before; these flags only ask for
+  // hardware when present, they don't require it.
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--use-gl=angle', '--ignore-gpu-blocklist', '--enable-gpu-rasterization']
+  });
   const results = [];
   try {
     const page = await browser.newPage();
@@ -150,11 +228,9 @@ async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
     page.on('pageerror', (err) => consoleErrors.push('pageerror: ' + err.message));
     page.on('console', (msg) => { if (msg.type() === 'error') { consoleErrors.push('console.error: ' + msg.text()); } });
 
-    const mountURL = baseURL + viewPath;
-
     // ── Gate 1 setup + Gate 2: mount, wait for settle-then-pause ──────────
     const t0 = Date.now();
-    await page.goto(mountURL, { waitUntil: 'load' });
+    await view.navigate(page, baseURL);
     let settleMs = null;
     let settleErr = null;
     try {
@@ -163,7 +239,11 @@ async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
     } catch (e) {
       settleErr = 'did not settle within ' + settleBudgetMs + 'ms';
     }
-    const stateAfterSettle = settleErr ? null : await page.evaluate(() => window.SystemGraph.debugState());
+    // window.GraphCore is the shared engine both profiles forward
+    // debugState()/simRunning() from verbatim — reading it directly here
+    // (rather than window.SystemGraph/window.CodeGraph) lets every gate
+    // below run unchanged regardless of which profile is mounted.
+    const stateAfterSettle = settleErr ? null : await page.evaluate(() => window.GraphCore.debugState());
     const settlePass = !settleErr && !!stateAfterSettle && stateAfterSettle.isSimulationRunning === false;
     results.push({
       name: 'settle-then-pause',
@@ -192,7 +272,11 @@ async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
 
     // ── Gate 3: drag one node onto another, verify post-cooldown separation ──
     const containerRect = await page.evaluate(() => {
-      const el = document.querySelector('[data-system-graph]');
+      // Matches either profile's mount container — the docs fragment carries
+      // [data-system-graph] (serve.go's systemGraphFragmentHTML); the code
+      // view's harness-built container (VIEWS.code.navigate above) carries
+      // [data-code-graph].
+      const el = document.querySelector('[data-system-graph],[data-code-graph]');
       const r = el.getBoundingClientRect();
       return { left: r.left, top: r.top, width: r.width, height: r.height };
     });
@@ -201,7 +285,20 @@ async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
     if (onScreen.length < 2) {
       results.push({ name: 'drag-overlap-resolution', pass: false, detail: 'fewer than 2 on-screen nodes to drag' });
     } else {
-      const [[idA, nodeA], [idB, nodeB]] = onScreen;
+      // Pick two MID-size (mid-degree proxy — size is a monotonic function of
+      // degree via sizeForDegree) on-screen nodes rather than the first two
+      // in server insertion order. On a dense graph the "first two" tended to
+      // land on high-degree hub nodes (near MAX_POINT_SIZE, already the
+      // hardest pair to separate and often sitting in the densest part of
+      // the layout) — an adversarial worst-case drag target, not a
+      // representative one. Sorting by size and taking the middle pair keeps
+      // the SAME assertion (post-release separation > radiusSum) but targets
+      // a typical mid-degree node instead of stacking the deck toward a
+      // near-max-size hub.
+      const bySize = onScreen.slice().sort((x, y) => x[1].size - y[1].size);
+      const mid = Math.floor(bySize.length / 2);
+      const [idA, nodeA] = bySize[Math.max(0, mid - 1)];
+      const [idB, nodeB] = bySize[Math.min(bySize.length - 1, mid)];
       const toPage = (n) => ({ x: containerRect.left + n.screen.x, y: containerRect.top + n.screen.y });
       const start = toPage(nodeA);
       const target = toPage(nodeB);
@@ -218,13 +315,13 @@ async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
         // debugState() recomputes every node's space+screen position on each
         // call (fine for the point-in-time reads elsewhere in this file, not
         // for a per-frame poll at graph scale).
-        await page.waitForFunction(() => window.SystemGraph.simRunning() === false, { timeout: settleBudgetMs });
+        await page.waitForFunction(() => window.GraphCore.simRunning() === false, { timeout: settleBudgetMs });
       } catch (e) { dragSettleErr = 'post-drag cooldown did not settle within ' + settleBudgetMs + 'ms'; }
 
       if (dragSettleErr) {
         results.push({ name: 'drag-overlap-resolution', pass: false, detail: dragSettleErr });
       } else {
-        const after = await page.evaluate(() => window.SystemGraph.debugState());
+        const after = await page.evaluate(() => window.GraphCore.debugState());
         const a = after.nodes[idA], b = after.nodes[idB];
         const dist = Math.hypot(a.screen.x - b.screen.x, a.screen.y - b.screen.y);
         const radiusSum = (a.size + b.size) / 2;
@@ -239,7 +336,7 @@ async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
 
     // ── Gate 4: reload with unchanged content, cache replay, zero motion ──
     const t1 = Date.now();
-    await page.goto(mountURL, { waitUntil: 'load' });
+    await view.navigate(page, baseURL);
     let reloadSettleErr = null;
     try {
       await page.waitForSelector('.system-graph-loading', { state: 'detached', timeout: settleBudgetMs });
@@ -253,9 +350,9 @@ async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
       // camera transition that runs once per mount can still be easing at
       // t0, which would read as spurious SCREEN-space motion that has
       // nothing to do with whether the cached layout replayed unperturbed.
-      const posT0 = await page.evaluate(() => window.SystemGraph.debugState());
+      const posT0 = await page.evaluate(() => window.GraphCore.debugState());
       await page.waitForTimeout(2000);
-      const posT1 = await page.evaluate(() => window.SystemGraph.debugState());
+      const posT1 = await page.evaluate(() => window.GraphCore.debugState());
       let maxDisplacement = 0;
       Object.keys(posT0.nodes).forEach((id) => {
         const p0 = posT0.nodes[id].space, p1 = posT1.nodes[id] && posT1.nodes[id].space;
@@ -276,7 +373,7 @@ async function runGates(chromium, baseURL, viewPath, settleBudgetMs) {
     }
 
     // ── Gate 5: hover a node, preview card appears with non-empty content ──
-    const hoverState = await page.evaluate(() => window.SystemGraph.debugState());
+    const hoverState = await page.evaluate(() => window.GraphCore.debugState());
     const [, hoverNode] = Object.entries(hoverState.nodes)
       .find(([, n]) => n.screen.x >= 0 && n.screen.x <= containerRect.width && n.screen.y >= 0 && n.screen.y <= containerRect.height) || [];
     if (!hoverNode) {
@@ -317,9 +414,6 @@ async function main() {
     return 2;
   }
   const view = VIEWS[args.view];
-  if (!view.wired) {
-    return skip(args.view + ' view is not wired yet (code-graph spec checkpoints 5/6) — nothing to gate');
-  }
 
   if (!args.url && !args.serveBin) {
     console.error('usage: exactly one of --url <base> or --serve-bin <path> is required');
@@ -359,7 +453,7 @@ async function main() {
 
     let results;
     try {
-      results = await runGates(chromium, baseURL, view.path, args.settleBudgetMs);
+      results = await runGates(chromium, baseURL, view, args.settleBudgetMs);
     } catch (e) {
       // A browser-launch failure (no cached executable for this platform,
       // corrupted install, etc.) is the "no browser available" skip case —

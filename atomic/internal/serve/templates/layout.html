@@ -122,6 +122,15 @@
          line anyway; see the Code home sub-decision in
          docs/design/cosmos-system-graph.md. -->
     <script src="/static/system-graph.js"></script>
+    <!-- code-graph.js — the Code Graph view profile over graph-core.js:
+         /code/graph/data fetch + adapter, kind→group palette (reusing the
+         docs profile's 8 theme-aware type colors), edge-kind styling, and
+         hover wiring into AtomicGraphUI. No user-facing mount trigger yet
+         (checkpoint 6 adds the Docs|Code switcher) — window.CodeGraph.mount()
+         is called directly by the switcher (CP6) or the gate harness
+         (scripts/graph-gates.mjs --view code) today. See
+         docs/spec/code-graph.md checkpoint 5. -->
+    <script src="/static/code-graph.js"></script>
     <!-- Single-source type→color map. atomicCyStyle() reads it to build per-type
          node selectors; the system-graph legend (Deliverable A) reads it for swatch
          colors. Hex values are defined ONCE here — neither atomicCyStyle() nor the
