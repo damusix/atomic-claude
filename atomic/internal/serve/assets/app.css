@@ -170,8 +170,11 @@
     /* Graph surface */
     --graph-bg:       #fafaf8;
     --graph-grid:     rgba(33,29,24,0.035);
-    --edge:           #cabfae;
-    --edge-strong:    #b1a48f;
+    /* edge/edge-strong (graph-interactions brief, item 4): darkened from
+       #cabfae/#b1a48f — those sat at ~1.7:1 contrast against --graph-bg
+       (near-white), reading as "blends into the canvas"; ~3:1/~4.6:1 here. */
+    --edge:           #9c8f74;
+    --edge-strong:    #7d6f52;
 
     /* Modals + overlays */
     --shadow-card:  0 18px 44px -18px rgba(33,29,24,0.34), 0 2px 8px rgba(33,29,24,0.07);
@@ -369,8 +372,11 @@
 
     --graph-bg:       #1a180f;
     --graph-grid:     rgba(241,234,217,0.03);
-    --edge:           #4a4330;
-    --edge-strong:    #6a5f43;
+    /* edge/edge-strong (graph-interactions brief, item 4): brightened from
+       #4a4330/#6a5f43 — those sat at ~1.9:1 contrast against --graph-bg
+       (near-black); ~3:1/~4.8:1 here, same warm-tan hue family. */
+    --edge:           #6b5f41;
+    --edge-strong:    #8f8058;
 
     --shadow-card:  0 22px 50px -16px rgba(0,0,0,0.66), 0 2px 10px rgba(0,0,0,0.4);
     --scrim:        rgba(8,6,3,0.62);

@@ -79,6 +79,11 @@ window.SystemGraph = (function() {
   var FINGERPRINT_DRIFT_COLOR = window.GraphCore.hexToRGBA01('#f38ba8', 1);
   var FINGERPRINT_WIDTH = 1.5;
   var FINGERPRINT_DRIFT_WIDTH = 2.5;
+  // DEFAULT_WIDTH (graph-interactions brief, item 4): 1 -> 1.25 alongside the
+  // --edge/--edge-strong brightening in app.css — plain md-link/wikilink
+  // edges were the faintest tier here (full alpha already, so only width and
+  // the CSS var itself had room to move).
+  var DEFAULT_WIDTH = 1.25;
 
   // linkStyle assigns per-link color/width from the edge's classes string
   // ("fingerprint" or "fingerprint drift" — graphoverlay.go's format).
@@ -96,7 +101,7 @@ window.SystemGraph = (function() {
       : window.GraphCore.hexToRGBA01(colors['edge'], 1);
     var width = isFingerprint && isDrift ? FINGERPRINT_DRIFT_WIDTH
       : isFingerprint ? FINGERPRINT_WIDTH
-      : 1;
+      : DEFAULT_WIDTH;
     return { color: color, width: width };
   }
 

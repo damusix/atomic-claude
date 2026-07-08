@@ -163,10 +163,14 @@ window.CodeGraph = (function() {
   // secondary (edge-strong at reduced alpha); everything else (references,
   // writes, extends, implements, ...) is tertiary (plain edge color, midway
   // alpha/width between contains and imports).
+  // CONTAINS stays the faintest tier verbatim (graph-interactions brief,
+  // item 4: "contains edges in the code view stay the faintest tier") — only
+  // the three tiers above it move, alongside the --edge/--edge-strong
+  // brightening in app.css.
   var CONTAINS_ALPHA = 0.18, CONTAINS_WIDTH = 0.5;
-  var CALLS_ALPHA = 1, CALLS_WIDTH = 1.5;
-  var IMPORTS_ALPHA = 0.65, IMPORTS_WIDTH = 1;
-  var TERTIARY_ALPHA = 0.55, TERTIARY_WIDTH = 0.75;
+  var CALLS_ALPHA = 1, CALLS_WIDTH = 1.75;
+  var IMPORTS_ALPHA = 0.8, IMPORTS_WIDTH = 1.25;
+  var TERTIARY_ALPHA = 0.7, TERTIARY_WIDTH = 0.9;
 
   function linkStyle(kind, colors) {
     if (kind === 'contains') {

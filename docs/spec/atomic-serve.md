@@ -195,6 +195,22 @@ card anchored near the pointer. The card contains: a type chip, the node `title`
 prose). These fields come from the `meta` object in the `/graph/data` JSON, populated by
 `extractNodeMeta` / `Graph.Meta` in `graph.go`. The card dismisses on pointer-leave.
 
+In the cosmos.gl main graph pane (both the Docs and Code views — shared `graph-core.js`),
+hovering a node also highlights that node, its direct neighbors, and the edges between
+them (full color/width), dimming everything else via cosmos's native
+`highlightedPointIndices`/`highlightedLinkIndices` greyout. Hovering an edge (native
+`onLinkMouseOver`/`onLinkMouseOut` link hit-testing) highlights the edge and both endpoint
+nodes the same way, and shows a preview card reading `<source> —<kind>→ <target>` anchored
+at the pointer, reusing the same preview-card machinery as node hover. Unhovering either
+restores the full-color/full-opacity view. Zoom is clamped both directions: the zoom-in
+ceiling (`ZOOM_MAX`) is a fixed constant derived from cosmos's own point-size zoom-scaling
+curve (see `graph-core.js`'s `ZOOM_MAX` comment for the derivation); the zoom-out floor
+(`effectiveZoomMin`) is fit-anchored, not node-size-derived — computed per mount from that
+graph's own settled-layout bounding box (`computeFitZoomApprox() * 0.6`), since a fixed
+node-size-derived floor sat an order of magnitude below any real fitted view and never
+engaged (see `graph-core.js`'s `computeFitZoomApprox`/`onSimulationEnd` comments). The rail
+mini-graph (Cytoscape, not cosmos.gl) is unaffected by this paragraph.
+
 ### Node-click content modal (system graph)
 
 Clicking a node in the **system graph** opens a content modal over a dimmed graph backdrop.
@@ -304,6 +320,37 @@ None.
 
 
 ## Change log
+
+### 2026-07-08 — Graph pane: node/edge hover highlighting, zoom clamp, smaller node sizes, brighter edges
+
+**What changed:** Six UX changes to the shared cosmos.gl graph layer (`graph-core.js` +
+the `system-graph.js`/`code-graph.js` profiles + `app.css`), inherited by both the Docs and
+Code graph views. (1) Node size range: `MIN_POINT_SIZE`/`MAX_POINT_SIZE` 13-24 → 8-14px.
+(2)/(3) Zoom is clamped both directions via the `onZoom` handler (cosmos has no native
+scaleExtent config). The zoom-in ceiling (`ZOOM_MAX=500`) is a fixed constant derived from
+`calculatePointSize()`'s own zoom-scaling curve (a literal "80-100px apparent" reading is
+not reachable under this engine's screen-space-constant sizing mode; ZOOM_MAX is the closest
+node-size-derived analog, and was confirmed working empirically). The zoom-out floor
+(`effectiveZoomMin`) is fit-anchored, not node-size-derived: a fixed constant derived the
+same way as ZOOM_MAX (`MAX_POINT_SIZE` / typical settled edge length) was tried first and
+found empirically wrong by the orchestrator's browser gate — it sat roughly an order of
+magnitude below any real fitted view for this repo's docs realm and never engaged, so
+wheel-out collapsed the graph toward a speck before it caught. `effectiveZoomMin` is instead
+computed once per mount from that graph's own just-settled layout
+(`computeFitZoomApprox() * 0.6`, `graph-core.js`), so it scales with whatever dataset is
+actually mounted. (4)
+Edge visibility: `--edge`/`--edge-strong` brightened in both themes (light: `#cabfae`/`#b1a48f`
+→ `#9c8f74`/`#7d6f52`; dark: `#4a4330`/`#6a5f43` → `#6b5f41`/`#8f8058`), plus modest default
+link-width bumps in both profiles — the code view's `contains` tier is explicitly unchanged
+(stays the faintest tier). (5) Hovering a node highlights it, its direct neighbors, and the
+edges between them via cosmos's native `highlightedPointIndices`/`highlightedLinkIndices`
+greyout (adjacency built once per data load, no per-hover graph walk); everything else dims.
+(6) Hovering an edge uses cosmos's native link hit-testing (`onLinkMouseOver`/`onLinkMouseOut`
+— previously unregistered, so link hovering was inert) to highlight both endpoints and show
+an `<source> —<kind>→ <target>` preview card, reusing the existing preview-card machinery.
+
+**Why:** UX polish request (`graph-interactions` brief) — nodes read as oversized, edges as
+nearly invisible, and hover offered no way to trace a node's or edge's connections.
 
 ### 2026-07-08 — Code modal: impact-radius node hydration, Back-stack via htmx events, node-view source sync
 

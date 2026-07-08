@@ -258,6 +258,30 @@ window.GraphCore = (function() {
     return deg;
   }
 
+  // computeAdjacency builds a point index -> {neighbors, links} lookup ONCE
+  // per data load (called alongside computeDegrees in mount()) — the hover
+  // highlight handlers below (onPointMouseOver/onLinkMouseOver) read this
+  // instead of walking adapted.links per event, so a hover on the 17.5k-node/
+  // 54k-edge code graph costs one array lookup, not an O(E) scan. neighbors
+  // and links are parallel per point index: adjacency.links[i][k] is the
+  // link index connecting point i to adjacency.neighbors[i][k].
+  function computeAdjacency(adapted) {
+    var n = adapted.nodes.length;
+    var neighbors = new Array(n);
+    var links = new Array(n);
+    for (var i = 0; i < n; i++) { neighbors[i] = []; links[i] = []; }
+    var pairs = adapted.links;
+    var linkCount = pairs.length / 2;
+    for (var li = 0; li < linkCount; li++) {
+      var a = pairs[li * 2], b = pairs[li * 2 + 1];
+      neighbors[a].push(b);
+      neighbors[b].push(a);
+      links[a].push(li);
+      links[b].push(li);
+    }
+    return { neighbors: neighbors, links: links };
+  }
+
   // MIN_POINT_SIZE/MAX_POINT_SIZE replace the old 1:1 port of
   // atomicCyStyle()'s 'mapData(deg, 0, 16, 16, 54)' — cosmos's GPU point
   // picking hit-tests against the exact rendered circle (findHoveredPoint
@@ -286,7 +310,92 @@ window.GraphCore = (function() {
   // uncertainty when two hub circles sit close enough to abut), and MIN=13
   // stays a comfortable click target while giving the 12px-floor gate a
   // pixel of headroom against antialiasing noise.
-  var MIN_POINT_SIZE = 13, MAX_POINT_SIZE = 24;
+  //
+  // Retuned down again (graph-interactions brief, 2026-07-08): 8-14px
+  // requested directly, not re-derived from a fresh Playwright pixel sweep —
+  // the render/hit-test mechanics established above (1:1 screen-px diameter
+  // at the fitted view, GPU picking against that same rendered size) are
+  // unaffected by the number, only the target range moved down. Neither
+  // zoom bound below is numerically tied to this pair: ZOOM_MAX=500 is the
+  // vendored shader's own fixed saturation point, independent of any
+  // app-level size constant (see its own comment), and the zoom-out floor
+  // is fit-anchored, not size-derived (see effectiveZoomMin's comment — a
+  // node-size-derived floor was tried and found empirically wrong). Hit-
+  // testing samples the rendered size (findHoveredPoint, same comment
+  // above), so whether an 8px MIN floor stays reliably hoverable/draggable
+  // is gate-verified (pixel sweep pending), not derived — this comment
+  // records the target, not a proof.
+  var MIN_POINT_SIZE = 8, MAX_POINT_SIZE = 14;
+
+  // ── Zoom clamp (item 2/3, graph-interactions brief) ────────────────────────
+  //
+  // cosmos has no scaleExtent/min-max-zoom config field (checked against the
+  // unminified 3.1.0 .d.ts: GraphConfigInterface carries initialZoomLevel/
+  // enableZoom/onZoom* only — the underlying d3-zoom behavior's own
+  // scaleExtent is hardcoded to [.001, Infinity] inside the bundle and not
+  // exposed), so the clamp below is enforced from the onZoom handler via
+  // setZoomLevel — see mount()'s onZoom for the userDriven guard that keeps
+  // this from fighting its own corrective call.
+  //
+  // ZOOM_MAX is derived from calculatePointSize() (verified against the
+  // unminified bundle, dist/index.js ~4394: with scalePointsOnZoom=false —
+  // this config's setting — `pSize = size * ratio * clamp(k*0.01, 1, 5)`,
+  // then `return min(pSize, maxPointSize * ratio)`), where k is the raw
+  // zoom level (getZoomLevel()/e.transform.k). `maxPointSize` in that final
+  // clamp is a STORE field, not this app's MAX_POINT_SIZE constant — it's
+  // `getMaxPointSize(device, pixelRatio)` (dist/index.js ~260), which reads
+  // the WebGL context's `ALIASED_POINT_SIZE_RANGE[1]` hardware limit (64px
+  // fallback when unavailable) divided by pixelRatio, entirely independent
+  // of anything this app configures. Screen-space-constant mode: the
+  // `clamp(k*0.01,1,5)` term's max(1.0,...) never drops below 1, so a
+  // point's apparent CSS-px size is PINNED at its own `size` value for
+  // every k in (0, 100] — it never shrinks as the camera zooms out, only
+  // grows once k exceeds 100, capped at 5x `size` beyond k=500 (subject to
+  // the separate hardware-derived `maxPointSize` ceiling above, whichever
+  // is smaller).
+  //
+  // ZOOM_MAX: k=500 is calculatePointSize's own growth-saturation point for
+  // the `clamp(k*0.01,1,5)` term — beyond it, a point's apparent diameter
+  // from THIS term gets literally zero larger (the separate hardware
+  // maxPointSize ceiling may cap it even earlier on constrained GPUs), so
+  // further zoom-in is pure downside (world spreads out with no
+  // point-legibility gain from this term) with no upside. This is the
+  // closest node-size-derived analog to "zooming in to absurdity" this API
+  // surface offers — verified correct independent of the maxPointSize
+  // correction above, since that ceiling only ever makes k=500 MORE
+  // conservative (an earlier real-world cap), never less. Empirically
+  // confirmed working by the orchestrator's browser gate — unlike the
+  // zoom-out floor below, this one needed no correction.
+  var ZOOM_MAX = 500;
+
+  // The zoom-out floor is NOT a fixed, node-size-derived constant. An
+  // earlier version of this file computed one (MAX_POINT_SIZE divided by a
+  // "typical settled edge length" derived from SETTLE_SIMULATION_LINK_DISTANCE)
+  // on the same reasoning as ZOOM_MAX above — but the orchestrator's browser
+  // gate caught it empirically wrong: point SIZE never shrinks with
+  // zoom-out in this engine's screen-space-constant mode (see ZOOM_MAX's
+  // comment), so a floor derived from node size alone sat roughly an order
+  // of magnitude below any real fitted view and never actually engaged —
+  // wheel-out collapsed the docs graph to a ~28px speck before the old
+  // floor caught it. The DATASET's own world-space footprint is what
+  // varies (docs realm vs. the 17.5k-node code graph land at wildly
+  // different natural fit zooms), so the floor has to be anchored to THAT,
+  // not to a fixed point-size ratio. effectiveZoomMin below is that
+  // fit-anchored floor, computed once per mount from the actual settled
+  // layout (computeFitZoomApprox) rather than derived in advance from a
+  // constant.
+
+  // POINT_GREYOUT_OPACITY (item 5) — cosmos already darkens/lightens a
+  // greyed-out point's COLOR for free once highlightedPointIndices is set
+  // (verified against the unminified bundle's point fragment shader: the
+  // isDarkenGreyout branch fires with no config needed), but leaves alpha
+  // untouched unless this is set (its own default is `undefined`, which the
+  // shader reads as "no additional alpha multiply" — greyoutOpacity!=-1
+  // gate). Set explicitly so "everything else dims" is an unambiguous
+  // opacity drop, not just a color-recolor a user could miss at a glance.
+  // linkGreyoutOpacity needs no matching override — cosmos's own default
+  // (0.1) already dims links.
+  var POINT_GREYOUT_OPACITY = 0.15;
 
   // sizeForDegree: linear map from degree range [0,DEGREE_CAP] to point-size
   // range [MIN_POINT_SIZE,MAX_POINT_SIZE].
@@ -750,13 +859,77 @@ window.GraphCore = (function() {
         var mountFinished = false;   // gates the once-only fit/restore/clearLoading below from re-running after a drag's cooldown
         var recording = false;       // ignore our own programmatic camera moves; record only user-driven ones
         var viewTimer = null;
+        // effectiveZoomMin: 0 is a placeholder for the pre-settle window
+        // only — with no floor yet computed, `k < 0` never trips (zoom
+        // levels are always positive), so onZoom's userDriven clamp below
+        // is a safe no-op until onSimulationEnd sets the real fit-anchored
+        // value (see that handler's own comment).
+        var effectiveZoomMin = 0;
         var degrees = computeDegrees(adapted);
+        var adjacency = computeAdjacency(adapted); // built once per data load — see its own comment
         var filteredTypes = {};      // type -> true while its legend chip is toggled off (alpha-0 + hover/click guard)
         var hoverIndex = null;       // point index the preview card is currently anchored to, or null
         var hoverSpacePos = null;    // that point's last-known SPACE position, refreshed by onPointMouseOver/onSimulationTick
+        var lastMouseClientPos = null; // {x,y} viewport coords, refreshed by onMouseMove — edge-hover's only anchor source (onLinkMouseOver gets no position argument, see its own comment)
         var labelCandidateIndices = rankByDegree(degrees); // top-N by degree, static for the session
         var labelPool = {};    // node id -> mounted <div class="graph-label"> element
         var labelLayer = null; // lazily-created overlay holding every label div, appended to `container`
+
+        // setHighlight/clearHighlight drive cosmos's native highlightedPointIndices/
+        // highlightedLinkIndices — NOT cheap, despite reading as "two array
+        // lookups feed a config write": verified against the unminified 3.1.0
+        // bundle's Points#updatePointStatus/Lines#updateLinkStatus (called
+        // synchronously from setConfigPartial's updateStateFromConfig), each
+        // call allocates a FULL Float32Array(textureSize^2 * 4) status buffer
+        // from scratch and re-uploads it to the GPU as an rgba32float texture
+        // — O(N)/O(M) in the point/link count, not in the highlighted subset
+        // size. At this repo's own 17.5k-node/54k-edge code-view scale that's
+        // ~283KB (point status) + ~868KB (link status) rebuilt and re-uploaded
+        // on every call — doubled on a node->link hover transition (onPointMouseOut's
+        // clearHighlight, then onLinkMouseOver's setHighlight, back to back).
+        // Acceptable at human hover rates (an edge-triggered transition every
+        // tens-to-hundreds of ms at most, never per animation frame — SC1's
+        // idle-cost ban is about per-frame work, which this isn't), but NOT
+        // free — the same-index guard in onPointMouseOver below exists because
+        // of this real cost, not as a micro-optimization for its own sake. The
+        // trailing render() mirrors applyStyling's own trailing call (same
+        // GOTCHA class: a config change lands in the store but a repaint isn't
+        // guaranteed without it).
+        function setHighlight(pointIndices, linkIndices) {
+          graph.setConfigPartial({ highlightedPointIndices: pointIndices, highlightedLinkIndices: linkIndices });
+          graph.render();
+        }
+        function clearHighlight() {
+          graph.setConfigPartial({ highlightedPointIndices: undefined, highlightedLinkIndices: undefined });
+          graph.render();
+        }
+
+        // linkHoverMeta builds the "A -kind-> B" preview-card meta for edge hover
+        // (item 6) — reusing profile.labelText(), the same text the node hover card
+        // and DOM labels already show for each endpoint, so no new lookup machinery.
+        function linkHoverMeta(linkIndex, s, t) {
+          var kind = adapted.linkClasses[linkIndex] || 'link';
+          var sourceLabel = profile.labelText(adapted, adapted.indexToId[s]);
+          var targetLabel = profile.labelText(adapted, adapted.indexToId[t]);
+          return {
+            type: 'edge',
+            title: sourceLabel + ' —' + kind + '→ ' + targetLabel,
+            description: kind,
+            snippet: ''
+          };
+        }
+
+        // linkHoverScreenPos anchors the edge-hover preview card at the pointer —
+        // onLinkMouseOver(linkIndex) carries no position argument (checked against
+        // the unminified 3.1.0 .d.ts: unlike onPointMouseOver, it's index-only), so
+        // onMouseMove below is the only available position source. getBoundingClientRect
+        // is deferred to here (link-hover-enter, edge-triggered) rather than run on
+        // every mousemove, keeping the frequent side of this pair cheap.
+        function linkHoverScreenPos() {
+          if (!lastMouseClientPos) { return { x: 0, y: 0 }; }
+          var rect = container.getBoundingClientRect();
+          return { x: lastMouseClientPos.x - rect.left, y: lastMouseClientPos.y - rect.top };
+        }
 
         // reanchorHoverCard re-projects hoverSpacePos into screen coordinates and
         // re-renders the card there via the profile's onHover hook —
@@ -849,6 +1022,7 @@ window.GraphCore = (function() {
             hoverIndex = null;
             hoverSpacePos = null;
             profile.onHoverOut();
+            clearHighlight();
           }
           applyStyling(graph, adapted, filteredTypes, degrees, profile);
           updateLabels();
@@ -867,6 +1041,44 @@ window.GraphCore = (function() {
             positions[adapted.indexToId[i]] = { x: flat[i * 2], y: flat[i * 2 + 1] };
           }
           saveCachedLayout(fingerprint, { format: CACHE_FORMAT_VERSION, positions: positions });
+        }
+
+        // computeFitZoomApprox (item 2/3 fix) derives a synchronous proxy for
+        // "the zoom level that fits every current point in the viewport",
+        // from the already-settled positions this exact event has ready
+        // (same one-time getPointPositions() cost class as saveFullSnapshot
+        // above — never per frame). NOT byte-identical to cosmos's own
+        // fitView math: that reads its private getFitViewPositions()/
+        // zoomInstance internals, and fitView's actual camera move is always
+        // rAF-deferred (verified against the unminified 3.1.0 bundle:
+        // setZoomTransformByPointPositions — what fitView delegates to —
+        // always routes through `.transition()`, even at duration 0, so its
+        // resulting zoom can't be read back synchronously right after
+        // calling it). This is a plain bounding-box-to-viewport ratio
+        // instead: k = min(viewportW/bboxW, viewportH/bboxH) is exactly the
+        // scale factor that maps the bbox's space-width/height onto the
+        // viewport's screen-px width/height, the same physical quantity
+        // getZoomLevel() reports — accurate enough for the fit-anchored
+        // zoom-out floor effectiveZoomMin derives from it (see
+        // onSimulationEnd's own comment on why that floor moved off a
+        // fixed node-size-derived constant).
+        function computeFitZoomApprox() {
+          var flat = graph.getPointPositions();
+          // Degenerate no-points guard — unreachable in practice (mount()
+          // never fires onSimulationEnd with zero nodes), and the return
+          // value is moot either way (nothing to fit or zoom).
+          if (!flat.length) { return 1; }
+          var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+          for (var i = 0; i < flat.length; i += 2) {
+            var x = flat[i], y = flat[i + 1];
+            if (x < minX) { minX = x; }
+            if (x > maxX) { maxX = x; }
+            if (y < minY) { minY = y; }
+            if (y > maxY) { maxY = y; }
+          }
+          var bboxW = Math.max(1, maxX - minX), bboxH = Math.max(1, maxY - minY);
+          var viewportW = container.clientWidth || 1, viewportH = container.clientHeight || 1;
+          return Math.min(viewportW / bboxW, viewportH / bboxH);
         }
 
         // flushPendingSave writes the full snapshot once the dragged node's
@@ -893,6 +1105,9 @@ window.GraphCore = (function() {
           simulationRepulsionTheta: SETTLE_SIMULATION_REPULSION_THETA,
           simulationLinkDistance: SETTLE_SIMULATION_LINK_DISTANCE,
           simulationLinkSpring: SETTLE_SIMULATION_LINK_SPRING,
+          // pointGreyoutOpacity: see POINT_GREYOUT_OPACITY's own comment.
+          // linkGreyoutOpacity is left at cosmos's own default (0.1).
+          pointGreyoutOpacity: POINT_GREYOUT_OPACITY,
           onSimulationEnd: function() {
             graph.pause();
             if (pendingSaveIndex != null) {
@@ -906,10 +1121,32 @@ window.GraphCore = (function() {
             }
             if (mountFinished) { return; } // a post-drag cooldown, not the initial mount — nothing else to do
             mountFinished = true;
+            // effectiveZoomMin (item 2/3 fix, corrected post-browser-gate):
+            // fit-anchored, not node-size-derived — a fixed-constant floor
+            // (MAX_POINT_SIZE / typical edge length) was tried first and
+            // found empirically wrong: it sat ~10x below any real fitted
+            // zoom for this repo's docs realm, so it never actually
+            // engaged, and wheel-out collapsed the graph to a ~28px speck
+            // before the old floor caught it. computeFitZoomApprox() reads
+            // THIS dataset's own just-settled positions, so the floor
+            // scales with whatever graph is actually mounted (docs realm
+            // vs. the 17.5k-node code graph land at very different natural
+            // fit zooms). *0.6 gives room to pull back a bit past the
+            // fitted frame without letting the graph shrink toward a dot.
+            // Computed unconditionally, before branching on `saved` below,
+            // so a garbage/pre-clamp-era saved.zoom can never corrupt it.
+            effectiveZoomMin = computeFitZoomApprox() * 0.6;
             var saved = readViewFromURL();
             if (saved) {
-              graph.setZoomTransformByPointPositions(new Float32Array([saved.pan.x, saved.pan.y]), 0, saved.zoom, 0, false);
+              // Clamp a restored URL's zoom param into range — a pre-clamp-era
+              // bookmark, or one saved during the exact race this fix closes,
+              // must not resurrect an out-of-range view.
+              var clampedSavedZoom = Math.max(effectiveZoomMin, Math.min(ZOOM_MAX, saved.zoom));
+              graph.setZoomTransformByPointPositions(new Float32Array([saved.pan.x, saved.pan.y]), 0, clampedSavedZoom, 0, false);
             } else {
+              // fitView's own programmatic move is never clamped — the floor
+              // only bounds where the USER can zoom OUT to afterward (onZoom
+              // below); fit must always be free to frame the graph.
               graph.fitView(undefined, undefined, false);
             }
             buildLegend(adapted, profile.colors(), mainPane, onLegendToggle);
@@ -968,6 +1205,29 @@ window.GraphCore = (function() {
             draggedIndex = null;
           },
           onZoom: function(e, userDriven) {
+            // Zoom clamp (item 2/3): only on userDriven zoom — cosmos reports
+            // e.sourceEvent-less programmatic transforms (our own setZoomLevel
+            // correction below, and mount's fitView/setZoomTransformByPointPositions)
+            // as userDriven=false, so this can't re-trigger itself, and fitView's
+            // own moves are never clamped (see onSimulationEnd's comment).
+            // duration=0, enableSimulation=false: an immediate snap-back, no
+            // wake of a paused sim. setZoomLevel(..., 0, ...) calls d3-zoom's
+            // own scaleTo on the SAME behavior instance that handles
+            // wheel/pinch input (verified against the unminified 3.1.0
+            // bundle), so the next input event computes its delta from the
+            // corrected value, not the pre-clamp one — no fighting/runaway
+            // drift. effectiveZoomMin is fit-anchored per-mount state (see
+            // onSimulationEnd's own comment for the derivation and why a
+            // fixed node-size-derived floor was tried and rejected); it
+            // starts at 0 (see its declaration) until that handler sets the
+            // real value, so `k < effectiveZoomMin` is always false — a
+            // no-op, not a wrongly-tight clamp — for any userDriven zoom
+            // that somehow fires in the brief pre-settle window.
+            if (userDriven) {
+              var k = e.transform.k;
+              if (k < effectiveZoomMin) { graph.setZoomLevel(effectiveZoomMin, 0, false); }
+              else if (k > ZOOM_MAX) { graph.setZoomLevel(ZOOM_MAX, 0, false); }
+            }
             // Re-anchor for ANY zoom/pan, not only user-driven ones — the
             // hovered node's screen position moves either way.
             reanchorHoverCard();
@@ -984,20 +1244,60 @@ window.GraphCore = (function() {
           // still GPU-pick in cosmos, so the guard has to live here.
           onPointMouseOver: function(index, pointPosition) {
             if (filteredTypes[typeOf(adapted, index)]) { return; }
+            // onPointMouseOver can refire for the SAME index while the
+            // pointer sits still over one node (per the unminified 3.1.0
+            // .d.ts: it's re-triggered by zoom/pan and by simulation-driven
+            // point movement, not only by the pointer actually entering a
+            // new point) — sameNode skips the setHighlight rebuild in that
+            // case, since it's not cheap (see setHighlight's own comment).
+            var sameNode = hoverIndex === index;
             hoverIndex = index;
             hoverSpacePos = pointPosition;
             reanchorHoverCard();
             updateLabels();
+            if (sameNode) { return; }
+            // Item 5: emphasize this node + its neighbors + the edges between
+            // them, dim everything else — adjacency was built once at mount,
+            // so this is two array lookups, not a graph walk.
+            setHighlight(adjacency.neighbors[index].concat([index]), adjacency.links[index]);
           },
           onPointMouseOut: function() {
             hoverIndex = null;
             hoverSpacePos = null;
             profile.onHoverOut();
             updateLabels();
+            clearHighlight();
           },
           onPointClick: function(index, pointPosition) {
             if (filteredTypes[typeOf(adapted, index)]) { return; }
             profile.onClick(adapted.indexToId[index], profile.nodeMeta(adapted, index));
+          },
+          // Item 6 (edge hover). Registering onLinkMouseOver/onLinkMouseOut is
+          // what ENABLES cosmos's link hit-testing at all — verified against
+          // the unminified 3.1.0 bundle: isLinkHoveringEnabled is false, and
+          // store.hoveredLinkIndex never populates, unless at least one of
+          // onLinkClick/onLinkContextMenu/onLinkMouseOver/onLinkMouseOut is
+          // configured. Once enabled, the hovered link's own width bump
+          // (hoveredLinkWidthIncrease, default 5px) is fully native — no
+          // per-link restyling needed here, only the highlight-set + the
+          // preview card (STEP 0: no cheap general line hit-testing existed
+          // before this, so this native path is the only reason item 6 is
+          // implementable at 54k-edge scale at all).
+          onLinkMouseOver: function(linkIndex) {
+            var s = adapted.links[linkIndex * 2], t = adapted.links[linkIndex * 2 + 1];
+            if (filteredTypes[typeOf(adapted, s)] || filteredTypes[typeOf(adapted, t)]) { return; }
+            setHighlight([s, t], [linkIndex]);
+            profile.onHover(linkHoverMeta(linkIndex, s, t), linkHoverScreenPos(), container);
+          },
+          onLinkMouseOut: function() {
+            profile.onHoverOut();
+            clearHighlight();
+          },
+          // onMouseMove only tracks the raw pointer position for
+          // linkHoverScreenPos's anchor (see its own comment) — no other work,
+          // so this stays cheap at mousemove frequency.
+          onMouseMove: function(index, pointPosition, event) {
+            lastMouseClientPos = { x: event.clientX, y: event.clientY };
           },
           // onSimulationTick's hoveredIndex/pointPosition (populated only while
           // a point is under the pointer) is cosmos's already-computed
