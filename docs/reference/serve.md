@@ -145,6 +145,17 @@ Lists every outbound `http(s)` URL across the realm: the URL, the source pages t
 The realm-health view, reachable but no longer the landing page. Renders `wiki.Stale` / `wiki.CheckStaleness` (DRIFT / STALE / STALE bucket) plus aggregate code-index health (worst severity across member repos, naming only repos that need action). No new staleness computation — staleness also surfaces ambiently as badges in the nav. `/healthz` is a separate plain-text liveness probe.
 
 
+## Live reload
+
+While a browser tab is open, `atomic serve` reflects filesystem changes without a restart. The server keeps one realm snapshot (fingerprint, nav paths, link graph) and re-checks it with a stat-only walk every 10 seconds, but only while at least one tab is subscribed to the `/events` stream. With no tabs open the server does no periodic work.
+
+When the realm changes, subscribed tabs receive a push carrying the new fingerprint and the list of changed files. The open page refetches its pane and rail only when the displayed file itself changed; the nav tree refreshes on any change. Scroll position is preserved. In the system graph view, changed nodes and edges are patched in place: existing node positions and your pan/zoom stay put, and only additions get a layout pass. When more than half the graph changes at once, the view falls back to a full re-layout.
+
+Files written moments ago are held back for a short quiet window before they are published, so a tool writing a file incrementally never renders a half-written page. A small indicator in the top bar shows the live connection state: live, reconnecting, or disconnected. Shutting the server down with tabs open exits cleanly and immediately.
+
+Provenance hashing and the full graph JSON stay lazy: they are computed when the system view asks for them, never on the periodic check.
+
+
 ## Theme and visual design
 
 `atomic serve` ships with a light and dark theme, both derived from the same CSS custom-property set.

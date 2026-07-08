@@ -96,12 +96,14 @@ const VIEWS = {
   // mounting window.CodeGraph on a fresh #code-cy[data-code-graph] container.
   code: {
     async navigate(page, baseURL) {
-      // waitUntil:'networkidle', not 'load' — every full-page shell render
-      // (this landing page included) carries #main-pane's own
-      // hx-get="{{.LandingURL}}" auto-fetch (FE8), which must settle before
-      // #btn-graph's own click-triggered /graph fetch starts, or the two
-      // htmx swaps can race.
-      await page.goto(baseURL + '/', { waitUntil: 'networkidle' });
+      // The landing shell's #main-pane hx-get="{{.LandingURL}}" auto-fetch
+      // (FE8) must settle before #btn-graph's click-triggered /graph fetch
+      // starts, or the two htmx swaps race. 'networkidle' used to encode
+      // that, but the live-reload /events EventSource holds a connection
+      // open for the page's whole life, so networkidle never fires anymore —
+      // wait for the auto-fetch's own rendered marker instead.
+      await page.goto(baseURL + '/', { waitUntil: 'load' });
+      await page.waitForSelector('#main-pane #page-content, #main-pane .md-content', { timeout: 15000 });
       await page.click('#btn-graph');
       await page.waitForSelector('[data-graph-view="code"]');
       await page.click('[data-graph-view="code"]');

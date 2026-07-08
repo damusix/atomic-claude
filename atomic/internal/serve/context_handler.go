@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -211,6 +212,29 @@ type notFoundFragmentData struct {
 	Path string
 }
 
+// isNilGraphProvider reports whether g represents "no graph": a bare nil
+// interface, or a typed-nil value (nil *Graph, nil *snapshotStore, or any
+// other nilable-kind implementor) boxed into the graphProvider interface. A
+// boxed typed-nil value carries a non-nil type descriptor, so a plain
+// `g == nil` comparison is always false for it — the interface only equals
+// nil when both its type and value are unset — even though the underlying
+// value has nothing to read. The Kind switch covers every nilable reflect
+// kind (Ptr, Map, Slice, Chan, Func, Interface) so any typed-nil provider
+// degrades, not just pointer implementors; IsNil panics on a non-nilable
+// kind, which is why the switch guards it.
+func isNilGraphProvider(g graphProvider) bool {
+	if g == nil {
+		return true
+	}
+	v := reflect.ValueOf(g)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
 // NewPageHandlerWithGraph returns an http.Handler for /page/* that renders
 // markdown and wires the right rail. htmx fragment requests emit one OOB loader
 // into #rail-graph-content; the loader fires GET /rail/<relpath> which returns
@@ -227,13 +251,17 @@ type notFoundFragmentData struct {
 // Without shell, missing pages produce bare http.NotFound; found pages fall
 // back to the fragment template (unit tests that don't need the shell use this).
 //
-// g may be nil; nil degrades to NewPageHandler with no rail wiring.
-func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) http.Handler {
+// g may be nil — including a typed-nil *Graph or *snapshotStore boxed into
+// the interface (see isNilGraphProvider) — and degrades to NewPageHandler
+// with no rail wiring. g is typically the shared *snapshotStore (CP2
+// live-reload) so the graph read below reflects the realm as of this
+// request, not the state at construction.
+func NewPageHandlerWithGraph(root string, g graphProvider, shell ...*ShellRenderer) http.Handler {
 	var sh *ShellRenderer
 	if len(shell) > 0 {
 		sh = shell[0]
 	}
-	if g == nil {
+	if isNilGraphProvider(g) {
 		return NewPageHandler(root)
 	}
 
@@ -243,6 +271,10 @@ func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) htt
 			http.NotFound(w, r)
 			return
 		}
+
+		// Resolved once per request so the render below reflects one
+		// consistent graph even if a live rebuild lands mid-request.
+		graph := g.currentGraph()
 
 		isHX := fragmentRequest(r)
 
@@ -275,7 +307,7 @@ func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) htt
 					serve404(w, r, relPath, "/page/"+relPath, isHX, sh)
 					return
 				}
-				bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, idxRel, g)
+				bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, idxRel, graph)
 				if err != nil {
 					http.Error(w, "render error", http.StatusInternalServerError)
 					return
@@ -291,7 +323,7 @@ func NewPageHandlerWithGraph(root string, g *Graph, shell ...*ShellRenderer) htt
 				serve404(w, r, relPath, "/page/"+relPath, isHX, sh)
 				return
 			}
-			bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, normRelPath(relPath), g)
+			bodyHTML, hasMermaid, err = RenderMarkdownWithGraph(data, root, normRelPath(relPath), graph)
 			if err != nil {
 				http.Error(w, "render error", http.StatusInternalServerError)
 				return

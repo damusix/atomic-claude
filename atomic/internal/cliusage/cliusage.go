@@ -347,6 +347,12 @@ var commands = []Command{
 		Description: "Write the fixed-content CLAUDE.md scaffold for --scope repo|realm (idempotent)",
 	},
 	{
+		Path:        []string{"wiki", "stamp"},
+		Args:        "<file>",
+		Flags:       []string{"--repo", "--root", "--cites", "--knowledge", "--sources"},
+		Description: "Write reflects_rev/reflects/sources fingerprint frontmatter (summary|concern|knowledge)",
+	},
+	{
 		Path:        []string{"wiki", "bucket", "add"},
 		Args:        "<name>",
 		Flags:       []string{"--root"},

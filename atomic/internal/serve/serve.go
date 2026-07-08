@@ -149,10 +149,24 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		navRoot = realmRes.RealmRoot
 		wikiIndexPath = filepath.Join(realmRes.RealmRoot, "wiki", "index.md")
 	}
+	// store is the single shared realm-snapshot store (CP2 live-reload): nav,
+	// page, rail, and graph-data all read through it instead of each
+	// tracking its own copy, so the ticker (CP3), lazy per-request
+	// validation, and NewSnapshotStore's synchronous warm all observe — and
+	// refresh — the same realm state (SC7). The warm gives the same
+	// synchronous startup cost the old BuildLinkGraph(navRoot) call did here.
+	store := NewSnapshotStore(navRoot)
+
+	// eventsRegistry tracks connected /events (SSE) subscribers. The ticker
+	// started below reads its count to decide whether to do any work at all
+	// (SC12); NewEventsHandler registers/unregisters through it per connection.
+	eventsRegistry := newSubscriberRegistry()
+
 	navOpts := NavOptions{
 		RealmRoot:     navRoot,
 		IsRealmScope:  isRealmScope,
 		WikiIndexPath: wikiIndexPath,
+		Store:         store,
 	}
 
 	// Parse and cache the embedded template.
@@ -201,18 +215,13 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		TargetDir:  opts.TargetDir,
 	}
 
-	// Build the link graph once at server start. BuildLinkGraph is read-only and
-	// cheap at wiki-scale; rebuilding per-request (as /graph/data does) is also
-	// acceptable but a single build here keeps the rail handler stateless.
-	linkGraph := BuildLinkGraph(navRoot)
-
 	// /page/* — render a markdown file from the scope root, wired to the rail.
 	// FE8: non-htmx requests receive the shell with LandingURL = the requested path.
-	mux.Handle("/page/", NewPageHandlerWithGraph(opts.TargetDir, linkGraph, shell))
+	mux.Handle("/page/", NewPageHandlerWithGraph(opts.TargetDir, store, shell))
 
 	// /rail/* — right-rail compositing: three OOB fragments for the focused page
 	// (#rail-out-content, #rail-in-content, #rail-graph-content).
-	mux.Handle("/rail/", NewRailHandler(navRoot, linkGraph))
+	mux.Handle("/rail/", NewRailHandler(navRoot, store))
 
 	// /file/* — syntax-highlighted source view from the scope root.
 	// FE8: non-htmx requests receive the shell with LandingURL = the requested path.
@@ -232,6 +241,11 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		// Seams are nil → production defaults wired inside NewHealthHandler.
 	}
 	mux.Handle("/status", NewHealthHandler(healthOpts))
+
+	// /events — live-reload SSE stream (CP3): register, resync push, stream
+	// until the request context ends. Distinct route from /status — a health
+	// probe and the live-reload push channel are different concerns.
+	mux.Handle("/events", NewEventsHandler(store, eventsRegistry))
 
 	// /search — dedicated full-pane search page (streams results via SSE).
 	// Document loads are shell-wrapped; the search dialog links here for "view all".
@@ -256,8 +270,9 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	}))
 
 	// /graph/data — Cytoscape elements JSON (CP9, SC11).
-	// FE8: pass the startup-built linkGraph so /graph/data does not rebuild per-request.
-	mux.Handle("/graph/data", NewGraphDataHandlerWithGraph(navRoot, linkGraph))
+	// Shares the store above so /graph/data does not rebuild per-request and
+	// stays live (CP2) instead of serving a startup-frozen graph.
+	mux.Handle("/graph/data", NewGraphDataHandlerWithGraph(navRoot, store))
 
 	// /graph — the Network View as its own page (URL-addressable, history-tracked,
 	// refresh-survivable). htmx requests get the #system-cy mount fragment; the
@@ -376,7 +391,19 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		mux.ServeHTTP(w, r)
 	})
 
-	srv := &http.Server{Handler: handler}
+	srv := &http.Server{
+		Handler: handler,
+		// BaseContext ties every request's context to the same ctx that
+		// drives graceful shutdown below. srv.Shutdown does not itself cancel
+		// in-flight request contexts — without this, an open /events
+		// connection's ctx.Done() would never fire, and Shutdown would block
+		// on it for the full 5s grace window instead of returning promptly.
+		BaseContext: func(net.Listener) context.Context { return ctx },
+	}
+
+	// The live-reload ticker (CP3) is bound to the same ctx: it must stop
+	// exactly when the server starts shutting down, never before or after.
+	startTicker(ctx, store, eventsRegistry, store.tickInterval)
 
 	// Serve in a background goroutine.
 	serveErr := make(chan error, 1)

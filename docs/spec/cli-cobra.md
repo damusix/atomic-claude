@@ -48,7 +48,7 @@ Top-level-only (no subcommands): the remaining 5 of the 17 (e.g. `doctor`, `upda
 
 ## Checkpoints
 
-| # | Checkpoint | Files / areas | Agent | Est. files | Verifies |
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|---------------|-------|-----------|----------|
 | 0 | Add cobra dependency | `atomic/go.mod`, `atomic/go.sum` — `go get github.com/spf13/cobra@latest`; `go mod tidy` | implementer | 2 | `go build ./...` resolves cobra |
 | 1 | Cobra root + top-level verbs | `atomic/cmd/atomic/main.go` — replace the top-level switch and `fs.Usage` block with a Cobra root command + one `*cobra.Command` stub per current top-level verb (17: signals, reminder, hooks, claude, doctor, docker, update, config, followups, validate, docs, profile, code, wiki, prompt, serve, migrate); wire `--repo`, `--version`, `--no-update-check` as persistent/global flags; keep `runXxx` call-throughs identical | implementer | 1 | `atomic --help` shows all 17 verbs; `go test ./...` green |

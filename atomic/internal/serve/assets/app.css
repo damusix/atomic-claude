@@ -637,6 +637,44 @@ a { color: inherit; text-decoration: none; }
 [data-theme="dark"] .theme-toggle .i-sun  { display: block; }
 [data-theme="dark"] .theme-toggle .i-moon { display: none; }
 
+/* Live-reload connectivity indicator (dot + label reflecting the /events
+   EventSource's live / reconnecting / disconnected state). Colors reuse the
+   existing repo (green) and knowledge (red) type-identity hues rather than
+   introducing new tokens. */
+.conn-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--ink-faint);
+    flex-shrink: 0;
+    letter-spacing: 0.02em;
+}
+
+.conn-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ink-ghost);
+    flex-shrink: 0;
+    transition: background-color .2s;
+}
+
+.conn-indicator[data-conn-state="live"] .conn-dot { background: var(--c-repo-ink); }
+
+.conn-indicator[data-conn-state="reconnecting"] .conn-dot {
+    background: var(--amber);
+    animation: conn-dot-pulse 1.2s ease-in-out infinite;
+}
+
+.conn-indicator[data-conn-state="disconnected"] .conn-dot { background: var(--c-knowledge-ink); }
+
+@keyframes conn-dot-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: .35; }
+}
+
 /* Network/graph toggle button — active state (system graph visible) */
 #btn-graph.btn-graph-active {
     border-color: var(--amber-edge);

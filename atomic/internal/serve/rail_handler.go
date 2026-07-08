@@ -126,9 +126,21 @@ type railTmplData struct {
 }
 
 // NewRailHandler returns an http.Handler for /rail/<relpath>.
-// It renders three OOB fragments for the right rail using the prebuilt Graph g.
-// Traversal outside root and pages absent from the graph yield 404.
-func NewRailHandler(root string, g *Graph) http.Handler {
+// It renders three OOB fragments for the right rail using the graph resolved
+// through g (a static *Graph for tests, or the shared *snapshotStore in
+// production — CP2 live-reload). Traversal outside root and pages absent from
+// the graph yield 404.
+//
+// g may be nil — including a typed-nil *Graph or *snapshotStore boxed into
+// the interface (see isNilGraphProvider) — in which case every request
+// degrades to 404: with no graph there is nothing to confirm a page's
+// membership against, the same outcome the graph-membership check below
+// already produces for a page the graph doesn't know about.
+func NewRailHandler(root string, g graphProvider) http.Handler {
+	if isNilGraphProvider(g) {
+		return http.HandlerFunc(http.NotFound)
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		relPath := strings.TrimPrefix(r.URL.Path, "/rail/")
 		if relPath == "" || relPath == "/" {
@@ -143,9 +155,13 @@ func NewRailHandler(root string, g *Graph) http.Handler {
 			return
 		}
 
+		// Resolved once per request so the fragment below reflects one
+		// consistent graph.
+		graph := g.currentGraph()
+
 		// Graph-membership check: page must be a known .md file (O(1) via nodeSet).
 		rel := normRelPath(relPath)
-		if !g.Has(rel) {
+		if !graph.Has(rel) {
 			http.NotFound(w, r)
 			return
 		}
@@ -184,9 +200,9 @@ func NewRailHandler(root string, g *Graph) http.Handler {
 			Page:        rel,
 			PageEncoded: rel, // forward-slash paths are safe in query params
 			CyID:        cyID,
-			Orphan:      g.IsOrphan(rel),
-			Backlinks:   g.Backlinks(rel),
-			Outbound:    g.Outbound(rel),
+			Orphan:      graph.IsOrphan(rel),
+			Backlinks:   graph.Backlinks(rel),
+			Outbound:    graph.Outbound(rel),
 			Properties:  props,
 		}
 
