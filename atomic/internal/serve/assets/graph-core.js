@@ -294,6 +294,16 @@ window.GraphCore = (function() {
     return MIN_POINT_SIZE + (Math.min(deg, DEGREE_CAP) / DEGREE_CAP) * (MAX_POINT_SIZE - MIN_POINT_SIZE);
   }
 
+  // quintileForDegree: linear map from degree range [0,DEGREE_CAP] to ramp
+  // shade [1,5] — the SAME scale sizeForDegree uses, so a node's shade and
+  // its size move together (docs/spec/code-graph.md: "shade reinforces
+  // [size], it doesn't diverge from it") rather than a percentile/rank-based
+  // quintile that could put two similarly-sized nodes in different shades.
+  function quintileForDegree(deg) {
+    var q = Math.ceil((Math.min(deg, DEGREE_CAP) / DEGREE_CAP) * 5);
+    return Math.max(1, Math.min(5, q));
+  }
+
   // computeLinkStyling assigns per-link color/width by delegating each link's
   // classes string to the profile's linkStyle() hook — cosmos.gl links carry
   // no dash-pattern API (checked against the unminified 3.1.0 .d.ts:
@@ -321,17 +331,28 @@ window.GraphCore = (function() {
 
   // computeNodeColors builds the per-point RGBA array from each node's type,
   // resolved through the profile's colors() palette (atomicCyTypeColors() for
-  // the docs profile — single source of truth, also used by the rail). A
-  // filtered-out type gets alpha 0 rather than being dropped from the array:
-  // the point stays in the sim (no reflow), just invisible — the hover/click
-  // guard (in mount()) is what actually excludes it from interaction, since
-  // alpha-0 points still GPU-pick in cosmos.
-  function computeNodeColors(adapted, colors, filteredTypes) {
+  // the docs profile, code-graph.js's own colors() for the code profile —
+  // also used by the rail/legend). A node's fill is its type's ramp shade at
+  // shadeCurve[quintileForDegree(deg) - 1] (colors[type + '-ramp'][shade - 1]
+  // — docs/spec/code-graph.md's degree-quintile shading; shade 2, the
+  // legend-chip color, is the fallback when no ramp is present on the
+  // palette). shadeCurve lets a profile remap which ramp shade each quintile
+  // lands on — e.g. code-graph.js's dense leaf-heavy degree distribution
+  // would otherwise put ~90% of nodes on shade 1 (every hue's pastel), so it
+  // supplies a curve that floors leaves at shade 2. A filtered-out type gets
+  // alpha 0 rather than being dropped from the array: the point stays in the
+  // sim (no reflow), just invisible — the hover/click guard (in mount()) is
+  // what actually excludes it from interaction, since alpha-0 points still
+  // GPU-pick in cosmos.
+  function computeNodeColors(adapted, colors, filteredTypes, degrees, shadeCurve) {
     var n = adapted.nodes.length;
     var out = new Float32Array(n * 4);
     for (var i = 0; i < n; i++) {
       var type = typeOf(adapted, i);
-      var rgba = hexToRGBA01(colors[type] || colors['default-fill'], filteredTypes[type] ? 0 : 1);
+      var ramp = colors[type + '-ramp'] || colors['default-ramp'];
+      var shade = shadeCurve[quintileForDegree(degrees[i]) - 1];
+      var base = (ramp && ramp[shade - 1]) || colors[type] || colors['default-fill'];
+      var rgba = hexToRGBA01(base, filteredTypes[type] ? 0 : 1);
       out[i * 4] = rgba[0];
       out[i * 4 + 1] = rgba[1];
       out[i * 4 + 2] = rgba[2];
@@ -339,6 +360,11 @@ window.GraphCore = (function() {
     }
     return out;
   }
+
+  // IDENTITY_SHADE_CURVE is the default shadeCurve — quintile N lands on
+  // shade N verbatim. Used when a profile doesn't define shadeCurve (the
+  // docs profile today), so computeNodeColors always has a curve to index.
+  var IDENTITY_SHADE_CURVE = [1, 2, 3, 4, 5];
 
   // computeNodeSizes is degree-only — unaffected by the legend filter (a
   // filtered point keeps its size, just goes transparent).
@@ -374,7 +400,12 @@ window.GraphCore = (function() {
   // the layout, and render() satisfies that the same way create() did.
   function applyStyling(graph, adapted, filteredTypes, degrees, profile) {
     var colors = profile.colors();
-    graph.setPointColors(computeNodeColors(adapted, colors, filteredTypes));
+    // Optional profile-supplied quintile→shade remap (see computeNodeColors'
+    // own comment) — validated to exactly 5 entries so a malformed profile
+    // value can't index the ramp out of bounds; falls back to the identity
+    // curve (docs profile's effective mapping is unchanged by this).
+    var shadeCurve = (profile.shadeCurve && profile.shadeCurve.length === 5) ? profile.shadeCurve : IDENTITY_SHADE_CURVE;
+    graph.setPointColors(computeNodeColors(adapted, colors, filteredTypes, degrees, shadeCurve));
     graph.setPointSizes(computeNodeSizes(degrees));
     var linkStyle = computeLinkStyling(adapted, colors, profile);
     graph.setLinkColors(linkStyle.colors);

@@ -150,50 +150,58 @@
       }).join('');
     }
 
+    // RAMP_FALLBACK: the DARK theme's bright+dusky ramps (docs/spec/code-graph.md
+    // 8-hue x 5-shade x 2-band palette), used only when a --ramp-* CSS var comes
+    // back empty (stylesheet failed to load, etc.) — mirrors the per-type
+    // fallback convention atomicCyTypeColors() already used below.
+    var RAMP_FALLBACK = {
+      gold:    { bright: ['#f7e1a8','#f5c860','#e0a83a','#c08a26','#96691a'], dusky: ['#d6c08d','#c2a45f','#a58743','#866b30','#665022'] },
+      slate:   { bright: ['#c3d0e8','#9fb4d6','#7d94bd','#5f769e','#47597b'], dusky: ['#a4afc5','#8c98ac','#6d7b95','#566174','#3f4757'] },
+      moss:    { bright: ['#d5d9a8','#b8c078','#99a355','#7b843d','#5e662c'], dusky: ['#adaf8f','#898d6e','#6b6e52','#555a34','#3e4224'] },
+      plum:    { bright: ['#dcc4ea','#c19fd9','#a57dc0','#875f9f','#68477c'], dusky: ['#bba3c8','#a18bb0','#876c99','#695674','#4f3f58'] },
+      magenta: { bright: ['#eab6ca','#d98ba9','#bf6a8b','#9e506e','#7a3a53'], dusky: ['#c994a9','#b0778d','#955c72','#724858','#553340'] },
+      terra:   { bright: ['#f2c4a0','#e89f68','#d17f42','#ad6330','#854a22'], dusky: ['#d7a279','#c38150','#9e663d','#7c4e2d','#5c381f'] },
+      cyan:    { bright: ['#b3dfe0','#85c5c8','#62a8ab','#48878a','#346467'], dusky: ['#97b9b9','#789798','#5c7879','#3e5f60','#2b4244'] },
+      gray:    { bright: ['#d9d2c5','#bab2a2','#9a917f','#7b7263','#5d564a'], dusky: ['#b5aea0','#968f80','#787163','#5c564b','#423d35'] }
+    };
+
+    // atomicRampColors reads the 8-hue x 5-shade x 2-band ramp vars (app.css's
+    // --ramp-<hue>-<n> / --ramp-<hue>-dusky-<n>) into one flat map keyed
+    // "<hue>-<n>" (bright) / "<hue>-dusky-<n>" (dusky), n=1..5. Sibling to
+    // atomicCyTypeColors() below — profiles resolve a per-shade color
+    // (degree-quintile fill, graph-core.js's computeNodeColors) through this
+    // map instead of the single base color atomicCyTypeColors()/code-graph.js's
+    // colors() return per type/group.
+    function atomicRampColors() {
+      var style = getComputedStyle(document.documentElement);
+      function v(name, fallback) { var x = style.getPropertyValue(name).trim(); return x || fallback; }
+      var out = {};
+      Object.keys(RAMP_FALLBACK).forEach(function(hue) {
+        for (var i = 1; i <= 5; i++) {
+          out[hue + '-' + i] = v('--ramp-' + hue + '-' + i, RAMP_FALLBACK[hue].bright[i - 1]);
+          out[hue + '-dusky-' + i] = v('--ramp-' + hue + '-dusky-' + i, RAMP_FALLBACK[hue].dusky[i - 1]);
+        }
+      });
+      return out;
+    }
+
+    // TYPE_HUE maps each docs OKF type to its ramp hue — docs/spec/code-graph.md's
+    // hue -> role table (gold/page, slate/repo, moss/domain, plum/concern,
+    // magenta/knowledge, terra/bucket, cyan/index, gray/external). The docs
+    // graph reads the DUSKY band; the code graph (code-graph.js) reads the
+    // BRIGHT band via its own GROUP_HUE table — same hue per paired role.
+    var TYPE_HUE = {
+      page: 'gold', repo: 'slate', domain: 'moss', concern: 'plum',
+      knowledge: 'magenta', bucket: 'terra', index: 'cyan', external: 'gray'
+    };
+
     function atomicCyTypeColors() {
       // Read ALL graph color tokens from CSS custom properties so the graph
       // re-themes automatically on light/dark toggle. Provides safe fallbacks.
       var style = getComputedStyle(document.documentElement);
       function v(name) { return style.getPropertyValue(name).trim(); }
-      var pageColor      = v('--c-page')      || '#89b4fa';
-      var repoColor      = v('--c-repo')      || '#a6e3a1';
-      var concernColor   = v('--c-concern')   || '#cba6f7';
-      var knowledgeColor = v('--c-knowledge') || '#f38ba8';
-      var bucketColor    = v('--c-bucket')    || '#fab387';
-      var externalColor  = v('--c-external')  || '#6c7086';
-      var indexColor     = v('--c-index')     || '#74c7ec';
-      var domainColor    = v('--c-domain')    || '#94e2d5';
-      return {
-        // Node type solid colors (used as gradient base + derived darker stop).
-        'page':      pageColor,
-        'repo':      repoColor,
-        'concern':   concernColor,
-        'knowledge': knowledgeColor,
-        'bucket':    bucketColor,
-        'external':  externalColor,
-        'index':     indexColor,
-        'domain':    domainColor,
-        // Derived 10%-darker gradient stop for each type.
-        'page-dark':      darken(pageColor,      0.10),
-        'repo-dark':      darken(repoColor,      0.10),
-        'concern-dark':   darken(concernColor,   0.10),
-        'knowledge-dark': darken(knowledgeColor, 0.10),
-        'bucket-dark':    darken(bucketColor,    0.10),
-        'external-dark':  darken(externalColor,  0.10),
-        'index-dark':     darken(indexColor,     0.10),
-        'domain-dark':    darken(domainColor,    0.10),
-        // Per-type ink colors (node label text color).
-        'page-ink':      v('--c-page-ink')      || '#3a63a8',
-        'repo-ink':      v('--c-repo-ink')      || '#3f7a3a',
-        'concern-ink':   v('--c-concern-ink')   || '#6f4aa6',
-        'knowledge-ink': v('--c-knowledge-ink') || '#9c2f4c',
-        'bucket-ink':    v('--c-bucket-ink')    || '#8a4a1a',
-        'external-ink':  v('--c-external-ink')  || '#4a4e63',
-        'index-ink':     v('--c-index-ink')     || '#1a6a8a',
-        'domain-ink':    v('--c-domain-ink')    || '#2a7a6e',
-        // Default node colors (for nodes whose type is unknown or empty).
-        'default-fill':  pageColor,
-        'default-dark':  darken(pageColor, 0.10),
+      var ramps = atomicRampColors();
+      var out = {
         'default-label': v('--ink')         || '#211d18',
         // Label chip: a paper-surface pill behind each label so text stays legible
         // over the graph canvas in both themes (was hardcoded to the page color,
@@ -206,6 +214,28 @@
         // Selected state — amber glow.
         'selected':      v('--amber-bright') || '#d99a1f'
       };
+      Object.keys(TYPE_HUE).forEach(function(type) {
+        var hue = TYPE_HUE[type];
+        // Full 5-shade dusky ramp for this type — degree-quintile shading
+        // indexes into this (graph-core.js's computeNodeColors; quintile
+        // 1..5 maps to index 0..4). RAMP_FALLBACK's dark-theme values back
+        // every entry, so a missing var never yields an empty shade.
+        var duskyRamp = [1, 2, 3, 4, 5].map(function(n) { return ramps[hue + '-dusky-' + n]; });
+        var fill = v('--c-' + type) || duskyRamp[1];      // shade 2 — the default/legend-chip color.
+        var ink  = v('--c-' + type + '-ink') || duskyRamp[0]; // dark-theme ink convention: shade 1 (lightest).
+        out[type] = fill;
+        out[type + '-ink'] = ink;
+        // Gradient dark stop: the next-deeper ramp shade (3) when resolvable,
+        // else the old 10%-darken transform as a last-resort fallback.
+        out[type + '-dark'] = duskyRamp[2] || darken(fill, 0.10);
+        out[type + '-ramp'] = duskyRamp;
+      });
+      // Default node colors (for nodes whose type is unknown or empty) mirror
+      // the 'page' type, same fallback typeOf() (graph-core.js) uses.
+      out['default-fill'] = out['page'];
+      out['default-dark'] = out['page-dark'];
+      out['default-ramp'] = out['page-ramp'];
+      return out;
     }
     </script>
     <!-- Cytoscape style factory — rail mini-graph (FE2) only. The system-graph

@@ -12,9 +12,11 @@
 // bare fingerprint would collide with the docs profile's own cache entries,
 // which key on the SAME IndexedDB store), the flat-JSON → cosmos adapter, the
 // kind→group palette (SC5: the 38 codeintel NodeKind values collapsed to ~8
-// visual groups, reusing the docs profile's existing 8 theme-aware type
-// colors — see GROUP_ALIAS below), edge-kind styling (contains subordinate,
-// calls primary, imports secondary, everything else tertiary), and node
+// visual groups, each reading its own BRIGHT-band ramp shade off app.css's
+// --cc-<group>/--ramp-<hue>-<n> vars — see GROUP_HUE below; the hue per group
+// matches the docs profile's paired DUSKY type per docs/spec/code-graph.md's
+// hue -> role table), edge-kind styling (contains subordinate, calls
+// primary, imports secondary, everything else tertiary), and node
 // meta/label resolution routed through AtomicGraphUI's engine-neutral
 // preview-card hook (same hook the docs profile uses).
 //
@@ -60,34 +62,45 @@ window.CodeGraph = (function() {
     return KIND_GROUPS[kind] || 'other';
   }
 
-  // GROUP_ALIAS reuses the docs profile's existing 8 theme-aware type colors
-  // (atomicCyTypeColors() in layout.html, sourced from app.css's --c-* custom
-  // properties) rather than introducing new CSS — same reuse-over-rewrite
-  // reasoning the OKF taxonomy itself was built on. Zero new CSS variables
-  // means retheme() (light/dark) works for the code view for free.
-  var GROUP_ALIAS = {
-    'module-file': 'repo',
-    'type': 'concern',
-    callable: 'page',
-    value: 'domain',
-    'sql-data': 'knowledge',
-    'sql-routine': 'bucket',
-    'import-export': 'index',
-    other: 'external'
+  // GROUP_HUE maps each of the 8 visual groups to its ramp hue
+  // (docs/spec/code-graph.md hue -> role table) — the same hue as the docs
+  // type sharing its role (gold: page/callable, slate: repo/module-file, …),
+  // so the two graphs teach one hue vocabulary even though this view reads
+  // its own BRIGHT band (app.css's --cc-<group> / --ramp-<hue>-<n>) directly
+  // rather than aliasing through the docs profile's dusky --c-* colors.
+  var GROUP_HUE = {
+    'module-file': 'slate',
+    'type': 'plum',
+    callable: 'gold',
+    value: 'moss',
+    'sql-data': 'magenta',
+    'sql-routine': 'terra',
+    'import-export': 'cyan',
+    other: 'gray'
   };
 
-  // colors() re-reads atomicCyTypeColors() on every call (never cached) so a
-  // theme flip picks up the new CSS vars — same contract graph-core.js's
-  // applyStyling expects from every profile.colors().
+  // colors() re-reads the --cc-*/--ramp-* CSS vars on every call (never
+  // cached) so a theme flip picks up the new values — same contract
+  // graph-core.js's applyStyling expects from every profile.colors().
+  // atomicRampColors() is layout.html's shared ramp reader (sibling to
+  // atomicCyTypeColors(), which the docs profile uses instead).
   function colors() {
-    var base = atomicCyTypeColors();
+    var style = getComputedStyle(document.documentElement);
+    function v(name) { return style.getPropertyValue(name).trim(); }
+    var ramps = atomicRampColors();
     var out = {};
-    Object.keys(GROUP_ALIAS).forEach(function(group) {
-      out[group] = base[GROUP_ALIAS[group]];
+    Object.keys(GROUP_HUE).forEach(function(group) {
+      var hue = GROUP_HUE[group];
+      out[group] = v('--cc-' + group) || ramps[hue + '-2'];
+      // Full 5-shade bright ramp for this group — degree-quintile shading
+      // indexes into this (graph-core.js's computeNodeColors; quintile
+      // 1..5 maps to index 0..4).
+      out[group + '-ramp'] = [1, 2, 3, 4, 5].map(function(n) { return ramps[hue + '-' + n]; });
     });
-    out['default-fill'] = base['external'];
-    out['edge'] = base['edge'];
-    out['edge-strong'] = base['edge-strong'];
+    out['default-fill'] = out['other'];
+    out['default-ramp'] = out['other-ramp'];
+    out['edge'] = v('--edge') || '#cabfae';
+    out['edge-strong'] = v('--edge-strong') || '#b1a48f';
     return out;
   }
 
@@ -227,6 +240,17 @@ window.CodeGraph = (function() {
   // prefix mount() was called with — the UI picker (CP6) will pass a
   // different member per switch; today's only caller (the gate harness, or a
   // future CP6 switcher) can omit it for the local/single-repo index.
+  // SHADE_CURVE remaps degree quintile → ramp shade for this view only
+  // (graph-core.js's applyStyling reads profile.shadeCurve, default identity
+  // [1,2,3,4,5]). Shade 1 of every hue is a pastel, deliberately reserved out
+  // of this view's fill range — at code-graph density (~90% of nodes sit at
+  // degree <=3, quintile 1, since real symbol-graph fan-out is leaf-heavy)
+  // the identity curve rendered the whole view as a pastel wash instead of
+  // the approved mock's dominant mid-ramp tones. [2,3,3,4,5]: quintile-1
+  // leaves floor at shade 2 (the mock's dominant tone), quintiles 2-3 sit at
+  // shade 3, and only the top two quintiles (real hubs) deepen further.
+  var SHADE_CURVE = [2, 3, 3, 4, 5];
+
   function buildProfile(member) {
     return {
       fetchData: function() { return fetchData(member); },
@@ -235,6 +259,7 @@ window.CodeGraph = (function() {
       linkStyle: linkStyle,
       nodeMeta: nodeMeta,
       labelText: labelText,
+      shadeCurve: SHADE_CURVE,
       onHover: function(meta, screenPos, container) {
         if (window.AtomicGraphUI) { window.AtomicGraphUI.showPreviewCard(meta, screenPos, container); }
       },
