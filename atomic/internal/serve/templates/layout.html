@@ -1111,6 +1111,29 @@ document.addEventListener('htmx:after:swap', function(evt) {
   var modalTitle = document.getElementById('code-modal-title');
   var closeBtn = document.getElementById('code-modal-close');
 
+  // currentSourcePath tracks the member-aware /file/ path currently loaded in
+  // #code-modal-source. Navigating between symbols in the same file (edge-chip
+  // clicks, code-graph node clicks) must not re-fetch/re-flash the source pane —
+  // only the line-scroll and title need to update. loadSource is the single
+  // place that fetches source + updates the tracker; every caller that loads
+  // source goes through it.
+  var currentSourcePath = null;
+  function loadSource(filePath, onLoaded) {
+    if (filePath === currentSourcePath) {
+      onLoaded();
+      return;
+    }
+    modalSrc.innerHTML = '<p class="loading">Loading…</p>';
+    htmx.ajax('GET', '/file/' + filePath, {
+      target: '#code-modal-source',
+      swap: 'innerHTML',
+      headers: { 'HX-Request': 'true' }
+    }).then(function() {
+      currentSourcePath = filePath;
+      onLoaded();
+    });
+  }
+
   // Intel-pane navigation stack. The intel pane drills defines → callers → node →
   // … by swapping #code-modal-intel in place; without a stack there is no way back
   // to the previous view. intelStack holds the URLs loaded into the pane; the
@@ -1135,28 +1158,40 @@ document.addEventListener('htmx:after:swap', function(evt) {
   }
   if (modalIntelBack) { modalIntelBack.addEventListener('click', intelGoBack); }
 
-  // Record forward drill-downs: a click on an hx-get link inside #code-modal-intel
-  // pushes its URL so Back can return here. htmx still performs the swap.
-  document.addEventListener('click', function(e) {
-    if (!modalIntel) { return; }
-    var el = e.target;
-    while (el && el !== modalIntel) {
-      if (el.tagName === 'A' && el.getAttribute && el.getAttribute('hx-get')) { break; }
-      el = el.parentElement;
-    }
-    if (!el || el === modalIntel || el.tagName !== 'A' || !modalIntel.contains(el)) { return; }
-    var url = el.getAttribute('hx-get');
-    if (url && url !== intelTop()) { intelStack.push(url); updateIntelBack(); }
-  });
-
-  // Loading feedback: whenever a request targets the intel pane (a drill-down or
-  // Back), show a spinner immediately so the click registers before the swap.
+  // Record forward drill-downs AND show loading feedback via the htmx event path:
+  // htmx 4's own delegated click handling consumes drill-down clicks before a
+  // document-level `click` listener ever sees them, so that approach never fires
+  // (verified empirically). htmx:before:request DOES fire on every drill-down
+  // and Back request — push the request URL onto intelStack there instead. The
+  // url !== intelTop() guard is what stops Back's own reload (loadIntel → same
+  // event) from re-pushing.
   document.addEventListener('htmx:before:request', function(e) {
     var ctx = e.detail && e.detail.ctx;
     var t = ctx && ctx.target;
-    if (t && t.id === 'code-modal-intel') {
-      t.innerHTML = '<p class="loading">Loading…</p>';
-    }
+    if (!t || t.id !== 'code-modal-intel') { return; }
+    t.innerHTML = '<p class="loading">Loading…</p>';
+    var url = ctx.request && ctx.request.action;
+    if (url && url !== intelTop()) { intelStack.push(url); updateIntelBack(); }
+  });
+
+  // A /code/node view swapped into the intel pane stamps data-file/data-line/
+  // data-name on its root element (renderNodeDetail, codeexplorer.go) — mirror
+  // the source pane + title to match. List views (impact/callers/callees,
+  // file-defines) carry no such attrs and leave the source pane untouched.
+  document.addEventListener('htmx:after:swap', function(e) {
+    var ctx = e.detail && e.detail.ctx;
+    var t = ctx && ctx.target;
+    if (!t || t.id !== 'code-modal-intel') { return; }
+    var view = t.querySelector('[data-file]');
+    if (!view) { return; }
+    var filePath = view.getAttribute('data-file');
+    var line = view.getAttribute('data-line');
+    var name = view.getAttribute('data-name');
+    if (name) { modalTitle.textContent = name; }
+    loadSource(filePath, function() {
+      var el = line ? document.getElementById('L' + line) : null;
+      if (el) { el.scrollIntoView({ block: 'center' }); } else { modalSrc.scrollTop = 0; }
+    });
   });
 
   function getExtension(href) {
@@ -1200,16 +1235,12 @@ document.addEventListener('htmx:after:swap', function(evt) {
 
   function openModal(filePath, anchor) {
     modalTitle.textContent = filePath;
-    modalSrc.innerHTML = '<p class="loading">Loading…</p>';
     modalIntel.innerHTML = '<p class="loading">Loading…</p>';
     modal.classList.add('open');
 
-    // Load highlighted source as fragment into #code-modal-source.
-    htmx.ajax('GET', '/file/' + filePath, {
-      target: '#code-modal-source',
-      swap: 'innerHTML',
-      headers: { 'HX-Request': 'true' }
-    }).then(function() {
+    // Load highlighted source as fragment into #code-modal-source (skipped when
+    // this file is already the one loaded — see loadSource).
+    loadSource(filePath, function() {
       // If the original href had a line anchor, scroll to it; otherwise reset to
       // the top so a file opened after scrolling another one starts at line 1.
       if (anchor) {
@@ -1246,16 +1277,15 @@ document.addEventListener('htmx:after:swap', function(evt) {
 
     if (meta && meta.file) {
       var filePath = member ? (member + '/' + meta.file) : meta.file;
-      modalSrc.innerHTML = '<p class="loading">Loading…</p>';
-      htmx.ajax('GET', '/file/' + filePath, {
-        target: '#code-modal-source',
-        swap: 'innerHTML',
-        headers: { 'HX-Request': 'true' }
-      }).then(function() {
+      loadSource(filePath, function() {
         var el = meta.line ? document.getElementById('L' + meta.line) : null;
         if (el) { el.scrollIntoView({ block: 'center' }); } else { modalSrc.scrollTop = 0; }
       });
     } else {
+      // No location for this node — currentSourcePath no longer reflects what's
+      // on screen, so the next loadSource call (even for the same path as
+      // before) must not skip its fetch.
+      currentSourcePath = null;
       modalSrc.innerHTML = '<p class="loading">No source available.</p>';
     }
 

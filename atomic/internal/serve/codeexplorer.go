@@ -248,8 +248,27 @@ func (h *codeExplorerHandler) handleNode(w http.ResponseWriter, r *http.Request,
 // member's realm-relative path: it prefixes the /file/ location link and rides
 // along on the callers/callees/impact drill-down links so each opens the same
 // member's index.
+//
+// The root element carries data-file/data-line/data-name when the node has a
+// location — layout.html's htmx:after:swap handler reads these to mirror the
+// modal's source pane + title onto this view (list views such as
+// renderSubgraph's callers/callees/impact chips carry no such attrs, so the
+// source pane is left untouched for those).
 func renderNodeDetail(sb *strings.Builder, n types.Node, prefix string) {
-	sb.WriteString(`<div class="code-node-detail">`)
+	sb.WriteString(`<div class="code-node-detail"`)
+	if n.FilePath != "" {
+		sb.WriteString(` data-file="`)
+		sb.WriteString(template.HTMLEscapeString(joinMemberPath(prefix, n.FilePath)))
+		sb.WriteString(`"`)
+		if n.StartLine > 0 {
+			sb.WriteString(` data-line="`)
+			sb.WriteString(strconv.Itoa(n.StartLine))
+			sb.WriteString(`"`)
+		}
+	}
+	sb.WriteString(` data-name="`)
+	sb.WriteString(template.HTMLEscapeString(n.Name))
+	sb.WriteString(`">`)
 	sb.WriteString(`<h2 class="code-node-name">`)
 	sb.WriteString(template.HTMLEscapeString(n.Name))
 	sb.WriteString(`</h2>`)

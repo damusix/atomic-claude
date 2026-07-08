@@ -305,6 +305,38 @@ None.
 
 ## Change log
 
+### 2026-07-08 — Code modal: impact-radius node hydration, Back-stack via htmx events, node-view source sync
+
+**What changed:** Three code-modal/graph-engine fixes, reproduced via a Playwright probe
+(`tmp/probe-modal.mjs`).
+(1) `graph.GetImpactRadius`'s container path fetches child nodes via `GetNodesByIds` but
+never added them to the returned `Subgraph.Nodes` — only the per-child `impactBFS`
+sub-traversal's own neighbors were hydrated — so an impact radius rendered on a container
+(file/class/struct/…) showed raw node-ID fallbacks (`renderSubgraph`) for the container's
+own children. `GetImpactRadius` (container and non-container paths) and the symmetric
+`GetCallers`/`GetCallees` now also hydrate their own start node into the returned
+`Subgraph`, so every edge endpoint resolves (`atomic/internal/codeintel/graph/graph.go`).
+(2) The Back-stack forward-push in `layout.html`'s FE4 code-modal script was a
+`document.addEventListener('click', …)` walking up to an `A[hx-get]` inside
+`#code-modal-intel` — htmx 4's own delegated click handling consumes the click first, so
+this listener never fired and the Back button never appeared after a drill-down. The push
+now happens in the existing `htmx:before:request` handler (reads the request URL off
+`ctx.request.action`); the dead click listener is removed.
+(3) A `/code/node` view swapped into the intel pane (edge-chip or file-defines click)
+updated the intel pane only — the modal's source pane and title stayed on whatever was
+shown before. `renderNodeDetail` (codeexplorer.go) now stamps `data-file`/`data-line`/
+`data-name` on its root element (member-aware, reusing `joinMemberPath`); a new
+`htmx:after:swap` handler on `#code-modal-intel` reads those attrs and reloads
+`#code-modal-source`, scrolls to the line, and updates `#code-modal-title` — list views
+(callers/callees/impact chips, file-defines) carry no such attrs and are left untouched.
+
+**Why:** Three user-reported bugs in the shipped code-graph feature (PR #123).
+
+**Correction:** the 2026-06-15 "Code modal intel pane has a Back button" entry's
+forward-push mechanism (a document-level `click` listener) never actually fired under
+htmx 4 — verified empirically with the Playwright probe. The Back button existed in the
+DOM but never populated its stack via a real drill-down.
+
 ### 2026-07-08 — Code graph view added to the graph pane
 
 **What changed:** The middle-pane graph mode now hosts two views behind a nested Docs |

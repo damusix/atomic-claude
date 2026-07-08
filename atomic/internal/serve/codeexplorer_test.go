@@ -179,6 +179,84 @@ func TestCodeExplorer_NodeDetail_ByName(t *testing.T) {
 	}
 }
 
+// ─── 2b. Node detail stamps data-file/data-line/data-name; list views don't ──
+
+// TestCodeExplorer_NodeDetail_StampsSourceAttrs is the regression test for
+// the modal-drilldown-fixes bug: clicking an edge chip swapped a new /code/node
+// view into the intel pane, but nothing updated the modal's source pane or
+// title (layout.html's htmx:after:swap handler reads data-file/data-line/
+// data-name off the swapped-in view's root element to do that).
+func TestCodeExplorer_NodeDetail_StampsSourceAttrs(t *testing.T) {
+	fake := &fakeCodeEngine{
+		node: types.Node{
+			ID:        "fn-abc",
+			Name:      "myFunc",
+			Kind:      types.NodeKindFunction,
+			FilePath:  "pkg/util.go",
+			StartLine: 42,
+		},
+	}
+
+	h := serve.NewCodeExplorerHandler(serve.CodeExplorerOptions{
+		RealmRoot:      t.TempDir(),
+		EngineProvider: fakeProviderFor(fake),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/code/node?id=fn-abc", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+
+	if !strings.Contains(body, `data-file="pkg/util.go"`) {
+		t.Errorf("missing data-file attr; body: %s", body)
+	}
+	if !strings.Contains(body, `data-line="42"`) {
+		t.Errorf("missing data-line attr; body: %s", body)
+	}
+	if !strings.Contains(body, `data-name="myFunc"`) {
+		t.Errorf("missing data-name attr; body: %s", body)
+	}
+}
+
+// TestCodeExplorer_Callers_NoSourceAttrs ensures list views (callers/callees/
+// impact edge-chip renderers) never carry data-file — the intel-pane swap
+// handler must leave the source pane untouched for these.
+func TestCodeExplorer_Callers_NoSourceAttrs(t *testing.T) {
+	callers := types.Subgraph{
+		Nodes: map[string]types.Node{
+			"fn-abc":   {ID: "fn-abc", Name: "myFunc", Kind: types.NodeKindFunction, FilePath: "pkg/util.go", StartLine: 42},
+			"caller-1": {ID: "caller-1", Name: "doSomething", Kind: types.NodeKindFunction, FilePath: "cmd/main.go", StartLine: 10},
+		},
+		Roots: []string{"fn-abc"},
+		Edges: []types.Edge{
+			{Source: "caller-1", Target: "fn-abc", Kind: types.EdgeKindCalls},
+		},
+	}
+
+	fake := &fakeCodeEngine{callers: callers}
+
+	h := serve.NewCodeExplorerHandler(serve.CodeExplorerOptions{
+		RealmRoot:      t.TempDir(),
+		EngineProvider: fakeProviderFor(fake),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/code/callers?id=fn-abc", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	if strings.Contains(body, "data-file=") {
+		t.Errorf("callers list view must not carry data-file (would wrongly reload source pane); body: %s", body)
+	}
+}
+
 // ─── 3. Callers: edge chips with edge kind shown ──────────────────────────────
 
 func TestCodeExplorer_Callers_EdgeChips(t *testing.T) {
