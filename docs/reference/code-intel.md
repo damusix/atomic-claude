@@ -81,6 +81,24 @@ The index is a single SQLite file at `<project>/.claude/.atomic-index/atomic.db`
 Because the indexer reads working-tree content, a `sync` after an edit makes the graph reflect uncommitted changes — which is why the implementation loop re-syncs after each change so a reviewer's `impact` query sees current code.
 
 
+## Excluding files from the index
+
+A committed `<project>/.claude/atomic.toml` with a `[code]` table excludes matching files from the index:
+
+```toml
+[code]
+ignore = ["vendor/**", "*.min.js"]
+```
+
+Patterns match doublestar-style against repo-relative, slash-separated paths. A pattern containing no `/` matches the basename at any depth (`*.min.js` excludes `a/b/lib.min.js`); a pattern containing `/` is a full-path match; a leading `./` is stripped before matching. A trailing-slash-only pattern (`vendor/`) matches nothing — exclude a directory with `vendor/**` instead. There is no negation syntax (`!pattern`) — v1 is exclude-only.
+
+A missing or empty file leaves discovery unfiltered, identical to no config at all. Malformed TOML or an invalid glob pattern also leaves indexing unfiltered, but `atomic code index`/`sync` prints one warning line to stderr; unknown keys in the file warn the same way. `atomic doctor` validates the file when present — parse errors, unknown keys, and invalid glob patterns each report WARN with detail; an absent file is not a finding.
+
+A file that becomes newly ignored is pruned from an already-built index automatically: the next `atomic code index` or `atomic code sync` removes its nodes, edges, and unresolved references — the same deleted-file pruning that already runs, since an ignored file simply drops out of the discovery list. No separate ignore-prune step exists.
+
+**Gitignore caveat.** Some repos gitignore `.claude/*` wholesale. If yours does, add a negation pair (e.g. `!.claude/atomic.toml`) so the config file itself stays committed — otherwise it never reaches git and the ignore rules never take effect for anyone who clones the repo.
+
+
 ## Wiki realm federation
 
 When you work from a wiki realm — a folder that contains multiple repositories managed by `/refresh-wiki` — `atomic code` can index and query all of them without writing into any member repo.

@@ -37,6 +37,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/languages"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/standalone"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -207,6 +208,11 @@ type Orchestrator struct {
 	// path: broken symlink, deleted-but-staged) is skipped, not fatal — but the
 	// count is surfaced so the skip is visible (fail loud, not silent).
 	skippedFiles atomic.Int64
+	// ignore filters discovery output (the input to indexFiles and
+	// pruneDeleted) against repo-scoped glob patterns from .claude/atomic.toml.
+	// Nil disables filtering — the zero-value Orchestrator behaves exactly as
+	// it did before graphignore. Set via SetIgnoreMatcher.
+	ignore *config.IgnoreMatcher
 }
 
 // SkippedFiles returns the number of files skipped (unreadable / un-stat-able)
@@ -214,6 +220,37 @@ type Orchestrator struct {
 // each run. Used by the CLI to report skips instead of silently dropping files.
 func (o *Orchestrator) SkippedFiles() int {
 	return int(o.skippedFiles.Load())
+}
+
+// SetIgnoreMatcher configures the ignore matcher used to filter the file
+// lists IndexAll, Sync, IndexPaths, and ScanFiles produce. Pass nil to
+// disable filtering (the default for a freshly constructed Orchestrator).
+func (o *Orchestrator) SetIgnoreMatcher(m *config.IgnoreMatcher) {
+	o.ignore = m
+}
+
+// filterIgnored drops any path in paths matched by o.ignore. This is the
+// single discovery-time filtering seam: IndexAll and Sync feed the SAME
+// filtered list to both indexFiles and pruneDeleted, so a file that becomes
+// newly ignored simply stops appearing in the list pruneDeleted compares
+// against the DB — it is reclaimed as an orphan on the next run with no
+// separate prune mechanism.
+func (o *Orchestrator) filterIgnored(projectRoot string, paths []string) []string {
+	if o.ignore == nil {
+		return paths
+	}
+	filtered := make([]string, 0, len(paths))
+	for _, p := range paths {
+		rel, err := filepath.Rel(projectRoot, p)
+		if err != nil {
+			rel = p
+		}
+		if o.ignore.Match(filepath.ToSlash(rel)) {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	return filtered
 }
 
 // NewOrchestrator creates an Orchestrator. pool must be non-nil and already
@@ -236,6 +273,7 @@ func (o *Orchestrator) IndexAll(ctx context.Context, projectRoot string) error {
 	if err != nil {
 		return fmt.Errorf("orchestrator: scan: %w", err)
 	}
+	files = o.filterIgnored(projectRoot, files)
 
 	if err := o.indexFiles(ctx, projectRoot, files); err != nil {
 		return err
@@ -247,8 +285,10 @@ func (o *Orchestrator) IndexAll(ctx context.Context, projectRoot string) error {
 // Only paths with a known extension are processed; unknown-extension paths are
 // silently skipped (consistent with IndexAll behaviour). This is the real
 // selective-indexing path that Engine.IndexFiles delegates to (F-56 fix).
+// Paths matched by o.ignore are also skipped. IndexPaths does not prune (see
+// pruneDeleted's doc comment) — it is handed an explicit subset.
 func (o *Orchestrator) IndexPaths(ctx context.Context, projectRoot string, paths []string) error {
-	return o.indexFiles(ctx, projectRoot, paths)
+	return o.indexFiles(ctx, projectRoot, o.filterIgnored(projectRoot, paths))
 }
 
 // Sync re-indexes files in projectRoot that have changed since the last index.
@@ -262,6 +302,7 @@ func (o *Orchestrator) Sync(ctx context.Context, projectRoot string) error {
 	if err != nil {
 		return fmt.Errorf("orchestrator: sync scan: %w", err)
 	}
+	files = o.filterIgnored(projectRoot, files)
 
 	if err := o.indexFiles(ctx, projectRoot, files); err != nil {
 		return err
@@ -603,11 +644,19 @@ func (o *Orchestrator) storeExtractionResult(
 // File scanner
 // ---------------------------------------------------------------------------
 
-// ScanFiles returns the list of tracked files in dir. It is exported so the
-// engine facade can build the []FileInput slice for ExtractAndPersist without
-// duplicating the git-ls-files / walkDir logic.
-func ScanFiles(dir string) ([]string, error) {
-	return scanFiles(dir)
+// ScanFiles returns the list of tracked files in dir, filtered through o's
+// ignore matcher (if any). Exported as a method — rather than a free
+// function — so the engine facade's ExtractFrameworkNodes sees the SAME
+// filtered file set IndexAll/Sync produce, via the same matcher, instead of
+// duplicating the git-ls-files / walkDir logic with a second, unfiltered scan
+// that would silently diverge (e.g. route/handler nodes appearing for a file
+// otherwise invisible to `atomic code files`).
+func (o *Orchestrator) ScanFiles(dir string) ([]string, error) {
+	files, err := scanFiles(dir)
+	if err != nil {
+		return nil, err
+	}
+	return o.filterIgnored(dir, files), nil
 }
 
 // scanFiles returns the list of tracked files in dir.

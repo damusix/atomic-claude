@@ -74,6 +74,7 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 9 | `config`         | `~/.claude/.atomic/config.toml` parses + validates; `~/.claude/.atomic/config.resolved.md` matches render of TOML (byte-stable). Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN; drifted/missing resolved.md → WARN. | WARN by default; FAIL for parse error or invalid value |
 | 10 | `profile`       | `~/.claude/.atomic/profile.md` exists; `@~/.claude/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`); `<deterministic lastcheck=YYYY-MM-DD>` attribute is present and within the last 30 days. Missing file → WARN; missing @-ref → WARN; missing or stale lastcheck → WARN. | WARN |
 | 11 | `code-index`    | `<projectRoot>/.claude/.atomic-index/atomic.db` freshness check. **Absence is normal — the index is opt-in — and reports PASS (informational).** DB present + mtime older than `--stale-days` (default 7) → WARN with `run 'atomic code sync'`. DB present + fresh → PASS with age detail. **Never FAIL.** | WARN |
+| 13 | `repo-config`   | `<projectRoot>/.claude/atomic.toml` validation via `config.LoadRepoConfig` + `config.NewIgnoreMatcher`. **Absence is normal — the file is optional — and reports PASS (informational).** Parse errors, unknown keys, and invalid `[code] ignore` glob patterns each report WARN with detail. A valid file reports PASS naming the active ignore-pattern count. **Never FAIL** — a malformed or invalid repo config only degrades code-intel indexing to unfiltered, it never blocks the repo. | WARN |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -375,3 +376,9 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Superseded:** Prior contract always registered and ran category 5, emitting a `SKIP` result line outside the atomic-claude repo.
 
 **Squashed to 84aeb5d — 2026-06-08.** Per-iteration SHAs above are historical (unreachable from any branch).
+
+### 2026-07-08 — add `repo-config` check (category 13)
+
+**What changed:** Added category 13 `repo-config` (severity WARN) validating `<projectRoot>/.claude/atomic.toml` — the repo-scoped config introduced by the graphignore feature — via `config.LoadRepoConfig` + `config.NewIgnoreMatcher`. Absence reports PASS informational (the file is optional; code-intel indexing proceeds unfiltered without it), mirroring the category 11 (`code-index`) opt-in-absence contract. Parse errors, unknown keys, and invalid `[code] ignore` glob patterns each report WARN naming the offending detail. A valid file reports PASS naming the active ignore-pattern count. The check never produces FAIL: a malformed or invalid repo config only degrades indexing to unfiltered at index time, it never blocks the repo.
+
+**Why:** Checkpoint 3 of the graphignore feature (`docs/spec/graphignore.md`). The loader and matcher built in checkpoints 1–2 are silently lenient by design (indexing degrades rather than errors), so a doctor check is the only surface that tells a user their `.claude/atomic.toml` has a problem. (Pure addition — no prior contract superseded. Unrelated pre-existing gap noted while amending: category 12 `migrate` has no row in the Check categories table; tracked as follow-up `doctor-spec-missing-migrate-row`.)

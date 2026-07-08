@@ -84,6 +84,7 @@ var categories = []Category{
 	{Index: 10, Name: "profile", Severity: WARN, Run: checkProfile},
 	{Index: 11, Name: "code-index", Severity: WARN, Run: checkCodeIndex},
 	{Index: 12, Name: "migrate", Severity: WARN, Run: checkMigrateDrift},
+	{Index: 13, Name: "repo-config", Severity: WARN, Run: checkRepoConfig},
 }
 
 // Categories returns the full category registry slice. Callers must not mutate.
@@ -178,3 +179,4 @@ func indexSet(indices []int) map[int]bool {
 // checkProfile   → checks_profile.go      (CP-5)
 // checkCodeIndex    → checks_code_index.go   (CP7 code-intel-integration)
 // checkMigrateDrift → checks_migrate.go      (C5 atomic-migrate-framework)
+// checkRepoConfig   → checks_repo_config.go  (CP3 graphignore)
