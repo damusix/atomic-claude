@@ -18,17 +18,17 @@ A committed `.claude/atomic.toml` with `[code] ignore = ["<glob>", ...]` exclude
 ## Success criteria
 
 
-- [ ] `.claude/atomic.toml` containing `[code]` with `ignore = ["atomic/internal/serve/assets/vendor/**"]` causes `atomic code index` to produce zero nodes from files under that directory.
-- [ ] A file present in an existing index that matches a newly added ignore pattern is removed (nodes, edges, unresolved refs, file row) by the next `Sync` or `IndexAll` — no new prune mechanism; the existing `pruneDeleted` handles it because the discovery list no longer contains the file.
-- [ ] Patterns without `/` match basenames at any depth (`*.min.js` excludes `a/b/lib.min.js`); patterns with `/` are doublestar full-path matches against repo-relative slash paths; leading `./` is stripped; a trailing-slash-only pattern (`vendor/`) matches nothing — directories are excluded with `dir/**` (matcher table test covers all four).
-- [ ] `IndexPaths` (explicit subset) skips ignored paths.
-- [ ] `ScanFiles` (exported; used by framework extraction) returns the filtered list.
-- [ ] Missing or empty config file → discovery output identical to today (verified by test).
-- [ ] Malformed TOML or an invalid glob pattern → indexing proceeds unfiltered and the CLI prints one warning line to stderr; unknown keys in the file → warning only.
-- [ ] `atomic code status` reports the count of active ignore patterns and the config path when patterns are loaded.
-- [ ] Doctor validates `.claude/atomic.toml` when present in the current repo — as its own repo-scoped check category (following the code-index check precedent, not folded into the user-config category): parse errors, unknown keys, and invalid glob patterns each produce a WARN with detail; absent file → no finding.
-- [ ] Discoverability wiring: `templates/shared/agent-code-intel.md` names the config so agents can self-configure ("hide vendor from my code graph"); `templates/commands/atomic-help.md` mentions it in the code/cli topic; `CLAUDE.md` code-intel section gains a one-line clause; `docs/reference/code-intel.md` documents the file format and semantics. `make render` and `make -C atomic bundle` outputs committed with zero drift; the `/atomic-help` MISSING-scan passes.
-- [ ] Dogfood: this repo commits `.claude/atomic.toml` ignoring `atomic/internal/serve/assets/vendor/**` (with a `.gitignore` negation pair if `.claude/*` rules would swallow it); after a fresh worktree re-index, `atomic code files` lists no path under `atomic/internal/serve/assets/vendor/`.
+- [x] `.claude/atomic.toml` containing `[code]` with `ignore = ["atomic/internal/serve/assets/vendor/**"]` causes `atomic code index` to produce zero nodes from files under that directory.
+- [x] A file present in an existing index that matches a newly added ignore pattern is removed (nodes, edges, unresolved refs, file row) by the next `Sync` or `IndexAll` — no new prune mechanism; the existing `pruneDeleted` handles it because the discovery list no longer contains the file.
+- [x] Patterns without `/` match basenames at any depth (`*.min.js` excludes `a/b/lib.min.js`); patterns with `/` are doublestar full-path matches against repo-relative slash paths; leading `./` is stripped; a trailing-slash-only pattern (`vendor/`) matches nothing — directories are excluded with `dir/**` (matcher table test covers all four).
+- [x] `IndexPaths` (explicit subset) skips ignored paths.
+- [x] `ScanFiles` (exported; used by framework extraction) returns the filtered list.
+- [x] Missing or empty config file → discovery output identical to today (verified by test).
+- [x] Malformed TOML or an invalid glob pattern → indexing proceeds unfiltered and the CLI prints one warning line to stderr; unknown keys in the file → warning only.
+- [x] `atomic code status` reports the count of active ignore patterns and the config path when patterns are loaded.
+- [x] Doctor validates `.claude/atomic.toml` when present in the current repo — as its own repo-scoped check category (following the code-index check precedent, not folded into the user-config category): parse errors, unknown keys, and invalid glob patterns each produce a WARN with detail; absent file → no finding.
+- [x] Discoverability wiring: `templates/shared/agent-code-intel.md` names the config so agents can self-configure ("hide vendor from my code graph"); `templates/commands/atomic-help.md` mentions it in the code/cli topic; `CLAUDE.md` code-intel section gains a one-line clause; `docs/reference/code-intel.md` documents the file format and semantics. `make render` and `make -C atomic bundle` outputs committed with zero drift; the `/atomic-help` MISSING-scan passes.
+- [x] Dogfood: this repo commits `.claude/atomic.toml` ignoring `atomic/internal/serve/assets/vendor/**` (with a `.gitignore` negation pair if `.claude/*` rules would swallow it); after a fresh worktree re-index, `atomic code files` lists no path under `atomic/internal/serve/assets/vendor/`.
 
 ## Approach
 
@@ -57,3 +57,10 @@ Repo-scoped `[code] ignore` globs in `.claude/atomic.toml`, filtered at `scanFil
 | Realm mode: one member's config bleeding into another's index | low | Engines root per member (`NewWithDBPath(projectRoot, …)`); the loader takes the engine root, so isolation holds by construction — covered by the loader's projectRoot-scoped tests |
 
 ## Change log
+
+
+### 2026-07-08 — implementation log
+
+**What changed:** All four checkpoints shipped on branch `graphignore`: CP1 `18650bf` (config loader + `IgnoreMatcher`, doublestar v4.10.0), CP2 `4e0482b` (discovery filtering in IndexAll/Sync/IndexPaths, `ScanFiles` free-fn → method, engine per-boot config load, CLI warn + `code status` line), CP3 `9ee51f5` (doctor category 13 `repo-config`), CP4 `9c54b1c` (agent-code-intel partial, atomic-help clause + count-free doctor phrasing, CLAUDE.md clause, `docs/reference/code-intel.md` section, dogfood `.claude/atomic.toml`), signals `69d2662`. Every success criterion verified — dogfood confirmed end-to-end in a live worktree index (vendor files indexed: 4 → 0 after `atomic code sync`; `atomic doctor --only 13` PASS; `atomic code status` reports 1 pattern). Follow-up filed for a pre-existing gap discovered en route: `doctor-spec-missing-migrate-row`.
+
+**Why:** De-noise the code graph and index (~3.8k vendor symbols in this repo) with a committed, repo-scoped exclusion the whole team inherits.
