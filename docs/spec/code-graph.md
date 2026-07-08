@@ -15,14 +15,14 @@
 
 ## Success criteria
 
-- [ ] SC1 — **Index integrity**: `atomic code index` on this repo (which contains the two `.vitepress/theme/*.vue` files) exits 0 with no FK-constraint errors and produces `calls` edges > 0. A per-file store failure never prevents the resolution phase from running (per `IndexAll`'s documented contract). A ref whose owner node is absent from the store is skipped with the skip recorded in that file's `errors` column — never a fatal error. Regression-tested with a fixture that reproduces the dangling-owner ref.
-- [ ] SC2 — **Data endpoint**: `GET /code/graph/data` returns the resolved member's full graph as JSON: a server-computed `fingerprint` (changes iff the index content changes), `nodes` (id, label, kind, file, line, language), `edges` (source, target, kind). `?member=<prefix>` resolves via the same member-resolution path as the sibling `/code/*` routes; single-repo mode needs no param. Unknown member or missing index returns a non-200 with a JSON error body. Covered by httptest against a fixture DB.
-- [ ] SC3 — **Committed gate harness + system view unchanged**: a committed script under `scripts/` drives headless Chromium (Playwright) against a running `atomic serve` and checks, for a named view: mount with zero console errors, settle-then-pause within a time budget, drag reheat that resolves a forced overlap, IndexedDB cache replay with zero motion on reopen, and hover preview appearance. It exits non-zero on any gate failure and skips with a clear message when Playwright or a browser is unavailable (local tool; CI carries Go/unit coverage only). The harness passes against the docs system view *before* the shared-core refactor (baseline) and *after* it (regression gate).
-- [ ] SC4 — **Code view renders at scale**: on this repo's index (~17.5k nodes, ~55k edges incl. `contains` and ~34k `calls`), the code view passes the same harness gates: mounts clean, settles and pauses, live-drag reheats locally, and reopening with an unchanged fingerprint replays the cached layout with zero motion.
-- [ ] SC5 — **Styling legibility**: node color derives from a kind→group mapping (~8 visual groups) with a legend that filters groups client-side; `contains` edges render visually subordinate (fainter/thinner) to `calls`/`imports`; node size scales with degree inside the existing min/max window; DOM labels cap at 150 by degree with zoom fade. Theme toggle restyles without remount.
-- [ ] SC6 — **Explorer integration**: hovering a node shows name, kind, `file:line` (signature when present); clicking opens the existing code-explorer node view for that symbol, member-aware. WebGL2-less browsers get the existing detect-and-message fallback.
-- [ ] SC7 — **Per-repo selection**: in realm mode the code view offers a member picker listing code members (indexed state visible); switching members swaps the graph; single-repo mode shows no picker. View choice and member survive in URL state alongside the existing graph view state.
-- [ ] SC8 — **Docs current + full verify**: `docs/spec/atomic-serve.md` amended (spec-currency) and `docs/reference/serve.md` updated to describe the code graph; `go test ./...` green from `atomic/`; culling unit test still 4/4; `atomic validate spec` clean.
+- [x] SC1 — **Index integrity**: `atomic code index` on this repo (which contains the two `.vitepress/theme/*.vue` files) exits 0 with no FK-constraint errors and produces `calls` edges > 0. A per-file store failure never prevents the resolution phase from running (per `IndexAll`'s documented contract). A ref whose owner node is absent from the store is skipped with the skip recorded in that file's `errors` column — never a fatal error. Regression-tested with a fixture that reproduces the dangling-owner ref.
+- [x] SC2 — **Data endpoint**: `GET /code/graph/data` returns the resolved member's full graph as JSON: a server-computed `fingerprint` (changes iff the index content changes), `nodes` (id, label, kind, file, line, language), `edges` (source, target, kind). `?member=<prefix>` resolves via the same member-resolution path as the sibling `/code/*` routes; single-repo mode needs no param. Unknown member or missing index returns a non-200 with a JSON error body. Covered by httptest against a fixture DB.
+- [x] SC3 — **Committed gate harness + system view unchanged**: a committed script under `scripts/` drives headless Chromium (Playwright) against a running `atomic serve` and checks, for a named view: mount with zero console errors, settle-then-pause within a time budget, drag reheat that resolves a forced overlap, IndexedDB cache replay with zero motion on reopen, and hover preview appearance. It exits non-zero on any gate failure and skips with a clear message when Playwright or a browser is unavailable (local tool; CI carries Go/unit coverage only). The harness passes against the docs system view *before* the shared-core refactor (baseline) and *after* it (regression gate).
+- [x] SC4 — **Code view renders at scale**: on this repo's index (~17.5k nodes, ~55k edges incl. `contains` and ~34k `calls`), the code view passes the same harness gates: mounts clean, settles and pauses, live-drag reheats locally, and reopening with an unchanged fingerprint replays the cached layout with zero motion.
+- [x] SC5 — **Styling legibility**: node color derives from a kind→group mapping (~8 visual groups) with a legend that filters groups client-side; `contains` edges render visually subordinate (fainter/thinner) to `calls`/`imports`; node size scales with degree inside the existing min/max window; DOM labels cap at 150 by degree with zoom fade. Theme toggle restyles without remount.
+- [x] SC6 — **Explorer integration**: hovering a node shows name, kind, `file:line` (signature when present); clicking opens the existing code-explorer node view for that symbol, member-aware. WebGL2-less browsers get the existing detect-and-message fallback.
+- [x] SC7 — **Per-repo selection**: in realm mode the code view offers a member picker listing code members (indexed state visible); switching members swaps the graph; single-repo mode shows no picker. View choice and member survive in URL state alongside the existing graph view state.
+- [x] SC8 — **Docs current + full verify**: `docs/spec/atomic-serve.md` amended (spec-currency) and `docs/reference/serve.md` updated to describe the code graph; `go test ./...` green from `atomic/`; culling unit test still 4/4; `atomic validate spec` clean.
 
 ## Approach
 
@@ -123,3 +123,22 @@ docs/
 **Why:** Correction: SC1's index-integrity fix landed and a fresh index of this repo measures 17,502 nodes / 54,472 edges (33,655 `calls`) — the pre-fix estimate was extrapolated from an older, partially resolved index.
 
 **Superseded:** the ~20k approximate edge figure.
+
+## Implementation log
+
+Loop ran 2026-07-07..08 under /autopilot (8 iterations, 7 checkpoints, every reviewer finding closed in-iteration).
+
+| CP | Commit | Outcome |
+|----|--------|---------|
+| 1  | eb26981 | Ref-owner guard + Vue rewiring; fresh index calls edges 0 → 33,655 |
+| 1b | d0e6557 | Svelte sibling rewiring + guard DB-hit branch test (surgical) |
+| 2  | 7943b5d | /code/graph/data; fingerprint re-derived from node/edge identity after review (counts+timestamp recipe had a same-second collision window); memberResolver extracted |
+| 3  | 2629b88 | scripts/graph-gates.mjs committed; baseline 5/5 on docs view; playwright 1.61.1 devDependency |
+| 4  | d132ece | graph-core.js extracted (constants byte-for-byte verified); docs profile 214 lines; teardown routed through profile hook after review |
+| 5  | 8f6a8ce | code-graph.js profile; all five gates green at 17,579 nodes / 53,653 edges; drag-gate failures root-caused to the gate's own hub-pair target pick, not physics (20/20 after representative pick; constants unchanged; hub-on-hub gap filed as followup code-graph-hub-drag-unverified) |
+| 6  | 928f925 | Docs\|Code switcher, /code/graph/members, realm member picker, URL view+member state, member-aware node-modal click; realm bed 14/14 assertions |
+| 7  | 893feb5 | atomic-serve spec amendment + reference/serve.md Graph mode section |
+
+Final verify (orchestrator-run): `go test ./...` fresh green, gofmt/vet clean, render+bundle parity zero drift, culling 4/4, `atomic validate` 0 FAIL, gate harness 5/5 on both views. Signals refreshed over 4ae6fb2..HEAD (ff893e9).
+
+Notable deviations from plan: no physics tuning was needed (the spec's exception clause was invoked, the sweep exonerated the constants); headless gates require hardware-ANGLE launch args (SwiftShader settles 10x slower); the endpoint 404s unknown members instead of the sibling routes' silent local fallback (deliberate, per SC2).
