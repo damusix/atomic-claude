@@ -17,18 +17,16 @@
 // Flags:
 //   --view <docs|code>       Target graph view. "docs" navigates straight to
 //                            /graph, which auto-mounts window.SystemGraph via
-//                            the htmx.onLoad delegation in layout.html. "code"
-//                            has no user-facing mount trigger yet (checkpoint
-//                            6 adds the Docs|Code switcher + URL routing) —
-//                            this harness bridges the gap by navigating to
-//                            the landing page and calling
-//                            window.CodeGraph.mount() directly via
-//                            page.evaluate (see VIEWS.code.navigate below);
-//                            CP6 will replace that bridge with a real UI
-//                            toggle click. Every gate below reads state
-//                            through window.GraphCore (the shared engine both
-//                            profiles forward verbatim), so gates 1-5 run
-//                            identically regardless of which profile mounted.
+//                            the htmx.onLoad delegation in layout.html.
+//                            "code" drives the real UI path (checkpoint 6):
+//                            lands on the landing page, clicks #btn-graph to
+//                            enter graph mode (docs mounts by default), then
+//                            clicks the Docs|Code switcher's Code button —
+//                            see VIEWS.code.navigate below. Every gate below
+//                            reads state through window.GraphCore (the
+//                            shared engine both profiles forward verbatim),
+//                            so gates 1-5 run identically regardless of
+//                            which profile mounted.
 //   --url <base>             Drive an ALREADY-RUNNING atomic serve instance
 //                            at this base URL. Mutually exclusive with
 //                            --serve-bin.
@@ -90,46 +88,23 @@ const VIEWS = {
       await page.goto(baseURL + '/graph', { waitUntil: 'load' });
     }
   },
-  // code: no user-facing mount trigger exists yet — checkpoint 6 adds the
-  // Docs|Code switcher and the URL routing /graph's auto-mount relies on
-  // (docs/spec/code-graph.md checkpoints table). Bridges the gap per
-  // checkpoint 5's "the harness may mount via page.evaluate against
-  // window.CodeGraph.mount(...) into the graph container": navigates to the
-  // landing page (NOT /graph — that path would auto-mount the DOCS profile
-  // instead) so no profile is mounted yet, then builds the same container +
-  // loading-marker shape systemGraphFragmentHTML gives the docs view and
-  // mounts CodeGraph onto it directly. The container has no permanent
-  // markup/CSS home yet (checkpoint 6 owns that), so sizing is set inline
-  // here rather than in assets/app.css — without an explicit width/height a
-  // freshly-created <div> has intrinsic height 0, and cosmos would render
-  // its canvas into a zero-size viewport.
+  // code: the real UI path (checkpoint 6) — no page.evaluate bridge. Lands on
+  // the landing page, clicks #btn-graph to enter graph mode (mounts the docs
+  // profile by default via system-graph.js's enterGraphMode), waits for the
+  // Docs|Code switcher to exist, then clicks its Code button — the same
+  // renderGraphPane() path a real user's click takes, tearing down docs and
+  // mounting window.CodeGraph on a fresh #code-cy[data-code-graph] container.
   code: {
     async navigate(page, baseURL) {
       // waitUntil:'networkidle', not 'load' — every full-page shell render
       // (this landing page included) carries #main-pane's own
-      // hx-get="{{.LandingURL}}" auto-fetch (FE8), which races against this
-      // function's own innerHTML overwrite below: 'load' (the browser's load
-      // event) can fire before htmx's async fetch resolves, so overwriting
-      // #main-pane immediately after 'load' sometimes wins the race and
-      // sometimes loses it — when it loses, htmx's own later swap replaces
-      // the just-mounted container and fires system-graph.js's
-      // htmx:after:swap listener, which calls teardown() (mode-system is
-      // true, and that listener's [data-system-graph] check doesn't
-      // recognize [data-code-graph] as "still a graph") — a torn-down
-      // instance is what turned debugState() null and crashed gate 4 during
-      // this checkpoint's own tuning runs. networkidle waits for htmx's own
-      // fetch to actually finish first, so no swap remains pending when this
-      // function starts mutating #main-pane itself.
+      // hx-get="{{.LandingURL}}" auto-fetch (FE8), which must settle before
+      // #btn-graph's own click-triggered /graph fetch starts, or the two
+      // htmx swaps can race.
       await page.goto(baseURL + '/', { waitUntil: 'networkidle' });
-      await page.evaluate(() => {
-        const mainPane = document.getElementById('main-pane');
-        mainPane.innerHTML = '<div id="code-cy" data-code-graph></div><p class="loading system-graph-loading">Laying out graph…</p>';
-        const container = document.getElementById('code-cy');
-        container.style.position = 'relative';
-        container.style.width = '100%';
-        container.style.height = '100%';
-        window.CodeGraph.mount(container);
-      });
+      await page.click('#btn-graph');
+      await page.waitForSelector('[data-graph-view="code"]');
+      await page.click('[data-graph-view="code"]');
     }
   }
 };

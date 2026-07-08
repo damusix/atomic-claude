@@ -18,12 +18,15 @@
 // meta/label resolution routed through AtomicGraphUI's engine-neutral
 // preview-card hook (same hook the docs profile uses).
 //
-// Explorer click integration (SC6) and the Docs|Code switcher + member
-// picker (SC7) are checkpoint 6's job — onClick below is a documented no-op
-// until then. Everything else (mount/teardown/retheme lifecycle, WebGL2
-// gate, motion policy, layout cache, label overlay, legend, drag handling,
-// debugState()/simRunning()) lives in graph-core.js and is forwarded
-// verbatim below, mirroring window.SystemGraph's own public shape.
+// Explorer click integration (SC6, this checkpoint) opens the existing
+// code-explorer node view via window.AtomicCodeExplorer (layout.html); the
+// Docs|Code switcher + member picker (SC7, this checkpoint) live in
+// system-graph.js, which owns the shell-level /graph entry point this
+// profile is mounted from. Everything else (mount/teardown/retheme
+// lifecycle, WebGL2 gate, motion policy, layout cache, label overlay,
+// legend, drag handling, debugState()/simRunning()) lives in graph-core.js
+// and is forwarded verbatim below, mirroring window.SystemGraph's own public
+// shape.
 window.CodeGraph = (function() {
 
   // ── Kind → group taxonomy (SC5) ────────────────────────────────────────────
@@ -172,7 +175,8 @@ window.CodeGraph = (function() {
   // "Hover meta" contract (name, kind, file:line, language if handy) folded
   // into a single description line since the preview card has one slot for
   // it. type is the visual GROUP (not the raw kind) so the badge matches the
-  // node's own dot color.
+  // node's own dot color. file/line ride along (unused by the preview card)
+  // for onClick's node-modal source pane below (SC6).
   function nodeMeta(adapted, index) {
     var raw = (adapted.nodes[index] && adapted.nodes[index].data) || {};
     var loc = raw.file ? (raw.file + (raw.line ? ':' + raw.line : '')) : '';
@@ -181,7 +185,9 @@ window.CodeGraph = (function() {
       type: raw.type,
       title: raw.label || raw.id,
       description: parts.join(' · '),
-      snippet: ''
+      snippet: '',
+      file: raw.file,
+      line: raw.line
     };
   }
 
@@ -235,9 +241,15 @@ window.CodeGraph = (function() {
       onHoverOut: function() {
         if (window.AtomicGraphUI) { window.AtomicGraphUI.hidePreviewCard(); }
       },
-      // onClick: the code-explorer node view (SC6) is checkpoint 6's job —
-      // a no-op is the documented CP5 scope (docs/spec/code-graph.md).
-      onClick: function() {},
+      // onClick opens the existing code-explorer node view for this symbol
+      // (SC6), member-aware — window.AtomicCodeExplorer.openNode is exposed
+      // by layout.html's file-modal script alongside its own openModal(path,
+      // anchor); see that function's comment for how it reuses the same
+      // #code-modal machinery with the intel pane pointed at /code/node
+      // instead of /code/file.
+      onClick: function(id, meta) {
+        if (window.AtomicCodeExplorer) { window.AtomicCodeExplorer.openNode(id, member, meta); }
+      },
       onTeardown: function() {
         if (window.AtomicGraphUI) { window.AtomicGraphUI.hidePreviewCard(); }
       }

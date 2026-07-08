@@ -304,6 +304,14 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		// EngineProvider nil → DefaultEngineProvider.
 	}))
 
+	// /code/graph/members — realm member list + indexed state for the code
+	// view's member picker (code-graph spec CP6, SC7).
+	mux.Handle("/code/graph/members", NewCodeGraphMembersHandler(CodeGraphOptions{
+		RealmRoot:     opts.TargetDir,
+		ClaudeMDPath:  opts.ClaudeMDPath,
+		WikiIndexPath: wikiIndexPath,
+	}))
+
 	// / — Obsidian shell (FE1: breadcrumb + search + [page|system] toggle + right rail).
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {

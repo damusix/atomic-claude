@@ -1295,10 +1295,12 @@ body.mode-system #main-pane {
     overflow: hidden;
 }
 
-/* System-cy container fills #main-pane (no content-header row above it).
-   position:relative anchors the CP5 label overlay (.graph-label-layer),
-   whose children are positioned absolute to this box, not the page. */
-#system-cy {
+/* System-cy / code-cy: the two graph-mode mount containers (docs, code —
+   code-graph checkpoint 6) share this box treatment. Both fill #main-pane (no
+   content-header row above it); position:relative anchors each mount's own
+   CP5 label overlay (.graph-label-layer), whose children are positioned
+   absolute to this box, not the page. */
+#system-cy, #code-cy {
     position: relative;
     width: 100%;
     height: 100%;
@@ -1322,6 +1324,46 @@ body.mode-system #main-pane {
     color: var(--ink-faint);
     font-size: 13px;
     font-style: italic;
+}
+
+/* Not-indexed / fetch-error message (SC7 polish) — a settled statement, not
+   an in-progress spinner caption: drop the italic, widen the read measure. */
+.system-graph-loading.system-graph-error {
+    font-style: normal;
+    color: var(--ink-soft);
+    max-width: 380px;
+    line-height: 1.5;
+}
+
+/* Graph pane controls (checkpoint 6): Docs|Code switcher + realm member
+   picker, floated top-right of the pane so they never collide with the
+   bottom-left legend. Rebuilt fresh on every view/member switch — see
+   system-graph.js's renderGraphPane(). */
+.graph-pane-controls {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.graph-view-switch {
+    backdrop-filter: blur(6px);
+}
+
+.graph-member-select {
+    background: color-mix(in srgb, var(--paper-raised) 88%, transparent);
+    border: 1px solid var(--hairline-2);
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-family: var(--sans);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--ink);
+    backdrop-filter: blur(6px);
+    cursor: pointer;
 }
 
 /* System graph legend — type-filter chip bar */

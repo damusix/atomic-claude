@@ -353,15 +353,20 @@ func TestShellContainsFingerprintStyleInSharedFunction(t *testing.T) {
 // Network View mount seam:
 //   - #btn-graph (top-bar icon) is the entry point.
 //   - The cosmos.gl bundle and the system-graph.js asset are both loaded.
-//   - A delegated htmx.onLoad hook calls SystemGraph.mount(...) — the mount
-//     body itself (data adapter, WebGL2 detection, motion policy, /graph/data
-//     fetch, node-tap navigation) now lives in system-graph.js, not the shell.
+//   - A delegated htmx.onLoad hook calls SystemGraph.enterGraphMode() — the
+//     mount body itself (data adapter, WebGL2 detection, motion policy,
+//     /graph/data fetch, node-tap navigation) now lives in system-graph.js,
+//     not the shell.
 //
 // Prior to CP2 this test asserted identifier/URL strings (e.g. '/graph/data',
 // '/page/', htmx.ajax) directly against the "/" shell response — those moved
 // out with the mount body and no longer hold here; system-graph.js is where
 // that behavior is now testable (see its own unit tests once CP3+ adds
 // browser-independent pure functions).
+//
+// Code-graph checkpoint 6: the seam calls enterGraphMode (not mount directly)
+// so every /graph fragment landing routes through the Docs|Code + URL-state
+// (view/member) dispatch — see system-graph.js's renderGraphPane comment.
 //
 // Only structure (presence of identifiers and script tags) is testable
 // server-side; live JS execution is out of scope for Go tests.
@@ -394,12 +399,13 @@ func TestShellSystemModeToggleWiring(t *testing.T) {
 	}
 
 	// The delegated mount call must key on the [data-system-graph] seam
-	// (delivered by the /graph fragment) and call into SystemGraph.mount.
+	// (delivered by the /graph fragment) and call into
+	// SystemGraph.enterGraphMode (checkpoint 6 — see this test's own comment).
 	if !strings.Contains(html, "data-system-graph") {
 		t.Error("shell missing 'data-system-graph' — the onLoad mount seam for the Network View")
 	}
-	if !strings.Contains(html, "SystemGraph.mount") {
-		t.Error("shell missing the delegated call to SystemGraph.mount — the thin htmx.onLoad hook into system-graph.js")
+	if !strings.Contains(html, "SystemGraph.enterGraphMode") {
+		t.Error("shell missing the delegated call to SystemGraph.enterGraphMode — the thin htmx.onLoad hook into system-graph.js")
 	}
 }
 

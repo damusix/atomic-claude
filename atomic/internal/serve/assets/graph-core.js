@@ -605,11 +605,19 @@ window.GraphCore = (function() {
   // setZoomTransformByPointPositions (the only public camera-restore call) is
   // the write-side counterpart and takes a point-to-center, not a screen
   // offset, so save and restore must speak the same vocabulary.
+  // Merges z/px/py into the EXISTING query string rather than replacing it
+  // wholesale — code-graph checkpoint 6 adds `view`/`member` params this
+  // function knows nothing about (the profile's own concern, not the
+  // core's), and a wholesale rebuild would silently drop them on the very
+  // next pan/zoom, breaking the "reload restores the same view" contract.
   function writeViewToURL(graph, container) {
     if (window.location.pathname !== '/graph') { return; }
     var center = graph.screenToSpacePosition([container.clientWidth / 2, container.clientHeight / 2]);
-    var qs = 'z=' + graph.getZoomLevel().toFixed(4) + '&px=' + center[0].toFixed(2) + '&py=' + center[1].toFixed(2);
-    try { window.history.replaceState(window.history.state, '', '/graph?' + qs); } catch (e) {}
+    var params = new URLSearchParams(window.location.search);
+    params.set('z', graph.getZoomLevel().toFixed(4));
+    params.set('px', center[0].toFixed(2));
+    params.set('py', center[1].toFixed(2));
+    try { window.history.replaceState(window.history.state, '', '/graph?' + params.toString()); } catch (e) {}
   }
 
   function clearLoading(mainPane) {
@@ -619,10 +627,13 @@ window.GraphCore = (function() {
 
   // showError reuses the loading element as the error affordance — replacing
   // its text in place rather than removing it — mirroring the fetch .catch
-  // pattern this replaces.
+  // pattern this replaces. The system-graph-error class (SC7's "not-indexed"
+  // message polish) drops the loading state's italic transient styling so a
+  // terminal message (e.g. "index not available — run atomic code index")
+  // reads as a settled statement, not an in-progress spinner caption.
   function showError(mainPane, message) {
     var l = mainPane && mainPane.querySelector('.system-graph-loading');
-    if (l) { l.textContent = message; }
+    if (l) { l.textContent = message; l.classList.add('system-graph-error'); }
   }
 
   // teardown destroys the live instance (releasing its GL context — browsers
@@ -657,6 +668,20 @@ window.GraphCore = (function() {
   // full contract.
   function mount(container, profile) {
     if (container.dataset.systemMounted === '1') { return; } // double-mount guard
+    // A prior mount's instance is torn down here, before this one begins —
+    // the code-graph checkpoint 6 Docs|Code switcher calls mount() directly
+    // on a FRESH container to swap profiles, with no intervening teardown()
+    // call: teardown() also drops mode-system/btn-graph state, which the
+    // switcher wants to KEEP across the swap (still in graph mode, just a
+    // different graph). At most one cosmos.gl instance may ever be live —
+    // browsers cap live GL contexts, same reasoning as teardown()'s own
+    // comment. A plain graph-mode entry (nothing mounted yet) finds
+    // `instance` already null here, so this is a no-op for that flow.
+    if (instance) {
+      try { instance.destroy(); } catch (e) {}
+      instance = null;
+      if (activeProfile && activeProfile.onTeardown) { activeProfile.onTeardown(); }
+    }
     container.dataset.systemMounted = '1';
     activeContainer = container;
     activeProfile = profile;

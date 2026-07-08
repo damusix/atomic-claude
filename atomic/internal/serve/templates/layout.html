@@ -125,11 +125,11 @@
     <!-- code-graph.js — the Code Graph view profile over graph-core.js:
          /code/graph/data fetch + adapter, kind→group palette (reusing the
          docs profile's 8 theme-aware type colors), edge-kind styling, and
-         hover wiring into AtomicGraphUI. No user-facing mount trigger yet
-         (checkpoint 6 adds the Docs|Code switcher) — window.CodeGraph.mount()
-         is called directly by the switcher (CP6) or the gate harness
-         (scripts/graph-gates.mjs --view code) today. See
-         docs/spec/code-graph.md checkpoint 5. -->
+         hover/click wiring into AtomicGraphUI / AtomicCodeExplorer. Mounted
+         by system-graph.js's renderGraphPane() when the Docs|Code switcher
+         (checkpoint 6) selects Code, or directly by the gate harness
+         (scripts/graph-gates.mjs --view code) via a real click on that same
+         switcher. See docs/spec/code-graph.md checkpoint 6. -->
     <script src="/static/code-graph.js"></script>
     <!-- Single-source type→color map. atomicCyStyle() reads it to build per-type
          node selectors; the system-graph legend (Deliverable A) reads it for swatch
@@ -703,16 +703,20 @@
     });
     </script>
     <!-- FE3 Network View mount delegation — thin htmx.onLoad hook into
-         system-graph.js's exported mount. The mount lifecycle itself (data
-         adapter, WebGL2 detection, motion policy, lifecycle guards, mode
-         toggling, teardown-on-nav-out) all live in system-graph.js — see the
-         Code home sub-decision in docs/design/cosmos-system-graph.md. -->
+         system-graph.js's exported enterGraphMode. The /graph fragment lands
+         once per graph-mode entry (via #btn-graph or a document load/reload);
+         enterGraphMode reads the URL's view/member (code-graph checkpoint 6)
+         and renders the matching profile — see system-graph.js's own
+         comment on renderGraphPane. Everything else (data adapter, WebGL2
+         detection, motion policy, lifecycle guards, mode toggling,
+         teardown-on-nav-out) lives in system-graph.js / graph-core.js — see
+         the Code home sub-decision in docs/design/cosmos-system-graph.md. -->
     <script>
     htmx.onLoad(function(elt) {
       var c = (elt.matches && elt.matches('[data-system-graph]'))
         ? elt
         : (elt.querySelector ? elt.querySelector('[data-system-graph]') : null);
-      if (c) { SystemGraph.mount(c); }
+      if (c) { SystemGraph.enterGraphMode(); }
     });
     </script>
 </head>
@@ -1223,6 +1227,49 @@ document.addEventListener('htmx:after:swap', function(evt) {
     updateIntelBack();
     loadIntel(intelURL);
   }
+
+  // openCodeNode opens the existing code-explorer node view for one symbol —
+  // the code graph view's click hook (code-graph spec SC6), member-aware.
+  // Reuses the same #code-modal machinery as openModal(filePath, anchor)
+  // above (source pane + intel pane, intel-stack Back button), but the intel
+  // pane loads /code/node?id=<id>&member=<prefix> — the node's own detail
+  // view (name, kind, location, signature, callers/callees/impact nav) —
+  // instead of /code/file?path=<path>'s file-defines list. member is the
+  // realm-relative prefix (code-graph.js's buildProfile closure); "" in
+  // single-repo scope, where memberQuery-style query-param omission matches
+  // the server's own convention (codeexplorer.go's memberQuery).
+  function openCodeNode(id, member, meta) {
+    var mq = member ? ('&member=' + encodeURIComponent(member)) : '';
+    modalTitle.textContent = (meta && meta.title) || id;
+    modalIntel.innerHTML = '<p class="loading">Loading…</p>';
+    modal.classList.add('open');
+
+    if (meta && meta.file) {
+      var filePath = member ? (member + '/' + meta.file) : meta.file;
+      modalSrc.innerHTML = '<p class="loading">Loading…</p>';
+      htmx.ajax('GET', '/file/' + filePath, {
+        target: '#code-modal-source',
+        swap: 'innerHTML',
+        headers: { 'HX-Request': 'true' }
+      }).then(function() {
+        var el = meta.line ? document.getElementById('L' + meta.line) : null;
+        if (el) { el.scrollIntoView({ block: 'center' }); } else { modalSrc.scrollTop = 0; }
+      });
+    } else {
+      modalSrc.innerHTML = '<p class="loading">No source available.</p>';
+    }
+
+    var intelURL = '/code/node?id=' + encodeURIComponent(id) + mq;
+    intelStack = [intelURL];
+    updateIntelBack();
+    loadIntel(intelURL);
+  }
+
+  // Exposed for code-graph.js's onClick — that profile has no access to this
+  // IIFE's local modal/intel-stack state, so the modal-open capability is
+  // published here instead (mirrors window.AtomicGraphUI's own pattern for
+  // the docs preview-card/page-modal hooks).
+  window.AtomicCodeExplorer = { openNode: openCodeNode };
 
   function closeModal() {
     modal.classList.remove('open');
