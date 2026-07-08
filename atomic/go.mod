@@ -12,6 +12,7 @@ require github.com/yuin/goldmark v1.8.2
 
 require (
 	github.com/alecthomas/chroma/v2 v2.26.1
+	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/charmbracelet/huh v1.0.0
 	github.com/charmbracelet/x/term v0.2.1
 	github.com/malivvan/tree-sitter v0.0.1
