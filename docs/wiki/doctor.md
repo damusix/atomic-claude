@@ -1,13 +1,13 @@
 ---
 type: Domain
-description: 11-check integrity suite + static validation (A1 artifact CLI-flag lint) + CLI surface table + post-update auto-fire + user profile + code-index health.
+description: 13-check integrity suite + static validation (A1 artifact CLI-flag lint) + CLI surface table + post-update auto-fire + user profile + code-index health + migration-drift nudge + repo-scoped ignore-config validation.
 ---
 
 # doctor
 
 ## What it does
 
-Integrity check suite (`atomic doctor`) and static validation (`atomic validate`). Runs 11 deterministic checks verifying install coherence, hooks, signals freshness, @-ref wiring, manifest parity, follow-ups, memory, binary version, config, user profile wiring, and code-index freshness. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`.
+Integrity check suite (`atomic doctor`) and static validation (`atomic validate`). Runs 13 deterministic checks verifying install coherence, hooks, signals freshness, @-ref wiring, manifest parity, follow-ups, memory, binary version, config, user profile wiring, code-index freshness, migration drift, and repo-scoped ignore-config validity. Non-zero exit on FAIL for CI gating. Opt-in repair via `--fix`.
 
 ## Artifacts
 
@@ -15,9 +15,9 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 
 ## CLI code
 
-**Core doctor suite ([`atomic/internal/doctor/`](../../atomic/internal/doctor) — 45 files):**
+**Core doctor suite ([`atomic/internal/doctor/`](../../atomic/internal/doctor) — 49 files):**
 
-- `doctor.go` — orchestrator. Runs all 11 checks in index order, applies `--only` / `--skip` filters, collects results, returns exit code (0 = PASS/WARN/SKIP, 1 = FAIL, 2 = usage error). `Opts.RepoRoot` is resolved once per `RunWith` call via lazy-fill — when empty, `gitToplevelFn` is called exactly once and the result is stored in `opts.RepoRoot`; all check functions read `opts.RepoRoot` rather than spawning their own git subprocesses. Tested in `gitcallcount_internal_test.go`.
+- `doctor.go` — orchestrator. Runs all 13 checks in index order, applies `--only` / `--skip` filters, collects results, returns exit code (0 = PASS/WARN/SKIP, 1 = FAIL, 2 = usage error). `Opts.RepoRoot` is resolved once per `RunWith` call via lazy-fill — when empty, `gitToplevelFn` is called exactly once and the result is stored in `opts.RepoRoot`; all check functions read `opts.RepoRoot` rather than spawning their own git subprocesses. Tested in `gitcallcount_internal_test.go`.
 - `flags.go` — CLI flag parsing for `atomic doctor [--fix] [--json] [--only] [--skip] [--stale-days] [--verbose]`.
 - `format.go` — exports `FormatResultLine(r Result) string`. **Shared** by `FormatHuman` (full doctor output) and [`atomic/internal/updatedoctor/updatedoctor.go`](../../atomic/internal/updatedoctor/updatedoctor.go) (post-update FAIL-only lines). Changing this function affects both surfaces.
 - `fix.go` — `Repairer` struct with injectable function fields (`ManifestBundleFn`, `ManifestRenderFn`, `RepoRootFn`, etc.). `DefaultRepairer()` wires production implementations. `Repair` is now a method on `Repairer`; the package-level `Repair` func is a thin wrapper calling `DefaultRepairer().Repair(...)`. `RepairSummary` has `Applied`, `Skipped`, `NonFixable` fields — `FixApplied` and `FixSummary` fields removed.
@@ -43,6 +43,8 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 | 9 | config | `checks_config.go` | WARN |
 | 10 | profile | `checks_profile.go` | WARN |
 | 11 | code-index | `checks_code_index.go` | WARN |
+| 12 | migrate | `checks_migrate.go` | WARN |
+| 13 | repo-config | `checks_repo_config.go` | WARN |
 
 `checks_code_index.go` (category 11) checks code-index freshness via `RunCheckCodeIndexWith(root, staleDays)`. No DB → `PASS` informational ("code index not initialized (optional; run 'atomic code index' to enable)"). DB present + mtime ≥ `staleDays` → `WARN` ("run 'atomic code sync'"). DB present + fresh → `PASS`. Never produces `FAIL`. Uses `engine.IndexPath(root)` to locate the DB; stats the file rather than opening it (avoids spinning up the wazero pool for a health check).
 
@@ -55,6 +57,10 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 `checks_followups.go` — walks [`.claude/project/followups/`](../followups) via `followups.LoadEntriesWithErrors`. Byte-compares re-rendered INDEX against on-disk to detect drift. Two repair functions: `followupsRenderRepair` (re-renders INDEX), `followupsMigrateRepair` (runs migrate for legacy `followups.md`).
 
 `checks_config.go` — imports [`atomic/internal/config`](../../atomic/internal/config) directly. Validates config file structure, known key set, and value constraints.
+
+`checks_migrate.go` (category 12) reads `[install].version` from `~/.claude/.atomic/config.toml` and compares it against the running binary version via `selfupdate.CompareSemver`. A binary newer than the recorded install version → WARN nudging `atomic migrate`. No nudge (PASS) when: `config.toml` is absent (not atomic-installed), `[install].version` is empty (pre-framework install), or the binary is not newer. The `"dev"` version string (default for local builds) is treated as `0.0.0` by `CompareSemver`, so dev builds never nudge. `RunCheckMigrateDriftWith(claudeHome, binaryVersion)` is the injectable test seam.
+
+`checks_repo_config.go` (category 13) validates `<projectRoot>/.claude/atomic.toml` via `config.LoadRepoConfig` + `config.NewIgnoreMatcher` (config domain). Absent file → PASS informational, mirroring category 11 (`code-index`)'s opt-in-absence contract. Parse errors, unknown keys, and invalid `[code] ignore` glob patterns each → WARN with detail. A valid file → PASS naming the active ignore-pattern count via `IgnoreMatcher.PatternCount()`. Never FAIL — a malformed repo config only degrades code-intel indexing to unfiltered, it never blocks the repo. `RunCheckRepoConfigWith(root)` is the injectable test seam.
 
 **Post-update doctor adapter ([`atomic/internal/updatedoctor/`](../../atomic/internal/updatedoctor)):**
 
@@ -83,11 +89,11 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 
 - [`atomic/internal/manifestcheck/`](../../atomic/internal/manifestcheck) — called by `checks_manifest.go`. Imports `bundlespec` for inclusion predicates.
 - [`atomic/internal/followups/`](../../atomic/internal/followups) — called by `checks_followups.go`. `LoadEntriesWithErrors` is the parse boundary; `RenderIndex` is used for drift comparison.
-- [`atomic/internal/config/`](../../atomic/internal/config) — called by `checks_config.go`.
+- [`atomic/internal/config/`](../../atomic/internal/config) — called by `checks_config.go`; also called directly by `checks_repo_config.go` (category 13) for the repo-scoped [`.claude/atomic.toml`](../../.claude/atomic.toml) schema.
 
 ## Docs
 
-- [`docs/spec/atomic-doctor.md`](../../docs/spec/atomic-doctor.md) — canonical contract for all 11 check categories, fix functions, exit codes, `--fix` behavior. Master reference.
+- [`docs/spec/atomic-doctor.md`](../../docs/spec/atomic-doctor.md) — canonical contract for all 13 check categories, fix functions, exit codes, `--fix` behavior. Master reference.
 - [`docs/spec/atomic-validate.md`](../../docs/spec/atomic-validate.md) — `atomic validate` subcommand contract (S0/S1/S5/S6, C3/C5/C7/C9, A1 checks). C1 rule retired per 2026-06-24 spec amendment.
 - [`docs/spec/validate-artifact-cli-flags.md`](../../docs/spec/validate-artifact-cli-flags.md) — A1 rule contract: `internal/cliusage` surface table, `validate artifacts` subcommand, scanner rules, known scope limits. Design: [`docs/design/validate-artifact-cli-flags.md`](../../docs/design/validate-artifact-cli-flags.md).
 - [`docs/spec/verify-gate-validate.md`](../../docs/spec/verify-gate-validate.md) — `atomic validate` integration with the `atomic-verify` skill: when and how `/commit-only` and `/subagent-implementation` gate on validate output. Design: [`docs/design/verify-gate-validate.md`](../../docs/design/verify-gate-validate.md).
@@ -105,6 +111,8 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 - **→ signals**: `checks_refs.go` reads candidate CLAUDE files for `@docs/wiki/index.md`. The `signalsRef` const is the single source of truth — changes to the expected @-ref path require updating this const and the signals domain's wiring convention simultaneously.
 - **→ signals**: `checks_signals.go` verifies [`docs/wiki/scan.md`](scan.md) exists and is not stale. Staleness logic tracks the signals domain's scan output.
 - **→ config**: `checks_config.go` imports [`atomic/internal/config`](../../atomic/internal/config) directly. Config schema changes (config domain) must be reflected in `checks_config.go` validation.
+- **→ config**: `checks_repo_config.go` (category 13) imports [`atomic/internal/config`](../../atomic/internal/config)'s `LoadRepoConfig`/`NewIgnoreMatcher`/`RepoConfigPath` directly. Repo-scoped config schema changes (config domain) must be reflected here — same pattern as `checks_config.go`'s coupling to the user-scoped schema above.
+- **→ code-intel**: category 13 (`repo-config`) mirrors category 11 (`code-index`)'s opt-in-absence contract — an absent [`.claude/atomic.toml`](../../.claude/atomic.toml) is normal because repo-scoped ignore filtering (code-intel domain) is itself opt-in.
 - **→ config**: `updatedoctor` skip indices `[3, 8]` are hardcoded. Adding or renumbering doctor categories requires updating `updatedoctor.go` to match.
 - **→ workflow**: `checks_followups.go` imports [`atomic/internal/followups`](../../atomic/internal/followups). Follow-up schema changes (config domain) affect what doctor accepts as valid.
 - **→ docs-meta**: `format.FormatResultLine` is a shared output primitive. Changing it affects both `FormatHuman` (full doctor) and `updatedoctor` (post-update FAIL-only).
