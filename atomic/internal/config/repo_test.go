@@ -189,3 +189,18 @@ func TestRepoConfigPath(t *testing.T) {
 		t.Errorf("RepoConfigPath(%q) = %q, want %q", "/repo", got, want)
 	}
 }
+
+// TestIgnoreMatcher_PatternCount: counts only successfully compiled
+// patterns — an invalid pattern is dropped by NewIgnoreMatcher and must not
+// be counted as active. A nil matcher (config load failed) counts 0.
+func TestIgnoreMatcher_PatternCount(t *testing.T) {
+	m, _ := NewIgnoreMatcher([]string{"vendor/**", "*.min.js", "vendor[/**"})
+	if got := m.PatternCount(); got != 2 {
+		t.Errorf("PatternCount() = %d, want 2 (invalid pattern excluded)", got)
+	}
+
+	var nilM *IgnoreMatcher
+	if got := nilM.PatternCount(); got != 0 {
+		t.Errorf("nil matcher PatternCount() = %d, want 0", got)
+	}
+}

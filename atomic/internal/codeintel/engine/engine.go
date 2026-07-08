@@ -41,6 +41,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/resolution/synthesis"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/search"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // ErrWatchNotImplemented is returned by Watch and StopWatch, which are
@@ -76,6 +77,12 @@ type Engine struct {
 	mgr        *graph.Manager
 	srch       *search.Searcher
 	bld        *codectx.Builder
+	// ignoreWarnings holds any diagnostics from loading the repo-scoped ignore
+	// config (.claude/atomic.toml) during the last ensureIndexer boot: unknown
+	// keys, an unparseable file, or an invalid glob pattern. Empty when the
+	// file is absent or fully well-formed. Surfaced via IgnoreWarnings so the
+	// CLI can report a degraded config without indexing failing.
+	ignoreWarnings []string
 }
 
 // New creates an Engine bound to projectRoot. Neither Init nor Open is called;
@@ -212,8 +219,59 @@ func (e *Engine) ensureIndexer(ctx context.Context) error {
 		return err
 	}
 	e.pool = pool
-	e.orch = indexer.NewOrchestrator(e.indexDB, pool)
+	orch := indexer.NewOrchestrator(e.indexDB, pool)
+
+	// Repo-scoped ignore config (.claude/atomic.toml [code] ignore), loaded
+	// once per indexer boot — not re-read on every IndexAll/Sync/IndexPaths
+	// call within this engine's lifetime. A missing file degrades to a nil
+	// matcher (identical to pre-graphignore behavior, no warning). Malformed
+	// TOML or an invalid glob pattern degrades to unfiltered/partially
+	// filtered indexing rather than failing the run — messages are collected
+	// on e.ignoreWarnings for the CLI to report.
+	cfg, warns, err := config.LoadRepoConfig(config.RepoConfigPath(e.root))
+	var msgs []string
+	if err != nil {
+		msgs = append(msgs, fmt.Sprintf("%s: indexing proceeds unfiltered", err))
+	} else {
+		for _, w := range warns {
+			msgs = append(msgs, w.Message)
+		}
+		if len(cfg.Code.Ignore) > 0 {
+			matcher, mwarns := config.NewIgnoreMatcher(cfg.Code.Ignore)
+			orch.SetIgnoreMatcher(matcher)
+			for _, w := range mwarns {
+				msgs = append(msgs, w.Message)
+			}
+		}
+	}
+	e.ignoreWarnings = msgs
+
+	e.orch = orch
 	return nil
+}
+
+// IgnoreWarnings returns any diagnostics recorded while loading the
+// repo-scoped ignore config during the last indexer boot (see ensureIndexer).
+// Empty when no .claude/atomic.toml is present, or it is well-formed with no
+// unknown keys or invalid patterns.
+func (e *Engine) IgnoreWarnings() []string {
+	return e.ignoreWarnings
+}
+
+// IgnorePatternInfo reports the number of active (successfully compiled)
+// ignore patterns from .claude/atomic.toml and the config's path, without
+// booting the indexer pool — `atomic code status` is a read-only query and
+// must not pay indexing's pool-boot cost (~2GB peak RSS, see ensureIndexer)
+// just to report this line. count is 0 when the file is absent, empty, or
+// fails to parse.
+func (e *Engine) IgnorePatternInfo() (count int, path string) {
+	path = config.RepoConfigPath(e.root)
+	cfg, _, err := config.LoadRepoConfig(path)
+	if err != nil || len(cfg.Code.Ignore) == 0 {
+		return 0, path
+	}
+	matcher, _ := config.NewIgnoreMatcher(cfg.Code.Ignore)
+	return matcher.PatternCount(), path
 }
 
 // IndexPath returns the absolute path to the SQLite database this engine is
@@ -305,12 +363,14 @@ func (e *Engine) SkippedFiles() int {
 // Call this AFTER IndexAll/Sync and BEFORE ResolveReferences so that route
 // nodes and their handler refs are in the DB when the resolution pipeline runs.
 func (e *Engine) ExtractFrameworkNodes(ctx context.Context) (int, error) {
-	if err := e.requireDB(); err != nil {
+	if err := e.ensureIndexer(ctx); err != nil {
 		return 0, err
 	}
 
-	// Scan source files — same set the generic extractor processes.
-	absPaths, err := indexer.ScanFiles(e.root)
+	// Scan source files — same set the generic extractor processes, filtered
+	// through the same ignore matcher ensureIndexer wired onto e.orch, so a
+	// route/handler node never appears for a file `atomic code files` hides.
+	absPaths, err := e.orch.ScanFiles(e.root)
 	if err != nil {
 		return 0, fmt.Errorf("codeintel/engine: ExtractFrameworkNodes: scan: %w", err)
 	}

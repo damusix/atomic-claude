@@ -149,20 +149,36 @@ func NewIgnoreMatcher(patterns []string) (*IgnoreMatcher, []Warning) {
 
 // Match reports whether relPath (repo-relative, slash-separated) is
 // excluded by any ignore pattern. A nil matcher matches nothing.
+//
+// Uses MatchUnvalidated rather than Match: every pattern stored in fullPath
+// and basenames already passed doublestar.ValidatePattern in
+// NewIgnoreMatcher, so re-validating on every Match call is redundant work
+// whose error can never actually fire here. MatchUnvalidated skips that
+// redundant validation and has no error to discard.
 func (m *IgnoreMatcher) Match(relPath string) bool {
 	if m == nil {
 		return false
 	}
 	base := path.Base(relPath)
 	for _, p := range m.basenames {
-		if matched, _ := doublestar.Match(p, base); matched {
+		if doublestar.MatchUnvalidated(p, base) {
 			return true
 		}
 	}
 	for _, p := range m.fullPath {
-		if matched, _ := doublestar.Match(p, relPath); matched {
+		if doublestar.MatchUnvalidated(p, relPath) {
 			return true
 		}
 	}
 	return false
+}
+
+// PatternCount returns the number of active (successfully compiled) glob
+// patterns m enforces — used by `atomic code status` to report how many
+// patterns are in effect. A nil matcher has 0 active patterns.
+func (m *IgnoreMatcher) PatternCount() int {
+	if m == nil {
+		return 0
+	}
+	return len(m.fullPath) + len(m.basenames)
 }
