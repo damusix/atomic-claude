@@ -134,16 +134,25 @@ func Plan(targetDir string, manifest []embedded.Artifact) ([]FileAction, error) 
 	return plan, nil
 }
 
+// readPatchedEmbedded reads an embedded artifact's bytes and applies the
+// [agents] tier override (a no-op for non-agent artifacts or when overrides
+// is nil), so every caller compares/writes against the same effective content.
+func readPatchedEmbedded(a embedded.Artifact, overrides map[string]string) ([]byte, error) {
+	data, err := fs.ReadFile(embedded.FS, a.Source)
+	if err != nil {
+		return nil, fmt.Errorf("read embedded %s: %w", a.Source, err)
+	}
+	return patchAgentContent(a.Target, data, overrides), nil
+}
+
 func planArtifact(targetDir string, a embedded.Artifact, agentOverrides map[string]string) (FileAction, error) {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(a.Target))
 
-	embeddedData, err := fs.ReadFile(embedded.FS, a.Source)
-	if err != nil {
-		return FileAction{}, fmt.Errorf("read embedded %s: %w", a.Source, err)
-	}
-
 	// Patch before SHA so the plan reflects the bytes Apply will write to disk.
-	embeddedData = patchAgentContent(a.Target, embeddedData, agentOverrides)
+	embeddedData, err := readPatchedEmbedded(a, agentOverrides)
+	if err != nil {
+		return FileAction{}, err
+	}
 
 	embeddedSHA := hexSHA256(embeddedData)
 
@@ -273,15 +282,13 @@ func populateProfile(targetDir string, clock Clock) {
 func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]string) error {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(fa.Artifact.Target))
 
-	embeddedData, err := fs.ReadFile(embedded.FS, fa.Artifact.Source)
-	if err != nil {
-		return fmt.Errorf("read embedded %s: %w", fa.Artifact.Source, err)
-	}
-
 	// Patch agent frontmatter with configured model tier before any write.
 	// This ensures the user's tier choice survives every install/update cycle,
 	// including binary upgrades that ship new bundled agent content.
-	embeddedData = patchAgentContent(fa.Artifact.Target, embeddedData, agentOverrides)
+	embeddedData, err := readPatchedEmbedded(fa.Artifact, agentOverrides)
+	if err != nil {
+		return err
+	}
 
 	switch fa.Kind {
 	case ActionInstalled:
@@ -456,15 +463,20 @@ type DiffRow struct {
 }
 
 // Diff compares each manifest artifact against the on-disk state. Read-only.
+// Loads the [agents] config overrides once so agent rows are compared against
+// the patched content Apply would have written, not the raw bundle bytes —
+// otherwise a correct install with a configured tier override falsely reports
+// as drifted (issue #129).
 func Diff(targetDir string) ([]DiffRow, error) {
 	manifest := embedded.Manifest()
+	agentOverrides := loadAgentOverrides(targetDir)
 	var rows []DiffRow
 	for _, a := range manifest {
 		onDiskPath := filepath.Join(targetDir, filepath.FromSlash(a.Target))
 
-		embeddedData, err := fs.ReadFile(embedded.FS, a.Source)
+		embeddedData, err := readPatchedEmbedded(a, agentOverrides)
 		if err != nil {
-			return nil, fmt.Errorf("read embedded %s: %w", a.Source, err)
+			return nil, err
 		}
 
 		diskData, err := os.ReadFile(onDiskPath)

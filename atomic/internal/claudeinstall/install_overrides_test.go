@@ -270,6 +270,35 @@ func TestAgentModelOverride_NonAgentUnchanged(t *testing.T) {
 	}
 }
 
+// TestAgentModelOverride_DiffMatchesAfterInstall: after installing with an
+// [agents] tier override, Diff must report DiffMatch for the overridden agent —
+// it has to compare against the patched embedded content, not the raw bundle
+// bytes, or a correct install falsely shows as drifted (issue #129).
+func TestAgentModelOverride_DiffMatchesAfterInstall(t *testing.T) {
+	target := t.TempDir()
+	suppressProfileRefresh(t)
+	writeOverrideConfig(t, target, "atomic-implementer", "haiku")
+
+	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	rows, err := claudeinstall.Diff(target)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+
+	for _, row := range rows {
+		if row.Artifact.Target == "agents/atomic-implementer.md" {
+			if row.Status != claudeinstall.DiffMatch {
+				t.Errorf("Diff status for overridden agent = %s, want %s", row.Status, claudeinstall.DiffMatch)
+			}
+			return
+		}
+	}
+	t.Error("agents/atomic-implementer.md not found in Diff rows")
+}
+
 // TestAgentModelOverride_OtherAgentsUnaffected: installing with an override for
 // one agent must leave other agents with their bundled-default model: values.
 func TestAgentModelOverride_OtherAgentsUnaffected(t *testing.T) {
