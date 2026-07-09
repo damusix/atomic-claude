@@ -337,4 +337,4 @@ These live under `.claude/commands/`, load as project-scoped slash commands for 
 
 ## Install (for this repo's artifacts)
 
-No install script yet. Manual: copy each top-level directory into `~/.claude/`, restart Claude Code. A future `/install` or Makefile target is on the table.
+Install like any user: `curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash` fetches the binary, then `atomic claude install` writes the artifact bundle into `~/.claude/`. To test local artifact changes, build the dev binary (`make -C atomic build`, outputs `bin/atomic`) and run `bin/atomic claude install`. Decision record: `docs/research/install-sh-decision.md` (issue #127 — install.sh stays; the old manual-copy guidance is retired).
