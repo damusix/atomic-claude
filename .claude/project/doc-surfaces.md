@@ -1,6 +1,6 @@
 # Doc surfaces
 
-last-scanned: 2026-07-09T22:08:10Z
+last-scanned: 2026-07-09T22:55:00Z
 
 - README.md [🌟 Highlights, ℹ️ Overview, 🚀 Usage]
 - docs/credits.md — Credits [Inspirations, caveman, superpowers]
@@ -27,6 +27,7 @@ last-scanned: 2026-07-09T22:08:10Z
 - docs/design/graphignore.md — Graphignore: repo-scoped ignore globs for the code-intel index [Problem, Goals / Non-goals, Approaches]
 - docs/design/legible-output.md — Design: format routing in the atomic output style [Problem, Constraint that shapes everything, Pattern verdicts (user-approved)]
 - docs/design/okf-alignment.md — OKF alignment for wiki + serve [Problem, Scope (decided with user), Goals / Non-goals]
+- docs/design/repo-init.md — Design: atomic repo init — deterministic .claude/ scaffolding [Problem, Shape, Key decisions]
 - docs/design/serve-live-reload.md — Serve live reload [Problem, Goals / Non-goals, Approaches]
 - docs/design/signals-refresh-timing.md — Design: signals refresh timing [Problem, Goal, Key insight: staleness is the coordinator (no marker file)]
 - docs/design/signals-router.md — Signals as router, not dump [Problem, Three surfaces, three jobs, Goals / Non-goals]
@@ -108,6 +109,7 @@ last-scanned: 2026-07-09T22:08:10Z
 - docs/spec/legible-output.md — Spec: format routing in the atomic output style [Checkpoints, Checkpoint 1 contract, Success criteria]
 - docs/spec/okf-alignment.md — OKF alignment for wiki + serve [Goal, Non-goals, Success criteria]
 - docs/spec/phoenix-route-resolver.md — Spec: wire the Phoenix route resolver to Elixir [Goal, Approach, Success criteria]
+- docs/spec/repo-init.md — Spec: atomic repo init [Contract, Repo migration (this repo, one-time), Template strip]
 - docs/spec/serve-live-reload.md — Serve live reload [Goal, Non-goals, Success criteria]
 - docs/spec/session-report.md — Session report [Goal, Checkpoints, Problem statement]
 - docs/spec/setup-wiki.md — setup-wiki [Goal, Checkpoints, Problem statement]
@@ -139,7 +141,7 @@ last-scanned: 2026-07-09T22:08:10Z
 - docs/wiki/CLAUDE.md — docs/wiki/ steering [type: Steeringdescription: Steering context for the docs/wiki/ project-wiki directory; loaded by Claude when any file under docs/wiki/ is read., What lives here, Key cross-references]
 - docs/wiki/bundle.md — bundle [type: Domaindescription: Template render (commands + agents) → bundle embed → install/uninstall into ~/.claude., What it does, Artifacts]
 - docs/wiki/code-intel.md — code-intel [type: Domaindescription: Tree-sitter/wazero symbol graph + SQLite store + atomic code CLI verbs + MCP server + embedded-SQL extraction (20 host languages) + Snowflake dialect + dbt model/macro extraction (v2) + T-SQL lineage gaps v2 + agent integration., What it does, CLI code]
-- docs/wiki/config.md — config [type: Domaindescription: User config, state dir (profile.md, config.toml), session hooks, reminders, follow-ups, self-update; cold-op briefs embedded in binary via coldprompt package; repo-scoped .claude/atomic.toml ignore-glob config for the code-intel indexer., What it does, Artifacts]
+- docs/wiki/config.md — config [type: Domaindescription: User config, state dir (profile.md, config.toml), session hooks, reminders, follow-ups, self-update; cold-op briefs embedded in binary via coldprompt package; repo-scoped .claude/atomic.toml ignore-glob config for the code-intel indexer; repo-local .claude/ layout scaffolding via atomic repo init., What it does, Artifacts]
 - docs/wiki/docs-meta.md — docs-meta [type: Domaindescription: Two-voice taxonomy, diff-driven surface routing, prose style, design axioms., What it does, Artifacts]
 - docs/wiki/doctor.md — doctor [type: Domaindescription: 13-check integrity suite + static validation (A1 artifact CLI-flag lint) + CLI surface table + post-update auto-fire + user profile + code-index health + migration-drift nudge + repo-scoped ignore-config validation., What it does, Artifacts]
 - docs/wiki/index.md — Project signals [type: Indexdescription: Repo-local project wiki for atomic-claude — framework signals, domain map, and cross-cutting context for Claude sessions., Framework & runtime, Build / test / lint]

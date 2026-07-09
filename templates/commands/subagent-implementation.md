@@ -54,11 +54,12 @@ The index lifecycle is orchestrator-owned. Subagents never trigger indexing. A m
 Pick the working dir: `.claude/.scratchpad/<YYYY-MM-DD>-<topic>/`. Use today's date.
 
 ```bash
+command -v atomic >/dev/null 2>&1 && atomic repo init >/dev/null
 SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-<topic>"
 mkdir -p "$SCRATCH"
 ```
 
-`.claude/.scratchpad/` must be gitignored — verify, add if missing.
+Run `atomic repo init` first if the `atomic` binary is present — it guarantees the `.claude/` layout and ignore rules (scratchpad + project dirs, nested `.claude/.gitignore`); skip silently otherwise.
 
 Write two files inside `$SCRATCH`:
 

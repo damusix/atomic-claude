@@ -60,7 +60,6 @@ Inspect the repo. Build this status table:
 | `.gitignore` has `tmp/` | grep `^tmp/?$` | yes / no |
 | `.gitignore` has `.claude/.scratchpad/` | grep `^\.claude/\.scratchpad/?$` | yes / no |
 | `.gitignore` has `.worktrees/` | grep `^\.worktrees/?$` | yes / no |
-| `.gitignore` has `.claude/project/.deterministic-signals.prev.md` | grep the pattern | yes / no |
 | `CLAUDE.md` at repo root | `test -f CLAUDE.md` | exists / missing |
 | `docs/` directory | `test -d docs` | exists / missing |
 | `docs/spec/` directory | `test -d docs/spec` | exists / missing |
@@ -87,11 +86,11 @@ For each missing item, propose an action. Skip items already present.
 
 | Missing item | Proposed action |
 |--------------|----------------|
-| `.gitignore` doesn't exist | Create with: `tmp/`, `.claude/.scratchpad/`, `.worktrees/`, `.claude/project/.deterministic-signals.prev.md`. |
-| `.gitignore` exists but missing `tmp/` | Append `tmp/`. |
-| `.gitignore` exists but missing `.claude/.scratchpad/` | Append `.claude/.scratchpad/`. |
-| `.gitignore` exists but missing `.worktrees/` | Append `.worktrees/`. |
-| `.gitignore` exists but missing `.claude/project/.deterministic-signals.prev.md` | Append `.claude/project/.deterministic-signals.prev.md`. |
+| `.gitignore` missing, or missing any of `tmp/` / `.claude/.scratchpad/` / `.worktrees/`, `atomic` binary present | Run `atomic repo init` — one idempotent call covers all three (creates `.gitignore` if absent) plus the `.claude/.scratchpad/` + `.claude/.atomic-index/` rules in nested `.claude/.gitignore` and the `.claude/.scratchpad/` + `.claude/project/` dirs. |
+| `.gitignore` doesn't exist, `atomic` binary absent | Create with: `tmp/`, `.claude/.scratchpad/`, `.worktrees/`. |
+| `.gitignore` exists but missing `tmp/`, `atomic` binary absent | Append `tmp/`. |
+| `.gitignore` exists but missing `.claude/.scratchpad/`, `atomic` binary absent | Append `.claude/.scratchpad/`. |
+| `.gitignore` exists but missing `.worktrees/`, `atomic` binary absent | Append `.worktrees/`. |
 | `CLAUDE.md` missing | Run the survey procedure (see "CLAUDE.md survey" in Step 4). Seed every section with an agent guess from signals/README/code; user edits the guess. |
 | `docs/spec/` missing | Create directory + `docs/spec/.gitkeep` (so git tracks it before any content lands). |
 | `docs/design/` missing | Create directory + `docs/design/.gitkeep`. |
@@ -109,7 +108,7 @@ Present the proposed actions as a numbered list:
 
 ```
 Proposed actions:
-  [1] Append tmp/, .claude/.scratchpad/, .worktrees/ to .gitignore
+  [1] Run atomic repo init (scaffolds tmp/, .claude/.scratchpad/, .worktrees/ ignore rules)
   [2] Create CLAUDE.md from atomic template
   [3] Create docs/spec/.gitkeep
   [4] Create docs/design/.gitkeep
@@ -139,11 +138,11 @@ For each confirmed action, in order:
 
 ### `.gitignore`
 
-- If file missing: write a fresh one with the three lines.
-- If file exists: read it. For each missing entry, append a new line (preserve trailing newline). Append only — preserve existing entries and their order.
+- **`atomic` binary present:** run `atomic repo init`. It creates `.gitignore` if missing and appends whichever of `tmp/` / `.worktrees/` isn't yet effective, plus (via nested `.claude/.gitignore`) `.claude/.scratchpad/` and `.claude/.atomic-index/`. Idempotent — re-running once everything is in place is a no-op.
+- **`atomic` binary absent:** fall back to manual append. If file missing: write a fresh one with the three lines. If file exists: read it. For each missing entry, append a new line (preserve trailing newline). Append only — preserve existing entries and their order.
 
 ```bash
-# Example append (one entry, idempotent):
+# Manual fallback: append one entry, idempotent:
 grep -qxF 'tmp/' .gitignore || echo 'tmp/' >> .gitignore
 ```
 
