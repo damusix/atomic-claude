@@ -158,7 +158,7 @@ signals <refreshed | initialized>.
   CLAUDE.md:     <updated with @-refs | unchanged (already wired) | not created (skipped)>
 
 suggested next step:
-  git add docs/wiki/index.md docs/wiki/*.md && git restore --staged docs/wiki/scan.md
+  git add docs/wiki/*.md
   (and CLAUDE.md if modified)
   then: /commit
 ```

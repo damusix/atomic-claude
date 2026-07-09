@@ -412,7 +412,7 @@ Entries in `docs/wiki/scan.md` marked `[generated]` must be skipped by sub-agent
 docs/wiki/
 ├── index.md          # router + orientation, @-ref'd from project CLAUDE.md or CLAUDE.local.md
 ├── CLAUDE.md         # steering, OKF type: Steering; created on first run if absent
-├── scan.md           # deterministic substrate, NOT @-ref'd; not committed
+├── scan.md           # deterministic substrate, NOT @-ref'd; committed with each refresh
 ├── auth.md           # domain file, OKF type: Domain
 ├── billing.md        # domain file, OKF type: Domain
 └── cli.md            # domain file, OKF type: Domain
