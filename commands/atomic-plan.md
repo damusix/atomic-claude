@@ -94,145 +94,13 @@ The design doc persists by default. Whether it gets cited later is downstream �
 
 `<topic>` = short kebab-case (e.g. `oauth-refresh`, `user-search-perf`). No date prefix — `git log` carries that.
 
-**Design structure:**
-
-```markdown
-# <title>
-
-## Problem
-
-<user-facing pain or motivation>
-
-## Goals / Non-goals
-
-- Goals: …
-- Non-goals: …
-
-## Approaches
-
-| # | Approach | Pros | Cons |
-|---|----------|------|------|
-| A | … | … | … |
-| B | … | … | … |
-
-## Recommendation
-
-<chosen option + why, with evidence>
-
-## Open questions
-
-- <q>
-```
-
-Include a Mermaid diagram (flowchart / ERD / sequence / state) under Problem or Recommendation when the work involves architecture, conceptual relationships, or state transitions. One-sentence caption above so non-rendering readers still get it.
+**Design structure:** seed the file from the embedded template — `atomic template design-doc > docs/design/<topic>.md` — then fill every `<angle-bracket>` placeholder and delete the guidance comments as you fill. The template is the structural contract — same sections, same order, no improvised headers. Its guidance comments carry the fill rules (Mermaid diagram placement, evidence expectations).
 
 ### Write spec
 
 Always produce `docs/spec/<topic>.md`. For trivial, write it inline. For non-trivial, **enter the spec loop** below.
 
-**Spec structure:**
-
-```markdown
-# <title>
-
-## Goal
-
-<1-2 sentences. What done looks like.>
-
-## Non-goals
-
-- <thing explicitly out of scope>
-
-## Success criteria
-
-- [ ] <verifiable check>
-- [ ] <verifiable check>
-
-## Approach
-
-<!-- Design doc exists (always, for non-trivial work): name the chosen approach in ONE line
-     and link the design. Do NOT copy the Approaches table or name the rejected forks —
-     that deliberation lives only in the design.
-     No design doc (trivial inline spec): replace this section with the full `## Approaches`
-     table + `## Recommendation` instead, since there's no design to hold them. -->
-
-<chosen approach, one line> — see `docs/design/<topic>.md`.
-
-## Change tree
-
-<!-- Indented file tree of what this spec touches. One line per node.
-     Markers: A created, M modified, D removed. Optional parenthetical for
-     symbols touched — sketch-level, same altitude as the Checkpoints table's
-     Files/areas column, never a signature contract. Example:
-
-     src/auth/
-     ├── session.ts ........... M  (SessionStore: rotation support)
-     ├── session.test.ts ...... M  (tests for rotation)
-     └── rotate.ts ............ A  (new: rotation policy)
-     docs/guides/sessions.md .. M  (rotation section) -->
-
-<tree>
-
-## Outline
-
-<!-- Hollow outline of the work: per file, the named pieces to be created or
-     reshaped — functions/types for code, sections/blocks for markdown
-     artifacts; a mixed change uses each file's natural unit. One line per
-     piece: `name — responsibility`. Members nest one level under their
-     parent piece — a type's methods, a section's subsections — and no
-     deeper: what happens inside a member is implementation. Hollow means
-     empty inside: no signatures, no bodies, no algorithms. A change with no
-     nameable pieces writes `None — <reason>` instead of omitting the
-     section. The reviewer walks this outline against the delivered work, so
-     every piece here is a promise the diff should keep (or visibly deviate
-     from). Example:
-
-     src/auth/session.ts
-       SessionStore — session persistence
-         rotate — swap current token, retire previous
-         prune  — drop retired tokens past grace period
-       isExpired — token age check against policy
-
-     src/auth/session.test.ts
-       rotation survives restart — retired token honored during grace
-
-     docs/guides/sessions.md
-       Token rotation — behavior + grace-period semantics -->
-
-<outline, or `None — <reason>`>
-
-## Flows
-
-<!-- One numbered actor -> step sequence per behavior being implemented.
-     A change that ships no runtime behavior (pure docs/config) writes
-     `None — <reason>` instead of omitting the section — presence is what
-     the reviewer checks, not omission. Example:
-
-     Flow: session rotation
-     1. client presents a token older than the rotation interval
-     2. middleware calls SessionStore.rotate -> new token issued, old retired
-     3. response carries the new token; the old one is honored until the
-        grace period ends -->
-
-<flows, or `None — <reason>`>
-
-## Checkpoints
-
-| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
-|---|------------|-------------|-------|------------|----------|
-| 1 | <action>   | <paths>     | atomic-implementer (mode: feature) | ~4 | <test or signal> |
-| 2 | <action>   | <paths>     | atomic-implementer (mode: surgical) | 1-2 | <test or signal> |
-
-## Risks
-
-| Risk | Likelihood | Mitigation |
-|------|-----------|-----------|
-| <r>  | high/med/low | <plan> |
-
-## Change log
-
-<!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
-```
+**Spec structure:** seed the file from the embedded template — `atomic template spec > docs/spec/<topic>.md` — then fill every `<angle-bracket>` placeholder and delete the guidance comments as you fill, except the one under `## Change log`, which stays until the first post-approval amendment. The template is the structural contract: Goal, Non-goals, Success criteria, Approach (one-line design pointer, or full Approaches + Recommendation for a trivial inline spec with no design), Change tree, Outline, Flows, Checkpoints, Risks, Change log. Its guidance comments carry the per-section fill rules with examples — same sections, same order, no improvised headers.
 
 The `## Change log` section ships **empty** on creation. Drafting and refinement turns before approval are not amendments — the spec is being born. The first real entry happens later, when an *approved* spec is changed. See "Specs: the body is current truth, the change log is history" in `CLAUDE.md`.
 
@@ -241,7 +109,8 @@ The `## Change log` section ships **empty** on creation. Drafting and refinement
 Mirrors `/subagent-implementation`'s implement→review pattern, but for spec authoring instead of code.
 
 ```
-Iter 1: atomic-implementer (mode: feature) reads design (if exists) + Approaches → drafts spec.
+Iter 1: atomic-implementer (mode: feature) seeds the spec from `atomic template spec`,
+        reads design (if exists) + Approaches → drafts spec by filling the template.
 Iter 2: atomic-reviewer (spec-mode) reads design + spec → reports gaps:
         - Design intent not covered in spec?
         - Success criteria untestable / missing / vague?
@@ -257,13 +126,14 @@ Iter 3+: builder applies feedback; reviewer re-checks.
 Terminate on VERDICT: PASS or hard-cap (5 iters; configurable via memory).
 ```
 
-Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md` + `FOLLOWUPS.md`. Deleted on PASS. Reuses the same scratchpad shape as `/subagent-implementation` so contributors don't need a second mental model.
+Use `.claude/.scratchpad/<YYYY-MM-DD>-spec-<topic>/` with `BRIEF.md` + `STATE.md` + `FOLLOWUPS.md`, each seeded from its embedded template (`atomic template brief` / `state` / `followups`). Deleted on PASS. Reuses the same scratchpad shape as `/subagent-implementation` so contributors don't need a second mental model.
 
 **Spec-currency briefing.** In the builder dispatch (Iter 1 and every revision), explicitly tell the builder to follow `rules/specs/spec-currency.md` — the body must describe only the current decision, with history in `## Change log`. The rule auto-loads when the builder touches `docs/spec/**` or `docs/design/**`, but state it in the brief too so currency is not left to chance.
 
 **`atomic-reviewer` spec-mode brief.** When dispatched from this command, brief the reviewer for *alignment review* — not diff review. It is checking the spec against the design (and against repo evidence), not against code. Spec-mode verdict criteria:
 
 - Design intent fully covered.
+- Structure matches the `atomic template spec` skeleton — same sections, same order, no leftover `<placeholder>` slots or guidance comments (Change log's excepted).
 - Success criteria verifiable and falsifiable.
 - Checkpoints are cohesive slices, not line-by-line code.
 - Voice is evidence-backed, not prescriptive.
@@ -384,6 +254,7 @@ The `Agent` column hints at dispatch:
 - No speculative scope ("we might also want to..."). Out-of-scope items go in Non-goals.
 - No code in this command. Plan only.
 - One round of clarifying questions max. After that, write with stated assumptions and let the user correct.
+- Document skeletons come from the binary: `atomic template design-doc|spec|brief|state|followups`. If `atomic` is absent or the verb errors, stop: `document template unavailable (atomic template <name> failed) — install/update the atomic binary. cannot proceed.` Never improvise the structure from memory.
 - Skip planning entirely for *trivial* work — write the spec inline (or offer to implement directly if the user prefers).
 - Promoted files are curated: no TODOs, no "tbd". Unresolved items go in `## Open questions` and get flagged in the handoff summary.
 

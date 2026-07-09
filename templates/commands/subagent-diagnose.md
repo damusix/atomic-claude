@@ -44,7 +44,7 @@ Stop. Do not proceed until mode is valid.
 |------|--------|
 | 0.1 | Slug: kebab-case from first ~6 words of the symptom arg (e.g. `"user login fails with 500"` → `user-login-fails-with-500`). Topic: `<YYYY-MM-DD>-diagnose-bug-<slug>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise run `atomic repo init` if `command -v atomic` succeeds (guarantees the `.claude/` layout and ignore rules; skip silently otherwise), then `mkdir -p "$SCRATCH"`. |
 | 0.2 | Single `AskUserQuestion` block. For each of the four context fields not already answered by the symptom: **repro steps**, **expected vs actual behavior**, **environment fingerprint** (OS, runtime versions, branch, dirty/clean working tree), **what's been tried**. Skip fields the symptom paragraph already answers. |
-| 0.3 | Write `CONTEXT.md` with four stable headings (`## Repro`, `## Expected vs actual`, `## Environment`, `## Already tried`). Append trailing YAML key `top_level_error:` — use a paste-able error string if the brief or answers contain one, else `<none — behavioral bug>`. |
+| 0.3 | Seed `CONTEXT.md` from `atomic template diagnose-context` and fill it — four stable headings (`## Repro`, `## Expected vs actual`, `## Environment`, `## Already tried`) plus the trailing YAML key `top_level_error:` — use a paste-able error string if the brief or answers contain one, else `<none — behavioral bug>`. |
 | 0.4 | Auto-capture: if suspected paths are inferable from the brief, run `git log --oneline -20 -- <paths>` and append output as `## Recent commits` to `CONTEXT.md`. Skip silently if no paths inferable. |
 | 0.5 | Write `BRIEF.md` source-pointer section pointing at `CONTEXT.md`. The brief is canonical — no external spec exists. |
 
@@ -60,6 +60,8 @@ Stop. Do not proceed until mode is valid.
 | `$SCRATCH/CONTEXT.md` | Phase 0 capture (logs for `ci`, repro + symptom map for `bug`) |
 
 `$SCRATCH` = `.claude/.scratchpad/<YYYY-MM-DD>-<mode-suffix>`.
+
+Seed `BRIEF.md`, `STATE.md`, and `FOLLOWUPS.md` from their embedded templates (`atomic template brief` / `state` / `followups`) — each template's guidance comment names the diagnose-mode variant (source-pointer brief section, iteration-0 baseline entry).
 
 ## Phase 1 — Investigator pass
 
@@ -231,6 +233,6 @@ Do NOT push, merge, or open a PR. User picks the ship verb when ready.
 - Never auto-relaunch on CI re-watch failure (ci-mode step 4.4). Hard rule — prevents infinite loops on flaky infra.
 - If the same normalized top-level error repeats across three consecutive iterations, the same-failure bail fires and surfaces the stuck-fix escalation block (see § Iteration cap + bail-out) — do not silently loop past the bail.
 - Subagent output is the tool result. Summarize to the user in 1-3 lines per iteration; don't dump full transcripts.
-- Templates live in `commands/_templates/`. If missing, stop: `implementer/reviewer prompt template not found at commands/_templates/<file>. cannot proceed.`
+- Prompt templates live in `commands/_templates/`. If missing, stop: `implementer/reviewer prompt template not found at commands/_templates/<file>. cannot proceed.` Document skeletons come from the binary (`atomic template brief|state|followups|diagnose-context`); if the verb fails, stop the same way rather than improvising structure.
 
 </constraints>
