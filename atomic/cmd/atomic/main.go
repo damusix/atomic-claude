@@ -29,6 +29,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/prompt"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 	"github.com/damusix/atomic-claude/atomic/internal/repoctx"
+	"github.com/damusix/atomic-claude/atomic/internal/repoinit"
 	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 	"github.com/damusix/atomic-claude/atomic/internal/signals"
@@ -112,7 +113,7 @@ func main() {
 	}
 }
 
-// buildRootCmd constructs the Cobra root command with all 18 top-level verb
+// buildRootCmd constructs the Cobra root command with all 19 top-level verb
 // stubs. Each stub delegates to the existing runXxx handler with the post-verb
 // args, preserving all existing dispatch behavior unchanged. The nested
 // sub-switches inside handlers (code, wiki, signals, etc.) stay intact and are
@@ -182,7 +183,7 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	rootCmd.PersistentFlags().Bool("no-update-check", false, "suppress background update check")
 	rootCmd.PersistentFlags().BoolP("version", "v", false, "print version and exit")
 
-	// --- 18 top-level verb stubs -----------------------------------------
+	// --- 19 top-level verb stubs -----------------------------------------
 
 	rootCmd.AddCommand(buildSignalsCmd(repoOverride))
 
@@ -219,6 +220,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	rootCmd.AddCommand(buildServeCmd())
 
 	rootCmd.AddCommand(buildMigrateCmd())
+
+	rootCmd.AddCommand(buildRepoCmd(repoOverride))
 
 	return rootCmd
 }
@@ -407,6 +410,29 @@ func buildDockerCmd() *cobra.Command {
 	}
 	initCmd.Flags().String("target", "", "target directory for scaffolded files")
 	initCmd.Flags().Bool("force", false, "overwrite existing files")
+	parent.AddCommand(initCmd)
+	return parent
+}
+
+// buildRepoCmd builds the "repo" parent + init child.
+func buildRepoCmd(repoOverride *string) *cobra.Command {
+	dispatch := func(args []string) { runRepo(args, *repoOverride) }
+	parent := &cobra.Command{
+		Use:   "repo",
+		Short: "Repo-scoped scaffolding (init)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	initCmd := &cobra.Command{
+		Use:                "init",
+		Short:              "Scaffold .claude/ layout: dirs + nested .claude/.gitignore + root ignore rules (idempotent)",
+		Annotations:        map[string]string{"args_hint": ""},
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dispatch(append([]string{"init"}, args...))
+			return nil
+		},
+	}
 	parent.AddCommand(initCmd)
 	return parent
 }
@@ -1525,6 +1551,44 @@ func runDocker(args []string) {
 	default:
 		fmt.Fprintf(os.Stderr, "atomic docker: unknown subcommand %q\n", verb)
 		fmt.Fprintf(os.Stderr, "Usage: atomic docker <init> [flags]\n")
+		os.Exit(2)
+	}
+}
+
+func runRepo(args []string, repoOverride string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic repo <init> [flags]\n")
+		os.Exit(2)
+	}
+
+	verb := args[0]
+	switch verb {
+	case "init":
+		fs := flag.NewFlagSet("repo init", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic repo init")
+		if err := fs.Parse(args[1:]); err != nil {
+			os.Exit(2)
+		}
+
+		root, err := repoctx.Resolve(repoOverride)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic repo init: %v\n", err)
+			os.Exit(1)
+		}
+
+		actions, err := repoinit.Init(root)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic repo init: %v\n", err)
+			os.Exit(1)
+		}
+
+		for _, a := range actions {
+			fmt.Printf("%-8s %s\n", string(a.Kind), a.Name)
+		}
+
+	default:
+		fmt.Fprintf(os.Stderr, "atomic repo: unknown subcommand %q\n", verb)
+		fmt.Fprintf(os.Stderr, "Usage: atomic repo <init> [flags]\n")
 		os.Exit(2)
 	}
 }

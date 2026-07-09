@@ -30,7 +30,7 @@ Open a repo you work in and run two commands.
 /refresh-wiki
 ```
 
-`/setup-wiki` audits the repo for the conventions atomic expects: the `.gitignore` entries for scratch and worktree directories, the `docs/` layout, and a `CLAUDE.md`. It proposes only what is missing and never overwrites. It makes no commits.
+`/setup-wiki` audits the repo for the conventions atomic expects: the `.claude/` layout and `.gitignore` rules for scratch and worktree directories (scaffolded by one idempotent `atomic repo init` call when the binary is present), the `docs/` layout, and a `CLAUDE.md`. It proposes only what is missing and never overwrites. It makes no commits.
 
 `/refresh-wiki` is the step that stops the guessing. It walks the repo and writes a standing model of it to `.claude/project/signals.md`: the framework, the build and test and lint commands, the languages, and a map of which directories form which feature. Claude reads that model before it reads your code, so a new session knows your stack instead of inventing `npm` scripts that do not exist. Ship commands refresh the model as the repo changes, so you do not hand-maintain it.
 

@@ -73,15 +73,20 @@ The branch name is passed by the caller (e.g. a topic slug derived from the spec
 
 ## Verify .worktrees/ is gitignored
 
+Try the deterministic path first: if `command -v atomic` succeeds, run `atomic repo init` (best-effort, idempotent — it guarantees `.worktrees/` is ignored along with the rest of the `.claude/` layout).
+
 ```bash
 git check-ignore -q .worktrees
 ```
 
-If exit code is non-zero (not ignored):
+If exit code is still non-zero (not ignored — binary absent, or init didn't cover it):
 
 - Append `.worktrees/` to `.gitignore` (create at repo root if missing).
+
+If either step changed an ignore file:
+
 - Invoke the `atomic-git-discipline` skill.
-- Stage `.gitignore` explicitly by path.
+- Stage whichever ignore file(s) changed (`.gitignore` and/or `.claude/.gitignore`) explicitly by path.
 - Commit with message `chore: gitignore .worktrees/`.
 
 ## Carry forward an in-context spec or design (optional)
@@ -202,11 +207,12 @@ The index lifecycle is orchestrator-owned. Subagents never trigger indexing. A m
 Pick the working dir: `.claude/.scratchpad/<YYYY-MM-DD>-<topic>/`. Use today's date.
 
 ```bash
+command -v atomic >/dev/null 2>&1 && atomic repo init >/dev/null
 SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-<topic>"
 mkdir -p "$SCRATCH"
 ```
 
-`.claude/.scratchpad/` must be gitignored — verify, add if missing.
+Run `atomic repo init` first if the `atomic` binary is present — it guarantees the `.claude/` layout and ignore rules (scratchpad + project dirs, nested `.claude/.gitignore`); skip silently otherwise.
 
 Write two files inside `$SCRATCH`:
 

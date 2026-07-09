@@ -96,15 +96,20 @@ The branch name is passed by the caller (e.g. a topic slug derived from the spec
 
 ## Verify .worktrees/ is gitignored
 
+Try the deterministic path first: if `command -v atomic` succeeds, run `atomic repo init` (best-effort, idempotent — it guarantees `.worktrees/` is ignored along with the rest of the `.claude/` layout).
+
 ```bash
 git check-ignore -q .worktrees
 ```
 
-If exit code is non-zero (not ignored):
+If exit code is still non-zero (not ignored — binary absent, or init didn't cover it):
 
 - Append `.worktrees/` to `.gitignore` (create at repo root if missing).
+
+If either step changed an ignore file:
+
 - Invoke the `atomic-git-discipline` skill.
-- Stage `.gitignore` explicitly by path.
+- Stage whichever ignore file(s) changed (`.gitignore` and/or `.claude/.gitignore`) explicitly by path.
 - Commit with message `chore: gitignore .worktrees/`.
 
 ## Carry forward an in-context spec or design (optional)

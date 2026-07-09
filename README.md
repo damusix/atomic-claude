@@ -88,7 +88,7 @@ Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subage
 
   Proposed actions
 
-  [1] Append .claude/.scratchpad/ and .worktrees/ to .gitignore
+  [1] Run atomic repo init (scaffolds .claude/ dirs + ignore rules)
   [2] Create docs/spec/.gitkeep + docs/design/.gitkeep
   [3] Append signals @-refs to CLAUDE.md
 

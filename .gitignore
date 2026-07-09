@@ -17,26 +17,11 @@ tmp/workspace/*
 !tmp/claude-home/
 tmp/claude-home/*
 !tmp/claude-home/.gitkeep
-.claude/.scratchpad/
 .worktrees/
-.claude/agents/
-.claude/commands/*
-!.claude/commands/triage-issues.md
-.claude/output-styles/
-.claude/skills/*
-!.claude/skills/atomic-cli-contrib/
-!.claude/skills/atomic-cli-contrib/**
-!.claude/skills/atomic-release-ci/
-!.claude/skills/atomic-release-ci/**
-.claude/rules/*
-!.claude/rules/authoring/
-!.claude/rules/authoring/**
-!.claude/settings.local.json
 /bin/
 node_modules/
 .vitepress/dist/
 .vitepress/cache/
-.claude/.atomic-index/
 
 # tree-sitter grammar sources: build-time input for lib/ts.wasm, fetched on demand
 # via atomic/internal/codeintel/tsbinding/fetch-grammars.sh (see that dir's CLAUDE.md).

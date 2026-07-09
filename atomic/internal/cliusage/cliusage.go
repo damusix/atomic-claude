@@ -400,6 +400,12 @@ var commands = []Command{
 		Flags:       []string{"--repo", "--realm"},
 		Description: "Run versioned atomic migrations",
 	},
+	{
+		Path:        []string{"repo", "init"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Scaffold .claude/ layout: dirs + nested .claude/.gitignore + root ignore rules (idempotent)",
+	},
 }
 
 // Commands returns the ordered command surface. The returned slice is a copy;
