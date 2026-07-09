@@ -50,7 +50,7 @@ Required sections:
 - **Why** — short paragraphs explaining the reasoning. What problem was being solved, what alternatives were rejected, what the user clarified. Not exhaustive; aim for a future-reader who needs enough to write the commit message.
 - **Open threads** (optional) — unresolved questions or follow-ups deferred to a later session.
 
-Voice: terse technical prose — bullets, short paragraphs. Not `atomic-prose` (that's narrative docs). Not atomic output style (that's Claude's replies).
+Voice: terse technical prose — bullets, short paragraphs. Not `atomic-writing` (that's narrative docs). Not atomic output style (that's Claude's replies).
 
 ## Ship-verb integration
 
@@ -60,7 +60,7 @@ Sequence at commit-message time:
 
 1. Compute the branch's session-reports dir: `.claude/.scratchpad/session-reports/<branch>/`.
 2. If the dir exists and contains `*.md` files, read all of them in chronological order.
-3. Pass the concatenated reports to the `atomic-commit` skill as **additional context** for message generation (the skill already reads the staged diff; reports supplement the *why*).
+3. Pass the concatenated reports to the `atomic-git-discipline` skill as **additional context** for message generation (the skill already reads the staged diff; reports supplement the *why*).
 4. After the commit succeeds (post `git commit`, verified by exit code 0), delete the branch's session-reports dir: `rm -rf .claude/.scratchpad/session-reports/<branch>/`.
 5. If the commit fails or is aborted, do **not** delete. Reports persist for the next attempt.
 
@@ -81,7 +81,7 @@ Exempt (no commit message generated): `/pr-only`, `/push-only`, `/merge-to-main`
 
 ## Cross-references
 
-- **`atomic-commit` skill** — receives session-report content as supplemental context for message generation. The skill must declare this input source in its description.
+- **`atomic-git-discipline` skill** — receives session-report content as supplemental context for message generation. The skill must declare this input source in its description.
 - **Ship verbs** — each one's command file must document the read-and-delete behavior in its body.
 - **`claude.local.md` → "Where things live"** — add a bullet for the session-reports scratchpad subtree.
 - **Bundle inclusion** — the new `commands/session-report.md` ships automatically (top-level command, no allowlist; see `bundlemirror/mirror.go`).

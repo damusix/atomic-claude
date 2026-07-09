@@ -714,6 +714,18 @@ func TestInstall_NudgeNoLongerClaimsClaudeFillsIt(t *testing.T) {
 	}
 }
 
+// TestInstall_NudgePointsToRetrospectiveLearning verifies that ProfileNudge directs
+// users to /retrospective-learning, not the pre-rename /atomic-improve verb.
+// WHY: issue #124 renamed the command; a stale nudge would point users at a dead verb.
+func TestInstall_NudgePointsToRetrospectiveLearning(t *testing.T) {
+	if !strings.Contains(claudeinstall.ProfileNudge, "/retrospective-learning") {
+		t.Errorf("ProfileNudge does not mention /retrospective-learning: %q", claudeinstall.ProfileNudge)
+	}
+	if strings.Contains(claudeinstall.ProfileNudge, "/atomic-improve") {
+		t.Errorf("ProfileNudge still mentions stale /atomic-improve: %q", claudeinstall.ProfileNudge)
+	}
+}
+
 // TestBackupTimestampUsesRunStart: Apply uses the clock captured at the start of the
 // run, not the time of the first ActionUpdated. Both items in the plan that are
 // Updated must share the same timestamp directory, which must equal the fixed

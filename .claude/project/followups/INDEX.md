@@ -29,7 +29,7 @@ Open: 21  •  Stale: 0  •  Last rendered: 2026-07-09
 
 ## 🔵 nits (4)
 
-- [atomic-setup-prerelocation-paths](atomic-setup-prerelocation-paths.md) — atomic-setup audit still checks pre-relocation signals paths (0d)
+- [atomic-setup-prerelocation-paths](atomic-setup-prerelocation-paths.md) — setup-wiki audit still checks pre-relocation signals paths (0d)
 - [doctor-spec-missing-migrate-row](doctor-spec-missing-migrate-row.md) — atomic-doctor spec: Check categories table missing category 12 (migrate) row (1d)
 - [serve-pipe-escaping](serve-pipe-escaping.md) — Serve domain one-liner has unescaped pipes (mis-renders table) (10d)
 - [tsql-alter-procedure-bodies](tsql-alter-procedure-bodies.md) — T-SQL extractor skips standalone ALTER PROCEDURE/FUNCTION bodies (CREATE-stub + ALTER-body idiom invisible) (15d)

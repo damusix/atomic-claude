@@ -373,7 +373,7 @@ The `Agent` column hints at dispatch:
 
 **Spec / design voice is table-first, terse, brevity-dominant.** These files are re-read often by humans and agents and live or die by token cost. Use tables, Mermaid diagrams, and short bullet lists as the primary form. Prose only where a contract genuinely needs sentences (Goal, Problem statement, Rationale, Recommendation). When prose is required, keep it tight: active voice, no marketing jargon, no em dashes, no throat-clearing, no AI-tell phrases.
 
-**Do NOT invoke the `atomic-prose` skill here.** That skill is for enduring narrative docs (README, guides) where some narrative carries value; specs and design pay token cost on every read and stay terse.
+**Do NOT invoke the `atomic-writing` skill here.** That skill is for enduring narrative docs (README, guides) where some narrative carries value; specs and design pay token cost on every read and stay terse.
 
 <constraints>
 

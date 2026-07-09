@@ -70,7 +70,7 @@ flowchart TD
 
 Control blocks inside `index.md` (machine-managed, mirroring the existing `<wiki-scan>` / `<wiki-buckets>` block pattern):
 
-- `<wiki-type>repo</wiki-type>` — scope marker (also written into `claude.local.md`/`CLAUDE.md` by `atomic-setup`; index copy is the canonical machine anchor).
+- `<wiki-type>repo</wiki-type>` — scope marker (also written into `claude.local.md`/`CLAUDE.md` by `setup-wiki`; index copy is the canonical machine anchor).
 - `<scan-sha>…</scan-sha>` — sha of `scan.md` as of the last successful **infer**. Tiebreaker only: when the committed `scan.md`'s sha ≠ this value, scan.md was committed without re-inferring (double-scan or stale-scan) → fuller re-infer warranted. The routine diff baseline is the committed `scan.md` itself, via git.
 - `<wiki-schema>N</wiki-schema>` — the repo's wiki layout/migration version. Repo-scope migrations read it to decide what to apply. Lives here (committed, per-repo) — **not** in the global `config.toml`, which has no business tracking ad-hoc repos.
 
@@ -107,7 +107,7 @@ Fixed content with no judgment call is a deterministic transform (`CLAUDE.md` Pr
 
 **Resolution:** new `atomic wiki init --scope repo|realm --root <path>` CLI verb, following the `RegisterWiki` idiom already established in `atomic/internal/wiki/registry.go` (guard-check existing state, atomic write via temp+rename, no-op if already present). `repo` scope writes `docs/wiki/CLAUDE.md` with the scaffold currently embedded in the two template heredocs (moved verbatim into Go — not redesigned). `realm` scope writes `<root>/wiki/CLAUDE.md` containing only `@index.md`, hooked off the same "wiki root touched" event `wiki.Scan()` (`atomic/internal/wiki/wiki.go:81`) already owns (repo directory scaffolding), so every `atomic wiki scan` on a realm ensures the file exists with no separate template call needed. `templates/commands/refresh-wiki.md` and `skills/atomic-wiki/references/repo.md` call the CLI verb instead of embedding the heredoc.
 
-`templates/commands/atomic-setup.md` still audits/creates the pre-relocation `.claude/project/signals-steering.md` (Step 1/2/4) — a leftover from before workstream B, not a new decision. It moves to auditing `docs/wiki/CLAUDE.md` and calling the same CLI verb.
+`templates/commands/setup-wiki.md` still audits/creates the pre-relocation `.claude/project/signals-steering.md` (Step 1/2/4) — a leftover from before workstream B, not a new decision. It moves to auditing `docs/wiki/CLAUDE.md` and calling the same CLI verb.
 
 
 ## Skill-router architecture
@@ -256,7 +256,7 @@ flowchart LR
 | D | `refresh-signals`→`refresh-wiki`; `atomic-signals-inferrer`→`atomic-wiki-inferrer`; skill-router | `docs/spec/wiki-unify-commands.md` | depends B |
 | E | `<scan-sha>` drift → full-vs-incremental scope, reconciled with `signals stale` | `docs/spec/wiki-drift-scope.md` | depends D (edits the skill-router + renamed agent) |
 | F | Agent model overrides: `config.toml [agents]` (full agent-name keys) set via interactive `atomic config agents` + install-time `model:` frontmatter patch | `docs/spec/agent-model-overrides.md` | depends C (config schema v2) |
-| G | Deterministic `atomic wiki init --scope repo\|realm` verb; retire the repo-scope heredoc; add realm-scope `<root>/wiki/CLAUDE.md`; fix `atomic-setup.md`'s stale `signals-steering.md` path | `docs/spec/wiki-deterministic-setup.md` | depends B (steering concept), D (`refresh-wiki.md`/`atomic-wiki` skill are the call sites) |
+| G | Deterministic `atomic wiki init --scope repo\|realm` verb; retire the repo-scope heredoc; add realm-scope `<root>/wiki/CLAUDE.md`; fix `setup-wiki.md`'s stale `signals-steering.md` path | `docs/spec/wiki-deterministic-setup.md` | depends B (steering concept), D (`refresh-wiki.md`/`atomic-wiki` skill are the call sites) |
 | A | Cobra migration; derive cliusage from command tree; preserve A1 linter | `docs/spec/cli-cobra.md` | independent; last |
 
 
@@ -319,7 +319,7 @@ Every path/name change must ripple through the surfaces below or it ships an inv
 - [ ] `atomic/cmd/atomic/main.go` `buildWikiCmd()` (~line 626) — new `init` subcommand (`--scope`, `--root` flags); `atomic/internal/wiki/action.go` `WikiAction` — dispatch wiring
 - [ ] `atomic/internal/cliusage/cliusage.go` (~line 320-360, wiki command block) — register `wiki init` path + flags + description
 - [ ] `templates/commands/refresh-wiki.md` (R3, ~line 82-119) + `skills/atomic-wiki/references/repo.md` Step 8c — replace heredoc with `atomic wiki init --scope repo` call
-- [ ] `templates/commands/atomic-setup.md` — Step 1 audit (~line 74), Step 2 propose (~line 106), Step 4 write (~line 180-208): stop referencing `.claude/project/signals-steering.md`; audit `docs/wiki/CLAUDE.md` existence, call `atomic wiki init --scope repo` to create
+- [ ] `templates/commands/setup-wiki.md` — Step 1 audit (~line 74), Step 2 propose (~line 106), Step 4 write (~line 180-208): stop referencing `.claude/project/signals-steering.md`; audit `docs/wiki/CLAUDE.md` existence, call `atomic wiki init --scope repo` to create
 - [ ] `claude.local.md` (this repo, ~line 200) + `skills/atomic-wiki/references/repo.md` (lines 73, 203) — stale `signals-steering.md` mentions
 - [ ] `make render` + `make bundle` for every touched artifact under `agents/ commands/ skills/` or `CLAUDE.md`
 
@@ -343,7 +343,7 @@ Seven specs, derived from this design, in sequence **B → C → D → E → F �
 
 
 - **OKF types:** `index`→`Index`, `<domain>`→`Domain`, `scan.md`→no frontmatter (not a graph node).
-- **`atomic-setup` scope detection:** not-a-repo + has `wiki/` → realm; repo + no `wiki/` → repo; repo + has `wiki/` → ask, treat as wiki if ambiguous. Non-repo realm ("git-wiki") handling deferred if it proves load-bearing.
+- **`setup-wiki` scope detection:** not-a-repo + has `wiki/` → realm; repo + no `wiki/` → repo; repo + has `wiki/` → ask, treat as wiki if ambiguous. Non-repo realm ("git-wiki") handling deferred if it proves load-bearing.
 - **`migrate` edge case** (old layout + partial new layout both present) → **merge**.
 - **Drift is repo-scope only.** Git-committed `scan.md` is the diff baseline; `<scan-sha>` is a tiebreaker (its necessity is reduced — revisit in the E spec).
 - **Two state stores, each scoped:** `config.toml` (global — `[install]` + `[agents]`) for install/agent state; `<wiki-schema>` block in each repo's `docs/wiki/index.md` for per-repo migration version (travels with the repo). Global config holds no ad-hoc-repo state.

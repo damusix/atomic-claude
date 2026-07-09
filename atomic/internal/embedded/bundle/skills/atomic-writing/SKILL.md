@@ -1,5 +1,5 @@
 ---
-name: atomic-prose
+name: atomic-writing
 description: >
   Voice and tone rules for *enduring narrative documentation* — README.md, docs/guides/,
   CHANGELOG narrative entries, and any other long-form human-facing markdown that ships
@@ -25,13 +25,13 @@ Enduring narrative documentation has its own voice. This skill governs it. Claud
 
 Run these rules when writing or editing prose in `README.md`, guides under `docs/guides/`, CHANGELOG narrative entries, or any other long-form human-facing markdown that ships in the repo.
 
-**Do NOT apply this skill to `docs/spec/` or `docs/design/`.** Those files use terse technical prose: table-first, diagrams allowed, prose kept terse and to the point. Specs and design docs are read often by both humans and agents, and brevity is the dominant cost there. Atomic-prose narrative would inflate them without adding value.
+**Do NOT apply this skill to `docs/spec/` or `docs/design/`.** Those files use terse technical prose: table-first, diagrams allowed, prose kept terse and to the point. Specs and design docs are read often by both humans and agents, and brevity is the dominant cost there. Atomic-writing narrative would inflate them without adding value.
 
 <voice_rules>
 
 ## What this skill is, and what it is not
 
-| | Atomic (TUI style) | Atomic-prose (this skill) | Terse technical | Marketing slop (avoid) |
+| | Atomic (TUI style) | Atomic-writing (this skill) | Terse technical | Marketing slop (avoid) |
 |---|---|---|---|---|
 | **Where** | Claude's TUI replies to the user | README, docs/guides/, CHANGELOG narrative | `docs/spec/`, `docs/design/`, `CLAUDE.md`, signals files | Anywhere |
 | **Form** | Fragments OK, drop articles, terse | Full sentences, paragraphs that flow | Tables, diagrams, terse bullets | Punchy taglines, hero copy |

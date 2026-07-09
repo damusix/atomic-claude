@@ -14,7 +14,7 @@ Current state (verified 2026-07-03):
 
 - The only shipped rule is one bullet in `templates/shared/agent-shared-rules.md:3` ("Comments only when WHY is non-obvious"), composed **only** into `atomic-implementer`. `agent-shared-rules` has no other consumers.
 - `atomic-reviewer` has no comment-discipline review dimension — the implementer follows a rule the reviewer never checks.
-- `CLAUDE.md` (bundle source, every user's global contract) carries **no** comment guidance, yet `skills/atomic-prose/SKILL.md:137` points to "the global comment rules in `CLAUDE.md`" — a dangling pointer.
+- `CLAUDE.md` (bundle source, every user's global contract) carries **no** comment guidance, yet `skills/atomic-writing/SKILL.md:137` points to "the global comment rules in `CLAUDE.md`" — a dangling pointer.
 - `skills/atomic-review/SKILL.md` (conversational review surface) flags over-engineering but not comment noise.
 
 
@@ -38,7 +38,7 @@ The issue left placement open (partial vs rule vs principle). Decision: **shared
 | `templates/agents/atomic-implementer.md` | Compose the partial in `<constraints>` | Both modes (feature + surgical) render from this one template, so one composition covers builder and surgeon. |
 | `templates/shared/agent-shared-rules.md` | Remove the one-line comment bullet | Superseded by the partial; keeping both would drift. Only consumer is the implementer, which now gets the fuller partial. |
 | `templates/agents/atomic-reviewer.md` | Compose the partial + new "Comment-discipline findings" section + name the rule in workflow step 6 | Mirrors the existing suppression-pattern and over-engineering sections — same shape, same Code quality placement, judgment-call framing. |
-| `CLAUDE.md` Principles | One compact bullet distilling rules 1–4 | Covers the main agent's inline coding path (subagent partials never load there) and fixes `atomic-prose`'s dangling pointer. Distilled, not verbatim — CLAUDE.md loads every session; the partial carries the full text. |
+| `CLAUDE.md` Principles | One compact bullet distilling rules 1–4 | Covers the main agent's inline coding path (subagent partials never load there) and fixes `atomic-writing`'s dangling pointer. Distilled, not verbatim — CLAUDE.md loads every session; the partial carries the full text. |
 | `skills/atomic-review/SKILL.md` | Short "Comment noise" section parallel to "Over-engineering" | Conversational PR reviews should flag the same violations the loop reviewer gates. Same threading precedent as the YAGNI reflex. |
 
 
@@ -59,5 +59,5 @@ Judgment call, not a regex lint — same framing as the suppression-pattern rule
 
 
 - Prose style of Claude's replies (output style owns it).
-- Documentation surfaces (`atomic-prose` / `atomic-documentation` own those).
+- Documentation surfaces (`atomic-writing` / `atomic-documentation` own those).
 - `rules/typescript/style.md:15` ("a comment explaining the next block means extract a function") stays — it's a structure rule, not a comment rule, and doesn't conflict.

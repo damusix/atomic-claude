@@ -105,7 +105,7 @@ Write the implementation log to the spec, then:
     - /commit pr           — open a PR
     ```
 
-Execute the chosen ship verb (it owns message format via `atomic-commit`, worktree cleanup, and signals refresh). On a worktree merge/squash, delete the worktree per the verb's prompt (auto-confirm — the user picked the merge).
+Execute the chosen ship verb (it owns message format via `atomic-git-discipline`, worktree cleanup, and signals refresh). On a worktree merge/squash, delete the worktree per the verb's prompt (auto-confirm — the user picked the merge).
 
 ## Phase 6 — Summary and cleanup
 

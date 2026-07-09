@@ -60,7 +60,7 @@ Opt-in only. Does not auto-fire.
 
 ## Voice
 
-Working-memory voice — bullets + short paragraphs. Not atomic output style (that's Claude's replies). Not `atomic-prose` (that's narrative docs like README and guides). Internal context that the commit-message synthesis will read.
+Working-memory voice — bullets + short paragraphs. Not atomic output style (that's Claude's replies). Not `atomic-writing` (that's narrative docs like README and guides). Internal context that the commit-message synthesis will read.
 
 ## Lifecycle
 
@@ -70,7 +70,7 @@ If a branch is abandoned without a commit, the reports stay in `.claude/.scratch
 
 ## Cross-references
 
-- **`atomic-commit` skill** — receives the concatenated reports for the current branch as supplemental context when synthesizing the commit message.
+- **`atomic-git-discipline` skill** — receives the concatenated reports for the current branch as supplemental context when synthesizing the commit message.
 - **Ship verb that consumes reports:** `/commit` (all escalation paths). Reads all reports for the current branch before message synthesis and deletes the branch's reports dir after a successful commit.
 - **Exempt paths** (no commit-message generation): `/commit push` / `/commit pr` / `/commit merge` when run with commits already ahead of base and nothing to commit — these ship existing commits unchanged.
 - **Full spec:** `docs/spec/session-report.md`.

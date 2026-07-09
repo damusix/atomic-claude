@@ -29,7 +29,7 @@ Both files are gitignored (project-specific, regenerated on demand). They are au
 | ~~`/initialize-signals`~~ | ~~command~~ | ~~`commands/initialize-signals.md`~~ — **removed**, replaced by `/refresh-wiki` |
 | `/refresh-wiki` | command | `commands/refresh-wiki.md` — dispatches `atomic-wiki-inferrer` agent |
 | `/commit-only` (edit) | command | `commands/commit-only.md` — dispatches agent pre-commit when source changed |
-| `/atomic-setup` (edit) | command | `commands/atomic-setup.md` — propose binary install + `/refresh-wiki` |
+| `/setup-wiki` (edit) | command | `commands/setup-wiki.md` — propose binary install + `/refresh-wiki` |
 | `CLAUDE.md` (edit) | bundled global | this repo's root `CLAUDE.md` (the one that ships as `~/.claude/CLAUDE.md` via the embed bundle) gets a section mentioning the signals workflow so users know it exists |
 
 
@@ -213,10 +213,10 @@ If the gate regenerates the signals files, the verb commits them as a **separate
 `/pr-only` does not run the post-op gate. By construction it requires a clean working tree (it ships already-committed history to a PR), so there is nothing uncommitted to refresh; any signals drift was already caught by the `/commit-only` that produced the branch commits. Leaving it exempt avoids a no-op probe on every PR open.
 
 
-## Integration with `/atomic-setup`
+## Integration with `/setup-wiki`
 
 
-Edit `/atomic-setup` audit table to include:
+Edit `/setup-wiki` audit table to include:
 
 
 | Convention | Check |
@@ -263,7 +263,7 @@ Proposed actions:
 | S-2 | ~~`atomic-signals` skill~~ | ~~`skills/atomic-signals/SKILL.md`~~ | **removed 2026-05-27** — absorbed into agent |
 | S-3 | ~~`/initialize-signals` command~~ | ~~`commands/initialize-signals.md`~~ | **removed** — replaced by `/refresh-wiki` |
 | S-4 | Edit `/commit-only` to dispatch agent pre-commit | `commands/commit-only.md` | |
-| S-5 | Edit `/atomic-setup` audit + propose flow | `commands/atomic-setup.md` | |
+| S-5 | Edit `/setup-wiki` audit + propose flow | `commands/setup-wiki.md` | |
 | S-6 | Update `CLAUDE.md` + `README.md` tables to document signals | `CLAUDE.md`, `README.md` | |
 
 

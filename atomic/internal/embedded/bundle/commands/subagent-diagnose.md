@@ -101,7 +101,7 @@ TDD discipline applies: failing test that reproduces the bug must be written fir
 
 **Commit ownership: orchestrator commits, not the agent.** After PASS:
 
-1. Invoke `atomic-commit` skill for message format.
+1. Invoke `atomic-git-discipline` skill for message format.
 2. Stage only files from the implementer's `## Did` section — explicit paths, no `-A`.
 3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
 4. Record commit SHA in `STATE.md` under the iteration's `Commit:` line.

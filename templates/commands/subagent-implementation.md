@@ -225,7 +225,7 @@ After the stuck check (or if the signal changed and no escalation fires), loop b
 
 After each PASS, commit before the next iteration:
 
-1. Invoke `atomic-commit` skill for message format.
+1. Invoke `atomic-git-discipline` skill for message format.
 2. Stage only the files the implementer touched (explicit paths from the implementer's `## Did` section). No `-A`.
 3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
 4. Record the commit SHA in STATE.md under the iteration's `Commit:` line.

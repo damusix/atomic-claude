@@ -10,7 +10,7 @@ description: >
   "what surfaces does this touch", "doc impact for this diff", "what needs
   documenting". Also invoked by /documentation (authoring mode) and by ship verbs
   (maintenance mode, between stage and signals).
-  Boundary: for raw prose drafting (README intro, guide narrative), atomic-prose owns.
+  Boundary: for raw prose drafting (README intro, guide narrative), atomic-writing owns.
   This skill owns diff-driven surface impact and content generation for stale/incomplete docs.
 ---
 
@@ -29,7 +29,7 @@ This skill reads the project's indexed documentation surfaces, matches a diff ag
 | Voice | Where | Style |
 |-------|-------|-------|
 | **How Claude talks** | TUI replies | Atomic output style: terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. |
-| **How files are written** | All file content | Narrative docs (`README.md`, `docs/guides/`) use `atomic-prose` skill. Everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose: tables, bullets, imperative. |
+| **How files are written** | All file content | Narrative docs (`README.md`, `docs/guides/`) use `atomic-writing` skill. Everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose: tables, bullets, imperative. |
 
 ## How surface routing works
 
@@ -42,9 +42,9 @@ Expected table format:
 
 | Path | Covers | Voice |
 |------|--------|-------|
-| `docs/architecture/payments.md` | billing, webhooks, Stripe | atomic-prose |
-| `docs/models/README.md` | data model, ERD, migrations | atomic-prose |
-| `docs/api/endpoints.md` | REST API, auth, rate limits | atomic-prose |
+| `docs/architecture/payments.md` | billing, webhooks, Stripe | atomic-writing |
+| `docs/models/README.md` | data model, ERD, migrations | atomic-writing |
+| `docs/api/endpoints.md` | REST API, auth, rate limits | atomic-writing |
 ```
 
 The `Covers` column is the matching key. The skill compares diff file paths and changed symbols against these terms to classify each surface as `stale`, `incomplete`, or `missing`. If no `## Documentation surfaces` section exists in any of the searched files, the skill returns empty surfaces — clean degradation with no false positives.
@@ -162,21 +162,21 @@ After completing analysis, emit as the **final block** of the response a fenced 
 ```yaml
 surfaces:
   - path: docs/models/README.md
-    voice: atomic-prose
+    voice: atomic-writing
     impact_type: stale
     reason: migration adds refund_status to orders table
     suggested_change: |
       Add refund_status field to Order entity in ERD.
       Add row to orders field table: refund_status | string | pending/approved/rejected
   - path: docs/api/endpoints.md
-    voice: atomic-prose
+    voice: atomic-writing
     impact_type: incomplete
     reason: new POST /payments/refund endpoint added
     suggested_change: |
       Add row to payments endpoint table with method, path, auth, request/response.
 ```
 
-Voice values: `atomic-prose | terse-technical`. Use `atomic-prose` for narrative docs (`README.md`, `docs/guides/`); `terse-technical` for everything else (specs, designs, `CLAUDE.md`, signals, agents, commands).
+Voice values: `atomic-writing | terse-technical`. Use `atomic-writing` for narrative docs (`README.md`, `docs/guides/`); `terse-technical` for everything else (specs, designs, `CLAUDE.md`, signals, agents, commands).
 
 `impact_type` values: `stale | incomplete | missing`. Maintenance mode never emits `missing`.
 
@@ -197,7 +197,7 @@ Parser contract (caller side):
 
 ## Why structured handoff here
 
-This is the only skill in the atomic system that emits a fenced YAML block for callers to parse. Other skills (`atomic-commit`) emit free text that callers act on conversationally. The structured handoff here is justified by one concrete need: per-surface accept/reject prompts in ship verbs require a clear item list — the caller cannot reliably extract a structured list from free-text output. The YAML block provides that list without ambiguity.
+This is the only skill in the atomic system that emits a fenced YAML block for callers to parse. Other skills (`atomic-git-discipline`) emit free text that callers act on conversationally. The structured handoff here is justified by one concrete need: per-surface accept/reject prompts in ship verbs require a clear item list — the caller cannot reliably extract a structured list from free-text output. The YAML block provides that list without ambiguity.
 
 Do not apply this pattern to other skills without a similarly concrete need for machine-readable per-item output. When in doubt, emit free text and let the caller act conversationally.
 

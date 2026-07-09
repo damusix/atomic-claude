@@ -18,7 +18,7 @@ This is a structural gap, not a usage problem. The fix is a new surface, not bet
 
 - Single global file holding curated identity facts about the user, available to every session.
 - Claude updates the file opportunistically when a fact surfaces naturally in conversation.
-- Drift between recorded facts and current reality is surfaced via `/atomic-improve` — not by interrupting work mid-conversation.
+- Drift between recorded facts and current reality is surfaced via `/retrospective-learning` — not by interrupting work mid-conversation.
 - Historical facts are preserved (old + new), not overwritten — useful for drawing parallels.
 - Bootstrap at install captures the deterministic environment (git config, OS, hardware) so the file is non-empty on day one.
 - Cleanly survives `atomic claude install/update/uninstall` — the file is user data, not bundle data.
@@ -81,20 +81,20 @@ sequenceDiagram
     participant U as User
     participant C as Claude (session)
     participant P as profile.md
-    participant I as /atomic-improve
+    participant I as /retrospective-learning
 
     U->>C: "At Globex we did it differently"
     C->>P: profile says employer=Acme
     C->>P: append new fact (employer=Globex)<br/>retain old as history
     Note over P: Both facts now present
-    U->>I: runs /atomic-improve later
+    U->>I: runs /retrospective-learning later
     I->>P: scans for contradictions
     I->>U: "profile says Acme AND Globex — reconcile?"
     U->>I: Accept Globex / Modify / Skip / Keep both
 ```
 
 - Real-time: Claude appends new fact, never overwrites the old.
-- Deferred: `/atomic-improve` introduces a new finding category — **profile drift** — that surfaces contradictions and asks the user per-finding.
+- Deferred: `/retrospective-learning` introduces a new finding category — **profile drift** — that surfaces contradictions and asks the user per-finding.
 - No periodic review. No staleness clock. If you stop mentioning a side project, it sits in the file silently — that's accepted.
 
 
@@ -170,7 +170,7 @@ At `atomic claude install`, runs once:
    - `runtime.NumCPU()`
 3. Add `@~/.claude/.atomic/profile.md` to the atomic-owned block of `~/.claude/CLAUDE.md` (alongside the existing config.resolved.md ref).
 4. Add routing instruction to `~/.claude/CLAUDE.md`: *"Facts about the user personally go to `profile.md`. Project-tinted preferences continue to auto memory."*
-5. Print one-line nudge: `Profile created at ~/.claude/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /atomic-improve to review drift.`
+5. Print one-line nudge: `Profile created at ~/.claude/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /retrospective-learning to review drift.`
 
 No interactive interview. No mid-conversation prompts.
 
@@ -179,7 +179,7 @@ No interactive interview. No mid-conversation prompts.
 
 | # | Approach | Pros | Cons |
 |---|---|---|---|
-| A | New file at `~/.claude/.atomic/profile.md`, install-generated stub, opportunistic write, `/atomic-improve` review (this design) | Mirrors existing `config.resolved.md` pattern; no bundle changes; clean uninstall story; routing rule is one CLAUDE.md edit | Requires teaching Claude a new write target via CLAUDE.md instruction |
+| A | New file at `~/.claude/.atomic/profile.md`, install-generated stub, opportunistic write, `/retrospective-learning` review (this design) | Mirrors existing `config.resolved.md` pattern; no bundle changes; clean uninstall story; routing rule is one CLAUDE.md edit | Requires teaching Claude a new write target via CLAUDE.md instruction |
 | B | Bundle a template `profile.md` shipped with the binary, modified per-user | Discoverable from the bundle; consistent shape across users | Wrong tool: bundle artifacts are *read-only contracts that update*. User content overlaid on a bundled file fights `atomic claude update`. Maintenance nightmare. |
 | C | Use `~/.claude/CLAUDE.md` directly for user-written profile content | Zero new surfaces; existing global file | Defeats the "Claude writes opportunistically" requirement — CLAUDE.md is a user-written contract, not an append target Claude should mutate. Mixes voices and breaks the install/update boundary. |
 | D | Patch Claude Code itself: add a global tier to auto memory | Fixes the gap at the root | Out of our control. Belongs upstream. |
@@ -198,7 +198,7 @@ Confidence: high. The pattern is proven; the gap it fills is real; the maintenan
 - **Bootstrap nudge surface.** One-line stdout message after install vs. logged-only. Stdout is more discoverable but adds noise to the install transcript. Default to stdout, accept that it adds one line.
 - **Doctor integration.** Should `atomic doctor` check that `profile.md` exists and is @-ref'd, parallel to the signals-ref check? Probably yes — keeps the wiring honest — but the spec should call this out so the doctor check gets added explicitly.
 - **CLAUDE.md routing instruction wording.** The exact prose Claude sees that tells it "personal facts go to profile, not project memory" is load-bearing. The spec should include the verbatim text, not a paraphrase — that's the actual contract.
-- **`/atomic-improve` finding format.** Strawman is `[profile drift] "<old fact>" — flagged stale. You mentioned "<new fact>" in N sessions. [Accept new / Modify / Skip / Keep both]`. Worth confirming the exact prompt during spec authoring.
+- **`/retrospective-learning` finding format.** Strawman is `[profile drift] "<old fact>" — flagged stale. You mentioned "<new fact>" in N sessions. [Accept new / Modify / Skip / Keep both]`. Worth confirming the exact prompt during spec authoring.
 
 
 ## v2 — Deterministic environment refresh + dev-tooling fingerprint

@@ -103,7 +103,7 @@ git check-ignore -q .worktrees
 If exit code is non-zero (not ignored):
 
 - Append `.worktrees/` to `.gitignore` (create at repo root if missing).
-- Invoke the `atomic-commit` skill.
+- Invoke the `atomic-git-discipline` skill.
 - Stage `.gitignore` explicitly by path.
 - Commit with message `chore: gitignore .worktrees/`.
 
@@ -125,7 +125,7 @@ the branch carries it forward?
 
 Options: `commit now (recommended)` / `skip`. On `commit now`:
 
-- Invoke the `atomic-commit` skill for the message.
+- Invoke the `atomic-git-discipline` skill for the message.
 - Stage the file explicitly by path. Do not `git add -A`.
 - Commit on the current branch (typically `main`).
 
@@ -253,7 +253,7 @@ Write the implementation log to the spec, then:
     - /commit pr           — open a PR
     ```
 
-Execute the chosen ship verb (it owns message format via `atomic-commit`, worktree cleanup, and signals refresh). On a worktree merge/squash, delete the worktree per the verb's prompt (auto-confirm — the user picked the merge).
+Execute the chosen ship verb (it owns message format via `atomic-git-discipline`, worktree cleanup, and signals refresh). On a worktree merge/squash, delete the worktree per the verb's prompt (auto-confirm — the user picked the merge).
 
 ## Phase 6 — Summary and cleanup
 

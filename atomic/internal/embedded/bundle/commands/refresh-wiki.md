@@ -503,7 +503,7 @@ If any step earlier encountered an error or was aborted, leave `.dirty` set — 
 
 Once the drift marker is cleared, commit the wiki repository automatically — do not ask. The wiki is its own git repo under `<resolved-root>/wiki/`, and its git history *is* the wiki's changelog; prompting only adds friction to an additive operation that loses nothing.
 
-Stage all changes under `<resolved-root>/wiki/`, invoke the `atomic-commit` skill for the commit message format, and commit inside the wiki repo (not the parent repo). No AI byline. If there is nothing staged to commit, print `wiki already current — nothing to commit.` and stop.
+Stage all changes under `<resolved-root>/wiki/`, invoke the `atomic-git-discipline` skill for the commit message format, and commit inside the wiki repo (not the parent repo). No AI byline. If there is nothing staged to commit, print `wiki already current — nothing to commit.` and stop.
 
 </workflow>
 

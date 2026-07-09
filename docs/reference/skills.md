@@ -20,7 +20,7 @@ These handle the craft of committing, reviewing, and documenting.
 
 | Skill | Fires when you say... | What it does |
 |-------|----------------------|-------------|
-| `atomic-commit` | "write a commit", "commit message", or automatically from ship commands | Generates a Conventional Commits message. Subject under 50 chars, body only when the "why" is not obvious. |
+| `atomic-git-discipline` | "write a commit", "commit message", or automatically from ship commands | Generates a Conventional Commits message. Subject under 50 chars, body only when the "why" is not obvious. |
 | `atomic-review` | "review this PR", "code review", "review the diff" | Produces compressed review comments. One line per finding: location, problem, fix. |
 | `atomic-visual-options` | "show me options", "mock up variants", "let me see this side by side", "compare these layouts" | Renders 2–4 visual variants per decision dimension as a throwaway self-contained HTML file; user picks by typing codes (e.g. `A2 B3`); chosen option recorded in the design doc. Invoked by `/atomic-plan` when a design question is visual. |
 
@@ -31,6 +31,6 @@ These keep Claude and your docs in sync with the project.
 
 | Skill | Fires when you say... | What it does |
 |-------|----------------------|-------------|
-| `atomic-prose` | "draft the README", "write the docs", "edit the guide" | Applies a clear, direct voice to narrative documentation. No marketing language, no AI-tell phrases. |
+| `atomic-writing` | "draft the README", "write the docs", "edit the guide" | Applies a clear, direct voice to narrative documentation. No marketing language, no AI-tell phrases. |
 | `atomic-documentation` | "doc this change", "what surfaces does this touch" | Figures out which docs need updating based on a diff and routes each to the right voice. |
 | `atomic-wiki` | "I want a place for notes/tickets/research", "add a bucket", "add this to my wiki", "wiki this", "what does my wiki know about X", "is my wiki stale", "set up a karpathy wiki" | Routes capture-folder intent to `atomic wiki bucket add` (never a bare mkdir), handles karpathy-realm setup, and answers staleness queries for registered wikis. |
