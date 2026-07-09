@@ -78,9 +78,9 @@
 │   │   │   ├── atomicblock.go (fecc860, 74L, 2292ch, 2294B)
 │   │   │   ├── atomicblock_test.go (2554821, 89L, 3000ch, 3002B)
 │   │   │   ├── export_test.go (830fe3e, 9L, 421ch, 423B)
-│   │   │   ├── install.go (aee54d0, 630L, 22705ch, 22745B)
+│   │   │   ├── install.go (68753fc, 642L, 23238ch, 23280B)
 │   │   │   ├── install_claudemd_test.go (0e467a1, 219L, 7078ch, 7086B)
-│   │   │   ├── install_overrides_test.go (a1f0320, 298L, 10246ch, 10268B)
+│   │   │   ├── install_overrides_test.go (cbcca08, 327L, 11259ch, 11283B)
 │   │   │   ├── install_test.go (1bdd0fe, 777L, 25932ch, 25944B)
 │   │   │   ├── manifest.go (f62266d, 170L, 5862ch, 5880B)
 │   │   │   ├── manifest_test.go (30bf745, 472L, 17164ch, 17202B)
@@ -709,7 +709,7 @@
 
 ## Languages
 
-- Go: 152620 LOC (59%), 438 files (44%)
+- Go: 152661 LOC (59%), 438 files (44%)
 - Markdown: 54644 LOC (21%), 336 files (34%)
 - TypeScript: 29270 LOC (11%), 159 files (16%)
 - JavaScript: 8845 LOC (3%), 9 files (0%)
