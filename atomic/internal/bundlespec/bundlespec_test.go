@@ -36,9 +36,9 @@ func TestMatchesSkillDir(t *testing.T) {
 		name string
 		want bool
 	}{
-		{"atomic-commit", true},
+		{"atomic-git-discipline", true},
 		{"atomic-tdd", true},
-		{"atomic-prose", true},
+		{"atomic-writing", true},
 		// no prefix
 		{"commit", false},
 		{"_templates", false},

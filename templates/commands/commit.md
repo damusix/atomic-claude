@@ -1,5 +1,5 @@
 ---
-description: Stage, commit, and optionally ship further. Pass an escalation token (push, pr, merge, squash, squash merge) to skip the prompt. With no token, commits then asks how far to ship. Delegates message format to the atomic-commit skill.
+description: Stage, commit, and optionally ship further. Pass an escalation token (push, pr, merge, squash, squash merge) to skip the prompt. With no token, commits then asks how far to ship. Delegates message format to the atomic-git-discipline skill.
 ---
 
 ## Parse arguments

@@ -16,7 +16,7 @@
 2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir has `*.md` files, read them chronologically and pass as supplemental why-context alongside `SUBJECTS`.
 3. `git reset --soft $(git merge-base HEAD <base>)` — collapse all branch commits into the index.
 4. {{ template "doc-impact" . }}
-5. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
+5. Invoke `atomic-git-discipline` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
 6. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. If the commit failed, leave them.
 7. **Update implementation logs.** Find spec files with an `## Implementation log` section in the squashed diff:
     ```bash

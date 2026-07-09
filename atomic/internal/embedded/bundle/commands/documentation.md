@@ -20,13 +20,13 @@ If `--print-template` is present, print the following and exit:
 
 | Path | Covers | Voice |
 |------|--------|-------|
-| `docs/architecture/payments.md` | billing, webhooks, Stripe | atomic-prose |
-| `docs/models/README.md` | data model, ERD, migrations | atomic-prose |
-| `docs/api/endpoints.md` | REST API, auth, rate limits | atomic-prose |
-| `README.md` | project overview, quick start | atomic-prose |
+| `docs/architecture/payments.md` | billing, webhooks, Stripe | atomic-writing |
+| `docs/models/README.md` | data model, ERD, migrations | atomic-writing |
+| `docs/api/endpoints.md` | REST API, auth, rate limits | atomic-writing |
+| `README.md` | project overview, quick start | atomic-writing |
 ```
 
-Add this section to your committed `CLAUDE.md` and fill in your project's doc files. Voice values: `atomic-prose`, `terse-technical`.
+Add this section to your committed `CLAUDE.md` and fill in your project's doc files. Voice values: `atomic-writing`, `terse-technical`.
 
 ## Step 1 — Detect mode
 
@@ -104,7 +104,7 @@ For each selected surface:
 
    | Path | Covers | Voice |
    |------|--------|-------|
-   | `docs/architecture/payments.md` | payments, webhook flow, Stripe integration | atomic-prose |
+   | `docs/architecture/payments.md` | payments, webhook flow, Stripe integration | atomic-writing |
    ```
 
 4. Stage the file:
@@ -268,7 +268,7 @@ Generate a full page draft for the missing module. Pick the doc type based on co
 - Multi-step process → flow doc with Mermaid flowchart, step descriptions.
 - Architectural decision → ADR with context, decision, consequences.
 
-Follow `atomic-prose` voice: short intro sentence, tables for comparisons, Mermaid diagrams with one-sentence captions, plain language, no LLM-tell filler.
+Follow `atomic-writing` voice: short intro sentence, tables for comparisons, Mermaid diagrams with one-sentence captions, plain language, no LLM-tell filler.
 
 Write the new file. Then offer to add it to the surfaces table:
 

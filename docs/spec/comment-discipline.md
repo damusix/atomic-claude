@@ -14,7 +14,7 @@ Builder, surgeon, and reviewer enforce one shared code-comment discipline; the g
 
 
 - Prose style of Claude's replies (output style owns it; `output-styles/atomic.md` is not touched).
-- Documentation surfaces (`atomic-prose` / `atomic-documentation` own those; no `docs/reference/` edits in this change).
+- Documentation surfaces (`atomic-writing` / `atomic-documentation` own those; no `docs/reference/` edits in this change).
 - `rules/typescript/style.md:15` ("a comment explaining the next block means extract a function") stays as-is — structure rule, not a comment rule.
 - No new path-scoped rule (rejected in the design — would duplicate the CLAUDE.md principle on every file touch).
 
@@ -25,7 +25,7 @@ Builder, surgeon, and reviewer enforce one shared code-comment discipline; the g
 1. `templates/shared/agent-comment-discipline.md` exists, defines the partial `agent-comment-discipline`, and carries the four rules from the design's "Rules" section in declarative voice (readable both as instructions to an implementer and as a contract a reviewer gates against). Each rule carries a WHY, matching the house style of `agent-shared-rules.md`.
 2. `templates/agents/atomic-implementer.md` composes the partial via `{{ template "agent-comment-discipline" . }}` (pasting the rule text inline does NOT satisfy this — the single-partial mechanism is the point); the rendered `agents/atomic-implementer.md` contains the partial's rules. The old "Comments only when WHY is non-obvious" bullet is gone from `templates/shared/agent-shared-rules.md` and from rendered output. No other bullet of `agent-shared-rules` changes.
 3. `templates/agents/atomic-reviewer.md` composes the partial via `{{ template "agent-comment-discipline" . }}`; the rendered `agents/atomic-reviewer.md` contains: the partial's rules, a "Comment-discipline findings" section (severity model from the design: 🔵 noise, 🟡 misleading/reviewer-addressed, explicit not-a-finding list, "judgment call, not a regex lint" framing, findings placed in Code quality), and a mention of the comment-discipline rule in code-mode workflow step 6 alongside the suppression-pattern and over-engineering rules.
-4. `CLAUDE.md` Principles block gains one compact comment-discipline bullet (distills the four rules; includes a **Why:**). `skills/atomic-prose/SKILL.md:137`'s pointer to "global comment rules in `CLAUDE.md`" now resolves to real content.
+4. `CLAUDE.md` Principles block gains one compact comment-discipline bullet (distills the four rules; includes a **Why:**). `skills/atomic-writing/SKILL.md:137`'s pointer to "global comment rules in `CLAUDE.md`" now resolves to real content.
 5. `skills/atomic-review/SKILL.md` gains a "Comment noise" section inside `<output_format>`, parallel in shape to its "Over-engineering" section (short prose + 2–3 example one-liner findings using the severity emojis).
 6. `make render` and `make -C atomic bundle` both run clean; rendered `agents/` and the embedded bundle are committed with the source changes (CI drift gates pass). Because checkpoints commit individually, **each** checkpoint's commit includes its own regenerated bundle — checkpoint 1 touches `agents/` (a bundle-source path) and therefore also runs `make -C atomic bundle` before its commit.
 7. `atomic validate` reports no new findings for the touched artifacts, checked at the end of each checkpoint.

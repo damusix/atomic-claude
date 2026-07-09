@@ -59,7 +59,7 @@ Personal facts about you — name, role, employer, active projects, interests, p
 ## Commits & PRs
 
 
-Commit messages follow the `atomic-commit` skill: Conventional Commits, terse subject, body only when the why isn't obvious. Any subagent briefed to create a commit reads `~/.claude/skills/atomic-commit/SKILL.md` before committing — subagents can't auto-fire skills, so the read is the enforcement. PR titles and bodies stay short: summary plus what it solves — no test plan, no enumerated file lists. Commits, PR titles, and PR bodies never carry an AI byline or attribution: no "Generated with Claude Code" footer, no `Co-Authored-By: Claude` trailer, no session links. **Why:** attribution footers are noise in `git blame` and release notes, and they misstate authorship — the human shipping the change owns it.
+Commit messages follow the `atomic-git-discipline` skill: Conventional Commits, terse subject, body only when the why isn't obvious. Any subagent briefed to create a commit reads `~/.claude/skills/atomic-git-discipline/SKILL.md` before committing — subagents can't auto-fire skills, so the read is the enforcement. PR titles and bodies stay short: summary plus what it solves — no test plan, no enumerated file lists. Commits, PR titles, and PR bodies never carry an AI byline or attribution: no "Generated with Claude Code" footer, no `Co-Authored-By: Claude` trailer, no session links. **Why:** attribution footers are noise in `git blame` and release notes, and they misstate authorship — the human shipping the change owns it.
 
 
 ## Bash over Read+Write
@@ -119,7 +119,7 @@ Use regex when searching for literal strings, log messages, comments, config val
 
 1. **Plan** — `/atomic-plan` gauges triviality (trivial → inline spec; non-trivial → design doc + spec via subagent loop). Pre-design gates: `/gather-evidence`, `/pressure-test`. Post-design gate: `/challenge-swarm` — parallel isolated expert lenses attack the written design/spec and report a contradiction map before implementation. When a design question is genuinely visual, `/atomic-plan` invokes the `atomic-visual-options` skill to render choices as a throwaway HTML artifact; the user picks by typing codes and the chosen option is recorded in the design doc. Human approves.
 2. **Implement** — `/subagent-implementation` reads the spec, runs the implement→review loop, commits per green iteration. (`/subagent-diagnose` for failure-driven work.)
-3. **Ship** — `/commit [push|pr|merge|squash|squash merge]` (ask-don't-enumerate: commits first, then prompts or routes by token). Delegates message format to the `atomic-commit` skill, detects worktree provenance on merge/squash, and refreshes signals for ad-hoc real-code commits (docs-only commits skipped; the implement loop / `/autopilot` is the primary refresh point, scoped to the task's SHA range). `/undo-commit` soft-undoes the last commit.
+3. **Ship** — `/commit [push|pr|merge|squash|squash merge]` (ask-don't-enumerate: commits first, then prompts or routes by token). Delegates message format to the `atomic-git-discipline` skill, detects worktree provenance on merge/squash, and refreshes signals for ad-hoc real-code commits (docs-only commits skipped; the implement loop / `/autopilot` is the primary refresh point, scoped to the task's SHA range). `/undo-commit` soft-undoes the last commit.
 4. **Sync docs** — `/documentation` maintains human-facing surfaces (bootstrap indexes a `## Documentation surfaces` table; subsequent runs match diffs against it). Ship verbs run it in maintenance mode automatically.
 
 

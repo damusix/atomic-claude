@@ -237,7 +237,7 @@ func ensureResolvedConfigStub(targetDir string) error {
 // ProfileNudge is the bootstrap message printed to stdout when profile.md is
 // created for the first time. Tests reference this constant to avoid duplicating
 // the verbatim string.
-const ProfileNudge = "Profile created at ~/.claude/.atomic/profile.md. Mention your role, projects, and preferences in conversation and Claude will record them. Run /atomic-improve to review drift."
+const ProfileNudge = "Profile created at ~/.claude/.atomic/profile.md. Mention your role, projects, and preferences in conversation and Claude will record them. Run /retrospective-learning to review drift."
 
 // ensureProfileStub creates <targetDir>/.atomic/profile.md with the initial schema
 // template if it does not already exist. Idempotent: leaves any existing content untouched.

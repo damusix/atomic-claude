@@ -288,7 +288,7 @@ Inclusion rules (per directory, explicit allowlist via bundle manifest at build 
 - `agents/` — only `atomic-*.md` (e.g. `atomic-builder.md`, `atomic-claude-merger.md`).
 - `skills/` — only `atomic-*/SKILL.md` directories (e.g. `atomic-tdd/`, `atomic-documentation/`).
 - `output-styles/` — only `atomic*.md` (e.g. `atomic.md`).
-- `commands/` — explicit allowlist by name, NOT by prefix. Includes both atomic-prefixed (`atomic-setup.md`, `atomic-plan.md`, `atomic-claude-merge.md`) and verb-named (`commit-only.md`, `merge-to-main.md`, `git-cleanup.md`, `worktree-start.md`, etc.). The full list is committed in `atomic/internal/embedded/manifest.go` and updated when commands are added or removed.
+- `commands/` — explicit allowlist by name, NOT by prefix. Includes both atomic-prefixed (`atomic-plan.md`, `atomic-claude-merge.md`) and verb-named (`setup-wiki.md`, `commit-only.md`, `merge-to-main.md`, `git-cleanup.md`, `worktree-start.md`, etc.). The full list is committed in `atomic/internal/embedded/manifest.go` and updated when commands are added or removed.
 - `.claude/rules/**/*.md` — path-scoped topic rules grouped by language or topic (e.g. `typescript/`, `python/`). Each rule file declares `paths:` globs in its frontmatter so Claude only loads it when touching matching filetypes. Whole directory is included as-is; bundle manifest enumerates each file.
 - `CLAUDE.md` at the atomic-claude repo root → installed as `~/.claude/CLAUDE.md`.
 - Excluded: `claude.local.md`, `tmp/**`, `docs/**`, `.claude/.scratchpad/**`, `.claude/docs/**` (project-local design docs), `atomic/**` (the Go module itself), `.worktrees/**`.
@@ -403,7 +403,7 @@ Updated (2, backed up to ~/.claude/.atomic/backups/2026-05-16T18-32-11Z/):
 Unchanged (5):
   • commands/merge-to-main.md
   • commands/git-cleanup.md
-  • commands/atomic-setup.md
+  • commands/setup-wiki.md
   • agents/atomic-investigator.md
   • rules/python/test-layout.md
 
@@ -510,7 +510,7 @@ Flag: `atomic hooks session-start --format=text` falls back to plain markdown te
 
 - **Branching**: trunk-based on `main`. Feature work lands via `/worktree-start` into `.worktrees/<branch>`.
 - **Versioning**: semver tags `vMAJOR.MINOR.PATCH`. Pre-1.0 is `v0.x.y`; breaking changes bump MINOR until v1.0.
-- **Commit style**: Conventional Commits via the `atomic-commit` skill. No AI bylines.
+- **Commit style**: Conventional Commits via the `atomic-git-discipline` skill. No AI bylines.
 - **Spec linkage**: every Go change references either this spec or a downstream workflow spec. Commits that touch `atomic/` without a spec link get flagged in review.
 
 

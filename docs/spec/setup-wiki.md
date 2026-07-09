@@ -1,4 +1,4 @@
-# atomic-setup
+# setup-wiki
 
 ## Goal
 
@@ -8,10 +8,10 @@ Bootstrap a fresh repo for atomic-claude use without polluting the project's `CL
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| 1 | Survey procedure replaces the old starter-template dump | `commands/atomic-setup.md` | Manual: running `/atomic-setup` in a fresh repo walks the six-section survey, presents agent guesses, accepts user edits, writes a project-specific `CLAUDE.md` with zero global-principle duplication. |
-| 2 | Render skeleton contains exactly six durable sections + signals `@-ref` block | `commands/atomic-setup.md` | Inspect output: headings are `What this is` / `Scope boundary` / `Tribal knowledge` / `Project rules` / `Processes` / `External references` / `Project signals (auto-loaded)`. No `Principles`, no `Where things live`, no `Workflow`. |
-| 3 | Skip is conditional on empty guess; non-empty guesses force `[a]ccept / [e]dit` only | `commands/atomic-setup.md` | Run survey against a repo with real signal (Makefile targets, README URLs): skip option is NOT offered for §5 / §6. Run against a barren repo: skip IS offered, and produces one-line "No X detected" placeholder. |
-| 4 | Guess sources documented per section | `commands/atomic-setup.md` | The Step 4 `CLAUDE.md survey` subsection lists guess sources for each of the six sections. |
+| 1 | Survey procedure replaces the old starter-template dump | `commands/setup-wiki.md` | Manual: running `/setup-wiki` in a fresh repo walks the six-section survey, presents agent guesses, accepts user edits, writes a project-specific `CLAUDE.md` with zero global-principle duplication. |
+| 2 | Render skeleton contains exactly six durable sections + signals `@-ref` block | `commands/setup-wiki.md` | Inspect output: headings are `What this is` / `Scope boundary` / `Tribal knowledge` / `Project rules` / `Processes` / `External references` / `Project signals (auto-loaded)`. No `Principles`, no `Where things live`, no `Workflow`. |
+| 3 | Skip is conditional on empty guess; non-empty guesses force `[a]ccept / [e]dit` only | `commands/setup-wiki.md` | Run survey against a repo with real signal (Makefile targets, README URLs): skip option is NOT offered for §5 / §6. Run against a barren repo: skip IS offered, and produces one-line "No X detected" placeholder. |
+| 4 | Guess sources documented per section | `commands/setup-wiki.md` | The Step 4 `CLAUDE.md survey` subsection lists guess sources for each of the six sections. |
 
 ## Problem statement
 
@@ -32,7 +32,7 @@ Signals capture the *shape* of the project (languages, structure, build commands
 
 - Not a survey of the user's preferences (those belong in global memory or `atomic config`).
 - Not a replacement for `docs/design/*` or `docs/spec/*` — those are per-feature workspaces.
-- Not interactive past the initial bootstrap. `/atomic-setup` is one-shot; subsequent edits to `CLAUDE.md` are manual or via other verbs.
+- Not interactive past the initial bootstrap. `/setup-wiki` is one-shot; subsequent edits to `CLAUDE.md` are manual or via other verbs.
 - Does not write an empty scaffold under any circumstance. The agent always guesses; the user always edits.
 
 ## Survey contract
@@ -162,3 +162,9 @@ When `CLAUDE.md` already exists, the survey does not run. The audit step gates o
 **Why:** `deterministic-signals.md` is too large for context on big repos. The contract changed so only `signals.md` is auto-loaded; `deterministic-signals.md` is read on demand by the inferrer agent. Keeping the two-ref scaffold would cause freshly bootstrapped repos to load the oversized deterministic file on every session.
 
 **Superseded:** Prior scaffold block wrote both `@.claude/project/deterministic-signals.md` and `@.claude/project/signals.md`.
+
+### 2026-07-09 — Rename: atomic-setup → setup-wiki
+
+**What changed:** Command renamed from `/atomic-setup` to `/setup-wiki` (issue #124). Spec file moved from `docs/spec/atomic-setup.md` to `docs/spec/setup-wiki.md`; body self-references updated to the new verb.
+
+**Why:** Part of a four-artifact rename pass (`docs/spec/artifact-renames.md`) clarifying command names across the system.

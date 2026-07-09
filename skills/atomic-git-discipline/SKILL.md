@@ -1,10 +1,10 @@
 ---
-name: atomic-commit
+name: atomic-git-discipline
 description: >
   Compressed commit message generator. Cuts noise from commit messages while preserving
   intent and reasoning. Conventional Commits format. Subject ≤50 chars, body only when
   "why" isn't obvious. Use when user says "write a commit", "commit message",
-  "generate commit", or invokes /atomic-commit. Auto-triggers when staging changes.
+  "generate commit", or invokes /atomic-git-discipline. Auto-triggers when staging changes.
 ---
 
 <trigger>

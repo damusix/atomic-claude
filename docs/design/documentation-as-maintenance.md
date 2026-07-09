@@ -92,11 +92,11 @@ The table format:
 
 | Path | Covers | Voice |
 |------|--------|-------|
-| `docs/architecture/payments.md` | billing, webhooks, Stripe | atomic-prose |
-| `docs/models/README.md` | data model, ERD, migrations | atomic-prose |
-| `docs/api/endpoints.md` | REST API, auth, rate limits | atomic-prose |
-| `docs/onboarding.md` | dev setup, env vars, local dev | atomic-prose |
-| `README.md` | project overview, quick start | atomic-prose |
+| `docs/architecture/payments.md` | billing, webhooks, Stripe | atomic-writing |
+| `docs/models/README.md` | data model, ERD, migrations | atomic-writing |
+| `docs/api/endpoints.md` | REST API, auth, rate limits | atomic-writing |
+| `docs/onboarding.md` | dev setup, env vars, local dev | atomic-writing |
+| `README.md` | project overview, quick start | atomic-writing |
 ```
 
 The `Covers` column is the matching key. Ship verbs compare diff file paths and content against these terms. The `Voice` column tells the content generator which style to use.
@@ -179,7 +179,7 @@ When the user explicitly runs `/documentation`, the full pipeline runs:
 4. **Detect missing.** For domains identified by signals that have no corresponding doc surface, suggest creating a page. Gate behind a heuristic: only suggest for modules with 5+ files. A 3-file utility doesn't need its own page.
 5. **Walk surfaces** with the user. Per surface:
     - **Stale/incomplete** → same Yes/Later/Remind/Skip as maintenance mode, but "Yes" generates the full content immediately.
-    - **Missing** → `[n] New` option generates a full page draft: intro paragraph, Mermaid diagrams (ERD, flowchart, sequence as appropriate), business rules, edge cases. Uses `atomic-prose` voice.
+    - **Missing** → `[n] New` option generates a full page draft: intro paragraph, Mermaid diagrams (ERD, flowchart, sequence as appropriate), business rules, edge cases. Uses `atomic-writing` voice.
 6. **Stage** edited/created files.
 7. **Summary.**
 
@@ -280,7 +280,7 @@ When creating a new page, the skill generates a full draft using the doc type th
 - **New multi-step process** → flow doc with Mermaid flowchart, step descriptions
 - **Architectural decision** → ADR with context, decision, consequences
 
-The draft follows `atomic-prose` voice: short intro sentence, tables for comparisons, categorized sections, plain language, Mermaid where it compresses understanding.
+The draft follows `atomic-writing` voice: short intro sentence, tables for comparisons, categorized sections, plain language, Mermaid where it compresses understanding.
 
 After generating, the skill:
 
@@ -445,7 +445,7 @@ Summary: edited / deferred / skipped / created
 ## Non-goals
 
 
-- Replacing `atomic-prose`. That skill owns voice/tone for narrative docs. `atomic-documentation` owns discovery, classification, and routing. The two collaborate: documentation says "update this section in prose voice", prose writes it.
+- Replacing `atomic-writing`. That skill owns voice/tone for narrative docs. `atomic-documentation` owns discovery, classification, and routing. The two collaborate: documentation says "update this section in prose voice", prose writes it.
 - Auto-committing documentation changes. Edits are staged; the user commits via a ship verb.
 - Generating documentation from scratch for an undocumented project. The skill helps *maintain* docs as code changes. Bootstrapping a docs tree from zero is a different workflow (closer to `/atomic-plan` territory). Projects with zero doc files get "no doc impact" until the user runs `/documentation` to bootstrap.
 - Supporting non-markdown documentation formats (Confluence, Notion, Google Docs). Markdown files in the repo only.

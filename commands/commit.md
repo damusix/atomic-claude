@@ -1,5 +1,5 @@
 ---
-description: Stage, commit, and optionally ship further. Pass an escalation token (push, pr, merge, squash, squash merge) to skip the prompt. With no token, commits then asks how far to ship. Delegates message format to the atomic-commit skill.
+description: Stage, commit, and optionally ship further. Pass an escalation token (push, pr, merge, squash, squash merge) to skip the prompt. With no token, commits then asks how far to ship. Delegates message format to the atomic-git-discipline skill.
 ---
 
 ## Parse arguments
@@ -24,10 +24,10 @@ If the args contain none of the tokens above, run the commit step, then prompt (
 
 <commit-flow>
 
-Invoke the `atomic-commit` skill for message format.
+Invoke the `atomic-git-discipline` skill for message format.
 
 1. Read the current state: `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
-2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir exists and has `*.md` files, read them chronologically and pass their content to `atomic-commit` as supplemental why-context.
+2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir exists and has `*.md` files, read them chronologically and pass their content to `atomic-git-discipline` as supplemental why-context.
 3. **Stage files** explicitly by path. Skip secrets, build artifacts, and large binaries. **Why:** secrets in git history are irrecoverable even after rewrite; binaries bloat the repo permanently. If the intent is ambiguous, ask.
 4. <doc-impact>
 Check whether the staged changes affect any indexed documentation surfaces.
@@ -352,7 +352,7 @@ Wait for the user's response per surface before continuing to the next.
 
 Run doc-impact before signals refresh. **Why:** new or updated doc files appear in the signals scan only if they're staged before the scan runs.
 </doc-impact>
-5. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
+5. Invoke `atomic-git-discipline` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
 6. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. If the commit failed, leave them.
 7. **Update implementation logs.** Find spec files with an `## Implementation log` section in the squashed diff:
     ```bash
@@ -469,7 +469,7 @@ Wait for the user's response per surface before continuing to the next.
 
 Run doc-impact before signals refresh. **Why:** new or updated doc files appear in the signals scan only if they're staged before the scan runs.
 </doc-impact>
-5. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
+5. Invoke `atomic-git-discipline` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
 6. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. If the commit failed, leave them.
 7. **Update implementation logs.** Find spec files with an `## Implementation log` section in the squashed diff:
     ```bash

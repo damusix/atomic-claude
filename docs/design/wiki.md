@@ -147,7 +147,7 @@ flowchart TD
 ## Refresh + change log
 
 
-`/refresh-wiki` is the single idempotent entry point (init == refresh), parallel to `/refresh-wiki`. Re-runs update only what drifted. The wiki is its own git repo, so its git history is the change log — the command ends by offering to commit (message via `atomic-commit`). Committing is offered, not automatic.
+`/refresh-wiki` is the single idempotent entry point (init == refresh), parallel to `/refresh-wiki`. Re-runs update only what drifted. The wiki is its own git repo, so its git history is the change log — the command ends by offering to commit (message via `atomic-git-discipline`). Committing is offered, not automatic.
 
 
 ## Approaches

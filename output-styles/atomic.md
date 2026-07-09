@@ -83,7 +83,7 @@ Atomic subagents respond in atomic style by their own definition — each agent'
 
 Code: write normal. No compression inside source files, comments, or docstrings.
 
-Commits: see `atomic-commit` skill.
+Commits: see `atomic-git-discipline` skill.
 Reviews: see `atomic-review` skill.
 
 PR descriptions: tight prose, no marketing language. Summary, what this solves. No test plan, no AI bylines.
@@ -92,4 +92,4 @@ PR descriptions: tight prose, no marketing language. Summary, what this solves. 
 
 Atomic style applies to your responses to the user, not to file contents. When you write or edit a file, the file follows that codebase's conventions, not this style. "Stop atomic" or switch output style: revert immediately.
 
-**Two voices.** Atomic style governs how *you talk*. How *files are written* is a separate axis: enduring narrative docs (README, `docs/guides/`) use the `atomic-prose` skill; everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose. The `atomic-documentation` skill routes a diff to the right surface.
+**Two voices.** Atomic style governs how *you talk*. How *files are written* is a separate axis: enduring narrative docs (README, `docs/guides/`) use the `atomic-writing` skill; everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose. The `atomic-documentation` skill routes a diff to the right surface.

@@ -146,7 +146,7 @@ Atomic ships through one `/commit` verb: run it bare and it stages, commits, the
 - A run that produces a commit refreshes signals and checks for stale docs automatically.
 - A run that does not produce a commit checks staleness and asks before proceeding.
 - The merge tokens run verification and tests on the merged result first.
-- Every run writes the commit message from the diff via the `atomic-commit` skill.
+- Every run writes the commit message from the diff via the `atomic-git-discipline` skill.
 
 See [commands](/reference/commands) for the full token set.
 
@@ -166,7 +166,7 @@ Two ways to park something for later. **Reminders** are time-based: `/remind-me 
 ## Skills vs commands
 
 
-Both shape Claude's behavior; they trigger differently. **Skills** fire automatically on matching language — say "let's implement the auth module" and `atomic-tdd` activates without you asking. They are the *how*: always-on discipline. **Commands** fire only when you type the slash — `/atomic-plan`, `/subagent-implementation`, `/commit`. They are the *when*: workflows you start on purpose. A command can invoke a skill (every ship verb uses `atomic-commit`); a skill never invokes a command. See [skills](/reference/skills) and [commands](/reference/commands).
+Both shape Claude's behavior; they trigger differently. **Skills** fire automatically on matching language — say "let's implement the auth module" and `atomic-tdd` activates without you asking. They are the *how*: always-on discipline. **Commands** fire only when you type the slash — `/atomic-plan`, `/subagent-implementation`, `/commit`. They are the *when*: workflows you start on purpose. A command can invoke a skill (every ship verb uses `atomic-git-discipline`); a skill never invokes a command. See [skills](/reference/skills) and [commands](/reference/commands).
 
 
 ## Documentation
@@ -182,6 +182,6 @@ Code changes break docs silently — an endpoint renamed, a config field gone, a
 ## Your work profile
 
 
-Claude reads `~/.claude/.atomic/profile.md` at the start of every session — personal facts that hold across repos: name, role, employer, active projects, interests, and people you work with. Install seeds the `## Environment` section from your machine (git identity, OS, tooling versions); the rest fills in as facts surface in conversation. Volatility tags (`<stable>`, `<volatile>`, `<deterministic>`) tell Claude how eagerly to flag a contradiction, and `/atomic-improve` resolves drift with your sign-off.
+Claude reads `~/.claude/.atomic/profile.md` at the start of every session — personal facts that hold across repos: name, role, employer, active projects, interests, and people you work with. Install seeds the `## Environment` section from your machine (git identity, OS, tooling versions); the rest fills in as facts surface in conversation. Volatility tags (`<stable>`, `<volatile>`, `<deterministic>`) tell Claude how eagerly to flag a contradiction, and `/retrospective-learning` resolves drift with your sign-off.
 
 The routing rule: anything still true in a different repo belongs in the profile; repo-specific conventions go to that project's signals instead.

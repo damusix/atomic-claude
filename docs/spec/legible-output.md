@@ -27,7 +27,7 @@ Replace the entire `# Structure over prose` section (heading through the trailin
 ### 1b. `docs/reference/output-style.md`
 
 
-Add a section documenting the format-routing vocabulary for human readers, in the file's existing narrative voice (atomic-prose):
+Add a section documenting the format-routing vocabulary for human readers, in the file's existing narrative voice (atomic-writing):
 
 - The routing rule: content shape picks the format; prose below three entities; formats compose within one reply, summary first.
 - The ten routes, one line each with a "use when / avoid when"; route names must match the style file's section exactly.

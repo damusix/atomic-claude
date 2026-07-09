@@ -8,7 +8,7 @@ This command files an issue against **atomic-claude** (`damusix/atomic-claude`) 
 
 Hardcoded target: `damusix/atomic-claude`. Do **not** infer the target from `gh repo view` or cwd — the user is almost always inside a different repo when invoking this.
 
-**Invoked from `/atomic-improve`.** The retrospective audit routes its atomic-meta tier (finding tier 3 — frustration positionally co-located with an atomic artifact in the session) to this command. When the user opts "Open issue" on a meta finding, the audit prints the runnable `/report-issue-with-atomic <one-line summary>` and lets the user invoke it themselves with the surrounding context. Auto-invocation is forbidden — per axiom 3, issue creation is a public action and the user submits the body. See `commands/atomic-improve.md` for the upstream contract.
+**Invoked from `/retrospective-learning`.** The retrospective audit routes its atomic-meta tier (finding tier 3 — frustration positionally co-located with an atomic artifact in the session) to this command. When the user opts "Open issue" on a meta finding, the audit prints the runnable `/report-issue-with-atomic <one-line summary>` and lets the user invoke it themselves with the surrounding context. Auto-invocation is forbidden — per axiom 3, issue creation is a public action and the user submits the body. See `commands/retrospective-learning.md` for the upstream contract.
 
 ## Prereqs
 

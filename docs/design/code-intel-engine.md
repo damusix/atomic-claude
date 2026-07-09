@@ -263,7 +263,7 @@ integration seams, each a concrete decision for this port:
    same way the rest of atomic resolves it (`internal/repoctx` / `repoOverride`).
    The `.atomic-index/` dir is created lazily on first `atomic code index`.
 
-3. **`atomic setup` wiring.** `/atomic-setup` (and the `atomic` setup path) must
+3. **`atomic setup` wiring.** `/setup-wiki` (and the `atomic` setup path) must
    add `.claude/.atomic-index/` to the project `.gitignore` — the DB, WAL files,
    and any downloaded artifacts are machine-local build state, never committed.
    `atomic setup` audits `.gitignore` already; this adds one managed entry.

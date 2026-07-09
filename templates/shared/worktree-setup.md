@@ -49,7 +49,7 @@ git check-ignore -q .worktrees
 If exit code is non-zero (not ignored):
 
 - Append `.worktrees/` to `.gitignore` (create at repo root if missing).
-- Invoke the `atomic-commit` skill.
+- Invoke the `atomic-git-discipline` skill.
 - Stage `.gitignore` explicitly by path.
 - Commit with message `chore: gitignore .worktrees/`.
 
@@ -71,7 +71,7 @@ the branch carries it forward?
 
 Options: `commit now (recommended)` / `skip`. On `commit now`:
 
-- Invoke the `atomic-commit` skill for the message.
+- Invoke the `atomic-git-discipline` skill for the message.
 - Stage the file explicitly by path. Do not `git add -A`.
 - Commit on the current branch (typically `main`).
 

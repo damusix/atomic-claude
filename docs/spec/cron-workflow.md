@@ -253,10 +253,10 @@ The cron firing surfaces reminders at their scheduled time; the session-start ho
 If a scheduling transport is unavailable, the slash commands degrade to file-only — the reminder still gets written with `transport: none`, and the session-start hook surfaces it once past due. No "scheduling unavailable" warning is treated as an error; it is the normal degraded path.
 
 
-## Integration with `/atomic-setup`
+## Integration with `/setup-wiki`
 
 
-Add to the audit table (the "binary on PATH" row may already be present from the signals-workflow integration — `/atomic-setup` deduplicates by convention name):
+Add to the audit table (the "binary on PATH" row may already be present from the signals-workflow integration — `/setup-wiki` deduplicates by convention name):
 
 
 | Convention | Check |
@@ -312,7 +312,7 @@ Proposed actions when missing:
 | C-1 | `/remind-me` command (binary + fallback + `CronCreate`) | `commands/remind-me.md`, `atomic/internal/reminder/` | |
 | C-2 | `/follow-up` command (binary + fallback + `CronCreate`/`CronDelete`/`CronList`) | `commands/follow-up.md` | |
 | C-3 | Session-start hook (inline command) installable via `atomic hooks install`; manual fallback documented | `atomic/internal/hooks/` | |
-| C-4 | `/atomic-setup` audit + propose flow updated | `commands/atomic-setup.md` | |
+| C-4 | `/setup-wiki` audit + propose flow updated | `commands/setup-wiki.md` | |
 | C-5 | `CLAUDE.md` + `CLAUDE.md` + `README.md` updated to document cron workflow | `CLAUDE.md`, `README.md` | |
 
 

@@ -31,7 +31,7 @@ Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `signal
 - [ ] No micro-domain consolidation threshold. Size is a secondary trigger, not the primary axis. A 3-file concern still gets a domain file.
 - [ ] Inferrer reads existing `signals/*.md` and `signals/*/index.md` as anchor on rescan; keeps filenames when underlying paths still match (naming continuity).
 - [ ] First migration from flat `inferred-signals.md`: backs up to `.claude/project/inferred-signals.md.bak`, writes `signals.md` + domain files (if needed), prints "Migrated to router shape. Review with `git diff`." Documented exception to axiom 3 (inferrer is non-interactive inside skill dispatch — no TTY for confirm prompt; backup + `git diff` is the mitigation).
-- [ ] `.signalsignore` at repo root: files matching its globs are scanned (appear in tree with metadata) but flagged as generated — inferrer skips them for domain file content. Not full omission. `/atomic-setup` generates a blank `.signalsignore` with commented explanation on repo bootstrap.
+- [ ] `.signalsignore` at repo root: files matching its globs are scanned (appear in tree with metadata) but flagged as generated — inferrer skips them for domain file content. Not full omission. `/setup-wiki` generates a blank `.signalsignore` with commented explanation on repo bootstrap.
 - [ ] `doctor signals` check validates: router present + `@-ref`'d; all domain files referenced in router table exist on disk; no orphan domain files under `signals/`; worktrees not cross-compared (check runs per-cwd only).
 - [ ] `CLAUDE.md` (bundled global) `@-ref` switches from `inferred-signals.md` to `signals.md`; old ref removed.
 - [ ] `atomic-wiki-inferrer` agent prompt rewritten for orchestrator role: dispatches sub-agents per domain, runs reviewer per domain file, wires cross-domain refs.
@@ -201,7 +201,7 @@ Content-SHA-based diff between consecutive deterministic scans. Works identicall
 - Inferrer sub-agents skip `[generated]` entries when writing domain file content — generated files don't drive domain narratives.
 - Changed content SHAs on generated files do not trigger domain file refresh.
 - `.signalsignore` at repo root, one glob per line. Falls back to empty (no exclusions) if file absent.
-- `/atomic-setup` generates a blank `.signalsignore` with commented explanation on repo bootstrap.
+- `/setup-wiki` generates a blank `.signalsignore` with commented explanation on repo bootstrap.
 
 
 ## Domain partitioning
@@ -287,7 +287,7 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 | `@-ref` in bundled global | `CLAUDE.md` (root, bundled) | Replace `@.claude/project/inferred-signals.md` with `@.claude/project/signals.md` |
 | `@-ref` in project-local config | `claude.local.md` (repo root, gitignored, not bundled) | Replace `@.claude/project/inferred-signals.md` with `@.claude/project/signals.md` |
 | Doctor signals check | `atomic/internal/doctor/checks_signals.go` | Validate router + domain file integrity |
-| Blank `.signalsignore` generation | `/atomic-setup` command | Generate commented blank file on repo bootstrap |
+| Blank `.signalsignore` generation | `/setup-wiki` command | Generate commented blank file on repo bootstrap |
 | Spec breaking-change note | `docs/spec/signals-workflow.md` | Append change-log entry pointing to this spec |
 
 
@@ -301,7 +301,7 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 | 4 | Content-SHA diff: prev vs current deterministic scan, changed-paths extraction | `atomic/internal/signals/signals.go`, `signals_test.go` (atomic-surgeon) | Prev saved as `.prev.md`; diff output lists entries with changed SHAs; `[generated]` paths excluded from changed set; works without git; `go test ./internal/signals/...` passes |
 | 5 | Inferrer agent prompt: orchestrator role, sub-agent dispatch, reviewer loop, cross-domain refs, router assembly, migration, naming continuity | `agents/atomic-wiki-inferrer.md` (atomic-surgeon) | Prompt describes: sub-agent dispatch per domain, reviewer validation loop, cross-domain ref wiring, router orientation sections (framework, build, language, devops, domain table), domain file sections, naming-continuity rule, migration instructions, `.signalsignore`/`[generated]` skip rule; `grep -c` confirms key phrases |
 | 6 | `atomic-signals` skill + bundled `CLAUDE.md` + `claude.local.md` `@-ref` switch | `skills/atomic-signals/SKILL.md`, `CLAUDE.md` (root), `claude.local.md` (atomic-surgeon) | Skill references `signals.md` not `inferred-signals.md`; `CLAUDE.md` and `claude.local.md` `@-ref`s updated; bundle regen (`make -C atomic bundle`) exits 0 |
-| 7 | `/atomic-setup` blank `.signalsignore` generation | `commands/atomic-setup.md` (atomic-surgeon) | Command generates `.signalsignore` with commented explanation when absent; does not overwrite existing |
+| 7 | `/setup-wiki` blank `.signalsignore` generation | `commands/setup-wiki.md` (atomic-surgeon) | Command generates `.signalsignore` with commented explanation when absent; does not overwrite existing |
 | 8 | Doctor `signals` check update | `atomic/internal/doctor/checks_signals.go`, `checks_signals_test.go` (atomic-surgeon) | Validates: router present + `@-ref`'d; domain files in router table exist on disk; no orphan files in `signals/`; check runs per-cwd only (no worktree cross-compare); `go test ./internal/doctor/...` passes |
 | 9 | Spec cross-references + signals-workflow change-log | `docs/spec/signals-workflow.md`, `docs/spec/signals-router.md` (atomic-surgeon) | `signals-workflow.md` change-log entry appended noting breaking change + pointer to this spec; no body sections deleted; `atomic validate spec` exits 0 on both files |
 

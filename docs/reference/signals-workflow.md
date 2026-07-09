@@ -73,7 +73,7 @@ Do not recurse into submodules or create domains for them.
 
 ### Bootstrap
 
-`/atomic-setup` creates `docs/wiki/CLAUDE.md` if it does not exist. Uncomment and edit the sections you need. Delete sections you do not.
+`/setup-wiki` creates `docs/wiki/CLAUDE.md` if it does not exist. Uncomment and edit the sections you need. Delete sections you do not.
 
 The file is committed along with the rest of `docs/wiki/`.
 

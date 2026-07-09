@@ -14,9 +14,9 @@ You orchestrate a retrospective audit. Subagents do the scanning (read-only). Yo
 2. Resolve state paths once and cache them:
     ```
     ATOMIC_STATE="${HOME}/.claude/.atomic"
-    RUNS_DIR="${ATOMIC_STATE}/improve-runs"
-    LEARNINGS="${ATOMIC_STATE}/improve-learnings.md"
-    SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-improve"
+    RUNS_DIR="${ATOMIC_STATE}/retro-runs"
+    LEARNINGS="${ATOMIC_STATE}/retro-learnings.md"
+    SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-retro"
     mkdir -p "$RUNS_DIR" "$SCRATCH"
     RUN_ID="$(date +%Y-%m-%d-%H%M%S)"
     ```
@@ -35,7 +35,7 @@ Prompt via `AskUserQuestion`:
 ```
 Question: What scope should this retrospective cover?
 Options:
-  - Historical + current conversation (recommended) — last 5 .jsonl sessions + prior /atomic-improve audits + this conversation
+  - Historical + current conversation (recommended) — last 5 .jsonl sessions + prior /retrospective-learning audits + this conversation
   - Current conversation only — skip history scan, no prior-audit cross-check
 ```
 
@@ -131,14 +131,14 @@ Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Findi
 
 Dispatch with `subagent_type: "general-purpose"`, `model: haiku`. Prompt: `Read $SCRATCH/history-brief.md and execute. Read-only.`
 
-### 2c. Prior-improve audit — Haiku-backed runner (full scope only, and only if `$RUNS_DIR` has entries)
+### 2c. Prior-retro audit — Haiku-backed runner (full scope only, and only if `$RUNS_DIR` has entries)
 
 Skip if no prior runs exist.
 
-Write `$SCRATCH/prior-improve-brief.md`:
+Write `$SCRATCH/prior-retro-brief.md`:
 
 ```markdown
-# Prior-improve audit brief
+# Prior-retro audit brief
 
 For each `<ts>.json` in `${RUNS_DIR}` (most recent 10), parse the `decisions[]` array. For every decision where `disposition == "accept"`:
 
@@ -158,7 +158,7 @@ Plus a separate list of `drifted` and `missing` items for re-surfacing (with tar
 Respond in atomic style. Drop filler, pleasantries, hedging. Fragments OK. Audit table + re-surface list only — no preamble, no echo of this brief.
 ```
 
-Dispatch with `subagent_type: "general-purpose"`, `model: haiku`. Prompt: `Read $SCRATCH/prior-improve-brief.md.`
+Dispatch with `subagent_type: "general-purpose"`, `model: haiku`. Prompt: `Read $SCRATCH/prior-retro-brief.md.`
 
 ## Step 3 — Analyze current conversation (foreground, while agents run)
 
@@ -187,7 +187,7 @@ Then for each agent:
 |-------|-------------------|--------|
 | Discovery | Empty | Inline fallback: `ls` the hardcoded path list from 2a, build the inventory yourself. Announce: `Discovery agent returned empty — using inline fallback.` |
 | History scan | Empty or no sessions found | Note in run summary, skip Phase 4b pattern promotion. Announce: `History scan skipped — no session files found.` |
-| Prior-improve | No prior runs | Skip prior-improve audit display. No announcement needed (first run is expected). |
+| Prior-retro | No prior runs | Skip prior-retro audit display. No announcement needed (first run is expected). |
 
 Never silently proceed with missing data — surface what was skipped and why.
 
@@ -322,7 +322,7 @@ Five directions. Each direction produces one finding type:
 
 | Tier | When | Priority |
 |------|------|----------|
-| Drifted | Prior accept didn't land (from prior-improve audit) | 1 |
+| Drifted | Prior accept didn't land (from prior-retro audit) | 1 |
 | Re-surface | Previously skipped finding still signaling | 2 |
 | Atomic-meta | User frustrated by atomic-claude itself (command/skill/agent misbehavior). Routes to `/report-issue-with-atomic`. | 3 |
 | Targeted | From `$ARGUMENTS` | 4 |
@@ -365,10 +365,10 @@ Announce: `Found N findings across M tiers. Presenting indexed; review and accep
 
 ### 6a. Audit summary first (full scope only)
 
-If prior-improve agent returned data, print the audit table verbatim:
+If prior-retro agent returned data, print the audit table verbatim:
 
 ```
-## Prior /atomic-improve audit
+## Prior /retrospective-learning audit
 
 | Run        | Accepts | Landed | Drifted | Missing | Skipped | Suppressed | Recurring |
 |------------|---------|--------|---------|---------|---------|------------|-----------|
@@ -457,7 +457,7 @@ Surface this when you're ready to file it:
 The pre-filled body will need the context (which command/skill/agent, what went wrong, what you expected).
 ```
 
-Do not auto-invoke the command — per axiom 3, the user runs it themselves. Record `disposition: "routed-to-issue"` in the run log so the prior-improve audit doesn't re-surface it next run.
+Do not auto-invoke the command — per axiom 3, the user runs it themselves. Record `disposition: "routed-to-issue"` in the run log so the prior-retro audit doesn't re-surface it next run.
 
 **Profile-drift findings** (category `profile drift`):
 
@@ -512,9 +512,9 @@ For each approved decision, in priority order:
 1. Read the target file.
 2. Decide the `verify_phrase` **before** writing — patch-unique, not concept-unique. Pick a literal substring of the bytes you are about to write that would not exist if the change were absent. For a hook patch, that's the exact `grep -qE '<PATTERN>' && { echo 'blocked: <REASON>'` slice — not the rule name (`--no-verify`), which exists in many places. For a CLAUDE.md sentence add, the verbatim new sentence. For a memory consolidation, a distinctive phrase from the merged content. The test: would this exact substring exist in the target file *only because the change was applied*? If not, pick a longer slice.
 
-   **Inverted case for deletes.** Memory-file consolidation deletes the source file. There is nothing to grep for. Record `verify_phrase: null` and `verify_absence: true` with `target_file` = the deleted path. Next run's prior-improve audit treats this as: landed if the file is absent, drifted if the file reappeared with similar content.
+   **Inverted case for deletes.** Memory-file consolidation deletes the source file. There is nothing to grep for. Record `verify_phrase: null` and `verify_absence: true` with `target_file` = the deleted path. Next run's prior-retro audit treats this as: landed if the file is absent, drifted if the file reappeared with similar content.
 
-   **Acceptable side effect.** If the user later edits the change in good faith — softens "NEVER" to "Avoid", reformats the hook with `jq --indent 2` — the next prior-improve audit fires `drifted` on it. That is correct behavior. Drift means "the original change is gone." Whether it was replaced by something better is a separate signal not in scope.
+   **Acceptable side effect.** If the user later edits the change in good faith — softens "NEVER" to "Avoid", reformats the hook with `jq --indent 2` — the next prior-retro audit fires `drifted` on it. That is correct behavior. Drift means "the original change is gone." Whether it was replaced by something better is a separate signal not in scope.
 3. For Modify decisions, use the user's text from `$SCRATCH/pending-modify.json` instead of the original recommendation.
 4. Apply the change (edit / append / new file / hook patch).
 5. **Verify-after-apply.** Re-read the target file (or `ls` for delete cases) and grep for the `verify_phrase` recorded in step 2. If absent (or if a delete target still exists), the write failed silently — set `decision.disposition = "failed"`, capture stderr / the apply error in `decision.failure_reason`, surface a one-line warning to the user (`[N] write failed: <reason> — finding will re-surface in next run`), and continue to the next decision. Do NOT include failed items in the changes-applied table. The verify step is non-negotiable: a silent write failure is worse than a loud one because the user thinks the change landed and the next run's drift audit will report `drifted` ambiguously (as if the change was rolled back, not as if it never landed).
@@ -609,7 +609,7 @@ Write `${RUNS_DIR}/${RUN_ID}.json`:
 
 ## Step 9 — Update learnings file
 
-Read or create `$LEARNINGS` (the file is `~/.claude/.atomic/improve-learnings.md`).
+Read or create `$LEARNINGS` (the file is `~/.claude/.atomic/retro-learnings.md`).
 
 Append under `## Recent runs`:
 
@@ -646,7 +646,7 @@ Do not auto-commit. The user reviews the diff first.
 
 <output_format>
 
-Atomic. No narration. Print every shell command before running it (axiom 3). Findings are dense one-liners; full target paths inline. Tables for the audit summary and changes-applied table. No emojis except the audit-table status glyphs (✅ ⚠️) carried from the prior-improve scan.
+Atomic. No narration. Print every shell command before running it (axiom 3). Findings are dense one-liners; full target paths inline. Tables for the audit summary and changes-applied table. No emojis except the audit-table status glyphs (✅ ⚠️) carried from the prior-retro scan.
 
 </output_format>
 
@@ -660,17 +660,17 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 - Per-item confirm before any file write or hook patch (axiom 3). No "apply all" shortcut. **Why:** advisory rules getting promoted to enforcement hooks change tool behavior globally; batch-accepting hides the blast radius.
 - Memory consolidation: never delete a memory file before grep-verifying that the content lives in the target. The consolidate-then-clean order is mandatory. **Why:** unverified redundancy claims silently destroy rules.
 - Skill budget warnings are **always Maintenance tier**, never Critical, unless the user has reported actual invisible skills. The 16K char ceiling is community-discovered, not documented by Anthropic. **Why:** false-positive Critical alarms erode trust in the audit.
-- Prior-improve drifted/missing findings re-enter the current run at tier 1. Previously skipped OR suppressed findings re-enter at tier 2 only when their `signal_keywords` match a current-run signal. **Why:** the audit-trail is itself a deliverable; users want confidence that past accepts stuck, and skipped/suppressed items shouldn't nag unless the underlying friction is still present. Suppressed re-surfaces are weighted equally with skipped re-surfaces — the user never had the chance to actively decline a suppressed item.
+- Prior-retro drifted/missing findings re-enter the current run at tier 1. Previously skipped OR suppressed findings re-enter at tier 2 only when their `signal_keywords` match a current-run signal. **Why:** the audit-trail is itself a deliverable; users want confidence that past accepts stuck, and skipped/suppressed items shouldn't nag unless the underlying friction is still present. Suppressed re-surfaces are weighted equally with skipped re-surfaces — the user never had the chance to actively decline a suppressed item.
 - Never edit `~/.claude/settings.json` or `.claude/settings.json` without printing the JSON patch first and confirming. Delegate to `/update-config` skill when present. **Why:** settings.json changes affect tool permissions and hook execution — they need a visible diff.
 - No commits. End by suggesting `/commit`; let the user inspect first. **Why:** mixed audit + ship is opaque; separating them keeps the diff reviewable.
-- Read-only agents only — discovery, history scan, prior-improve audit all use read-only agents (`atomic-investigator`, plus Haiku-backed `general-purpose` runners). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
-- Atomic-tier carve-out for state: `improve-runs/` and `improve-learnings.md` live in `~/.claude/.atomic/`, not in memory (axiom 2 carve-out for shell-readable durable state). **Why:** the next run needs to grep past run logs deterministically; memory is conversational and not addressable from a shell.
+- Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus Haiku-backed `general-purpose` runners). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
+- Atomic-tier carve-out for state: `retro-runs/` and `retro-learnings.md` live in `~/.claude/.atomic/`, not in memory (axiom 2 carve-out for shell-readable durable state). **Why:** the next run needs to grep past run logs deterministically; memory is conversational and not addressable from a shell.
 
 ## Open behaviors
 
 - Skip Phase 5b (pattern promotion) entirely in current-only scope — requires cross-session history.
-- Skip prior-improve audit on first run (when `$RUNS_DIR` is empty).
-- Run-log JSON schema is informal — only `decisions[].target_file` and `decisions[].verify_phrase` are load-bearing for prior-improve audits. The rest is informational.
+- Skip prior-retro audit on first run (when `$RUNS_DIR` is empty).
+- Run-log JSON schema is informal — only `decisions[].target_file` and `decisions[].verify_phrase` are load-bearing for prior-retro audits. The rest is informational.
 - `atomic-strategist` dispatch (opus, read-only) is *not* part of the default pipeline. Only invoke when the cross-conversation pattern is genuinely ambiguous — multiple plausible root causes for the same recurring friction. Don't dispatch on clear-cut signals; opus is expensive.
 
 </constraints>

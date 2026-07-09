@@ -68,10 +68,10 @@ Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subage
 
 ### Orient Claude in a new repo
 
-`/atomic-setup` audits conventions, `/refresh-wiki` teaches Claude the repo's shape, deterministic facts plus inferred meaning:
+`/setup-wiki` audits conventions, `/refresh-wiki` teaches Claude the repo's shape, deterministic facts plus inferred meaning:
 
 ```text
-❯ /atomic-setup
+❯ /setup-wiki
 
 ⏺ Audit
 
@@ -154,7 +154,7 @@ One decision is yours, how to merge. Everything else runs unattended. → [workf
 |---|---|---|
 | **Wiki realm browser** | `atomic serve [path] [--port N] [--open]` starts a local read-only HTTP server that renders the wiki realm (or a single repo) as a navigable, Obsidian-style graph: a page view with a live right rail (this-page graph, out/in links, frontmatter Properties with `resource:` as a link), a whole-system graph toggle with OKF node-type coloring and a type legend/filter, a code-file modal (highlighted source + code intelligence), an `md\|code` search box, and federated code search. Bundle-relative `/path.md` links resolve as in-shell navigable routes. localhost only, no auth, no write operations. | [serve](docs/reference/serve.md) |
 | **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. Wiki pages are OKF-aligned: concern and knowledge pages carry `type:` + `description:` frontmatter; the realm `index.md` `## Members` section lists each member with a description. Capture buckets (`atomic wiki bucket add/list/diff/promote`) let you register loose material folders at the realm root; `/refresh-wiki` synthesizes them into topic-keyed `wiki/knowledge/` pages with SHA-256 provenance tracking. `atomic code index` at the realm root layers in a federated symbol graph — query verbs fan out across member repos, nothing written into members. | [wiki](docs/reference/wiki-workflow.md) · [code-intel](docs/reference/code-intel.md) |
-| **Self-sharpening config** | `/atomic-improve` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
+| **Self-sharpening config** | `/retrospective-learning` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
 | **Output style** | Multi-part answers shaped as tables, trees, and ASCII flows, filler cut. The most optional piece. | [output-style](docs/reference/output-style.md) |
 | **Discipline skills** | Nine that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing, visual-options. | [skills](docs/reference/skills.md) |
 | **Git commands** | `/commit [push\|pr\|merge\|squash\|squash merge]` covers all ship paths from one verb; ask-don't-enumerate. Plus CI watch, branch cleanup, worktrees, reminders. | [commands](docs/reference/commands.md) |
@@ -215,7 +215,7 @@ Lost? Run `/atomic-help` in any repo — it reads your git state and names one n
 | # | Adopt | Do this |
 |---|-------|---------|
 | 1 | Structured replies | Install, activate the output style via `/config`. Everything else is optional. |
-| 2 | A repo explorer | `/atomic-setup` + `/refresh-wiki`. Claude stops hallucinating build commands. |
+| 2 | A repo explorer | `/setup-wiki` + `/refresh-wiki`. Claude stops hallucinating build commands. |
 | 3 | A symbol-aware assistant | `atomic code index`, then `atomic code explore "<question>"` returns a digest of symbols, files, and call edges in one query. |
 | 4 | The full loop, or autopilot | Read the [workflow reference](docs/reference/workflow.md). |
 
