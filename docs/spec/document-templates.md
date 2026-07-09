@@ -117,3 +117,25 @@ Flow: template unavailable
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+
+
+## Implementation log
+
+### v1 — 2026-07-09
+
+Built directly in one pass (background session, not the subagent loop). Commits (chronological):
+
+- `6e829be` — CP-1 + CP-2 together: doctemplate package, template verb, 8 skeletons, command rewires, render + bundle
+
+**Out-of-scope work performed during this build:**
+
+- none
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- First cut placed the skeletons in `commands/_templates/` (next to the prompt templates); redirected mid-build because Claude Code surfaces every installed `commands/**.md` as an invocable entry — the embed-in-binary approach was adopted and the design doc records the rejected file-based approach.
+- `TestRootCmdExact18Verbs` gates the exact top-level verb list; renamed to `TestRootCmdExact19Verbs` with `template` added.
+
+**Deferred items still open:**
+
+- Migrating `implementer-prompt.md` / `reviewer-prompt.md` into the binary (same command-surface noise argument) — see design doc open question.
