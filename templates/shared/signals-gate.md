@@ -12,7 +12,7 @@ Refresh project signals so Claude's map stays current for the next session.
    mode: silent
    first_run: false
    ```
-   Stage the router and domain files after the agent completes — do NOT stage `docs/wiki/scan.md` (the raw deterministic dump; thousands of lines, deliberately not auto-staged): `git add docs/wiki/index.md docs/wiki/*.md && git restore --staged docs/wiki/scan.md`.
+   Stage the router, domain files, and `docs/wiki/scan.md` after the agent completes: `git add docs/wiki/*.md`. `scan.md` is committed deliberately — it is the drift-scope diff baseline (`git diff HEAD -- docs/wiki/scan.md`) that `atomic signals stale` and the `<scan-sha>` tiebreaker depend on, and it is not `@-ref`'d, so committing it costs nothing in context.
 4. Run `atomic wiki mark-dirty` (best-effort, no-op when cwd is under no registered wiki root). This marks any registered wiki as having uncommitted changes since the last refresh, so the next session nudge fires. Skip silently if `atomic` is not on PATH.
 
 `atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to `docs/wiki/scan.md`, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
