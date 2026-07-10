@@ -218,73 +218,19 @@ Write two files inside `$SCRATCH`:
 
 ### `$SCRATCH/BRIEF.md`
 
-Thin orchestrator-curated brief. Contents:
-
-```markdown
-# Brief: <topic>
-
-**Spec:** `docs/spec/<topic>.md` (canonical source — read this first)
-
-**Iteration scope (this turn):** <which checkpoint from the spec>
-
-**Reviewer feedback to address:** <findings from prior iteration, or "N/A — first iteration">
-
-**Success criteria for this iteration:**
-- <criterion>
-- <criterion>
-
-**Base SHA for diff:** <git rev-parse HEAD>
-```
+Thin orchestrator-curated brief. Seed from the embedded template — `atomic template brief > "$SCRATCH/BRIEF.md"` — then fill every `<angle-bracket>` placeholder and delete the guidance comment.
 
 Refreshed each iteration — overwrite, don't append.
 
 ### `$SCRATCH/STATE.md`
 
-Append-only iteration log. Before writing the first entry, capture `git rev-parse HEAD` and record it as the loop base SHA — the from-sha for the range-scoped signals refresh at finalize.
-
-```markdown
-# State: <topic>
-
-Loop base SHA: <git rev-parse HEAD>
-
-## Iteration 1 — <date>
-- Implementer: <one-line summary>
-- Reviewer: <verdict + key findings>
-- Decisions: <anything load-bearing>
-- Commit: <sha or "deferred">
-
-## Iteration 2 — <date>
-...
-```
+Append-only iteration log. Seed from `atomic template state`. Before writing the first entry, capture `git rev-parse HEAD` and record it as the loop base SHA — the from-sha for the range-scoped signals refresh at finalize. Append one `## Iteration N` entry per cycle; never rewrite prior entries.
 
 ### `$SCRATCH/FOLLOWUPS.md`
 
 Ledger of non-blocking reviewer findings (🟡 risk / 🔵 nit / ❓ question) — anything that didn't block the iteration's PASS but is worth a deliberate decision before final ship. Append after every reviewer pass that returns findings; do NOT discard them just because the verdict was PASS.
 
-Initialize on first iteration with this structure:
-
-```markdown
-# Follow-ups: <topic>
-
-Non-blocking findings carried across iterations. At finalization (Phase 3): review with the user, decide what to fix in a polish pass, what to defer to a tracked issue, what to drop.
-
----
-
-## 🟡 risks
-
-### F-1 — <one-line title>
-
-`<path:line>`
-
-<problem + suggested fix in 1-3 sentences>
-
-Origin: iteration <N> reviewer.
-
-## 🔵 nits
-
-### F-N — <title>
-...
-```
+Initialize on first iteration from `atomic template followups`.
 
 Numbering is sequential across all severities (F-1, F-2, F-3...). When a follow-up gets closed in a later iteration, mark `*(closed iter N — <commit-sha>)*` next to its title and keep the entry for traceability — don't delete it.
 
@@ -431,28 +377,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
         git add .claude/project/followups/<id>.md .claude/project/followups/INDEX.md
         git commit -m "docs(followups): defer <id>"
         ```
-3. **Write an implementation log to the spec.** Append (or create) an `## Implementation log` section at the END of `docs/spec/<topic>.md`. This is the durable record someone reads in 6 months when they ask "what did we ship?", "where did this come from?", or "what's still open?". Format:
-
-    ```markdown
-    ## Implementation log
-
-    ### <version-or-status> — <date>
-
-    Built across N iterations of /subagent-implementation. Commits (chronological):
-
-    - `<sha>` — CP-1 <one-line>
-    - `<sha>` — CP-2 <one-line>
-    - ...
-
-    **Out-of-scope work performed during this build:**
-    - <what + why it ended up in scope> (or "none")
-
-    **Unforeseens — surprises that emerged during implementation:**
-    - <surprise + how it was handled> (or "none")
-
-    **Deferred items still open:**
-    - <link to FOLLOWUPS triage decisions, tracked issues, or "none"> 
-    ```
+3. **Write an implementation log to the spec.** Append (or create) an `## Implementation log` section at the END of `docs/spec/<topic>.md`, using `atomic template implementation-log` as the structural contract — copy the emitted section skeleton, fill every `<angle-bracket>` placeholder, delete the guidance comment. This is the durable record someone reads in 6 months when they ask "what did we ship?", "where did this come from?", or "what's still open?".
 
     Pull commit SHAs from `STATE.md`. Pull out-of-scope and unforeseens from `STATE.md` decision lines and from any iteration where the implementer's report flagged scope drift or surprise. Pull deferred items from `FOLLOWUPS.md`'s Queued section and the user's disposition answers from step 2. Keep entries tight — one line each. The log is a navigation aid, not a narrative.
 
@@ -490,6 +415,6 @@ Do NOT push, merge, or open a PR. The user picks how to ship (`/commit pr`, `/co
 - Reviewer and implementer are separate agents. Never the same one. Never combine roles.
 - If the same blocking signal repeats across two consecutive `CHANGES_REQUESTED` rounds, the stuck-fix escalation in Step C fires automatically — surface `/pressure-test` and `atomic-strategist` RCA options to the user. Do not silently loop again without surfacing this.
 - Subagent output is the tool result. Summarize it to the user in 1-3 lines per iteration; don't dump full transcripts.
-- Templates live in `commands/_templates/`. If they're missing, the loop can't start — surface that error rather than inlining prompts.
+- Subagent prompt templates live in `commands/_templates/` (`implementer-prompt.md`, `reviewer-prompt.md`); document skeletons come from the binary (`atomic template brief|state|followups|implementation-log`). If a prompt template is missing or the template verb fails, the loop can't start — surface that error rather than inlining prompts or improvising document structure.
 
 </constraints>

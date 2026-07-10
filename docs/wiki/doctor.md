@@ -70,7 +70,7 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 
 **CLI surface table ([`atomic/internal/cliusage/`](../../atomic/internal/cliusage) — 2 files):**
 
-- `cliusage.go` — defines the complete [`atomic`](../../atomic) command surface as structured data (`Command` type: verb-path tokens, args hint, accepted `--flags`, description). Exports `TopLevelVerbs()`, `Lookup(path)`, `RenderHelp(w)`. Two consumers: (1) `main.go` renders `--help` from it; (2) `validate artifacts` rule A1 checks artifact citations against it. Single source of truth for the command surface — callers never maintain parallel flag lists. The `update` verb entry has flags `--check`, `--channel`, `--no-doctor`, `--skip-claude-update`; description "Self-update the atomic binary, then refresh ~/.claude artifacts".
+- `cliusage.go` — defines the complete [`atomic`](../../atomic) command surface as structured data (`Command` type: verb-path tokens, args hint, accepted `--flags`, description). Exports `TopLevelVerbs()`, `Lookup(path)`, `RenderHelp(w)`. Two consumers: (1) `main.go` renders `--help` from it; (2) `validate artifacts` rule A1 checks artifact citations against it. Single source of truth for the command surface — callers never maintain parallel flag lists. The `update` verb entry has flags `--check`, `--channel`, `--no-doctor`, `--skip-claude-update`; description "Self-update the atomic binary, then refresh ~/.claude artifacts". Also carries 8 `template <name>` entries (`brief`, `design-doc`, `diagnose-context`, `followups`, `implementation-log`, `session-report`, `spec`, `state`) for the config-domain `atomic template` verb — each has `Flags: nil`, `Args: ""`, and description `"Emit the <name> document template"`.
 - `cliusage_test.go` — golden test pinning `--help` output; validates all top-level verbs and flag sets.
 
 **Validation suite ([`atomic/internal/validate/`](../../atomic/internal/validate) — 16 files):**
@@ -102,6 +102,8 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 - [`docs/design/atomic-validate.md`](../../docs/design/atomic-validate.md) — design rationale for the validate subcommand.
 - [`docs/spec/user-profile.md`](../../docs/spec/user-profile.md) — contract for the user profile feature: schema, sections, `<stable>`/`<volatile>`/`<deterministic>` tag semantics, install-time stub generation.
 - [`docs/design/user-profile.md`](../../docs/design/user-profile.md) — design rationale for user profile capture and stub rendering.
+- [`docs/spec/document-templates.md`](../spec/document-templates.md) — config-domain doc-templates feature contract (the `atomic template <name>` verb, [`atomic/internal/doctemplate/`](../../atomic/internal/doctemplate)), cross-listed here because it required 8 new `cliusage.go` surface-table entries.
+- [`docs/design/document-templates.md`](../design/document-templates.md) — design rationale for the doc-templates feature, cross-listed here for the same reason.
 
 ## Coupling
 
@@ -119,3 +121,4 @@ No slash commands. `atomic doctor` and `atomic validate` are binary subcommands,
 - **→ config**: `checks_profile.go` calls `config.ProfilePath` and `config.ProfileRelPath`. Adding new profile-related paths to [`atomic/internal/config/paths.go`](../../atomic/internal/config/paths.go) (config domain) requires checking whether `checkProfile` needs updating.
 - **→ bundle**: [`atomic/internal/profile/`](../../atomic/internal/profile) is called by [`atomic/internal/claudeinstall/install.go`](../../atomic/internal/claudeinstall/install.go) at install time to generate the profile stub. Changes to `RenderStub` or `CaptureEnv` (profile package) affect what gets written to `~/.claude/.atomic/profile.md` on fresh install.
 - **→ code-intel**: `checks_code_index.go` imports `engine.IndexPath` to locate the SQLite DB. If the engine's index path convention changes (code-intel domain), this check breaks silently — both must change together.
+- **→ config**: the new `atomic template <name>` verb (config domain, [`atomic/internal/doctemplate/`](../../atomic/internal/doctemplate)) required 8 new `cliusage.go` entries. Adding or removing a template name in `doctemplate.Names()` without a matching `cliusage.go` entry desyncs the two — the same coordination hazard the `wiki` verb family already carries against `cliusage.go` (documented in the wiki domain file).

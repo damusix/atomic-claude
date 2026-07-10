@@ -12,6 +12,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
+	"github.com/damusix/atomic-claude/atomic/internal/doctemplate"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/migrate"
 	"github.com/damusix/atomic-claude/atomic/internal/prompt"
@@ -240,20 +241,20 @@ func assertCommandSetsEqual(t *testing.T, derived, golden []cliusage.Command) {
 	}
 }
 
-// TestRootCmdExact19Verbs verifies the Cobra root command has exactly the 19
+// TestRootCmdExact20Verbs verifies the Cobra root command has exactly the 20
 // expected top-level verbs and no extra auto-generated commands (completion,
 // help) leaked into the visible command set.
 // WHY: DisableDefaultCmd and SetHelpCommand suppress Cobra's auto-adds;
 // this test is the gate that catches any regression where Cobra re-adds them
 // or a new verb is accidentally introduced.
-func TestRootCmdExact19Verbs(t *testing.T) {
+func TestRootCmdExact20Verbs(t *testing.T) {
 	var repoOverride string
 	root := buildRootCmd(&repoOverride)
 
 	want := []string{
 		"claude", "code", "config", "docker", "docs", "doctor",
 		"followups", "hooks", "migrate", "profile", "prompt", "reminder",
-		"repo", "serve", "signals", "update", "validate", "where", "wiki",
+		"repo", "serve", "signals", "template", "update", "validate", "where", "wiki",
 	}
 
 	// Collect visible (non-hidden) commands only.
@@ -942,6 +943,65 @@ func TestPromptAction_NoArgs(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "Usage:") {
 		t.Errorf("no-args error message missing 'Usage:'; stderr: %q", errOut.String())
+	}
+}
+
+// --- atomic template dispatch ---
+
+// TestTemplateAction_KnownNames verifies that templateAction exits 0 and
+// writes non-empty text for each registered document-template name. Encodes
+// the WHY: command artifacts instruct Claude to seed workflow documents from
+// `atomic template <name>` — a broken embed path or missing template would
+// silently hand back an empty skeleton and the improvised-structure problem
+// the templates exist to prevent would return.
+func TestTemplateAction_KnownNames(t *testing.T) {
+	for _, name := range doctemplate.Names() {
+		t.Run(name, func(t *testing.T) {
+			var out strings.Builder
+			var errOut strings.Builder
+			code := templateAction([]string{name}, &out, &errOut)
+			if code != 0 {
+				t.Fatalf("templateAction(%q) returned exit code %d, want 0; stderr: %s", name, code, errOut.String())
+			}
+			if strings.TrimSpace(out.String()) == "" {
+				t.Errorf("templateAction(%q) wrote empty stdout", name)
+			}
+		})
+	}
+}
+
+// TestTemplateAction_UnknownName verifies that templateAction exits 1 and
+// writes to stderr for an unregistered template name — the fail-loud contract
+// command artifacts rely on to stop rather than improvise structure.
+func TestTemplateAction_UnknownName(t *testing.T) {
+	var out strings.Builder
+	var errOut strings.Builder
+	code := templateAction([]string{"no-such-template"}, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("templateAction(\"no-such-template\") returned exit code 0, want non-zero")
+	}
+	if strings.TrimSpace(errOut.String()) == "" {
+		t.Errorf("templateAction(\"no-such-template\") wrote nothing to stderr")
+	}
+	if out.String() != "" {
+		t.Errorf("templateAction(\"no-such-template\") wrote unexpected stdout: %q", out.String())
+	}
+}
+
+// TestTemplateAction_NoArgs verifies that templateAction exits 1 with a usage
+// message listing the valid names when called with no arguments.
+func TestTemplateAction_NoArgs(t *testing.T) {
+	var out strings.Builder
+	var errOut strings.Builder
+	code := templateAction([]string{}, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("templateAction with no args returned exit code 0, want non-zero")
+	}
+	if !strings.Contains(errOut.String(), "Usage:") {
+		t.Errorf("no-args error message missing 'Usage:'; stderr: %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "design-doc") {
+		t.Errorf("no-args error message missing valid names; stderr: %q", errOut.String())
 	}
 }
 
