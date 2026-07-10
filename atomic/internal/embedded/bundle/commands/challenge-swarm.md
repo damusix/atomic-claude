@@ -83,7 +83,7 @@ Communication runs through a workspace, not through shared context:
 ```
 
 
-Write `lens-instructions.md` verbatim from the block below, then one role file per lens. Dispatch **one `general-purpose` subagent per lens, all in a single message** so they run in parallel. Sonnet-tier is sufficient — the role file carries the specialization; inherit the session model when a tier override is unavailable.
+Write `lens-instructions.md` verbatim from the block below, then one role file per lens. Dispatch **one `general-purpose` subagent per lens, all in a single message** so they run in parallel, and pass **`model: sonnet` on every dispatch** — the role file carries the specialization, so a heavier model adds cost, not insight. Use a different tier only when the user explicitly asks for one this run; never inherit the session model by omission — on a premium session tier (Opus, Fable) an unpinned dispatch multiplies spend across 4-6 agents.
 
 
 The dispatch prompt is deliberately just pointers — identical for every lens except two paths:
@@ -221,7 +221,7 @@ Numbered offers, typed selection:
 ```
 
 
-On `5`, delete the workspace directory — scratchpad is throwaway working memory. On `1`/`2`, dispatch only the named lens (same pointer prompt) and rebuild the map. On `3`/`4`, act, then re-offer.
+On `5`, delete the workspace directory — scratchpad is throwaway working memory. On `1`/`2`, dispatch only the named lens (same pointer prompt, same `model: sonnet`) and rebuild the map. On `3`/`4`, act, then re-offer.
 
 </workflow>
 
@@ -236,6 +236,7 @@ On `5`, delete the workspace directory — scratchpad is throwaway working memor
 4. **Filler dies at aggregation.** Dedupe, drop no-stake findings, keep the report shorter than the design.
 5. **Verify before asserting.** Contested checkable claims get resolved with tool calls before they appear in the map (same rule as `<investigate_before_answering>` in `CLAUDE.md`).
 6. **The roster is judgment, not a checklist.** 4-6 lenses that fit the change beat 7 that pad it.
+7. **Sonnet, pinned.** Every lens dispatch passes `model: sonnet`. Only an explicit user request for a different tier overrides it — never the session model.
 
 
 ## What this command does not do

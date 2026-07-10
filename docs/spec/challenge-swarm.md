@@ -10,7 +10,7 @@ One explicit command that subjects a written design, spec, or plan to 4-6 isolat
 ## Approach
 
 
-Adapted from Stanford's STORM: perspective-diverse agents grounded in a corpus (here, the codebase), kept isolated so that their independent agreements and disagreements are both informative. Role files carry the specialization, so lens agents run on a mid-tier model.
+Adapted from Stanford's STORM: perspective-diverse agents grounded in a corpus (here, the codebase), kept isolated so that their independent agreements and disagreements are both informative. Role files carry the specialization, so every lens dispatch pins `model: sonnet`; only an explicit user request for a different tier this run overrides the pin — the session model is never inherited by omission.
 
 
 ## Non-goals
@@ -29,7 +29,7 @@ Adapted from Stanford's STORM: perspective-diverse agents grounded in a corpus (
 
 - `/challenge-swarm @<path.md>` reads the target, orients in the code it touches, selects 4-6 fitting lenses, and prints the roster with a one-line reason per lens before dispatch.
 - Workspace created at `.claude/.scratchpad/<yyyy-mm-dd>-challenge-swarm-<slug>/` containing `lens-instructions.md` (verbatim from the command's canonical block), one `lenses/<lens>.md` role file per selected lens, and a `findings/` directory.
-- All lens subagents dispatched in a single message (parallel); the dispatch prompt is pointer-only and identical across lenses except the role-file path and findings path.
+- All lens subagents dispatched in a single message (parallel); the dispatch prompt is pointer-only and identical across lenses except the role-file path and findings path; every dispatch — including close-out lens reruns — passes `model: sonnet` unless the user explicitly requested a different tier this run.
 - No findings file is read until every lens has reported its one-line reply.
 - Report carries six sections in order: Verdict, Conflicts, Reinforced findings, Single-lens findings, Unexamined assumptions, Missing lens. Findings are severity-ordered and each carries evidence.
 - Contested claims that are objectively checkable are resolved by tool call (`atomic code` verbs, `sg`/grep, or a `tmp/` probe) before appearing in the map.
@@ -52,7 +52,7 @@ Adapted from Stanford's STORM: perspective-diverse agents grounded in a corpus (
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | Lenses converge despite isolation (shared project instructions load into every subagent) | low | Role files dominate the lens's attention; behavioral rule forbids passing any lens's findings into another lens's prompt or role file |
-| Cost surprise — 4-6 subagents per run | low | Explicit-only invocation; roster printed before dispatch; lens agents run mid-tier |
+| Cost surprise — 4-6 subagents per run | low | Explicit-only invocation; roster printed before dispatch; every lens dispatch pins `model: sonnet` |
 | Findings filler buries real signal | medium | Lens instructions cap findings at 3-7 with mandatory evidence; aggregation cuts evidence-free and no-stake findings; report must stay shorter than the design |
 | Aggregator resolves conflicts it should surface | medium | Behavioral rule: surface the trade-off decision unless one side's evidence is decisively stronger |
 
@@ -135,3 +135,12 @@ atomic/internal/embedded/**             M  bundle regen (make -C atomic bundle)
 **Why:** `atomic validate spec` rule S5 requires the `# | Checkpoint | Files/areas | … | Verifies` column contract as an exact ordered subsequence; the `Proof` shorthand failed the gate.
 
 **Correction:** Found by `atomic validate spec` reporting S5 FAIL at the Checkpoints table.
+
+
+### 2026-07-10 — Lens dispatches pin `model: sonnet`
+
+**What changed:** Every lens dispatch (including close-out lens reruns) passes `model: sonnet`; only an explicit user request for a different tier this run overrides the pin. Approach, Success criteria, and the cost-surprise risk mitigation now state the pin; the command's Step 2, close-out, and behavioral rule 7 enforce it.
+
+**Why:** Issue #141 — the command's "mid-tier is sufficient" wording was a soft hint with a fall-through to the session model, so on a premium session (Opus, Fable) all 4-6 parallel lenses ran on the expensive session model.
+
+**Superseded:** Prior contract said lens agents "run on a mid-tier model" without a mechanism; the command allowed inheriting the session model when a tier override was unavailable.
