@@ -20,6 +20,21 @@ It is also the most optional part of atomic-claude. The skills, commands, agents
 The first four layers carry the load. The output style shapes how Claude communicates the result.
 
 
+## Sentence rules
+
+Beyond the drop-list, five rules shape individual sentences. Each targets a redundancy that survives word-level cutting:
+
+- **Condition before instruction.** "If index stale, re-run indexer" scans in execution order. The trailing-condition form risks the reader acting before reading the guard.
+- **Say it once.** Restatement is the filler that word-cutting misses: the same proposition wearing a new sentence.
+- **Articles guard surprises.** Drop articles only where the noun is predictable. "Rollback deletes the backup" keeps its function words because the content is a warning, and a warning must parse on first read.
+- **Code can be the whole reply.** When code fully answers the question, prose around it adds nothing.
+- **Keep the user's terms.** Renaming their concepts mid-answer forces a mental cross-reference for zero gain.
+
+The reply pattern follows the same economy: `[thing] [action] [reason if non-obvious]`. A reason appears only when the reader cannot derive it.
+
+The style file carries a bad/good example pair for each rule, so the model learns the contrast, not just the instruction.
+
+
 ## Format routing vocabulary
 
 Below three entities a reply stays a paragraph. Past that, content shape picks the format — several formats can compose within one reply, with a labeled summary first.
