@@ -10,33 +10,45 @@ import (
 )
 
 // goldenRepoScaffold is an independently-copied fixture of the repo-scope
-// heredoc content (templates/commands/refresh-wiki.md R3 /
-// skills/atomic-wiki/references/repo.md Step 8c, verified byte-identical to
-// both at authoring time). Kept separate from repoSteeringScaffold in init.go
-// so this test catches accidental drift in the source constant, not just
-// self-consistency with it.
+// scaffold. Kept separate from repoSteeringScaffold in init.go so this test
+// catches accidental drift in the source constant, not just self-consistency
+// with it. Invariant the fixture encodes: every illustrative example lives
+// inside an HTML comment, so an uncustomized scaffold contains zero live
+// steering facts.
 const goldenRepoScaffold = `---
 type: Steering
 description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
 ---
 
 <steering note: user hints to correct framework detection / domain grouping / build-test commands;
- the inferrer reads this and treats it as authoritative>
+ the inferrer reads this and treats it as authoritative. The sections below start empty — fill
+ them with facts about THIS repo. HTML comments are illustrative examples only; the inferrer
+ must never treat them as steering.>
 
 ## Framework
-# NestJS monorepo (not plain Express)
+
+<!-- example: NestJS monorepo (not plain Express) -->
 
 ## Domains
-# - src/billing/ and src/payments/ are one domain ("payments")
-# - src/internal-tools/ is scratch code — not a real domain
+
+<!-- example:
+- src/billing/ and src/payments/ are one domain ("payments")
+- src/internal-tools/ is scratch code — not a real domain
+-->
 
 ## Build
-# - Build: pnpm turbo build
-# - Test: pnpm test:ci (not pnpm test — that runs watch mode)
+
+<!-- example:
+- Build: pnpm turbo build
+- Test: pnpm test:ci (not pnpm test — that runs watch mode)
+-->
 
 ## Ignore for domains
-# - vendor/
-# - generated/
+
+<!-- example:
+- vendor/
+- generated/
+-->
 `
 
 // --- InitRepoScope ---

@@ -6,32 +6,45 @@ import (
 )
 
 // repoSteeringScaffold is the fixed-content docs/wiki/CLAUDE.md scaffold for
-// repo scope. Verbatim from the former heredocs in
-// templates/commands/refresh-wiki.md R3 and
-// skills/atomic-wiki/references/repo.md Step 8c — byte-identical, do not
-// reformat or reword.
+// repo scope. The section examples live inside HTML comments so neither
+// markdown rendering nor the inferrer can mistake them for real steering —
+// the previous scaffold shipped its examples as live markdown ("# NestJS
+// monorepo" parsed as a heading, not a comment) and inferrer runs had to
+// detect and ignore fabricated facts on every uncustomized repo.
 const repoSteeringScaffold = `---
 type: Steering
 description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
 ---
 
 <steering note: user hints to correct framework detection / domain grouping / build-test commands;
- the inferrer reads this and treats it as authoritative>
+ the inferrer reads this and treats it as authoritative. The sections below start empty — fill
+ them with facts about THIS repo. HTML comments are illustrative examples only; the inferrer
+ must never treat them as steering.>
 
 ## Framework
-# NestJS monorepo (not plain Express)
+
+<!-- example: NestJS monorepo (not plain Express) -->
 
 ## Domains
-# - src/billing/ and src/payments/ are one domain ("payments")
-# - src/internal-tools/ is scratch code — not a real domain
+
+<!-- example:
+- src/billing/ and src/payments/ are one domain ("payments")
+- src/internal-tools/ is scratch code — not a real domain
+-->
 
 ## Build
-# - Build: pnpm turbo build
-# - Test: pnpm test:ci (not pnpm test — that runs watch mode)
+
+<!-- example:
+- Build: pnpm turbo build
+- Test: pnpm test:ci (not pnpm test — that runs watch mode)
+-->
 
 ## Ignore for domains
-# - vendor/
-# - generated/
+
+<!-- example:
+- vendor/
+- generated/
+-->
 `
 
 // realmSteeringScaffold is the fixed-content <root>/wiki/CLAUDE.md scaffold
