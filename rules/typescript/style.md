@@ -29,6 +29,14 @@ A type error means something is probably wrong, or something will go wrong. Trea
 - Do not annotate obvious return types or variable types — let the compiler infer.
 - Strict null checks on. No non-null assertions (`!`) unless you can prove the value exists and a guard would be dead code.
 
+## Error handling
+
+Errors communicate failures to developers. Error messages should explain what went wrong, where it happened, and why, with enough context to make the failure actionable.
+
+- Do not use errors for expected control flow. Handle expected outcomes through normal branching or explicit return values.
+- Do not swallow errors or continue silently. Handle them meaningfully or preserve their context when propagating them.
+- Fail loudly when an operation cannot continue safely.
+
 ## Types in tests validate your API surface
 
 Explicit type annotations in test files serve a different purpose than in production code. In tests, types are contracts: they prove the public API shape is correct, and they break the build when an exposed surface changes.

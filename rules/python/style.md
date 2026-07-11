@@ -10,6 +10,14 @@ paths:
 
 Write Python that reads top-to-bottom without surprises. Prefer dataclasses and `TypedDict` over loose dicts when shape matters. Use `pathlib.Path` over `os.path`, f-strings over `%` and `.format()`, comprehensions over `map`/`filter` when the body is short. Raise specific exceptions; never `except:` bare. Keep functions small and pure where you can, isolate I/O at the edges. Follow PEP 8 for layout; ruff or black settles disputes.
 
+## Error handling
+
+Exceptions communicate failures to developers. Exception messages should explain what went wrong, where it happened, and why, with enough context to make the failure actionable.
+
+- Do not use exceptions for expected control flow. Handle expected outcomes through normal branching or explicit return values.
+- Do not swallow exceptions or continue silently. Handle them meaningfully or preserve their context when re-raising them.
+- Fail loudly when an operation cannot continue safely.
+
 ## Type hints are guardrails, not the goal
 
 Type-hint public functions, dataclass fields, and module boundaries. Inside small local scopes, let the reader (and mypy/pyright) infer. Do not over-annotate obvious assignments (`x: int = 5`) or litter `cast()` calls to silence the checker.
