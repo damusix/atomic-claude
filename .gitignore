@@ -27,3 +27,4 @@ node_modules/
 # via atomic/internal/codeintel/tsbinding/fetch-grammars.sh (see that dir's CLAUDE.md).
 # The committed lib/ts.wasm is the runtime artifact; these C sources are not committed.
 atomic/internal/codeintel/tsbinding/src/
+.claude/.atomic-index/

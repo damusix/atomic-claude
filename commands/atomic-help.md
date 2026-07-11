@@ -82,6 +82,7 @@ One-line pointer per topic. Group by category for scannability.
 | `pressure-test` | `/pressure-test [<topic> \| @<path>]` — Socratic challenger, no artifacts. Pre-approval gate. Complement: `/challenge-swarm` attacks the written design in parallel instead of dialogue. |
 | `challenge-swarm` / `swarm` | `/challenge-swarm [<path> \| @<path>]` — 4-6 isolated expert lenses (security, perf, maintainer, ops, tester, ...) review a design/spec in parallel; report is a contradiction map (conflicts / reinforced / unexamined assumptions). Post-design gate before `/subagent-implementation`. |
 | `implement` | `/subagent-implementation` reads spec, runs implement→review loop with `atomic-implementer`+`atomic-reviewer`, commits per green iteration. |
+| `quick-fix` | `/quick-fix <task>` — implement→review loop without the planning phase, spec gate, or finalize ceremony. For a known-cause fix with one obvious approach; escapes to `/subagent-diagnose`, `/atomic-plan`, or `/subagent-implementation` on uncertainty signals, never file count. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
 | `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`. |
 | `ship` | Pick by intent — see `ship` matrix below. |
@@ -177,6 +178,7 @@ Challenge gates:  /pressure-test (defend the idea in dialogue) and /challenge-sw
                   (isolated expert lenses attack the written design) sit between plan and implement.
 Branch isolation: /subagent-implementation and /autopilot create .worktrees/<branch>/ at loop start.
 Diagnose failures: /subagent-diagnose ci|bug runs the same loop from a failure seed.
+Skip planning:    /quick-fix <task> runs the same loop without a spec — known cause, one obvious fix.
 Hands-off:        /autopilot <task|issue#> runs stages 1-3 autonomously; asks only how to merge.
 ```
 
