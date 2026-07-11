@@ -67,6 +67,15 @@ Claude reads the approved spec and runs an autonomous implement-then-review loop
 If the project is indexed, the loop uses the code-intel graph throughout. It indexes the project at the start of the task, the investigator leads with `atomic code explore` to scope each surface, the reviewer checks blast radius with `atomic code impact`, and the orchestrator runs `atomic code sync` after each committed checkpoint so the graph reflects the latest code. When no index is present the agents fall back to plain search, so the loop runs either way.
 
 
+### Skip planning: /quick-fix
+
+```
+/quick-fix <task description>
+```
+
+For a fix with a known cause and one obvious approach, `/quick-fix` skips the plan entirely. It runs the same implement-then-review loop as `/subagent-implementation`, minus the spec, the worktree, and the finalize ceremony, so a straightforward change lands faster. The moment the fix turns out less obvious than it looked, it stops and hands off to `/subagent-implementation` or `/atomic-plan` instead of grinding on a wrong assumption.
+
+
 ### Hands-off: /autopilot
 
 ```
