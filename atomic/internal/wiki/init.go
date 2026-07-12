@@ -16,10 +16,12 @@ type: Steering
 description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
 ---
 
-<steering note: user hints to correct framework detection / domain grouping / build-test commands;
- the inferrer reads this and treats it as authoritative. The sections below start empty — fill
- them with facts about THIS repo. HTML comments are illustrative examples only; the inferrer
- must never treat them as steering.>
+<!-- steering note: user hints to correct framework detection / domain grouping / build-test
+ commands; the inferrer reads this and treats it as authoritative. The sections below start
+ empty — fill them with facts about THIS repo. Other HTML comments are illustrative examples
+ only; the inferrer must never treat them as steering. This note is an HTML comment, not a
+ <pseudo-tag>: docs/ directories swept by VitePress feed every .md through the Vue template
+ compiler, which rejects pseudo-tag syntax and fails the site build. -->
 
 ## Framework
 
