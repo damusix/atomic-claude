@@ -19,7 +19,8 @@ Idempotent, non-destructive, never commits. Guarantees, in order:
 4. `.claude/.atomic-index/` is git-ignored — else append managed rule `/.atomic-index/` to
    `.claude/.gitignore`.
 5. `tmp/` is git-ignored — else append line `tmp/` to root `.gitignore` (create if absent).
-6. `.worktrees/` is git-ignored — else append line `.worktrees/` to root `.gitignore`.
+6. `.claude/worktrees/` is git-ignored — else append managed rule `/worktrees/` to
+   `.claude/.gitignore`.
 
 "Is it ignored" is decided by effect: `git check-ignore -q` against a nonexistent probe path
 under the directory in question (the probe string is the builder's choice). When git is
@@ -95,8 +96,8 @@ succeeds; skip silently otherwise.
 |----------|--------|
 | `templates/commands/subagent-implementation.md` | Replace the "`.claude/.scratchpad/` must be gitignored — verify, add if missing" step with the best-effort init call. Keep `mkdir -p "$SCRATCH"`. |
 | `templates/commands/subagent-diagnose.md` | Same replacement at both gitignore-verify sites. Keep the `mkdir -p` calls. |
-| `templates/commands/setup-wiki.md` | Gitignore-audit rows for `tmp/`, `.claude/.scratchpad/`, `.worktrees/`, and the signals prev-file delegate to `atomic repo init` (binary present) with the manual append retained only as the binary-absent fallback. Drop the `.claude/project/.deterministic-signals.prev.md` row entirely — no Go code writes that path anymore. |
-| `templates/shared/worktree-setup.md` | "Verify .worktrees/ is gitignored": first try `atomic repo init` (best-effort); if `.worktrees` still not ignored (binary absent), keep today's append. Keep the commit step, widened to stage whatever ignore file(s) changed (`.gitignore` and/or `.claude/.gitignore`). |
+| `templates/commands/setup-wiki.md` | Gitignore-audit rows for `tmp/`, `.claude/.scratchpad/`, `.claude/worktrees/`, and the signals prev-file delegate to `atomic repo init` (binary present) with the manual append retained only as the binary-absent fallback. Drop the `.claude/project/.deterministic-signals.prev.md` row entirely — no Go code writes that path anymore. |
+| `templates/shared/worktree-setup.md` | Single `atomic repo init` call at the top of the create-and-enter step. No gitignore-verify section, no manual append fallback, no ignore-file commit ceremony. |
 | `templates/commands/atomic-help.md` | Mention `atomic repo init` in the `cli` topic row set. |
 
 `templates/commands/remind-me.md` and `templates/commands/retrospective-learning.md` keep their leaf
@@ -109,7 +110,7 @@ succeeds; skip silently otherwise.
 |---|------------|-------------|----------|
 | 1 | `atomic/internal/repoinit` package + CLI wiring + tests | `atomic/internal/repoinit/`, `atomic/cmd/atomic/main.go`, `atomic/internal/cliusage/cliusage.go` | `go test ./...` green; `atomic repo init` runs idempotently in a scratch repo (second run all-`ok`); cold repo gets dirs + nested `.claude/.gitignore`; repo with pre-existing effective rules gets no appends; degraded (no git) path covered by test |
 | 2 | This repo's `.gitignore` migration | `.gitignore`, `.claude/.gitignore` | Acceptance matrix above passes; `git status --porcelain` unchanged |
-| 3 | Template strip + help router + render/bundle | `templates/commands/subagent-implementation.md`, `templates/commands/subagent-diagnose.md`, `templates/commands/setup-wiki.md`, `templates/shared/worktree-setup.md`, `templates/commands/atomic-help.md`, `commands/*.md`, `atomic/internal/embedded/` | All table rows applied; `make render` + `make bundle` clean; `/atomic-help` MISSING-scan passes; grep shows no remaining "verify … gitignored" prose in templates *except* `templates/shared/worktree-setup.md`'s deliberately retained binary-absent fallback; `atomic doctor` and `atomic validate` run green using the locally built binary (rule A1 lints the new `atomic repo init` citations against `cliusage`) |
+| 3 | Template strip + help router + render/bundle | `templates/commands/subagent-implementation.md`, `templates/commands/subagent-diagnose.md`, `templates/commands/setup-wiki.md`, `templates/shared/worktree-setup.md`, `templates/commands/atomic-help.md`, `commands/*.md`, `atomic/internal/embedded/` | All table rows applied; `make render` + `make bundle` clean; `/atomic-help` MISSING-scan passes; grep shows no remaining "verify … gitignored" prose in templates; `atomic doctor` and `atomic validate` run green using the locally built binary (rule A1 lints the new `atomic repo init` citations against `cliusage`) |
 
 ## Change tree
 
@@ -126,7 +127,7 @@ atomic/
 templates/commands/subagent-implementation.md  M  gitignore-verify step → best-effort init call
 templates/commands/subagent-diagnose.md        M  same, two sites
 templates/commands/setup-wiki.md               M  gitignore-audit rows delegate to init
-templates/shared/worktree-setup.md             M  init-first; append fallback retained
+templates/shared/worktree-setup.md             M  single best-effort init call; no fallback
 templates/commands/atomic-help.md              M  cli topic mentions atomic repo init
 commands/*.md                                  M  rendered outputs (make render)
 atomic/internal/embedded/                      M  regenerated bundle (make bundle)
@@ -188,3 +189,18 @@ atomic/internal/embedded/                      M  regenerated bundle (make bundl
   `templates/commands/retrospective-learning.md` (was `atomic-improve.md`); the worktree-setup
   fallback invokes the `atomic-git-discipline` skill (was `atomic-commit`). Semantics unchanged —
   rename sweep only.
+- 2026-07-12 — Worktree relocation. **What changed:** guarantee 6 now ensures `.claude/worktrees/`
+  is ignored via managed rule `/worktrees/` in nested `.claude/.gitignore` (with the managed
+  header on fresh creation), reported as `.claude/worktrees/ ignored`; the Template strip rows
+  for `setup-wiki` and `worktree-setup` follow. **Why:** the worktree prescription moved from
+  `.worktrees/` to `.claude/worktrees/` — Claude Code's native worktree home (`EnterWorktree`,
+  `claude --worktree`) — so one directory serves both the implement loop and Claude Code's own
+  tooling. **Superseded:** guarantee 6 appended line `.worktrees/` to root `.gitignore`. Existing
+  root `.worktrees/` lines are never removed (init is append-only); legacy worktrees keep working.
+- 2026-07-12 — worktree-setup drops the gitignore-verify ceremony. **What changed:** the
+  `worktree-setup` Template strip row (and the matching Change tree / CP3 clauses) now prescribe a
+  single best-effort `atomic repo init` call inside the create-and-enter step — no verify probe,
+  no manual `/worktrees/` append, no ignore-file commit ceremony. **Why:** repo setup is
+  `atomic repo init`'s concern, not the implement loop's, and the binary can be assumed present —
+  these artifacts install only via `atomic claude install`. **Superseded:** the row kept a
+  binary-absent manual append plus an `atomic-git-discipline` commit of the changed ignore file.

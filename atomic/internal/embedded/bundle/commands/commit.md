@@ -260,7 +260,7 @@ Refresh project signals so Claude's map stays current for the next session.
     If signals regenerate, commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Push on remote path.
 
 6. **Delete local feature branch:** `git branch -d <feature>`.
-7. Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via `AskUserQuestion`:
+7. Worktree check: `git worktree list`. If the feature branch lived in a linked worktree (typically `.claude/worktrees/<feature>/`), ask via `AskUserQuestion`:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
    > - No, keep it
@@ -580,7 +580,7 @@ Refresh project signals so Claude's map stays current for the next session.
     If signals regenerate, commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Push on remote path.
 
 6. **Delete local feature branch:** `git branch -d <feature>`.
-7. Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via `AskUserQuestion`:
+7. Worktree check: `git worktree list`. If the feature branch lived in a linked worktree (typically `.claude/worktrees/<feature>/`), ask via `AskUserQuestion`:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
    > - No, keep it

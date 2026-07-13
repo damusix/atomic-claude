@@ -103,7 +103,7 @@ Use regex when searching for literal strings, log messages, comments, config val
 | `.claude/project/followups/<id>.md` | Committed, auto-loaded follow-up entries (`kind: finding` / `kind: plan`). Managed via `atomic followups …`; `INDEX.md` is the `@-ref`. | Closed entries collapse to `CLOSED.md`. |
 | `docs/design/<topic>.md` | Conceptual workspace (feature shape, rules, approaches). Written by `/atomic-plan` for non-trivial work. | Committed, human-facing. |
 | `docs/spec/<topic>.md` | Implementation contract derived from the design; canonical source for `/subagent-implementation`. | Committed; see `rules/specs/`. |
-| `.worktrees/<branch>/` | Isolated branches created by the implement loop / autopilot via the worktree-setup partial; ship verbs detect provenance on merge/squash. Gitignored. | Prompt to delete on merge. |
+| `.claude/worktrees/<branch>/` | Isolated branches created by the implement loop / autopilot via the worktree-setup partial — Claude Code's native worktree home (`EnterWorktree`, `claude --worktree`); ship verbs detect provenance on merge/squash. Gitignored via nested `.claude/.gitignore`. | Prompt to delete on merge. |
 | `tmp/` | Ad-hoc experiments, scratch scripts, one-off tests. Gitignored. | Throwaway. |
 | `~/.claude/.atomic/` | Per-user state: `config.toml`, `config.resolved.md` (auto-loaded), `backups/`, `proposed/CLAUDE.md`. | Never committed. |
 

@@ -508,7 +508,7 @@ Flag: `atomic hooks session-start --format=text` falls back to plain markdown te
 ## Git workflow
 
 
-- **Branching**: trunk-based on `main`. Feature work lands via `/worktree-start` into `.worktrees/<branch>`.
+- **Branching**: trunk-based on `main`. Feature work lands via worktree isolation at `.claude/worktrees/<branch>` (the `worktree-setup` partial in the implement loop, or Claude Code's own worktree tooling).
 - **Versioning**: semver tags `vMAJOR.MINOR.PATCH`. Pre-1.0 is `v0.x.y`; breaking changes bump MINOR until v1.0.
 - **Commit style**: Conventional Commits via the `atomic-git-discipline` skill. No AI bylines.
 - **Spec linkage**: every Go change references either this spec or a downstream workflow spec. Commits that touch `atomic/` without a spec link get flagged in review.
@@ -761,3 +761,9 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 **Why:** every release required a manual `atomic claude update` follow-up and doctor flagged the gap as drift. Full contract: `docs/spec/atomic-update-doctor.md` § Artifact auto-refresh contract.
 
 **Superseded:** prior contract: update swapped the binary only and always printed the out-of-sync nudge when `~/.claude/CLAUDE.md` existed.
+
+### 2026-07-12 — Correction: worktree location in Git workflow
+
+**What changed:** the `## Git workflow` branching bullet now names worktree isolation at `.claude/worktrees/<branch>` via the `worktree-setup` partial (or Claude Code's own worktree tooling).
+
+**Why:** the worktree prescription moved from `.worktrees/` to `.claude/worktrees/` (Claude Code's native worktree home), and the bullet still cited `/worktree-start` — a command that no longer exists in the bundle. Code diverged from the body; corrected in place.

@@ -31,7 +31,7 @@ What it guarantees:
 | `.claude/.scratchpad/` ignored | managed rule `/.scratchpad/` in `.claude/.gitignore` |
 | `.claude/.atomic-index/` ignored | managed rule `/.atomic-index/` in `.claude/.gitignore` |
 | `tmp/` ignored | root `.gitignore` line `tmp/` |
-| `.worktrees/` ignored | root `.gitignore` line `.worktrees/` |
+| `.claude/worktrees/` ignored | managed rule `/worktrees/` in `.claude/.gitignore` |
 
 ## Key decisions
 

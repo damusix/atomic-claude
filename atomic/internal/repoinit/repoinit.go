@@ -1,6 +1,6 @@
 // Package repoinit scaffolds the deterministic .claude/ layout a repo needs
 // to work with the atomic ecosystem: the scratchpad and project directories,
-// and the git-ignore rules that keep them (and tmp/, .worktrees/) out of
+// and the git-ignore rules that keep them (and tmp/, .claude/worktrees/) out of
 // version control. Init is idempotent and non-destructive — it only creates
 // what is missing and never rewrites, reorders, or removes existing content.
 // It never runs git commit; the caller owns that.
@@ -96,10 +96,11 @@ func Init(root string) ([]Action, error) {
 	actions = append(actions, a)
 
 	a, err = ensureIgnored(root, ignoreGuarantee{
-		probeDirRel:   ".worktrees",
-		ignoreFileRel: ".gitignore",
-		ruleLine:      ".worktrees/",
-		name:          ".worktrees/ ignored",
+		probeDirRel:   filepath.Join(".claude", "worktrees"),
+		ignoreFileRel: filepath.Join(".claude", ".gitignore"),
+		ruleLine:      "/worktrees/",
+		name:          ".claude/worktrees/ ignored",
+		withHeader:    true,
 	})
 	if err != nil {
 		return nil, err
