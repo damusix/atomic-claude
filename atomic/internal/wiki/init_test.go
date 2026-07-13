@@ -12,9 +12,10 @@ import (
 // goldenRepoScaffold is an independently-copied fixture of the repo-scope
 // scaffold. Kept separate from repoSteeringScaffold in init.go so this test
 // catches accidental drift in the source constant, not just self-consistency
-// with it. Invariant the fixture encodes: every illustrative example lives
-// inside an HTML comment, so an uncustomized scaffold contains zero live
-// steering facts.
+// with it. Invariants the fixture encodes: every illustrative example lives
+// inside an HTML comment, and no example names a concrete framework, tool,
+// or path — an uncustomized scaffold contains zero repo facts a model could
+// pick up from context.
 const goldenRepoScaffold = `---
 type: Steering
 description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
@@ -29,27 +30,27 @@ description: Authoritative steering for the signals/wiki inferrer when operating
 
 ## Framework
 
-<!-- example: NestJS monorepo (not plain Express) -->
+<!-- example: <the real framework> (not <what detection wrongly guessed>) -->
 
 ## Domains
 
 <!-- example:
-- src/billing/ and src/payments/ are one domain ("payments")
-- src/internal-tools/ is scratch code — not a real domain
+- <dir-a>/ and <dir-b>/ are one domain ("<domain-name>")
+- <dir-c>/ is scratch code — not a real domain
 -->
 
 ## Build
 
 <!-- example:
-- Build: pnpm turbo build
-- Test: pnpm test:ci (not pnpm test — that runs watch mode)
+- Build: <build command>
+- Test: <ci test command> (not <the watch-mode command>)
 -->
 
 ## Ignore for domains
 
 <!-- example:
-- vendor/
-- generated/
+- <vendored-dir>/
+- <generated-output-dir>/
 -->
 `
 

@@ -6,11 +6,12 @@ import (
 )
 
 // repoSteeringScaffold is the fixed-content docs/wiki/CLAUDE.md scaffold for
-// repo scope. The section examples live inside HTML comments so neither
-// markdown rendering nor the inferrer can mistake them for real steering —
-// the previous scaffold shipped its examples as live markdown ("# NestJS
-// monorepo" parsed as a heading, not a comment) and inferrer runs had to
-// detect and ignore fabricated facts on every uncustomized repo.
+// repo scope. Two constraints shape the examples: they live inside HTML
+// comments so markdown rendering can't promote them to headings, and they
+// name no concrete framework, tool, or path — the file loads verbatim into
+// model context as nested memory, so even a commented concrete name (an
+// earlier scaffold said "NestJS monorepo") reads as a fact about the repo
+// and derails inferrer runs on every uncustomized checkout.
 const repoSteeringScaffold = `---
 type: Steering
 description: Authoritative steering for the signals/wiki inferrer when operating under docs/wiki/.
@@ -25,27 +26,27 @@ description: Authoritative steering for the signals/wiki inferrer when operating
 
 ## Framework
 
-<!-- example: NestJS monorepo (not plain Express) -->
+<!-- example: <the real framework> (not <what detection wrongly guessed>) -->
 
 ## Domains
 
 <!-- example:
-- src/billing/ and src/payments/ are one domain ("payments")
-- src/internal-tools/ is scratch code — not a real domain
+- <dir-a>/ and <dir-b>/ are one domain ("<domain-name>")
+- <dir-c>/ is scratch code — not a real domain
 -->
 
 ## Build
 
 <!-- example:
-- Build: pnpm turbo build
-- Test: pnpm test:ci (not pnpm test — that runs watch mode)
+- Build: <build command>
+- Test: <ci test command> (not <the watch-mode command>)
 -->
 
 ## Ignore for domains
 
 <!-- example:
-- vendor/
-- generated/
+- <vendored-dir>/
+- <generated-output-dir>/
 -->
 `
 
