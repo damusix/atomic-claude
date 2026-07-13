@@ -50,7 +50,7 @@ func TestInit_ColdRepoScaffold(t *testing.T) {
 	if !strings.Contains(nested, "# managed by atomic repo init") {
 		t.Errorf("nested .gitignore missing managed header:\n%s", nested)
 	}
-	if !strings.Contains(nested, "/.scratchpad/") || !strings.Contains(nested, "/.atomic-index/") {
+	if !strings.Contains(nested, "/.scratchpad/") || !strings.Contains(nested, "/.atomic-index/") || !strings.Contains(nested, "/worktrees/") {
 		t.Errorf("nested .gitignore missing managed rules:\n%s", nested)
 	}
 
@@ -59,7 +59,7 @@ func TestInit_ColdRepoScaffold(t *testing.T) {
 		t.Fatalf("read root .gitignore: %v", err)
 	}
 	root := string(rootIgnore)
-	if !strings.Contains(root, "tmp/") || !strings.Contains(root, ".worktrees/") {
+	if !strings.Contains(root, "tmp/") {
 		t.Errorf("root .gitignore missing managed rules:\n%s", root)
 	}
 }
@@ -126,14 +126,14 @@ func TestInit_PreExistingEffectiveRulesNoAppend(t *testing.T) {
 		t.Errorf(".claude/.scratchpad/ ignored: expected ok (already effective via root rule), got %s", byName[".claude/.scratchpad/ ignored"])
 	}
 
-	// The pre-existing lines must survive byte-for-byte at the head of the
-	// file; .worktrees/ is a separate, still-unsatisfied guarantee and is
-	// expected to be appended after them.
+	// Both root guarantees (tmp/ via the wildcard, and nothing else lives at
+	// root anymore) are satisfied, so the root file must survive byte-for-byte
+	// untouched. The worktrees guarantee lives in the nested .claude/.gitignore.
 	rootAfter, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(rootAfter), rootContent) {
+	if string(rootAfter) != rootContent {
 		t.Errorf("pre-existing root .gitignore content not preserved:\nbefore:\n%s\nafter:\n%s", rootContent, rootAfter)
 	}
 
@@ -208,7 +208,7 @@ func TestInit_AppendPreservesExistingContent(t *testing.T) {
 	if strings.Contains(got, "# managed by atomic repo init") {
 		t.Errorf("managed header must not be added when file already existed:\n%s", got)
 	}
-	if !strings.Contains(got, "/.scratchpad/") || !strings.Contains(got, "/.atomic-index/") {
+	if !strings.Contains(got, "/.scratchpad/") || !strings.Contains(got, "/.atomic-index/") || !strings.Contains(got, "/worktrees/") {
 		t.Errorf("managed rules not appended:\n%s", got)
 	}
 }
@@ -229,7 +229,7 @@ func TestInit_ActionOrderAndNames(t *testing.T) {
 		".claude/.scratchpad/ ignored",
 		".claude/.atomic-index/ ignored",
 		"tmp/ ignored",
-		".worktrees/ ignored",
+		".claude/worktrees/ ignored",
 	}
 	if len(actions) != len(wantNames) {
 		t.Fatalf("expected %d actions, got %d: %+v", len(wantNames), len(actions), actions)

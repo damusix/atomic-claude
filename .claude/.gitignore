@@ -14,3 +14,4 @@
 !/rules/authoring/**
 !/settings.local.json
 /.atomic-index/
+/worktrees/

@@ -1,4 +1,4 @@
-{{define "worktree-cleanup-prompt"}}Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via `AskUserQuestion`:
+{{define "worktree-cleanup-prompt"}}Worktree check: `git worktree list`. If the feature branch lived in a linked worktree (typically `.claude/worktrees/<feature>/`), ask via `AskUserQuestion`:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
    > - No, keep it

@@ -1,5 +1,6 @@
 .git
 .worktrees
+.claude/worktrees
 bin
 atomic/internal/embedded/bundle
 tmp

@@ -79,7 +79,7 @@ Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subage
   │             Convention              │              Status                │
   ├─────────────────────────────────────┼────────────────────────────────────┤
   │ .gitignore has .claude/.scratchpad/ │ ✗                                  │
-  │ .gitignore has .worktrees/          │ ✗                                  │
+  │ .claude/worktrees/ ignored          │ ✗                                  │
   │ docs/spec/                          │ ✗                                  │
   │ docs/design/                        │ ✗                                  │
   │ Signals files                       │ ✗                                  │

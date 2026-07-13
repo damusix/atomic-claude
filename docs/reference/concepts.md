@@ -125,7 +125,7 @@ A spec has two parts. The body states what is true *now* — a subagent reads it
 ### Worktrees
 
 
-A worktree is a second checkout of the same repo, on its own branch, in a different directory — git supports it natively. The implement loop and `/autopilot` create one at `.worktrees/<feature>/` automatically, run a baseline test, and build there, so your main checkout stays clean with no stashing or branch juggling. On merge or squash, `/commit` notices the branch came from a worktree and offers to clean it up.
+A worktree is a second checkout of the same repo, on its own branch, in a different directory — git supports it natively. The implement loop and `/autopilot` create one at `.claude/worktrees/<feature>/` — Claude Code's native worktree home — automatically, run a baseline test, and build there, so your main checkout stays clean with no stashing or branch juggling. On merge or squash, `/commit` notices the branch came from a worktree and offers to clean it up.
 
 
 ### Scratchpad

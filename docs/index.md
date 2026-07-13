@@ -58,7 +58,7 @@ Anthropic's workshop on building agents that run for hours. The loop it describe
 | A maker and a separate checker | `atomic-implementer` writes; `atomic-reviewer` re-runs the tests and gates the diff. The author never grades its own homework |
 | A state file that survives the session | `signals.md`, the scratchpad `STATE.md`, and committed follow-ups hold what's done and what's next |
 | An objective gate, not an opinion | `atomic-tdd` (failing test first) and `atomic-verify` (no "done" without a fresh run) |
-| Worktrees for parallel work without collisions | The implement loop isolates each branch under `.worktrees/` |
+| Worktrees for parallel work without collisions | The implement loop isolates each branch under `.claude/worktrees/` |
 
 The video explains the pattern. This config is that pattern.
 
