@@ -159,7 +159,7 @@ One decision is yours, how to merge. Everything else runs unattended. → [workf
 | **Discipline skills** | Nine that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing, visual-options. | [skills](docs/reference/skills.md) |
 | **Quick fixes** | `/quick-fix <task>` runs the implement-review loop without a spec, for a fix with a known cause and one obvious approach. | [workflow](docs/reference/workflow.md) |
 | **Git commands** | `/commit [push\|pr\|merge\|squash\|squash merge]` covers all ship paths from one verb; ask-don't-enumerate. Plus CI watch, branch cleanup, worktrees, reminders. | [commands](docs/reference/commands.md) |
-| **Persistent profile** | `~/.claude/.atomic/profile.md`: who you are plus auto-detected dev tooling, read every session, refreshed on a staleness check. | [concepts](docs/reference/concepts.md) |
+| **Persistent profile** | `~/.atomic/profile.md`: who you are plus auto-detected dev tooling, read every session, refreshed on a staleness check. | [concepts](docs/reference/concepts.md) |
 
 ### And the replies take the right shape
 

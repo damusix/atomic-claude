@@ -14,7 +14,7 @@ import (
 )
 
 // Run is the CLI entry point for `atomic config <verb> [args]`.
-// home is the ~/.claude path (caller resolves it; Run does not call os.UserHomeDir).
+// home is the user's home directory (caller resolves it; Run does not call os.UserHomeDir).
 // Returns an exit code: 0 success, 1 error, 2 usage error.
 func Run(args []string, home string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {

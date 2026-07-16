@@ -52,12 +52,6 @@ var ErrWatchNotImplemented = errors.New("codeintel/engine: Watch not implemented
 // Init/Open has not been called.
 var ErrNotInitialized = errors.New("codeintel/engine: not initialized; call Init or Open first")
 
-// indexSubDir is the path from the project root to the index directory.
-const indexSubDir = ".claude/.atomic-index"
-
-// dbFileName is the SQLite file within the index directory.
-const dbFileName = "atomic.db"
-
 // ContextOptions configures FindRelevantContext.
 type ContextOptions = codectx.Options
 
@@ -119,7 +113,7 @@ func (e *Engine) indexPath() string {
 	if e.explicitDB != "" {
 		return e.explicitDB
 	}
-	return filepath.Join(e.root, indexSubDir, dbFileName)
+	return config.IndexDBPath(e.root)
 }
 
 // indexDir returns the directory that contains the SQLite file. When an
@@ -129,7 +123,7 @@ func (e *Engine) indexDir() string {
 	if e.explicitDB != "" {
 		return filepath.Dir(e.explicitDB)
 	}
-	return filepath.Join(e.root, indexSubDir)
+	return config.IndexDir(e.root)
 }
 
 // ---------------------------------------------------------------------------
@@ -300,7 +294,7 @@ func (e *Engine) IsInitialized() bool {
 // Callers that need the DB path without opening an engine (e.g. the doctor
 // check) use this function to avoid hardcoding the path.
 func IndexPath(projectRoot string) string {
-	return filepath.Join(projectRoot, indexSubDir, dbFileName)
+	return config.IndexDBPath(projectRoot)
 }
 
 // Close releases all resources held by the engine: the DB connection and the

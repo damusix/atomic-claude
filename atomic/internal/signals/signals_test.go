@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/signals"
 )
@@ -1073,6 +1074,41 @@ func TestEnumerateFiles_GitExcludesScratchpad(t *testing.T) {
 	}
 }
 
+// TestEnumerateFiles_GitExcludesScratchpad_UnderNonDefaultHarnessDir verifies
+// skipPrefixes threads the resolved harness dir: under a ".pi" harness, the
+// exclusion prefix moves to .pi/.scratchpad/ + .pi/project/, and the default
+// .claude/.scratchpad/ prefix no longer applies.
+func TestEnumerateFiles_GitExcludesScratchpad_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := makeRepo(t, map[string]string{
+		"main.go": "package main\n",
+		".pi/.scratchpad/2026-01-01-task/BRIEF.md": "# brief\n",
+		".pi/rules/ts.md":                          "# ts\n",
+		// Under the .pi harness, the default .claude/.scratchpad/ prefix no
+		// longer matches — a file there must survive in the scan.
+		".claude/.scratchpad/leftover.md": "# leftover\n",
+	})
+	initGit(t, root)
+	exec.Command("git", "-C", root, "add", ".").Run()
+	exec.Command("git", "-C", root, "commit", "-m", "init").Run()
+
+	out, err := signals.ScanTree(root)
+	if err != nil {
+		t.Fatalf("ScanTree: %v", err)
+	}
+	if strings.Contains(out, "2026-01-01-task") {
+		t.Errorf("expected .pi/.scratchpad/ to be excluded:\n%s", out)
+	}
+	if !strings.Contains(out, ".pi") {
+		t.Errorf("expected .pi to appear (has rules/):\n%s", out)
+	}
+	if !strings.Contains(out, "leftover.md") {
+		t.Errorf("expected .claude/.scratchpad/leftover.md to survive under a .pi harness:\n%s", out)
+	}
+}
+
 // ---- U4: docs/wiki/ excluded from scan (generated signals output) ----
 
 // TestEnumerateFiles_ExcludesDocsWiki asserts that the entire docs/wiki/ directory
@@ -1927,7 +1963,7 @@ func TestScanWithOptions_ConfigMaxDepthWiring(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Inject the config path so we don't touch ~/.claude/.atomic/config.toml.
+	// Inject the config path so we don't touch ~/.atomic/config.toml.
 	// MaxDepth is left 0 — ScanWithOptions must read it from ConfigPath.
 	opts := &signals.Options{ConfigPath: configPath}
 	if err := signals.ScanWithOptions(root, opts); err != nil {

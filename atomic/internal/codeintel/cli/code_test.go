@@ -26,6 +26,7 @@ import (
 
 	codecli "github.com/damusix/atomic-claude/atomic/internal/codeintel/cli"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // noStdin returns an empty reader for tests that don't exercise stdin.
@@ -147,6 +148,26 @@ func TestDispatch_NoArgs_PrintsUsage(t *testing.T) {
 	combined := stdout.String() + stderr.String()
 	if !strings.Contains(combined, "atomic code") {
 		t.Fatalf("expected usage text, got: %s", combined)
+	}
+}
+
+// TestDispatch_NoArgs_PrintsHarnessAwareDBPath verifies the usage text's "DB
+// path" line reflects the resolved harness dir instead of a hardcoded
+// ".claude/.atomic-index/" display.
+func TestDispatch_NoArgs_PrintsHarnessAwareDBPath(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	dir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	codecli.RunCode([]string{}, dir, &stdout, &stderr, noStdin())
+	combined := stdout.String() + stderr.String()
+	want := "DB path: <project>/.pi/.atomic-index/atomic.db"
+	if !strings.Contains(combined, want) {
+		t.Fatalf("expected usage text to contain %q, got: %s", want, combined)
+	}
+	if strings.Contains(combined, ".claude/.atomic-index") {
+		t.Fatalf("usage text must not show the default-harness literal under a .pi harness, got: %s", combined)
 	}
 }
 
@@ -428,6 +449,32 @@ func TestEnsureGitignore_CreatesFile(t *testing.T) {
 	must(t, err)
 	if !strings.Contains(string(data), ".claude/.atomic-index/") {
 		t.Fatalf(".gitignore created but does not contain the entry:\n%s", string(data))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 10b. EnsureGitignore: entry derives from the resolved harness dir
+// ---------------------------------------------------------------------------
+
+// TestEnsureGitignore_HarnessAware proves the written rule tracks a
+// non-default harness.dir instead of the hardcoded ".claude/.atomic-index/"
+// literal — under harness.dir=.pi the generated index dir must be ignored.
+func TestEnsureGitignore_HarnessAware(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	dir := t.TempDir()
+	gitignorePath := filepath.Join(dir, ".gitignore")
+
+	must(t, codecli.EnsureGitignore(dir))
+
+	data, err := os.ReadFile(gitignorePath)
+	must(t, err)
+	if !strings.Contains(string(data), ".pi/.atomic-index/") {
+		t.Fatalf("gitignore entry not present for .pi harness dir:\n%s", string(data))
+	}
+	if strings.Contains(string(data), ".claude/.atomic-index/") {
+		t.Fatalf("gitignore must not contain the default-harness literal under a .pi harness:\n%s", string(data))
 	}
 }
 

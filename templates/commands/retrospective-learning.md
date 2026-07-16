@@ -13,7 +13,7 @@ You orchestrate a retrospective audit. Subagents do the scanning (read-only). Yo
 1. Announce: `Starting retrospective.`
 2. Resolve state paths once and cache them:
     ```
-    ATOMIC_STATE="${HOME}/.claude/.atomic"
+    ATOMIC_STATE="${HOME}/.atomic"
     RUNS_DIR="${ATOMIC_STATE}/retro-runs"
     LEARNINGS="${ATOMIC_STATE}/retro-learnings.md"
     SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-retro"
@@ -56,7 +56,7 @@ Catalog every config-shaped file at BOTH installed (~/.claude) and project level
 
 Look for:
 
-- Global: ~/.claude/CLAUDE.md, ~/.claude/CLAUDE.local.md, ~/.claude/commands/, ~/.claude/agents/, ~/.claude/skills/, ~/.claude/output-styles/, ~/.claude/rules/, ~/.claude/settings.json, ~/.claude/settings.local.json, ~/.claude/.atomic/config.toml, ~/.claude/.atomic/config.resolved.md, ~/.claude/.atomic/profile.md
+- Global: ~/.claude/CLAUDE.md, ~/.claude/CLAUDE.local.md, ~/.claude/commands/, ~/.claude/agents/, ~/.claude/skills/, ~/.claude/output-styles/, ~/.claude/rules/, ~/.claude/settings.json, ~/.claude/settings.local.json, ~/.atomic/config.toml, ~/.atomic/config.resolved.md, ~/.atomic/profile.md
 - Project: ./CLAUDE.md, ./CLAUDE.local.md, .claude/commands/, .claude/agents/, .claude/skills/, .claude/settings.json, .claude/settings.local.json, .claude/project/signals.md, .claude/project/followups/INDEX.md, .claude/project/followups/*.md
 - Memory: ~/.claude/projects/${PROJECT_SLUG}/memory/MEMORY.md and topic files
 
@@ -106,7 +106,7 @@ Filter the extracted text for:
 2. For each such window, look for frustration / correction signals in the *next* user message (within 5 turns). The frustration anchors on what came before in the conversation, not on naming the artifact.
 3. If a correction or frustration signal lands in that window, mark `atomic_meta = true` and capture the active atomic artifact name in `meta_target`.
 
-**Profile drift detection.** Read `~/.claude/.atomic/profile.md` if it exists (skip silently if absent). Parse facts from `<stable>` and `<volatile>` sections (skip `<deterministic>` — never flagged). For each user-typed message in the session, scan for statements that contradict or supersede an existing fact. Examples:
+**Profile drift detection.** Read `~/.atomic/profile.md` if it exists (skip silently if absent). Parse facts from `<stable>` and `<volatile>` sections (skip `<deterministic>` — never flagged). For each user-typed message in the session, scan for statements that contradict or supersede an existing fact. Examples:
 - profile says `Employer: Acme`; user writes "at Globex we did it this way" → drift candidate.
 - profile says `Role: Senior eng`; user writes "now that I'm a staff engineer" → drift candidate.
 
@@ -471,7 +471,7 @@ Options:
   - Skip (record in run log; re-surfaces if same drift recurs)
 ```
 
-On "Accept new": append the new fact to the matching section in `~/.claude/.atomic/profile.md` (below the existing fact, retaining the old line). On "Modify": follow the standard Modify flow (turn-boundary state save). On "Keep both": record `disposition: "keep-both"` in the run log; do not write to profile.md. On "Skip": record `disposition: "skip"` so it re-surfaces.
+On "Accept new": append the new fact to the matching section in `~/.atomic/profile.md` (below the existing fact, retaining the old line). On "Modify": follow the standard Modify flow (turn-boundary state save). On "Keep both": record `disposition: "keep-both"` in the run log; do not write to profile.md. On "Skip": record `disposition: "skip"` so it re-surfaces.
 
 `<deterministic>` section facts are excluded — they should never appear here.
 
@@ -609,7 +609,7 @@ Write `${RUNS_DIR}/${RUN_ID}.json`:
 
 ## Step 9 — Update learnings file
 
-Read or create `$LEARNINGS` (the file is `~/.claude/.atomic/retro-learnings.md`).
+Read or create `$LEARNINGS` (the file is `~/.atomic/retro-learnings.md`).
 
 Append under `## Recent runs`:
 
@@ -664,7 +664,7 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 - Never edit `~/.claude/settings.json` or `.claude/settings.json` without printing the JSON patch first and confirming. Delegate to `/update-config` skill when present. **Why:** settings.json changes affect tool permissions and hook execution — they need a visible diff.
 - No commits. End by suggesting `/commit`; let the user inspect first. **Why:** mixed audit + ship is opaque; separating them keeps the diff reviewable.
 - Read-only agents only — discovery, history scan, prior-retro audit all use read-only agents (`atomic-investigator`, plus Haiku-backed `general-purpose` runners). Only the orchestrator writes. **Why:** parallel agents writing the same files is a race condition without coordination overhead.
-- Atomic-tier carve-out for state: `retro-runs/` and `retro-learnings.md` live in `~/.claude/.atomic/`, not in memory (axiom 2 carve-out for shell-readable durable state). **Why:** the next run needs to grep past run logs deterministically; memory is conversational and not addressable from a shell.
+- Atomic-tier carve-out for state: `retro-runs/` and `retro-learnings.md` live in `~/.atomic/`, not in memory (axiom 2 carve-out for shell-readable durable state). **Why:** the next run needs to grep past run logs deterministically; memory is conversational and not addressable from a shell.
 
 ## Open behaviors
 

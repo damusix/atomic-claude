@@ -1,6 +1,9 @@
 # Uninstall workflow
 
 
+> **Status:** point-in-time record. The state root moved to `~/.atomic/` in v6 — see `docs/design/configurable-state-paths.md`. Paths below reflect the pre-v6 layout.
+
+
 ## Problem
 
 Users need a clean exit path. If someone installs atomic-claude and decides it's not for them, they currently have to manually identify and remove every file atomic touched. There's no record of what the pre-atomic state was, and settings.json may have been modified both by atomic (hook registration) and by the user (permissions, MCP servers) since install time.

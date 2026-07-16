@@ -20,6 +20,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // --------------------------------------------------------------------------
@@ -84,6 +85,52 @@ func TestLifecycle_InitCreatesDB(t *testing.T) {
 	dbPath := filepath.Join(dir, ".claude", ".atomic-index", "atomic.db")
 	if _, err := os.Stat(dbPath); err != nil {
 		t.Fatalf("DB file not found at %s: %v", dbPath, err)
+	}
+}
+
+// TestLifecycle_InitCreatesDB_UnderNonDefaultHarnessDir verifies Init/IndexPath
+// thread the project root through config.IndexDBPath — under a ".pi" harness
+// dir, the db lives at .pi/.atomic-index/atomic.db, not the default
+// .claude/.atomic-index/atomic.db.
+func TestLifecycle_InitCreatesDB_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	dir := t.TempDir()
+	e, err := engine.New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Close()
+
+	if err := e.Init(context.Background()); err != nil {
+		t.Fatal("Init:", err)
+	}
+
+	dbPath := filepath.Join(dir, ".pi", ".atomic-index", "atomic.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("DB file not found at %s: %v", dbPath, err)
+	}
+	if got := e.IndexPath(); got != dbPath {
+		t.Errorf("IndexPath() = %q, want %q", got, dbPath)
+	}
+
+	// The default .claude location must not have been touched.
+	if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
+		t.Errorf(".claude should not exist under a .pi harness, stat err=%v", err)
+	}
+}
+
+// TestIndexPath_UnderNonDefaultHarnessDir verifies the package-level IndexPath
+// function (used by doctor's code-index check) resolves through the harness dir.
+func TestIndexPath_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	got := engine.IndexPath("/repo")
+	want := filepath.Join("/repo", ".pi", ".atomic-index", "atomic.db")
+	if got != want {
+		t.Errorf("IndexPath = %q, want %q", got, want)
 	}
 }
 

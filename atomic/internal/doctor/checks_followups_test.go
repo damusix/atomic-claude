@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/followups"
 )
@@ -146,6 +147,39 @@ func TestCheckFollowupsPass_FreshAndInSync(t *testing.T) {
 	r := doctor.RunCheckFollowupsWith(root)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %v, want PASS (detail: %s)", r.Severity, r.Detail)
+	}
+}
+
+// TestCheckFollowups_UnderNonDefaultHarnessDir verifies the check reads
+// through config.FollowupsDir — under a ".pi" harness dir, followups live at
+// .pi/project/followups, not the default .claude/project/followups.
+func TestCheckFollowups_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, ".pi", "project", "followups")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdirall: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "fresh-F-1.md"), []byte(freshEntry("fresh-F-1", "A fresh entry")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries, _, _ := followups.LoadEntriesWithErrors(dir)
+	idx := followups.Render(entries, time.Now())
+	if err := os.WriteFile(filepath.Join(dir, "INDEX.md"), []byte(idx), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := doctor.RunCheckFollowupsWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS under .pi harness (detail: %s)", r.Severity, r.Detail)
+	}
+
+	// The default .claude/project/followups folder was never created — a
+	// check that still hardcoded ".claude" would report SKIP here instead.
+	if _, err := os.Stat(filepath.Join(root, ".claude")); !os.IsNotExist(err) {
+		t.Fatalf("test setup error: .claude should not exist, stat err=%v", err)
 	}
 }
 

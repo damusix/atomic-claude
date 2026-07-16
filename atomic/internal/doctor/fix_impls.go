@@ -16,16 +16,23 @@ func resolveClaudeHome() (string, error) {
 	return claudeinstall.ResolveTarget("~/.claude")
 }
 
+// resolveHome returns the user's home directory — the root of atomic-owned
+// config state (~/.atomic), distinct from resolveClaudeHome's ~/.claude
+// install-target root.
+func resolveHome() (string, error) {
+	return os.UserHomeDir()
+}
+
 // applyInstallRepair runs claudeinstall.Install (which is idempotent) against ~/.claude.
 // This mirrors `atomic claude install --merge` behavior: unchanged files are no-ops,
 // changed files get backed up and overwritten, CLAUDE.md gets block-aware handling
 // (in-place <atomic> block replacement, or the proposed-file path when no block parses).
-func applyInstallRepair(targetDir string) error {
-	plan, err := claudeinstall.Install(targetDir, false, claudeinstall.RealClock)
+func applyInstallRepair(targetDir, home string) error {
+	plan, err := claudeinstall.Install(targetDir, home, false, claudeinstall.RealClock)
 	if err != nil {
 		return fmt.Errorf("install plan: %w", err)
 	}
-	return claudeinstall.Apply(targetDir, plan, false, claudeinstall.RealClock)
+	return claudeinstall.Apply(targetDir, home, plan, false, claudeinstall.RealClock)
 }
 
 // applyHooksRepair calls hooks.Install using the user-scope root ($HOME).
@@ -50,7 +57,11 @@ func defaultInstallRepair(out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	return applyInstallRepair(target)
+	home, err := resolveHome()
+	if err != nil {
+		return err
+	}
+	return applyInstallRepair(target, home)
 }
 
 // defaultHooksRepair is the production hooks repair: prints the command then applies.
@@ -111,6 +122,6 @@ func applyManifestRepair(out io.Writer) error {
 
 // defaultConfigRepair re-renders config.resolved.md from the current TOML.
 // Called by Repairer.ConfigFn in production.
-func defaultConfigRepair(claudeHome string) error {
-	return RunConfigRepairWith(claudeHome)
+func defaultConfigRepair(home string) error {
+	return RunConfigRepairWith(home)
 }

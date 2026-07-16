@@ -17,12 +17,18 @@ const runDoctorDefault = true
 // signalsMaxDepthDefault is the built-in default for output.signals.max_depth.
 const signalsMaxDepthDefault = 3
 
+// harnessDirDefault is the built-in default for harness.dir — the repo-local
+// state directory name every repo-local path helper (see harness.go) joins
+// onto a project root.
+const harnessDirDefault = ".claude"
+
 // knownKeys is the list of user-settable leaf keys exposed via Get/Set/Unset/Resolved.
 // Machine-written sections (e.g. [install]) are NOT included here — they are not
 // user-settable via `atomic config set` and do not appear in `atomic config list`.
 var knownKeys = []string{
 	"output.signals.max_depth",
 	"update.run_doctor",
+	"harness.dir",
 }
 
 // knownSchemaKeys is the exhaustive set of recognized dotted keys across all
@@ -93,6 +99,11 @@ type updateSection struct {
 	RunDoctor bool `toml:"run_doctor"`
 }
 
+// harnessSection is the [harness] TOML table.
+type harnessSection struct {
+	Dir string `toml:"dir"`
+}
+
 // installArtifactsSection is the [install.artifacts] TOML sub-table.
 // Each field is the list of artifact file names (relative to their kind directory)
 // that were copied by the last `atomic claude install` invocation.
@@ -138,8 +149,9 @@ var knownAtomicAgents = map[string]bool{
 // Config is the parsed + defaulted configuration.
 // Fields track explicit set values; zero values mean "use built-in default".
 type Config struct {
-	Output outputSection `toml:"output"`
-	Update updateSection `toml:"update"`
+	Output  outputSection  `toml:"output"`
+	Update  updateSection  `toml:"update"`
+	Harness harnessSection `toml:"harness"`
 	// Install is omitted from TOML when zero-valued (no install manifest yet).
 	Install installSection `toml:"install,omitempty"`
 	// Agents maps bundled agent filenames (no .md suffix) to model tier strings.
@@ -154,7 +166,8 @@ func Default() *Config {
 		Output: outputSection{
 			Signals: signalsSubSection{MaxDepth: signalsMaxDepthDefault},
 		},
-		Update: updateSection{RunDoctor: runDoctorDefault},
+		Update:  updateSection{RunDoctor: runDoctorDefault},
+		Harness: harnessSection{Dir: harnessDirDefault},
 	}
 }
 
@@ -225,6 +238,13 @@ func Load(path string) (*Config, []Warning, error) {
 	// will catch non-positive values. When absent, restore the default.
 	if !signalsMaxDepthExplicit {
 		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
+	}
+	// harness.dir: unlike run_doctor/max_depth, an explicit empty string is
+	// never a valid value (Set/Validate reject it), so there's no collision
+	// between "absent" and "explicitly set to the zero value" — backfill
+	// unconditionally whenever the decoded value is empty.
+	if cfg.Harness.Dir == "" {
+		cfg.Harness.Dir = harnessDirDefault
 	}
 
 	return cfg, warns, nil
@@ -307,6 +327,9 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 func Validate(cfg *Config) error {
 	if cfg.Output.Signals.MaxDepth <= 0 {
 		return fmt.Errorf("config: output.signals.max_depth must be a positive integer, got %d", cfg.Output.Signals.MaxDepth)
+	}
+	if err := validateHarnessDir(cfg.Harness.Dir); err != nil {
+		return err
 	}
 	// install.version must be a parseable semver when present.
 	// An empty string is valid — it means no [install] table yet (pre-framework install).
@@ -399,6 +422,20 @@ func Set(cfg *Config, dottedKey, value string) error {
 		default:
 			return fmt.Errorf("config: update.run_doctor %q is not one of: false, true", value)
 		}
+	case "harness.dir":
+		if err := validateHarnessDir(value); err != nil {
+			return err
+		}
+		cfg.Harness.Dir = value
+	}
+	return nil
+}
+
+// validateHarnessDir enforces the harness.dir value shape: a single
+// non-empty path segment that is never "." or ".." and never contains "/".
+func validateHarnessDir(value string) error {
+	if value == "" || value == "." || value == ".." || strings.Contains(value, "/") {
+		return fmt.Errorf("config: harness.dir must be a single non-empty path segment (not \".\", \"..\", and not containing \"/\"), got %q", value)
 	}
 	return nil
 }
@@ -419,6 +456,8 @@ func Unset(cfg *Config, dottedKey string) error {
 		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
 	case "update.run_doctor":
 		cfg.Update.RunDoctor = runDoctorDefault
+	case "harness.dir":
+		cfg.Harness.Dir = harnessDirDefault
 	}
 	return nil
 }

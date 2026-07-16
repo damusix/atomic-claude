@@ -1,6 +1,9 @@
 # atomic state directory + config (design)
 
 
+> **Status:** point-in-time record. The state root moved to `~/.atomic/` in v6 — see `docs/design/configurable-state-paths.md`. Paths below reflect the pre-v6 layout.
+
+
 ## Problem
 
 

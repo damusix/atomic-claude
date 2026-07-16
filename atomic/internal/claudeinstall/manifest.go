@@ -104,8 +104,8 @@ func currentBundleTargetSet() map[string]bool {
 // Reads the existing config leniently, updates Install.Version and Install.Artifacts, then
 // atomically rewrites the file. "claude-md" kind artifacts are not tracked in install.artifacts.
 // Must only be called on non-dry-run installs.
-func writeInstallManifest(targetDir string, plan []FileAction) error {
-	cfgPath := config.TOMLPath(targetDir)
+func writeInstallManifest(home string, plan []FileAction) error {
+	cfgPath := config.TOMLPath(home)
 	cfg, _, err := config.Load(cfgPath)
 	if err != nil {
 		return fmt.Errorf("load config for manifest write: %w", err)

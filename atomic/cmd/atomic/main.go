@@ -88,6 +88,15 @@ func main() {
 		}
 	}
 
+	// Migrate legacy per-user state (~/.claude/.atomic -> ~/.atomic, issue #150)
+	// once, before any verb runs. Best-effort: failure warns and never blocks
+	// the invoked verb — the migration itself is not what the user asked for.
+	if home, herr := os.UserHomeDir(); herr == nil {
+		if err := config.MigrateUserState(home); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic: user state migration: %v\n", err)
+		}
+	}
+
 	// Execute the Cobra command tree. SilenceErrors is set on rootCmd so we
 	// handle the error ourselves and control the exit code explicitly.
 	if err := rootCmd.Execute(); err != nil {
@@ -647,7 +656,7 @@ func buildConfigCmd() *cobra.Command {
 			fmt.Fprintf(os.Stderr, "atomic config: resolve home dir: %v\n", err)
 			os.Exit(2)
 		}
-		os.Exit(config.Run(args, filepath.Join(home, ".claude"), os.Stdout, os.Stderr))
+		os.Exit(config.Run(args, home, os.Stdout, os.Stderr))
 	}
 	parent := &cobra.Command{
 		Use:   "config",
@@ -1176,7 +1185,7 @@ func runUpdate(args []string) {
 	// Run install-scope migrations after the artifact refresh so they see the
 	// new bundle. Best-effort: failure warns and never blocks the update path.
 	if home, herr := os.UserHomeDir(); herr == nil {
-		if err := runMigrateInstall(filepath.Join(home, ".claude")); err != nil {
+		if err := runMigrateInstall(home); err != nil {
 			fmt.Fprintf(os.Stderr, "atomic update: migrations failed: %v\nrun `atomic migrate` manually.\n", err)
 		}
 	}
@@ -1185,7 +1194,7 @@ func runUpdate(args []string) {
 	// Ignore home-dir errors and config warnings — doctor will catch real issues.
 	cfgRunDoctor := true // safe default when config is unreadable
 	if home, herr := os.UserHomeDir(); herr == nil {
-		cfgPath := config.TOMLPath(filepath.Join(home, ".claude"))
+		cfgPath := config.TOMLPath(home)
 		if cfg, _, cerr := config.Load(cfgPath); cerr == nil {
 			cfgRunDoctor = cfg.Update.RunDoctor
 		}
@@ -1636,16 +1645,21 @@ type installResult struct {
 // tested without invoking os.Exit. Hook registration is skipped under dry-run
 // and when noHooks is true.
 //
+// targetDir is the Claude artifact install root (may be --target-overridden);
+// home is the user's real home directory, the fixed root of atomic-owned
+// config state (~/.atomic — D1). The two are resolved independently: a custom
+// --target does not move where config state lives.
+//
 // scopeRoot for the hook is the parent of targetDir: ~/.claude → $HOME (user
 // scope), <repo>/.claude → <repo> (project scope). This mirrors the mapping
 // used by `atomic hooks install --scope user|project`.
-func runClaudeInstall(targetDir, verb string, dryRun, noHooks bool) (installResult, error) {
+func runClaudeInstall(targetDir, home, verb string, dryRun, noHooks bool) (installResult, error) {
 	var plan []claudeinstall.FileAction
 	var err error
 	if verb == "update" {
-		plan, err = claudeinstall.Update(targetDir, dryRun, claudeinstall.RealClock)
+		plan, err = claudeinstall.Update(targetDir, home, dryRun, claudeinstall.RealClock)
 	} else {
-		plan, err = claudeinstall.Install(targetDir, dryRun, claudeinstall.RealClock)
+		plan, err = claudeinstall.Install(targetDir, home, dryRun, claudeinstall.RealClock)
 	}
 	if err != nil {
 		return installResult{}, err
@@ -1669,8 +1683,8 @@ func runClaudeInstall(targetDir, verb string, dryRun, noHooks bool) (installResu
 // structured markdown prompt Claude should execute. When out is a TTY the
 // caller should print a human-readable hint before the prompt. Extracted from
 // the cmd switch so it can be tested without invoking os.Exit.
-func runClaudeUninstall(targetDir string, out *os.File) (string, error) {
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+func runClaudeUninstall(targetDir, home string, out *os.File) (string, error) {
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, home)
 	if err != nil {
 		return "", err
 	}
@@ -1684,7 +1698,7 @@ func runClaudeUninstall(targetDir string, out *os.File) (string, error) {
 		fmt.Fprintln(os.Stderr, "")
 	}
 
-	return claudeinstall.GenerateUninstallPrompt(targetDir, plan), nil
+	return claudeinstall.GenerateUninstallPrompt(targetDir, home, plan), nil
 }
 
 // printPostInstallHint surfaces the manual steps `atomic claude install` cannot
@@ -1728,8 +1742,13 @@ func runClaude(args []string) {
 			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
 			os.Exit(1)
 		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude %s: resolve home dir: %v\n", verb, err)
+			os.Exit(1)
+		}
 
-		result, err := runClaudeInstall(targetDir, verb, dryRun, noHooks)
+		result, err := runClaudeInstall(targetDir, home, verb, dryRun, noHooks)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude %s: %v\n", verb, err)
 			os.Exit(1)
@@ -1770,8 +1789,13 @@ func runClaude(args []string) {
 			fmt.Fprintf(os.Stderr, "atomic claude diff: %v\n", err)
 			os.Exit(1)
 		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude diff: resolve home dir: %v\n", err)
+			os.Exit(1)
+		}
 
-		rows, err := claudeinstall.Diff(targetDir)
+		rows, err := claudeinstall.Diff(targetDir, home)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude diff: %v\n", err)
 			os.Exit(1)
@@ -1794,8 +1818,13 @@ func runClaude(args []string) {
 			fmt.Fprintf(os.Stderr, "atomic claude uninstall: %v\n", err)
 			os.Exit(1)
 		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic claude uninstall: resolve home dir: %v\n", err)
+			os.Exit(1)
+		}
 
-		prompt, err := runClaudeUninstall(targetDir, os.Stdout)
+		prompt, err := runClaudeUninstall(targetDir, home, os.Stdout)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic claude uninstall: %v\n", err)
 			os.Exit(1)
@@ -1858,8 +1887,9 @@ func runDocs(args []string, repoOverride string) {
 
 // profileAction executes the profile subcommand logic and returns an exit code.
 // Extracted from runProfile so tests can exercise dispatch without os.Exit.
-// claudeHome is the ~/.claude directory; today is YYYY-MM-DD (injected, never time.Now here).
-func profileAction(args []string, claudeHome, today string) int {
+// home is the user's home directory (config.ProfilePath resolves it to
+// <home>/.atomic/profile.md); today is YYYY-MM-DD (injected, never time.Now here).
+func profileAction(args []string, home, today string) int {
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "Usage: atomic profile <refresh> [flags]\n")
 		return 2
@@ -1883,24 +1913,24 @@ func profileAction(args []string, claudeHome, today string) int {
 				fmt.Fprintf(os.Stderr, "atomic profile refresh: %v\n", err)
 				return 1
 			}
-			wrote, err := profile.RefreshIfStale(claudeHome, today, days)
+			wrote, err := profile.RefreshIfStale(home, today, days)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "atomic profile refresh: %v\n", err)
 				return 1
 			}
 			if wrote {
-				fmt.Fprintf(os.Stderr, "profile refreshed: %s\n", config.ProfilePath(claudeHome))
+				fmt.Fprintf(os.Stderr, "profile refreshed: %s\n", config.ProfilePath(home))
 			}
 			return 0
 		}
 
 		// Unconditional refresh.
-		_, err := profile.Refresh(claudeHome, today)
+		_, err := profile.Refresh(home, today)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "atomic profile refresh: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "profile refreshed: %s\n", config.ProfilePath(claudeHome))
+		fmt.Fprintf(os.Stderr, "profile refreshed: %s\n", config.ProfilePath(home))
 		return 0
 
 	default:
@@ -1916,9 +1946,8 @@ func runProfile(args []string) {
 		fmt.Fprintf(os.Stderr, "atomic profile: resolve home dir: %v\n", err)
 		os.Exit(2)
 	}
-	claudeHome := filepath.Join(home, ".claude")
 	today := time.Now().UTC().Format("2006-01-02")
-	os.Exit(profileAction(args, claudeHome, today))
+	os.Exit(profileAction(args, home, today))
 }
 
 func runCode(args []string, repoOverride string) {
@@ -2065,7 +2094,7 @@ func runMigrate(args []string) {
 			fmt.Fprintf(os.Stderr, "atomic migrate: resolve home dir: %v\n", herr)
 			os.Exit(1)
 		}
-		if err := runMigrateInstall(filepath.Join(home, ".claude")); err != nil {
+		if err := runMigrateInstall(home); err != nil {
 			fmt.Fprintf(os.Stderr, "atomic migrate: install-scope: %v\n", err)
 			os.Exit(1)
 		}
@@ -2082,24 +2111,30 @@ func runMigrate(args []string) {
 			fmt.Fprintf(os.Stderr, "atomic migrate: resolve home dir: %v\n", herr)
 			os.Exit(1)
 		}
-		if err := runMigrateInstall(filepath.Join(home, ".claude")); err != nil {
+		if err := runMigrateInstall(home); err != nil {
 			fmt.Fprintf(os.Stderr, "atomic migrate: %v\n", err)
 			os.Exit(1)
 		}
 	}
 }
 
-// runMigrateInstall runs install-scope migrations against claudeHome.
+// runMigrateInstall runs install-scope migrations against home.
 // Reads the recorded version from config.toml [install].version, applies any
 // pending install-scope steps, and writes the new version back on success.
+//
+// Two-root split: config.toml lives under <home>/.atomic (config helpers get
+// home), while migrate.Context.Root keeps its install-scope meaning of
+// <home>/.claude — install-scope migration steps operate on the Claude
+// artifact install target, not the atomic state root.
+//
 // Returns an error; the caller decides whether it is fatal.
-func runMigrateInstall(claudeHome string) error {
-	cfgPath := config.TOMLPath(claudeHome)
+func runMigrateInstall(home string) error {
+	cfgPath := config.TOMLPath(home)
 	cfg, _, err := config.Load(cfgPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
-	ctx := &migrate.Context{Root: claudeHome}
+	ctx := &migrate.Context{Root: filepath.Join(home, ".claude")}
 	installSteps := scopedMigrations("install", migrate.Registry)
 	newVer, err := migrate.Run(cfg.Install.Version, installSteps, ctx)
 	if err != nil {

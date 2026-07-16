@@ -2,13 +2,13 @@
 
 <atomic>
 
-@~/.claude/.atomic/config.resolved.md
+@~/.atomic/config.resolved.md
 
 ## User profile
 
-@~/.claude/.atomic/profile.md
+@~/.atomic/profile.md
 
-Personal facts about you — name, role, employer, active projects, interests, people you mention — are recorded in `~/.claude/.atomic/profile.md`. Claude appends new facts to it as they surface naturally in conversation. Facts that apply across all projects (identity, work, relationships) go here. Facts specific to one repo's conventions go to that project's auto memory instead. Rule of thumb: if the fact would still be true in a different repo, it belongs in profile.
+Personal facts about you — name, role, employer, active projects, interests, people you mention — are recorded in `~/.atomic/profile.md`. Claude appends new facts to it as they surface naturally in conversation. Facts that apply across all projects (identity, work, relationships) go here. Facts specific to one repo's conventions go to that project's auto memory instead. Rule of thumb: if the fact would still be true in a different repo, it belongs in profile.
 
 `profile.md`'s `## Environment` block is refreshed automatically by the session-start hook. If hooks are disabled in your environment and its `<deterministic lastcheck=...>` date is more than a day old, run `atomic profile refresh --if-stale 1d` once, silently, to update the detected tooling.
 
@@ -105,7 +105,7 @@ Use regex when searching for literal strings, log messages, comments, config val
 | `docs/spec/<topic>.md` | Implementation contract derived from the design; canonical source for `/subagent-implementation`. | Committed; see `rules/specs/`. |
 | `.claude/worktrees/<branch>/` | Isolated branches created by the implement loop / autopilot via the worktree-setup partial — Claude Code's native worktree home (`EnterWorktree`, `claude --worktree`); ship verbs detect provenance on merge/squash. Gitignored via nested `.claude/.gitignore`. | Prompt to delete on merge. |
 | `tmp/` | Ad-hoc experiments, scratch scripts, one-off tests. Gitignored. | Throwaway. |
-| `~/.claude/.atomic/` | Per-user state: `config.toml`, `config.resolved.md` (auto-loaded), `backups/`, `proposed/CLAUDE.md`. | Never committed. |
+| `~/.atomic/` | Per-user state: `config.toml`, `config.resolved.md` (auto-loaded), `backups/`, `proposed/CLAUDE.md`. | Never committed. |
 
 
 ## Specs

@@ -826,6 +826,196 @@ func TestAgentsNotInConfigList(t *testing.T) {
 	}
 }
 
+// --- harness.dir (CP2: configurable-state-paths) ---
+
+// TestHarnessDirDefault: Default() sets harness.dir = ".claude".
+func TestHarnessDirDefault(t *testing.T) {
+	cfg := Default()
+	if cfg.Harness.Dir != ".claude" {
+		t.Errorf("Default() Harness.Dir = %q, want \".claude\"", cfg.Harness.Dir)
+	}
+}
+
+// TestHarnessDirAbsent: absent harness.dir in TOML → default ".claude".
+func TestHarnessDirAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[output.signals]\nmax_depth = 3\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Harness.Dir != ".claude" {
+		t.Errorf("absent harness.dir should default to \".claude\", got %q", cfg.Harness.Dir)
+	}
+}
+
+// TestHarnessDirExplicit: explicit harness.dir in TOML overrides the default.
+func TestHarnessDirExplicit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[harness]\ndir = \".pi\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Harness.Dir != ".pi" {
+		t.Errorf("Harness.Dir = %q, want \".pi\"", cfg.Harness.Dir)
+	}
+}
+
+// TestHarnessDirGetSet: Get and Set work for harness.dir.
+func TestHarnessDirGetSet(t *testing.T) {
+	cfg := Default()
+	v, err := Get(cfg, "harness.dir")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if v != ".claude" {
+		t.Errorf("default Get = %q, want \".claude\"", v)
+	}
+
+	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	v, err = Get(cfg, "harness.dir")
+	if err != nil {
+		t.Fatalf("Get after Set: %v", err)
+	}
+	if v != ".pi" {
+		t.Errorf("after Set .pi, Get = %q, want \".pi\"", v)
+	}
+}
+
+// TestHarnessDirSetValidVariants: legal values (.pi, pi, .claude) all pass Set.
+func TestHarnessDirSetValidVariants(t *testing.T) {
+	for _, v := range []string{".pi", "pi", ".claude"} {
+		cfg := Default()
+		if err := Set(cfg, "harness.dir", v); err != nil {
+			t.Errorf("Set(harness.dir, %q): unexpected error: %v", v, err)
+		}
+		if cfg.Harness.Dir != v {
+			t.Errorf("Harness.Dir after Set(%q) = %q, want %q", v, cfg.Harness.Dir, v)
+		}
+	}
+}
+
+// TestHarnessDirSetInvalidVariants: illegal values (foo/bar, ., .., empty) are rejected.
+func TestHarnessDirSetInvalidVariants(t *testing.T) {
+	for _, v := range []string{"foo/bar", ".", "..", ""} {
+		cfg := Default()
+		if err := Set(cfg, "harness.dir", v); err == nil {
+			t.Errorf("Set(harness.dir, %q): expected error, got nil", v)
+		}
+	}
+}
+
+// TestHarnessDirUnset: Unset reverts harness.dir to the built-in default.
+func TestHarnessDirUnset(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unset(cfg, "harness.dir"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Get(cfg, "harness.dir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != ".claude" {
+		t.Errorf("after Unset got %q, want default \".claude\"", got)
+	}
+}
+
+// TestHarnessDirRoundTrip: set → persist → load → get returns the set value.
+func TestHarnessDirRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	got, err := Get(loaded, "harness.dir")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != ".pi" {
+		t.Errorf("got %q, want \".pi\"", got)
+	}
+}
+
+// TestHarnessDirValidateRejectsBadValue: Validate rejects a hand-corrupted value.
+func TestHarnessDirValidateRejectsBadValue(t *testing.T) {
+	cfg := Default()
+	cfg.Harness.Dir = "foo/bar"
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected Validate to error on harness.dir containing '/'")
+	}
+}
+
+// TestHarnessDirNoUnknownKeyWarning: harness.dir in TOML does not produce a
+// structural unknown-key warning.
+func TestHarnessDirNoUnknownKeyWarning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[harness]\ndir = \".pi\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "harness") {
+			t.Errorf("unexpected warning for known key: %q", w.Message)
+		}
+	}
+}
+
+// TestHarnessDirUnknownKeyTypoSuggestion: Set typo on harness.dir suggests the correct key.
+func TestHarnessDirUnknownKeyTypoSuggestion(t *testing.T) {
+	cfg := Default()
+	err := Set(cfg, "harness.di", ".pi") // typo: harness.di
+	if err == nil {
+		t.Fatal("expected error for unknown key, got nil")
+	}
+	if !strings.Contains(err.Error(), "harness.dir") {
+		t.Errorf("expected suggestion 'harness.dir' in error %q", err.Error())
+	}
+}
+
 // TestUpdateUnknownLeafKeyWarn: unknown key under [update] section emits a warning.
 func TestUpdateUnknownLeafKeyWarn(t *testing.T) {
 	dir := t.TempDir()

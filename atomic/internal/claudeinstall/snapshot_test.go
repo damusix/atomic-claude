@@ -21,7 +21,7 @@ func snapshotFixedClock() time.Time {
 func TestSnapshotCreatedOnFirstInstall(t *testing.T) {
 	target := t.TempDir()
 
-	_, err := claudeinstall.Install(target, false, snapshotFixedClock)
+	_, err := claudeinstall.Install(target, target, false, snapshotFixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSnapshotNotOverwrittenOnSecondInstall(t *testing.T) {
 	target := t.TempDir()
 
 	// First install.
-	_, err := claudeinstall.Install(target, false, snapshotFixedClock)
+	_, err := claudeinstall.Install(target, target, false, snapshotFixedClock)
 	if err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestSnapshotNotOverwrittenOnSecondInstall(t *testing.T) {
 
 	// Second install with a different clock.
 	laterClock := func() time.Time { return time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC) }
-	_, err = claudeinstall.Install(target, false, laterClock)
+	_, err = claudeinstall.Install(target, target, false, laterClock)
 	if err != nil {
 		t.Fatalf("second Install: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestSnapshotCapturesExistingSettingsJSON(t *testing.T) {
 		t.Fatalf("write settings.json: %v", err)
 	}
 
-	_, err := claudeinstall.Install(target, false, snapshotFixedClock)
+	_, err := claudeinstall.Install(target, target, false, snapshotFixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestSnapshotRecordsMissingFilesAsNotExisted(t *testing.T) {
 	target := t.TempDir()
 
 	// Fresh target — nothing pre-exists.
-	_, err := claudeinstall.Install(target, false, snapshotFixedClock)
+	_, err := claudeinstall.Install(target, target, false, snapshotFixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}

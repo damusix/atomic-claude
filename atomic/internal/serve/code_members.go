@@ -23,11 +23,9 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
-
-// localIndexRel is the per-repo index path, relative to a repo root.
-const localIndexRel = ".claude/.atomic-index/atomic.db"
 
 // memberResolver resolves the code members for a served scope and the local
 // single-repo db path. Embedded by every /code/* handler (codeExplorerHandler,
@@ -60,7 +58,7 @@ func (m memberResolver) members() []codeMember {
 
 // localDBPath returns the canonical local db path for the realm root.
 func (m memberResolver) localDBPath() string {
-	return filepath.Join(m.realmRoot, localIndexRel)
+	return config.IndexDBPath(m.realmRoot)
 }
 
 // codeMember is one code-queryable repo within the served scope.
@@ -115,7 +113,7 @@ func discoverCodeMembers(res realm.Resolution, realmRoot, wikiIndexPath string) 
 		// member is always returned (db existence is the engine's call: an absent
 		// db surfaces as a "not indexed" note, and the injected engine seam stays
 		// usable in tests that never create a real db file).
-		db := filepath.Join(realmRoot, localIndexRel)
+		db := config.IndexDBPath(realmRoot)
 		return []codeMember{{Key: "", Prefix: "", Path: realmRoot, DBPath: db}}
 	}
 }
@@ -173,7 +171,7 @@ func memberDB(realmRoot, memberRelPath, fedDB string) string {
 	if fedDB != "" && fileExists(fedDB) {
 		return fedDB
 	}
-	self := filepath.Join(realmRoot, memberRelPath, localIndexRel)
+	self := config.IndexDBPath(filepath.Join(realmRoot, memberRelPath))
 	if fileExists(self) {
 		return self
 	}

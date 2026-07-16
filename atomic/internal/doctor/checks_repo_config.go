@@ -3,10 +3,23 @@ package doctor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
+
+// repoConfigRelDisplay returns the harness-aware relative path of the repo
+// config, for display in this check's Detail strings (e.g. ".pi/atomic.toml"
+// under a ".pi" harness dir rather than the default ".claude/atomic.toml").
+func repoConfigRelDisplay(root string) string {
+	abs := config.RepoConfigPath(root)
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return filepath.ToSlash(abs)
+	}
+	return filepath.ToSlash(rel)
+}
 
 // checkRepoConfig implements category 13: repo-scoped config integrity
 // (<projectRoot>/.claude/atomic.toml).
@@ -33,20 +46,21 @@ func checkRepoConfig(opts Opts) Result {
 // project root. Exported for testing; production callers use checkRepoConfig.
 func RunCheckRepoConfigWith(root string) Result {
 	path := config.RepoConfigPath(root)
+	display := repoConfigRelDisplay(root)
 
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return Result{
 				Severity: PASS,
-				Detail:   fmt.Sprintf("%s not present (optional)", config.RepoConfigRelPath),
+				Detail:   fmt.Sprintf("%s not present (optional)", display),
 			}
 		}
-		return Result{Severity: WARN, Detail: fmt.Sprintf("could not stat %s: %v", config.RepoConfigRelPath, err)}
+		return Result{Severity: WARN, Detail: fmt.Sprintf("could not stat %s: %v", display, err)}
 	}
 
 	cfg, warns, err := config.LoadRepoConfig(path)
 	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("%s: %v", config.RepoConfigRelPath, err)}
+		return Result{Severity: WARN, Detail: fmt.Sprintf("%s: %v", display, err)}
 	}
 
 	matcher, matcherWarns := config.NewIgnoreMatcher(cfg.Code.Ignore)
@@ -62,6 +76,6 @@ func RunCheckRepoConfigWith(root string) Result {
 
 	return Result{
 		Severity: PASS,
-		Detail:   fmt.Sprintf("%s ok (%d ignore pattern(s))", config.RepoConfigRelPath, matcher.PatternCount()),
+		Detail:   fmt.Sprintf("%s ok (%d ignore pattern(s))", display, matcher.PatternCount()),
 	}
 }

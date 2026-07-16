@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
 
@@ -53,6 +54,43 @@ func TestAdd_WritesFileWithCorrectFrontmatter(t *testing.T) {
 	// Body is present.
 	if !strings.Contains(raw, "benchmark the new query plan") {
 		t.Errorf("body missing from file; got:\n%s", raw)
+	}
+}
+
+// TestAdd_UnderNonDefaultHarnessDir verifies Add/List thread repoRoot through
+// config.RemindersDir — under a ".pi" harness dir, reminders live at
+// .pi/.scratchpad/reminders, not the default .claude/.scratchpad/reminders.
+func TestAdd_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+	id, err := reminder.Add(root, "check the .pi harness wiring")
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	dir := filepath.Join(root, ".pi", ".scratchpad", "reminders")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir(%s): %v", dir, err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 file under %s, got %d", dir, len(entries))
+	}
+
+	// The default .claude location must not have been touched.
+	if _, err := os.Stat(filepath.Join(root, ".claude", ".scratchpad", "reminders")); !os.IsNotExist(err) {
+		t.Errorf(".claude/.scratchpad/reminders should not exist under a .pi harness, stat err=%v", err)
+	}
+
+	// The read path (List) must resolve the same directory as Add wrote to.
+	rows, err := reminder.List(root)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(rows) != 1 || rows[0].ID != id {
+		t.Errorf("List = %+v, want 1 row with id %q", rows, id)
 	}
 }
 

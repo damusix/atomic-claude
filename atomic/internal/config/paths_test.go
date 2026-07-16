@@ -6,7 +6,7 @@ import (
 )
 
 func TestPathHelpers(t *testing.T) {
-	home := "/home/user/.claude"
+	home := "/home/user"
 
 	tests := []struct {
 		name string

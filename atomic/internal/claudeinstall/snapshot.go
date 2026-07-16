@@ -38,10 +38,10 @@ type PreInstallManifest struct {
 }
 
 // writePreInstallSnapshot captures a snapshot of all files the manifest will
-// touch into <targetDir>/.atomic/pre-install/. Called once, before Apply().
+// touch into <home>/.atomic/pre-install/. Called once, before Apply().
 // If pre-install/ already exists, this is a no-op (write-once semantics).
-func writePreInstallSnapshot(targetDir string, manifest []embedded.Artifact, clock Clock) error {
-	preInstallDir := config.PreInstallDir(targetDir)
+func writePreInstallSnapshot(targetDir, home string, manifest []embedded.Artifact, clock Clock) error {
+	preInstallDir := config.PreInstallDir(home)
 
 	// Guard: if the directory already exists, skip. Write-once.
 	if _, err := os.Stat(preInstallDir); err == nil {

@@ -10,20 +10,20 @@ import (
 
 // checkConfig implements category 9: config integrity.
 //
-// Resolves ~/.claude/ then calls RunCheckConfigWith.
+// Resolves the user's home directory then calls RunCheckConfigWith.
 func checkConfig(opts Opts) Result {
-	claudeHome, err := resolveClaudeHome()
+	home, err := resolveHome()
 	if err != nil {
-		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve claude home: %v", err)}
+		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home dir: %v", err)}
 	}
-	return RunCheckConfigWith(claudeHome)
+	return RunCheckConfigWith(home)
 }
 
-// RunCheckConfigWith runs the config check against an explicit claudeHome.
+// RunCheckConfigWith runs the config check against an explicit home dir.
 // Exported for testing; production callers use checkConfig.
-func RunCheckConfigWith(claudeHome string) Result {
-	tomlPath := config.TOMLPath(claudeHome)
-	resolvedPath := config.ResolvedPath(claudeHome)
+func RunCheckConfigWith(home string) Result {
+	tomlPath := config.TOMLPath(home)
+	resolvedPath := config.ResolvedPath(home)
 
 	// If config.toml does not exist, defaults are valid — PASS.
 	if _, err := os.Stat(tomlPath); os.IsNotExist(err) {
@@ -83,7 +83,7 @@ func RunCheckConfigWith(claudeHome string) Result {
 	}
 }
 
-// RunConfigRepairWith performs the config repair against an explicit claudeHome.
+// RunConfigRepairWith performs the config repair against an explicit home dir.
 // Exported for testing.
 //
 // Repair logic:
@@ -91,9 +91,9 @@ func RunCheckConfigWith(claudeHome string) Result {
 //   - If config.toml doesn't parse → cannot auto-fix; returns error.
 //   - If config.toml has unknown keys → re-renders resolved.md from current schema.
 //   - If resolved.md is missing or drifted → re-renders it.
-func RunConfigRepairWith(claudeHome string) error {
-	tomlPath := config.TOMLPath(claudeHome)
-	resolvedPath := config.ResolvedPath(claudeHome)
+func RunConfigRepairWith(home string) error {
+	tomlPath := config.TOMLPath(home)
+	resolvedPath := config.ResolvedPath(home)
 
 	// No TOML = nothing to repair.
 	if _, err := os.Stat(tomlPath); os.IsNotExist(err) {
@@ -112,7 +112,7 @@ func RunConfigRepairWith(claudeHome string) error {
 	}
 
 	rendered := config.Render(cfg)
-	if err := os.MkdirAll(config.Dir(claudeHome), 0o755); err != nil {
+	if err := os.MkdirAll(config.Dir(home), 0o755); err != nil {
 		return fmt.Errorf("mkdir .atomic: %w", err)
 	}
 	return os.WriteFile(resolvedPath, []byte(rendered), 0o644)

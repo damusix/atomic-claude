@@ -30,12 +30,12 @@ type UninstallPlan struct {
 	Delete []string
 }
 
-// BuildUninstallPlan reads ~/.claude/.atomic/pre-install/manifest.json and
+// BuildUninstallPlan reads ~/.atomic/pre-install/manifest.json and
 // computes the restore/delete plan using the embedded bundle's SHAs to
 // distinguish user modifications from atomic-only writes. Consults [install.artifacts]
 // in config.toml to scope the Delete list — only atomic-installed files are removed.
 // Returns an error (with "no pre-install snapshot" in the message) when the manifest is absent.
-func BuildUninstallPlan(targetDir string) (UninstallPlan, error) {
+func BuildUninstallPlan(targetDir, home string) (UninstallPlan, error) {
 	artifacts := embedded.Manifest()
 	embeddedSHAs := make(map[string]string, len(artifacts))
 	for _, a := range artifacts {
@@ -45,13 +45,13 @@ func BuildUninstallPlan(targetDir string) (UninstallPlan, error) {
 	// Load [install.artifacts] from config to scope which files atomic actually installed.
 	// Best-effort: on error (e.g. no config.toml) installedTargets is nil → no scoping
 	// (pre-framework install: existing snapshot-only behavior applies).
-	cfgPath := config.TOMLPath(targetDir)
+	cfgPath := config.TOMLPath(home)
 	var installedTargets map[string]bool
 	if cfg, _, err := config.Load(cfgPath); err == nil {
 		installedTargets = installedTargetSetFromConfig(cfg)
 	}
 
-	return BuildUninstallPlanWithManifest(targetDir, embeddedSHAs, installedTargets)
+	return BuildUninstallPlanWithManifest(targetDir, home, embeddedSHAs, installedTargets)
 }
 
 // BuildUninstallPlanWithManifest is the core implementation of BuildUninstallPlan
@@ -66,8 +66,8 @@ func BuildUninstallPlan(targetDir string) (UninstallPlan, error) {
 //   - current == pre-install SHA → Restore (unchanged since install, safe to copy back)
 //   - current == embedded SHA    → Delete (atomic wrote it, user never touched it)
 //   - current != pre-install AND current != embedded → Restore+NeedsMerge (user modified)
-func BuildUninstallPlanWithManifest(targetDir string, embeddedSHAs map[string]string, installedTargets map[string]bool) (UninstallPlan, error) {
-	preInstallDir := config.PreInstallDir(targetDir)
+func BuildUninstallPlanWithManifest(targetDir, home string, embeddedSHAs map[string]string, installedTargets map[string]bool) (UninstallPlan, error) {
+	preInstallDir := config.PreInstallDir(home)
 	manifestPath := filepath.Join(preInstallDir, "manifest.json")
 
 	data, err := os.ReadFile(manifestPath)
@@ -157,7 +157,7 @@ func BuildUninstallPlanWithManifest(targetDir string, embeddedSHAs map[string]st
 // GenerateUninstallPrompt builds the structured markdown prompt that Claude
 // executes to perform the uninstall. The prompt is written to stdout and either
 // run directly inside a Claude Code session or pasted into one.
-func GenerateUninstallPrompt(targetDir string, plan UninstallPlan) string {
+func GenerateUninstallPrompt(targetDir, home string, plan UninstallPlan) string {
 	var sb strings.Builder
 
 	sb.WriteString("## Atomic Claude Uninstall\n\n")
@@ -184,7 +184,7 @@ func GenerateUninstallPrompt(targetDir string, plan UninstallPlan) string {
 		sb.WriteString("\n")
 	}
 
-	atomicDir := filepath.Join(targetDir, ".atomic")
+	atomicDir := config.Dir(home)
 	sb.WriteString("Remove directory:\n")
 	sb.WriteString(fmt.Sprintf("- %s\n\n", atomicDir))
 
@@ -200,7 +200,7 @@ func GenerateUninstallPrompt(targetDir string, plan UninstallPlan) string {
 	}
 
 	if hasMerge {
-		preInstallDir := config.PreInstallDir(targetDir)
+		preInstallDir := config.PreInstallDir(home)
 		sb.WriteString("2. For files marked \"NEEDS MERGE\":\n")
 		sb.WriteString(fmt.Sprintf("   - Read the current file and the pre-install snapshot at %s/<path>\n", preInstallDir))
 		sb.WriteString("   - Identify what the user added post-install (permissions, MCP servers, env vars, custom sections)\n")
@@ -211,7 +211,7 @@ func GenerateUninstallPrompt(targetDir string, plan UninstallPlan) string {
 		sb.WriteString(fmt.Sprintf("5. rm -rf %s\n", atomicDir))
 		sb.WriteString("6. Print: \"Uninstall complete. Binary still at <path>. Run: rm <path>\"\n")
 	} else {
-		preInstallDir := config.PreInstallDir(targetDir)
+		preInstallDir := config.PreInstallDir(home)
 		sb.WriteString(fmt.Sprintf("2. For each file in the Restore list: copy from %s/<path> to %s/<path>\n", preInstallDir, targetDir))
 		sb.WriteString("3. For each file in the Delete list: rm the file\n")
 		sb.WriteString(fmt.Sprintf("4. rm -rf %s\n", atomicDir))
