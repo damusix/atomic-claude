@@ -21,6 +21,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -74,14 +75,14 @@ func LockPathFromDB(dbPath string) string {
 // Deprecated: use SocketPathFromDB for new code. Retained for tests that
 // use a standalone project root where db lives at the canonical position.
 func SocketPath(projectRoot string) string {
-	return SocketPathFromDB(filepath.Join(projectRoot, ".claude", ".atomic-index", "atomic.db"))
+	return SocketPathFromDB(config.IndexDBPath(projectRoot))
 }
 
 // LockPath returns the flock lock path for the given project root.
 // Deprecated: use LockPathFromDB for new code. Retained for tests that
 // use a standalone project root where db lives at the canonical position.
 func LockPath(projectRoot string) string {
-	return LockPathFromDB(filepath.Join(projectRoot, ".claude", ".atomic-index", "atomic.db"))
+	return LockPathFromDB(config.IndexDBPath(projectRoot))
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/followups"
 )
 
@@ -33,7 +34,7 @@ func checkFollowups(opts Opts) Result {
 //   - folder present, INDEX.md missing or byte-differs from re-render → WARN
 //   - folder present, all entries fresh, INDEX in sync → PASS
 func RunCheckFollowupsWith(root string) Result {
-	folderPath := filepath.Join(root, ".claude", "project", "followups")
+	folderPath := config.FollowupsDir(root)
 
 	if !dirExists(folderPath) {
 		return Result{Severity: SKIP, Detail: "no followups folder"}

@@ -72,14 +72,14 @@ func IsStale(lastcheck, today string, days int) bool {
 
 // Refresh re-detects all registry tools, renders a fresh ## Environment section
 // stamped with date (YYYY-MM-DD), rewrites the profile.md at
-// config.ProfilePath(claudeHome), and creates parent dirs as needed.
+// config.ProfilePath(home), and creates parent dirs as needed.
 //
 // Returns (true, nil) when the file was written, (false, nil) on no-op
 // (currently never no-op in the unconditional path), or (false, err) on error.
 //
 // date is injected by the caller; time.Now() is never called here.
-func Refresh(claudeHome, date string) (bool, error) {
-	profilePath := config.ProfilePath(claudeHome)
+func Refresh(home, date string) (bool, error) {
+	profilePath := config.ProfilePath(home)
 
 	// Read existing content (empty string if file absent).
 	existing, err := os.ReadFile(profilePath)
@@ -122,8 +122,8 @@ func Refresh(claudeHome, date string) (bool, error) {
 //
 // A missing lastcheck (v1-format file or no file) is treated as infinitely stale
 // and triggers a full refresh.
-func RefreshIfStale(claudeHome, today string, days int) (bool, error) {
-	profilePath := config.ProfilePath(claudeHome)
+func RefreshIfStale(home, today string, days int) (bool, error) {
+	profilePath := config.ProfilePath(home)
 
 	// Read existing content to check lastcheck.
 	existing, err := os.ReadFile(profilePath)
@@ -142,5 +142,5 @@ func RefreshIfStale(claudeHome, today string, days int) (bool, error) {
 		// lastcheck absent or stale → fall through to refresh.
 	}
 	// File absent or stale → full refresh.
-	return Refresh(claudeHome, today)
+	return Refresh(home, today)
 }

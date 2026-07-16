@@ -22,7 +22,7 @@ Replace the flat eager-loaded `inferred-signals.md` with a router-shaped `signal
 - [ ] `deterministic-signals.md` remains on disk at `.claude/project/deterministic-signals.md`; it is NOT `@-ref`'d; it is NOT auto-loaded.
 - [ ] Deterministic tree entries include per-path metadata from a single file read: content SHA (hex, 7-char truncated), line count, character count, byte size.
 - [ ] Bounded tree: entries at `≤ max_depth` are fully enumerated; entries at `max_depth + 1` show folder name + `(N files, M dirs)` only; entries `> max_depth + 1` are elided (appear only as a count in the parent summary).
-- [ ] `max_depth` defaults to `3`; `output.signals.max_depth` in `~/.claude/.atomic/config.toml` overrides it.
+- [ ] `max_depth` defaults to `3`; `output.signals.max_depth` in `~/.atomic/config.toml` overrides it.
 - [ ] Change detection uses content SHA diff between prev and current `deterministic-signals.md`. No git commit SHA. No mtime fallback — content SHA works with or without git.
 - [ ] Deterministic scan keeps prev version as `.deterministic-signals.prev.md`. Diff between prev and current surfaces changed paths (entries with different content SHAs).
 - [ ] Inference pass uses sub-agents per domain. Orchestrator dispatches one sub-agent per domain that needs writing/updating; each reads source files in its area and writes its domain file. Reviewer validates each domain file against source code. Same implement→review pattern as `/subagent-implementation`.
@@ -319,6 +319,14 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 
 
 ## Change log
+
+### 2026-07-16 — User state root relocated to ~/.atomic
+
+**What changed:** The `output.signals.max_depth` override success criterion now reads `~/.atomic/config.toml` in place of `~/.claude/.atomic/config.toml`.
+
+**Why:** `docs/spec/configurable-state-paths.md` (issue #150) relocates the user state root.
+
+**Superseded:** Prior body named `~/.claude/.atomic/config.toml` as the config path.
 
 ### 2026-06-06 — Path citations are linkified to relative markdown links
 

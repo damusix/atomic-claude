@@ -56,7 +56,7 @@ Each axiom: what it is, why it exists, where it applies, what it forbids.
 
 
 - **Stay in memory** when the value is a conversational nudge ("use a shallower signals tree for this session"), a per-task override, or a soft preference that's fine to lose. Memory is conversational — the user says "remember 60 days" and the system updates. No schema, no migration.
-- **Graduate to config** (`~/.claude/.atomic/config.toml`) when the value must be shell-settable (CI scripts, `atomic config set`, dotfile-managed setup), or memory's per-user/per-conversation scope is too narrow. Memory cannot be written non-interactively. Example: `output.signals.max_depth = 5` (config, durable) vs "use depth 2 for this session" (memory, scoped).
+- **Graduate to config** (`~/.atomic/config.toml`) when the value must be shell-settable (CI scripts, `atomic config set`, dotfile-managed setup), or memory's per-user/per-conversation scope is too narrow. Memory cannot be written non-interactively. Example: `output.signals.max_depth = 5` (config, durable) vs "use depth 2 for this session" (memory, scoped).
 - **Graduate to code** when the value is a hard contract (test thresholds, security gates, version pins, CI exit codes), scope-bleeds badly across projects, or must be reviewable in a diff. Memory drift on a hard contract = silent regression. Memory's per-user scope corrupts other projects when recalled in the wrong context. Memory edits are invisible to git review.
 
 

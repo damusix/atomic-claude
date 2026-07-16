@@ -4,13 +4,13 @@
 ## Goal
 
 
-Consolidate atomic-owned state under `~/.claude/.atomic/` and ship a TOML-backed config (`atomic config get|set|unset|list|path`) whose resolved values reach every Claude session via a single `@-ref` from the bundled `CLAUDE.md` to `~/.claude/.atomic/config.resolved.md`. Universal delivery: works with or without Claude Code hooks installed.
+Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config (`atomic config get|set|unset|list|path`) whose resolved values reach every Claude session via a single `@-ref` from the bundled `CLAUDE.md` to `~/.atomic/config.resolved.md`. Universal delivery: works with or without Claude Code hooks installed.
 
 
 ## Non-goals
 
 
-- Project-local `.claude/.atomic/` overrides. Deferred until a concrete case appears.
+- Project-local config overrides (a per-repo `config.toml` shadowing `~/.atomic/config.toml`). Deferred until a concrete case appears — distinct from `harness.dir` (below), which names a repo-local *state-directory*, not a config-override mechanism, and is itself user-level only (no per-repo override).
 - Migrating legacy paths (`~/.claude/.atomic-backups/`, `~/.claude/CLAUDE.md.atomic-proposed`). Old paths orphaned; user cleans up.
 - Moving `<bin-dir>/.atomic.new` (selfupdate staged binary). Cross-filesystem `os.Rename` constraint.
 - Bundling `config.toml`. User state, never bundled.
@@ -25,9 +25,9 @@ Consolidate atomic-owned state under `~/.claude/.atomic/` and ship a TOML-backed
 
 - [ ] `atomic config get|set|unset|list|path` work end-to-end against the schema below.
 - [ ] `atomic config set <key> <value>` rejects unknown keys and unknown values with a typo-suggesting error; valid sets atomically write `config.toml` and re-render `config.resolved.md`.
-- [ ] Fresh install creates `~/.claude/.atomic/config.resolved.md` (empty), and bundled `CLAUDE.md` carries the `@~/.claude/.atomic/config.resolved.md` line.
+- [ ] Fresh install creates `~/.atomic/config.resolved.md` (empty), and bundled `CLAUDE.md` carries the `@~/.atomic/config.resolved.md` line.
 - [ ] On fresh install, SHA-compare of installed vs bundled `CLAUDE.md` matches (no divergence, no `.atomic-proposed` written).
-- [ ] `claudeinstall` writes backups to `~/.claude/.atomic/backups/<ts>/` and proposed merges to `~/.claude/.atomic/proposed/CLAUDE.md`.
+- [ ] `claudeinstall` writes backups to `~/.atomic/backups/<ts>/` and proposed merges to `~/.atomic/proposed/CLAUDE.md`.
 - [ ] `atomic doctor` includes a new `config` check (TOML parses, no unknown keys, `config.resolved.md` matches render of TOML).
 - [ ] `atomic doctor --fix` re-renders `config.resolved.md` when drift detected.
 - [ ] `atomic-claude-merger` agent and `/atomic-claude-merge` command reference the new proposed path.
@@ -38,7 +38,7 @@ Consolidate atomic-owned state under `~/.claude/.atomic/` and ship a TOML-backed
 
 
 ```
-~/.claude/.atomic/
+~/.atomic/
 ├── config.toml              # user-written, atomic config set rewrites
 ├── config.resolved.md       # rendered from TOML + defaults; @-ref'd from CLAUDE.md
 ├── backups/<ts>/<relpath>   # claudeinstall pre-write backups
@@ -58,10 +58,15 @@ max_depth = 3               # positive integer; bounded tree depth in `atomic si
 
 [update]
 run_doctor = true           # true | false; run doctor after `atomic update`
+
+[harness]
+dir = ".claude"              # single non-empty path segment; repo-local state-directory name
 ```
 
 
-v1 keys: `output.signals.max_depth` and `update.run_doctor`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
+Current keys: `output.signals.max_depth`, `update.run_doctor`, `harness.dir`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
+
+`harness.dir` (string, default `.claude`) names the repo-local state-directory every repo-scoped `atomic` verb resolves against — `<repo>/<harness.dir>/.scratchpad`, `<repo>/<harness.dir>/project`, `<repo>/<harness.dir>/.atomic-index`, `<repo>/<harness.dir>/atomic.toml`, `<repo>/<harness.dir>/worktrees` — decoupling those paths from Claude Code's `.claude` convention (e.g. `atomic config set harness.dir .pi` for a `pi` harness). It is unrelated to the `~/.atomic` user-state root above: `~/.atomic` is fixed and not configurable (see Non-goals). Validation: **write (`set`)** rejects empty, `.`, `..`, and any value containing `/` — same shape as every other write-time rejection in this schema. **Read (load)** goes one step further than the generic unknown-key leniency described below: a stored value that fails that same shape check (e.g. hand-edited to `..`) is not merely warned about — the resolver silently falls back to the built-in default, because an unvalidated value would otherwise reach `filepath.Join` unguarded in every repo-local path helper.
 
 
 ## Precedence (highest wins)
@@ -70,7 +75,7 @@ v1 keys: `output.signals.max_depth` and `update.run_doctor`. Further keys (`forg
 | # | Source | Role |
 |---|--------|------|
 | 1 | Built-in defaults (Go constants) | Fallback |
-| 2 | `~/.claude/.atomic/config.toml` | **Durable floor** (set from shell) |
+| 2 | `~/.atomic/config.toml` | **Durable floor** (set from shell) |
 | 3 | Per-conversation memory | **Per-conversation nudge**, scoped to session/task |
 | 4 | Command-line flag | One-shot override |
 
@@ -93,8 +98,8 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 | 1 | New package `atomic/internal/config/` with TOML load (lenient), schema validate (strict), get/set/unset, atomic write via `os.Rename` from tmp | `atomic/internal/config/*.go` | unit: round-trip set→load→get; unknown key rejected on set; unknown key ignored on load with WARN |
 | 2 | Renderer: `config.resolved.md` generated from resolved values (TOML + defaults) | `atomic/internal/config/render.go` | unit: deterministic output (byte-stable for same input); empty TOML renders empty-but-present file with header |
 | 3 | CLI wiring: `atomic config get|set|unset|list|path`, including `list --json` | `atomic/cmd/atomic/main.go`, `atomic/internal/config/cli.go` | integration: each subcommand exit codes + output match contract; typo suggestion fires on near-match |
-| 4 | Bundle source `CLAUDE.md` adds line `@~/.claude/.atomic/config.resolved.md` and a one-paragraph mention of the `.atomic/` namespace | `CLAUDE.md` (repo root), bundle regen via `make -C atomic bundle` | CI "Verify bundle is committed" passes; `manifest.go` reflects new CLAUDE.md hash |
-| 5 | `claudeinstall` writes backups to `.atomic/backups/<ts>/` and proposed merges to `.atomic/proposed/CLAUDE.md`; pre-creates empty `~/.claude/.atomic/config.resolved.md` on first install | `atomic/internal/claudeinstall/install.go` (lines 81, 132, 275-276 + pre-create step) | unit: fresh install creates `.atomic/config.resolved.md`; backup written to new path; divergent CLAUDE.md proposed at new path |
+| 4 | Bundle source `CLAUDE.md` adds line `@~/.atomic/config.resolved.md` and a one-paragraph mention of the `.atomic/` namespace | `CLAUDE.md` (repo root), bundle regen via `make -C atomic bundle` | CI "Verify bundle is committed" passes; `manifest.go` reflects new CLAUDE.md hash |
+| 5 | `claudeinstall` writes backups to `.atomic/backups/<ts>/` and proposed merges to `.atomic/proposed/CLAUDE.md`; pre-creates empty `~/.atomic/config.resolved.md` on first install | `atomic/internal/claudeinstall/install.go` (lines 81, 132, 275-276 + pre-create step) | unit: fresh install creates `.atomic/config.resolved.md`; backup written to new path; divergent CLAUDE.md proposed at new path |
 | 6 | Update cross-references to the proposed path | `agents/atomic-claude-merger.md`, `commands/atomic-claude-merge.md` | grep: no remaining `CLAUDE.md.atomic-proposed` string in agents/ or commands/ |
 | 7 | New `doctor` check category `config`: TOML present + parses, no unknown keys, `config.resolved.md` matches render of TOML; `--fix` re-renders on drift | `atomic/internal/doctor/checks_config.go`, `checks_config_test.go`, dispatch wiring | unit: PASS/WARN/FAIL paths; integration: `--fix` re-renders and check goes PASS |
 | 8 | `doctor` install-integrity scans `.atomic/` paths (no legacy path scan) | `atomic/internal/doctor/checks_install.go` | unit: install check passes with new paths populated, regardless of legacy-path presence |
@@ -119,11 +124,29 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 ## Open questions
 
 
-- Should the config support per-project overrides via `.claude/.atomic/config.toml`? Deferred. Non-goal for v1. Revisit when a concrete case appears (e.g. a steering site whose value genuinely varies per project, not per user).
+- Should the config support per-project overrides (a repo-local `config.toml` shadowing the user config)? Deferred. Non-goal for v1 — `harness.dir` (below) covers the one concrete per-project need that has appeared so far (naming the repo-local state-directory), but it is a single user-level key, not a per-project override mechanism. Revisit if a steering value genuinely needs to vary per project, not per user.
 
 
 ## Change log
 
+
+### 2026-07-16 — Add harness.dir config key
+
+**What changed:** Schema gains a fourth key: `harness.dir` (string, default `.claude`). Names the repo-local state-directory every repo-scoped `atomic` verb resolves against (`.scratchpad`, `project`, `.atomic-index`, `atomic.toml`, `worktrees`), decoupling those paths from Claude Code's `.claude` convention. Write-time (`set`) validation: a single non-empty path segment, never `.` or `..`, never containing `/`. Read-time (`load`) goes beyond the generic unknown-key leniency: a stored value that fails that same shape check is not merely warned about — the resolver silently falls back to the default, since an unvalidated value would otherwise reach `filepath.Join` unguarded in every repo-local path helper.
+
+| Key | Type | Default | Valid values |
+|-----|------|---------|--------------|
+| `harness.dir` | string | `.claude` | single non-empty path segment; not `.`, `..`, or containing `/` |
+
+**Why:** `docs/spec/configurable-state-paths.md` (issue #150) decouples CLI-managed repo-local paths from Claude Code conventions so `atomic` can operate under other agent harnesses (e.g. `.pi/` instead of `.claude/`).
+
+### 2026-07-16 — User state root relocated to ~/.atomic
+
+**What changed:** Every body mention of the state root (`Goal`, `Layout`, `Success criteria`, `Precedence`, `Checkpoints`) now reads `~/.atomic/...` in place of `~/.claude/.atomic/...`. The `Non-goals` and `Open questions` entries that referenced a hypothetical project-local `.claude/.atomic/config.toml` override are reworded to drop the now-nonsensical path — the state root no longer nests under `.claude` at all — while keeping the non-goal itself (no project-local config override) unchanged.
+
+**Why:** `docs/spec/configurable-state-paths.md` (issue #150) moves per-user state from `~/.claude/.atomic/` to `~/.atomic/`, with an automatic, idempotent migration (rename + compat symlink at the old path) so existing `@~/.claude/.atomic/...` refs keep resolving.
+
+**Superseded:** Prior body named `~/.claude/.atomic/` as the state root throughout.
 
 ### 2026-06-07 — Remove output.intensity config key
 

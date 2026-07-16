@@ -5,22 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/pelletier/go-toml/v2"
 )
-
-// RepoConfigRelPath is the project-relative path to the repo-scoped config
-// file. Unlike TOMLPath (~/.claude/.atomic/config.toml, per-user), this file
-// is committed to the repo.
-const RepoConfigRelPath = ".claude/atomic.toml"
-
-// RepoConfigPath returns the path to the repo-scoped config file for projectRoot.
-func RepoConfigPath(projectRoot string) string {
-	return filepath.Join(projectRoot, RepoConfigRelPath)
-}
 
 // codeSection is the [code] TOML table in the repo config.
 type codeSection struct {
@@ -28,8 +17,8 @@ type codeSection struct {
 }
 
 // RepoConfig is the parsed repo-scoped configuration read from
-// <projectRoot>/.claude/atomic.toml — a small, separate schema from the
-// user-scoped Config above.
+// RepoConfigPath(projectRoot) (see harness.go) — a small, separate schema
+// from the user-scoped Config above.
 type RepoConfig struct {
 	Code codeSection `toml:"code"`
 }

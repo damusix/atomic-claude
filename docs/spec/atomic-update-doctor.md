@@ -17,7 +17,7 @@ After a successful binary swap by `atomic update`: first, refresh the `~/.claude
 - [ ] WARN and SKIP results are suppressed in default mode; only FAIL is printed.
 - [ ] All-PASS post-update is silent (no extra output beyond the existing "updated to vX.Y.Z" line).
 - [ ] `atomic update --no-doctor` flag fully disables the post-update doctor run.
-- [ ] `update.run_doctor = false` in `~/.claude/.atomic/config.toml` disables the post-update doctor run.
+- [ ] `update.run_doctor = false` in `~/.atomic/config.toml` disables the post-update doctor run.
 - [ ] CLI flag overrides config (`--no-doctor` wins even if config says `true`).
 - [ ] Doctor failures (FAIL findings or doctor-itself errors) never change the update's exit code — update success is preserved.
 - [ ] Doctor's own internal error (exit 2 / panic) prints a single line "doctor self-check failed: <err>" and the update still exits 0.
@@ -177,6 +177,14 @@ For testability, `runUpdate` accepts a function-typed dependency `runDoctor func
 | `update.run_doctor` bool zero-value (false) indistinguishable from "absent" | medium | Use raw-map presence check at decode time (existing pattern at `config.go:79`) — explicit-false vs absent both have different semantics; `Default()` sets `RunDoctor: true` |
 
 ## Change log
+
+### 2026-07-16 — User state root relocated to ~/.atomic
+
+**What changed:** The `update.run_doctor = false` success criterion now reads `~/.atomic/config.toml` in place of `~/.claude/.atomic/config.toml`.
+
+**Why:** `docs/spec/configurable-state-paths.md` (issue #150) relocates the user state root.
+
+**Superseded:** Prior body named `~/.claude/.atomic/config.toml` as the config path.
 
 ### 2026-06-10 — Auto-refresh ~/.claude artifacts before doctor
 

@@ -98,7 +98,7 @@ To refresh the bundle on its own, without touching the binary:
 atomic claude update
 ```
 
-If you have edited your own `~/.claude/CLAUDE.md`, the update writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and tells you to run `atomic prompt claude-merge` inside a subagent, which stages a merged result and preserves your changes. The full set of update flags and the merge flow are in the [install guide](/guides/install#updating).
+If you have edited your own `~/.claude/CLAUDE.md`, the update writes the new version to `~/.atomic/proposed/CLAUDE.md` and tells you to run `atomic prompt claude-merge` inside a subagent, which stages a merged result and preserves your changes. The full set of update flags and the merge flow are in the [install guide](/guides/install#updating).
 
 
 ## Where to go next

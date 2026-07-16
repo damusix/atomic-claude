@@ -16,10 +16,10 @@ Users can cleanly reverse `atomic claude install` — restoring their pre-atomic
 
 ## Success criteria
 
-- [ ] `atomic claude install` writes `~/.claude/.atomic/pre-install/` on first install containing: every file it will touch (CLAUDE.md, settings.json, agents/, commands/, skills/, output-styles/, rules/) plus a `manifest.json` recording paths, SHA256s, and timestamps.
+- [ ] `atomic claude install` writes `~/.atomic/pre-install/` on first install containing: every file it will touch (CLAUDE.md, settings.json, agents/, commands/, skills/, output-styles/, rules/) plus a `manifest.json` recording paths, SHA256s, and timestamps.
 - [ ] Subsequent `atomic claude install` / `atomic claude update` calls do NOT overwrite `pre-install/` if it already exists.
 - [ ] `atomic claude uninstall` CLI subcommand exists and outputs a structured LLM prompt.
-- [ ] Prompt instructs Claude to restore pre-install files, delete atomic-only artifacts, LLM-merge settings.json/CLAUDE.md, remove `~/.claude/.atomic/`, and print binary removal instruction.
+- [ ] Prompt instructs Claude to restore pre-install files, delete atomic-only artifacts, LLM-merge settings.json/CLAUDE.md, remove `~/.atomic/`, and print binary removal instruction.
 - [ ] CLI exits 1 with clear error when `pre-install/manifest.json` is missing.
 - [ ] CLI detects TTY and prints human-readable hint when run outside a Claude session.
 
@@ -37,7 +37,7 @@ Users can cleanly reverse `atomic claude install` — restoring their pre-atomic
 
 ### Pre-install snapshot
 
-**Location:** `~/.claude/.atomic/pre-install/`
+**Location:** `~/.atomic/pre-install/`
 
 **When written:** During `Install()` in `claudeinstall`, before `Apply()` runs. Guarded by: `if pre-install/ dir exists → skip`. Write-once.
 
@@ -84,7 +84,7 @@ Users can cleanly reverse `atomic claude install` — restoring their pre-atomic
 
 **CLI responsibilities (deterministic):**
 
-1. Read `~/.claude/.atomic/pre-install/manifest.json`. If missing → exit 1 with "no pre-install snapshot found."
+1. Read `~/.atomic/pre-install/manifest.json`. If missing → exit 1 with "no pre-install snapshot found."
 2. Compute the restore plan from manifest:
    - `existed=true` → file to restore (source: `pre-install/<path>`)
    - `existed=false` → file to delete
@@ -112,19 +112,19 @@ Delete (no pre-install counterpart):
 - [... all atomic-managed artifacts ...]
 
 Remove directory:
-- ~/.claude/.atomic/
+- ~/.atomic/
 
 ### Instructions
 
 1. Show this plan to the user. Get one confirmation before proceeding.
 2. For files marked "NEEDS MERGE":
-   - Read the current file and the pre-install snapshot at ~/.claude/.atomic/pre-install/<path>
+   - Read the current file and the pre-install snapshot at ~/.atomic/pre-install/<path>
    - Identify what the user added post-install (permissions, MCP servers, env vars, custom sections)
    - Write a merged result: pre-install base + user additions, minus atomic hook/config entries
    - Show the diff to the user before writing
-3. For files marked "Restore": copy from ~/.claude/.atomic/pre-install/<path>
+3. For files marked "Restore": copy from ~/.atomic/pre-install/<path>
 4. For files marked "Delete": rm the file
-5. rm -rf ~/.claude/.atomic/
+5. rm -rf ~/.atomic/
 6. Print: "Uninstall complete. Binary still at <path>. Run: rm <path>"
 ```
 
@@ -168,6 +168,14 @@ Built across 4 iterations of /subagent-implementation. Commits (chronological):
 
 
 ## Change log
+
+### 2026-07-16 — User state root relocated to ~/.atomic
+
+**What changed:** Every body mention of `~/.claude/.atomic/...` (pre-install snapshot location, manifest read path, restore/merge instructions, final `rm -rf` target) now reads `~/.atomic/...`.
+
+**Why:** `docs/spec/configurable-state-paths.md` (issue #150) relocates the user state root; `BuildUninstallPlan` already resolves the removal target via `config.Dir(home)`, which now returns `~/.atomic`. The compat symlink migration leaves at `~/.claude/.atomic` is intentionally not removed by uninstall (per that spec's non-goals) — it is left orphaned, same as the other legacy paths this spec already documents leaving behind.
+
+**Superseded:** Prior body named `~/.claude/.atomic/` as the pre-install snapshot root and removal target throughout.
 
 ### 2026-05-28 — preserve user profile on uninstall
 

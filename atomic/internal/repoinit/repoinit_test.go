@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/repoinit"
 )
 
@@ -61,6 +62,64 @@ func TestInit_ColdRepoScaffold(t *testing.T) {
 	root := string(rootIgnore)
 	if !strings.Contains(root, "tmp/") {
 		t.Errorf("root .gitignore missing managed rules:\n%s", root)
+	}
+}
+
+// TestInit_ColdRepoScaffold_UnderNonDefaultHarnessDir verifies every
+// guarantee (scratchpad, project, nested .gitignore + its harness-aware
+// managed header, .atomic-index and worktrees ignore rules) nests under the
+// resolved harness dir — under a ".pi" harness dir, Init scaffolds .pi/...
+// instead of the default .claude/....
+func TestInit_ColdRepoScaffold_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	actions, err := repoinit.Init(dir)
+	if err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if len(actions) != 6 {
+		t.Fatalf("expected 6 actions, got %d: %+v", len(actions), actions)
+	}
+	for _, a := range actions {
+		if a.Kind != repoinit.ActionCreated {
+			t.Errorf("%s: expected created, got %s", a.Name, a.Kind)
+		}
+	}
+
+	for _, rel := range []string{filepath.Join(".pi", ".scratchpad"), filepath.Join(".pi", "project")} {
+		info, err := os.Stat(filepath.Join(dir, rel))
+		if err != nil || !info.IsDir() {
+			t.Errorf("%s: not created as a directory", rel)
+		}
+	}
+
+	nestedIgnore, err := os.ReadFile(filepath.Join(dir, ".pi", ".gitignore"))
+	if err != nil {
+		t.Fatalf("read nested .pi/.gitignore: %v", err)
+	}
+	nested := string(nestedIgnore)
+	if !strings.Contains(nested, "# managed by atomic repo init; rules are relative to .pi/") {
+		t.Errorf("nested .gitignore missing harness-aware managed header:\n%s", nested)
+	}
+	if !strings.Contains(nested, "/.scratchpad/") || !strings.Contains(nested, "/.atomic-index/") || !strings.Contains(nested, "/worktrees/") {
+		t.Errorf("nested .gitignore missing managed rules:\n%s", nested)
+	}
+
+	// The default .claude/ layout must not have been touched.
+	if _, err := os.Stat(filepath.Join(dir, ".claude")); !os.IsNotExist(err) {
+		t.Errorf(".claude should not exist under a .pi harness, stat err=%v", err)
+	}
+
+	rootIgnore, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read root .gitignore: %v", err)
+	}
+	if !strings.Contains(string(rootIgnore), "tmp/") {
+		t.Errorf("root .gitignore missing managed rules:\n%s", rootIgnore)
 	}
 }
 

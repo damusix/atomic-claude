@@ -31,7 +31,7 @@ Every concept below plays a role in that flow. Signals gave Claude the project m
 - **Repo scaffolding** — `atomic repo init` creates the `.claude/` layout once, idempotently: the scratchpad and project directories plus the ignore rules that keep them out of git. Commands call it instead of hand-editing `.gitignore`.
 - **Document templates** — `atomic template <name>` emits the fill-in skeleton for each document the workflow coordinates (design doc, spec, scratchpad brief/state/followups, session report, and more). Commands seed those files from it so structure is copied, never reconstructed from memory.
 - **Self-update and health** — `atomic update` swaps the binary against a verified checksum; `atomic doctor` and `atomic validate` check the install.
-- **Config and state** — `~/.claude/.atomic/config.toml`, follow-ups, install/uninstall, and the user profile.
+- **Config and state** — `~/.atomic/config.toml`, follow-ups, install/uninstall, and the user profile.
 
 Everything below is either produced by this binary or grounded by what it produces. Run `atomic --help` for the full surface.
 
@@ -184,6 +184,6 @@ Code changes break docs silently — an endpoint renamed, a config field gone, a
 ## Your work profile
 
 
-Claude reads `~/.claude/.atomic/profile.md` at the start of every session — personal facts that hold across repos: name, role, employer, active projects, interests, and people you work with. Install seeds the `## Environment` section from your machine (git identity, OS, tooling versions); the rest fills in as facts surface in conversation. Volatility tags (`<stable>`, `<volatile>`, `<deterministic>`) tell Claude how eagerly to flag a contradiction, and `/retrospective-learning` resolves drift with your sign-off.
+Claude reads `~/.atomic/profile.md` at the start of every session — personal facts that hold across repos: name, role, employer, active projects, interests, and people you work with. Install seeds the `## Environment` section from your machine (git identity, OS, tooling versions); the rest fills in as facts surface in conversation. Volatility tags (`<stable>`, `<volatile>`, `<deterministic>`) tell Claude how eagerly to flag a contradiction, and `/retrospective-learning` resolves drift with your sign-off.
 
 The routing rule: anything still true in a different repo belongs in the profile; repo-specific conventions go to that project's signals instead.

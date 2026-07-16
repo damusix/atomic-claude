@@ -22,18 +22,22 @@ func checkInstall(opts Opts) Result {
 	if err != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve target: %v", err)}
 	}
-	return RunCheckInstall(target)
+	home, err := resolveHome()
+	if err != nil {
+		return Result{Severity: WARN, Detail: fmt.Sprintf("resolve home dir: %v", err)}
+	}
+	return RunCheckInstall(target, home)
 }
 
-// RunCheckInstall runs the install check against an explicit target directory.
-// Exported for testing; production callers use checkInstall which resolves
-// the target via claudeinstall.ResolveTarget.
-func RunCheckInstall(target string) Result {
+// RunCheckInstall runs the install check against an explicit target directory
+// and home dir. Exported for testing; production callers use checkInstall
+// which resolves both via claudeinstall.ResolveTarget / os.UserHomeDir.
+func RunCheckInstall(target, home string) Result {
 	if _, err := os.Stat(target); os.IsNotExist(err) {
 		return Result{Severity: SKIP, Detail: "atomic-claude not installed"}
 	}
 
-	rows, err := claudeinstall.Diff(target)
+	rows, err := claudeinstall.Diff(target, home)
 	if err != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("diff failed: %v", err)}
 	}

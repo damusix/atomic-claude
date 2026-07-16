@@ -110,10 +110,10 @@ func TestIsStale_MalformedToday(t *testing.T) {
 
 func TestRefresh_WritesNewFile(t *testing.T) {
 	// File absent → creates stub + Environment section, stamps lastcheck.
-	claudeHome := t.TempDir()
+	home := t.TempDir()
 	date := "2026-05-28"
 
-	wrote, err := Refresh(claudeHome, date)
+	wrote, err := Refresh(home, date)
 	if err != nil {
 		t.Fatalf("Refresh: unexpected error: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestRefresh_WritesNewFile(t *testing.T) {
 		t.Error("Refresh: expected wrote=true for new file")
 	}
 
-	profilePath := filepath.Join(claudeHome, ".atomic", "profile.md")
+	profilePath := filepath.Join(home, ".atomic", "profile.md")
 	content, err := os.ReadFile(profilePath)
 	if err != nil {
 		t.Fatalf("profile.md not written: %v", err)
@@ -141,8 +141,8 @@ func TestRefresh_WritesNewFile(t *testing.T) {
 
 func TestRefresh_RewritesExistingEnvironmentSection(t *testing.T) {
 	// File exists with v1-format Environment section → section replaced, lastcheck stamped.
-	claudeHome := t.TempDir()
-	atomicDir := filepath.Join(claudeHome, ".atomic")
+	home := t.TempDir()
+	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestRefresh_RewritesExistingEnvironmentSection(t *testing.T) {
 	}
 
 	date := "2026-05-28"
-	wrote, err := Refresh(claudeHome, date)
+	wrote, err := Refresh(home, date)
 	if err != nil {
 		t.Fatalf("Refresh: %v", err)
 	}
@@ -181,8 +181,8 @@ func TestRefresh_RewritesExistingEnvironmentSection(t *testing.T) {
 
 func TestRefresh_IfStale_NoOpWhenFresh(t *testing.T) {
 	// File has lastcheck=today → Refresh with --if-stale 7d should no-op.
-	claudeHome := t.TempDir()
-	atomicDir := filepath.Join(claudeHome, ".atomic")
+	home := t.TempDir()
+	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestRefresh_IfStale_NoOpWhenFresh(t *testing.T) {
 	// Get mtime before
 	statBefore, _ := os.Stat(profilePath)
 
-	wrote, err := RefreshIfStale(claudeHome, date, 7)
+	wrote, err := RefreshIfStale(home, date, 7)
 	if err != nil {
 		t.Fatalf("RefreshIfStale: %v", err)
 	}
@@ -219,8 +219,8 @@ func TestRefresh_IfStale_NoOpWhenFresh(t *testing.T) {
 
 func TestRefresh_IfStale_RefreshesWhenStale(t *testing.T) {
 	// File has lastcheck=14 days ago, window=7d → should refresh.
-	claudeHome := t.TempDir()
-	atomicDir := filepath.Join(claudeHome, ".atomic")
+	home := t.TempDir()
+	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestRefresh_IfStale_RefreshesWhenStale(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wrote, err := RefreshIfStale(claudeHome, today, 7)
+	wrote, err := RefreshIfStale(home, today, 7)
 	if err != nil {
 		t.Fatalf("RefreshIfStale: %v", err)
 	}
@@ -249,8 +249,8 @@ func TestRefresh_IfStale_RefreshesWhenStale(t *testing.T) {
 
 func TestRefresh_IfStale_NoLastcheck_Refreshes(t *testing.T) {
 	// v1-format file (no lastcheck attribute) → treated as infinitely stale → refreshes.
-	claudeHome := t.TempDir()
-	atomicDir := filepath.Join(claudeHome, ".atomic")
+	home := t.TempDir()
+	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestRefresh_IfStale_NoLastcheck_Refreshes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	wrote, err := RefreshIfStale(claudeHome, today, 7)
+	wrote, err := RefreshIfStale(home, today, 7)
 	if err != nil {
 		t.Fatalf("RefreshIfStale: %v", err)
 	}

@@ -92,6 +92,30 @@ func TestRenderUpdateSectionFalse(t *testing.T) {
 	}
 }
 
+// TestRenderHarnessDir: Render includes harness.dir with its default value.
+func TestRenderHarnessDir(t *testing.T) {
+	cfg := Default()
+	out := Render(cfg)
+	if !strings.Contains(out, "harness.dir") {
+		t.Errorf("expected 'harness.dir' in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, ".claude") {
+		t.Errorf("expected default '.claude' in render, got:\n%s", out)
+	}
+}
+
+// TestRenderHarnessDirSetValue: Render reflects a non-default harness.dir.
+func TestRenderHarnessDirSetValue(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+		t.Fatal(err)
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, ".pi") {
+		t.Errorf("expected '.pi' in render after Set, got:\n%s", out)
+	}
+}
+
 // TestRenderAgentsSection: Render includes the [agents] section when overrides are set.
 func TestRenderAgentsSection(t *testing.T) {
 	cfg := Default()

@@ -32,9 +32,8 @@ func refreshProfile(now time.Time) {
 	if err != nil {
 		return
 	}
-	claudeHome := filepath.Join(home, ".claude")
 	today := now.Format("2006-01-02")
-	_, _ = ProfileRefresh(claudeHome, today, profile.DefaultRefreshDays)
+	_, _ = ProfileRefresh(home, today, profile.DefaultRefreshDays)
 }
 
 // WikiCheckStalenessFn is the function signature for wiki staleness checks.

@@ -1,5 +1,5 @@
 // Package profile captures deterministic environment data and renders the
-// initial profile.md stub that is written to ~/.claude/.atomic/profile.md at
+// initial profile.md stub that is written to ~/.atomic/profile.md at
 // install time.
 package profile
 

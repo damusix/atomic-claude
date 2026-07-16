@@ -3,7 +3,7 @@
 
 ## Goal
 
-A global, auto-updated identity file at `~/.claude/.atomic/profile.md` that Claude reads in every session and writes to opportunistically, closing the gap between user-written global context and Claude-written per-project memory.
+A global, auto-updated identity file at `~/.atomic/profile.md` that Claude reads in every session and writes to opportunistically, closing the gap between user-written global context and Claude-written per-project memory.
 
 
 ## Non-goals
@@ -19,13 +19,13 @@ A global, auto-updated identity file at `~/.claude/.atomic/profile.md` that Clau
 
 ## Success criteria
 
-- [ ] `~/.claude/.atomic/profile.md` is created at `atomic claude install` (idempotent — no-op if already present).
+- [ ] `~/.atomic/profile.md` is created at `atomic claude install` (idempotent — no-op if already present).
 - [ ] Install populates `## Environment` with deterministic captures: `git config --global user.name`, `git config --global user.email`, `runtime.GOOS`, `runtime.GOARCH`, `runtime.NumCPU()`.
-- [ ] `@~/.claude/.atomic/profile.md` appears in the atomic-owned block of `~/.claude/CLAUDE.md` (the installed copy), adjacent to the existing `@~/.claude/.atomic/config.resolved.md` ref.
+- [ ] `@~/.atomic/profile.md` appears in the atomic-owned block of `~/.claude/CLAUDE.md` (the installed copy), adjacent to the existing `@~/.atomic/config.resolved.md` ref.
 - [ ] `~/.claude/CLAUDE.md` contains the verbatim routing instruction (see § Routing contract) inside the `<atomic>` block.
-- [ ] Install prints the nudge line `Profile created at ~/.claude/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /retrospective-learning to review drift.` to stdout **on first install only** (when step 1 actually creates the file). Suppressed when step 1 is idempotent no-op.
+- [ ] Install prints the nudge line `Profile created at ~/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /retrospective-learning to review drift.` to stdout **on first install only** (when step 1 actually creates the file). Suppressed when step 1 is idempotent no-op.
 - [ ] `atomic claude uninstall` preserves `profile.md` (does not delete it, does not restore a pre-install version — none exists).
-- [ ] `atomic doctor` reports WARN when `@~/.claude/.atomic/profile.md` is absent from any of `~/.claude/CLAUDE.md`, `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md`.
+- [ ] `atomic doctor` reports WARN when `@~/.atomic/profile.md` is absent from any of `~/.claude/CLAUDE.md`, `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md`.
 - [ ] `/retrospective-learning` discovery brief catalogs `profile.md`; history brief includes a **profile drift** finding category.
 - [ ] Existing tests pass after all checkpoints land (`go test ./...` from `atomic/`).
 - [ ] `make render && git diff --exit-code` clean after checkpoint 3.
@@ -36,7 +36,7 @@ A global, auto-updated identity file at `~/.claude/.atomic/profile.md` that Clau
 
 | # | Approach | Sketch | Cost | Risk |
 |---|----------|--------|------|------|
-| A | New file under `~/.claude/.atomic/`, install-generated stub, opportunistic write, `/retrospective-learning` review | Mirrors `config.resolved.md` pattern; no bundle changes; clean uninstall story; routing rule is one CLAUDE.md edit | Low | Routing instruction wording is load-bearing; wrong wording → facts go to wrong place |
+| A | New file under `~/.atomic/`, install-generated stub, opportunistic write, `/retrospective-learning` review | Mirrors `config.resolved.md` pattern; no bundle changes; clean uninstall story; routing rule is one CLAUDE.md edit | Low | Routing instruction wording is load-bearing; wrong wording → facts go to wrong place |
 | B | Bundle a template `profile.md` shipped with the binary, modified per-user | Discoverable from bundle; consistent shape | High | Bundle artifacts are read-only contracts that update — user content fights `atomic claude update` |
 | C | Write directly into `~/.claude/CLAUDE.md` | Zero new surfaces | Low | CLAUDE.md is a user-written contract; mixing Claude-observed facts into it breaks the install/update boundary |
 | D | Patch upstream Claude Code to add a global auto-memory tier | Fixes the gap at root | Very high | Out of our control |
@@ -45,7 +45,7 @@ A global, auto-updated identity file at `~/.claude/.atomic/profile.md` that Clau
 
 ## Recommendation
 
-**Approach A.** Precedent: `config.resolved.md` — install-time idempotent stub under `~/.claude/.atomic/`, @-ref'd from the installed `~/.claude/CLAUDE.md`, never bundled, never overwritten on update. Surface map confirms the insertion points: `atomic/internal/claudeinstall/install.go` line 112+ (parallel to `ensureResolvedConfigStub`), `atomic/internal/config/paths.go` line 39+ (parallel to `ResolvedPath`), and `CLAUDE.md` line 5 for the @-ref. No new artifact kinds; no bundle-parity work beyond the CLAUDE.md edit.
+**Approach A.** Precedent: `config.resolved.md` — install-time idempotent stub under `~/.atomic/`, @-ref'd from the installed `~/.claude/CLAUDE.md`, never bundled, never overwritten on update. Surface map confirms the insertion points: `atomic/internal/claudeinstall/install.go` line 112+ (parallel to `ensureResolvedConfigStub`), `atomic/internal/config/paths.go` line 39+ (parallel to `ResolvedPath`), and `CLAUDE.md` line 5 for the @-ref. No new artifact kinds; no bundle-parity work beyond the CLAUDE.md edit.
 
 
 ## Schema contract
@@ -118,17 +118,17 @@ These rules give Claude a deterministic answer for every write decision without 
 
 ## Routing contract
 
-The following verbatim text is inserted into `~/.claude/CLAUDE.md` inside the `<atomic>` block, after the `@~/.claude/.atomic/profile.md` ref line. This exact wording is the contract — paraphrasing it in the spec would create ambiguity between spec and installed artifact.
+The following verbatim text is inserted into `~/.claude/CLAUDE.md` inside the `<atomic>` block, after the `@~/.atomic/profile.md` ref line. This exact wording is the contract — paraphrasing it in the spec would create ambiguity between spec and installed artifact.
 
 ```
 ## User profile
 
-@~/.claude/.atomic/profile.md
+@~/.atomic/profile.md
 
-Personal facts about you — name, role, employer, active projects, interests, people you mention — are recorded in `~/.claude/.atomic/profile.md`. Claude reads this file in every session and appends new facts as they surface naturally in conversation. Facts that apply across all projects (identity, work, relationships) go here. Facts specific to one repo's conventions go to that project's auto memory instead. Rule of thumb: if the fact would still be true in a different repo, it belongs in profile.
+Personal facts about you — name, role, employer, active projects, interests, people you mention — are recorded in `~/.atomic/profile.md`. Claude reads this file in every session and appends new facts as they surface naturally in conversation. Facts that apply across all projects (identity, work, relationships) go here. Facts specific to one repo's conventions go to that project's auto memory instead. Rule of thumb: if the fact would still be true in a different repo, it belongs in profile.
 ```
 
-The `@~/.claude/.atomic/profile.md` ref on its own line causes Claude Code to load the file as context. The paragraph below it is the routing instruction Claude uses to decide which surface captures a given fact.
+The `@~/.atomic/profile.md` ref on its own line causes Claude Code to load the file as context. The paragraph below it is the routing instruction Claude uses to decide which surface captures a given fact.
 
 This text lives in `CLAUDE.md` at the repo root (the bundle source). It is emitted into `~/.claude/CLAUDE.md` by `atomic claude install` via the standard CLAUDE.md write path. `atomic claude update` overwrites the atomic-owned block, so the routing instruction must be part of the source `CLAUDE.md` — it cannot be written only at install time.
 
@@ -139,10 +139,10 @@ Steps run in order during `atomic claude install`, after `ensureResolvedConfigSt
 
 | Step | What happens | Idempotent? |
 |------|-------------|-------------|
-| 1 | Create `~/.claude/.atomic/profile.md` if absent using the schema template above with all fact fields empty | Yes — no-op if file exists |
+| 1 | Create `~/.atomic/profile.md` if absent using the schema template above with all fact fields empty | Yes — no-op if file exists |
 | 2 | Populate `## Environment` / `<deterministic>` block: run `git config --global user.name`, `git config --global user.email`; read `runtime.GOOS`, `runtime.GOARCH`, `runtime.NumCPU()` | Yes — if file already contains deterministic data, skip write |
-| 3 | `@~/.claude/.atomic/profile.md` ref and routing paragraph are already in `CLAUDE.md` source; they land in `~/.claude/CLAUDE.md` via the standard CLAUDE.md install write | Yes — idempotent via CLAUDE.md write path |
-| 4 | Print to stdout: `Profile created at ~/.claude/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /retrospective-learning to review drift.` | No — always prints on first-install invocation; suppressed on subsequent invocations where step 1 is a no-op |
+| 3 | `@~/.atomic/profile.md` ref and routing paragraph are already in `CLAUDE.md` source; they land in `~/.claude/CLAUDE.md` via the standard CLAUDE.md install write | Yes — idempotent via CLAUDE.md write path |
+| 4 | Print to stdout: `Profile created at ~/.atomic/profile.md. Mention things about yourself naturally; Claude will fill it in. Run /retrospective-learning to review drift.` | No — always prints on first-install invocation; suppressed on subsequent invocations where step 1 is a no-op |
 
 **Bootstrap nudge** goes to stdout (not a log file). Rationale: install already prints other stdout messages; one line here is consistent and more discoverable than a silent log. The line is suppressed when the file already exists (step 1 no-op) to avoid noise on `atomic claude update`.
 
@@ -155,7 +155,7 @@ Steps run in order during `atomic claude install`, after `ensureResolvedConfigSt
 
 Two additions to `templates/commands/retrospective-learning.md`:
 
-**1. Discovery brief** (catalog section): extend to include `~/.claude/.atomic/profile.md` in the file catalog. No special handling — treated like any other personal config file.
+**1. Discovery brief** (catalog section): extend to include `~/.atomic/profile.md` in the file catalog. No special handling — treated like any other personal config file.
 
 **2. History brief** (detection categories): extend with a **profile drift** finding category.
 
@@ -180,7 +180,7 @@ Cap: profile drift findings count against the existing 15-finding-per-run cap. N
 
 Rationale: profile.md is user data generated after install — it has no pre-install counterpart and is not a bundle artifact. The uninstall plan must not include it in either the "restore" or "delete" buckets.
 
-Implementation: `BuildUninstallPlan` in `atomic/internal/claudeinstall/uninstall.go` must explicitly exclude `~/.claude/.atomic/profile.md` from the deletion list. Since profile.md is not in the pre-install snapshot (`manifest.json` only records files atomic touches during install, and profile.md is created by install, not copied from the bundle), it will not appear in the manifest. The existing logic of "delete files with `existed=false`" would not touch it unless profile.md were incorrectly included in the manifest. Verify that `snapshot.go` does not error on the new file's presence.
+Implementation: `BuildUninstallPlan` in `atomic/internal/claudeinstall/uninstall.go` must explicitly exclude `~/.atomic/profile.md` from the deletion list. Since profile.md is not in the pre-install snapshot (`manifest.json` only records files atomic touches during install, and profile.md is created by install, not copied from the bundle), it will not appear in the manifest. The existing logic of "delete files with `existed=false`" would not touch it unless profile.md were incorrectly included in the manifest. Verify that `snapshot.go` does not error on the new file's presence.
 
 Amendment required to `docs/spec/uninstall.md`: append a change-log entry under `## Change log` noting that profile.md is explicitly preserved (user data, no pre-install counterpart).
 
@@ -193,7 +193,7 @@ New check appended to the existing nine-check suite in `atomic/internal/doctor/`
 
 | Name (canonical) | Checks | Fail severity |
 |------------------|--------|---------------|
-| `profile` | `@~/.claude/.atomic/profile.md` ref present in one of `~/.claude/CLAUDE.md`, `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md` (same search order as refs check). `~/.claude/.atomic/profile.md` exists on disk. | WARN for missing ref; WARN for missing file |
+| `profile` | `@~/.atomic/profile.md` ref present in one of `~/.claude/CLAUDE.md`, `~/.claude/claude.local.md`, `~/.claude/CLAUDE.local.md` (same search order as refs check). `~/.atomic/profile.md` exists on disk. | WARN for missing ref; WARN for missing file |
 
 Severity rationale: profile.md absence is degraded experience, not a broken installation. FAIL is reserved for checks that block core functionality (axiom alignment: WARN for drift, FAIL for missing critical paths).
 
@@ -349,7 +349,7 @@ The existing doctor category 10 (`profile` check in `atomic/internal/doctor/chec
 
 | Sub-check | Condition | Severity |
 |-----------|-----------|----------|
-| File exists | `~/.claude/.atomic/profile.md` absent | WARN |
+| File exists | `~/.atomic/profile.md` absent | WARN |
 | @-ref wired | Ref absent from all three candidate files | WARN |
 | `lastcheck` freshness | `lastcheck` absent or older than 30 days | WARN |
 
@@ -491,6 +491,14 @@ CP1 → CP2 (population relies on bounded detection). CP3 is independent (preamb
 
 
 ## Change log
+
+### 2026-07-16 — User state root relocated to ~/.atomic
+
+**What changed:** Every body mention of `~/.claude/.atomic/profile.md` (and the accompanying `@~/.claude/.atomic/profile.md` ref) now reads `~/.atomic/profile.md` / `@~/.atomic/profile.md`.
+
+**Why:** `docs/spec/configurable-state-paths.md` (issue #150) relocates the user state root. `atomic doctor` category 10 (`profile`) now also WARNs when an installed CLAUDE.md still carries the legacy `@~/.claude/.atomic/profile.md` ref, naming `atomic claude install` as the fix (see `docs/spec/atomic-doctor.md`).
+
+**Superseded:** Prior body named `~/.claude/.atomic/profile.md` as the profile path throughout.
 
 ### 2026-05-28 — v2 deterministic env refresh + dev-tooling fingerprint
 

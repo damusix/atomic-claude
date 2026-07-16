@@ -50,7 +50,7 @@ func TestAgentModelOverride_FreshInstall(t *testing.T) {
 	suppressProfileRefresh(t)
 	writeOverrideConfig(t, target, "atomic-implementer", "haiku")
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestAgentModelOverride_NoOverride(t *testing.T) {
 	suppressProfileRefresh(t)
 	// No config written — loadAgentOverrides must return nil.
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -114,11 +114,11 @@ func TestAgentModelOverride_Idempotent(t *testing.T) {
 	suppressPrune(t)
 	writeOverrideConfig(t, target, "atomic-implementer", "haiku")
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("second Install: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestAgentModelOverride_ConfigChange(t *testing.T) {
 	suppressPrune(t)
 	writeOverrideConfig(t, target, "atomic-implementer", "haiku")
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("first Install (haiku): %v", err)
 	}
 
@@ -150,7 +150,7 @@ func TestAgentModelOverride_ConfigChange(t *testing.T) {
 	writeOverrideConfig(t, target, "atomic-implementer", "sonnet")
 
 	// Update (same as install) should re-apply with the new tier.
-	if _, err := claudeinstall.Update(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Update(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Update (sonnet): %v", err)
 	}
 
@@ -199,7 +199,7 @@ func TestAgentModelOverride_DryRun(t *testing.T) {
 	target := t.TempDir()
 	writeOverrideConfig(t, target, "atomic-implementer", "haiku")
 
-	plan, err := claudeinstall.Install(target, true /* dryRun */, fixedClock)
+	plan, err := claudeinstall.Install(target, target, true /* dryRun */, fixedClock)
 	if err != nil {
 		t.Fatalf("dry-run Install: %v", err)
 	}
@@ -279,11 +279,11 @@ func TestAgentModelOverride_DiffMatchesAfterInstall(t *testing.T) {
 	suppressProfileRefresh(t)
 	writeOverrideConfig(t, target, "atomic-implementer", "haiku")
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
-	rows, err := claudeinstall.Diff(target)
+	rows, err := claudeinstall.Diff(target, target)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestAgentModelOverride_OtherAgentsUnaffected(t *testing.T) {
 	// Only override atomic-implementer.
 	writeOverrideConfig(t, target, "atomic-implementer", "haiku")
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 

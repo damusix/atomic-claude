@@ -25,6 +25,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	codemcp "github.com/damusix/atomic-claude/atomic/internal/codeintel/mcp"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // RunCode is the top-level dispatcher for `atomic code <verb>`. It resolves
@@ -115,7 +116,7 @@ func printCodeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  mcp       Run the MCP server over stdio")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "All query verbs accept --json for machine-readable output.")
-	fmt.Fprintln(w, "DB path: <project>/.claude/.atomic-index/atomic.db")
+	fmt.Fprintln(w, "DB path: "+config.IndexDBPath("<project>"))
 }
 
 // ---------------------------------------------------------------------------
@@ -963,12 +964,13 @@ func printSubgraph(sg types.Subgraph, asJSON bool, stdout, stderr io.Writer) int
 	return 0
 }
 
-// EnsureGitignore appends `.claude/.atomic-index/` to <projectRoot>/.gitignore
-// if the entry is not already present. The file is created if it does not exist.
-// This is idempotent: running it multiple times produces one entry.
+// EnsureGitignore appends `<harness.dir>/.atomic-index/` (e.g.
+// `.claude/.atomic-index/`) to <projectRoot>/.gitignore if the entry is not
+// already present. The file is created if it does not exist. This is
+// idempotent: running it multiple times produces one entry.
 func EnsureGitignore(projectRoot string) error {
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
-	const entry = ".claude/.atomic-index/"
+	entry := filepath.ToSlash(config.IndexDir("")) + "/"
 
 	// Read existing content.
 	var existing string

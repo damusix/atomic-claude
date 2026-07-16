@@ -5,12 +5,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
 	"github.com/damusix/atomic-claude/atomic/internal/doctemplate"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
@@ -390,7 +392,7 @@ func TestRunClaudeInstallWiresHooks(t *testing.T) {
 	scope := t.TempDir()
 	target := filepath.Join(scope, ".claude")
 
-	result, err := runClaudeInstall(target, "install", false, false)
+	result, err := runClaudeInstall(target, scope, "install", false, false)
 	if err != nil {
 		t.Fatalf("runClaudeInstall: %v", err)
 	}
@@ -422,7 +424,7 @@ func TestRunClaudeInstallNoHooksFlag(t *testing.T) {
 	scope := t.TempDir()
 	target := filepath.Join(scope, ".claude")
 
-	result, err := runClaudeInstall(target, "install", false, true)
+	result, err := runClaudeInstall(target, scope, "install", false, true)
 	if err != nil {
 		t.Fatalf("runClaudeInstall: %v", err)
 	}
@@ -442,7 +444,7 @@ func TestRunClaudeInstallDryRunSkipsHooks(t *testing.T) {
 	scope := t.TempDir()
 	target := filepath.Join(scope, ".claude")
 
-	result, err := runClaudeInstall(target, "install", true, false)
+	result, err := runClaudeInstall(target, scope, "install", true, false)
 	if err != nil {
 		t.Fatalf("runClaudeInstall: %v", err)
 	}
@@ -566,7 +568,7 @@ func TestRunClaudeUninstall_MissingManifest(t *testing.T) {
 	}
 	defer devNull.Close()
 
-	_, err = runClaudeUninstall(targetDir, devNull)
+	_, err = runClaudeUninstall(targetDir, targetDir, devNull)
 	if err == nil {
 		t.Fatal("expected error when no pre-install manifest, got nil")
 	}
@@ -621,7 +623,7 @@ func TestRunClaudeUninstall_NeedsMerge(t *testing.T) {
 	}
 	defer devNull.Close()
 
-	prompt, err := runClaudeUninstall(targetDir, devNull)
+	prompt, err := runClaudeUninstall(targetDir, targetDir, devNull)
 	if err != nil {
 		t.Fatalf("runClaudeUninstall: %v", err)
 	}
@@ -723,8 +725,8 @@ func TestRunDocsUnknownVerbDispatch(t *testing.T) {
 // returns exit code 2 (usage error). WHY: callers rely on exit 2 to distinguish
 // usage errors from runtime errors.
 func TestProfileAction_NoArgsUsageError(t *testing.T) {
-	claudeHome := t.TempDir()
-	code := profileAction([]string{}, claudeHome, "2026-05-28")
+	home := t.TempDir()
+	code := profileAction([]string{}, home, "2026-05-28")
 	if code != 2 {
 		t.Errorf("profileAction(no args): got exit code %d, want 2", code)
 	}
@@ -733,8 +735,8 @@ func TestProfileAction_NoArgsUsageError(t *testing.T) {
 // TestProfileAction_UnknownVerbUsageError verifies that an unknown sub-verb
 // returns exit code 2 and does not silently succeed.
 func TestProfileAction_UnknownVerbUsageError(t *testing.T) {
-	claudeHome := t.TempDir()
-	code := profileAction([]string{"bogus"}, claudeHome, "2026-05-28")
+	home := t.TempDir()
+	code := profileAction([]string{"bogus"}, home, "2026-05-28")
 	if code != 2 {
 		t.Errorf("profileAction(bogus): got exit code %d, want 2", code)
 	}
@@ -745,13 +747,13 @@ func TestProfileAction_UnknownVerbUsageError(t *testing.T) {
 // WHY: proves the main.go dispatch actually reaches Refresh; the profile-package
 // unit tests cover the core logic, but this test verifies the wiring.
 func TestProfileAction_RefreshWritesFile(t *testing.T) {
-	claudeHome := t.TempDir()
-	code := profileAction([]string{"refresh"}, claudeHome, "2026-05-28")
+	home := t.TempDir()
+	code := profileAction([]string{"refresh"}, home, "2026-05-28")
 	if code != 0 {
 		t.Fatalf("profileAction(refresh): got exit code %d, want 0", code)
 	}
 
-	profilePath := filepath.Join(claudeHome, ".atomic", "profile.md")
+	profilePath := filepath.Join(home, ".atomic", "profile.md")
 	content, err := os.ReadFile(profilePath)
 	if err != nil {
 		t.Fatalf("profile.md not written: %v", err)
@@ -765,8 +767,8 @@ func TestProfileAction_RefreshWritesFile(t *testing.T) {
 // duration returns exit code 1 (runtime error, not usage error). WHY: the spec
 // requires an explicit parse error with non-zero exit; exit 2 is for usage errors.
 func TestProfileAction_IfStaleBadDuration(t *testing.T) {
-	claudeHome := t.TempDir()
-	code := profileAction([]string{"refresh", "--if-stale", "7h"}, claudeHome, "2026-05-28")
+	home := t.TempDir()
+	code := profileAction([]string{"refresh", "--if-stale", "7h"}, home, "2026-05-28")
 	if code != 1 {
 		t.Errorf("profileAction(refresh --if-stale 7h): got exit code %d, want 1", code)
 	}
@@ -776,8 +778,8 @@ func TestProfileAction_IfStaleBadDuration(t *testing.T) {
 // lastcheck does not modify the file. WHY: the --if-stale gate exists precisely
 // to avoid spurious re-runs during session start.
 func TestProfileAction_IfStaleNoOpWhenFresh(t *testing.T) {
-	claudeHome := t.TempDir()
-	atomicDir := filepath.Join(claudeHome, ".atomic")
+	home := t.TempDir()
+	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -788,7 +790,7 @@ func TestProfileAction_IfStaleNoOpWhenFresh(t *testing.T) {
 	}
 	statBefore, _ := os.Stat(profilePath)
 
-	code := profileAction([]string{"refresh", "--if-stale", "7d"}, claudeHome, "2026-05-28")
+	code := profileAction([]string{"refresh", "--if-stale", "7d"}, home, "2026-05-28")
 	if code != 0 {
 		t.Fatalf("profileAction(refresh --if-stale 7d) fresh: got exit code %d, want 0", code)
 	}
@@ -796,6 +798,39 @@ func TestProfileAction_IfStaleNoOpWhenFresh(t *testing.T) {
 	statAfter, _ := os.Stat(profilePath)
 	if !statBefore.ModTime().Equal(statAfter.ModTime()) {
 		t.Error("profileAction: file mtime changed even though lastcheck was fresh")
+	}
+}
+
+// TestRunProfile_UsesHomeNotClaudeHome is the regression guard for the
+// runProfile chain bug (docs/spec/configurable-state-paths.md issue #150):
+// runProfile must pass home directly to profileAction, not <home>/.claude —
+// config.ProfilePath resolves <home>/.atomic/profile.md, so an extra ".claude"
+// join wrote to the wrong path. profileAction's own tests above inject a
+// tempdir directly as home, which is exactly what let this bug in runProfile's
+// own home-resolution glue go unnoticed. runProfile calls os.Exit, so it is
+// exercised in a subprocess (the standard Go idiom for os.Exit-calling code)
+// with HOME redirected to a temp dir — the real ~/.claude and ~/.atomic are
+// never touched.
+func TestRunProfile_UsesHomeNotClaudeHome(t *testing.T) {
+	if os.Getenv("ATOMIC_TEST_RUN_PROFILE_HELPER") == "1" {
+		runProfile([]string{"refresh"})
+		return
+	}
+
+	home := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunProfile_UsesHomeNotClaudeHome")
+	cmd.Env = append(os.Environ(), "ATOMIC_TEST_RUN_PROFILE_HELPER=1", "HOME="+home)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("subprocess runProfile failed: %v\n%s", err, out)
+	}
+
+	profilePath := filepath.Join(home, ".atomic", "profile.md")
+	if _, err := os.Stat(profilePath); err != nil {
+		t.Errorf("expected profile.md at %s (home, not home/.claude), stat err = %v", profilePath, err)
+	}
+	wrongPath := filepath.Join(home, ".claude", ".atomic", "profile.md")
+	if _, err := os.Stat(wrongPath); !os.IsNotExist(err) {
+		t.Errorf("profile.md incorrectly written under home/.claude/.atomic (%s); stat err = %v", wrongPath, err)
 	}
 }
 
@@ -828,7 +863,7 @@ func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
 	}
 	defer devNull.Close()
 
-	prompt, err := runClaudeUninstall(targetDir, devNull)
+	prompt, err := runClaudeUninstall(targetDir, targetDir, devNull)
 	if err != nil {
 		t.Fatalf("runClaudeUninstall: %v", err)
 	}
@@ -1186,6 +1221,61 @@ func makeRealmWithMember(t *testing.T, setup func(memberRoot string)) (realmRoot
 		setup(member)
 	}
 	return realm, member
+}
+
+// TestRunMigrateInstall_TwoRootSplit proves the two-root split (issue #150):
+// config.toml is read/written under <home>/.atomic (config helpers get home),
+// while migrate.Context.Root — the root install-scope steps operate on —
+// still receives <home>/.claude. A step that captured home instead of
+// <home>/.claude would silently corrupt install-scope migrations that touch
+// the Claude artifact tree (e.g. renaming a file under commands/).
+func TestRunMigrateInstall_TwoRootSplit(t *testing.T) {
+	home := t.TempDir()
+
+	// Seed a pre-framework config.toml under the NEW location so migrate.Run
+	// has a "0.0.0" floor to migrate up from.
+	cfgPath := config.TOMLPath(home)
+	if err := config.WritePersist(cfgPath, config.Default()); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	// Inject a fake install-scope step and restore the real registry after.
+	origRegistry := migrate.Registry
+	defer func() { migrate.Registry = origRegistry }()
+
+	var capturedRoot string
+	migrate.Registry = append(append([]migrate.Migration{}, origRegistry...), migrate.Migration{
+		TargetVersion: "99.0.0",
+		Scope:         "install",
+		Up: func(ctx *migrate.Context) error {
+			capturedRoot = ctx.Root
+			return nil
+		},
+	})
+
+	if err := runMigrateInstall(home); err != nil {
+		t.Fatalf("runMigrateInstall: %v", err)
+	}
+
+	wantClaudeHome := filepath.Join(home, ".claude")
+	if capturedRoot != wantClaudeHome {
+		t.Errorf("migrate.Context.Root = %q, want %q", capturedRoot, wantClaudeHome)
+	}
+
+	// Config helpers must have operated on <home>/.atomic/config.toml, not
+	// <home>/.claude/.atomic/config.toml.
+	cfg, _, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load persisted config: %v", err)
+	}
+	if cfg.Install.Version != "99.0.0" {
+		t.Errorf("Install.Version = %q, want %q (config.toml under <home>/.atomic was not updated)", cfg.Install.Version, "99.0.0")
+	}
+
+	legacyCfgPath := config.TOMLPath(wantClaudeHome)
+	if _, err := os.Stat(legacyCfgPath); !os.IsNotExist(err) {
+		t.Errorf("expected no config.toml under <home>/.claude/.atomic, stat err = %v", err)
+	}
 }
 
 // TestRunMigrateRealmNonInteractiveSkipsAll verifies that when the confirm
