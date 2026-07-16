@@ -39,7 +39,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/retrospective-learning.md", Target: "commands/retrospective-learning.md", SHA256: "e58014fcec873d1aa3186098cb1af8a10838accaf4cb0cac00178a0724b90b5b"},
 		{Kind: "command", Source: "bundle/commands/review-branch.md", Target: "commands/review-branch.md", SHA256: "218d3daa3ae11ec2134a8f5ff0cf93901b30c5069aeb1750dcf12ce54c0238d4"},
 		{Kind: "command", Source: "bundle/commands/session-report.md", Target: "commands/session-report.md", SHA256: "5e5a868c8f4363c995dccd4c528bf1f8a4611550d39c85235651c891b0876f6f"},
-		{Kind: "command", Source: "bundle/commands/setup-wiki.md", Target: "commands/setup-wiki.md", SHA256: "5f73835ba14e07ce7c38e840687b5d398f3d4edd9cd4e0d360d8d93bd6c130ae"},
+		{Kind: "command", Source: "bundle/commands/setup-wiki.md", Target: "commands/setup-wiki.md", SHA256: "8d6db9f97f6d7a7c71de6b9fd4dc97a9f9c3ada2a1741d7d2e3ad9bb92bf30f8"},
 		{Kind: "command", Source: "bundle/commands/subagent-diagnose.md", Target: "commands/subagent-diagnose.md", SHA256: "a96ea2688a5953a6773199a1410a43237c753ac3c19660b1c124fe8281b9feee"},
 		{Kind: "command", Source: "bundle/commands/subagent-implementation.md", Target: "commands/subagent-implementation.md", SHA256: "606ea2473dca16bafe9c0553c04211dce319742b663ec5154662faaa96d65c0b"},
 		{Kind: "command", Source: "bundle/commands/undo-commit.md", Target: "commands/undo-commit.md", SHA256: "1fc57693e90c05a16866599703718863ecb7dbe31754ef210dbd2b73c487ea81"},

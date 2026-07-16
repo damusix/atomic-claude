@@ -47,8 +47,9 @@ Accept `realm` or `repo` as typed input or a button choice. If the user cancels,
 answers ambiguously, or chooses "unsure / cancel", default to `repo` and note
 `"wiki-type defaulted to repo (wiki/ present inside git repo — user did not confirm realm)"` in the Step 5 output.
 
-`WIKI_SCOPE` is now set to either `repo` or `realm`. It is written as a
-`<wiki-type>` scope marker in Step 4.
+`WIKI_SCOPE` is now set to either `repo` or `realm`. It is surfaced in the
+Step 5 report only — the wiki pipeline (`/refresh-wiki`) writes the
+`<wiki-type>` marker itself, into the wiki index it generates.
 
 ## Step 1 — Audit
 
@@ -67,8 +68,8 @@ Inspect the repo. Build this status table:
 | `README.md` at repo root | `test -f README.md` | exists / missing |
 | `atomic` binary on PATH | `command -v atomic` | found / missing |
 | `SessionStart` hook registered in `.claude/settings.json` | parse `.claude/settings.json` (JWCC tolerated) and look for a `SessionStart` entry whose `hooks[].command` value is `atomic hooks session-start` (the inline command written by `atomic hooks install`) | registered / missing |
-| `.claude/project/deterministic-signals.md` | `test -f .claude/project/deterministic-signals.md` | exists / missing |
-| `CLAUDE.md` references signals.md | `test -f CLAUDE.md && grep -qF '@.claude/project/signals.md' CLAUDE.md` (if `test -f CLAUDE.md` fails → n/a). Only `signals.md` is `@-ref`'d — `deterministic-signals.md` is too large for context. | yes / no / n/a |
+| `docs/wiki/index.md` | `test -f docs/wiki/index.md` | exists / missing |
+| Signals `@-ref` wired | present in ANY of `claude.local.md`, `CLAUDE.local.md`, `CLAUDE.md` — check each with `grep -qF '@docs/wiki/index.md' <file>` (mirrors the `atomic-wiki-inferrer` search order); n/a only when none of the three files exist. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d — `docs/wiki/scan.md` is too large for context on big repos and is read by the inferrer on demand. | yes / no / n/a |
 | `.signalsignore` at repo root | `test -f .signalsignore` | exists / missing |
 | `docs/wiki/CLAUDE.md` | `test -f docs/wiki/CLAUDE.md` | exists / missing |
 
@@ -99,8 +100,8 @@ For each missing item, propose an action. Skip items already present.
 | Registration missing, binary present | Run `atomic hooks install`. |
 | Registration missing, binary missing | Manually add a `SessionStart` entry to `.claude/settings.json` whose `hooks[].command` is `atomic hooks session-start`. |
 | Legacy wrapper-script registration present | Run `atomic hooks install` (migrates to the inline command and deletes the stale `session-start-reminders.sh` script). |
-| `deterministic-signals.md` missing but `atomic` present | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
-| `CLAUDE.md` exists but missing either `@-ref` | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
+| `docs/wiki/index.md` missing but `atomic` present | Print: "Run `/refresh-wiki` to generate project signals." (follow-up only; setup does not invoke it). |
+| `CLAUDE.md` exists but the `@-ref` is missing | Append the `## Project signals (auto-loaded)` section (see Signals subsection in Step 4). Skip this row when `CLAUDE.md` is missing — the starter template row handles that case. |
 | `.signalsignore` missing | Create `.signalsignore` with commented explanation (see `.signalsignore` subsection in Step 4). Never overwrite if it exists. |
 | `docs/wiki/CLAUDE.md` missing | Create `docs/wiki/CLAUDE.md` via `atomic wiki init --scope repo` (see `docs/wiki/CLAUDE.md` subsection in Step 4). Never overwrite if it exists. |
 
@@ -192,7 +193,7 @@ Refuse to overwrite if file exists (audit already gated this — defensive doubl
 
 **Inputs the agent reads to form guesses** (in order, stop when enough signal):
 
-1. `.claude/project/deterministic-signals.md` and `signals.md` if present.
+1. `docs/wiki/index.md` and `docs/wiki/scan.md` if present.
 2. `README.md`.
 3. Top-level manifest files (`package.json`, `go.mod`, `pyproject.toml`, `Cargo.toml`, etc.) for purpose / language / domain hints.
 4. `.github/workflows/`, `Makefile`, release scripts for processes.
@@ -263,12 +264,12 @@ Accept → use as-is. Edit → user supplies replacement text. Skip (empty-guess
 ## Project signals (auto-loaded)
 
 
-@.claude/project/signals.md
+@docs/wiki/index.md
 
 </atomic-signals>
 ````
 
-The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. `docs/wiki/CLAUDE.md` is also NOT `@-ref`'d — it is read only during inference by the `atomic-wiki-inferrer` agent.
+The `<atomic-signals>` block is appended unconditionally — even if signals haven't been scanned yet, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). The tag makes the block swappable on refresh without touching user content. Only `docs/wiki/index.md` (the compact router) is `@-ref`'d. `docs/wiki/scan.md` is NOT — it can be thousands of lines on large repos and would blow up context. `docs/wiki/CLAUDE.md` is also NOT `@-ref`'d — it is read only during inference by the `atomic-wiki-inferrer` agent.
 
 **Content that belongs in the global file, not the project file:** These live globally already — duplicating them noise-pollutes the project file:
 
@@ -307,10 +308,17 @@ Install the atomic binary:
 Run /refresh-wiki to generate project signals.
 ```
 
-**`CLAUDE.md` missing `@-ref`** — Append to the existing `CLAUDE.md`:
+**`CLAUDE.md` missing `@-ref`** — Append to the existing `CLAUDE.md`, but only when
+the ref is missing from all three candidate files (`claude.local.md`,
+`CLAUDE.local.md`, `CLAUDE.md`) — a ref already present in the project-local
+file counts as wired, mirroring the `atomic-wiki-inferrer` search order:
 
 ```bash
-if test -f CLAUDE.md && ! grep -qF '@.claude/project/signals.md' CLAUDE.md; then
+if grep -qF '@docs/wiki/index.md' claude.local.md 2>/dev/null || \
+   grep -qF '@docs/wiki/index.md' CLAUDE.local.md 2>/dev/null || \
+   grep -qF '@docs/wiki/index.md' CLAUDE.md 2>/dev/null; then
+  : # already wired somewhere — nothing to do
+elif test -f CLAUDE.md; then
   cat >> CLAUDE.md << 'EOF'
 
 <atomic-signals>
@@ -318,40 +326,15 @@ if test -f CLAUDE.md && ! grep -qF '@.claude/project/signals.md' CLAUDE.md; then
 ## Project signals (auto-loaded)
 
 
-@.claude/project/signals.md
+@docs/wiki/index.md
 
 </atomic-signals>
 EOF
 fi
 ```
 
-Idempotent: only appends when `CLAUDE.md` exists AND `@-ref` is missing. Refuses silently otherwise.
-
-### `<wiki-type>` scope marker
-
-Write the `<wiki-type>` block unconditionally — this is machine-managed metadata,
-not gated by the Step 3 confirmation list.
-
-Determine the target file (check in this order):
-
-- `claude.local.md` exists at repo root → write to `claude.local.md`.
-- `CLAUDE.md` exists at repo root (including if just created earlier in Step 4) → write to `CLAUDE.md`.
-- Neither exists → skip; note `"wiki-type not written — no CLAUDE.md or claude.local.md present"` in Step 5.
-
-Write idempotently — replace the block in place if already present, else append:
-
-```bash
-# $TARGET is claude.local.md or CLAUDE.md; $WIKI_SCOPE is repo or realm
-if grep -qF '<wiki-type>' "$TARGET" 2>/dev/null; then
-  sed -i '' "s|<wiki-type>[^<]*</wiki-type>|<wiki-type>${WIKI_SCOPE}</wiki-type>|" "$TARGET"
-else
-  printf '\n<wiki-type>%s</wiki-type>\n' "${WIKI_SCOPE}" >> "$TARGET"
-fi
-```
-
-`claude.local.md` is checked first so the project-local file takes precedence
-over the committed `CLAUDE.md` — mirrors how the `@`-ref and other machine-managed
-blocks choose their target in this repo.
+Idempotent: only appends when `CLAUDE.md` exists AND the `@-ref` is missing from
+all three candidate files. Refuses silently otherwise.
 
 ## Step 5 — Report
 
@@ -362,7 +345,7 @@ Applied:
   ✓ .gitignore updated: added tmp/, .claude/.scratchpad/, .claude/worktrees/
   ✓ CLAUDE.md created via survey (N sections accepted, M edited, K skipped)
   ✓ docs/spec/ + docs/design/ created with .gitkeep
-  ✓ wiki-type: repo → written to CLAUDE.md
+  • scope detected: repo (marker is written by /refresh-wiki into docs/wiki/index.md)
 
 Skipped:
   • README.md (you said no)
