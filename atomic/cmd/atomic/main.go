@@ -135,7 +135,7 @@ func main() {
 func buildRootCmd(repoOverride *string) *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:           "atomic",
-		Short:         "Holistic Claude Code configuration CLI",
+		Short:         "Holistic coding-agent configuration CLI",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		// Run is called when no subcommand is given. Print help and exit 1,
