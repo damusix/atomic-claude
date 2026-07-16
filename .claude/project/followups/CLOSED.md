@@ -42,3 +42,4 @@
 - 2026-06-24 install-output-style-f-1 — "`prompt.Confirm` default-value plumbing is untested" — *(closed 2026-06-24)*
 - 2026-06-25 tsql-lineage-gaps — "Close T-SQL lineage gaps in standalone SQL extractor" — *(closed 2026-06-25)*
 - 2026-07-16 doctor-spec-missing-migrate-row — "atomic-doctor spec: Check categories table missing category 12 (migrate) row" — *(closed 2026-07-16)*
+- 2026-07-16 atomic-setup-prerelocation-paths — "setup-wiki audit still checks pre-relocation signals paths" — *(closed 2026-07-16)*
