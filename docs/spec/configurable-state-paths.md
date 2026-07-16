@@ -17,7 +17,7 @@ Chosen approach: re-point the existing `internal/config` path helpers and add re
 
 
 - No configurable user-state root: `~/.atomic` is fixed (config.toml lives inside it — bootstrap cycle).
-- No env-var overrides (`ATOMIC_STATE_DIR`, `ATOMIC_HARNESS_DIR`).
+- No env-var override of the user-state root (`ATOMIC_STATE_DIR`) — `~/.atomic` stays fixed. `harness.dir` resolution does read env (see Outline) — that non-goal is scoped to the state root only.
 - No per-repo `harness.dir` override; the key is user-level only.
 - No changes to Claude-specific integration paths: `~/.claude` install target, `.claude/settings.json` hooks path, claude-merge `~/.claude/CLAUDE.md` targets.
 - No rewrite of legacy-migration literals (`internal/migrate/steps.go` legacy signals paths, wiki legacy-signals check, `main.go` member legacy check) — they describe historical layouts and must keep matching them.
@@ -95,7 +95,8 @@ M atomic/internal/embedded/**                    — regenerated via make render
 - `atomic/internal/config/statemigrate.go`
   - `MigrateUserState` — takes the home dir (never calls os.UserHomeDir itself); rename legacy → new, then compat symlink at the old path; copy fallback stages into a sibling temp dir and renames it into place, so a partial copy never occupies `~/.atomic`; when `~/.atomic` already exists it still ensures the compat symlink (only when `~/.claude` exists and its `.atomic` entry is absent — a failed symlink is retried on the next run, and `~/.claude` itself is never created); both dirs real → prefer new, never merge; never returns a condition the caller must crash on
 - `atomic/internal/config/harness.go`
-  - `harnessDir` — once-per-process resolver: load user config, return `harness.dir` or `.claude`; lenient on any error; a stored non-empty value is validated with the same rules as Set and falls back to `.claude` when invalid (a hand-edited `..` must never reach filepath.Join)
+  - `harnessDir` — once-per-process resolver via `resolveHarnessDir`'s five-rung ladder, most specific first: (1) `ATOMIC_HARNESS` env (non-empty) — explicit harness name, leading `.` tolerated/normalized, invalid value (per the same rules as Set) falls through rather than erroring; (2) `PI_CODING_AGENT == "true"` → `.pi`; (3) `CLAUDECODE == "1"` → `.claude`; (4) user config's `harness.dir`, if set; (5) built-in default `.claude`. Rung 2 before rung 3 is deliberate — a pi agent launched from within Claude Code exposes both fingerprints, and `PI_CODING_AGENT` is the more specific signal. Env is process-stable so it is safe to resolve once and cache alongside the config read; lenient on any config-load error; a stored non-empty config value is validated with the same rules as Set and falls back to `.claude` when invalid (a hand-edited `..` must never reach filepath.Join)
+  - `resolveHarnessDir` — the ladder itself, taking home as a parameter; falls through to `resolveHarnessDirFromHome` for rungs 4-5
   - `SetHarnessDirForTest` — test seam that overrides the cached value and returns a restore func
   - `ScratchpadDir / ProjectDir / FollowupsDir / IndexDir / IndexDBPath / WorktreesDir / RepoConfigPath / RemindersDir` — join repo root + harness dir + fixed suffix
 - `atomic/internal/config/config.go`
@@ -153,6 +154,15 @@ M atomic/internal/embedded/**                    — regenerated via make render
 
 
 ## Change log
+
+
+### 2026-07-16 — ATOMIC_HARNESS env + agent-fingerprint auto-detection
+
+**What changed:** `harnessDir`'s resolution grows from two rungs (config, default) to five, env-first: (1) `ATOMIC_HARNESS` env — explicit harness name, leading `.` tolerated/normalized, invalid value falls through leniently; (2) `PI_CODING_AGENT == "true"` → `.pi`; (3) `CLAUDECODE == "1"` → `.claude`; (4) user config `harness.dir`; (5) built-in default. Env reads live inside the same once-per-process resolver (env is process-stable, so caching it alongside the config read is safe); `SetHarnessDirForTest` continues to override every rung.
+
+**Why:** pi-agent mixed-machine need arrived (issue #150 follow-on) — a user running both Claude Code and a pi agent across machines wants the harness auto-detected from the launching agent's own env fingerprint, not hand-set per machine via `atomic config set harness.dir`. `PI_CODING_AGENT=true` / `CLAUDECODE=1` are user-verified fingerprints.
+
+**Superseded:** the Non-goals line "No env-var overrides (`ATOMIC_STATE_DIR`, `ATOMIC_HARNESS_DIR`)" — the state-dir root (`~/.atomic`) remains a non-goal for env override, but `harness.dir` resolution now reads env by design.
 
 
 ### 2026-07-16 — Design-doc bodies scoped out of the grep gate

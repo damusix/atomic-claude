@@ -81,6 +81,144 @@ func TestResolveHarnessDirFromHome_InvalidStoredValueFallsBack(t *testing.T) {
 	}
 }
 
+// TestResolveHarnessDir_AtomicHarnessEnv: ATOMIC_HARNESS names the harness
+// directly (no leading dot) and wins over everything else.
+func TestResolveHarnessDir_AtomicHarnessEnv(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ATOMIC_HARNESS", "pi")
+	got := resolveHarnessDir(home)
+	if got != ".pi" {
+		t.Errorf("resolveHarnessDir(ATOMIC_HARNESS=pi) = %q, want \".pi\"", got)
+	}
+}
+
+// TestResolveHarnessDir_AtomicHarnessEnv_LeadingDotTolerated: a leading dot
+// in the env value is normalized rather than double-dotted.
+func TestResolveHarnessDir_AtomicHarnessEnv_LeadingDotTolerated(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ATOMIC_HARNESS", ".pi")
+	got := resolveHarnessDir(home)
+	if got != ".pi" {
+		t.Errorf("resolveHarnessDir(ATOMIC_HARNESS=.pi) = %q, want \".pi\"", got)
+	}
+}
+
+// TestResolveHarnessDir_AtomicHarnessEnv_InvalidFallsThrough: an invalid
+// ATOMIC_HARNESS value falls through to the next rung rather than erroring.
+// Both fingerprint envs are cleared so the fallthrough can't be masked by
+// ambient PI_CODING_AGENT/CLAUDECODE (this suite may itself run under a
+// harness), and the landing rung is made observable by writing a config with
+// harness.dir = ".pi" — a value no fingerprint rung can produce — so the
+// assertion actually proves fallthrough past ATOMIC_HARNESS to config,
+// not a coincidental match with a fingerprint-derived default.
+func TestResolveHarnessDir_AtomicHarnessEnv_InvalidFallsThrough(t *testing.T) {
+	cases := []string{"foo/bar", "..", "."}
+	for _, invalid := range cases {
+		t.Run(invalid, func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("ATOMIC_HARNESS", invalid)
+			t.Setenv("PI_CODING_AGENT", "")
+			t.Setenv("CLAUDECODE", "")
+			cfg := Default()
+			if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+				t.Fatalf("Set: %v", err)
+			}
+			if err := WritePersist(TOMLPath(home), cfg); err != nil {
+				t.Fatalf("WritePersist: %v", err)
+			}
+			got := resolveHarnessDir(home)
+			if got != ".pi" {
+				t.Errorf("resolveHarnessDir(ATOMIC_HARNESS=%q) = %q, want config fallthrough %q", invalid, got, ".pi")
+			}
+		})
+	}
+}
+
+// TestResolveHarnessDir_PiFingerprint: PI_CODING_AGENT=true resolves to .pi.
+func TestResolveHarnessDir_PiFingerprint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PI_CODING_AGENT", "true")
+	got := resolveHarnessDir(home)
+	if got != ".pi" {
+		t.Errorf("resolveHarnessDir(PI_CODING_AGENT=true) = %q, want \".pi\"", got)
+	}
+}
+
+// TestResolveHarnessDir_ClaudeFingerprint: CLAUDECODE=1 resolves to .claude.
+func TestResolveHarnessDir_ClaudeFingerprint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDECODE", "1")
+	got := resolveHarnessDir(home)
+	if got != ".claude" {
+		t.Errorf("resolveHarnessDir(CLAUDECODE=1) = %q, want \".claude\"", got)
+	}
+}
+
+// TestResolveHarnessDir_AtomicHarnessBeatsFingerprints: explicit
+// ATOMIC_HARNESS wins over both fingerprint envs.
+func TestResolveHarnessDir_AtomicHarnessBeatsFingerprints(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ATOMIC_HARNESS", "custom")
+	t.Setenv("PI_CODING_AGENT", "true")
+	t.Setenv("CLAUDECODE", "1")
+	got := resolveHarnessDir(home)
+	if got != ".custom" {
+		t.Errorf("resolveHarnessDir = %q, want \".custom\"", got)
+	}
+}
+
+// TestResolveHarnessDir_PiBeatsClaudecodeWhenBothSet: nested-harness case —
+// pi launched from within Claude Code exposes both fingerprints; PI wins.
+func TestResolveHarnessDir_PiBeatsClaudecodeWhenBothSet(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("PI_CODING_AGENT", "true")
+	t.Setenv("CLAUDECODE", "1")
+	got := resolveHarnessDir(home)
+	if got != ".pi" {
+		t.Errorf("resolveHarnessDir(both fingerprints) = %q, want \".pi\"", got)
+	}
+}
+
+// TestResolveHarnessDir_FingerprintBeatsConfig: a fingerprint env wins over
+// a config file that says otherwise.
+func TestResolveHarnessDir_FingerprintBeatsConfig(t *testing.T) {
+	home := t.TempDir()
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", ".other"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(TOMLPath(home), cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+	t.Setenv("PI_CODING_AGENT", "true")
+	got := resolveHarnessDir(home)
+	if got != ".pi" {
+		t.Errorf("resolveHarnessDir(fingerprint + config) = %q, want \".pi\"", got)
+	}
+}
+
+// TestResolveHarnessDir_ConfigWinsOverDefaultWhenNoEnv: with no env present,
+// config still wins over the built-in default (existing behavior preserved).
+func TestResolveHarnessDir_ConfigWinsOverDefaultWhenNoEnv(t *testing.T) {
+	// Clear ambient env — this suite may itself run under a harness
+	// (e.g. CLAUDECODE=1) whose fingerprint would otherwise leak in.
+	t.Setenv("ATOMIC_HARNESS", "")
+	t.Setenv("PI_CODING_AGENT", "")
+	t.Setenv("CLAUDECODE", "")
+	home := t.TempDir()
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", ".other"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(TOMLPath(home), cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+	got := resolveHarnessDir(home)
+	if got != ".other" {
+		t.Errorf("resolveHarnessDir(config only) = %q, want \".other\"", got)
+	}
+}
+
 // TestSetHarnessDirForTest_Override: the seam makes harnessDir() return the
 // overridden value without touching the real home or the process cache.
 func TestSetHarnessDirForTest_Override(t *testing.T) {

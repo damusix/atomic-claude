@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -15,10 +16,11 @@ var (
 	harnessDirOverride *string
 )
 
-// harnessDir resolves the effective harness.dir value: the user config's
-// harness.dir if set, else the built-in default. Resolved once per process
-// and cached — repo-local path helpers call this on every invocation, so
-// re-reading config.toml each time would be wasteful.
+// harnessDir resolves the effective harness.dir value via the five-rung
+// ladder in resolveHarnessDir. Resolved once per process and cached —
+// repo-local path helpers call this on every invocation, so re-reading
+// config.toml (and re-checking env) each time would be wasteful. Env is
+// process-stable, so caching it alongside the config read is safe.
 func harnessDir() string {
 	if harnessDirOverride != nil {
 		return *harnessDirOverride
@@ -29,9 +31,39 @@ func harnessDir() string {
 			harnessDirCached = harnessDirDefault
 			return
 		}
-		harnessDirCached = resolveHarnessDirFromHome(home)
+		harnessDirCached = resolveHarnessDir(home)
 	})
 	return harnessDirCached
+}
+
+// resolveHarnessDir resolves the effective harness.dir value via a five-rung
+// ladder, most specific first:
+//  1. ATOMIC_HARNESS env (non-empty) — explicit harness name; a leading "."
+//     is tolerated and normalized. Invalid values (per validateHarnessDir)
+//     fall through to the next rung rather than erroring, matching the
+//     lenient load-path posture.
+//  2. PI_CODING_AGENT == "true" → ".pi"
+//  3. CLAUDECODE == "1" → ".claude"
+//  4. the user config's harness.dir, if set
+//  5. the built-in default
+//
+// Rung 2 before rung 3 is deliberate: a pi agent launched from within Claude
+// Code exposes both fingerprints, and PI_CODING_AGENT is the more specific
+// signal for that nested case.
+func resolveHarnessDir(home string) string {
+	if raw := os.Getenv("ATOMIC_HARNESS"); raw != "" {
+		dir := "." + strings.TrimPrefix(raw, ".")
+		if validateHarnessDir(dir) == nil {
+			return dir
+		}
+	}
+	if os.Getenv("PI_CODING_AGENT") == "true" {
+		return ".pi"
+	}
+	if os.Getenv("CLAUDECODE") == "1" {
+		return ".claude"
+	}
+	return resolveHarnessDirFromHome(home)
 }
 
 // resolveHarnessDirFromHome loads home's user config and returns harness.dir

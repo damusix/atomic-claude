@@ -28,7 +28,7 @@ Every concept below plays a role in that flow. Signals gave Claude the project m
 
 - **Deterministic signals** — scans the filesystem (tree, manifests, languages, lockfiles) into a reproducible facts file that grounds everything Claude infers about your repo.
 - **Code intelligence** — builds and queries the symbol graph (below).
-- **Repo scaffolding** — `atomic repo init` creates the `.claude/` layout once, idempotently: the scratchpad and project directories plus the ignore rules that keep them out of git. Commands call it instead of hand-editing `.gitignore`.
+- **Repo scaffolding** — `atomic repo init` creates the `.claude/` layout once, idempotently: the scratchpad and project directories plus the ignore rules that keep them out of git. Commands call it instead of hand-editing `.gitignore`. The repo-local directory name is configurable (`harness.dir`, default `.claude`) and auto-detected from the running harness — set `ATOMIC_HARNESS`, or let a `PI_CODING_AGENT`/`CLAUDECODE` fingerprint pick `.pi`/`.claude` for you.
 - **Document templates** — `atomic template <name>` emits the fill-in skeleton for each document the workflow coordinates (design doc, spec, scratchpad brief/state/followups, session report, and more). Commands seed those files from it so structure is copied, never reconstructed from memory.
 - **Self-update and health** — `atomic update` swaps the binary against a verified checksum; `atomic doctor` and `atomic validate` check the install.
 - **Config and state** — `~/.atomic/config.toml`, follow-ups, install/uninstall, and the user profile.
