@@ -112,7 +112,7 @@ Full inventory of screens, features, HTML/CSS/design elements, and endpoints. Ve
 | `assets/code-graph.js` | 304 | carry |
 | `assets/vendor/cosmos-graph.js` | 2,678 | carry verbatim |
 | `assets/vendor/cytoscape.min.js` | (min) | carry — rail mini-graph |
-| `assets/vendor/mermaid.min.js` | 3,405 | carry (or npm dep — open question) |
+| `assets/vendor/mermaid.min.js` | 3,405 | carry (or Bun-bundled dep — open question) |
 | `assets/vendor/htmx.min.js` | (min) | delete |
 | `assets/logo.png`, fonts | — | carry |
 
@@ -137,7 +137,7 @@ Full inventory of screens, features, HTML/CSS/design elements, and endpoints. Ve
 | `/code/graph/data`, `/code/graph/members` | JSON | carry verbatim — consumed by carried `code-graph.js` |
 | `/events` | SSE `{fp, changed}` | carry verbatim |
 | `/healthz` | text | carry verbatim |
-| `/static/*` | embedded assets | carry — sources from Vite `dist/` |
+| `/static/*` | embedded assets | carry — sources from the Bun-built `dist/` |
 | `/page/*` | shell or fragment + rail OOB | reshape — `/api/page/<relpath>` JSON `{html, relpath, breadcrumb, hasMermaid, …}` |
 | `/rail/*` | 4 OOB fragments | reshape — `/api/rail/<relpath>` JSON `{props, out, in, graphURL}` |
 | `/file/*` | shell or chroma fragment | reshape — `/api/file/<relpath>` JSON `{html, path, …}` |
