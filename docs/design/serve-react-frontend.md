@@ -208,10 +208,21 @@ Four decision dimensions.
 | C | MPA (full reload per screen) | simpler | loses persistent shell, graph state, scroll position — regression |
 
 
+### D5 — UI primitive library
+
+| # | Approach | Pros | Cons |
+|---|----------|------|------|
+| A | Ark UI (`@ark-ui/react`) as the sole primitive suite — TreeView, Dialog, Tabs, Tooltip, Combobox | one lineage covers every primitive need incl. the folder-tree nav and the ⌘K palette; unstyled data-attribute hooks fit the `app.css` custom-property system; verified to bundle clean under `bun build` (220 modules, zero ESM/"use client" errors; ~49 kB gz over React for the five primitives — probe in `tmp/ark-probe/`) | Zag.js state-machine indirection layer for a React-only app; heavier than piecemeal minimal picks |
+| B | Piecemeal minimal: native `<dialog>` + Popover API + cmdk (palette) + hand-rolled APG tree | fewest dependencies; native platform does modals/tooltips for free | cmdk transitively pulls 4 Radix packages — the ESM/CJS + "use client" bundler-friction class documented against Radix attaches to it; tree hand-roll is ~150–300 lines of ARIA bookkeeping; three idioms (native, cmdk, hand-rolled) instead of one |
+| C | Base UI + cmdk | actively-invested Radix-successor lineage | no TreeView; two primitive engines in one bundle (Radix-via-cmdk + Base UI) |
+| D | React Aria Components | strongest raw APG fidelity, incl. Tree | ~165 kB component bundle; React-19 peerDep pinned to an RC; "use client" packaging class |
+| E | Hand-roll everything on APG patterns | zero dependencies | palette + tree are genuinely nontrivial (typeahead, roving tabindex, IME-safe filtering); recreates maintained code |
+
+
 ## Recommendation
 
 
-**A across all four dimensions**: Bun-toolchained React + TS workspace at `atomic/internal/serve/frontend/` (workspace conventions — domain-scoped `layouts/pages/components/hooks/utils` layout, per-component folders, `ui/` barrel — codified in `frontend/CLAUDE.md`), committed `dist/` embedded via `go:embed` with a render/bundle-style drift gate, hybrid API (HTML-in-JSON for rendered content, JSON for structure) under `/api/*`, React Router SPA preserving today's URL scheme with carried-JS endpoints left at their current paths.
+**A across all five dimensions**: Bun-toolchained React + TS workspace at `atomic/internal/serve/frontend/` (workspace conventions — domain-scoped `layouts/pages/components/hooks/utils` layout, per-component folders, `ui/` barrel — codified in `frontend/CLAUDE.md`), committed `dist/` embedded via `go:embed` with a render/bundle-style drift gate, hybrid API (HTML-in-JSON for rendered content, JSON for structure) under `/api/*`, React Router SPA preserving today's URL scheme with carried-JS endpoints left at their current paths, and Ark UI as the sole primitive library — TreeView gives the left nav its folder-dropdown tree UX (collapsible branches, keyboard navigation), Dialog/Tabs/Tooltip/Combobox cover the modals, search tabs, connection indicator, and ⌘K palette.
 
 Migration strategy: **additive, then cutover**. `/api/*` endpoints land alongside the existing htmx routes (both read the same snapshot store and render pipeline), the React app is built screen-by-screen against them, and a final checkpoint flips `/` to the SPA shell and deletes `layout.html`, the htmx vendor, the fragment templates, and the OOB handlers. Every intermediate checkpoint keeps the existing UI working and tests green.
 

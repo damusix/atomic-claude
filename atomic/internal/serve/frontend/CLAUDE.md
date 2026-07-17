@@ -10,6 +10,7 @@ React + TypeScript SPA for `atomic serve`. Contract: `docs/spec/serve-react-fron
 - Bun is the package manager, bundler, and test runner. Never npm, pnpm, yarn, Vite, Jest, or Vitest.
 - `bun install` / `bun add` for dependencies; `bun test` for tests; `bun build` for bundling into `dist/`.
 - Least dependencies wins: Bun's built-ins (bundling, testing, TS/JSX transpile) beat any dev-dep that duplicates them. Justify every `bun add` against what Bun already ships.
+- `@ark-ui/react` is the sole UI-primitive library: TreeView (left-nav folder tree), Dialog (code/page modals), Tabs (search results), Tooltip (connection indicator), Combobox (⌘K palette). Unstyled — style via its data-attribute hooks consuming `app.css` custom properties. Never add a second primitive suite (no Radix, Base UI, React Aria, cmdk, Headless UI); hand-roll only what Ark doesn't cover. Verified to bundle clean under `bun build` (~49 kB gz over React for the five primitives).
 - Build-pipeline wiring (`make frontend`, drift gate, embed) is owned by the spec's CP1 — this file governs conventions, not the pipeline.
 
 
