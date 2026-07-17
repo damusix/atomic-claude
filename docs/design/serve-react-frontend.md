@@ -44,7 +44,7 @@ flowchart LR
   - Feature parity — every row of the blast-radius inventory below survives the cutover.
   - Graph engine carried, not rewritten: `graph-core.js`, `system-graph.js`, `code-graph.js`, vendored `cosmos-graph.js`, rail Cytoscape. Only the mount glue moves into React lifecycle.
   - Visual design carried: `app.css` custom-property theme system, typography, three-pane layout survive with pruning, not redesign.
-  - Single-binary property preserved: built frontend embedded via `go:embed`; no Node, no network fetch at runtime.
+  - Single-binary property preserved: built frontend embedded via `go:embed`; no Bun/Node, no network fetch at runtime.
   - URL scheme preserved: `/page/<relpath>`, `/graph?view=&member=`, `/search?q=&src=` deep links keep working.
 - Non-goals:
   - No visual redesign; same look, same themes.
@@ -162,7 +162,7 @@ Full inventory of screens, features, HTML/CSS/design elements, and endpoints. Ve
 |---------|--------|
 | `scripts/graph-gates.mjs` | update — drives UI selectors (`#btn-graph`, switcher buttons); must target the React shell; re-run all 5 gates per view |
 | `scripts/test-system-graph-culling.cjs` | unaffected (`graph-core.js` untouched) |
-| Build pipeline (`atomic/Makefile`, `.githooks/pre-commit`, CI) | new `frontend` stage: Vite build + committed-dist drift gate, mirroring render/bundle |
+| Build pipeline (`atomic/Makefile`, `.githooks/pre-commit`, CI) | new `frontend` stage: Bun build + committed-dist drift gate, mirroring render/bundle |
 | Root `package.json` | untouched — VitePress docs site + playwright stay; the frontend gets its own workspace `package.json` |
 | `docs/reference/serve.md`, `docs/spec/atomic-serve.md`, `docs/wiki/serve.md` | amend after implementation (note: reference currently overstates graph live-reload — CP5 was dropped; correct while amending) |
 | Follow-up `cosmos-graph-live-reload-reconcile` | unblocked structurally; implementation stays a follow-up |
@@ -178,16 +178,17 @@ Four decision dimensions.
 
 | # | Approach | Pros | Cons |
 |---|----------|------|------|
-| A | Vite + React + TypeScript, dedicated workspace under `atomic/internal/serve/frontend/` | standard toolchain; TS matches repo rules; dev server with API proxy; tree-shaken hashed dist | adds Node to the contributor build loop for FE changes |
-| B | No-build React alternative (Preact + htm as vendored ES modules) | preserves zero-build property | no TS, no JSX, no ecosystem; at ~4k FE LOC this recreates the maintainability problem being solved |
-| C | Hand-rolled esbuild | fewer dev deps | reimplements Vite's dev server, HMR, asset hashing for no gain |
+| A | Bun + React + TypeScript, dedicated workspace under `atomic/internal/serve/frontend/` — Bun is package manager, bundler, and test runner | one tool covers install/bundle/test; native TS/JSX transpile; fewest dev dependencies; fast installs and test runs | younger ecosystem than Vite/npm; dev-server/HMR less turnkey |
+| B | Vite + React + TypeScript on npm | most-traveled toolchain; turnkey dev server + HMR | three tools where Bun ships one (npm + Vite + Vitest); larger transitive dependency tree |
+| C | No-build React alternative (Preact + htm as vendored ES modules) | preserves zero-build property | no TS, no JSX, no ecosystem; at ~4k FE LOC this recreates the maintainability problem being solved |
+| D | Hand-rolled esbuild | fewer dev deps than Vite | reimplements dev-server/HMR/asset hashing that Bun and Vite each ship for free |
 
 ### D2 — Embedding the built bundle
 
 | # | Approach | Pros | Cons |
 |---|----------|------|------|
-| A | Commit built `dist/` + `go:embed` + CI drift gate (`make frontend && git diff --exit-code`) | mirrors the repo's render/bundle precedent (`commands/`, `agents/`, `atomic/internal/embedded/bundle/` are all tracked generated outputs with drift gates); `go build` works with no Node installed; goreleaser untouched | committed generated code; noisy diffs on FE changes (hashed filenames) |
-| B | Build in CI only, `dist/` gitignored | clean history | `make -C atomic build` breaks for contributors without Node; goreleaser and every CI job need a Node setup step; violates "clone → go build" |
+| A | Commit built `dist/` + `go:embed` + CI drift gate (`make frontend && git diff --exit-code`) | mirrors the repo's render/bundle precedent (`commands/`, `agents/`, `atomic/internal/embedded/bundle/` are all tracked generated outputs with drift gates); `go build` works with no Bun installed; goreleaser untouched | committed generated code; noisy diffs on FE changes (hashed filenames) |
+| B | Build in CI only, `dist/` gitignored | clean history | `make -C atomic build` breaks for contributors without Bun; goreleaser and every CI job need a Bun setup step; violates "clone → go build" |
 | C | Runtime CDN fetch | trivial pipeline | violates single-binary / offline contract outright |
 
 ### D3 — API shape
@@ -210,7 +211,7 @@ Four decision dimensions.
 ## Recommendation
 
 
-**A across all four dimensions**: Vite + React + TS workspace at `atomic/internal/serve/frontend/`, committed `dist/` embedded via `go:embed` with a render/bundle-style drift gate, hybrid API (HTML-in-JSON for rendered content, JSON for structure) under `/api/*`, React Router SPA preserving today's URL scheme with carried-JS endpoints left at their current paths.
+**A across all four dimensions**: Bun-toolchained React + TS workspace at `atomic/internal/serve/frontend/` (workspace conventions — domain-scoped `layouts/pages/components/hooks/utils` layout, per-component folders, `ui/` barrel — codified in `frontend/CLAUDE.md`), committed `dist/` embedded via `go:embed` with a render/bundle-style drift gate, hybrid API (HTML-in-JSON for rendered content, JSON for structure) under `/api/*`, React Router SPA preserving today's URL scheme with carried-JS endpoints left at their current paths.
 
 Migration strategy: **additive, then cutover**. `/api/*` endpoints land alongside the existing htmx routes (both read the same snapshot store and render pipeline), the React app is built screen-by-screen against them, and a final checkpoint flips `/` to the SPA shell and deletes `layout.html`, the htmx vendor, the fragment templates, and the OOB handlers. Every intermediate checkpoint keeps the existing UI working and tests green.
 
@@ -225,7 +226,7 @@ Evidence:
 ## Open questions
 
 
-- Mermaid: keep the vendored `mermaid.min.js` (3,405 LOC min) or take it as an npm dep bundled by Vite? Affects only the retheme glue; vendored is the conservative default.
-- Dev-mode iteration: ship a Vite dev-server proxy config (`/api` → running `atomic serve`) for contributors, or accept build-then-embed as the only loop? Proxy config is cheap and non-load-bearing; lean yes.
+- Mermaid: keep the vendored `mermaid.min.js` (3,405 LOC min) or take it as a dependency bundled by Bun? Affects only the retheme glue; vendored is the conservative default.
+- Dev-mode iteration: ship a Bun dev-server proxy config (`/api` → running `atomic serve`) for contributors, or accept build-then-embed as the only loop? Proxy config is cheap and non-load-bearing; lean yes.
 - `scripts/graph-gates.mjs` selector updates: same PR as the cutover checkpoint, or immediate follow-up? Lean same PR — the gates are the only browser-level verification this repo has.
-- React version pinning and Vite config specifics: settle at implementation time (context7 verify then); the design intentionally does not pin.
+- React version pinning and Bun config specifics: settle at implementation time (context7 verify then); the design intentionally does not pin.
