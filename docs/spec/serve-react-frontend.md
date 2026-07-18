@@ -306,3 +306,40 @@ Flow: theme toggle retheme cascade
 **What changed:** Correction: `/api/search/stream` contract row now documents that an empty/missing `q` yields a 200 with a single terminal `end` event, not the 400 envelope.
 
 **Why:** CP3 implementation + review — SSE has no mid-stream status channel; behavior mirrors the pre-existing stream handler. Flagged by the iteration-3 reviewer as undocumented implementer discretion.
+
+
+## Implementation log
+
+### shipped — 2026-07-18
+
+Built across 13 iterations of /subagent-implementation (one per checkpoint). Commits (chronological):
+
+- `9fb403c` — CP-1 Bun+React build pipeline scaffold, go:embed dist, CI/pre-commit drift gates
+- `cad9d5d` — CP-2 /api content endpoints (page, file, rail, nav)
+- `9efc581` — CP-3 /api search endpoints (md, code, stream) + spec amendment for stream empty-query
+- `68a988e` — CP-4 /api code-intel + dashboard endpoints
+- `f94b5bc` — CP-5 React shell, Ark TreeView nav, theme, LogosDX layer, deterministic build fix
+- `a5fdf1b` — CP-6 page view + rail + utils/graphUI
+- `a56ca97` — CP-7 search palette (Ark Combobox) + SSE search page (Ark Tabs)
+- `3eab462` — CP-8 graph mode via carried cosmos engine
+- `3925ea7` — CP-9 code modal (Ark Dialog, back-stack, dedup)
+- `2f17f26` — CP-10 dashboards (schema, status, external)
+- `9998e15` — CP-11 live-reload reconcile + retheme cascade
+- `47401f8` — CP-12 cutover: SPA default, htmx layer deleted (−20.5k lines), graph-gates 10/10
+- `d150337` — CP-13 docs amendment (reference/spec/wiki)
+
+**Out-of-scope work performed during this build:**
+
+- build.ts determinism fix during CP5 (Bun identifier-minifier non-determinism threatened the CP1 drift gate; `identifiers: false`, +79% uncompressed JS accepted for a localhost tool)
+- Two latent frontend bugs fixed at CP12, surfaced by the graph-gates harness: null nav-group items crash; `installGraphUIGlobal()` defined but never called
+- `#btn-graph` TopBar entry point added at CP12 (CP5 parity gap caught by the cutover reviewer)
+
+**Unforeseens — surprises that emerged during implementation:**
+
+- @logosdx/fetch `.get()` resolves an `{ok, data, status}` envelope, not the raw body — caught as live bugs in CP6
+- bun:test shares the ES module registry across test files (unlike Jest) — required reset seams and a two-file preload split for happy-dom
+- `net/http.ServeMux` 301-redirects `..`-laden paths before dispatch — traversal tests moved to direct-handler invocation
+
+**Deferred items still open:**
+
+- F-1 misleading comment (api_handlers.go:441); F-2 no root-Makefile `frontend` delegate; F-3 union-generic casts (SearchPalette + CodeModal); F-4 /api/code/schema 500s on not-indexed member vs soft-state convention; F-5 dropped scenario-specific test assertions at cutover — triage pending in the scratchpad FOLLOWUPS ledger
