@@ -100,7 +100,7 @@ func breadcrumbSegmentsData(relPath string) []breadcrumbSeg {
 	clean := filepath.ToSlash(strings.TrimPrefix(relPath, "/"))
 	parts := strings.Split(clean, "/")
 	if len(parts) == 0 || (len(parts) == 1 && parts[0] == "") {
-		return nil
+		return []breadcrumbSeg{}
 	}
 
 	segs := make([]breadcrumbSeg, 0, len(parts))

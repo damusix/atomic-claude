@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/mdlink"
@@ -211,12 +212,35 @@ type apiExternalResponse struct {
 // NewAPIExternalHandler returns an http.Handler for GET /api/external. Reuses
 // BuildExternalRegistry — the same walk NewExternalHandler's HTML table
 // uses — reshaped as JSON with FirstSeen as a nullable ISO date string.
-func NewAPIExternalHandler(root string, dateFn FileDateFn) http.Handler {
+func NewAPIExternalHandler(root string, dateFn FileDateFn, store *snapshotStore) http.Handler {
 	if dateFn == nil {
 		dateFn = MtimeDateFn
 	}
+	// BuildExternalRegistry walks the whole realm (git-date per file — seconds
+	// on a large realm), so the result is memoized keyed by the snapshot
+	// fingerprint: recomputed only when the realm actually changed.
+	var mu sync.Mutex
+	var cachedFP string
+	var cached []ExternalEntry
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reg := BuildExternalRegistry(root, dateFn)
+		var reg []ExternalEntry
+		fp := ""
+		if store != nil {
+			if snap, _ := store.ensureFresh(); snap != nil {
+				fp = snap.fp
+			}
+		}
+		mu.Lock()
+		if fp != "" && fp == cachedFP && cached != nil {
+			reg = cached
+			mu.Unlock()
+		} else {
+			mu.Unlock()
+			reg = BuildExternalRegistry(root, dateFn)
+			mu.Lock()
+			cachedFP, cached = fp, reg
+			mu.Unlock()
+		}
 
 		entries := make([]apiExternalEntry, len(reg))
 		for i, e := range reg {

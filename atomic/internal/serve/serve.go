@@ -202,7 +202,7 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		// Seams are nil → production defaults wired inside NewAPIStatusHandler.
 	}
 	mux.Handle("/api/status", NewAPIStatusHandler(healthOpts))
-	mux.Handle("/api/external", NewAPIExternalHandler(navRoot, GitOrMtimeDateFn))
+	mux.Handle("/api/external", NewAPIExternalHandler(navRoot, GitOrMtimeDateFn, store))
 
 	// /events — live-reload SSE stream: register, resync push, stream
 	// until the request context ends. Carried path (unchanged by the cutover).

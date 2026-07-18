@@ -112,10 +112,10 @@ export function Page() {
   return (
     <div className="page-content-inner page-view" data-route="page">
       <nav className="page-breadcrumb" aria-label="Breadcrumb">
-        {data.breadcrumb.map((seg, i) => (
+        {(data.breadcrumb ?? []).map((seg, i) => (
           <span key={`${seg.label}:${i}`}>
             {seg.path ? <a href={`/page/${seg.path}`}>{seg.label}</a> : seg.label}
-            {i < data.breadcrumb.length - 1 ? " / " : ""}
+            {i < (data.breadcrumb ?? []).length - 1 ? " / " : ""}
           </span>
         ))}
       </nav>

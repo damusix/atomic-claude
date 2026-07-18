@@ -169,7 +169,7 @@ func TestAPIExternal_Shape(t *testing.T) {
 		"# B\n\nAlso see [example](https://example.com/x).\n")
 
 	fixed := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
-	handler := serve.NewAPIExternalHandler(root, fixedDateFn(fixed))
+	handler := serve.NewAPIExternalHandler(root, fixedDateFn(fixed), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/external", nil)
 	rr := httptest.NewRecorder()
@@ -225,7 +225,7 @@ func TestAPIExternal_ZeroDate_NullFirstSeen(t *testing.T) {
 	writeFile(t, filepath.Join(root, "page.md"), "# P\n\nSee [x](https://example.com/x).\n")
 
 	// perFileDateFn returns time.Time{} (zero) for any unmapped path.
-	handler := serve.NewAPIExternalHandler(root, perFileDateFn(nil))
+	handler := serve.NewAPIExternalHandler(root, perFileDateFn(nil), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/external", nil)
 	rr := httptest.NewRecorder()
@@ -255,7 +255,7 @@ func TestAPIExternal_NoLinks_EmptyEntries(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "page.md"), "# P\n\nNo external links here.\n")
 
-	handler := serve.NewAPIExternalHandler(root, fixedDateFn(time.Now()))
+	handler := serve.NewAPIExternalHandler(root, fixedDateFn(time.Now()), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/external", nil)
 	rr := httptest.NewRecorder()

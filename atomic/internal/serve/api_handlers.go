@@ -263,11 +263,18 @@ func NewAPIRailHandler(root string, g graphProvider) http.Handler {
 			apiBacklinks[i] = apiRailBacklink{Path: b}
 		}
 
+		// Outbound returns nil for a page with no links, which encoding/json
+		// marshals as JSON null — normalize to [] so the client never
+		// null-checks array fields.
+		outbound := graph.Outbound(rel)
+		if outbound == nil {
+			outbound = []Edge{}
+		}
 		writeAPIJSON(w, apiRailResponse{
 			RelPath:      rel,
 			Orphan:       graph.IsOrphan(rel),
 			Properties:   railProperties(abs),
-			Outbound:     graph.Outbound(rel),
+			Outbound:     outbound,
 			Backlinks:    apiBacklinks,
 			GraphDataURL: "/graph/data?node=" + rel + "&depth=1",
 		})

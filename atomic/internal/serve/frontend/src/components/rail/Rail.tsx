@@ -94,7 +94,7 @@ export function Rail() {
 
       <section id="rail-out" className="rail-slot">
         <div className="rail-slot-content" id="rail-out-content">
-          {rail.out.length ? (
+          {rail.out?.length ? (
             <ul className="rail-edge-list">
               {rail.out.map((e, i) => (
                 <li key={`${e.target}:${i}`}>
@@ -136,7 +136,7 @@ export function Rail() {
 
       <section id="rail-in" className="rail-slot">
         <div className="rail-slot-content" id="rail-in-content">
-          {rail.in.length ? (
+          {rail.in?.length ? (
             <ul className="rail-edge-list">
               {rail.in.map((b) => (
                 <li key={b.path}>

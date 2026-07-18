@@ -41,6 +41,31 @@ function groupToTreeNodeModel(group: NavGroup): TreeNodeModel {
   };
 }
 
+// LeafIcon — VSCode-explorer-style file icon per leaf, chosen by the target's
+// extension: .md gets the markdown-document glyph, anything else the generic
+// file glyph. Stroke inherits currentColor so both themes work for free.
+function LeafIcon({ relpath }: { relpath: string }) {
+  const isMd = relpath.endsWith(".md");
+  return (
+    <svg
+      className="nav-leaf-icon"
+      width="13"
+      height="13"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.1"
+      aria-hidden="true"
+    >
+      <path d="M4 1.5h5.5L13 5v9.5H4z" strokeLinejoin="round" />
+      <path d="M9.5 1.5V5H13" strokeLinejoin="round" />
+      {isMd ? (
+        <path d="M5.6 12v-3.4l1.55 1.9 1.55-1.9V12M10.9 12V8.6" strokeLinecap="round" strokeLinejoin="round" />
+      ) : null}
+    </svg>
+  );
+}
+
 function StaleBadge({ node }: { node: NavNode }) {
   if (!node.stale) return null;
   return (
@@ -55,6 +80,7 @@ function NavLeaf({ node }: { node: NavNode }) {
     <TreeView.Item>
       <TreeView.ItemText>
         <Link to={navNodeHref(node.relpath ?? "")} className="nav-item">
+          <LeafIcon relpath={node.relpath ?? ""} />
           {node.label}
           <StaleBadge node={node} />
         </Link>

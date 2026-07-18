@@ -25,7 +25,7 @@ export interface RailResponse {
   relpath: string;
   orphan: boolean;
   properties: PropKV[] | null;
-  out: RailEdge[];
-  in: RailBacklink[];
+  out: RailEdge[] | null;
+  in: RailBacklink[] | null;
   graphDataURL: string;
 }

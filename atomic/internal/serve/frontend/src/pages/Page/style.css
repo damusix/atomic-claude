@@ -53,3 +53,11 @@
   padding: 0.1em 0.35em;
   border-radius: 3px;
 }
+
+/* Markdown tables scroll horizontally inside the content column instead of
+   overflowing into the rail. */
+.page-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
