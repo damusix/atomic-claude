@@ -17,6 +17,7 @@ Replace `atomic serve`'s htmx fragment-swap UI with a React SPA — Go stays the
 - No rewrite of the graph engine internals or vendored libraries (`graph-core.js`, `system-graph.js`, `code-graph.js`, vendored `cosmos-graph.js`, Cytoscape, mermaid stay carried, not rebuilt).
 - No Windows support work (repo policy).
 - No API-usage or version-pinning prescription beyond what the design already decided — React Router is fixed (design D4-A); exact React/router API usage, the state-management library choice, and version pinning are the implementer's call at build time.
+- Accepted regressions at cutover (deliberate, per owner triage): plain-HTTP/no-JS readability of `/page/*` ends — content requires the SPA; unmatched non-API GETs return 200 + shell instead of 404 (traversal guards enforce at `/api/*`); a browser tab opened pre-cutover misrenders until manually reloaded; post-release rollback is forward-fix or pinning the prior binary.
 
 
 ## Success criteria
@@ -73,7 +74,7 @@ Additive-then-cutover migration to a Bun-toolchained React + TypeScript SPA, com
     scripts/graph-gates.mjs .................... M  (selectors retargeted to the React shell)
     atomic/Makefile ............................ M  (new `frontend` target)
     .githooks/pre-commit ........................ M  (new render-parity stage for frontend/dist)
-    .github/workflows/ci.yml .................... M  (frontend drift gate)
+    .github/workflows/ci.yml .................... M  (next-targeting push/PR triggers; frontend drift gate + bun test)
     docs/reference/serve.md ..................... M  (React SPA architecture)
     docs/spec/atomic-serve.md ................... M  (React SPA architecture; corrects live-reload overstatement)
     docs/wiki/serve.md ........................... M  (signals refresh, out of band from implementer checkpoints)
@@ -104,7 +105,9 @@ Additive-then-cutover migration to a Bun-toolchained React + TypeScript SPA, com
         useLiveReload — /events SSE, quiet-window reconcile, scroll preservation
         useTheme — toggle + retheme cascade (mermaid, cosmos, rail Cytoscape)
       utils/
+        api — shared fetch helper: /api/* error-envelope handling, JSON typing; every component fetch goes through it
         graphEngineAdapter — mount/teardown glue honoring window.GraphCore / AtomicGraphUI / AtomicCodeExplorer contracts
+        graphUI — rebuild of the AtomicGraphUI shared block (hover preview card, page modal, navigate); exposed as window.AtomicGraphUI so the carried profiles' hooks keep working; consumed by the rail mini-graph and both graph views
         typeColors — TYPE_HUE/ramp/atomicCyTypeColors: single OKF type→color source reading CSS custom properties; exposed as a window global so the carried system-graph.js/code-graph.js profiles keep their existing call site unmodified; imported directly by React components and by railCytoscapeStyle
 
     atomic/internal/serve/
@@ -136,6 +139,37 @@ Additive-then-cutover migration to a Bun-toolchained React + TypeScript SPA, com
       search_page.go
         (normalizeSearchSrc moves to search_stream.go — see above; the only piece that survives)
         NewSearchPageHandler / renderSearchPageFragment / searchBreadcrumbOOB — dead at cutover, no reshape; the document-load shell-wrap and htmx fragment composition are superseded by the SPA fallback and by React's SearchRoute composing the already-reshaped /api/search/md, /api/search/stream, and /api/code/search endpoints directly
+
+
+## API contracts
+
+
+Cross-checkpoint contract: the API checkpoints (CP2–CP4) implement these shapes; the screen checkpoints (CP5–CP11) consume them. Field names are normative (camelCase); additive fields are free, renames/removals are spec amendments. Shapes derive from the handlers' existing view-model structs — cited per endpoint.
+
+Conventions (every `/api/*` endpoint):
+
+- `Content-Type: application/json`; Go `encoding/json` default HTML-escaping stays enabled.
+- One error envelope: non-200 status + `{"error": "<message>"}` (adopts `writeGraphError`, codegraph.go). 404 = missing target or traversal rejection; 400 = bad/missing params; 500 = render/query failure. Soft per-member states inside composite responses (not-indexed members, degraded intel) are data fields, not errors.
+- Fields carrying pre-rendered HTML are named `html` (or `*Html`); every other field is plain data the client renders.
+- All fetches in the React app go through one shared helper (`utils/api`) that owns envelope handling — no bare `fetch` in components.
+
+| Endpoint | Shape (source struct) |
+|----------|----------------------|
+| `GET /api/page/<relpath>` | `{html, title, relpath, hasMermaid, breadcrumb: [{label, path, folder}]}` — from `pageWithGraphData` (context_handler.go:202) with breadcrumb reshaped from HTML to segments (the `data-nav-folder` behavior moves client-side). Directory URL → `{dir: true, relpath, entries: [{name, relpath, folder}]}`. Missing → 404 envelope; client renders the not-found view from `{error, relpath}` |
+| `GET /api/file/<relpath>` | `{html, title, path}` — chroma line-table HTML (render.go:604) |
+| `GET /api/rail/<relpath>` | `{relpath, orphan, properties: [{key, value, isURL, isJSON}] \| null, out: [edge], in: [{path}], graphDataURL}`; `edge = {target, resolvedPath, kind, broken, ambiguous, codeFile, external}` — from `railTmplData`/`propKV` (rail_handler.go:41,118) + `Edge` (graph.go:34) |
+| `GET /api/nav` | `{scope: "realm"\|"repo", groups: [{name, items: [navNode]}]}`; `navNode = {label, relpath?, stale?, children?: [navNode]}` — folder nodes carry `children`, leaves carry `relpath`; badges from the staleness sets (nav.go) |
+| `GET /api/search/md?q=` | `{query, truncated, cap, results: [{relpath, line, snippet}]}` — from `mdMatch` + the 50-cap truncation flag (search_md.go:57,88) |
+| `GET /api/code/search?q=&only=&exclude=` | `{members: [{key, prefix, indexed, results: [nodeRef]}]}`; `nodeRef = {id, name, kind, filePath, startLine}` — member grouping per codesearch.go; un-indexed members appear with `indexed: false`, empty results |
+| `GET /api/search/stream?q=&src=` | SSE, named events (search_stream.go:12): `md` → the `/api/search/md` payload; `code` → one `{member: {key, prefix, indexed}, results: [nodeRef]}` per member; `end` → `{}` terminal. `src ∈ {all, md, code}` (`normalizeSearchSrc`) |
+| `GET /api/code/node?id=&member=` | `{member, node}`; `node = {id, name, kind, filePath, startLine, signature, language, docstring}` — `types.Node` |
+| `GET /api/code/{callers,callees,impact}?id=&member=` | `{member, root: node, edges: [{kind, source, target}], nodes: {<id>: node}}` — `types.Subgraph` |
+| `GET /api/code/files?member=` | `{files: [{path, language, nodeCount}]}` — `types.FileRecord` |
+| `GET /api/code/schema?member=` | `{tables: [{node, columns: [node], fkSources: [node], writers: [node]}]}` — `tableSchema` (codeexplorer.go:580) |
+| `GET /api/code/file?path=&member=` | `{path, member, nodes: [{id, name, kind, startLine}], degraded?: "<reason>"}` — degraded carries today's inline not-indexed/no-intel messages (codeexplorer.go:837) |
+| `GET /api/status` | `{isRealmScope, wiki: {staleRepos, staleConcerns, staleBuckets, bucketDiffKeys, allFresh}, index: {severity, detail, freshCount, staleMembers, notIndexed}}` — `healthData` (health.go:250) |
+| `GET /api/external` | `{entries: [{url, sources: [relpath], firstSeen \| null}]}` — `ExternalEntry` (external.go:94) |
+| `GET /events` | unchanged carried contract: unnamed events, `{fp, changed?}` (changed capped at 100, omitted over cap) |
 
 
 ## Flows
@@ -207,14 +241,14 @@ Flow: theme toggle retheme cascade
 
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|-------------|-------|------------|----------|
-| 1 | Frontend build pipeline scaffold: Bun+React+TS workspace (conventions per `frontend/CLAUDE.md`), `go:embed` source, `make frontend` target + CI/pre-commit drift gate, dev API proxy | `atomic/internal/serve/frontend/` (workspace + carried public assets), `atomic/internal/serve/frontend_dist.go`, `atomic/Makefile`, `.githooks/pre-commit`, `.github/workflows/ci.yml` | atomic-implementer (mode: feature) | ~10 (excl. generated dist) | `make frontend && git diff --exit-code` clean; `go build ./internal/serve/...` succeeds against the committed dist with no Bun invocation; `bun test` scaffold smoke test green |
+| 1 | Frontend build pipeline scaffold: Bun+React+TS workspace (conventions per `frontend/CLAUDE.md`), `go:embed` source, `make frontend` target + CI/pre-commit drift gate, dev API proxy | `atomic/internal/serve/frontend/` (workspace + carried public assets), `atomic/internal/serve/frontend_dist.go`, `atomic/Makefile`, `.githooks/pre-commit`, `.github/workflows/ci.yml` | atomic-implementer (mode: feature) | ~10 (excl. generated dist) | `make frontend && git diff --exit-code` clean; `go build ./internal/serve/...` succeeds against the committed dist with no Bun invocation; `bun test` scaffold smoke test green and wired into CI for PRs targeting `next` |
 | 2 | `/api/*` content endpoints: page, file, rail, nav — additive JSON alongside existing htmx routes | `context_handler.go`, `rail_handler.go`, `nav.go`, `serve.go` (route registration) + tests | atomic-implementer (mode: feature) | ~8 | existing HTML-fragment tests untouched and green; new tests assert `/api/page`, `/api/file`, `/api/rail`, `/api/nav` JSON shapes |
 | 3 | `/api/*` search + streaming endpoints — additive JSON alongside existing htmx routes | `search_md.go`, `search_stream.go`, `codesearch.go`, `serve.go` (route registration) + tests | atomic-implementer (mode: feature) | ~6 | existing HTML-fragment tests untouched and green; new tests assert `/api/search/md`, `/api/search/stream` (JSON events), `/api/code/search` JSON shapes; federated search concurrency/bounding behavior unchanged |
 | 4 | `/api/*` code-intel + dashboard endpoints — additive JSON alongside existing htmx routes | `codeexplorer.go`, `health.go`, `external.go`, `serve.go` (route registration) + tests | atomic-implementer (mode: feature) | ~8 | existing HTML-fragment tests untouched and green; new tests assert `/api/code/{node,callers,callees,impact,files,schema,file}`, `/api/status`, `/api/external` JSON shapes |
-| 5 | React shell: routing, theme (toggle + before-paint init + retheme hook seam), top bar, left nav as an Ark TreeView folder tree (collapsible branches, keyboard nav, stale/drift badges), single-source type→color module | `frontend/src/App`, `layouts/Shell`, `pages/` skeleton, `components/nav/`, `hooks/useTheme`, `utils/typeColors` | atomic-implementer (mode: feature) | ~11 | frontend test suite green against CP2's nav JSON; theme toggle covers persisted + OS-fallback cases; connection indicator renders from a stubbed live-reload state; `typeColors` returns the same colors as today's `atomicCyTypeColors` for a given CSS-var set and is exported as the sole color source (no independent color derivation elsewhere in the diff) |
-| 6 | React page view + rail: HTML-in-JSON injection, wikilink click interception (all link forms + broken/ambiguous/external/codefile), mermaid mount, directory/404, rail Properties/mini-graph/OUT/IN | `frontend/src/pages/Page`, `components/rail/` (incl. `railCytoscapeStyle`) | atomic-implementer (mode: feature) | ~9 | frontend test suite green for page render, link-form interception, mermaid mount, directory/404 fallback, rail panels; rail mini-graph's Cytoscape stylesheet is built from `typeColors` (`railCytoscapeStyle`), not a re-derived color map |
+| 5 | React shell: routing, theme (toggle + before-paint init + retheme hook seam), top bar, left nav as an Ark TreeView folder tree (collapsible branches, keyboard nav, stale/drift badges), single-source type→color module | `frontend/src/App`, `layouts/Shell`, `pages/` skeleton, `components/nav/`, `hooks/useTheme`, `utils/typeColors` | atomic-implementer (mode: feature) | ~11 | frontend test suite green against CP2's nav JSON; theme toggle covers persisted + OS-fallback cases; connection indicator renders from a stubbed live-reload state; Back/Forward restores scroll position and `location.hash` scrolls to its anchor on mount/update; all fetches route through `utils/api`; `typeColors` returns the same colors as today's `atomicCyTypeColors` for a given CSS-var set and is exported as the sole color source (no independent color derivation elsewhere in the diff) |
+| 6 | React page view + rail: HTML-in-JSON injection, wikilink click interception (all link forms + broken/ambiguous/external/codefile), mermaid mount, directory/404, rail Properties/mini-graph/OUT/IN, `utils/graphUI` rebuild (hover preview card + page modal, `window.AtomicGraphUI` contract) | `frontend/src/pages/Page`, `components/rail/` (incl. `railCytoscapeStyle`), `utils/graphUI` | atomic-implementer (mode: feature) | ~10 | frontend test suite green for page render, link-form interception, mermaid mount, directory/404 fallback, rail panels; a skeleton state renders in the content pane until `/api/page` resolves (no blank flash); rail mini-graph hover shows the preview card and click opens the page modal via `utils/graphUI`; rail mini-graph's Cytoscape stylesheet is built from `typeColors` (`railCytoscapeStyle`), not a re-derived color map |
 | 7 | React search: command palette (Ark Combobox: shortcuts, md\|code toggle, debounce) and search page (Ark Tabs, SSE stream, "not indexed" notes) | `frontend/src/components/search/`, `pages/Search` | atomic-implementer (mode: feature) | ~6 | frontend test suite green for shortcut triggers, tab switching, streamed-result rendering, not-indexed notes |
-| 8 | React graph mode: route + engine adapter mounting carried `system-graph.js`/`code-graph.js`, Docs\|Code switcher, member picker | `frontend/src/pages/Graph`, `utils/graphEngineAdapter` | atomic-implementer (mode: feature) | ~5 | frontend test suite green for mount/teardown calling `window.GraphCore.mount`; switcher and member-picker (hidden single-member) behavior verified against a mocked engine; carried profiles read colors via the `typeColors` window global — no color logic duplicated in the adapter |
+| 8 | React graph mode: route + engine adapter mounting carried `system-graph.js`/`code-graph.js`, Docs\|Code switcher, member picker | `frontend/src/pages/Graph`, `utils/graphEngineAdapter` | atomic-implementer (mode: feature) | ~5 | frontend test suite green for mount/teardown calling `window.GraphCore.mount`; switcher and member-picker (hidden single-member) behavior verified against a mocked engine; carried profiles read colors via the `typeColors` window global — no color logic duplicated in the adapter; profiles' hover/click hooks resolve through the `window.AtomicGraphUI` contract provided by `utils/graphUI` (built in CP6) |
 | 9 | React code modal (Ark Dialog): source pane (chroma HTML-in-JSON, line anchors, scroll-to-line), intel pane (symbols/node/callers/callees/impact), back-stack, same-file fetch dedup | `frontend/src/components/code-modal/` | atomic-implementer (mode: feature) | ~5 | frontend test suite green for source-pane render + scroll-to-line, intel-pane drill-down, back-stack navigation, dedup on same-file hops |
 | 10 | React dashboards: code schema view, external-link registry, status view | `frontend/src/components/schema/`, `pages/Status`, `pages/External` | atomic-implementer (mode: feature) | ~5 | frontend test suite green rendering `/api/code/schema`, `/api/external`, `/api/status` JSON |
 | 11 | Live-reload reconcile + retheme cascade | `frontend/src/hooks/useLiveReload`, `hooks/useTheme` (retheme effect) | atomic-implementer (mode: feature) | ~4 | frontend test suite green for quiet-window reconcile (nav-always, page-conditional, capped-list-omitted → refetch-all), scroll preservation, and retheme firing against mermaid/cosmos/rail-Cytoscape mocks |
@@ -251,3 +285,9 @@ Flow: theme toggle retheme cascade
 **What changed:** `@ark-ui/react` is the single UI-primitive dependency: TreeView renders the left nav as a folder-dropdown tree (collapsible branches, keyboard navigation), Dialog backs the code/page modals, Tabs the search-results view, Tooltip the connection indicator, Combobox the ⌘K palette. New success criterion pins it as the only primitive suite; CP5/CP7/CP9 name the components. `frontend/CLAUDE.md` carries the never-add-a-second-suite rule.
 
 **Why:** Owner decision after a `/gather-evidence` pass: one lineage covers every primitive need including the tree and palette; verified to bundle clean under `bun build` (zero ESM/"use client" errors, ~49 kB gz over React for the five primitives — probe at `tmp/ark-probe/`). Evidence and rejected alternatives in the design's D5 table.
+
+### 2026-07-17 — API contracts + behavior ownership
+
+**What changed:** New `## API contracts` section pins the cross-checkpoint JSON/SSE contracts (shapes derived from the handlers' existing view-model structs, cited per endpoint), one error envelope (`{"error": …}` + status, adopting `writeGraphError`), the html-field naming convention, and a mandatory shared fetch helper (`utils/api`). Ownership fixes: the `AtomicGraphUI` shared block (hover preview card, page modal, navigate) is rebuilt as `utils/graphUI` in CP6 and consumed by CP8's profiles via the preserved window contract; CP5 gains Back/Forward scroll restoration + `location.hash` anchor scrolling; CP6 gains a no-blank-flash skeleton gate; CP1 wires `bun test` into CI for `next`-targeting PRs and the change tree records the `ci.yml` trigger fix. Non-goals gains the explicitly accepted cutover regressions (no-JS readability, 200-on-unmatched-paths, stale pre-cutover tabs, forward-fix rollback).
+
+**Why:** Challenge-swarm findings, owner-triaged: fresh-context checkpoint subagents need pinned boundary contracts to build coherently; several existing behaviors had no owning checkpoint; the accepted regressions were implicit.

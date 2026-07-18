@@ -8,9 +8,9 @@ on:
   # naturally excluded (it isn't main); its merge-into-main result is still
   # gated via pull_request, which always reflects current main.
   push:
-    branches: [main]
+    branches: [main, next]
   pull_request:
-    branches: [main]
+    branches: [main, next]
 
 jobs:
   test:
