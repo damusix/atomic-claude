@@ -274,9 +274,13 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
       const start = toPage(nodeA);
       const target = toPage(nodeB);
       await page.mouse.move(start.x, start.y);
+      // Node drag is Shift-gated (graph-core.js setShift, 2026-07-18) — a
+      // plain drag pans the camera instead of moving a node.
+      await page.keyboard.down('Shift');
       await page.mouse.down();
       await page.mouse.move(target.x, target.y, { steps: 10 });
       await page.mouse.up();
+      await page.keyboard.up('Shift');
 
       let dragSettleErr = null;
       try {
@@ -352,6 +356,8 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
     } else {
       const hoverPage = { x: containerRect.left + hoverNode.screen.x, y: containerRect.top + hoverNode.screen.y };
       await page.mouse.move(hoverPage.x, hoverPage.y);
+      // Hover preview is Shift-gated (graph-core.js setShift, 2026-07-18).
+      await page.keyboard.down('Shift');
       try {
         await page.waitForSelector('#cy-preview-card.open', { timeout: 5000 });
         const text = (await page.textContent('#cy-preview-card') || '').trim();
@@ -360,6 +366,7 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
       } catch (e) {
         results.push({ name: 'hover-preview', pass: false, detail: 'preview card did not open within 5000ms' });
       }
+      await page.keyboard.up('Shift');
     }
 
     return results;

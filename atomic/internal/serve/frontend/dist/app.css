@@ -1636,6 +1636,17 @@ body.mode-system #main-pane {
 }
 
 /* System graph legend — type-filter chip bar */
+.graph-hint {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    z-index: 10;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-faint);
+    pointer-events: none;
+}
+
 .graph-legend {
     position: absolute;
     bottom: 16px;

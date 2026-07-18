@@ -791,9 +791,12 @@ window.GraphCore = (function() {
   function teardown() {
     activeContainer = null;
     if (instance) {
+      if (instance.__atomicCleanup) { instance.__atomicCleanup(); }
       try { instance.destroy(); } catch (e) {}
       instance = null;
     }
+    var hint = document.getElementById('graph-hint');
+    if (hint) { hint.remove(); }
     document.body.classList.remove('mode-system');
     updateGraphBtnState(false);
     if (activeProfile && activeProfile.onTeardown) { activeProfile.onTeardown(); }
@@ -818,6 +821,7 @@ window.GraphCore = (function() {
     // comment. A plain graph-mode entry (nothing mounted yet) finds
     // `instance` already null here, so this is a no-op for that flow.
     if (instance) {
+      if (instance.__atomicCleanup) { instance.__atomicCleanup(); }
       try { instance.destroy(); } catch (e) {}
       instance = null;
       if (activeProfile && activeProfile.onTeardown) { activeProfile.onTeardown(); }
@@ -937,6 +941,7 @@ window.GraphCore = (function() {
         // readback, so calling it from the tick/zoom handlers below stays
         // clear of SC1's idle per-frame-work ban.
         function reanchorHoverCard() {
+          if (!shiftDown) { return; } // hover card is Shift-gated — see setShift
           if (hoverIndex == null || !hoverSpacePos) { return; }
           if (filteredTypes[typeOf(adapted, hoverIndex)]) { return; }
           var screenPos = graph.spaceToScreenPosition(hoverSpacePos);
@@ -1093,12 +1098,48 @@ window.GraphCore = (function() {
           pendingSaveIndex = null;
         }
 
+        // Shift-gated interactivity (2026-07-18 user feedback): plain mouse
+        // movement over a dense graph used to fade everything but the hovered
+        // node's neighborhood and start node drags — making relationships
+        // impossible to study and panning impossible when zoomed into a dense
+        // region (every press landed on a point and dragged it instead of
+        // panning). Hover highlight/dim, the preview card, and node drag now
+        // engage only while Shift is held; without Shift the pointer is
+        // purely a camera tool (pan/zoom) plus click-to-open. Labels still
+        // track hover either way (non-disruptive). Listeners are document-
+        // level, registered per mount, removed via __atomicCleanup in
+        // teardown()/profile-swap.
+        var shiftDown = false;
+        function onShiftChange(e) {
+          if (e.key !== 'Shift') { return; }
+          setShift(e.type === 'keydown');
+        }
+        function onWindowBlur() { setShift(false); } // release stuck Shift on tab-away
+        function setShift(down) {
+          if (down === shiftDown) { return; }
+          shiftDown = down;
+          graph.setConfigPartial({ enableDrag: down });
+          if (down && hoverIndex != null && !filteredTypes[typeOf(adapted, hoverIndex)]) {
+            // Shift pressed while already hovering a node: light it up now.
+            reanchorHoverCard();
+            setHighlight(adjacency.neighbors[hoverIndex].concat([hoverIndex]), adjacency.links[hoverIndex]);
+          } else if (!down) {
+            profile.onHoverOut();
+            clearHighlight();
+          }
+        }
+        document.addEventListener('keydown', onShiftChange);
+        document.addEventListener('keyup', onShiftChange);
+        window.addEventListener('blur', onWindowBlur);
+
         var graph = new Cosmos.Graph(container, {
           // fitViewOnInit would fit to the scatter/seed below, before the
           // simulation (or the cache replay) has settled — fit/restore
           // manually once onSimulationEnd fires.
           fitViewOnInit: false,
-          enableDrag: true,
+          // Drag is Shift-gated — see setShift above. Starts off so the
+          // first interaction is always pan/zoom, never an accidental drag.
+          enableDrag: false,
           simulationDecay: SETTLE_SIMULATION_DECAY,
           simulationGravity: SETTLE_SIMULATION_GRAVITY,
           simulationRepulsion: SETTLE_SIMULATION_REPULSION,
@@ -1150,6 +1191,13 @@ window.GraphCore = (function() {
               graph.fitView(undefined, undefined, false);
             }
             buildLegend(adapted, profile.colors(), mainPane, onLegendToggle);
+            if (mainPane && !document.getElementById('graph-hint')) {
+              var hint = document.createElement('div');
+              hint.id = 'graph-hint';
+              hint.className = 'graph-hint';
+              hint.textContent = 'hold ⇧ Shift to highlight & drag';
+              mainPane.appendChild(hint);
+            }
             clearLoading(mainPane);
             updateLabels();
             recording = true;
@@ -1253,8 +1301,12 @@ window.GraphCore = (function() {
             var sameNode = hoverIndex === index;
             hoverIndex = index;
             hoverSpacePos = pointPosition;
-            reanchorHoverCard();
             updateLabels();
+            // Without Shift, hover is passive: the label still tracks (via
+            // updateLabels' hovered-id path) but no card, no highlight/dim —
+            // see setShift's comment.
+            if (!shiftDown) { return; }
+            reanchorHoverCard();
             if (sameNode) { return; }
             // Item 5: emphasize this node + its neighbors + the edges between
             // them, dim everything else — adjacency was built once at mount,
@@ -1284,6 +1336,7 @@ window.GraphCore = (function() {
           // before this, so this native path is the only reason item 6 is
           // implementable at 54k-edge scale at all).
           onLinkMouseOver: function(linkIndex) {
+            if (!shiftDown) { return; } // edge hover is Shift-gated too — see setShift
             var s = adapted.links[linkIndex * 2], t = adapted.links[linkIndex * 2 + 1];
             if (filteredTypes[typeOf(adapted, s)] || filteredTypes[typeOf(adapted, t)]) { return; }
             setHighlight([s, t], [linkIndex]);
@@ -1314,6 +1367,13 @@ window.GraphCore = (function() {
         });
         instance = graph;
         instance.__atomicRetheme = function() { applyStyling(graph, adapted, filteredTypes, degrees, profile); };
+        // Removes this mount's document/window listeners (Shift gating) —
+        // fired by teardown() and by mount()'s prior-instance destroy path.
+        instance.__atomicCleanup = function() {
+          document.removeEventListener('keydown', onShiftChange);
+          document.removeEventListener('keyup', onShiftChange);
+          window.removeEventListener('blur', onWindowBlur);
+        };
         // __atomicDebug (test-only, read-only) — exposes just enough of this
         // closure's already-computed state for debugState() below, which
         // scripts/graph-gates.mjs (SC3 gate harness) polls via page.evaluate.

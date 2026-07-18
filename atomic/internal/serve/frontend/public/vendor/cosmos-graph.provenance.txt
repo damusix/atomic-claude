@@ -79,3 +79,21 @@ To reproduce or re-vendor
     Re-run the exact command above with a newer @cosmos.gl/graph version
     and/or esbuild version, update the version/checksum/pins in this file,
     and replace cosmos-graph.js. Never hand-edit cosmos-graph.js.
+
+Local patch (2026-07-18) — point-circle antialiasing
+    Deliberate deviation from "never hand-edit": the point fragment
+    shader's fixed edge band (`const float smoothing = 0.9` over squared
+    distance) yields ~5% of the radius of antialiasing — ~0.2px at this
+    app's 8-14px point sizes — so circles render visibly jagged. Upstream
+    exposes no config for it. One line replaced in the CIRCLE branch:
+
+        - opacity = 1.0 - smoothstep(smoothing, 1.0, pointCenterDistance);
+        + float aaDelta = fwidth(pointCenterDistance);
+        + opacity = 1.0 - smoothstep(1.0 - aaDelta, 1.0 + aaDelta, pointCenterDistance);
+
+    fwidth() gives a pixel-accurate band at any point size / zoom (GLSL ES
+    3.00, WebGL2-only — which this app already requires). Re-apply this
+    patch after any re-vendor.
+
+    Patched checksum (sha256)
+        81040f6972915e7a63ff62b6229a479d1918c3614609ab33d85533a687badab0

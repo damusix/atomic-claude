@@ -1663,7 +1663,7 @@ void main() {
         if (pointShape == CIRCLE) {
             // For circles, use the original distance calculation
             float pointCenterDistance = dot(shapeCoord, shapeCoord);
-            opacity = 1.0 - smoothstep(smoothing, 1.0, pointCenterDistance);
+            float aaDelta = fwidth(pointCenterDistance); opacity = 1.0 - smoothstep(1.0 - aaDelta, 1.0 + aaDelta, pointCenterDistance);
         } else {
             // For other shapes, use the shape distance function
             float shapeDistance = getShapeDistance(shapeCoord, pointShape);
