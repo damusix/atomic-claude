@@ -1,0 +1,15 @@
+/* search/ — command palette (SearchPalette) and the dedicated /search page's
+   (pages/Search) shared result rendering. #search-modal, .search-modal-*,
+   .search-toggle/.toggle-btn, .search-results, .md-search-*, .code-search-*,
+   and .search-page-* are already styled globally by the carried
+   public/app.css (same selectors the pre-cutover markup used) — this file
+   only adds what Ark's own data-part hooks need. */
+
+[data-scope="combobox"][data-part="content"] {
+  outline: none;
+}
+
+[data-scope="combobox"][data-part="item"][data-highlighted] {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border-radius: 7px;
+}
