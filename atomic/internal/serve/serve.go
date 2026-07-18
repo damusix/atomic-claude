@@ -230,6 +230,9 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	// /external — external-link registry page.
 	mux.Handle("/external", NewExternalHandler(navRoot, GitOrMtimeDateFn))
 
+	// /api/external — JSON sibling of /external (CP4).
+	mux.Handle("/api/external", NewAPIExternalHandler(navRoot, GitOrMtimeDateFn))
+
 	// /nav — nav tree fragment (htmx target: #nav-pane).
 	mux.Handle("/nav", NewNavHandler(navOpts))
 
@@ -259,6 +262,9 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		// Seams are nil → production defaults wired inside NewHealthHandler.
 	}
 	mux.Handle("/status", NewHealthHandler(healthOpts))
+
+	// /api/status — JSON sibling of /status (CP4).
+	mux.Handle("/api/status", NewAPIStatusHandler(healthOpts))
 
 	// /events — live-reload SSE stream (CP3): register, resync push, stream
 	// until the request context ends. Distinct route from /status — a health
@@ -326,6 +332,25 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		"/code/file",
 	} {
 		mux.Handle(route, explorerHandler)
+	}
+
+	// /api/code/* — additive JSON siblings of the /code/* explorer routes (CP4).
+	apiExplorerHandler := NewCodeExplorerAPIHandler(CodeExplorerOptions{
+		RealmRoot:     opts.TargetDir,
+		ClaudeMDPath:  opts.ClaudeMDPath,
+		WikiIndexPath: wikiIndexPath,
+		// EngineProvider nil → DefaultEngineProvider.
+	})
+	for _, route := range []string{
+		"/api/code/node",
+		"/api/code/callers",
+		"/api/code/callees",
+		"/api/code/impact",
+		"/api/code/files",
+		"/api/code/schema",
+		"/api/code/file",
+	} {
+		mux.Handle(route, apiExplorerHandler)
 	}
 
 	// /code/graph/data — full-repo code graph export for the code graph view

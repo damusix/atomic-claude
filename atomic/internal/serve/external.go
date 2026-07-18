@@ -271,3 +271,42 @@ func NewExternalHandler(root string, dateFn FileDateFn) http.Handler {
 		}
 	})
 }
+
+// ─── GET /api/external ───────────────────────────────────────────────────────
+
+// apiExternalEntry is one /api/external entry — reshapes ExternalEntry.
+// FirstSeen is nil (JSON null) when no source file yields a valid date.
+type apiExternalEntry struct {
+	URL       string   `json:"url"`
+	Sources   []string `json:"sources"`
+	FirstSeen *string  `json:"firstSeen"`
+}
+
+// apiExternalResponse is the /api/external success payload.
+type apiExternalResponse struct {
+	Entries []apiExternalEntry `json:"entries"`
+}
+
+// NewAPIExternalHandler returns an http.Handler for GET /api/external. Reuses
+// BuildExternalRegistry — the same walk NewExternalHandler's HTML table
+// uses — reshaped as JSON with FirstSeen as a nullable ISO date string.
+func NewAPIExternalHandler(root string, dateFn FileDateFn) http.Handler {
+	if dateFn == nil {
+		dateFn = MtimeDateFn
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reg := BuildExternalRegistry(root, dateFn)
+
+		entries := make([]apiExternalEntry, len(reg))
+		for i, e := range reg {
+			var firstSeen *string
+			if !e.FirstSeen.IsZero() {
+				s := e.FirstSeen.Format("2006-01-02")
+				firstSeen = &s
+			}
+			entries[i] = apiExternalEntry{URL: e.URL, Sources: e.Sources, FirstSeen: firstSeen}
+		}
+
+		writeAPIJSON(w, apiExternalResponse{Entries: entries})
+	})
+}

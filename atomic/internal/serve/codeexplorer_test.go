@@ -46,6 +46,9 @@ type fakeCodeEngine struct {
 	allNodes      []types.Node
 	allEdges      []types.Edge
 	nodeErr       error
+	callersErr    error
+	calleesErr    error
+	impactErr     error
 	subgraphDepth int // last depth passed to callers/callees/impact
 }
 
@@ -60,15 +63,15 @@ func (f *fakeCodeEngine) GetNodesByName(_ context.Context, _ string, _ types.Nod
 }
 func (f *fakeCodeEngine) GetCallers(_ context.Context, _ string, depth int) (types.Subgraph, error) {
 	f.subgraphDepth = depth
-	return f.callers, nil
+	return f.callers, f.callersErr
 }
 func (f *fakeCodeEngine) GetCallees(_ context.Context, _ string, depth int) (types.Subgraph, error) {
 	f.subgraphDepth = depth
-	return f.callees, nil
+	return f.callees, f.calleesErr
 }
 func (f *fakeCodeEngine) GetImpactRadius(_ context.Context, _ string, depth int) (types.Subgraph, error) {
 	f.subgraphDepth = depth
-	return f.impact, nil
+	return f.impact, f.impactErr
 }
 func (f *fakeCodeEngine) GetFiles(_ context.Context) ([]types.FileRecord, error) {
 	return f.files, nil

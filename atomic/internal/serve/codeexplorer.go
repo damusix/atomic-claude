@@ -23,6 +23,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -30,6 +31,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/codeintel/db"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
@@ -626,8 +628,50 @@ func (h *codeExplorerHandler) handleSchema(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Build a nodeID → Node lookup from all table+view nodes so we can resolve
-	// source nodes from edge endpoints.
+	tableSchemas, viewSchemas, err := computeSchema(ctx, eng, tables, views)
+	if err != nil {
+		h.renderError(w, isHTMX, "schema query failed: "+err.Error())
+		return
+	}
+
+	renderSchemaSection := func(schemas []tableSchema, kind string) {
+		if len(schemas) == 0 {
+			return
+		}
+		sb.WriteString(`<section class="code-schema-section">`)
+		sb.WriteString(`<h3 class="code-schema-section-title">`)
+		sb.WriteString(template.HTMLEscapeString(kind))
+		sb.WriteString(`s</h3>`)
+		for _, ts := range schemas {
+			renderTableSchema(&sb, ts, prefix)
+		}
+		sb.WriteString(`</section>`)
+	}
+
+	renderSchemaSection(tableSchemas, "Table")
+	renderSchemaSection(viewSchemas, "View")
+
+	sb.WriteString(`</div>`)
+
+	if !isHTMX {
+		sb.WriteString(`</body></html>`)
+	}
+	fmt.Fprint(w, sb.String())
+}
+
+// computeSchema resolves table/view schema entries — columns (contains
+// edges), FK sources (references edges from other tables), and writers
+// (writes edges from routines) — for the given table and view node sets.
+// Shared by the HTML /code/schema handler and the JSON /api/code/schema
+// handler so both surface identical data.
+//
+// For each table/view node, columns come from its own outgoing contains
+// edges. FK sources and writers are collected by scanning the outgoing edges
+// of every table/view/function/method/procedure node and inverting
+// references/writes edges that target a table or view in this set:
+//   - edge {src: ordersTbl, tgt: usersTbl, kind: references} → ordersTbl is an FK source of usersTbl
+//   - edge {src: insertProc, tgt: usersTbl, kind: writes} → insertProc is a writer of usersTbl
+func computeSchema(ctx context.Context, eng CodeEngine, tables, views []types.Node) (tableSchemas, viewSchemas []tableSchema, err error) {
 	nodeByID := make(map[string]types.Node)
 	for _, t := range tables {
 		nodeByID[t.ID] = t
@@ -636,109 +680,56 @@ func (h *codeExplorerHandler) handleSchema(w http.ResponseWriter, r *http.Reques
 		nodeByID[v.ID] = v
 	}
 
-	// For each table and view, resolve: columns (contains), FK sources (references),
-	// writers (writes). We do this by scanning all outgoing edges of ALL nodes in
-	// the graph — specifically, we use GetNodesByKind to get all table/view nodes
-	// and then walk their outgoing edges for contains/references/writes.
-	//
-	// Approach: for each table node, call GetOutgoingEdges to find:
-	//   - contains edges → column children
-	// Then collect inverse references by scanning edges from all OTHER nodes to
-	// this table. Since the engine exposes GetOutgoingEdges(nodeID) but not
-	// GetIncomingEdges directly via this interface, we use a two-pass approach:
-	// first collect all outgoing edges from table nodes (for contains),
-	// then for references and writes we scan from additional node sets.
-	//
-	// For simplicity and correctness: use the outgoing edges of each table node for
-	// contains (column children). For FK references and writers, we collect all
-	// table/view outgoing edges and invert the relationships:
-	//   - edge {src: ordersTbl, tgt: usersTbl, kind: references} → ordersTbl is an FK source of usersTbl
-	//   - edge {src: insertProc, tgt: usersTbl, kind: writes} → insertProc is a writer of usersTbl
-
-	// Map tableID → accumulated references/writers by scanning all table edges.
-	fkSourcesByTable := make(map[string][]types.Node) // tableID → nodes referencing this table
-	writersByTable := make(map[string][]types.Node)   // tableID → nodes writing this table
-
-	// We scan outgoing edges from table/view nodes AND function/procedure/method nodes
-	// to collect cross-table relationships (FK references, writers).
-	// tables→references: another table references this one (FK).
-	// functions/procedures→writes: a routine writes to this table.
-	extraKinds := []types.NodeKind{
-		types.NodeKindTable,
-		types.NodeKindView,
-		types.NodeKindFunction,
-		types.NodeKindMethod,
-		types.NodeKindProcedure,
-	}
 	extraNodes := make([]types.Node, 0, len(tables)+len(views))
 	extraNodes = append(extraNodes, tables...)
 	extraNodes = append(extraNodes, views...)
-	for _, k := range extraKinds[2:] { // function, method, procedure
-		kn, err := eng.GetNodesByKind(ctx, k)
-		if err == nil {
+	for _, k := range []types.NodeKind{types.NodeKindFunction, types.NodeKindMethod, types.NodeKindProcedure} {
+		kn, kerr := eng.GetNodesByKind(ctx, k)
+		if kerr == nil {
 			extraNodes = append(extraNodes, kn...)
 		}
 	}
+
+	fkSourcesByTable := make(map[string][]types.Node) // tableID → nodes referencing this table
+	writersByTable := make(map[string][]types.Node)   // tableID → nodes writing this table
 	for _, srcNode := range extraNodes {
-		edges, err := eng.GetOutgoingEdges(ctx, srcNode.ID)
-		if err != nil {
+		edges, eerr := eng.GetOutgoingEdges(ctx, srcNode.ID)
+		if eerr != nil {
 			continue // best-effort
 		}
 		for _, e := range edges {
 			switch e.Kind {
 			case types.EdgeKindReferences:
-				// srcNode references e.Target → srcNode is an FK source for e.Target.
 				if _, ok := nodeByID[e.Target]; ok {
 					fkSourcesByTable[e.Target] = appendIfNew(fkSourcesByTable[e.Target], srcNode)
 				}
 			case types.EdgeKindWrites:
-				// srcNode writes e.Target → srcNode is a writer of e.Target.
 				writersByTable[e.Target] = appendIfNew(writersByTable[e.Target], srcNode)
 			}
 		}
 	}
 
-	// Build per-table schema structs.
-	renderSchemaTable := func(nodes []types.Node, kind string) {
-		if len(nodes) == 0 {
-			return
-		}
-		sb.WriteString(`<section class="code-schema-section">`)
-		sb.WriteString(`<h3 class="code-schema-section-title">`)
-		sb.WriteString(template.HTMLEscapeString(kind))
-		sb.WriteString(`s</h3>`)
-
+	build := func(nodes []types.Node) []tableSchema {
+		out := make([]tableSchema, 0, len(nodes))
 		for _, tableNode := range nodes {
 			ts := tableSchema{Node: tableNode}
-
-			// Columns: outgoing contains edges.
 			edges, _ := eng.GetOutgoingEdges(ctx, tableNode.ID)
 			for _, e := range edges {
 				if e.Kind == types.EdgeKindContains {
-					colNode, err := eng.GetNode(ctx, e.Target)
-					if err == nil {
+					colNode, cerr := eng.GetNode(ctx, e.Target)
+					if cerr == nil {
 						ts.Columns = append(ts.Columns, colNode)
 					}
 				}
 			}
 			ts.FKSources = fkSourcesByTable[tableNode.ID]
 			ts.Writers = writersByTable[tableNode.ID]
-
-			renderTableSchema(&sb, ts, prefix)
+			out = append(out, ts)
 		}
-
-		sb.WriteString(`</section>`)
+		return out
 	}
 
-	renderSchemaTable(tables, "Table")
-	renderSchemaTable(views, "View")
-
-	sb.WriteString(`</div>`)
-
-	if !isHTMX {
-		sb.WriteString(`</body></html>`)
-	}
-	fmt.Fprint(w, sb.String())
+	return build(tables), build(views), nil
 }
 
 // renderTableSchema writes HTML for one table's schema. prefix is the member's
@@ -966,4 +957,328 @@ func appendIfNew(nodes []types.Node, n types.Node) []types.Node {
 		}
 	}
 	return append(nodes, n)
+}
+
+// ---------------------------------------------------------------------------
+// /api/code/* — CP4: JSON siblings of the /code/* explorer routes.
+// ---------------------------------------------------------------------------
+
+// apiCodeNode is the full node shape for code-intel API responses (the API
+// contracts table: id, name, kind, filePath, startLine, signature, language,
+// docstring).
+type apiCodeNode struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Kind      types.NodeKind `json:"kind"`
+	FilePath  string         `json:"filePath"`
+	StartLine int            `json:"startLine"`
+	Signature string         `json:"signature,omitempty"`
+	Language  types.Language `json:"language,omitempty"`
+	Docstring string         `json:"docstring,omitempty"`
+}
+
+func apiCodeNodeFrom(n types.Node) apiCodeNode {
+	return apiCodeNode{
+		ID:        n.ID,
+		Name:      n.Name,
+		Kind:      n.Kind,
+		FilePath:  n.FilePath,
+		StartLine: n.StartLine,
+		Signature: n.Signature,
+		Language:  n.Language,
+		Docstring: n.Docstring,
+	}
+}
+
+// apiCodeExplorerHandler serves the JSON /api/code/* siblings of
+// codeExplorerHandler's HTML routes, reusing its member resolution and
+// engine provisioning via embedding.
+type apiCodeExplorerHandler struct {
+	*codeExplorerHandler
+}
+
+// NewCodeExplorerAPIHandler returns an http.Handler for the JSON
+// /api/code/{node,callers,callees,impact,files,schema,file} routes.
+func NewCodeExplorerAPIHandler(opts CodeExplorerOptions) http.Handler {
+	h := NewCodeExplorerHandler(opts).(*codeExplorerHandler)
+	return &apiCodeExplorerHandler{h}
+}
+
+func (h *apiCodeExplorerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	switch {
+	case strings.HasSuffix(path, "/api/code/node"):
+		h.handleAPINode(w, r)
+	case strings.HasSuffix(path, "/api/code/callers"):
+		h.handleAPISubgraph(w, r, modeCallers)
+	case strings.HasSuffix(path, "/api/code/callees"):
+		h.handleAPISubgraph(w, r, modeCallees)
+	case strings.HasSuffix(path, "/api/code/impact"):
+		h.handleAPISubgraph(w, r, modeImpact)
+	case strings.HasSuffix(path, "/api/code/files"):
+		h.handleAPIFiles(w, r)
+	case strings.HasSuffix(path, "/api/code/schema"):
+		h.handleAPISchema(w, r)
+	case strings.HasSuffix(path, "/api/code/file"):
+		h.handleAPIFile(w, r)
+	default:
+		writeAPIError(w, http.StatusNotFound, "unknown route: "+path)
+	}
+}
+
+// ─── GET /api/code/node?id=&member= ────────────────────────────────────────
+
+type apiCodeNodeResponse struct {
+	Member string      `json:"member"`
+	Node   apiCodeNode `json:"node"`
+}
+
+func (h *apiCodeExplorerHandler) handleAPINode(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing id parameter")
+		return
+	}
+
+	eng, prefix, err := h.engineForRequest(ctx, r)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "index not available: "+err.Error())
+		return
+	}
+	defer eng.Close()
+
+	n, err := eng.GetNode(ctx, id)
+	if err != nil {
+		writeAPIError(w, http.StatusNotFound, "node not found: "+id)
+		return
+	}
+
+	writeAPIJSON(w, apiCodeNodeResponse{Member: prefix, Node: apiCodeNodeFrom(n)})
+}
+
+// ─── GET /api/code/{callers,callees,impact}?id=&member= ────────────────────
+
+type apiCodeEdge struct {
+	Kind   types.EdgeKind `json:"kind"`
+	Source string         `json:"source"`
+	Target string         `json:"target"`
+}
+
+type apiCodeSubgraphResponse struct {
+	Member string                 `json:"member"`
+	Root   apiCodeNode            `json:"root"`
+	Edges  []apiCodeEdge          `json:"edges"`
+	Nodes  map[string]apiCodeNode `json:"nodes"`
+}
+
+func (h *apiCodeExplorerHandler) handleAPISubgraph(w http.ResponseWriter, r *http.Request, mode subgraphMode) {
+	ctx := r.Context()
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing id parameter")
+		return
+	}
+
+	depth := 2 // default
+	if ds := strings.TrimSpace(r.URL.Query().Get("depth")); ds != "" {
+		if n, err := strconv.Atoi(ds); err == nil && n > 0 {
+			depth = n
+		}
+	}
+
+	eng, prefix, err := h.engineForRequest(ctx, r)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "index not available: "+err.Error())
+		return
+	}
+	defer eng.Close()
+
+	var sg types.Subgraph
+	switch mode {
+	case modeCallers:
+		sg, err = eng.GetCallers(ctx, id, depth)
+	case modeCallees:
+		sg, err = eng.GetCallees(ctx, id, depth)
+	case modeImpact:
+		sg, err = eng.GetImpactRadius(ctx, id, depth)
+	}
+	if err != nil {
+		if errors.Is(err, db.ErrNotFound) {
+			writeAPIError(w, http.StatusNotFound, "node not found: "+id)
+			return
+		}
+		writeAPIError(w, http.StatusInternalServerError, "graph query failed: "+err.Error())
+		return
+	}
+
+	root := apiCodeNode{ID: id}
+	if n, ok := sg.Nodes[id]; ok {
+		root = apiCodeNodeFrom(n)
+	}
+
+	edges := make([]apiCodeEdge, len(sg.Edges))
+	for i, e := range sg.Edges {
+		edges[i] = apiCodeEdge{Kind: e.Kind, Source: e.Source, Target: e.Target}
+	}
+	nodes := make(map[string]apiCodeNode, len(sg.Nodes))
+	for nid, n := range sg.Nodes {
+		nodes[nid] = apiCodeNodeFrom(n)
+	}
+
+	writeAPIJSON(w, apiCodeSubgraphResponse{Member: prefix, Root: root, Edges: edges, Nodes: nodes})
+}
+
+// ─── GET /api/code/files?member= ────────────────────────────────────────────
+
+type apiCodeFileRecord struct {
+	Path      string         `json:"path"`
+	Language  types.Language `json:"language"`
+	NodeCount int            `json:"nodeCount"`
+}
+
+type apiCodeFilesResponse struct {
+	Files []apiCodeFileRecord `json:"files"`
+}
+
+func (h *apiCodeExplorerHandler) handleAPIFiles(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	eng, _, err := h.engineForRequest(ctx, r)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "index not available: "+err.Error())
+		return
+	}
+	defer eng.Close()
+
+	files, err := eng.GetFiles(ctx)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "file list query failed: "+err.Error())
+		return
+	}
+
+	out := make([]apiCodeFileRecord, len(files))
+	for i, f := range files {
+		out[i] = apiCodeFileRecord{Path: f.Path, Language: f.Language, NodeCount: f.NodeCount}
+	}
+	writeAPIJSON(w, apiCodeFilesResponse{Files: out})
+}
+
+// ─── GET /api/code/schema?member= ───────────────────────────────────────────
+
+type apiTableSchema struct {
+	Node      apiCodeNode   `json:"node"`
+	Columns   []apiCodeNode `json:"columns"`
+	FKSources []apiCodeNode `json:"fkSources"`
+	Writers   []apiCodeNode `json:"writers"`
+}
+
+type apiCodeSchemaResponse struct {
+	Tables []apiTableSchema `json:"tables"`
+}
+
+func apiTableSchemaFrom(ts tableSchema) apiTableSchema {
+	cols := make([]apiCodeNode, len(ts.Columns))
+	for i, c := range ts.Columns {
+		cols[i] = apiCodeNodeFrom(c)
+	}
+	fks := make([]apiCodeNode, len(ts.FKSources))
+	for i, f := range ts.FKSources {
+		fks[i] = apiCodeNodeFrom(f)
+	}
+	writers := make([]apiCodeNode, len(ts.Writers))
+	for i, w := range ts.Writers {
+		writers[i] = apiCodeNodeFrom(w)
+	}
+	return apiTableSchema{Node: apiCodeNodeFrom(ts.Node), Columns: cols, FKSources: fks, Writers: writers}
+}
+
+func (h *apiCodeExplorerHandler) handleAPISchema(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	eng, _, err := h.engineForRequest(ctx, r)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "index not available: "+err.Error())
+		return
+	}
+	defer eng.Close()
+
+	tables, err := eng.GetNodesByKind(ctx, types.NodeKindTable)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "schema query failed: "+err.Error())
+		return
+	}
+	views, err := eng.GetNodesByKind(ctx, types.NodeKindView)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "schema query failed: "+err.Error())
+		return
+	}
+
+	tableSchemas, viewSchemas, err := computeSchema(ctx, eng, tables, views)
+	if err != nil {
+		writeAPIError(w, http.StatusInternalServerError, "schema query failed: "+err.Error())
+		return
+	}
+
+	out := make([]apiTableSchema, 0, len(tableSchemas)+len(viewSchemas))
+	for _, ts := range tableSchemas {
+		out = append(out, apiTableSchemaFrom(ts))
+	}
+	for _, ts := range viewSchemas {
+		out = append(out, apiTableSchemaFrom(ts))
+	}
+	writeAPIJSON(w, apiCodeSchemaResponse{Tables: out})
+}
+
+// ─── GET /api/code/file?path=&member= ───────────────────────────────────────
+
+type apiCodeFileNode struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Kind      types.NodeKind `json:"kind"`
+	StartLine int            `json:"startLine"`
+}
+
+// apiCodeFileResponse is the /api/code/file success payload. Degraded is set
+// (and Nodes left empty) for the not-indexed/no-intel soft states — a data
+// field per the API contracts conventions, not an error envelope.
+type apiCodeFileResponse struct {
+	Path     string            `json:"path"`
+	Member   string            `json:"member"`
+	Nodes    []apiCodeFileNode `json:"nodes"`
+	Degraded string            `json:"degraded,omitempty"`
+}
+
+func (h *apiCodeExplorerHandler) handleAPIFile(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	filePath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if filePath == "" {
+		writeAPIError(w, http.StatusBadRequest, "missing path parameter")
+		return
+	}
+
+	m, memberRel, ok := memberForPath(h.members(), filePath)
+	if !ok {
+		writeAPIJSON(w, apiCodeFileResponse{Path: filePath, Degraded: "no code intelligence for this file (not indexed)"})
+		return
+	}
+
+	eng, err := h.openEngineFor(ctx, m)
+	if err != nil {
+		writeAPIJSON(w, apiCodeFileResponse{Path: filePath, Member: m.Prefix, Degraded: "index not available — run atomic code index"})
+		return
+	}
+	defer eng.Close()
+
+	nodes, err := eng.GetNodesInFile(ctx, memberRel)
+	if err != nil || len(nodes) == 0 {
+		writeAPIJSON(w, apiCodeFileResponse{Path: filePath, Member: m.Prefix, Degraded: "no code intelligence for this file (not indexed)"})
+		return
+	}
+
+	out := make([]apiCodeFileNode, len(nodes))
+	for i, n := range nodes {
+		out[i] = apiCodeFileNode{ID: n.ID, Name: n.Name, Kind: n.Kind, StartLine: n.StartLine}
+	}
+	writeAPIJSON(w, apiCodeFileResponse{Path: filePath, Member: m.Prefix, Nodes: out})
 }

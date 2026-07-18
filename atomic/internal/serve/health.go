@@ -256,11 +256,11 @@ type healthData struct {
 	AllFreshWiki bool
 }
 
-// NewHealthHandler returns an http.Handler for the /health route.
-// When HealthOptions seams are nil, the production defaults are wired.
-func NewHealthHandler(opts HealthOptions) http.Handler {
-	// Wire production defaults when seams are nil — required by spec.
-	// This ensures production is never left with an empty nil-seam.
+// resolveHealthSeams returns opts with nil seams replaced by the production
+// defaults — required by spec so production is never left with an empty
+// nil-seam. Shared by the HTML /status dashboard and the JSON /api/status
+// endpoint.
+func resolveHealthSeams(opts HealthOptions) HealthOptions {
 	if opts.IndexHealthSeam == nil {
 		if opts.IsRealmScope {
 			opts.IndexHealthSeam = productionIndexHealthRealm
@@ -271,29 +271,43 @@ func NewHealthHandler(opts HealthOptions) http.Handler {
 	if opts.WikiStalenessSeam == nil {
 		opts.WikiStalenessSeam = productionWikiStale
 	}
+	return opts
+}
+
+// healthDataFor computes the healthData for opts. Seams must already be
+// resolved (see resolveHealthSeams) — shared by the HTML /status dashboard
+// and the JSON /api/status endpoint so both surface identical severity/detail.
+func healthDataFor(opts HealthOptions) healthData {
+	// Collect wiki staleness (only for realm scope).
+	var staleResult WikiStaleResult
+	if opts.IsRealmScope {
+		staleResult = opts.WikiStalenessSeam(opts.RealmRoot)
+	}
+
+	// Collect code-index health (always).
+	indexResult := opts.IndexHealthSeam(opts.RealmRoot)
+
+	allFreshWiki := len(staleResult.StaleRepos) == 0 &&
+		len(staleResult.StaleConcerns) == 0 &&
+		len(staleResult.BucketDiffKeys) == 0
+
+	return healthData{
+		IsRealmScope: opts.IsRealmScope,
+		StaleResult:  staleResult,
+		IndexResult:  indexResult,
+		AllFreshWiki: allFreshWiki,
+	}
+}
+
+// NewHealthHandler returns an http.Handler for the /health route.
+// When HealthOptions seams are nil, the production defaults are wired.
+func NewHealthHandler(opts HealthOptions) http.Handler {
+	opts = resolveHealthSeams(opts)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-		// Collect wiki staleness (only for realm scope).
-		var staleResult WikiStaleResult
-		if opts.IsRealmScope {
-			staleResult = opts.WikiStalenessSeam(opts.RealmRoot)
-		}
-
-		// Collect code-index health (always).
-		indexResult := opts.IndexHealthSeam(opts.RealmRoot)
-
-		allFreshWiki := len(staleResult.StaleRepos) == 0 &&
-			len(staleResult.StaleConcerns) == 0 &&
-			len(staleResult.BucketDiffKeys) == 0
-
-		data := healthData{
-			IsRealmScope: opts.IsRealmScope,
-			StaleResult:  staleResult,
-			IndexResult:  indexResult,
-			AllFreshWiki: allFreshWiki,
-		}
+		data := healthDataFor(opts)
 
 		var sb strings.Builder
 		if err := healthTmpl.Execute(&sb, data); err != nil {
@@ -301,5 +315,69 @@ func NewHealthHandler(opts HealthOptions) http.Handler {
 			return
 		}
 		fmt.Fprint(w, sb.String())
+	})
+}
+
+// ─── GET /api/status ─────────────────────────────────────────────────────────
+
+// apiWikiStatus is the /api/status "wiki" field — reshapes WikiStaleResult.
+type apiWikiStatus struct {
+	StaleRepos     []string `json:"staleRepos"`
+	StaleConcerns  []string `json:"staleConcerns"`
+	StaleBuckets   []string `json:"staleBuckets"`
+	BucketDiffKeys []string `json:"bucketDiffKeys"`
+	AllFresh       bool     `json:"allFresh"`
+}
+
+// apiIndexStatus is the /api/status "index" field — reshapes IndexHealthResult.
+type apiIndexStatus struct {
+	Severity     string   `json:"severity"`
+	Detail       string   `json:"detail"`
+	FreshCount   int      `json:"freshCount"`
+	StaleMembers []string `json:"staleMembers"`
+	NotIndexed   []string `json:"notIndexed"`
+}
+
+// apiStatusResponse is the /api/status success payload — reshapes healthData.
+type apiStatusResponse struct {
+	IsRealmScope bool           `json:"isRealmScope"`
+	Wiki         apiWikiStatus  `json:"wiki"`
+	Index        apiIndexStatus `json:"index"`
+}
+
+// nonNilStrings returns s, or a non-nil empty slice when s is nil, so these
+// array fields always encode as [] instead of null.
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+// NewAPIStatusHandler returns an http.Handler for GET /api/status. Reuses the
+// same wiki-staleness and code-index seams NewHealthHandler's HTML dashboard
+// uses, reshaped as JSON instead of a rendered fragment.
+func NewAPIStatusHandler(opts HealthOptions) http.Handler {
+	opts = resolveHealthSeams(opts)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data := healthDataFor(opts)
+		writeAPIJSON(w, apiStatusResponse{
+			IsRealmScope: data.IsRealmScope,
+			Wiki: apiWikiStatus{
+				StaleRepos:     nonNilStrings(data.StaleResult.StaleRepos),
+				StaleConcerns:  nonNilStrings(data.StaleResult.StaleConcerns),
+				StaleBuckets:   nonNilStrings(data.StaleResult.StaleBuckets),
+				BucketDiffKeys: nonNilStrings(data.StaleResult.BucketDiffKeys),
+				AllFresh:       data.AllFreshWiki,
+			},
+			Index: apiIndexStatus{
+				Severity:     data.IndexResult.Severity,
+				Detail:       data.IndexResult.Detail,
+				FreshCount:   data.IndexResult.FreshCount,
+				StaleMembers: nonNilStrings(data.IndexResult.StaleMembers),
+				NotIndexed:   nonNilStrings(data.IndexResult.NotIndexed),
+			},
+		})
 	})
 }
