@@ -654,20 +654,73 @@ func resolveMarkdownLink(
 	}
 	combined = filepath.ToSlash(filepath.Clean(combined))
 
-	// Check it's within the realm.
+	// Check it's within the realm (over-climbed ../ runs get a repair attempt
+	// before being declared broken — see repairOverClimbedRelative).
 	if strings.HasPrefix(combined, "..") {
+		if repaired, ok := repairOverClimbedRelative(root, pageDir, cleanTarget); ok {
+			if resolved, codeFile, rok := resolveRootRelative(repaired, root, allPages, sourceFiles); rok {
+				edge.ResolvedPath = resolved
+				edge.CodeFile = codeFile
+				return edge
+			}
+		}
 		edge.Broken = true
 		return edge
 	}
 
 	resolved, codeFile, ok := resolveRootRelative(combined, root, allPages, sourceFiles)
 	if !ok {
+		if repaired, rok := repairOverClimbedRelative(root, pageDir, cleanTarget); rok {
+			if rresolved, codeFile, rrok := resolveRootRelative(repaired, root, allPages, sourceFiles); rrok {
+				edge.ResolvedPath = rresolved
+				edge.CodeFile = codeFile
+				return edge
+			}
+		}
 		edge.Broken = true
 		return edge
 	}
 	edge.ResolvedPath = resolved
 	edge.CodeFile = codeFile
 	return edge
+}
+
+// repairOverClimbedRelative handles relative links whose ../ run climbs past
+// their true target — a common authoring slip in member-repo docs written
+// against a different nesting depth (e.g. "../../../src/x.ts" from
+// gui/docs/wiki/ lands at the realm root, where src/ doesn't exist, when the
+// author meant gui/src/x.ts). It strips the leading ../ run and probes the
+// remainder against each ancestor of pageDir (deepest first, ending at the
+// served root), returning the first candidate that exists on disk.
+func repairOverClimbedRelative(root, pageDir, cleanTarget string) (string, bool) {
+	remainder := cleanTarget
+	for strings.HasPrefix(remainder, "../") {
+		remainder = remainder[3:]
+	}
+	if remainder == cleanTarget || remainder == "" || remainder == ".." {
+		return "", false
+	}
+	dir := pageDir
+	for {
+		candidate := remainder
+		if dir != "." && dir != "" {
+			candidate = filepath.ToSlash(filepath.Join(dir, remainder))
+		}
+		if abs, ok := safeResolve(root, candidate); ok {
+			if _, err := os.Stat(abs); err == nil {
+				return candidate, true
+			}
+		}
+		if dir == "." || dir == "" {
+			break
+		}
+		parent := filepath.ToSlash(filepath.Dir(dir))
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false
 }
 
 // resolvePageHref rewrites a raw in-page markdown link destination, found on a
@@ -748,6 +801,19 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 	}
 	combined = filepath.ToSlash(filepath.Clean(combined))
 	if combined == ".." || strings.HasPrefix(combined, "../") {
+		// Over-climbed ../ run: same repair the link graph applies in
+		// resolveMarkdownLink, so the rendered href and the rail edge agree.
+		if repaired, ok := repairOverClimbedRelative(root, pageDir, target); ok {
+			if strings.HasSuffix(repaired, ".md") {
+				return "/page/" + repaired + anchor, true, false
+			}
+			if abs, aok := safeResolve(root, repaired); aok {
+				if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
+					return "/page/" + repaired + "/" + anchor, true, false
+				}
+			}
+			return "/file/" + repaired + anchor, false, false
+		}
 		return raw, false, false
 	}
 
@@ -764,9 +830,19 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 		}
 	}
 
-	// Unresolved but within the realm: route by extension so the user stays in
-	// the shell (a known source extension opens the code modal; everything else
-	// goes through /page/ and gets the in-shell 404 fragment).
+	// Unresolved but within the realm: an over-climbed ../ run that lands
+	// exactly at (or above) the root cleans to a plain miss, so give it the
+	// same ancestor-probe repair the link graph applies before routing dead.
+	if repaired, ok := repairOverClimbedRelative(root, pageDir, target); ok {
+		if strings.HasSuffix(repaired, ".md") {
+			return "/page/" + repaired + anchor, true, false
+		}
+		return "/file/" + repaired + anchor, false, false
+	}
+
+	// Route by extension so the user stays in the shell (a known source
+	// extension opens the code modal; everything else goes through /page/ and
+	// gets the in-shell 404 fragment).
 	if ext := filepath.Ext(combined); ext != "" && ext != ".md" {
 		return "/file/" + combined + anchor, false, false
 	}
