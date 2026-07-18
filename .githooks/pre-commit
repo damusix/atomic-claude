@@ -11,6 +11,9 @@
 #   Stage 3 — regenerate followups INDEX.md when a staged change touches
 #              .claude/project/followups/ entry files (excluding INDEX.md).
 #              Degrades to WARN if atomic binary is absent.
+#   Stage 4 — rebuild internal/serve/frontend/dist when a staged change
+#              touches the frontend workspace (excluding dist/ itself).
+#              Degrades to WARN if bun is absent.
 # Installed by `make hooks` (sets core.hooksPath=.githooks).
 set -euo pipefail
 
@@ -87,5 +90,28 @@ if [ "$followups_touched" -eq 1 ]; then
         echo "pre-commit: follow-ups INDEX.md regenerated and re-staged"
     else
         echo "pre-commit: atomic binary not on PATH; skipping follow-ups INDEX regen" >&2
+    fi
+fi
+
+# --- Stage 4: rebuild frontend dist ---
+frontend_touched=0
+for f in "${staged[@]}"; do
+    case "$f" in
+        atomic/internal/serve/frontend/dist/*) ;;
+        atomic/internal/serve/frontend/*)
+            frontend_touched=1
+            break
+            ;;
+    esac
+done
+
+if [ "$frontend_touched" -eq 1 ]; then
+    if command -v bun >/dev/null 2>&1; then
+        echo "pre-commit: frontend workspace changed — running make frontend"
+        make -C "$repo_root/atomic" frontend >/dev/null
+        git add "$repo_root/atomic/internal/serve/frontend/dist"
+        echo "pre-commit: frontend dist rebuilt and re-staged"
+    else
+        echo "pre-commit: bun not on PATH; skipping frontend dist rebuild" >&2
     fi
 fi

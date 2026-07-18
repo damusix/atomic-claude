@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>atomic serve</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script>
+      // Before-paint theme init: avoids a flash of the wrong theme while
+      // React boots. Mirrors the persisted-choice/OS-fallback contract that
+      // useTheme (CP5) owns at runtime.
+      (function () {
+        try {
+          var stored = localStorage.getItem("atomic-theme");
+          var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          document.documentElement.dataset.theme = stored || (prefersDark ? "dark" : "light");
+        } catch (e) {
+          // localStorage/matchMedia unavailable — fall through to CSS default.
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/assets/main.js"></script>
+  </body>
+</html>

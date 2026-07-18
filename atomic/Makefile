@@ -1,4 +1,4 @@
-.PHONY: render bundle test build vet fmt tidy
+.PHONY: render bundle test build vet fmt tidy frontend
 
 # render: render templates/ into commands/ (and any other future kinds).
 # Run this after editing any file under templates/.
@@ -29,3 +29,8 @@ fmt:
 # tidy: tidy module dependencies.
 tidy:
 	go mod tidy
+
+# frontend: build the atomic serve React app into internal/serve/frontend/dist.
+# Run this after editing anything under internal/serve/frontend/ (excl. dist/).
+frontend:
+	cd internal/serve/frontend && bun install --frozen-lockfile && bun run build.ts
