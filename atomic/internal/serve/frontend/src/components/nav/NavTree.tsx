@@ -1,8 +1,8 @@
-// NavTree — the left nav as an Ark TreeView folder tree, one collapsible
-// section per /api/nav group (Realm/Repos/Concerns/... or Docs, depending on
-// scope). Folder nodes (Buckets, repo-scope docs subdirectories) are
-// TreeView.Branch; leaves are TreeView.Item that route via React Router.
-import { useEffect } from "react";
+// NavTree — the left nav as ONE Ark TreeView: every /api/nav group
+// (Realm/Repos/Concerns/... or Docs, depending on scope) is a top-level
+// collapsible branch (expanded by default), folder nodes (Buckets, repo-scope
+// docs subdirectories) are nested branches, leaves route via React Router.
+import { useEffect, useMemo } from "react";
 import { TreeView, createTreeCollection } from "@ark-ui/react";
 import { Link } from "react-router";
 import { useApi } from "../../utils/api";
@@ -16,6 +16,7 @@ import "./style.css";
 interface TreeNodeModel {
   id: string;
   node: NavNode;
+  group?: boolean;
   children?: TreeNodeModel[];
 }
 
@@ -28,17 +29,34 @@ function toTreeNodeModel(node: NavNode, idPrefix: string, index: number): TreeNo
   };
 }
 
+// group.items is `null` (not `[]`) when the API's Go []navNodeJSON slice is
+// nil — e.g. the repo-scope "Code" group placeholder — since Go's
+// encoding/json marshals a nil slice as JSON null, not an empty array.
+function groupToTreeNodeModel(group: NavGroup): TreeNodeModel {
+  return {
+    id: `group:${group.name}`,
+    node: { label: group.name },
+    group: true,
+    children: (group.items ?? []).map((item, i) => toTreeNodeModel(item, group.name, i)),
+  };
+}
+
+function StaleBadge({ node }: { node: NavNode }) {
+  if (!node.stale) return null;
+  return (
+    <span className="nav-badge nav-badge-stale" title="stale" aria-label="stale">
+      ●
+    </span>
+  );
+}
+
 function NavLeaf({ node }: { node: NavNode }) {
   return (
     <TreeView.Item>
       <TreeView.ItemText>
         <Link to={navNodeHref(node.relpath ?? "")} className="nav-item">
           {node.label}
-          {node.stale ? (
-            <span className="nav-badge nav-badge-stale" title="stale" aria-label="stale">
-              ●
-            </span>
-          ) : null}
+          <StaleBadge node={node} />
         </Link>
       </TreeView.ItemText>
     </TreeView.Item>
@@ -46,60 +64,31 @@ function NavLeaf({ node }: { node: NavNode }) {
 }
 
 function NavTreeNode({ model, indexPath }: { model: TreeNodeModel; indexPath: number[] }) {
-  const isFolder = model.children !== undefined;
+  const { children } = model;
   return (
     <TreeView.NodeProvider node={model} indexPath={indexPath}>
-      {isFolder ? (
+      {children !== undefined ? (
         <TreeView.Branch>
-          <TreeView.BranchControl>
-            <TreeView.BranchText className="nav-item nav-folder">
+          <TreeView.BranchControl className={model.group ? "nav-group-control" : undefined}>
+            <TreeView.BranchText className={model.group ? "nav-group" : "nav-item nav-folder"}>
               {model.node.label}
-              {model.node.stale ? (
-                <span className="nav-badge nav-badge-stale" title="stale" aria-label="stale">
-                  ●
-                </span>
-              ) : null}
+              <StaleBadge node={model.node} />
             </TreeView.BranchText>
           </TreeView.BranchControl>
-          <TreeView.BranchContent>
-            {model.children?.map((child, i) => (
-              <NavTreeNode key={child.id} model={child} indexPath={[...indexPath, i]} />
-            ))}
+          <TreeView.BranchContent className="nav-branch-content">
+            {children.length === 0 && model.group ? (
+              <span className="nav-empty">nothing here yet</span>
+            ) : (
+              children.map((child, i) => (
+                <NavTreeNode key={child.id} model={child} indexPath={[...indexPath, i]} />
+              ))
+            )}
           </TreeView.BranchContent>
         </TreeView.Branch>
       ) : (
         <NavLeaf node={model.node} />
       )}
     </TreeView.NodeProvider>
-  );
-}
-
-function NavGroupTree({ group }: { group: NavGroup }) {
-  // group.items is `null` (not `[]`) when the API's Go []navNodeJSON slice is
-  // nil — e.g. the repo-scope "Code" group placeholder — since Go's
-  // encoding/json marshals a nil slice as JSON null, not an empty array.
-  const roots = (group.items ?? []).map((item, i) => toTreeNodeModel(item, group.name, i));
-  const collection = createTreeCollection<TreeNodeModel>({
-    nodeToValue: (n) => n.id,
-    nodeToString: (n) => n.node.label,
-    rootNode: { id: group.name, node: { label: group.name }, children: roots },
-  });
-
-  return (
-    <section className="nav-section" aria-label={group.name}>
-      <div className="nav-group">{group.name}</div>
-      {roots.length === 0 ? (
-        <span className="nav-empty">nothing here yet</span>
-      ) : (
-        <TreeView.Root collection={collection}>
-          <TreeView.Tree>
-            {roots.map((model, i) => (
-              <NavTreeNode key={model.id} model={model} indexPath={[i]} />
-            ))}
-          </TreeView.Tree>
-        </TreeView.Root>
-      )}
-    </section>
   );
 }
 
@@ -113,6 +102,17 @@ export function NavTree() {
   useEffect(() => {
     return events.on("realm.changed", () => refetch());
   }, [refetch]);
+
+  const groups = useMemo(() => (data?.groups ?? []).map(groupToTreeNodeModel), [data]);
+  const collection = useMemo(
+    () =>
+      createTreeCollection<TreeNodeModel>({
+        nodeToValue: (n) => n.id,
+        nodeToString: (n) => n.node.label,
+        rootNode: { id: "root", node: { label: "root" }, children: groups },
+      }),
+    [groups],
+  );
 
   if (loading && !data) {
     return (
@@ -132,9 +132,17 @@ export function NavTree() {
 
   return (
     <nav id="nav-pane" aria-label="Navigation">
-      {data.groups.map((group) => (
-        <NavGroupTree key={group.name} group={group} />
-      ))}
+      <TreeView.Root
+        collection={collection}
+        defaultExpandedValue={groups.map((g) => g.id)}
+        aria-label="Navigation tree"
+      >
+        <TreeView.Tree>
+          {groups.map((model, i) => (
+            <NavTreeNode key={model.id} model={model} indexPath={[i]} />
+          ))}
+        </TreeView.Tree>
+      </TreeView.Root>
     </nav>
   );
 }

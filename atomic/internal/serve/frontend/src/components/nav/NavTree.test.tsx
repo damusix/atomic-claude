@@ -153,6 +153,6 @@ describe("NavTree", () => {
     );
 
     await waitFor(() => expect(screen.getByText("README")).toBeInTheDocument());
-    expect(screen.getByLabelText("Code")).toBeInTheDocument();
+    expect(screen.getByText("Code")).toBeInTheDocument();
   });
 });

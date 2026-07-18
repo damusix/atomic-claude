@@ -40,3 +40,35 @@
 [data-scope="tree-view"][data-part="branch-content"] {
   padding-left: 14px;
 }
+
+/* Group headers (Realm/Repos/Knowledge/...) are top-level TreeView branches —
+   same visual contract as the pre-cutover summary.nav-group, minus the
+   <details> element (the branch-control ::before above supplies the ▸/▾). */
+.nav-group-control {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-soft);
+  padding: 8px 8px 4px;
+  cursor: pointer;
+  user-select: none;
+  gap: 6px;
+  border-radius: 7px;
+  transition: background 0.12s;
+}
+
+.nav-group-control:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+/* Breathing room between top-level groups; their children indent less than
+   nested folders (the group chevron already provides the inset). */
+[data-scope="tree-view"][data-part="tree"] > [data-part="branch"] {
+  margin-top: 6px;
+}
+
+[data-scope="tree-view"][data-part="tree"] > [data-part="branch"] > [data-part="branch-content"] {
+  padding-left: 8px;
+}
