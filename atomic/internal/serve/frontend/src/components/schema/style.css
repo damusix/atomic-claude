@@ -1,0 +1,81 @@
+/* components/schema — SQL schema view. No pre-cutover CSS carried here
+   (the htmx /code/schema fragment shipped unstyled beyond generic tag
+   defaults) — this is new, minimal styling reusing the design-system
+   custom properties from public/app.css. */
+
+.code-schema-title {
+  font-family: var(--serif);
+  margin: 0 0 12px;
+}
+
+.code-schema-member-select {
+  margin-bottom: 16px;
+}
+
+.code-schema-section {
+  margin-bottom: 20px;
+}
+
+.code-schema-section-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  margin: 0 0 8px;
+}
+
+.code-schema-table {
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+}
+
+.code-schema-table-name {
+  margin: 0 0 6px;
+}
+
+.code-schema-table-loc {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.code-schema-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--amber);
+  cursor: pointer;
+}
+
+.code-schema-link:hover {
+  color: var(--amber-bright);
+}
+
+.code-schema-columns {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.code-schema-column {
+  color: var(--ink-soft);
+  font-size: 13px;
+}
+
+.code-schema-fk-sources,
+.code-schema-writers {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.code-schema-fk-label,
+.code-schema-writers-label {
+  font-weight: 600;
+}
+
+.code-schema-empty {
+  color: var(--ink-faint);
+  font-style: italic;
+}
