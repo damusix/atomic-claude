@@ -162,7 +162,7 @@ Conventions (every `/api/*` endpoint):
 | `GET /api/nav` | `{scope: "realm"\|"repo", groups: [{name, items: [navNode]}]}`; `navNode = {label, relpath?, stale?, children?: [navNode]}` — folder nodes carry `children`, leaves carry `relpath`; badges from the staleness sets (nav.go) |
 | `GET /api/search/md?q=` | `{query, truncated, cap, results: [{relpath, line, snippet}]}` — from `mdMatch` + the 50-cap truncation flag (search_md.go:57,88) |
 | `GET /api/code/search?q=&only=&exclude=` | `{members: [{key, prefix, indexed, results: [nodeRef]}]}`; `nodeRef = {id, name, kind, filePath, startLine}` — member grouping per codesearch.go; un-indexed members appear with `indexed: false`, empty results |
-| `GET /api/search/stream?q=&src=` | SSE, named events (search_stream.go:12): `md` → the `/api/search/md` payload; `code` → one `{member: {key, prefix, indexed}, results: [nodeRef]}` per member; `end` → `{}` terminal. `src ∈ {all, md, code}` (`normalizeSearchSrc`) |
+| `GET /api/search/stream?q=&src=` | SSE, named events (search_stream.go:12): `md` → the `/api/search/md` payload; `code` → one `{member: {key, prefix, indexed}, results: [nodeRef]}` per member; `end` → `{}` terminal. `src ∈ {all, md, code}` (`normalizeSearchSrc`). Exception to the 400 convention: empty/missing `q` streams a single terminal `end` event with 200 — SSE has no mid-stream status channel, and this mirrors the pre-existing stream's empty-query handling |
 | `GET /api/code/node?id=&member=` | `{member, node}`; `node = {id, name, kind, filePath, startLine, signature, language, docstring}` — `types.Node` |
 | `GET /api/code/{callers,callees,impact}?id=&member=` | `{member, root: node, edges: [{kind, source, target}], nodes: {<id>: node}}` — `types.Subgraph` |
 | `GET /api/code/files?member=` | `{files: [{path, language, nodeCount}]}` — `types.FileRecord` |
@@ -300,3 +300,9 @@ Flow: theme toggle retheme cascade
 **Superseded:** the hand-rolled `utils/api` fetch helper.
 
 **Why:** Owner decision — LogosDX is the house stack; FetchEngine ships the exact resilience the API layer needs as config. Verified to bundle clean under `bun build` (~29 kB gz over React for fetch+utils+observer+react — probe at `tmp/ark-probe/logos.tsx`).
+
+### 2026-07-17 — Stream empty-query exception
+
+**What changed:** Correction: `/api/search/stream` contract row now documents that an empty/missing `q` yields a 200 with a single terminal `end` event, not the 400 envelope.
+
+**Why:** CP3 implementation + review — SSE has no mid-stream status channel; behavior mirrors the pre-existing stream handler. Flagged by the iteration-3 reviewer as undocumented implementer discretion.

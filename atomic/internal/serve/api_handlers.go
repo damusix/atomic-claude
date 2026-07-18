@@ -8,11 +8,15 @@
 package serve
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
 
 // writeAPIJSON writes v as the JSON response body with status 200 and
@@ -304,4 +308,229 @@ func NewAPINavHandler(opts NavOptions) http.Handler {
 		snap, _ := store.ensureFresh()
 		writeAPIJSON(w, apiNavResponse{Scope: "repo", Groups: buildRepoNavGroupsJSON(snap.navPaths)})
 	})
+}
+
+// ─── GET /api/search/md ─────────────────────────────────────────────────────
+
+// apiMdSearchResult is one matching line — reshapes mdMatch (search_md.go).
+type apiMdSearchResult struct {
+	RelPath string `json:"relpath"`
+	Line    int    `json:"line"`
+	Snippet string `json:"snippet"`
+}
+
+// apiMdSearchResponse is the /api/search/md success payload.
+type apiMdSearchResponse struct {
+	Query     string              `json:"query"`
+	Truncated bool                `json:"truncated"`
+	Cap       int                 `json:"cap"`
+	Results   []apiMdSearchResult `json:"results"`
+}
+
+// NewAPIMdSearchHandler returns an http.Handler for GET /api/search/md?q=...
+// Reuses the same mdSearchHandler.search walk NewMdSearchHandler's htmx
+// fragment uses, reshaped as JSON instead of an HTML list.
+func NewAPIMdSearchHandler(opts MdSearchOptions) http.Handler {
+	h := &mdSearchHandler{navRoot: opts.NavRoot}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		if query == "" {
+			writeAPIError(w, http.StatusBadRequest, "missing query parameter: q")
+			return
+		}
+
+		matches, truncated := h.search(query)
+		writeAPIJSON(w, apiMdSearchResponseFrom(query, matches, truncated))
+	})
+}
+
+// apiMdSearchResponseFrom reshapes mdMatch results into the wire response —
+// shared by the synchronous handler and the SSE stream's "md" event.
+func apiMdSearchResponseFrom(query string, matches []mdMatch, truncated bool) apiMdSearchResponse {
+	results := make([]apiMdSearchResult, len(matches))
+	for i, m := range matches {
+		results[i] = apiMdSearchResult{RelPath: m.RelPath, Line: m.Line, Snippet: m.Snippet}
+	}
+	return apiMdSearchResponse{Query: query, Truncated: truncated, Cap: mdSearchResultCap, Results: results}
+}
+
+// ─── GET /api/code/search ────────────────────────────────────────────────────
+
+// apiNodeRef is the reshaped subset of types.Node the frontend needs per
+// result — id, name, kind, filePath, startLine (per the API contracts table).
+type apiNodeRef struct {
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Kind      types.NodeKind `json:"kind"`
+	FilePath  string         `json:"filePath"`
+	StartLine int            `json:"startLine"`
+}
+
+// apiNodeRefFrom reshapes a types.Node into the wire nodeRef shape.
+func apiNodeRefFrom(n types.Node) apiNodeRef {
+	return apiNodeRef{ID: n.ID, Name: n.Name, Kind: n.Kind, FilePath: n.FilePath, StartLine: n.StartLine}
+}
+
+// apiCodeSearchMember is one member's result group — reshapes memberResult
+// (codesearch.go). Un-indexed members carry indexed:false and empty results
+// (a data field, not an error — per the API contracts conventions).
+type apiCodeSearchMember struct {
+	Key     string       `json:"key"`
+	Prefix  string       `json:"prefix"`
+	Indexed bool         `json:"indexed"`
+	Results []apiNodeRef `json:"results"`
+}
+
+// apiCodeSearchResponse is the /api/code/search success payload.
+type apiCodeSearchResponse struct {
+	Members []apiCodeSearchMember `json:"members"`
+}
+
+// apiCodeSearchMemberFrom reshapes a memberResult into the wire shape —
+// shared by the synchronous handler and the SSE stream's "code" event.
+func apiCodeSearchMemberFrom(g memberResult) apiCodeSearchMember {
+	results := make([]apiNodeRef, len(g.Results))
+	for i, r := range g.Results {
+		results[i] = apiNodeRefFrom(r.Node)
+	}
+	return apiCodeSearchMember{
+		Key:     g.Key,
+		Prefix:  g.Prefix,
+		Indexed: !g.NotIndexed,
+		Results: results,
+	}
+}
+
+// NewAPICodeSearchHandler returns an http.Handler for GET
+// /api/code/search?q=&only=&exclude=. Reuses the same codeSearchGroups fan-out
+// (concurrency/bounding unchanged) NewCodeSearchHandler's htmx fragment uses,
+// reshaped as JSON member groups instead of an HTML list.
+func NewAPICodeSearchHandler(opts CodeSearchOptions) http.Handler {
+	fn := opts.SearchFn
+	if fn == nil {
+		fn = DefaultMemberSearchFn()
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		if query == "" {
+			writeAPIError(w, http.StatusBadRequest, "missing query parameter: q")
+			return
+		}
+		only := splitCommaParam(r.URL.Query().Get("only"))
+		excl := splitCommaParam(r.URL.Query().Get("exclude"))
+
+		res, err := realm.Resolve(opts.RealmRoot, opts.ClaudeMDPath)
+		if err != nil {
+			writeAPIError(w, http.StatusInternalServerError, "scope resolve: "+err.Error())
+			return
+		}
+
+		groups := codeSearchGroups(r.Context(), res, opts.RealmRoot, only, excl, query, fn, nil)
+		members := make([]apiCodeSearchMember, len(groups))
+		for i, g := range groups {
+			members[i] = apiCodeSearchMemberFrom(g)
+		}
+		writeAPIJSON(w, apiCodeSearchResponse{Members: members})
+	})
+}
+
+// ─── GET /api/search/stream ──────────────────────────────────────────────────
+
+// apiSearchStreamCodeEvent is the payload for each "code" SSE event — one per
+// realm member, reshaping memberResult minus its result list (Results are
+// only carried when non-empty and indexed, mirroring the member/results split
+// in the API contracts table).
+type apiSearchStreamCodeEvent struct {
+	Member  apiSearchStreamMemberInfo `json:"member"`
+	Results []apiNodeRef              `json:"results"`
+}
+
+// apiSearchStreamMemberInfo is the member identity carried inside each "code"
+// SSE event.
+type apiSearchStreamMemberInfo struct {
+	Key     string `json:"key"`
+	Prefix  string `json:"prefix"`
+	Indexed bool   `json:"indexed"`
+}
+
+// NewAPISearchStreamHandler returns an http.Handler for GET
+// /api/search/stream?q=&src=. Emits named JSON SSE events: "md" (the
+// /api/search/md payload), one "code" event per realm member as its
+// concurrent search completes, then a terminal "end" ({}). Reuses the same
+// mdSearchHandler.search and codeSearchGroups fan-out the JSON/htmx siblings
+// use — concurrency/bounding behavior is unchanged.
+func NewAPISearchStreamHandler(opts SearchStreamOptions) http.Handler {
+	fn := opts.SearchFn
+	if fn == nil {
+		fn = DefaultMemberSearchFn()
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			writeAPIError(w, http.StatusInternalServerError, "streaming unsupported")
+			return
+		}
+
+		q := strings.TrimSpace(r.URL.Query().Get("q"))
+		src := normalizeSearchSrc(r.URL.Query().Get("src"))
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+
+		if q == "" {
+			writeSSEJSON(w, flusher, "end", struct{}{})
+			return
+		}
+
+		if src == "md" || src == "all" {
+			mh := &mdSearchHandler{navRoot: opts.NavRoot}
+			matches, truncated := mh.search(q)
+			writeSSEJSON(w, flusher, "md", apiMdSearchResponseFrom(q, matches, truncated))
+		}
+
+		if src == "code" || src == "all" {
+			streamAPICodeResults(r.Context(), w, flusher, opts.RealmRoot, opts.ClaudeMDPath, q, fn)
+		}
+
+		writeSSEJSON(w, flusher, "end", struct{}{})
+	})
+}
+
+// streamAPICodeResults resolves the realm and emits one JSON "code" SSE
+// event per member as its concurrent search completes. A realm with no code
+// members resolved emits no "code" events — the client's "end" event closes
+// the stream and the search UI shows no results.
+func streamAPICodeResults(
+	ctx context.Context,
+	w http.ResponseWriter,
+	flusher http.Flusher,
+	realmRoot, claudeMDPath, query string,
+	fn MemberSearchFn,
+) {
+	res, err := realm.Resolve(realmRoot, claudeMDPath)
+	if err != nil {
+		return
+	}
+	codeSearchGroups(ctx, res, realmRoot, nil, nil, query, fn, func(g memberResult) {
+		m := apiCodeSearchMemberFrom(g)
+		writeSSEJSON(w, flusher, "code", apiSearchStreamCodeEvent{
+			Member:  apiSearchStreamMemberInfo{Key: m.Key, Prefix: m.Prefix, Indexed: m.Indexed},
+			Results: m.Results,
+		})
+	})
+}
+
+// writeSSEJSON marshals v to JSON and writes it as one Server-Sent Event
+// (event: <event>\ndata: <json>\n\n). Reuses the same wire framing writeSSE
+// uses (search_stream.go); JSON never contains embedded newlines so the
+// multi-line data: split writeSSE performs is a no-op here.
+func writeSSEJSON(w http.ResponseWriter, flusher http.Flusher, event string, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		b = []byte(`{}`)
+	}
+	writeSSE(w, flusher, event, string(b))
 }

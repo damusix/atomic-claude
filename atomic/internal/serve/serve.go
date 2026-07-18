@@ -240,6 +240,16 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	mux.Handle("/api/file/", NewAPIFileHandler(opts.TargetDir))
 	mux.Handle("/api/rail/", NewAPIRailHandler(navRoot, store))
 	mux.Handle("/api/nav", NewAPINavHandler(navOpts))
+	mux.Handle("/api/search/md", NewAPIMdSearchHandler(MdSearchOptions{NavRoot: navRoot}))
+	mux.Handle("/api/code/search", NewAPICodeSearchHandler(CodeSearchOptions{
+		RealmRoot:    opts.TargetDir,
+		ClaudeMDPath: opts.ClaudeMDPath,
+	}))
+	mux.Handle("/api/search/stream", NewAPISearchStreamHandler(SearchStreamOptions{
+		NavRoot:      navRoot,
+		RealmRoot:    opts.TargetDir,
+		ClaudeMDPath: opts.ClaudeMDPath,
+	}))
 
 	// /status — realm-health dashboard (FE-SC6: health is ambient, not the landing).
 	// Was /health in CP6; demoted to /status so the landing is the page view.
