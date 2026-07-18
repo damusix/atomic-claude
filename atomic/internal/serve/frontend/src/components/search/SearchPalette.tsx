@@ -7,14 +7,14 @@
 // Escape closes. Debounced (200ms, matches templates/layout.html's dialog)
 // fetch to /api/search/md or /api/code/search depending on the md|code
 // toggle. Selecting a markdown result navigates via React Router. Selecting
-// a code result is a seam: CP9 owns the code modal (source/intel panes,
-// back-stack) this will eventually open — for now it just closes the
-// palette, same as clicking a code result mid-build would leave nothing to
-// show yet.
+// a code result opens the code modal (components/code-modal) via its
+// openNode seam — the search result already carries name/file/line, so the
+// modal's source pane can open without a second lookup.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Combobox, createListCollection } from "@ark-ui/react";
 import { attempt } from "@logosdx/utils";
 import { useNavigate } from "react-router";
+import { openNode } from "../code-modal/store";
 import { api } from "../../utils/api";
 import { codePaletteItems, mdPaletteItems, type PaletteItem } from "./searchItems";
 import type { ApiCodeSearchResponse, ApiMdSearchResponse } from "./types";
@@ -125,7 +125,11 @@ export function SearchPalette({
       navigate(`/page/${item.relpath}`);
       return;
     }
-    // Code result seam — no code modal to open yet (CP9).
+    if (item.kind === "code" && item.codeId && item.member !== undefined) {
+      close();
+      openNode(item.codeId, item.member, { title: item.label, file: item.filePath, line: item.startLine });
+      return;
+    }
     close();
   }
 

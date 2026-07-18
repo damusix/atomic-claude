@@ -8,6 +8,7 @@
 // relpath to fetch /api/rail for.
 import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
+import { openFile } from "../../components/code-modal/store";
 import { useApi } from "../../utils/api";
 import { events } from "../../utils/events";
 import { mountMermaid } from "../../utils/mermaid";
@@ -94,6 +95,9 @@ export function Page() {
     if (action.kind === "navigate") {
       e.preventDefault();
       navigate(`/page/${action.relpath}`);
+    } else if (action.kind === "code") {
+      e.preventDefault();
+      openFile(action.path, action.line);
     }
   }
 

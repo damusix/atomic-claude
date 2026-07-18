@@ -32,9 +32,22 @@ describe("resolvePageLinkAction", () => {
     expect(resolvePageLinkAction(a)).toEqual({ kind: "default" });
   });
 
-  test("codeFile link (/file/...) -> default (no CP9 code modal yet)", () => {
+  test("codeFile link (/file/...) -> open the code modal", () => {
     const a = el('<a href="/file/atomic/internal/serve/render.go">render.go</a>');
-    expect(resolvePageLinkAction(a)).toEqual({ kind: "default" });
+    expect(resolvePageLinkAction(a)).toEqual({
+      kind: "code",
+      path: "atomic/internal/serve/render.go",
+      line: null,
+    });
+  });
+
+  test("codeFile link with a #L<n> anchor -> open the code modal at that line", () => {
+    const a = el('<a href="/file/atomic/internal/serve/render.go#L42">render.go:42</a>');
+    expect(resolvePageLinkAction(a)).toEqual({
+      kind: "code",
+      path: "atomic/internal/serve/render.go",
+      line: 42,
+    });
   });
 
   test("click on nested inline content resolves via closest('a[href]')", () => {

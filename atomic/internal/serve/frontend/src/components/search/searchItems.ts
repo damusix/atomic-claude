@@ -9,6 +9,12 @@ export interface PaletteItem {
   label: string;
   sub: string;
   relpath?: string;
+  // Code result fields — used by the code-modal seam (CP9) to open the
+  // symbol without a second lookup.
+  codeId?: string;
+  member?: string;
+  filePath?: string;
+  startLine?: number;
 }
 
 export function mdPaletteItems(res: ApiMdSearchResponse | null): PaletteItem[] {
@@ -30,6 +36,10 @@ export function codePaletteItems(res: ApiCodeSearchResponse | null): PaletteItem
       kind: "code",
       label: n.name,
       sub: `${m.prefix} · ${n.filePath}:${n.startLine}`,
+      codeId: n.id,
+      member: m.prefix,
+      filePath: n.filePath,
+      startLine: n.startLine,
     })),
   );
 }

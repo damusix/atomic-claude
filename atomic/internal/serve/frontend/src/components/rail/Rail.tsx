@@ -6,6 +6,7 @@
 // /api/rail must be queried with — the raw URL param is not always it.
 import { useEffect, useState } from "react";
 import { attempt } from "@logosdx/utils";
+import { openFile } from "../code-modal/store";
 import { api } from "../../utils/api";
 import { events } from "../../utils/events";
 import { MiniGraph } from "./MiniGraph";
@@ -91,7 +92,15 @@ export function Rail() {
                       {e.target}
                     </a>
                   ) : e.codeFile ? (
-                    <a href={`/file/${e.resolvedPath}`}>{e.target}</a>
+                    <a
+                      href={`/file/${e.resolvedPath}`}
+                      onClick={(ev) => {
+                        ev.preventDefault();
+                        openFile(e.resolvedPath);
+                      }}
+                    >
+                      {e.target}
+                    </a>
                   ) : (
                     <a
                       href={`/page/${e.resolvedPath}`}

@@ -2,6 +2,7 @@
 // Visual parity target: templates/layout.html's #shell (pre-cutover markup).
 import { useEffect, useState } from "react";
 import { Outlet, ScrollRestoration, useNavigate } from "react-router";
+import { CodeModal } from "../../components/code-modal/CodeModal";
 import { NavTree } from "../../components/nav/NavTree";
 import { TopBar } from "../../components/nav/TopBar";
 import { PageModal } from "../../components/rail/PageModal";
@@ -39,6 +40,7 @@ export function Shell() {
         <Rail />
       </div>
       <PageModal />
+      <CodeModal />
       <SearchPalette open={searchOpen} onOpenChange={setSearchOpen} />
       <ScrollRestoration />
     </>
