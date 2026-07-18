@@ -221,18 +221,32 @@ function IntelPane({ entry }: { entry: StackEntry }) {
     let cancelled = false;
     setLoading(true);
     setData(null);
-    void attempt(() =>
-      api.get<ApiCodeFileResponse | ApiCodeNodeResponse | ApiCodeSubgraphResponse>(url),
-    ).then(([res, err]) => {
+    const apply = (next: IntelData | null) => {
       if (cancelled) return;
       setLoading(false);
-      if (err || !res?.ok || !res.data) return;
-      setData({ kind: entry.intel.kind, ...res.data } as IntelData);
-    });
+      if (next) setData(next);
+    };
+    // Branched per intel kind so each fetch is typed to its own response
+    // shape and the discriminated IntelData is built literally — a union
+    // generic here would force a cast at the setData site.
+    const target = entry.intel;
+    if (target.kind === "file") {
+      void attempt(() => api.get<ApiCodeFileResponse>(url)).then(([res, err]) =>
+        apply(err || !res?.ok || !res.data ? null : { kind: "file", ...res.data }),
+      );
+    } else if (target.kind === "node") {
+      void attempt(() => api.get<ApiCodeNodeResponse>(url)).then(([res, err]) =>
+        apply(err || !res?.ok || !res.data ? null : { kind: "node", ...res.data }),
+      );
+    } else {
+      void attempt(() => api.get<ApiCodeSubgraphResponse>(url)).then(([res, err]) =>
+        apply(err || !res?.ok || !res.data ? null : { kind: "subgraph", ...res.data }),
+      );
+    }
     return () => {
       cancelled = true;
     };
-  }, [url, entry.intel.kind]);
+  }, [url, entry.intel]);
 
   if (loading || !data) return <p className="loading">Loading…</p>;
 

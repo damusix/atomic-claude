@@ -166,7 +166,7 @@ Conventions (every `/api/*` endpoint):
 | `GET /api/code/node?id=&member=` | `{member, node}`; `node = {id, name, kind, filePath, startLine, signature, language, docstring}` — `types.Node` |
 | `GET /api/code/{callers,callees,impact}?id=&member=` | `{member, root: node, edges: [{kind, source, target}], nodes: {<id>: node}}` — `types.Subgraph` |
 | `GET /api/code/files?member=` | `{files: [{path, language, nodeCount}]}` — `types.FileRecord` |
-| `GET /api/code/schema?member=` | `{tables: [{node, columns: [node], fkSources: [node], writers: [node]}]}` — `tableSchema` (codeexplorer.go:580) |
+| `GET /api/code/schema?member=` | `{tables: [{node, columns: [node], fkSources: [node], writers: [node]}], degraded?}` — `tableSchema` (codeexplorer.go:580); `degraded` set (tables empty) when no index is available, per the soft-state convention |
 | `GET /api/code/file?path=&member=` | `{path, member, nodes: [{id, name, kind, startLine}], degraded?: "<reason>"}` — degraded carries today's inline not-indexed/no-intel messages (codeexplorer.go:837) |
 | `GET /api/status` | `{isRealmScope, wiki: {staleRepos, staleConcerns, staleBuckets, bucketDiffKeys, allFresh}, index: {severity, detail, freshCount, staleMembers, notIndexed}}` — `healthData` (health.go:250) |
 | `GET /api/external` | `{entries: [{url, sources: [relpath], firstSeen \| null}]}` — `ExternalEntry` (external.go:94) |
@@ -273,6 +273,12 @@ Flow: theme toggle retheme cascade
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
 
+### 2026-07-18 — /api/code/schema not-indexed becomes a soft state (F-4)
+
+**Change.** The API contracts row for `GET /api/code/schema` gains a `degraded` field: when no index is available for the requested member the handler returns 200 with `tables: []` and a `degraded` reason, replacing the previous 500 — aligning with the convention `apiCodeFileResponse.Degraded` already followed. Frontend renders it as a "not indexed" message. Genuine query failures still 500.
+
+**Why.** Follow-up F-4: the 500 violated the spec's own soft-state convention and the frontend had baked the error path in.
+
 ### 2026-07-17 — Bun toolchain + baseline workspace layout
 
 **What changed:** The frontend workspace toolchain is Bun (package manager, bundler, test runner) instead of Vite + npm; `vite.config.ts` becomes `bunfig.toml`. The `src/` layout is fixed as domain-scoped `layouts/pages/components/hooks/utils` (was `routes/` + flat `components/` + `engine/` + `colors/`), with component-folder rules (per-component folder with `style.css`, `components/ui/` barrel for generic primitives, no barrels for app-specific components) codified in a new `frontend/CLAUDE.md` that the workspace scaffold ships. Baseline scaffold (tree + CLAUDE.md + package.json + tsconfig.json + ui barrel) committed ahead of CP1; CP1 retains build-pipeline/embed/gate wiring.
@@ -342,4 +348,4 @@ Built across 13 iterations of /subagent-implementation (one per checkpoint). Com
 
 **Deferred items still open:**
 
-- F-1 misleading comment (api_handlers.go:441); F-2 no root-Makefile `frontend` delegate; F-3 union-generic casts (SearchPalette + CodeModal); F-4 /api/code/schema 500s on not-indexed member vs soft-state convention; F-5 dropped scenario-specific test assertions at cutover — triage pending in the scratchpad FOLLOWUPS ledger
+- F-1..F-5 were all fixed in the post-ship polish pass (2026-07-18): F-1 comment aligned with behavior; F-2 root-Makefile `frontend` delegate added; F-3 per-branch typed fetches replaced the union-generic casts (SearchPalette + CodeModal); F-4 /api/code/schema not-indexed is now a 200 + `degraded` soft state; F-5 realm-self-index scenarios ported to JSON assertions (`api_code_realm_test.go`)

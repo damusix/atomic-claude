@@ -83,21 +83,27 @@ export function SearchPalette({
       return;
     }
     setLoading(true);
-    const path =
-      source === "md"
-        ? `/search/md?q=${encodeURIComponent(debounced)}`
-        : `/code/search?q=${encodeURIComponent(debounced)}`;
-    void attempt(() => api.get<ApiMdSearchResponse | ApiCodeSearchResponse>(path)).then(([res, err]) => {
-      if (cancelled) return;
-      setLoading(false);
-      if (err || !res?.ok) {
-        setMdResults(null);
+    // Branched per source so each fetch is typed to its own response shape —
+    // a union generic here would force a cast at the setState split.
+    if (source === "md") {
+      void attempt(() =>
+        api.get<ApiMdSearchResponse>(`/search/md?q=${encodeURIComponent(debounced)}`),
+      ).then(([res, err]) => {
+        if (cancelled) return;
+        setLoading(false);
         setCodeResults(null);
-        return;
-      }
-      if (source === "md") setMdResults(res.data as ApiMdSearchResponse);
-      else setCodeResults(res.data as ApiCodeSearchResponse);
-    });
+        setMdResults(err || !res?.ok ? null : res.data);
+      });
+    } else {
+      void attempt(() =>
+        api.get<ApiCodeSearchResponse>(`/code/search?q=${encodeURIComponent(debounced)}`),
+      ).then(([res, err]) => {
+        if (cancelled) return;
+        setLoading(false);
+        setMdResults(null);
+        setCodeResults(err || !res?.ok ? null : res.data);
+      });
+    }
     return () => {
       cancelled = true;
     };

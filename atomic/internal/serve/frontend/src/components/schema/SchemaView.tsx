@@ -163,7 +163,10 @@ function SchemaData({
 
       {loading && !data ? <p className="loading">Loading…</p> : null}
       {failure ? <p className="code-schema-empty">Schema unavailable — is this member indexed?</p> : null}
-      {data && tables.length === 0 && views.length === 0 ? (
+      {data?.degraded ? (
+        <p className="code-schema-empty">This member is not indexed — run `atomic code index` in it.</p>
+      ) : null}
+      {data && !data.degraded && tables.length === 0 && views.length === 0 ? (
         <p className="code-schema-empty">No SQL schema found in this index.</p>
       ) : null}
 

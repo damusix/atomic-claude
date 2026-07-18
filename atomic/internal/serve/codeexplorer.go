@@ -469,8 +469,12 @@ type apiTableSchema struct {
 	Writers   []apiCodeNode `json:"writers"`
 }
 
+// Degraded is set (and Tables left empty) when no index is available for the
+// requested member — a data field per the API contracts conventions
+// (mirrors apiCodeFileResponse.Degraded), not an error envelope.
 type apiCodeSchemaResponse struct {
-	Tables []apiTableSchema `json:"tables"`
+	Tables   []apiTableSchema `json:"tables"`
+	Degraded string           `json:"degraded,omitempty"`
 }
 
 func apiTableSchemaFrom(ts tableSchema) apiTableSchema {
@@ -494,7 +498,8 @@ func (h *apiCodeExplorerHandler) handleAPISchema(w http.ResponseWriter, r *http.
 
 	eng, _, err := h.engineForRequest(ctx, r)
 	if err != nil {
-		writeAPIError(w, http.StatusInternalServerError, "index not available: "+err.Error())
+		// Not-indexed is a soft state, not an error — see the response type.
+		writeAPIJSON(w, apiCodeSchemaResponse{Tables: []apiTableSchema{}, Degraded: "index not available: " + err.Error()})
 		return
 	}
 	defer eng.Close()

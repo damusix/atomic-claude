@@ -446,9 +446,8 @@ func NewAPICodeSearchHandler(opts CodeSearchOptions) http.Handler {
 // ─── GET /api/search/stream ──────────────────────────────────────────────────
 
 // apiSearchStreamCodeEvent is the payload for each "code" SSE event — one per
-// realm member, reshaping memberResult minus its result list (Results are
-// only carried when non-empty and indexed, mirroring the member/results split
-// in the API contracts table).
+// realm member. Results is always populated from the member's search hits
+// (empty slice for a not-indexed or no-hit member).
 type apiSearchStreamCodeEvent struct {
 	Member  apiSearchStreamMemberInfo `json:"member"`
 	Results []apiNodeRef              `json:"results"`

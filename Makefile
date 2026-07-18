@@ -1,4 +1,4 @@
-.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall render bundle link dev-setup triage-scan
+.PHONY: help docker-build docker-up docker-shell hooks hooks-uninstall render bundle frontend link dev-setup triage-scan
 
 .DEFAULT_GOAL := help
 
@@ -20,6 +20,9 @@ render: ## Render templates/ into commands/ (delegates to atomic/)
 
 bundle: ## Regenerate the embedded artifact bundle (delegates to atomic/)
 	$(MAKE) -C atomic bundle
+
+frontend: ## Build the serve React frontend into its embedded dist/ (delegates to atomic/)
+	$(MAKE) -C atomic frontend
 
 link: ## Symlink root artifacts into .claude/ for dogfooding
 	./scripts/link-local.sh

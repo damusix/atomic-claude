@@ -11,4 +11,7 @@ export interface ApiTableSchema {
 
 export interface ApiCodeSchemaResponse {
   tables: ApiTableSchema[];
+  // Soft state: set (with tables empty) when no index is available for the
+  // requested member — mirrors ApiCodeFileResponse.degraded.
+  degraded?: string;
 }
