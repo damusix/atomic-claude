@@ -230,12 +230,37 @@ func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
 
 	members, _ := wiki.ReadScanMembers(opts.WikiIndexPath)
 
-	// Group 2: Repos.
+	// Group 2: Repos — each member is a navigable folder (mirrors the Buckets
+	// group): an "index" leaf for the member's landing target, then the
+	// member's own docs/ tree and the realm-side wiki/repos/<name>/ pages as
+	// nested folder subtrees. A member with nothing to expand stays a flat leaf.
 	repoItems := make([]navNodeJSON, 0, len(members))
 	for _, m := range members {
 		name := filepath.Base(m.Path)
 		stale := opts.StaleMembers[name] || opts.StaleMembers[m.Path]
-		repoItems = append(repoItems, navNodeJSON{Label: name, RelPath: memberLinkRel(opts.RealmRoot, m), Stale: stale})
+		landing := memberLinkRel(opts.RealmRoot, m)
+
+		children := []navNodeJSON{{Label: "index", RelPath: landing}}
+		memberDocsRel := filepath.ToSlash(m.Path) + "/docs"
+		if docsFiles := walkMarkdownFilesRecursive(filepath.Join(opts.RealmRoot, filepath.FromSlash(memberDocsRel))); len(docsFiles) > 0 {
+			children = append(children, navNodeJSON{
+				Label:    "docs",
+				Children: folderTreeToJSON(memberDocsRel, docsFiles),
+			})
+		}
+		wikiRepoRel := "wiki/repos/" + name
+		if wikiFiles := walkMarkdownFilesRecursive(filepath.Join(opts.RealmRoot, "wiki", "repos", name)); len(wikiFiles) > 0 {
+			children = append(children, navNodeJSON{
+				Label:    "wiki",
+				Children: folderTreeToJSON(wikiRepoRel, wikiFiles),
+			})
+		}
+
+		if len(children) == 1 {
+			repoItems = append(repoItems, navNodeJSON{Label: name, RelPath: landing, Stale: stale})
+			continue
+		}
+		repoItems = append(repoItems, navNodeJSON{Label: name, Stale: stale, Children: children})
 	}
 	groups = append(groups, navGroupJSON{Name: "Repos", Items: repoItems})
 
