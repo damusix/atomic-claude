@@ -1,0 +1,49 @@
+/* components/code-modal — most visuals (#code-modal scrim/positioner,
+   .code-modal-box/header/body/source/intel, .code-file-intel-*) are carried
+   verbatim in public/app.css. This file holds only the pieces the React
+   rebuild introduces: drill-down links rendered as <button> (React onClick)
+   instead of the carried htmx <a hx-get>, styled to match. */
+
+.code-node-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.code-node-link:hover {
+  color: var(--amber, #c98a3a);
+}
+
+.code-node-nav button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--amber, #c98a3a);
+  cursor: pointer;
+}
+
+.code-node-nav button:hover {
+  color: var(--amber-bright, #e0a55a);
+}
+
+.code-edge-chip-link {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 6px 0;
+  font: inherit;
+  color: var(--ink, #2a261e);
+  cursor: pointer;
+  text-align: left;
+}
+
+.code-edge-chip-link:hover {
+  color: var(--amber, #c98a3a);
+}

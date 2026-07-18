@@ -141,9 +141,10 @@ func wikilinkResolverFromGraph(g *Graph, pageRelPath string) wikilinkResolver {
 // ─── renderer ────────────────────────────────────────────────────────────────
 
 // wikilinkRenderer renders a wikilinkNode using the per-page resolver. Resolved
-// links become in-shell htmx navigations to /page/<target> (mirroring the rail
-// and the markdown-link rewriter); broken links render as a visible non-navigable
-// span so a dead wikilink reads as dead rather than as plain prose.
+// links become plain hrefs to /page/<target> (mirroring the rail and the
+// markdown-link rewriter — client-side routing intercepts navigation, the
+// renderer never emits hx-* attributes); broken links render as a visible
+// non-navigable span so a dead wikilink reads as dead rather than as plain prose.
 type wikilinkRenderer struct {
 	resolve wikilinkResolver
 }
@@ -185,9 +186,7 @@ func (r *wikilinkRenderer) render(w util.BufWriter, _ []byte, n ast.Node, enteri
 	}
 	_, _ = w.WriteString(`<a class="`)
 	_, _ = w.WriteString(class)
-	_, _ = w.WriteString(`" hx-get="`)
-	_, _ = w.WriteString(template.HTMLEscapeString(href))
-	_, _ = w.WriteString(`" hx-target="#main-pane" hx-swap="innerHTML" hx-push-url="true" href="`)
+	_, _ = w.WriteString(`" href="`)
 	_, _ = w.WriteString(template.HTMLEscapeString(href))
 	_ = w.WriteByte('"')
 	if ambiguous {

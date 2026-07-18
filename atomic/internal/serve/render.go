@@ -5,22 +5,17 @@
 // Fenced code blocks with language "mermaid" are emitted as
 // <pre class="mermaid">…raw…</pre>; all others are chroma-highlighted.
 //
-// NewPageHandler returns an http.Handler for /page/* that resolves paths
-// relative to a root directory, enforces a path-traversal guard, renders
-// markdown via RenderMarkdown, and responds with a full HTML page including
-// a conditional mermaid script.
-//
-// NewFileHandler returns an http.Handler for /file/* that resolves paths
-// relative to a root directory, enforces the same traversal guard, and
-// responds with chroma-highlighted HTML with per-line id="L<n>" anchors.
+// RenderMarkdownWithGraph feeds the /api/page HTML-in-JSON body
+// (api_handlers.go); chromaHighlightLines feeds the /api/file HTML-in-JSON
+// body. Rewritten link destinations are plain hrefs — client-side routing
+// (React Router) intercepts in-shell navigation, so the renderer never emits
+// hx-* attributes.
 package serve
 
 import (
 	"bytes"
 	"fmt"
 	"html/template"
-	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -344,7 +339,7 @@ func (r *linkRewriteRenderer) renderLink(
 		return ast.WalkContinue, nil
 	}
 
-	href, htmxPage, external := r.rewrite(string(node.Destination))
+	href, _, external := r.rewrite(string(node.Destination))
 
 	_, _ = w.WriteString(`<a href="`)
 	_, _ = w.WriteString(template.HTMLEscapeString(href))
@@ -354,12 +349,7 @@ func (r *linkRewriteRenderer) renderLink(
 		_, _ = w.WriteString(template.HTMLEscapeString(string(node.Title)))
 		_ = w.WriteByte('"')
 	}
-	switch {
-	case htmxPage:
-		_, _ = w.WriteString(` hx-get="`)
-		_, _ = w.WriteString(template.HTMLEscapeString(href))
-		_, _ = w.WriteString(`" hx-target="#main-pane" hx-swap="innerHTML" hx-push-url="true"`)
-	case external:
+	if external {
 		_, _ = w.WriteString(` target="_blank" rel="noopener noreferrer"`)
 	}
 	_ = w.WriteByte('>')
@@ -419,213 +409,4 @@ func safeResolve(root, relPath string) (string, bool) {
 		return "", false
 	}
 	return joinedReal, true
-}
-
-// ─── page HTML template ───────────────────────────────────────────────────────
-
-const pageTemplateStr = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>{{.Title}}</title>
-<link rel="stylesheet" href="/static/app.css">
-<script src="/static/vendor/htmx.min.js"></script>
-</head>
-<body>
-<div id="page-content" class="md-content">
-{{.Body}}
-</div>
-{{if .HasMermaid -}}
-<script src="/static/vendor/mermaid.min.js"></script>
-<script>
-document.addEventListener("DOMContentLoaded", function() {
-  if (window.atomicMermaidInit) { window.atomicMermaidInit(); }
-  else if (window.mermaid) { mermaid.initialize({ startOnLoad: false }); mermaid.run(); }
-});
-document.addEventListener("htmx:afterSwap", function() {
-  if (window.atomicMermaidInit) { window.atomicMermaidInit(); }
-  else if (window.mermaid) { mermaid.initialize({ startOnLoad: false }); mermaid.run(); }
-});
-</script>
-{{- end}}
-</body>
-</html>`
-
-var pageTmpl = template.Must(template.New("page").Parse(pageTemplateStr))
-
-// pageFragmentTemplateStr is returned for htmx requests (HX-Request header present).
-// It omits the outer <!DOCTYPE html> shell; htmx swaps only this fragment into
-// #main-pane. When hasMermaid is true the mermaid script + run() call are included
-// so diagrams render after the htmx:afterSwap event fires.
-const pageFragmentTemplateStr = `<div id="page-content" class="md-content">
-{{.Body}}
-</div>
-{{if .HasMermaid -}}
-<script src="/static/vendor/mermaid.min.js"></script>
-<script>
-(function() {
-  if (window.atomicMermaidInit) { window.atomicMermaidInit(); }
-  else if (window.mermaid) { mermaid.initialize({ startOnLoad: false }); mermaid.run(); }
-})();
-</script>
-{{- end}}`
-
-var pageFragmentTmpl = template.Must(template.New("page-fragment").Parse(pageFragmentTemplateStr))
-
-// ─── file HTML template ───────────────────────────────────────────────────────
-
-// fileTemplateStr is the full HTML page returned for direct /file/* navigation
-// (no HX-Request header). Styles for .file-view live in assets/app.css.
-const fileTemplateStr = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>{{.Title}}</title>
-<link rel="stylesheet" href="/static/app.css">
-</head>
-<body>
-<div class="file-view-wrapper">
-{{.Body}}
-</div>
-</body>
-</html>`
-
-var fileTmpl = template.Must(template.New("file").Parse(fileTemplateStr))
-
-// fileFragmentTemplateStr is returned for htmx requests (HX-Request header present).
-// It omits the outer <!DOCTYPE html> shell; the caller swaps this fragment into
-// #code-modal-source. The wrapper div is retained so the shell's CSS target works.
-const fileFragmentTemplateStr = `<div class="file-view-wrapper">
-{{.Body}}
-</div>`
-
-var fileFragmentTmpl = template.Must(template.New("file-fragment").Parse(fileFragmentTemplateStr))
-
-// ─── NewPageHandler ───────────────────────────────────────────────────────────
-
-// NewPageHandler returns an http.Handler that serves rendered markdown files
-// from root. The path segment after "/page/" is resolved relative to root;
-// traversal outside root yields 404.
-//
-// Deprecated: use NewPageHandlerWithGraph for rail wiring and shell support.
-// NewPageHandler is kept for tests that exercise the raw renderer.
-func NewPageHandler(root string) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		relPath := strings.TrimPrefix(r.URL.Path, "/page/")
-		if relPath == "" || relPath == "/" {
-			http.NotFound(w, r)
-			return
-		}
-
-		abs, ok := safeResolve(root, relPath)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-
-		data, err := os.ReadFile(abs) //nolint:gosec // path validated by safeResolve
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-
-		bodyHTML, hasMermaid, err := RenderMarkdownWithLinks(data, root, normRelPath(relPath))
-		if err != nil {
-			http.Error(w, "render error", http.StatusInternalServerError)
-			return
-		}
-
-		title := filepath.Base(relPath)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-		tplData := struct {
-			Title      string
-			Body       template.HTML
-			HasMermaid bool
-		}{
-			Title:      title,
-			Body:       template.HTML(bodyHTML), //nolint:gosec // goldmark output
-			HasMermaid: hasMermaid,
-		}
-
-		// htmx requests receive only the inner fragment so the swap lands in
-		// #main-pane without replacing the three-pane shell.
-		if r.Header.Get("HX-Request") != "" {
-			_ = pageFragmentTmpl.Execute(w, tplData)
-			return
-		}
-		_ = pageTmpl.Execute(w, tplData)
-	})
-}
-
-// ─── NewFileHandler ───────────────────────────────────────────────────────────
-
-// NewFileHandler returns an http.Handler that serves source files from root
-// with chroma syntax highlighting and per-line id="L<n>" anchors.
-// The path segment after "/file/" is resolved relative to root;
-// traversal outside root yields 404.
-//
-// shell, when non-nil, is used for document (non-htmx) loads to wrap the
-// file view inside the full layout shell (FE8: shell is the universal envelope).
-// shell may be nil; nil degrades to the legacy bare full-page template.
-func NewFileHandler(root string, shell ...*ShellRenderer) http.Handler {
-	var sh *ShellRenderer
-	if len(shell) > 0 {
-		sh = shell[0]
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		relPath := strings.TrimPrefix(r.URL.Path, "/file/")
-		if relPath == "" || relPath == "/" {
-			http.NotFound(w, r)
-			return
-		}
-
-		isHX := fragmentRequest(r)
-
-		abs, ok := safeResolve(root, relPath)
-		if !ok {
-			// Traversal guard rejected path: serve shelled 404 (consistent with /page/).
-			serve404(w, r, relPath, "/file/"+relPath, isHX, sh)
-			return
-		}
-
-		data, err := os.ReadFile(abs) //nolint:gosec // path validated by safeResolve
-		if err != nil {
-			// File not found or unreadable: serve shelled 404.
-			serve404(w, r, relPath, "/file/"+relPath, isHX, sh)
-			return
-		}
-
-		ext := strings.TrimPrefix(filepath.Ext(relPath), ".")
-		bodyHTML := chromaHighlightLines(ext, string(data))
-
-		title := filepath.Base(relPath)
-
-		tplData := struct {
-			Title string
-			Body  template.HTML
-		}{
-			Title: title,
-			Body:  template.HTML(bodyHTML), //nolint:gosec // chroma output
-		}
-
-		// htmx requests receive only the inner fragment so the swap lands in
-		// #code-modal-source without replacing the three-pane shell.
-		if isHX {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_ = fileFragmentTmpl.Execute(w, tplData)
-			return
-		}
-
-		// Document load: render the shell with LandingURL = this file path so
-		// the user retains navigation (FE8: shell is the universal envelope).
-		if sh != nil {
-			_ = sh.Render(w, "/file/"+relPath, http.StatusOK)
-			return
-		}
-
-		// Fallback: legacy bare full-page template (no shell available).
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_ = fileTmpl.Execute(w, tplData)
-	})
 }

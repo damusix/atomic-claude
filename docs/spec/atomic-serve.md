@@ -37,14 +37,15 @@ only what gets built.
       realm scope; inside a member → member scope; a bare repo with no wiki → repo scope.
       The resolved scope is shown in the UI header. A bare repo with a code index but no
       wiki is servable (code views + its `docs/`, no realm chrome).
-- [ ] **SC3** — Static assets (htmx, base CSS, html/template layout) are embedded via
-      `go:embed` and served from memory; no network fetch, no file dependency outside the
-      binary. The root route renders the persistent shell.
-      **Superseded 2026-06-14 (see change log):** the shell is the Obsidian model — top bar
+- [ ] **SC3** — The React SPA build output (`frontend/dist/`) — a Bun-toolchained React +
+      TypeScript workspace, package.json/tsconfig committed alongside it, `dist/` committed
+      and embedded via `go:embed` — is served from memory; no network fetch, no file
+      dependency outside the binary, no runtime Bun/Node invocation. Every non-API,
+      non-static, non-carried-JS-endpoint GET falls back to the embedded `index.html`; React
+      Router resolves the requested path client-side and renders the Obsidian shell — top bar
       (breadcrumb + `md|code` search), left nav, middle content with a `[page | system]`
-      toggle, right rail (this-page graph ▸ OUT links ▸ IN links), code-file modal. The
-      earlier "left nav · center · right context" three-pane is replaced. See *Frontend
-      rework* below and the design doc § "Frontend interaction model".
+      toggle, right rail (this-page graph ▸ OUT links ▸ IN links), code-file modal. See the
+      *React SPA frontend* section below and `docs/spec/serve-react-frontend.md`.
 - [ ] **SC4** — A realm/repo markdown file renders to HTML via goldmark (GFM) with chroma
       syntax highlighting and client-side mermaid for ```mermaid blocks. A `file:line`
       reference opens a chroma-highlighted source view scrolled/anchored to the line.
@@ -128,20 +129,31 @@ only what gets built.
 
 Decided in `docs/design/atomic-serve.md`: one `atomic serve` verb, a presentation-only
 leaf package (`internal/serve/`) importing wiki + code-intel and imported by neither;
-goldmark + chroma + mermaid render; htmx UI; the rail mini-graph on Cytoscape.js
-(`concentric` layout), the system graph on cosmos.gl (GPU simulation + GPU rendering —
-`docs/spec/cosmos-system-graph.md`); all assets vendored via `go:embed`; scope
-resolution shared with `atomic code` via `realm.Resolve`. The middle-pane graph mode
-hosts two views behind a nested Docs | Code control — the whole-realm system graph
-above, and a per-repo code-intel symbol graph — sharing one cosmos.gl core
-(`graph-core.js`) with a docs profile (`system-graph.js`) and a code profile
-(`code-graph.js`); contract at `docs/spec/code-graph.md`.
+goldmark + chroma + mermaid render server-side, delivered as HTML-in-JSON under `/api/*`;
+a Bun-toolchained React + TypeScript SPA (`frontend/`, contract:
+`docs/spec/serve-react-frontend.md`) consumes the API and renders the shell client-side;
+the rail mini-graph on Cytoscape.js (`concentric` layout), the system graph on cosmos.gl
+(GPU simulation + GPU rendering — `docs/spec/cosmos-system-graph.md`) — both carried into
+`frontend/public/` unchanged and mounted from React via `window` contracts (`GraphCore`,
+`AtomicGraphUI`, `AtomicCodeExplorer`); all assets embedded via `go:embed` from the
+committed `frontend/dist/` build; scope resolution shared with `atomic code` via
+`realm.Resolve`. The middle-pane graph mode hosts two views behind a nested Docs | Code
+control — the whole-realm system graph above, and a per-repo code-intel symbol graph —
+sharing one cosmos.gl core (`graph-core.js`) with a docs profile (`system-graph.js`) and a
+code profile (`code-graph.js`); contract at `docs/spec/code-graph.md`.
 
 
 ## Checkpoints
 
 File/area references ground in the verified seams from the evidence pass. Agent column is
 a dispatch hint, not a hard roster.
+
+These checkpoints (CP1–11, FE1–6) shipped the htmx-fragment shell first; that shell was
+replaced wholesale by a React SPA per `docs/spec/serve-react-frontend.md` (see *React SPA
+frontend* below). The rows below are the historical build order for the underlying
+engines (markdown render, link graph, search, code-intel routes, graph overlay) — those
+engines are unchanged; only their UI composition and transport (htmx fragments → `/api/*`
+JSON + React) changed, per the newer spec.
 
 
 | # | Checkpoint | Files/areas | Agent | Verifies |
@@ -301,6 +313,34 @@ grep. Canonical UI picture: design doc § "Frontend interaction model".
 | FE6 | **Parity + docs** — render/bundle clean; `docs/reference/serve.md` + `/atomic-help` row reflect the Obsidian UI; signals refresh; full verify | `docs/reference/serve.md`, `templates/commands/atomic-help.md`, signals | surgeon | FE-SC7 |
 
 
+## React SPA frontend — 2026-07-17
+
+The htmx-fragment shell built above (FE1–FE6) is superseded wholesale by a Bun-toolchained
+React + TypeScript SPA. Full contract, checkpoints, and change log:
+`docs/spec/serve-react-frontend.md`; design deliberation: `docs/design/serve-react-frontend.md`.
+
+Current shape: the Go server exposes a JSON API under `/api/*` (page, file, rail, nav,
+search, code-intel, status, external) plus a handful of carried, unreshaped endpoints
+(`/graph/data`, `/code/graph/data`, `/code/graph/members`, `/events`, `/healthz`). Every
+other GET falls back to the embedded `index.html`; React Router resolves the request
+client-side. `templates/layout.html`, the htmx vendor bundle, the OOB fragment handlers,
+and every pre-cutover HTML-fragment code path are deleted — not left dead alongside the
+new code. The cosmos.gl graph engine (`graph-core.js`, `system-graph.js`, `code-graph.js`,
+vendored `cosmos-graph.js`) and Cytoscape (rail mini-graph) carry over unchanged, mounted
+from React via `window` contracts (`GraphCore`, `AtomicGraphUI`, `AtomicCodeExplorer`)
+instead of htmx `hx-*` attributes.
+
+**Live-reload correction:** the graph pane is *not* patched in place on a live-reload
+push, in either the pre-cutover htmx shell or the current React SPA. A subscribed tab's
+nav tree and the currently displayed page/rail refresh on the next `/events` push; the
+graph pane (Docs or Code view) reflects a realm change only on its *next* `/graph/data` or
+`/code/graph/data` fetch — re-entering the view, reloading, or the cosmos engine's own
+fingerprint-keyed layout cache invalidating on a subsequent load.
+`docs/spec/serve-live-reload.md`'s CP5 (in-place Cytoscape id-diff/patch for the graph pane) was
+built against the pre-cosmos client and had no surviving attachment point once the
+cosmos.gl engine swap replaced it; it was struck and superseded, not completed. Tracked by
+follow-up `cosmos-graph-live-reload-reconcile`.
+
 ## Open questions
 
 None.
@@ -320,6 +360,37 @@ None.
 
 
 ## Change log
+
+### 2026-07-17 — React SPA replaces the htmx-fragment shell
+
+**What changed:** SC3 and the Approach paragraph now describe the served UI as a
+Bun-toolchained React + TypeScript SPA (`frontend/`, `docs/spec/serve-react-frontend.md`)
+whose committed `dist/` is embedded via `go:embed`, rather than an htmx-fragment shell
+rendered from `templates/layout.html`. The Go server now exposes JSON under `/api/*`
+(page, file, rail, nav, search, code-intel, status, external) plus the carried,
+unreshaped endpoints (`/graph/data`, `/code/graph/data`, `/code/graph/members`,
+`/events`, `/healthz`); every other GET falls back to the embedded `index.html` and React
+Router resolves the path client-side. `templates/layout.html`, the htmx vendor bundle, the
+OOB fragment handlers, and every pre-cutover HTML-fragment code path are deleted. The
+cosmos.gl graph engine and Cytoscape rail mini-graph carry over unchanged, now mounted
+from React via `window` contracts instead of htmx `hx-*` attributes. A new
+"React SPA frontend" body section points at the full contract; a note above the
+Checkpoints table frames CP1–11/FE1–6 as the historical htmx-era build order for engines
+that are otherwise unchanged. Also corrects an overstatement in this spec's live-reload
+description: the graph pane is not, and never was, patched in place on a live-reload push
+— `docs/spec/serve-live-reload.md`'s CP5 (in-place Cytoscape diff/patch) was struck and
+superseded at the cosmos.gl engine merge, not completed; the graph pane reflects a realm
+change only on its next `/graph/data`/`/code/graph/data` fetch.
+
+**Why:** the htmx shell was replaced end-to-end by `docs/spec/serve-react-frontend.md`'s
+additive-then-cutover migration; this spec's body described a UI that no longer exists,
+which a fresh-context subagent would build against verbatim.
+
+**Superseded:** SC3's htmx/`html/template`-embedded-shell description and its "root route
+renders the persistent shell" claim; the Approach paragraph's "htmx UI" clause; the
+Checkpoints section's implicit claim that CP1–11/FE1–6 describe the current UI transport
+(they now describe historical build order only, per the added note); any prior implication
+elsewhere in this spec's body that the graph pane live-reloads in place.
 
 ### 2026-07-08 — Graph pane: node/edge hover highlighting, zoom clamp, smaller node sizes, brighter edges
 

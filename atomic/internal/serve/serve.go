@@ -1,17 +1,17 @@
 // Package serve implements the `atomic serve` HTTP server — a read-only,
 // localhost-only presentation layer over wiki + code-intel data.
 //
-// CP1 delivers the server skeleton: flag parsing, scope resolution, embedded
-// assets, three-pane HTML shell, /healthz, graceful SIGINT shutdown, and the
-// --open browser seam.
+// The server is a JSON API (/api/*) plus a handful of carried, unreshaped
+// endpoints (/graph/data, /code/graph/data, /code/graph/members, /events,
+// /healthz) backing the embedded React SPA (frontend_dist.go). Every other
+// GET falls through to the SPA shell (index.html); React Router resolves the
+// requested path client-side.
 package serve
 
 import (
 	"context"
-	"embed"
 	"flag"
 	"fmt"
-	"html/template"
 	"io"
 	"io/fs"
 	"net"
@@ -21,21 +21,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 )
-
-//go:embed assets templates
-var embeddedFS embed.FS
-
-// systemGraphFragmentHTML is the htmx fragment for the /graph (Network View) page.
-// The [data-system-graph] container is the seam the shell's onLoad handler keys on
-// to mount cosmos.gl (system-graph.js); the loading line is removed once the
-// simulation settles.
-const systemGraphFragmentHTML = `<div id="system-cy" data-system-graph></div>
-<p class="loading system-graph-loading">Laying out graph…</p>`
 
 // DisplayScope is the serve-level scope label derived from the realm resolver.
 type DisplayScope int
@@ -137,6 +128,7 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		fmt.Fprintf(opts.Stderr, "atomic serve: scope resolve: %v\n", err)
 		return 1
 	}
+	_ = scope // scope badge is now surfaced via /api/status, not a server-rendered shell
 
 	// Resolve realm root for the nav tree.  We call realm.Resolve a second time
 	// here to get the full Resolution (which carries RealmRoot).  The double-call
@@ -153,8 +145,7 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	// page, rail, and graph-data all read through it instead of each
 	// tracking its own copy, so the ticker (CP3), lazy per-request
 	// validation, and NewSnapshotStore's synchronous warm all observe — and
-	// refresh — the same realm state (SC7). The warm gives the same
-	// synchronous startup cost the old BuildLinkGraph(navRoot) call did here.
+	// refresh — the same realm state (SC7).
 	store := NewSnapshotStore(navRoot)
 
 	// eventsRegistry tracks connected /events (SSE) subscribers. The ticker
@@ -169,26 +160,6 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		Store:         store,
 	}
 
-	// Parse and cache the embedded template.
-	tmplData, err := embeddedFS.ReadFile("templates/layout.html")
-	if err != nil {
-		fmt.Fprintf(opts.Stderr, "atomic serve: read layout template: %v\n", err)
-		return 1
-	}
-	tmpl, err := template.New("layout").Parse(string(tmplData))
-	if err != nil {
-		fmt.Fprintf(opts.Stderr, "atomic serve: parse layout template: %v\n", err)
-		return 1
-	}
-
-	// Build the static file server over the embedded assets subtree.
-	assetsFS, err := fs.Sub(embeddedFS, "assets")
-	if err != nil {
-		fmt.Fprintf(opts.Stderr, "atomic serve: assets sub-fs: %v\n", err)
-		return 1
-	}
-	staticHandler := http.FileServer(http.FS(assetsFS))
-
 	mux := http.NewServeMux()
 
 	// /healthz — liveness probe.
@@ -198,120 +169,69 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		fmt.Fprint(w, "ok")
 	})
 
-	// /static/* — embedded assets, served from memory.
-	mux.Handle("/static/", http.StripPrefix("/static/", staticHandler))
-
-	// Compute the default landing URL server-side.
-	// Realm scope → /page/wiki/index.md; repo/member scope → /page/README.md
-	// (the /page/ handler falls back gracefully for missing files).
-	landingURL := computeLandingURL(opts.TargetDir, isRealmScope, wikiIndexPath)
-
-	// ShellRenderer is shared by all routes that need to render the full shell
-	// (/, /page/*, /file/* on document loads). FE8: shell is the universal envelope.
-	shell := &ShellRenderer{
-		tmpl:       tmpl,
-		ScopeBadge: scope.String(),
-		ScopeLabel: opts.TargetDir,
-		TargetDir:  opts.TargetDir,
+	// /api/* — JSON endpoints for the React frontend. Every handler reuses the
+	// same view-model builders the pre-cutover htmx fragments used, so link
+	// resolution stays single-sourced.
+	// Landing relpath: realm scope resolves to the realm index, repo scope to
+	// README.md — the /api/page/ handler serves it for an empty relpath so the
+	// SPA's "/" route never has to guess the scope.
+	landingRel := "README.md"
+	if isRealmScope && wikiIndexPath != "" {
+		if rel, relErr := filepath.Rel(opts.TargetDir, wikiIndexPath); relErr == nil {
+			landingRel = rel
+		}
 	}
-
-	// /page/* — render a markdown file from the scope root, wired to the rail.
-	// FE8: non-htmx requests receive the shell with LandingURL = the requested path.
-	mux.Handle("/page/", NewPageHandlerWithGraph(opts.TargetDir, store, shell))
-
-	// /rail/* — right-rail compositing: three OOB fragments for the focused page
-	// (#rail-out-content, #rail-in-content, #rail-graph-content).
-	mux.Handle("/rail/", NewRailHandler(navRoot, store))
-
-	// /file/* — syntax-highlighted source view from the scope root.
-	// FE8: non-htmx requests receive the shell with LandingURL = the requested path.
-	mux.Handle("/file/", NewFileHandler(opts.TargetDir, shell))
-
-	// /external — external-link registry page.
-	mux.Handle("/external", NewExternalHandler(navRoot, GitOrMtimeDateFn))
-
-	// /nav — nav tree fragment (htmx target: #nav-pane).
-	mux.Handle("/nav", NewNavHandler(navOpts))
-
-	// /status — realm-health dashboard (FE-SC6: health is ambient, not the landing).
-	// Was /health in CP6; demoted to /status so the landing is the page view.
-	healthOpts := HealthOptions{
-		RealmRoot:    navRoot,
-		IsRealmScope: isRealmScope,
-		// Seams are nil → production defaults wired inside NewHealthHandler.
-	}
-	mux.Handle("/status", NewHealthHandler(healthOpts))
-
-	// /events — live-reload SSE stream (CP3): register, resync push, stream
-	// until the request context ends. Distinct route from /status — a health
-	// probe and the live-reload push channel are different concerns.
-	mux.Handle("/events", NewEventsHandler(store, eventsRegistry))
-
-	// /search — dedicated full-pane search page (streams results via SSE).
-	// Document loads are shell-wrapped; the search dialog links here for "view all".
-	mux.Handle("/search", NewSearchPageHandler(shell))
-
-	// /search/stream — Server-Sent Events: md block + one code event per member
-	// (members searched concurrently), terminal "end". Backs the /search page.
-	mux.Handle("/search/stream", NewSearchStreamHandler(SearchStreamOptions{
+	mux.Handle("/api/page/", NewAPIPageHandler(opts.TargetDir, store, landingRel))
+	mux.Handle("/api/file/", NewAPIFileHandler(opts.TargetDir))
+	mux.Handle("/api/rail/", NewAPIRailHandler(navRoot, store))
+	mux.Handle("/api/nav", NewAPINavHandler(navOpts))
+	mux.Handle("/api/search/md", NewAPIMdSearchHandler(MdSearchOptions{NavRoot: navRoot}))
+	mux.Handle("/api/code/search", NewAPICodeSearchHandler(CodeSearchOptions{
+		RealmRoot:    opts.TargetDir,
+		ClaudeMDPath: opts.ClaudeMDPath,
+	}))
+	mux.Handle("/api/search/stream", NewAPISearchStreamHandler(SearchStreamOptions{
 		NavRoot:      navRoot,
 		RealmRoot:    opts.TargetDir,
 		ClaudeMDPath: opts.ClaudeMDPath,
 	}))
 
-	// /search/md — markdown full-text search fragment (dialog quick-jump).
-	mux.Handle("/search/md", NewMdSearchHandler(MdSearchOptions{NavRoot: navRoot}))
+	healthOpts := HealthOptions{
+		RealmRoot:    navRoot,
+		IsRealmScope: isRealmScope,
+		// Seams are nil → production defaults wired inside NewAPIStatusHandler.
+	}
+	mux.Handle("/api/status", NewAPIStatusHandler(healthOpts))
+	mux.Handle("/api/external", NewAPIExternalHandler(navRoot, GitOrMtimeDateFn, store))
 
-	// /code/search — federated code search (CP7, SC9).
-	mux.Handle("/code/search", NewCodeSearchHandler(CodeSearchOptions{
-		RealmRoot:    opts.TargetDir,
-		ClaudeMDPath: opts.ClaudeMDPath,
-		// SearchFn nil → production default (DefaultMemberSearchFn).
-	}))
+	// /events — live-reload SSE stream: register, resync push, stream
+	// until the request context ends. Carried path (unchanged by the cutover).
+	mux.Handle("/events", NewEventsHandler(store, eventsRegistry))
 
-	// /graph/data — Cytoscape elements JSON (CP9, SC11).
-	// Shares the store above so /graph/data does not rebuild per-request and
-	// stays live (CP2) instead of serving a startup-frozen graph.
+	// /graph/data — Cytoscape elements JSON for the docs graph view. Shares the
+	// store above so /graph/data does not rebuild per-request and stays live.
 	mux.Handle("/graph/data", NewGraphDataHandlerWithGraph(navRoot, store))
 
-	// /graph — the Network View as its own page (URL-addressable, history-tracked,
-	// refresh-survivable). htmx requests get the #system-cy mount fragment; the
-	// shell's onLoad handler mounts Cytoscape and restores zoom/pan from the URL
-	// (?z=&px=&py=). Document loads (refresh / share / Back) get the full shell with
-	// LandingURL=/graph so it boots straight into the graph.
-	mux.HandleFunc("/graph", func(w http.ResponseWriter, r *http.Request) {
-		if fragmentRequest(r) {
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = io.WriteString(w, systemGraphFragmentHTML)
-			return
-		}
-		if err := shell.Render(w, "/graph", http.StatusOK); err != nil {
-			fmt.Fprintf(opts.Stderr, "atomic serve: graph shell render: %v\n", err)
-		}
-	})
-
-	// /code/* — per-repo Code Explorer (CP8, SC10).
-	// Routes: /code/node, /code/callers, /code/callees, /code/impact, /code/files, /code/schema.
-	explorerHandler := NewCodeExplorerHandler(CodeExplorerOptions{
+	// /api/code/* — JSON siblings of the (now-removed) /code/* explorer routes.
+	apiExplorerHandler := NewCodeExplorerAPIHandler(CodeExplorerOptions{
 		RealmRoot:     opts.TargetDir,
 		ClaudeMDPath:  opts.ClaudeMDPath,
 		WikiIndexPath: wikiIndexPath,
 		// EngineProvider nil → DefaultEngineProvider.
 	})
 	for _, route := range []string{
-		"/code/node",
-		"/code/callers",
-		"/code/callees",
-		"/code/impact",
-		"/code/files",
-		"/code/schema",
-		"/code/file",
+		"/api/code/node",
+		"/api/code/callers",
+		"/api/code/callees",
+		"/api/code/impact",
+		"/api/code/files",
+		"/api/code/schema",
+		"/api/code/file",
 	} {
-		mux.Handle(route, explorerHandler)
+		mux.Handle(route, apiExplorerHandler)
 	}
 
-	// /code/graph/data — full-repo code graph export for the code graph view
-	// (code-graph spec CP2, SC2).
+	// /code/graph/data — full-repo code graph export for the code graph view.
 	mux.Handle("/code/graph/data", NewCodeGraphHandler(CodeGraphOptions{
 		RealmRoot:     opts.TargetDir,
 		ClaudeMDPath:  opts.ClaudeMDPath,
@@ -320,24 +240,24 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	}))
 
 	// /code/graph/members — realm member list + indexed state for the code
-	// view's member picker (code-graph spec CP6, SC7).
+	// view's member picker.
 	mux.Handle("/code/graph/members", NewCodeGraphMembersHandler(CodeGraphOptions{
 		RealmRoot:     opts.TargetDir,
 		ClaudeMDPath:  opts.ClaudeMDPath,
 		WikiIndexPath: wikiIndexPath,
 	}))
 
-	// / — Obsidian shell (FE1: breadcrumb + search + [page|system] toggle + right rail).
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		if err := shell.Render(w, landingURL, http.StatusOK); err != nil {
-			// Headers already sent — log only.
-			fmt.Fprintf(opts.Stderr, "atomic serve: template execute: %v\n", err)
-		}
-	})
+	// Everything else — the SPA shell. React Router resolves /page/<relpath>,
+	// /graph, /search, /status, /external, and any deep link client-side.
+	// Static assets carried into frontend/dist (app.css, graph-core.js,
+	// system-graph.js, code-graph.js, vendor/*, logo.png, the bundled
+	// assets/*) are served as-is; any other path falls back to index.html.
+	distFS, err := fs.Sub(embeddedFrontend, "frontend/dist")
+	if err != nil {
+		fmt.Fprintf(opts.Stderr, "atomic serve: frontend dist sub-fs: %v\n", err)
+		return 1
+	}
+	mux.Handle("/", newSPAHandler(distFS))
 
 	// Bind listener. Default to loopback; an explicit Host (e.g. 0.0.0.0) opts into
 	// exposing the read-only viewer on other interfaces / the LAN.
@@ -381,18 +301,8 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		}
 	}
 
-	// Page routes content-negotiate on the HX-Request header (htmx fragment vs
-	// full shell), so every response varies by it. Without Vary, a shared or
-	// browser cache could serve a bare fragment to a direct navigation, or a full
-	// document to an htmx swap. Set it once for all routes; it is harmless on the
-	// routes that do not negotiate.
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Vary", "HX-Request")
-		mux.ServeHTTP(w, r)
-	})
-
 	srv := &http.Server{
-		Handler: handler,
+		Handler: mux,
 		// BaseContext ties every request's context to the same ctx that
 		// drives graceful shutdown below. srv.Shutdown does not itself cancel
 		// in-flight request contexts — without this, an open /events
@@ -401,7 +311,7 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		BaseContext: func(net.Listener) context.Context { return ctx },
 	}
 
-	// The live-reload ticker (CP3) is bound to the same ctx: it must stop
+	// The live-reload ticker is bound to the same ctx: it must stop
 	// exactly when the server starts shutting down, never before or after.
 	startTicker(ctx, store, eventsRegistry, store.tickInterval)
 
@@ -430,6 +340,30 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		}
 		return 0
 	}
+}
+
+// newSPAHandler serves static files from root when the request path matches
+// one on disk (app.css, graph-core.js, the bundled assets/* directory, ...),
+// and falls back to index.html — the React shell — for everything else
+// (deep links like /page/<relpath>, /graph, /search: React Router resolves
+// them client-side). Path-traversal is guarded by http.FileServer/http.FS.
+func newSPAHandler(root fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(root))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(r.URL.Path, "/")
+		if p == "" {
+			p = "index.html"
+		}
+		if f, err := root.Open(p); err == nil {
+			_ = f.Close()
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// No file on disk at this path: fall back to the SPA shell.
+		r2 := r.Clone(r.Context())
+		r2.URL.Path = "/"
+		fileServer.ServeHTTP(w, r2)
+	})
 }
 
 // lanIPv4s returns the non-loopback IPv4 addresses of the host's interfaces, so a
@@ -463,55 +397,6 @@ func defaultBrowserOpen(url string) error {
 		cmd = exec.Command("xdg-open", url)
 	}
 	return cmd.Start()
-}
-
-// ShellRenderer holds the shell template and the fixed scope metadata that
-// every page rendered inside the shell requires. Handlers use it to emit the
-// full layout.html shell with a custom LandingURL for document (non-htmx) loads.
-type ShellRenderer struct {
-	tmpl       *template.Template
-	ScopeBadge string
-	ScopeLabel string
-	TargetDir  string
-}
-
-// Render writes layout.html to w with LandingURL set to initialContentURL.
-// status is the HTTP status code (200 or 404). The Content-Type header is set
-// before Execute so callers need not set it themselves.
-func (s *ShellRenderer) Render(w http.ResponseWriter, initialContentURL string, status int) error {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	data := struct {
-		ScopeBadge string
-		ScopeLabel string
-		TargetDir  string
-		LandingURL string
-	}{
-		ScopeBadge: s.ScopeBadge,
-		ScopeLabel: s.ScopeLabel,
-		TargetDir:  s.TargetDir,
-		LandingURL: initialContentURL,
-	}
-	return s.tmpl.Execute(w, data)
-}
-
-// computeLandingURL returns the /page/ URL that #main-pane loads on startup.
-//
-// Decision: realm scope → realm index (wiki/index.md); repo/member → README.md.
-// The /page/ handler already handles a missing file gracefully (404 fragment),
-// so no additional file-existence check is needed here.
-func computeLandingURL(targetDir string, isRealmScope bool, wikiIndexPath string) string {
-	if isRealmScope && wikiIndexPath != "" {
-		// wikiIndexPath is an absolute path; derive the repo-relative path using
-		// filepath.Rel so a trailing slash on targetDir never causes an off-by-one.
-		// Example: /realm/root/wiki/index.md relative to /realm/root → wiki/index.md
-		rel, err := filepath.Rel(targetDir, wikiIndexPath)
-		if err == nil {
-			return "/page/" + rel
-		}
-	}
-	// Repo / member scope: try README.md.
-	return "/page/README.md"
 }
 
 // parseFlags parses the args slice for the serve verb and returns Options.

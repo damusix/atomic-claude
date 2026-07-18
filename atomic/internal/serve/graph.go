@@ -21,6 +21,7 @@
 package serve
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,36 +32,66 @@ import (
 )
 
 // Edge is a directed link from one page to another (or to an unresolved target).
+//
+// JSON tags: the /api/rail "out" field (api_handlers.go) marshals []Edge
+// directly, per the ## API contracts table's edge shape.
 type Edge struct {
 	// SourcePage is the realm-root-relative path of the page containing the link.
-	SourcePage string
+	SourcePage string `json:"-"`
 
 	// Target is the raw link target as written in the source (URL, path, wikilink name).
-	Target string
+	Target string `json:"target"`
 
 	// Kind is MarkdownLink or Wikilink.
-	Kind mdlink.LinkKind
+	Kind mdlink.LinkKind `json:"-"`
 
 	// ResolvedPath is the realm-root-relative path the link resolves to.
 	// Empty when Broken is true.
-	ResolvedPath string
+	ResolvedPath string `json:"resolvedPath"`
 
 	// Broken is true when the link target cannot be resolved to a file in the realm.
-	Broken bool
+	Broken bool `json:"broken"`
 
 	// Ambiguous is true when a wikilink matched more than one file; ResolvedPath
 	// carries the nearest-then-alphabetical winner but the ambiguity is surfaced.
-	Ambiguous bool
+	Ambiguous bool `json:"ambiguous"`
 
 	// CodeFile is true when the link target is an existing non-.md source file
 	// (e.g. a .go, .ts, .py file). The UI renders these as clickable /file/ links
 	// that open the code modal, not as broken links.
-	CodeFile bool
+	CodeFile bool `json:"codeFile"`
 
 	// External is true when the link target is a real external URL (http://,
 	// https://, or mailto:). Anchor-only links (#section) are NOT external —
 	// they jump within the current page and must not open a new tab.
-	External bool
+	External bool `json:"external"`
+}
+
+// edgeJSON mirrors Edge for marshaling, with Kind rendered as its string
+// form (mdlink.LinkKind.String) instead of its underlying int — a plain
+// json struct tag can't do this conversion, hence the manual MarshalJSON.
+type edgeJSON struct {
+	Target       string `json:"target"`
+	Kind         string `json:"kind"`
+	ResolvedPath string `json:"resolvedPath"`
+	Broken       bool   `json:"broken"`
+	Ambiguous    bool   `json:"ambiguous"`
+	CodeFile     bool   `json:"codeFile"`
+	External     bool   `json:"external"`
+}
+
+// MarshalJSON implements json.Marshaler so /api/rail's "out" field (Edge
+// consumed directly per the API contracts table) carries Kind as a string.
+func (e Edge) MarshalJSON() ([]byte, error) {
+	return json.Marshal(edgeJSON{
+		Target:       e.Target,
+		Kind:         e.Kind.String(),
+		ResolvedPath: e.ResolvedPath,
+		Broken:       e.Broken,
+		Ambiguous:    e.Ambiguous,
+		CodeFile:     e.CodeFile,
+		External:     e.External,
+	})
 }
 
 // NodeMeta holds per-page preview metadata for the hover card and modal.
@@ -623,20 +654,73 @@ func resolveMarkdownLink(
 	}
 	combined = filepath.ToSlash(filepath.Clean(combined))
 
-	// Check it's within the realm.
+	// Check it's within the realm (over-climbed ../ runs get a repair attempt
+	// before being declared broken — see repairOverClimbedRelative).
 	if strings.HasPrefix(combined, "..") {
+		if repaired, ok := repairOverClimbedRelative(root, pageDir, cleanTarget); ok {
+			if resolved, codeFile, rok := resolveRootRelative(repaired, root, allPages, sourceFiles); rok {
+				edge.ResolvedPath = resolved
+				edge.CodeFile = codeFile
+				return edge
+			}
+		}
 		edge.Broken = true
 		return edge
 	}
 
 	resolved, codeFile, ok := resolveRootRelative(combined, root, allPages, sourceFiles)
 	if !ok {
+		if repaired, rok := repairOverClimbedRelative(root, pageDir, cleanTarget); rok {
+			if rresolved, codeFile, rrok := resolveRootRelative(repaired, root, allPages, sourceFiles); rrok {
+				edge.ResolvedPath = rresolved
+				edge.CodeFile = codeFile
+				return edge
+			}
+		}
 		edge.Broken = true
 		return edge
 	}
 	edge.ResolvedPath = resolved
 	edge.CodeFile = codeFile
 	return edge
+}
+
+// repairOverClimbedRelative handles relative links whose ../ run climbs past
+// their true target — a common authoring slip in member-repo docs written
+// against a different nesting depth (e.g. "../../../src/x.ts" from
+// gui/docs/wiki/ lands at the realm root, where src/ doesn't exist, when the
+// author meant gui/src/x.ts). It strips the leading ../ run and probes the
+// remainder against each ancestor of pageDir (deepest first, ending at the
+// served root), returning the first candidate that exists on disk.
+func repairOverClimbedRelative(root, pageDir, cleanTarget string) (string, bool) {
+	remainder := cleanTarget
+	for strings.HasPrefix(remainder, "../") {
+		remainder = remainder[3:]
+	}
+	if remainder == cleanTarget || remainder == "" || remainder == ".." {
+		return "", false
+	}
+	dir := pageDir
+	for {
+		candidate := remainder
+		if dir != "." && dir != "" {
+			candidate = filepath.ToSlash(filepath.Join(dir, remainder))
+		}
+		if abs, ok := safeResolve(root, candidate); ok {
+			if _, err := os.Stat(abs); err == nil {
+				return candidate, true
+			}
+		}
+		if dir == "." || dir == "" {
+			break
+		}
+		parent := filepath.ToSlash(filepath.Dir(dir))
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "", false
 }
 
 // resolvePageHref rewrites a raw in-page markdown link destination, found on a
@@ -717,6 +801,19 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 	}
 	combined = filepath.ToSlash(filepath.Clean(combined))
 	if combined == ".." || strings.HasPrefix(combined, "../") {
+		// Over-climbed ../ run: same repair the link graph applies in
+		// resolveMarkdownLink, so the rendered href and the rail edge agree.
+		if repaired, ok := repairOverClimbedRelative(root, pageDir, target); ok {
+			if strings.HasSuffix(repaired, ".md") {
+				return "/page/" + repaired + anchor, true, false
+			}
+			if abs, aok := safeResolve(root, repaired); aok {
+				if info, statErr := os.Stat(abs); statErr == nil && info.IsDir() {
+					return "/page/" + repaired + "/" + anchor, true, false
+				}
+			}
+			return "/file/" + repaired + anchor, false, false
+		}
 		return raw, false, false
 	}
 
@@ -733,9 +830,19 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 		}
 	}
 
-	// Unresolved but within the realm: route by extension so the user stays in
-	// the shell (a known source extension opens the code modal; everything else
-	// goes through /page/ and gets the in-shell 404 fragment).
+	// Unresolved but within the realm: an over-climbed ../ run that lands
+	// exactly at (or above) the root cleans to a plain miss, so give it the
+	// same ancestor-probe repair the link graph applies before routing dead.
+	if repaired, ok := repairOverClimbedRelative(root, pageDir, target); ok {
+		if strings.HasSuffix(repaired, ".md") {
+			return "/page/" + repaired + anchor, true, false
+		}
+		return "/file/" + repaired + anchor, false, false
+	}
+
+	// Route by extension so the user stays in the shell (a known source
+	// extension opens the code modal; everything else goes through /page/ and
+	// gets the in-shell 404 fragment).
 	if ext := filepath.Ext(combined); ext != "" && ext != ".md" {
 		return "/file/" + combined + anchor, false, false
 	}

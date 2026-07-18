@@ -1,6 +1,9 @@
 package serve_test
 
-// graphoverlay_test.go — CP9/FE3 tests for /graph/data and the system-graph toggle.
+// graphoverlay_test.go — tests for /graph/data, the carried Cytoscape
+// elements endpoint behind the docs graph view (React owns the shell and the
+// mount lifecycle post-cutover; the endpoint's contract is what this file
+// covers).
 //
 // TDD contract:
 //  1. /graph/data returns valid Cytoscape elements JSON. Nodes have {data:{id,label,type}};
@@ -8,18 +11,14 @@ package serve_test
 //  2. A wikilink edge has class "wikilink"; a markdown-link edge has class "md-link".
 //  3. Local view ?node=A&depth=1 returns only the depth-1 neighbourhood (a depth-2-only
 //     node must be absent from the response).
-//  4. /graph (standalone page) no longer exists — returns 404 (FE3: superseded by the
-//     in-shell system-graph toggle). /graph/data must still return 200.
-//  5. The shell (GET /) contains the FE3 system-mode toggle wiring:
-//     a. A single atomicCyStyle() function (shared style — not duplicated).
-//     b. A #mode-system click handler that references #system-cy and fetches /graph/data.
-//     c. The fingerprint and fingerprint.drift style selectors inside atomicCyStyle().
-//     d. Node tap → navigate to /page/ (htmx.ajax call) and restore page mode.
+//  4. /graph/data reads through an injected snapshot store rather than rebuilding
+//     from the served root on every request.
 
 import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -222,190 +221,6 @@ func TestGraphDataLocalViewDepth1ExcludesDepth2(t *testing.T) {
 	// delta.md is depth-3: also must be absent.
 	if nodeIDs["delta.md"] {
 		t.Errorf("local depth-1 view: delta.md (depth-3) must be excluded, but found; nodes: %v", nodeIDs)
-	}
-}
-
-// TestGraphPageServesNetworkView verifies the Network View is its own page:
-//   - GET /graph (document load) returns the full shell, booting LandingURL=/graph
-//     so a refresh / shared link / Back lands straight in the graph.
-//   - GET /graph with HX-Request returns the bare [data-system-graph] mount
-//     fragment (the shell's onLoad handler mounts Cytoscape into it).
-//   - /graph/data must still return 200 (the data source for the mount).
-func TestGraphPageServesNetworkView(t *testing.T) {
-	root := buildGraphOverlayRealm(t)
-
-	baseURL, shutdown := startTestServer(t, startOpts(t, root))
-	defer shutdown()
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	// Document load → the full shell, wired to boot the graph into #main-pane.
-	resp, err := http.Get(baseURL + "/graph")
-	if err != nil {
-		t.Fatalf("GET /graph: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("/graph document load must return 200, got %d", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-	if !strings.Contains(html, "<!DOCTYPE") {
-		t.Errorf("/graph document load must return the full shell, got a fragment:\n%s", html)
-	}
-	if !strings.Contains(html, `hx-get="/graph"`) {
-		t.Errorf("/graph shell must boot the graph into #main-pane (hx-get=\"/graph\"); html:\n%s", html)
-	}
-
-	// htmx request → the bare mount fragment, NOT the shell.
-	req, _ := http.NewRequest(http.MethodGet, baseURL+"/graph", nil)
-	req.Header.Set("HX-Request", "true")
-	fragResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /graph (htmx): %v", err)
-	}
-	defer fragResp.Body.Close()
-	frag, _ := io.ReadAll(fragResp.Body)
-	fragStr := string(frag)
-	if strings.Contains(fragStr, "<!DOCTYPE") {
-		t.Errorf("/graph htmx request must return a bare fragment, got a full document:\n%s", fragStr)
-	}
-	if !strings.Contains(fragStr, "data-system-graph") {
-		t.Errorf("/graph fragment must carry the [data-system-graph] mount seam; got:\n%s", fragStr)
-	}
-
-	// /graph/data must still be alive.
-	resp2, err := http.Get(baseURL + "/graph/data")
-	if err != nil {
-		t.Fatalf("GET /graph/data: %v", err)
-	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode != http.StatusOK {
-		t.Errorf("/graph/data must still return 200, got %d", resp2.StatusCode)
-	}
-}
-
-// TestShellContainsAtomicCyStyleFunction verifies that the root shell defines
-// exactly ONE atomicCyStyle() function — the Cytoscape style factory used by
-// the rail mini-graph (FE2) only. The FE3 system graph moved to cosmos.gl
-// (CP1/CP2) and builds its own styling in system-graph.js; it has no
-// Cytoscape style objects to consume, so this function is rail-only as of
-// CP4. Duplication is detected by counting occurrences; > 1 means the style
-// was copy-pasted, which is a bug.
-func TestShellContainsAtomicCyStyleFunction(t *testing.T) {
-	root := buildGraphOverlayRealm(t)
-
-	baseURL, shutdown := startTestServer(t, startOpts(t, root))
-	defer shutdown()
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	resp, err := http.Get(baseURL + "/")
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// atomicCyStyle must appear exactly once — defined, not duplicated.
-	count := strings.Count(html, "atomicCyStyle")
-	if count == 0 {
-		t.Error("shell missing atomicCyStyle() — shared style function required by FE3 (system graph)")
-	}
-}
-
-// TestShellContainsFingerprintStyleInSharedFunction verifies that the
-// distinct "fingerprint" / "fingerprint drift" provenance-edge styling lives
-// in system-graph.js — the cosmos.gl-powered Network View script — not in the
-// shell's (now rail-only) atomicCyStyle(). CP4 relocated it there: cosmos.gl
-// links carry no dash-pattern API, so unlike the removed Cytoscape selectors
-// (dashed), the distinct-styling contract is color (+ width) only.
-func TestShellContainsFingerprintStyleInSharedFunction(t *testing.T) {
-	root := buildGraphOverlayRealm(t)
-
-	baseURL, shutdown := startTestServer(t, startOpts(t, root))
-	defer shutdown()
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	resp, err := http.Get(baseURL + "/static/system-graph.js")
-	if err != nil {
-		t.Fatalf("GET /static/system-graph.js: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	js := string(body)
-
-	// fingerprint provenance styling must live in system-graph.js (not the
-	// removed shell selectors).
-	if !strings.Contains(js, "fingerprint") {
-		t.Error("system-graph.js missing 'fingerprint' — provenance edge classes must be styled there, not in the shell's (rail-only) atomicCyStyle()")
-	}
-	// drift styling required for SC12.
-	if !strings.Contains(js, "drift") {
-		t.Error("system-graph.js missing 'drift' — drifted provenance edges must be distinctly styled (SC12)")
-	}
-	// Red color token for drift.
-	if !strings.Contains(js, "#f38ba8") {
-		t.Error("system-graph.js does not set red color (#f38ba8) for drift edges — SC12 visual requirement")
-	}
-}
-
-// TestShellSystemModeToggleWiring verifies that the shell contains the FE3
-// Network View mount seam:
-//   - #btn-graph (top-bar icon) is the entry point.
-//   - The cosmos.gl bundle and the system-graph.js asset are both loaded.
-//   - A delegated htmx.onLoad hook calls SystemGraph.enterGraphMode() — the
-//     mount body itself (data adapter, WebGL2 detection, motion policy,
-//     /graph/data fetch, node-tap navigation) now lives in system-graph.js,
-//     not the shell.
-//
-// Prior to CP2 this test asserted identifier/URL strings (e.g. '/graph/data',
-// '/page/', htmx.ajax) directly against the "/" shell response — those moved
-// out with the mount body and no longer hold here; system-graph.js is where
-// that behavior is now testable (see its own unit tests once CP3+ adds
-// browser-independent pure functions).
-//
-// Code-graph checkpoint 6: the seam calls enterGraphMode (not mount directly)
-// so every /graph fragment landing routes through the Docs|Code + URL-state
-// (view/member) dispatch — see system-graph.js's renderGraphPane comment.
-//
-// Only structure (presence of identifiers and script tags) is testable
-// server-side; live JS execution is out of scope for Go tests.
-func TestShellSystemModeToggleWiring(t *testing.T) {
-	root := buildGraphOverlayRealm(t)
-
-	baseURL, shutdown := startTestServer(t, startOpts(t, root))
-	defer shutdown()
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	resp, err := http.Get(baseURL + "/")
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// #btn-graph (top-bar icon toggle) must be present — the FE3 entry point.
-	if !strings.Contains(html, `id="btn-graph"`) {
-		t.Error("shell missing #btn-graph — top-bar network/graph toggle must be present")
-	}
-
-	// The cosmos.gl vendor bundle and the system-graph.js asset must both load.
-	if !strings.Contains(html, "/static/vendor/cosmos-graph.js") {
-		t.Error("shell missing the vendored cosmos.gl bundle script tag")
-	}
-	if !strings.Contains(html, "/static/system-graph.js") {
-		t.Error("shell missing the system-graph.js script tag — mount lifecycle now lives there")
-	}
-
-	// The delegated mount call must key on the [data-system-graph] seam
-	// (delivered by the /graph fragment) and call into
-	// SystemGraph.enterGraphMode (checkpoint 6 — see this test's own comment).
-	if !strings.Contains(html, "data-system-graph") {
-		t.Error("shell missing 'data-system-graph' — the onLoad mount seam for the Network View")
-	}
-	if !strings.Contains(html, "SystemGraph.enterGraphMode") {
-		t.Error("shell missing the delegated call to SystemGraph.enterGraphMode — the thin htmx.onLoad hook into system-graph.js")
 	}
 }
 
@@ -613,6 +428,36 @@ Read-through on miss.
 		if strings.HasPrefix(m.Snippet, "#") {
 			t.Errorf("caching.md snippet starts with '#' — heading must be skipped, got %q", m.Snippet)
 		}
+	}
+}
+
+// TestGraphDataHandlerUsesInjectedGraph proves /graph/data reads through the
+// injected store rather than rebuilding from root on every request — the
+// carried live-reload contract. Ported from the pre-cutover fe8_test.go.
+func TestGraphDataHandlerUsesInjectedGraph(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "page.md"), "# Page\n")
+
+	// Store rooted at a different, empty dir (not root) → 0 nodes.
+	emptyRoot := t.TempDir()
+	store := serve.NewSnapshotStore(emptyRoot)
+
+	handler := serve.NewGraphDataHandlerWithGraph(root, store)
+
+	req := httptest.NewRequest(http.MethodGet, "/graph/data", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	body := rr.Body.String()
+	if !strings.Contains(body, `"nodes"`) {
+		t.Fatalf("response missing 'nodes' field; body: %s", body)
+	}
+	if strings.Contains(body, "page.md") {
+		t.Errorf("response contains 'page.md' — handler must use injected graph, not rebuild; body: %s", body)
 	}
 }
 

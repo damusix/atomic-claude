@@ -88,22 +88,16 @@ const VIEWS = {
       await page.goto(baseURL + '/graph', { waitUntil: 'load' });
     }
   },
-  // code: the real UI path (checkpoint 6) — no page.evaluate bridge. Lands on
-  // the landing page, clicks #btn-graph to enter graph mode (mounts the docs
-  // profile by default via system-graph.js's enterGraphMode), waits for the
-  // Docs|Code switcher to exist, then clicks its Code button — the same
-  // renderGraphPane() path a real user's click takes, tearing down docs and
-  // mounting window.CodeGraph on a fresh #code-cy[data-code-graph] container.
+  // code: the real UI path. Lands on the landing page, clicks the top bar's
+  // #btn-graph (React Router Link to /graph — mirrors the pre-cutover htmx
+  // button's placement/label), waits for the Docs|Code switcher to exist,
+  // then clicks its Code button — the same renderGraphPane()-equivalent path
+  // a real user's click takes, mounting window.CodeGraph on a fresh
+  // #code-cy[data-code-graph] container.
   code: {
     async navigate(page, baseURL) {
-      // The landing shell's #main-pane hx-get="{{.LandingURL}}" auto-fetch
-      // (FE8) must settle before #btn-graph's click-triggered /graph fetch
-      // starts, or the two htmx swaps race. 'networkidle' used to encode
-      // that, but the live-reload /events EventSource holds a connection
-      // open for the page's whole life, so networkidle never fires anymore —
-      // wait for the auto-fetch's own rendered marker instead.
       await page.goto(baseURL + '/', { waitUntil: 'load' });
-      await page.waitForSelector('#main-pane #page-content, #main-pane .md-content', { timeout: 15000 });
+      await page.waitForSelector('#main-pane .page-view, #main-pane .page-body', { timeout: 15000 });
       await page.click('#btn-graph');
       await page.waitForSelector('[data-graph-view="code"]');
       await page.click('[data-graph-view="code"]');
@@ -211,7 +205,7 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
     let settleMs = null;
     let settleErr = null;
     try {
-      await page.waitForSelector('.system-graph-loading', { state: 'detached', timeout: settleBudgetMs });
+      await page.waitForSelector('.system-graph-loading', { state: 'hidden', timeout: settleBudgetMs });
       settleMs = Date.now() - t0;
     } catch (e) {
       settleErr = 'did not settle within ' + settleBudgetMs + 'ms';
@@ -280,9 +274,13 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
       const start = toPage(nodeA);
       const target = toPage(nodeB);
       await page.mouse.move(start.x, start.y);
+      // Node drag is Shift-gated (graph-core.js setShift, 2026-07-18) — a
+      // plain drag pans the camera instead of moving a node.
+      await page.keyboard.down('Shift');
       await page.mouse.down();
       await page.mouse.move(target.x, target.y, { steps: 10 });
       await page.mouse.up();
+      await page.keyboard.up('Shift');
 
       let dragSettleErr = null;
       try {
@@ -316,7 +314,7 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
     await view.navigate(page, baseURL);
     let reloadSettleErr = null;
     try {
-      await page.waitForSelector('.system-graph-loading', { state: 'detached', timeout: settleBudgetMs });
+      await page.waitForSelector('.system-graph-loading', { state: 'hidden', timeout: settleBudgetMs });
     } catch (e) { reloadSettleErr = 'reload did not settle within ' + settleBudgetMs + 'ms'; }
 
     if (reloadSettleErr) {
@@ -358,6 +356,8 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
     } else {
       const hoverPage = { x: containerRect.left + hoverNode.screen.x, y: containerRect.top + hoverNode.screen.y };
       await page.mouse.move(hoverPage.x, hoverPage.y);
+      // Hover preview is Shift-gated (graph-core.js setShift, 2026-07-18).
+      await page.keyboard.down('Shift');
       try {
         await page.waitForSelector('#cy-preview-card.open', { timeout: 5000 });
         const text = (await page.textContent('#cy-preview-card') || '').trim();
@@ -366,6 +366,7 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
       } catch (e) {
         results.push({ name: 'hover-preview', pass: false, detail: 'preview card did not open within 5000ms' });
       }
+      await page.keyboard.up('Shift');
     }
 
     return results;

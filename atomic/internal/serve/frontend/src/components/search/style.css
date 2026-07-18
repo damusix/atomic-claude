@@ -1,0 +1,25 @@
+/* search/ — command palette (SearchPalette) and the dedicated /search page's
+   (pages/Search) shared result rendering. #search-modal, .search-modal-*,
+   .search-toggle/.toggle-btn, .search-results, .md-search-*, .code-search-*,
+   and .search-page-* are already styled globally by the carried
+   public/app.css (same selectors the pre-cutover markup used) — this file
+   only adds what Ark's own data-part hooks need. */
+
+[data-scope="combobox"][data-part="content"] {
+  outline: none;
+}
+
+[data-scope="combobox"][data-part="item"][data-highlighted] {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  border-radius: 7px;
+}
+
+/* Ark's Combobox.Root inserts a wrapper div between .search-modal-box and
+   the header/results, breaking the box's flex column — without this the
+   results list never gets a constrained height and can't scroll. */
+.search-modal-box [data-scope="combobox"][data-part="root"] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}

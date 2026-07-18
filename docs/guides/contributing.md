@@ -29,13 +29,14 @@ To let agents answer structural questions about this codebase from the real symb
 
 ## Git hooks
 
-The pre-commit hook has three stages:
+The pre-commit hook has four stages:
 
 1. **Render** — when any `templates/` file is staged, regenerates `commands/` and `agents/` and re-stages the output
 2. **Bundle** — when any source artifact is staged, regenerates the embedded bundle and re-stages it
 3. **Follow-ups** — when any followup entry is staged, regenerates `INDEX.md`
+4. **Frontend** — when any `atomic/internal/serve/frontend/` file (outside `dist/`) is staged, rebuilds the committed `dist/` and re-stages it
 
-Without the hook, commits will pass locally but fail CI on the "Verify bundle is committed" step.
+Without the hook, commits will pass locally but fail CI on the "Verify bundle is committed" or "Verify frontend dist is committed" steps.
 
 Install or uninstall the hook manually:
 
@@ -54,6 +55,19 @@ make hooks-uninstall # remove
 The `atomic` binary embeds the artifact bundle at build time via `go:embed`. When you edit a source artifact (`agents/`, `commands/`, `skills/`, etc.), the embedded copy and its manifest need to match. CI checks parity — any drift fails the build.
 
 The pre-commit hook handles this automatically. If you prefer not to use the hook, run `make bundle` before any commit that touches a source artifact, then stage everything under `atomic/internal/embedded/`.
+
+
+## The serve frontend
+
+`atomic serve`'s browser UI is a React + TypeScript SPA in a Bun workspace at `atomic/internal/serve/frontend/`. Bun is the package manager, bundler, and test runner — no npm, Vite, or Jest. Conventions (LogosDX data layer, Ark UI primitives, component layout) live in `frontend/CLAUDE.md`.
+
+The built `dist/` is committed and embedded into the binary via `go:embed`, so `go build` never needs Bun. The pipeline:
+
+```
+frontend/src/**  →  make frontend  →  frontend/dist/**  →  go:embed
+```
+
+Run `bun test` from `frontend/` for the component suite. The pre-commit hook's frontend stage rebuilds `dist/` when frontend sources are staged; CI's "Verify frontend dist is committed" gate fails on drift, same pattern as render/bundle.
 
 
 ## Command and agent templates
