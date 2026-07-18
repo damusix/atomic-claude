@@ -3,6 +3,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { ApiProvider } from "./utils/api";
 import { EventsProvider } from "./utils/events";
+import { __resetGraphEngineLoadedForTest } from "./utils/graphEngineAdapter";
+import { __resetLoadScriptCacheForTest } from "./utils/loadScript";
 import { routes } from "./routes";
 
 function renderAt(path: string) {
@@ -50,9 +52,32 @@ function mockNav(navBody: unknown = { scope: "repo", groups: [] }) {
   }) as unknown as typeof fetch;
 }
 
+// Stubs document.createElement("script") the same way graphEngineAdapter's
+// own tests do — the /graph route lazy-loads the carried cosmos.gl vendor +
+// engine + profile scripts on mount, and happy-dom throws on a real
+// script-file fetch.
+function stubScriptLoad() {
+  const origCreate = document.createElement.bind(document);
+  document.createElement = ((tag: string) => {
+    if (tag === "script") {
+      const el = origCreate("div") as unknown as HTMLScriptElement;
+      queueMicrotask(() => el.dispatchEvent(new Event("load")));
+      return el;
+    }
+    return origCreate(tag);
+  }) as typeof document.createElement;
+  return () => {
+    document.createElement = origCreate;
+  };
+}
+
 describe("App routing (Shell mount)", () => {
   afterEach(() => {
     mock.restore();
+    __resetLoadScriptCacheForTest();
+    __resetGraphEngineLoadedForTest();
+    delete window.SystemGraph;
+    delete window.CodeGraph;
   });
 
   test("the landing route mounts the Shell (top bar + nav pane + Page)", async () => {
@@ -76,6 +101,9 @@ describe("App routing (Shell mount)", () => {
 
   test("/graph, /search, /status, /external each resolve to their own route stub", async () => {
     mockNav();
+    const restoreScripts = stubScriptLoad();
+    window.SystemGraph = { mount: mock(() => {}), teardown: mock(() => {}), retheme: mock(() => {}) };
+    window.CodeGraph = { mount: mock(() => {}), teardown: mock(() => {}), retheme: mock(() => {}) };
     for (const [path, marker] of [
       ["/graph", "graph"],
       ["/search", "search"],
@@ -88,5 +116,6 @@ describe("App routing (Shell mount)", () => {
       );
       unmount();
     }
+    restoreScripts();
   });
 });
