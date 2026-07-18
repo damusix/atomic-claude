@@ -233,6 +233,14 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	// /nav — nav tree fragment (htmx target: #nav-pane).
 	mux.Handle("/nav", NewNavHandler(navOpts))
 
+	// /api/* — additive JSON endpoints for the React frontend (CP2), alongside
+	// the existing htmx routes above. Reuse the same view-model builders so
+	// link resolution stays single-sourced.
+	mux.Handle("/api/page/", NewAPIPageHandler(opts.TargetDir, store))
+	mux.Handle("/api/file/", NewAPIFileHandler(opts.TargetDir))
+	mux.Handle("/api/rail/", NewAPIRailHandler(navRoot, store))
+	mux.Handle("/api/nav", NewAPINavHandler(navOpts))
+
 	// /status — realm-health dashboard (FE-SC6: health is ambient, not the landing).
 	// Was /health in CP6; demoted to /status so the landing is the page view.
 	healthOpts := HealthOptions{

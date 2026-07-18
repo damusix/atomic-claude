@@ -101,23 +101,30 @@ func breadcrumbSegments(relPath string) string {
 	return sb.String()
 }
 
-// directoryListingHTML renders a folder (realm-root-relative dirRel) as a
-// browsable listing of its immediate markdown files and subfolders when the
-// folder has no index file. Subfolders link to /page/<dir>/ (which recurses
-// through this same handler); files link to /page/<dir>/<file>. Hidden files
-// and skip-dirs are omitted. The result is the inner #page-content body HTML.
-func directoryListingHTML(root, dirRel string) string {
-	abs, ok := safeResolve(root, dirRel)
-	if !ok {
-		return `<h1>Folder</h1><p class="dir-empty">This folder cannot be listed.</p>`
+// dirEntry is one entry (file or subfolder) in a directory listing —
+// shared by directoryListingHTML (htmx) and the /api/page JSON handler
+// (api_handlers.go) so both read the same resolution logic.
+type dirEntry struct {
+	Name    string `json:"name"`    // display name (subfolder name, or file name with .md stripped)
+	RelPath string `json:"relpath"` // realm-root-relative target: "<dir>/<name>/" for a folder, "<dir>/<file>" for a file
+	Folder  bool   `json:"folder"`
+}
+
+// listDirEntries reads the immediate markdown files and subfolders of
+// dirRel (realm-root-relative), sorted, hidden files and skip-dirs omitted.
+// ok is false when dirRel cannot be resolved or read.
+func listDirEntries(root, dirRel string) (entries []dirEntry, ok bool) {
+	abs, resolveOK := safeResolve(root, dirRel)
+	if !resolveOK {
+		return nil, false
 	}
-	entries, err := os.ReadDir(abs)
+	rawEntries, err := os.ReadDir(abs)
 	if err != nil {
-		return `<h1>Folder</h1><p class="dir-empty">This folder cannot be listed.</p>`
+		return nil, false
 	}
 
 	var dirs, files []string
-	for _, e := range entries {
+	for _, e := range rawEntries {
 		name := e.Name()
 		if e.IsDir() {
 			if shouldSkipDir(name) {
@@ -131,26 +138,85 @@ func directoryListingHTML(root, dirRel string) string {
 	sort.Strings(dirs)
 	sort.Strings(files)
 
+	for _, d := range dirs {
+		entries = append(entries, dirEntry{
+			Name:    d,
+			RelPath: filepath.ToSlash(filepath.Join(dirRel, d)) + "/",
+			Folder:  true,
+		})
+	}
+	for _, f := range files {
+		entries = append(entries, dirEntry{
+			Name:    stripMDExt(f),
+			RelPath: filepath.ToSlash(filepath.Join(dirRel, f)),
+			Folder:  false,
+		})
+	}
+	return entries, true
+}
+
+// breadcrumbSeg is one segment of a page's breadcrumb, used by the /api/page
+// JSON handler (api_handlers.go) — the client renders these instead of the
+// server-rendered <a data-nav-folder> anchors breadcrumbSegments produces.
+type breadcrumbSeg struct {
+	Label  string `json:"label"`
+	Path   string `json:"path,omitempty"` // cumulative ancestor prefix; omitted for the final (current-page) segment
+	Folder bool   `json:"folder,omitempty"`
+}
+
+// breadcrumbSegmentsData builds the same segment sequence as breadcrumbSegments,
+// as structured data instead of an HTML string.
+func breadcrumbSegmentsData(relPath string) []breadcrumbSeg {
+	clean := filepath.ToSlash(strings.TrimPrefix(relPath, "/"))
+	parts := strings.Split(clean, "/")
+	if len(parts) == 0 || (len(parts) == 1 && parts[0] == "") {
+		return nil
+	}
+
+	segs := make([]breadcrumbSeg, 0, len(parts))
+	prefix := ""
+	for i, p := range parts[:len(parts)-1] {
+		if i > 0 {
+			prefix += "/"
+		}
+		prefix += p
+		segs = append(segs, breadcrumbSeg{Label: p, Path: prefix, Folder: true})
+	}
+	segs = append(segs, breadcrumbSeg{Label: parts[len(parts)-1]})
+	return segs
+}
+
+// directoryListingHTML renders a folder (realm-root-relative dirRel) as a
+// browsable listing of its immediate markdown files and subfolders when the
+// folder has no index file. Subfolders link to /page/<dir>/ (which recurses
+// through this same handler); files link to /page/<dir>/<file>. The result
+// is the inner #page-content body HTML.
+func directoryListingHTML(root, dirRel string) string {
+	entries, ok := listDirEntries(root, dirRel)
+	if !ok {
+		return `<h1>Folder</h1><p class="dir-empty">This folder cannot be listed.</p>`
+	}
+
 	var sb strings.Builder
 	fmt.Fprintf(&sb, `<h1 class="dir-listing-title">%s/</h1>`, template.HTMLEscapeString(dirRel))
 
-	if len(dirs) == 0 && len(files) == 0 {
+	if len(entries) == 0 {
 		sb.WriteString(`<p class="dir-empty">No markdown files or subfolders here.</p>`)
 		return sb.String()
 	}
 
 	sb.WriteString(`<ul class="dir-listing">`)
-	for _, d := range dirs {
-		target := filepath.ToSlash(filepath.Join(dirRel, d)) + "/"
+	for _, e := range entries {
+		class := "dir-entry"
+		label := e.Name
+		if e.Folder {
+			class += " dir-subfolder"
+			label += "/"
+		}
 		fmt.Fprintf(&sb,
-			`<li><a class="nav-item dir-entry dir-subfolder" hx-get="/page/%s" hx-target="#main-pane" hx-push-url="true" href="/page/%s">%s/</a></li>`,
-			template.HTMLEscapeString(target), template.HTMLEscapeString(target), template.HTMLEscapeString(d))
-	}
-	for _, f := range files {
-		target := filepath.ToSlash(filepath.Join(dirRel, f))
-		fmt.Fprintf(&sb,
-			`<li><a class="nav-item dir-entry" hx-get="/page/%s" hx-target="#main-pane" hx-push-url="true" href="/page/%s">%s</a></li>`,
-			template.HTMLEscapeString(target), template.HTMLEscapeString(target), template.HTMLEscapeString(stripMDExt(f)))
+			`<li><a class="nav-item %s" hx-get="/page/%s" hx-target="#main-pane" hx-push-url="true" href="/page/%s">%s</a></li>`,
+			class,
+			template.HTMLEscapeString(e.RelPath), template.HTMLEscapeString(e.RelPath), template.HTMLEscapeString(label))
 	}
 	sb.WriteString(`</ul>`)
 	return sb.String()

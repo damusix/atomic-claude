@@ -39,10 +39,10 @@ import (
 // an <a href=...> anchor (target=_blank rel=noopener). html/template handles
 // escaping of both the href attribute and the link text automatically.
 type propKV struct {
-	Key    string
-	Value  string
-	IsURL  bool
-	IsJSON bool
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+	IsURL  bool   `json:"isURL"`
+	IsJSON bool   `json:"isJSON"`
 }
 
 // railFragmentTmplStr renders the four OOB fragments for the right rail.
@@ -103,6 +103,41 @@ const railFragmentTmplStr = `<div id="rail-props-content" hx-swap-oob="innerHTML
 // URIs are still useful to render as links (the browser validates on click).
 func isHTTPURL(s string) bool {
 	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+// railProperties reads abs and parses its YAML frontmatter into the ordered
+// Properties slot data — shared by NewRailHandler (HTML fragment) and the
+// /api/rail JSON handler (api_handlers.go). A read or parse error degrades to
+// nil (no properties) rather than an error: the caller has already confirmed
+// the page exists via graph membership.
+func railProperties(abs string) []propKV {
+	fileData, readErr := readFile(abs)
+	if readErr != nil {
+		return nil
+	}
+	kvs, _, fmErr := frontmatter.ParseOrdered(string(fileData))
+	if fmErr != nil {
+		return nil
+	}
+
+	var props []propKV
+	for _, kv := range kvs {
+		// Primitive scalar (ParseOrdered yields these as strings): plain text.
+		if s, ok := kv.Value.(string); ok {
+			props = append(props, propKV{Key: kv.Key, Value: s, IsURL: isHTTPURL(s)})
+			continue
+		}
+		// Non-primitive (array / object): pretty-print as JSON in a
+		// highlighted block. ParseOrdered values are JSON-safe
+		// (string / []any / map[string]any), so marshal cannot hit an
+		// unsupported type; degrade to fmt only on the unexpected.
+		if b, jerr := json.MarshalIndent(kv.Value, "", "  "); jerr == nil {
+			props = append(props, propKV{Key: kv.Key, Value: string(b), IsJSON: true})
+		} else {
+			props = append(props, propKV{Key: kv.Key, Value: fmt.Sprint(kv.Value)})
+		}
+	}
+	return props
 }
 
 // railTmplFuncs provides the "not" helper used in the template.
@@ -169,27 +204,7 @@ func NewRailHandler(root string, g graphProvider) http.Handler {
 		// Read the page file and parse frontmatter for the Properties slot.
 		// A read error is non-fatal: the page passed graph-membership so it exists;
 		// we degrade to "no properties" rather than returning 404 here.
-		var props []propKV
-		if fileData, readErr := readFile(abs); readErr == nil {
-			if kvs, _, fmErr := frontmatter.ParseOrdered(string(fileData)); fmErr == nil {
-				for _, kv := range kvs {
-					// Primitive scalar (ParseOrdered yields these as strings): plain text.
-					if s, ok := kv.Value.(string); ok {
-						props = append(props, propKV{Key: kv.Key, Value: s, IsURL: isHTTPURL(s)})
-						continue
-					}
-					// Non-primitive (array / object): pretty-print as JSON in a
-					// highlighted block. ParseOrdered values are JSON-safe
-					// (string / []any / map[string]any), so marshal cannot hit an
-					// unsupported type; degrade to fmt only on the unexpected.
-					if b, jerr := json.MarshalIndent(kv.Value, "", "  "); jerr == nil {
-						props = append(props, propKV{Key: kv.Key, Value: string(b), IsJSON: true})
-					} else {
-						props = append(props, propKV{Key: kv.Key, Value: fmt.Sprint(kv.Value)})
-					}
-				}
-			}
-		}
+		props := railProperties(abs)
 
 		// Use the cyID to disambiguate concurrent mini-graph containers —
 		// slashes replaced with hyphens produce a valid HTML id suffix.

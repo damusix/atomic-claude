@@ -473,6 +473,152 @@ func writeNavBucketFolder(sb *strings.Builder, realmRoot string, b wiki.BucketEn
 	sb.WriteString("</details>\n")
 }
 
+// ─── JSON nav tree (api_handlers.go: GET /api/nav) ─────────────────────────
+
+// navNodeJSON is one node in the /api/nav tree. Folder nodes carry Children;
+// leaf nodes carry RelPath. Fields use `json:"...,omitempty"` so a leaf's
+// absent Children and a folder's absent RelPath/Stale are simply omitted.
+type navNodeJSON struct {
+	Label    string        `json:"label"`
+	RelPath  string        `json:"relpath,omitempty"`
+	Stale    bool          `json:"stale,omitempty"`
+	Children []navNodeJSON `json:"children,omitempty"`
+}
+
+// navGroupJSON is one top-level group ("Realm", "Repos", "Docs", ...).
+type navGroupJSON struct {
+	Name  string        `json:"name"`
+	Items []navNodeJSON `json:"items"`
+}
+
+// buildRealmNavGroupsJSON mirrors renderRealmNav's six groups as structured
+// data instead of an HTML fragment.
+func buildRealmNavGroupsJSON(opts NavOptions) []navGroupJSON {
+	groups := make([]navGroupJSON, 0, 6)
+
+	// Group 1: Realm.
+	groups = append(groups, navGroupJSON{
+		Name:  "Realm",
+		Items: []navNodeJSON{{Label: "index", RelPath: "wiki/index.md"}},
+	})
+
+	members, _ := wiki.ReadScanMembers(opts.WikiIndexPath)
+
+	// Group 2: Repos.
+	repoItems := make([]navNodeJSON, 0, len(members))
+	for _, m := range members {
+		name := filepath.Base(m.Path)
+		stale := opts.StaleMembers[name] || opts.StaleMembers[m.Path]
+		repoItems = append(repoItems, navNodeJSON{Label: name, RelPath: memberLinkRel(opts.RealmRoot, m), Stale: stale})
+	}
+	groups = append(groups, navGroupJSON{Name: "Repos", Items: repoItems})
+
+	// Group 3: Concerns.
+	concerns := walkMarkdownFiles(filepath.Join(opts.RealmRoot, "wiki", "concerns"))
+	concernItems := make([]navNodeJSON, 0, len(concerns))
+	for _, name := range concerns {
+		concernItems = append(concernItems, navNodeJSON{Label: stripMDExt(name), RelPath: "wiki/concerns/" + name})
+	}
+	groups = append(groups, navGroupJSON{Name: "Concerns", Items: concernItems})
+
+	// Group 4: Knowledge.
+	knowledge := walkMarkdownFiles(filepath.Join(opts.RealmRoot, "wiki", "knowledge"))
+	knowledgeItems := make([]navNodeJSON, 0, len(knowledge))
+	for _, name := range knowledge {
+		knowledgeItems = append(knowledgeItems, navNodeJSON{Label: stripMDExt(name), RelPath: "wiki/knowledge/" + name})
+	}
+	groups = append(groups, navGroupJSON{Name: "Knowledge", Items: knowledgeItems})
+
+	// Group 5: Buckets — each bucket is a folder node whose children are its
+	// servable markdown files (recursive folder tree, same shape CP2's
+	// generic folderTreeToJSON produces for the repo-scope docs tree).
+	buckets, _ := wiki.ReadBucketEntries(opts.WikiIndexPath)
+	bucketItems := make([]navNodeJSON, 0, len(buckets))
+	for _, b := range buckets {
+		dir := b.Path
+		if dir == "" {
+			dir = filepath.Join(opts.RealmRoot, b.Name)
+		}
+		prefix := b.Name
+		if rel, err := filepath.Rel(opts.RealmRoot, dir); err == nil {
+			prefix = filepath.ToSlash(rel)
+		}
+		files := walkMarkdownFilesRecursive(dir)
+		bucketItems = append(bucketItems, navNodeJSON{
+			Label:    b.Name,
+			Stale:    opts.BucketDiffs[b.Name],
+			Children: folderTreeToJSON(prefix, files),
+		})
+	}
+	groups = append(groups, navGroupJSON{Name: "Buckets", Items: bucketItems})
+
+	// Group 6: External — the external-link registry route, not a /page target.
+	// RelPath carries the route path (no leading "/page/" prefix is implied
+	// for this one leaf; the client recognizes "external" as the dedicated
+	// /external screen rather than a markdown page).
+	groups = append(groups, navGroupJSON{
+		Name:  "External",
+		Items: []navNodeJSON{{Label: "External links registry", RelPath: "external"}},
+	})
+
+	return groups
+}
+
+// buildRepoNavGroupsJSON mirrors renderRepoNav's docs file tree as structured
+// data. navPaths is the snapshot's root-relative .md file list (CP2 live-reload).
+func buildRepoNavGroupsJSON(navPaths []string) []navGroupJSON {
+	var topMDs []string
+	var docsFiles []string
+	for _, p := range navPaths {
+		if !strings.Contains(p, "/") {
+			topMDs = append(topMDs, p)
+			continue
+		}
+		if rest, ok := strings.CutPrefix(p, "docs/"); ok {
+			docsFiles = append(docsFiles, rest)
+		}
+	}
+
+	items := make([]navNodeJSON, 0, len(topMDs)+len(docsFiles))
+	for _, name := range topMDs {
+		items = append(items, navNodeJSON{Label: stripMDExt(name), RelPath: name})
+	}
+	items = append(items, folderTreeToJSON("docs", docsFiles)...)
+
+	return []navGroupJSON{
+		{Name: "Docs", Items: items},
+		{Name: "Code", Items: nil},
+	}
+}
+
+// folderTreeToJSON mirrors writeNavFolderTree's traversal (top-level files
+// flat, subdirectories as nested folder nodes) as navNodeJSON data instead of
+// an HTML fragment.
+func folderTreeToJSON(basePrefix string, files []string) []navNodeJSON {
+	root := buildNavFolderTree(files)
+	items := make([]navNodeJSON, 0, len(root.files)+len(root.childOrder))
+	for _, rel := range root.files {
+		items = append(items, navNodeJSON{Label: stripMDExt(filepath.Base(rel)), RelPath: basePrefix + "/" + rel})
+	}
+	for _, dirName := range root.childOrder {
+		items = append(items, folderNodeToJSON(root.children[dirName], basePrefix))
+	}
+	return items
+}
+
+// folderNodeToJSON recursively converts one navFolderNode into a navNodeJSON
+// folder (Children populated, RelPath empty).
+func folderNodeToJSON(node *navFolderNode, basePrefix string) navNodeJSON {
+	children := make([]navNodeJSON, 0, len(node.files)+len(node.childOrder))
+	for _, rel := range node.files {
+		children = append(children, navNodeJSON{Label: stripMDExt(filepath.Base(rel)), RelPath: basePrefix + "/" + rel})
+	}
+	for _, dirName := range node.childOrder {
+		children = append(children, folderNodeToJSON(node.children[dirName], basePrefix))
+	}
+	return navNodeJSON{Label: node.name, Children: children}
+}
+
 // computeStaleness is the production StalenessFn.  It calls wiki.Stale once,
 // parses its DRIFT/STALE/STALE-bucket output, and returns two maps:
 //   - staleMembers: member name (basename of path) → true

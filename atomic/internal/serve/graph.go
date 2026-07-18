@@ -21,6 +21,7 @@
 package serve
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -31,36 +32,66 @@ import (
 )
 
 // Edge is a directed link from one page to another (or to an unresolved target).
+//
+// JSON tags: the /api/rail "out" field (api_handlers.go) marshals []Edge
+// directly, per the ## API contracts table's edge shape.
 type Edge struct {
 	// SourcePage is the realm-root-relative path of the page containing the link.
-	SourcePage string
+	SourcePage string `json:"-"`
 
 	// Target is the raw link target as written in the source (URL, path, wikilink name).
-	Target string
+	Target string `json:"target"`
 
 	// Kind is MarkdownLink or Wikilink.
-	Kind mdlink.LinkKind
+	Kind mdlink.LinkKind `json:"-"`
 
 	// ResolvedPath is the realm-root-relative path the link resolves to.
 	// Empty when Broken is true.
-	ResolvedPath string
+	ResolvedPath string `json:"resolvedPath"`
 
 	// Broken is true when the link target cannot be resolved to a file in the realm.
-	Broken bool
+	Broken bool `json:"broken"`
 
 	// Ambiguous is true when a wikilink matched more than one file; ResolvedPath
 	// carries the nearest-then-alphabetical winner but the ambiguity is surfaced.
-	Ambiguous bool
+	Ambiguous bool `json:"ambiguous"`
 
 	// CodeFile is true when the link target is an existing non-.md source file
 	// (e.g. a .go, .ts, .py file). The UI renders these as clickable /file/ links
 	// that open the code modal, not as broken links.
-	CodeFile bool
+	CodeFile bool `json:"codeFile"`
 
 	// External is true when the link target is a real external URL (http://,
 	// https://, or mailto:). Anchor-only links (#section) are NOT external —
 	// they jump within the current page and must not open a new tab.
-	External bool
+	External bool `json:"external"`
+}
+
+// edgeJSON mirrors Edge for marshaling, with Kind rendered as its string
+// form (mdlink.LinkKind.String) instead of its underlying int — a plain
+// json struct tag can't do this conversion, hence the manual MarshalJSON.
+type edgeJSON struct {
+	Target       string `json:"target"`
+	Kind         string `json:"kind"`
+	ResolvedPath string `json:"resolvedPath"`
+	Broken       bool   `json:"broken"`
+	Ambiguous    bool   `json:"ambiguous"`
+	CodeFile     bool   `json:"codeFile"`
+	External     bool   `json:"external"`
+}
+
+// MarshalJSON implements json.Marshaler so /api/rail's "out" field (Edge
+// consumed directly per the API contracts table) carries Kind as a string.
+func (e Edge) MarshalJSON() ([]byte, error) {
+	return json.Marshal(edgeJSON{
+		Target:       e.Target,
+		Kind:         e.Kind.String(),
+		ResolvedPath: e.ResolvedPath,
+		Broken:       e.Broken,
+		Ambiguous:    e.Ambiguous,
+		CodeFile:     e.CodeFile,
+		External:     e.External,
+	})
 }
 
 // NodeMeta holds per-page preview metadata for the hover card and modal.
