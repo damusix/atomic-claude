@@ -1,9 +1,6 @@
 package serve_test
 
 import (
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,102 +163,6 @@ func TestExternalRegistry_FirstSeenUsesDateSeam(t *testing.T) {
 
 	if !entry.FirstSeen.Equal(dateA) {
 		t.Errorf("expected first-seen %v (earliest), got %v", dateA, entry.FirstSeen)
-	}
-}
-
-// TestExternalHandler_Returns200 verifies that GET /external returns 200 with
-// the registry table rendered (URLs present in the body).
-func TestExternalHandler_Returns200(t *testing.T) {
-	root := buildExternalRealm(t)
-	handler := serve.NewExternalHandler(root, fixedDateFn(time.Now()))
-
-	req := httptest.NewRequest(http.MethodGet, "/external", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// Both external URLs must appear in the rendered output.
-	if !strings.Contains(html, "https://example.com/x") {
-		t.Errorf("https://example.com/x missing from /external response:\n%s", html)
-	}
-	if !strings.Contains(html, "http://foo.test") {
-		t.Errorf("http://foo.test missing from /external response:\n%s", html)
-	}
-}
-
-// TestExternalHandler_SourceLinksToPage verifies that source pages are rendered
-// as links to /page/<relpath>.
-func TestExternalHandler_SourceLinksToPage(t *testing.T) {
-	root := buildExternalRealm(t)
-	handler := serve.NewExternalHandler(root, fixedDateFn(time.Now()))
-
-	req := httptest.NewRequest(http.MethodGet, "/external", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	body, _ := io.ReadAll(w.Result().Body)
-	html := string(body)
-
-	// Source pages must link to /page/<relpath>.
-	if !strings.Contains(html, "/page/pageA.md") {
-		t.Errorf("expected /page/pageA.md link in /external response:\n%s", html)
-	}
-	if !strings.Contains(html, "/page/pageB.md") {
-		t.Errorf("expected /page/pageB.md link in /external response:\n%s", html)
-	}
-}
-
-// TestExternalHandler_HTMXFragment verifies that HX-Request returns a fragment
-// (no full DOCTYPE) suitable for htmx swap into #main-pane.
-func TestExternalHandler_HTMXFragment(t *testing.T) {
-	root := buildExternalRealm(t)
-	handler := serve.NewExternalHandler(root, fixedDateFn(time.Now()))
-
-	req := httptest.NewRequest(http.MethodGet, "/external", nil)
-	req.Header.Set("HX-Request", "true")
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 for htmx fragment, got %d", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// Fragment must NOT include the full HTML shell.
-	if strings.Contains(html, "<!DOCTYPE") {
-		t.Errorf("htmx fragment must not include DOCTYPE:\n%s", html)
-	}
-	// But must still contain the URL data.
-	if !strings.Contains(html, "https://example.com/x") {
-		t.Errorf("https://example.com/x missing from htmx fragment:\n%s", html)
-	}
-}
-
-// TestExternalHandler_DateRendered verifies that first-seen dates are rendered in the response.
-func TestExternalHandler_DateRendered(t *testing.T) {
-	root := buildExternalRealm(t)
-	fixed := time.Date(2024, 5, 1, 0, 0, 0, 0, time.UTC)
-	handler := serve.NewExternalHandler(root, fixedDateFn(fixed))
-
-	req := httptest.NewRequest(http.MethodGet, "/external", nil)
-	w := httptest.NewRecorder()
-	handler.ServeHTTP(w, req)
-
-	body, _ := io.ReadAll(w.Result().Body)
-	html := string(body)
-
-	// The date "2024-05-01" must appear somewhere in the output.
-	if !strings.Contains(html, "2024-05-01") {
-		t.Errorf("expected date 2024-05-01 in /external response:\n%s", html)
 	}
 }
 

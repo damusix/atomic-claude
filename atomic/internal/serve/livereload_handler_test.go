@@ -93,9 +93,9 @@ func TestNav_ReflectsFileAddedAfterStartup(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/nav")
+	resp, err := http.Get(baseURL + "/api/nav")
 	if err != nil {
-		t.Fatalf("GET /nav (baseline): %v", err)
+		t.Fatalf("GET /api/nav (baseline): %v", err)
 	}
 	baseline, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -110,9 +110,9 @@ func TestNav_ReflectsFileAddedAfterStartup(t *testing.T) {
 	writeFile(t, guidePath, "# Guide\n")
 	backdateFile(t, guidePath)
 
-	resp2, err := http.Get(baseURL + "/nav")
+	resp2, err := http.Get(baseURL + "/api/nav")
 	if err != nil {
-		t.Fatalf("GET /nav (after add): %v", err)
+		t.Fatalf("GET /api/nav (after add): %v", err)
 	}
 	defer resp2.Body.Close()
 	after, err := io.ReadAll(resp2.Body)
@@ -125,9 +125,9 @@ func TestNav_ReflectsFileAddedAfterStartup(t *testing.T) {
 	}
 }
 
-// TestRail_ReflectsBacklinkFromFileAddedAfterStartup verifies that the right
-// rail's inbound-links (#rail-in-content) fragment reflects a backlink from a
-// page created after the server started, without a restart.
+// TestRail_ReflectsBacklinkFromFileAddedAfterStartup verifies that the
+// /api/rail "in" backlinks reflect a backlink from a page created after the
+// server started, without a restart.
 func TestRail_ReflectsBacklinkFromFileAddedAfterStartup(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "hub.md"), "# Hub\n\nNo links yet.\n")
@@ -136,9 +136,9 @@ func TestRail_ReflectsBacklinkFromFileAddedAfterStartup(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/rail/hub.md")
+	resp, err := http.Get(baseURL + "/api/rail/hub.md")
 	if err != nil {
-		t.Fatalf("GET /rail/hub.md (baseline): %v", err)
+		t.Fatalf("GET /api/rail/hub.md (baseline): %v", err)
 	}
 	baseline, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -153,9 +153,9 @@ func TestRail_ReflectsBacklinkFromFileAddedAfterStartup(t *testing.T) {
 	writeFile(t, spokePath, "# Spoke\n\nSee [[hub]].\n")
 	backdateFile(t, spokePath)
 
-	resp2, err := http.Get(baseURL + "/rail/hub.md")
+	resp2, err := http.Get(baseURL + "/api/rail/hub.md")
 	if err != nil {
-		t.Fatalf("GET /rail/hub.md (after add): %v", err)
+		t.Fatalf("GET /api/rail/hub.md (after add): %v", err)
 	}
 	defer resp2.Body.Close()
 	after, err := io.ReadAll(resp2.Body)
@@ -164,13 +164,13 @@ func TestRail_ReflectsBacklinkFromFileAddedAfterStartup(t *testing.T) {
 	}
 
 	if !strings.Contains(string(after), "spoke.md") {
-		t.Errorf("expected spoke.md backlink in #rail-in-content after being added post-startup (no restart); got:\n%s", after)
+		t.Errorf("expected spoke.md backlink after being added post-startup (no restart); got:\n%s", after)
 	}
 }
 
 // TestPage_WikilinkToFileAddedAfterStartup_Resolves verifies that a wikilink
 // pointing at a page created after the server started resolves (renders as a
-// real link, not the wikilink-broken class) on the next /page request.
+// real link, not the wikilink-broken class) on the next /api/page request.
 func TestPage_WikilinkToFileAddedAfterStartup_Resolves(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "hub.md"), "# Hub\n\nSee [[leaf]].\n")
@@ -179,14 +179,9 @@ func TestPage_WikilinkToFileAddedAfterStartup_Resolves(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/page/hub.md", nil)
+	resp, err := http.Get(baseURL + "/api/page/hub.md")
 	if err != nil {
-		t.Fatalf("build request: %v", err)
-	}
-	req.Header.Set("HX-Request", "true")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /page/hub.md (baseline): %v", err)
+		t.Fatalf("GET /api/page/hub.md (baseline): %v", err)
 	}
 	baseline, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -201,14 +196,9 @@ func TestPage_WikilinkToFileAddedAfterStartup_Resolves(t *testing.T) {
 	writeFile(t, leafPath, "# Leaf\n")
 	backdateFile(t, leafPath)
 
-	req2, err := http.NewRequest(http.MethodGet, baseURL+"/page/hub.md", nil)
+	resp2, err := http.Get(baseURL + "/api/page/hub.md")
 	if err != nil {
-		t.Fatalf("build request: %v", err)
-	}
-	req2.Header.Set("HX-Request", "true")
-	resp2, err := http.DefaultClient.Do(req2)
-	if err != nil {
-		t.Fatalf("GET /page/hub.md (after add): %v", err)
+		t.Fatalf("GET /api/page/hub.md (after add): %v", err)
 	}
 	defer resp2.Body.Close()
 	after, err := io.ReadAll(resp2.Body)

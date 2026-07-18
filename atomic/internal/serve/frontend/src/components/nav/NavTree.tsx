@@ -75,7 +75,10 @@ function NavTreeNode({ model, indexPath }: { model: TreeNodeModel; indexPath: nu
 }
 
 function NavGroupTree({ group }: { group: NavGroup }) {
-  const roots = group.items.map((item, i) => toTreeNodeModel(item, group.name, i));
+  // group.items is `null` (not `[]`) when the API's Go []navNodeJSON slice is
+  // nil — e.g. the repo-scope "Code" group placeholder — since Go's
+  // encoding/json marshals a nil slice as JSON null, not an empty array.
+  const roots = (group.items ?? []).map((item, i) => toTreeNodeModel(item, group.name, i));
   const collection = createTreeCollection<TreeNodeModel>({
     nodeToValue: (n) => n.id,
     nodeToString: (n) => n.node.label,

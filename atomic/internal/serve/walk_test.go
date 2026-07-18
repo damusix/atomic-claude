@@ -12,10 +12,10 @@ package serve_test
 // but not the genuinely-skipped dirs.
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -101,19 +101,19 @@ func TestWalkMarkdownFilesRecursive_ExcludesHiddenAndSkipDirs(t *testing.T) {
 		IsRealmScope: false,
 	}
 
-	body := navBodyFromOpts(t, opts)
+	labels := navLabelsFromOpts(t, opts)
 
 	// guide.md and the .claude doc are both servable, so both appear in nav.
 	for _, want := range []string{"guide", "claudedoc"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("renderRepoNav: expected %q in nav body, got:\n%s", want, body)
+		if !labels[want] {
+			t.Errorf("buildRepoNavGroupsJSON: expected %q among nav labels, got:\n%v", want, labels)
 		}
 	}
 
 	forbidden := []string{"hidden", "junk", "pkg"}
 	for _, label := range forbidden {
-		if strings.Contains(body, label) {
-			t.Errorf("renderRepoNav: %q must not appear in nav (hidden/skip dir), got:\n%s", label, body)
+		if labels[label] {
+			t.Errorf("buildRepoNavGroupsJSON: %q must not appear in nav (hidden/skip dir), got:\n%v", label, labels)
 		}
 	}
 }
@@ -165,15 +165,45 @@ func TestBuildExternalRegistry_ExcludesHiddenAndSkipDirs(t *testing.T) {
 	}
 }
 
-// navBodyFromOpts fires the /nav handler and returns the response body.
-func navBodyFromOpts(t *testing.T, opts serve.NavOptions) string {
+// navLabelsFromOpts fires the /api/nav handler and flattens every group's
+// item (and nested folder-child) labels into a set, for membership assertions
+// that don't care about tree shape.
+func navLabelsFromOpts(t *testing.T, opts serve.NavOptions) map[string]bool {
 	t.Helper()
-	h := serve.NewNavHandler(opts)
+	h := serve.NewAPINavHandler(opts)
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest(http.MethodGet, "/nav", nil)
+	req, err := http.NewRequest(http.MethodGet, "/api/nav", nil)
 	if err != nil {
 		t.Fatalf("http.NewRequest: %v", err)
 	}
 	h.ServeHTTP(w, req)
-	return w.Body.String()
+
+	var got struct {
+		Groups []struct {
+			Items []navLabelNode `json:"items"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal /api/nav response: %v; body=%s", err, w.Body.String())
+	}
+
+	labels := map[string]bool{}
+	var walk func(nodes []navLabelNode)
+	walk = func(nodes []navLabelNode) {
+		for _, n := range nodes {
+			labels[n.Label] = true
+			walk(n.Children)
+		}
+	}
+	for _, g := range got.Groups {
+		walk(g.Items)
+	}
+	return labels
+}
+
+// navLabelNode mirrors the /api/nav navNodeJSON shape (label + optional
+// children), used only to flatten labels for membership assertions.
+type navLabelNode struct {
+	Label    string         `json:"label"`
+	Children []navLabelNode `json:"children,omitempty"`
 }

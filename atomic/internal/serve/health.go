@@ -1,8 +1,5 @@
-// health.go — CP6: realm-health front page handler.
-//
-// NewHealthHandler returns an http.Handler for the /health route that renders
-// a realm-health dashboard as an HTML fragment. The fragment is intended to be
-// injected into #main-pane by the shell on load (htmx hx-trigger="load").
+// health.go — realm-health dashboard data for the /api/status JSON handler
+// (NewAPIStatusHandler below).
 //
 // The dashboard aggregates two existing engines — no new staleness computation:
 //
@@ -18,7 +15,6 @@ package serve
 
 import (
 	"fmt"
-	"html/template"
 	"net/http"
 	"strings"
 
@@ -191,63 +187,7 @@ func parseIndexResult(r doctor.Result) IndexHealthResult {
 	return res
 }
 
-// healthTmpl is the HTML template for the health dashboard fragment.
-var healthTmpl = template.Must(template.New("health").Parse(`
-<div class="health-dashboard">
-  <h2 class="health-title">Realm Health</h2>
-
-  {{if .IsRealmScope}}
-  <section class="health-section">
-    <h3>Wiki Staleness</h3>
-    {{if .AllFreshWiki}}
-    <p class="health-ok">All wiki artifacts are fresh.</p>
-    {{else}}
-    <ul class="health-list">
-      {{range .StaleResult.StaleRepos}}
-      <li><span class="badge badge-stale">stale repo</span> {{.}}</li>
-      {{end}}
-      {{range .StaleResult.StaleConcerns}}
-      <li><span class="badge badge-stale">stale concern</span> {{.}}</li>
-      {{end}}
-      {{range .StaleResult.BucketDiffKeys}}
-      <li><span class="badge badge-diff">bucket diff</span> {{.}}</li>
-      {{end}}
-    </ul>
-    {{end}}
-  </section>
-  {{else}}
-  <p class="health-info">No realm wiki — showing repo code-index health only.</p>
-  {{end}}
-
-  <section class="health-section">
-    <h3>Code Index</h3>
-    <p class="health-detail {{if eq .IndexResult.Severity "PASS"}}health-ok{{else}}health-warn{{end}}">
-      <span class="badge badge-severity-{{.IndexResult.Severity}}">{{.IndexResult.Severity}}</span>
-      {{.IndexResult.Detail}}
-    </p>
-    {{if .IndexResult.StaleMembers}}
-    <ul class="health-list">
-      {{range .IndexResult.StaleMembers}}
-      <li><span class="badge badge-stale">stale index</span> {{.}}</li>
-      {{end}}
-    </ul>
-    {{end}}
-    {{if .IndexResult.NotIndexed}}
-    <ul class="health-list">
-      {{range .IndexResult.NotIndexed}}
-      <li><span class="badge badge-missing">not indexed</span> {{.}}</li>
-      {{end}}
-    </ul>
-    {{end}}
-  </section>
-
-  {{if and .IsRealmScope .AllFreshWiki (eq .IndexResult.Severity "PASS")}}
-  <p class="health-ok health-all-fresh">All fresh — realm is healthy.</p>
-  {{end}}
-</div>
-`))
-
-// healthData is the template data struct for the health dashboard.
+// healthData is the computed data for the health dashboard.
 type healthData struct {
 	IsRealmScope bool
 	StaleResult  WikiStaleResult
@@ -297,25 +237,6 @@ func healthDataFor(opts HealthOptions) healthData {
 		IndexResult:  indexResult,
 		AllFreshWiki: allFreshWiki,
 	}
-}
-
-// NewHealthHandler returns an http.Handler for the /health route.
-// When HealthOptions seams are nil, the production defaults are wired.
-func NewHealthHandler(opts HealthOptions) http.Handler {
-	opts = resolveHealthSeams(opts)
-
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-		data := healthDataFor(opts)
-
-		var sb strings.Builder
-		if err := healthTmpl.Execute(&sb, data); err != nil {
-			http.Error(w, "health template error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		fmt.Fprint(w, sb.String())
-	})
 }
 
 // ─── GET /api/status ─────────────────────────────────────────────────────────

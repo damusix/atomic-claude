@@ -134,4 +134,25 @@ describe("NavTree", () => {
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
   });
+
+  test("renders a group whose items field is null without crashing (repo-scope Code placeholder)", async () => {
+    mockFetchOnce({
+      scope: "repo",
+      groups: [
+        { name: "Docs", items: [{ label: "README", relpath: "README.md" }] },
+        { name: "Code", items: null },
+      ],
+    });
+
+    render(
+      <MemoryRouter>
+        <ApiProvider>
+          <NavTree />
+        </ApiProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("README")).toBeInTheDocument());
+    expect(screen.getByLabelText("Code")).toBeInTheDocument();
+  });
 });

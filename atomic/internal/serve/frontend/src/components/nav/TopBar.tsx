@@ -64,6 +64,44 @@ export function TopBar({
         <span className="conn-dot" aria-hidden="true" />
         <span className="conn-label">{CONN_LABEL[connState]}</span>
       </span>
+      {/* Network / graph view toggle — routes to the Graph screen (React
+          Router). Mirrors the pre-cutover #btn-graph markup/label/position
+          (templates/layout.html), swapping its htmx-era click-to-mount
+          behavior for a plain route Link. */}
+      <Link
+        id="btn-graph"
+        className="theme-toggle"
+        to="/graph"
+        aria-label="Network view — toggle full graph"
+        title="Network view"
+      >
+        {/* Nodes-and-edges network glyph */}
+        <svg
+          width="17"
+          height="17"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="6" cy="6" r="2.5" />
+          <circle cx="18" cy="6" r="2.5" />
+          <circle cx="6" cy="18" r="2.5" />
+          <circle cx="18" cy="18" r="2.5" />
+          <circle cx="12" cy="12" r="2.5" />
+          <line x1="8" y1="6" x2="15.5" y2="6" />
+          <line x1="6" y1="8" x2="6" y2="15.5" />
+          <line x1="8" y1="18" x2="15.5" y2="18" />
+          <line x1="18" y1="8" x2="18" y2="15.5" />
+          <line x1="7.7" y1="7.7" x2="10.2" y2="10.2" />
+          <line x1="16.3" y1="7.7" x2="13.8" y2="10.2" />
+          <line x1="7.7" y1="16.3" x2="10.2" y2="13.8" />
+          <line x1="16.3" y1="16.3" x2="13.8" y2="13.8" />
+        </svg>
+      </Link>
       <button
         type="button"
         className="theme-toggle"

@@ -9,7 +9,9 @@ export interface NavNode {
 
 export interface NavGroup {
   name: string;
-  items: NavNode[];
+  // Go's encoding/json marshals a nil []navNodeJSON slice as JSON null (the
+  // repo-scope "Code" group placeholder), not an empty array.
+  items: NavNode[] | null;
 }
 
 export interface NavResponse {

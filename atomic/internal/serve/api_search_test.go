@@ -10,10 +10,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
@@ -404,6 +406,69 @@ func TestAPISearchStream_SrcClamping(t *testing.T) {
 	}
 	if len(names) < 2 || names[0] != "md" || names[len(names)-1] != "end" {
 		t.Errorf("events: got %+v, want md first and end last (src=bogus clamps to all)", names)
+	}
+}
+
+// TestAPICodeSearch_ProductionDefault_RealIndex proves DefaultMemberSearchFn
+// (production seam) finds a symbol in a real on-disk index, and that
+// NewAPICodeSearchHandler wires it when SearchFn is nil. Ported from the
+// pre-cutover codesearch_test.go.
+func TestAPICodeSearch_ProductionDefault_RealIndex(t *testing.T) {
+	memberDir := t.TempDir()
+	goSrc := "package greeter\n\n// Greet returns a greeting.\nfunc Greet(name string) string { return \"Hello, \" + name }\n"
+	if err := os.WriteFile(filepath.Join(memberDir, "greeter.go"), []byte(goSrc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	dbDir := t.TempDir()
+	dbPath := filepath.Join(dbDir, "greeter.db")
+	ctx := context.Background()
+	eng, err := engine.NewWithDBPath(memberDir, dbPath)
+	if err != nil {
+		t.Fatal("NewWithDBPath:", err)
+	}
+	if err := eng.Init(ctx); err != nil {
+		eng.Close()
+		t.Fatal("Init:", err)
+	}
+	if err := eng.IndexAll(ctx); err != nil {
+		eng.Close()
+		t.Fatal("IndexAll:", err)
+	}
+	eng.Close()
+
+	prodFn := serve.DefaultMemberSearchFn()
+	results, err := prodFn(ctx, memberDir, dbPath, "Greet")
+	if err != nil {
+		t.Fatalf("production search failed: %v", err)
+	}
+	found := false
+	for _, r := range results {
+		if strings.Contains(r.Node.Name, "Greet") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("no result with name containing 'Greet'; results: %+v", results)
+	}
+
+	// Also verify the /api/code/search handler wires to the production seam
+	// when SearchFn is nil, without panicking.
+	realmRoot := t.TempDir()
+	claudeMDPath := filepath.Join(realmRoot, "CLAUDE.md")
+	writeFile(t, claudeMDPath, "# no wiki\n")
+
+	handler := serve.NewAPICodeSearchHandler(serve.CodeSearchOptions{
+		RealmRoot:    realmRoot,
+		ClaudeMDPath: claudeMDPath,
+		SearchFn:     nil, // production default
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/code/search?q=Greet", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req) // must not panic
+	if rr.Code != http.StatusOK {
+		t.Fatalf("nil SearchFn handler: expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 }
 

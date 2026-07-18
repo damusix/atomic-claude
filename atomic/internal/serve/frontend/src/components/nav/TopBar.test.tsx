@@ -41,4 +41,17 @@ describe("TopBar", () => {
 
     expect(document.querySelector(".breadcrumb-page")).toHaveTextContent("index.md");
   });
+
+  test("renders a #btn-graph link routing to /graph", () => {
+    render(
+      <MemoryRouter>
+        <TopBar />
+      </MemoryRouter>,
+    );
+
+    const btn = document.getElementById("btn-graph");
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute("href", "/graph");
+    expect(btn).toHaveAttribute("aria-label", "Network view — toggle full graph");
+  });
 });

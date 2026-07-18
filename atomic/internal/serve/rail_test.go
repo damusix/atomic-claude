@@ -1,38 +1,32 @@
 package serve_test
 
-// rail_test.go — FE2: right-rail compositing tests.
+// rail_test.go — right-rail data tests against the /api/rail JSON handler.
 //
-// TDD contract (failing first — FE2 not yet wired):
+// Contract:
 //
-//  1. GET /rail/<relpath> returns HTTP 200 with an HTML fragment containing
-//     three OOB <div> targets: #rail-out-content, #rail-in-content, #rail-graph-content.
-//     For a page with known outbound links the out-section must mention them.
-//     For a page with known backlinks the in-section must mention them.
+//  1. GET /api/rail/<relpath> returns 200 with "out" edges and "in" backlinks
+//     reflecting the page's graph position.
 //
-//  2. GET /rail/<traversal> → 404 (path-traversal guard).
+//  2. GET /api/rail/<traversal> → 404 (path-traversal guard).
 //
-//  3. GET /rail/<unknown-page> → 404 (page not in graph).
+//  3. GET /api/rail/<unknown-page> → 404 (page not in graph).
 //
-//  4. GET /page/<relpath> (htmx fragment) must include OOB loaders targeting
-//     #rail-out-content, #rail-in-content, #rail-graph-content, and #breadcrumb-page.
-//     These cause the right rail and breadcrumb to update whenever the main pane
-//     swaps to a new page.
+//  4. An orphan page reports orphan:true (no inbound links).
 //
-//  5. The shell (GET /) loads the three Cytoscape scripts in the required order
-//     (cytoscape.min.js → elk.bundled.js → cytoscape-elk.min.js) so the rail
-//     mini-graph renders. This mirrors the /graph page test but targets the shell
-//     — FE3 reuses the same scripts for the system-graph toggle.
-//
-//  6. An orphan page served via /rail/<relpath> must surface an orphan note in
-//     the #rail-in-content fragment (no inbound links).
+//  5. Frontmatter Properties (source order, scalar vs. JSON-encoded list
+//     values, URL detection) round-trip through the "properties" field.
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
 
 // buildRailRealm creates a small realm for rail compositing tests.
@@ -51,10 +45,47 @@ func buildRailRealm(t *testing.T) string {
 	return root
 }
 
-// TestRailHandlerReturnsOutAndInFragments verifies that GET /rail/hub.md returns
-// an HTML fragment with three OOB targets: #rail-out-content, #rail-in-content,
-// #rail-graph-content. The outbound section must contain links to spoke.md and
-// leaf.md; the inbound section must contain a reference to spoke.md.
+// apiRailResponseFor fires GET /api/rail/<relpath> and decodes the response.
+func apiRailResponseFor(t *testing.T, baseURL, relpath string) (int, struct {
+	RelPath    string     `json:"relpath"`
+	Orphan     bool       `json:"orphan"`
+	Properties []railProp `json:"properties"`
+	Out        []struct {
+		Target       string `json:"target"`
+		ResolvedPath string `json:"resolvedPath"`
+	} `json:"out"`
+	In []struct {
+		Path string `json:"path"`
+	} `json:"in"`
+}) {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/api/rail/" + relpath)
+	if err != nil {
+		t.Fatalf("GET /api/rail/%s: %v", relpath, err)
+	}
+	defer resp.Body.Close()
+	var got struct {
+		RelPath    string     `json:"relpath"`
+		Orphan     bool       `json:"orphan"`
+		Properties []railProp `json:"properties"`
+		Out        []struct {
+			Target       string `json:"target"`
+			ResolvedPath string `json:"resolvedPath"`
+		} `json:"out"`
+		In []struct {
+			Path string `json:"path"`
+		} `json:"in"`
+	}
+	if resp.StatusCode == http.StatusOK {
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			t.Fatalf("decode /api/rail/%s response: %v", relpath, err)
+		}
+	}
+	return resp.StatusCode, got
+}
+
+// TestRailHandlerReturnsOutAndInFragments verifies that GET /api/rail/hub.md
+// returns outbound edges to spoke.md and leaf.md, and a backlink from spoke.md.
 func TestRailHandlerReturnsOutAndInFragments(t *testing.T) {
 	root := buildRailRealm(t)
 
@@ -62,63 +93,64 @@ func TestRailHandlerReturnsOutAndInFragments(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/rail/hub.md")
-	if err != nil {
-		t.Fatalf("GET /rail/hub.md: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/rail/hub.md returned %d, want 200", resp.StatusCode)
+	code, got := apiRailResponseFor(t, baseURL, "hub.md")
+	if code != http.StatusOK {
+		t.Fatalf("/api/rail/hub.md returned %d, want 200", code)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// All three rail content slots must appear as OOB targets.
-	for _, slot := range []string{"rail-out-content", "rail-in-content", "rail-graph-content"} {
-		if !strings.Contains(html, slot) {
-			t.Errorf("/rail/hub.md response missing OOB target %q", slot)
+	var sawSpoke, sawLeaf bool
+	for _, e := range got.Out {
+		if e.ResolvedPath == "spoke.md" {
+			sawSpoke = true
+		}
+		if e.ResolvedPath == "leaf.md" {
+			sawLeaf = true
 		}
 	}
-
-	// Out-section: hub.md links to spoke.md (markdown) and leaf.md (wikilink).
-	// At minimum the resolved target names must appear in the fragment.
-	if !strings.Contains(html, "spoke.md") {
-		t.Errorf("/rail/hub.md out-section should mention spoke.md (outbound link target)")
+	if !sawSpoke {
+		t.Errorf("/api/rail/hub.md out edges should include spoke.md; got %+v", got.Out)
 	}
-	if !strings.Contains(html, "leaf.md") {
-		t.Errorf("/rail/hub.md out-section should mention leaf.md (outbound wikilink target)")
+	if !sawLeaf {
+		t.Errorf("/api/rail/hub.md out edges should include leaf.md (wikilink); got %+v", got.Out)
 	}
 
-	// In-section: spoke.md links to hub.md, so hub.md should list spoke.md as a backlink.
-	if !strings.Contains(html, "spoke.md") {
-		t.Errorf("/rail/hub.md in-section should mention spoke.md (backlink)")
+	var sawSpokeBacklink bool
+	for _, b := range got.In {
+		if b.Path == "spoke.md" {
+			sawSpokeBacklink = true
+		}
+	}
+	if !sawSpokeBacklink {
+		t.Errorf("/api/rail/hub.md backlinks should include spoke.md; got %+v", got.In)
 	}
 }
 
 // TestRailHandlerTraversalReturns404 verifies that a path-traversal attempt on
-// /rail/ is rejected with 404 instead of reading arbitrary files.
+// /api/rail/ is rejected with 404 instead of reading arbitrary files.
+//
+// Exercised directly against the handler (httptest.NewRequest), not through a
+// live server: a real net/http.ServeMux 301-redirects a request whose raw path
+// contains ".." to the pre-cleaned path before any handler runs, and a payload
+// deep enough to escape the realm root also cleans away the "/api/rail/" prefix
+// itself — landing on the SPA fallback (200), not the handler under test. The
+// traversal guard is enforced inside the handler (safeResolve), which is what
+// this test targets.
 func TestRailHandlerTraversalReturns404(t *testing.T) {
 	root := buildRailRealm(t)
+	g := serve.BuildLinkGraph(root)
+	handler := serve.NewAPIRailHandler(root, g)
 
-	baseURL, shutdown := startTestServer(t, startOpts(t, root))
-	defer shutdown()
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
+	req := httptest.NewRequest(http.MethodGet, "/api/rail/../../etc/passwd", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
 
-	resp, err := http.Get(baseURL + "/rail/../../etc/passwd")
-	if err != nil {
-		t.Fatalf("GET /rail/../../etc/passwd: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("/rail traversal: want 404, got %d", resp.StatusCode)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("/api/rail traversal: want 404, got %d", rr.Code)
 	}
 }
 
-// TestRailHandlerUnknownPageReturns404 verifies that /rail/<page> for a page
-// not in the graph returns 404 — so the UI can show a "not found" state cleanly.
+// TestRailHandlerUnknownPageReturns404 verifies that /api/rail/<page> for a
+// page not in the graph returns 404 — so the UI can show a "not found" state.
 func TestRailHandlerUnknownPageReturns404(t *testing.T) {
 	root := buildRailRealm(t)
 
@@ -126,19 +158,14 @@ func TestRailHandlerUnknownPageReturns404(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/rail/does-not-exist.md")
-	if err != nil {
-		t.Fatalf("GET /rail/does-not-exist.md: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("/rail/does-not-exist.md: want 404, got %d", resp.StatusCode)
+	code, _ := apiRailResponseFor(t, baseURL, "does-not-exist.md")
+	if code != http.StatusNotFound {
+		t.Errorf("/api/rail/does-not-exist.md: want 404, got %d", code)
 	}
 }
 
-// TestRailHandlerOrphanPage verifies that /rail/<orphan> surfaces an orphan note
-// in the #rail-in-content fragment — the page has no inbound links.
+// TestRailHandlerOrphanPage verifies that /api/rail/<orphan> reports orphan:true
+// — the page has no inbound links.
 func TestRailHandlerOrphanPage(t *testing.T) {
 	root := buildRailRealm(t)
 
@@ -146,209 +173,12 @@ func TestRailHandlerOrphanPage(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/rail/orphan.md")
-	if err != nil {
-		t.Fatalf("GET /rail/orphan.md: %v", err)
+	code, got := apiRailResponseFor(t, baseURL, "orphan.md")
+	if code != http.StatusOK {
+		t.Fatalf("/api/rail/orphan.md returned %d, want 200", code)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/rail/orphan.md returned %d, want 200", resp.StatusCode)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// The rail-in-content section for an orphan must say "orphan" or "no inbound".
-	lc := strings.ToLower(html)
-	if !strings.Contains(lc, "orphan") && !strings.Contains(lc, "no inbound") && !strings.Contains(lc, "no backlinks") {
-		t.Errorf("/rail/orphan.md in-section should surface orphan status; html: %s", html)
-	}
-}
-
-// TestPageFragmentEmitsExactlyOneRailLoader verifies that an htmx fragment
-// request to /page/<relpath> (HX-Request: true) emits EXACTLY ONE hx-get to
-// /rail/<relpath> — not three separate loaders (one per slot).
-//
-// Why: three loaders caused three identical round-trips per navigation. The
-// consolidated design emits one loader inside #rail-graph-content; the single
-// /rail/ response populates all three slots via OOB swaps. Exactly one loader
-// in the fragment proves no redundant requests are fired.
-//
-// The fragment must also include:
-//   - #breadcrumb-page OOB swap (immediate title update)
-//   - #rail-graph-content OOB swap (contains the one loader)
-func TestPageFragmentEmitsExactlyOneRailLoader(t *testing.T) {
-	root := buildRailRealm(t)
-
-	baseURL, shutdown := startTestServer(t, startOpts(t, root))
-	defer shutdown()
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/page/hub.md", nil)
-	if err != nil {
-		t.Fatalf("build request: %v", err)
-	}
-	req.Header.Set("HX-Request", "true")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("GET /page/hub.md (htmx): %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/page/hub.md (htmx) returned %d, want 200", resp.StatusCode)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// Breadcrumb OOB swap must appear.
-	if !strings.Contains(html, "breadcrumb-page") {
-		t.Errorf("/page/hub.md fragment missing OOB target %q;\nhtml: %q",
-			"breadcrumb-page", safeSnippet(html, 400))
-	}
-
-	// rail-graph-content OOB swap must appear (hosts the one loader).
-	if !strings.Contains(html, "rail-graph-content") {
-		t.Errorf("/page/hub.md fragment missing OOB target %q;\nhtml: %q",
-			"rail-graph-content", safeSnippet(html, 400))
-	}
-
-	// EXACTLY ONE hx-get to /rail/hub.md — count occurrences.
-	const railPath = `hx-get="/rail/hub.md"`
-	count := strings.Count(html, railPath)
-	if count != 1 {
-		t.Errorf("/page/hub.md fragment must contain exactly 1 %q, got %d;\nhtml: %q",
-			railPath, count, safeSnippet(html, 600))
-	}
-
-	// #rail-out-content and #rail-in-content must NOT be OOB targets in the
-	// fragment — they are populated by the /rail/ response, not the page fragment.
-	for _, deadTarget := range []string{
-		`id="rail-out-content" hx-swap-oob`,
-		`id="rail-in-content" hx-swap-oob`,
-	} {
-		if strings.Contains(html, deadTarget) {
-			t.Errorf("/page/hub.md fragment must not contain separate OOB target %q (three-loader anti-pattern);\nhtml: %q",
-				deadTarget, safeSnippet(html, 600))
-		}
-	}
-}
-
-// TestRailGraphContainerCarriesDataRailGraphURL verifies that the #rail-graph-content
-// OOB swap returned by GET /rail/<relpath> contains a rail-cy container element
-// with a data-rail-graph-url attribute pointing at /graph/data?node=<page>&depth=1.
-//
-// Why: the shell's htmx.onLoad handler (not an inline <script>) detects this
-// attribute and mounts the Cytoscape mini-graph. Inline scripts in OOB innerHTML
-// swaps are not reliably executed by htmx 2.
-//
-// The attribute is data-rail-graph-url (not data-graph-url) to stay distinct
-// from the #mode-system button's JS click handler (FE3). FE3 removed the
-// data-graph-url attribute from that button — it is now a pure JS click
-// listener. The onLoad handler queries only for [data-rail-graph-url], so
-// the two selectors cannot collide.
-func TestRailGraphContainerCarriesDataRailGraphURL(t *testing.T) {
-	root := buildRailRealm(t)
-
-	baseURL, shutdown := startTestServer(t, startOpts(t, root))
-	defer shutdown()
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	resp, err := http.Get(baseURL + "/rail/hub.md")
-	if err != nil {
-		t.Fatalf("GET /rail/hub.md: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/rail/hub.md returned %d, want 200", resp.StatusCode)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// The #rail-graph-content OOB must carry data-rail-graph-url (not data-graph-url).
-	if !strings.Contains(html, "data-rail-graph-url") {
-		t.Errorf("/rail/hub.md response missing data-rail-graph-url attribute — htmx.onLoad handler will not mount mini-graph;\nhtml: %q",
-			safeSnippet(html, 600))
-	}
-
-	// Regression guard: rail fragment must NOT use the bare data-graph-url attribute —
-	// that seam belongs to #mode-system (FE3). Using it would cause the onLoad handler
-	// to match the button on body load and attempt to JSON-decode an HTML page.
-	if strings.Contains(html, `data-graph-url=`) {
-		t.Errorf("/rail/hub.md response must not carry data-graph-url — use data-rail-graph-url to avoid FE3 collision;\nhtml: %q",
-			safeSnippet(html, 600))
-	}
-
-	// The data-rail-graph-url must reference the correct endpoint.
-	if !strings.Contains(html, "/graph/data") {
-		t.Errorf("/rail/hub.md response data-rail-graph-url must reference /graph/data;\nhtml: %q",
-			safeSnippet(html, 600))
-	}
-
-	// The rail response must NOT contain an inline <script> block for the mini-graph —
-	// inline scripts in OOB swaps are not reliably executed by htmx 2.
-	if strings.Contains(html, "cytoscape({") {
-		t.Errorf("/rail/hub.md response must not contain inline cytoscape({ call — use htmx.onLoad in shell instead;\nhtml: %q",
-			safeSnippet(html, 600))
-	}
-}
-
-// TestShellLoadsGraphScriptsInOrder verifies that the root shell (GET /)
-// loads the cosmos.gl bundle (Network View / system graph, FE3) and that
-// cytoscape.min.js is still present (rail mini-graph, FE2 — it uses a
-// `concentric` layout, not cola). The cola triplet (cola.min.js,
-// cytoscape-cola.js, and the cytoscape.use(cytoscapeCola) registration) is
-// removed — cosmos.gl replaces cola as the Network View's layout/render engine.
-func TestShellLoadsGraphScriptsInOrder(t *testing.T) {
-	root := buildRailRealm(t)
-
-	baseURL, shutdown := startTestServer(t, startOpts(t, root))
-	defer shutdown()
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	resp, err := http.Get(baseURL + "/")
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET / returned %d, want 200", resp.StatusCode)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// The rail's cytoscape script and the Network View's cosmos.gl bundle
-	// must both be present in the shell.
-	scripts := []string{
-		"/static/vendor/cytoscape.min.js",
-		"/static/vendor/cosmos-graph.js",
-	}
-	for _, s := range scripts {
-		if !strings.Contains(html, s) {
-			t.Errorf("shell missing graph script %q", s)
-		}
-	}
-
-	// The dead ELK engine must be gone (scripts + registration).
-	for _, gone := range []string{"elk.bundled.js", "cytoscape-elk", "cytoscapeElk"} {
-		if strings.Contains(html, gone) {
-			t.Errorf("shell still references removed ELK artifact %q", gone)
-		}
-	}
-
-	// The removed cola triplet must be gone (scripts + registration).
-	for _, gone := range []string{"cola.min.js", "cytoscape-cola.js", "cytoscape.use(cytoscapeCola)"} {
-		if strings.Contains(html, gone) {
-			t.Errorf("shell still references removed cola artifact %q — cosmos.gl replaces it", gone)
-		}
+	if !got.Orphan {
+		t.Errorf("/api/rail/orphan.md should report orphan:true; got %+v", got)
 	}
 }
 
@@ -366,10 +196,10 @@ func buildFrontmatterRealm(t *testing.T) string {
 	return root
 }
 
-// TestRailHandlerPropsFragment_WithFrontmatter verifies that GET /rail/<page>
-// for a page that HAS frontmatter returns an OOB fragment for #rail-props-content
-// populated with the frontmatter keys in source order (repo before sources before
-// generated). A list-valued key must be comma-joined.
+// TestRailHandlerPropsFragment_WithFrontmatter verifies that GET
+// /api/rail/<page> for a page that HAS frontmatter returns "properties"
+// populated with the frontmatter keys in source order (repo before sources
+// before generated). A list-valued key is JSON-encoded (IsJSON:true).
 func TestRailHandlerPropsFragment_WithFrontmatter(t *testing.T) {
 	root := buildFrontmatterRealm(t)
 
@@ -377,61 +207,36 @@ func TestRailHandlerPropsFragment_WithFrontmatter(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/rail/page-with-fm.md")
-	if err != nil {
-		t.Fatalf("GET /rail/page-with-fm.md: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/rail/page-with-fm.md returned %d, want 200", resp.StatusCode)
+	props := railPropsFor(t, baseURL, "page-with-fm.md")
+	if len(props) != 3 {
+		t.Fatalf("expected 3 properties, got %d: %+v", len(props), props)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// #rail-props-content OOB target must be present.
-	if !strings.Contains(html, `id="rail-props-content"`) {
-		t.Errorf("/rail response missing OOB target #rail-props-content; html: %s",
-			safeSnippet(html, 600))
+	// Keys must appear in source order: repo, sources, generated.
+	wantKeys := []string{"repo", "sources", "generated"}
+	for i, want := range wantKeys {
+		if props[i].Key != want {
+			t.Errorf("property[%d].Key: got %q, want %q (source order); props=%+v", i, props[i].Key, want, props)
+		}
 	}
 
-	// Keys must appear in source order: repo before sources before generated.
-	repoIdx := strings.Index(html, "repo")
-	sourcesIdx := strings.Index(html, "sources")
-	generatedIdx := strings.Index(html, "generated")
-	if repoIdx < 0 || sourcesIdx < 0 || generatedIdx < 0 {
-		t.Errorf("not all frontmatter keys present in html; html: %s", safeSnippet(html, 800))
-	} else if !(repoIdx < sourcesIdx && sourcesIdx < generatedIdx) {
-		t.Errorf("frontmatter keys not in source order (repo < sources < generated): repo@%d sources@%d generated@%d",
-			repoIdx, sourcesIdx, generatedIdx)
+	// Scalar value.
+	if props[0].Value != "nes" {
+		t.Errorf("repo value: got %q, want %q", props[0].Value, "nes")
 	}
 
-	// Scalar value must appear.
-	if !strings.Contains(html, "nes") {
-		t.Errorf("scalar value 'nes' not found in props fragment; html: %s", safeSnippet(html, 600))
+	// List value: JSON-encoded, not a comma-joined string.
+	if !props[1].IsJSON {
+		t.Errorf("sources (list) property must have isJSON:true; got %+v", props[1])
 	}
-
-	// List value must be comma-joined ("a, b" or "a,b").
-	if !strings.Contains(html, "a") || !strings.Contains(html, "b") {
-		t.Errorf("list items 'a', 'b' not found in props fragment; html: %s", safeSnippet(html, 600))
-	}
-	// Must contain a comma separator for the list.
-	if !strings.Contains(html, ",") {
-		t.Errorf("list value not comma-joined in props fragment; html: %s", safeSnippet(html, 600))
-	}
-
-	// The rail-props-list class must be present (populated, not empty).
-	if !strings.Contains(html, "rail-props-list") {
-		t.Errorf("rail-props-list missing from populated props fragment; html: %s", safeSnippet(html, 600))
+	if !strings.Contains(props[1].Value, "a") || !strings.Contains(props[1].Value, "b") {
+		t.Errorf("sources JSON value should contain 'a' and 'b'; got %q", props[1].Value)
 	}
 }
 
-// TestRailHandlerPropsFragment_NoFrontmatter verifies that GET /rail/<page>
-// for a page with NO frontmatter returns an EMPTY #rail-props-content — the id
-// must be present (for the CSS :has(:empty) hide rule) but the div body must be
-// byte-empty (no whitespace, no comments). :empty does NOT match whitespace text
-// nodes, so even "\n  \n" inside the div would prevent the CSS hide from firing.
+// TestRailHandlerPropsFragment_NoFrontmatter verifies that GET
+// /api/rail/<page> for a page with NO frontmatter returns an empty (nil)
+// "properties" list.
 func TestRailHandlerPropsFragment_NoFrontmatter(t *testing.T) {
 	root := buildFrontmatterRealm(t)
 
@@ -439,51 +244,10 @@ func TestRailHandlerPropsFragment_NoFrontmatter(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/rail/page-no-fm.md")
-	if err != nil {
-		t.Fatalf("GET /rail/page-no-fm.md: %v", err)
+	props := railPropsFor(t, baseURL, "page-no-fm.md")
+	if len(props) != 0 {
+		t.Errorf("expected no properties for a page with no frontmatter, got %+v", props)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/rail/page-no-fm.md returned %d, want 200", resp.StatusCode)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// #rail-props-content must be present (the CSS depends on the id existing).
-	if !strings.Contains(html, `id="rail-props-content"`) {
-		t.Errorf("/rail response missing OOB target #rail-props-content for no-fm page; html: %s",
-			safeSnippet(html, 600))
-	}
-
-	// The div must be byte-empty: open tag immediately followed by </div> with
-	// nothing in between — not even a space or newline. CSS :empty does NOT match
-	// elements that contain whitespace text nodes, so any whitespace here would
-	// prevent the "properties" header from hiding on frontmatter-less pages.
-	const emptySlot = `id="rail-props-content" hx-swap-oob="innerHTML"></div>`
-	if !strings.Contains(html, emptySlot) {
-		t.Errorf("/rail/page-no-fm.md: #rail-props-content div is not byte-empty — "+
-			"CSS :empty cannot match; whitespace between tags prevents hiding.\n"+
-			"want substring: %q\n"+
-			"html: %s", emptySlot, safeSnippet(html, 800))
-	}
-
-	// Confirm rail-props-list is absent (redundant given byte-empty check, but
-	// explicit for diagnostics).
-	if strings.Contains(html, "rail-props-list") {
-		t.Errorf("rail-props-list should be absent for page with no frontmatter; html: %s",
-			safeSnippet(html, 600))
-	}
-}
-
-// safeSnippet returns up to n bytes of s for diagnostics.
-func safeSnippet(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "…"
 }
 
 // ── Deliverable B: URL-valued frontmatter properties render as clickable links ──
@@ -504,9 +268,37 @@ func buildURLPropRealm(t *testing.T) string {
 	return root
 }
 
+// railProp mirrors the /api/rail "properties" field's propKV shape.
+type railProp struct {
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+	IsURL  bool   `json:"isURL"`
+	IsJSON bool   `json:"isJSON"`
+}
+
+// railPropsFor fires /api/rail/<relpath> and returns its "properties" field.
+func railPropsFor(t *testing.T, baseURL, relpath string) []railProp {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/api/rail/" + relpath)
+	if err != nil {
+		t.Fatalf("GET /api/rail/%s: %v", relpath, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("/api/rail/%s returned %d, want 200", relpath, resp.StatusCode)
+	}
+	var got struct {
+		Properties []railProp `json:"properties"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode /api/rail/%s response: %v", relpath, err)
+	}
+	return got.Properties
+}
+
 // TestRailPropsURLRenderedAsAnchor verifies that a `resource` frontmatter value
-// that is an http(s) URL is rendered as an <a href="..."> anchor in the
-// #rail-props-content fragment, while a non-URL scalar stays as plain text.
+// that is an http(s) URL is marked isURL:true in the /api/rail "properties"
+// field, while a non-URL scalar (title) is not.
 func TestRailPropsURLRenderedAsAnchor(t *testing.T) {
 	root := buildURLPropRealm(t)
 
@@ -514,43 +306,33 @@ func TestRailPropsURLRenderedAsAnchor(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	// Page with resource: https://example.com/x
-	resp, err := http.Get(baseURL + "/rail/with-resource.md")
-	if err != nil {
-		t.Fatalf("GET /rail/with-resource.md: %v", err)
-	}
-	defer resp.Body.Close()
+	props := railPropsFor(t, baseURL, "with-resource.md")
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/rail/with-resource.md returned %d, want 200", resp.StatusCode)
+	var resourceProp, titleProp *railProp
+	for i := range props {
+		switch props[i].Key {
+		case "resource":
+			resourceProp = &props[i]
+		case "title":
+			titleProp = &props[i]
+		}
 	}
-
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// Must contain an <a element for the URL.
-	if !strings.Contains(html, `<a `) {
-		t.Errorf("resource URL value must produce an <a element; html: %s", safeSnippet(html, 800))
+	if resourceProp == nil {
+		t.Fatalf("resource property missing; props: %+v", props)
 	}
-	// The href must equal the URL.
-	if !strings.Contains(html, `href="https://example.com/x"`) {
-		t.Errorf("anchor href must be the resource URL; html: %s", safeSnippet(html, 800))
+	if !resourceProp.IsURL {
+		t.Errorf("resource URL value must have isURL:true; got %+v", resourceProp)
 	}
-	// Must open in a new tab with rel=noopener for security.
-	if !strings.Contains(html, `target="_blank"`) {
-		t.Errorf("anchor must carry target=\"_blank\"; html: %s", safeSnippet(html, 800))
+	if resourceProp.Value != "https://example.com/x" {
+		t.Errorf("resource value: got %q, want %q", resourceProp.Value, "https://example.com/x")
 	}
-	if !strings.Contains(html, `rel="noopener"`) {
-		t.Errorf("anchor must carry rel=\"noopener\"; html: %s", safeSnippet(html, 800))
-	}
-	// The non-URL key (title) must NOT produce an anchor.
-	if strings.Contains(html, `href="My Page"`) {
-		t.Errorf("non-URL value must not produce an anchor; html: %s", safeSnippet(html, 800))
+	if titleProp != nil && titleProp.IsURL {
+		t.Errorf("non-URL 'title' value must not have isURL:true; got %+v", titleProp)
 	}
 }
 
 // TestRailPropsNonURLStaysPlainText verifies that a page with only non-URL
-// scalar properties in frontmatter does NOT produce any <a href> in the props fragment.
+// scalar properties in frontmatter has isURL:false for every property.
 func TestRailPropsNonURLStaysPlainText(t *testing.T) {
 	root := buildURLPropRealm(t)
 
@@ -558,31 +340,19 @@ func TestRailPropsNonURLStaysPlainText(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/rail/non-url-prop.md")
-	if err != nil {
-		t.Fatalf("GET /rail/non-url-prop.md: %v", err)
+	props := railPropsFor(t, baseURL, "non-url-prop.md")
+	if len(props) == 0 {
+		t.Fatal("expected at least one property (author/version)")
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/rail/non-url-prop.md returned %d, want 200", resp.StatusCode)
-	}
-
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// Props for "author" and "version" must not produce anchors.
-	if strings.Contains(html, `href="Alice"`) || strings.Contains(html, `href="1.2.3"`) {
-		t.Errorf("non-URL values must not produce anchors; html: %s", safeSnippet(html, 600))
-	}
-	// No <a href at all in the props fragment.
-	if strings.Contains(html, `<a href=`) {
-		t.Errorf("non-URL props must not produce any <a href; html: %s", safeSnippet(html, 600))
+	for _, p := range props {
+		if p.IsURL {
+			t.Errorf("non-URL prop %q must not have isURL:true; got %+v", p.Key, p)
+		}
 	}
 }
 
 // TestRailPropsOtherURLKeyRenderedAsAnchor verifies that any property value
-// (not just `resource`) that is an http(s) URL is rendered as an anchor.
+// (not just `resource`) that is an http(s) URL is marked isURL:true.
 func TestRailPropsOtherURLKeyRenderedAsAnchor(t *testing.T) {
 	root := buildURLPropRealm(t)
 
@@ -590,32 +360,29 @@ func TestRailPropsOtherURLKeyRenderedAsAnchor(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/rail/other-url.md")
-	if err != nil {
-		t.Fatalf("GET /rail/other-url.md: %v", err)
-	}
-	defer resp.Body.Close()
+	props := railPropsFor(t, baseURL, "other-url.md")
 
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/rail/other-url.md returned %d, want 200", resp.StatusCode)
+	var homepage, doc *railProp
+	for i := range props {
+		switch props[i].Key {
+		case "homepage":
+			homepage = &props[i]
+		case "doc":
+			doc = &props[i]
+		}
 	}
-
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// homepage: https://example.org/y must produce an anchor.
-	if !strings.Contains(html, `href="https://example.org/y"`) {
-		t.Errorf("URL-valued 'homepage' prop must produce an anchor; html: %s", safeSnippet(html, 800))
+	if homepage == nil || !homepage.IsURL {
+		t.Errorf("URL-valued 'homepage' prop must have isURL:true; got %+v", homepage)
 	}
-	// Non-URL 'doc' must stay plain text (no <a> for it).
-	if strings.Contains(html, `href="plain text"`) {
-		t.Errorf("non-URL 'doc' prop must not produce an anchor; html: %s", safeSnippet(html, 600))
+	if doc != nil && doc.IsURL {
+		t.Errorf("non-URL 'doc' prop must not have isURL:true; got %+v", doc)
 	}
 }
 
-// TestRailPropsURLHTMLEscaped verifies that special characters in URL query
-// strings (& → &amp;) and in non-URL prop values (<script>) are correctly
-// HTML-escaped in the output, preventing XSS via crafted frontmatter.
+// TestRailPropsURLHTMLEscaped verifies that frontmatter values round-trip
+// through the /api/rail JSON response unmangled (the client is responsible
+// for HTML-escaping on render; encoding/json's own escaping already prevents
+// a raw <script> tag from appearing verbatim in the wire payload).
 func TestRailPropsURLHTMLEscaped(t *testing.T) {
 	root := buildURLPropRealm(t)
 
@@ -623,32 +390,39 @@ func TestRailPropsURLHTMLEscaped(t *testing.T) {
 	defer shutdown()
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/rail/xss-check.md")
+	resp, err := http.Get(baseURL + "/api/rail/xss-check.md")
 	if err != nil {
-		t.Fatalf("GET /rail/xss-check.md: %v", err)
+		t.Fatalf("GET /api/rail/xss-check.md: %v", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("/rail/xss-check.md returned %d, want 200", resp.StatusCode)
+		t.Fatalf("/api/rail/xss-check.md returned %d, want 200", resp.StatusCode)
+	}
+	rawBody, _ := io.ReadAll(resp.Body)
+
+	// encoding/json's default HTML-escaping (SetEscapeHTML stays enabled per
+	// api_handlers.go's writeAPIJSON) means the raw wire bytes never contain
+	// an unescaped "<script>" sequence.
+	if strings.Contains(string(rawBody), "<script>alert") {
+		t.Errorf("raw <script> must not appear unescaped in the JSON wire payload; body: %s", rawBody)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// html/template escapes & in href attribute values as &amp; (never &#43;).
-	// Verify the escaped form is present and raw & is absent.
-	if !strings.Contains(html, `href="https://good.example/path?a=1&amp;b=2"`) {
-		if strings.Contains(html, `href="https://good.example/path?a=1&b=2"`) {
-			t.Errorf("URL with & must be HTML-escaped in href (& → &amp;); html: %s", safeSnippet(html, 800))
-		}
-		if !strings.Contains(html, "good.example") {
-			t.Errorf("URL anchor missing from props fragment; html: %s", safeSnippet(html, 800))
+	var got struct {
+		Properties []railProp `json:"properties"`
+	}
+	if err := json.Unmarshal(rawBody, &got); err != nil {
+		t.Fatalf("unmarshal: %v; body=%s", err, rawBody)
+	}
+	var resourceProp *railProp
+	for i := range got.Properties {
+		if got.Properties[i].Key == "resource" {
+			resourceProp = &got.Properties[i]
 		}
 	}
-
-	// The title with <script> must be escaped — no raw <script> tag in output.
-	if strings.Contains(html, "<script>alert") {
-		t.Errorf("raw <script> in prop value must be HTML-escaped; html: %s", safeSnippet(html, 800))
+	if resourceProp == nil || !resourceProp.IsURL {
+		t.Fatalf("resource property missing or not marked isURL; props: %+v", got.Properties)
+	}
+	if resourceProp.Value != "https://good.example/path?a=1&b=2" {
+		t.Errorf("resource value must round-trip unescaped through JSON decode; got %q", resourceProp.Value)
 	}
 }

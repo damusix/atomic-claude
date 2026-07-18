@@ -12,15 +12,13 @@
 //     (git absent, non-zero exit, untracked file, parse error).
 //   - Tests: a deterministic stub that returns known dates without disk I/O.
 //
-// NewExternalHandler returns an http.Handler for /external that renders the
-// registry as a sorted table (URL · source pages · first-seen). Consistent with
-// other routes: full page for direct navigation, fragment for HX-Request.
+// The registry data feeds the /api/external JSON handler (NewAPIExternalHandler
+// below).
 package serve
 
 import (
 	"bytes"
 	"fmt"
-	"html/template"
 	"net/http"
 	"os"
 	"os/exec"
@@ -193,83 +191,6 @@ func BuildExternalRegistry(root string, dateFn FileDateFn) []ExternalEntry {
 		return result[i].URL < result[j].URL
 	})
 	return result
-}
-
-// ─── templates ───────────────────────────────────────────────────────────────
-
-const externalPageTmplStr = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>External links registry</title>
-<link rel="stylesheet" href="/static/app.css">
-<script src="/static/vendor/htmx.min.js"></script>
-</head>
-<body>
-<div id="page-content" class="md-content">
-{{template "external-body" .}}
-</div>
-</body>
-</html>`
-
-const externalFragmentTmplStr = `<div id="page-content" class="md-content">
-{{template "external-body" .}}
-</div>`
-
-const externalBodyTmplStr = `{{define "external-body"}}
-<h1>External links registry</h1>
-<p>All outbound <code>http(s)</code> URLs across the realm, with source pages and first-seen date.</p>
-{{if .}}
-<table class="external-registry">
-<thead>
-<tr><th>URL</th><th>Source pages</th><th>First seen</th></tr>
-</thead>
-<tbody>
-{{range .}}
-<tr>
-  <td><a href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.URL}}</a></td>
-  <td>{{range .Sources}}<a class="nav-item" hx-get="/page/{{.}}" hx-target="#main-pane" hx-push-url="true" href="/page/{{.}}">{{.}}</a> {{end}}</td>
-  <td>{{if .FirstSeen.IsZero}}&mdash;{{else}}{{.FirstSeen.Format "2006-01-02"}}{{end}}</td>
-</tr>
-{{end}}
-</tbody>
-</table>
-{{else}}
-<p>No external links found in this realm.</p>
-{{end}}
-{{end}}`
-
-var (
-	externalBodyTmpl     = template.Must(template.New("external-parts").Parse(externalBodyTmplStr))
-	externalPageTmpl     = template.Must(template.Must(externalBodyTmpl.Clone()).Parse(externalPageTmplStr))
-	externalFragmentTmpl = template.Must(template.Must(externalBodyTmpl.Clone()).Parse(externalFragmentTmplStr))
-)
-
-// NewExternalHandler returns an http.Handler for /external that builds the
-// external-link registry on each request and renders it.
-//
-// Full page for direct navigation; htmx fragment (no DOCTYPE) when HX-Request
-// header is present — consistent with NewPageHandler.
-func NewExternalHandler(root string, dateFn FileDateFn) http.Handler {
-	if dateFn == nil {
-		dateFn = MtimeDateFn
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		reg := BuildExternalRegistry(root, dateFn)
-
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-		var err error
-		if r.Header.Get("HX-Request") != "" {
-			err = externalFragmentTmpl.ExecuteTemplate(w, "external-body", reg)
-		} else {
-			err = externalPageTmpl.ExecuteTemplate(w, "external-body", reg)
-		}
-		if err != nil {
-			// Headers already sent — log only; can't change status.
-			fmt.Fprintf(os.Stderr, "atomic serve /external: template error: %v\n", err)
-		}
-	})
 }
 
 // ─── GET /api/external ───────────────────────────────────────────────────────

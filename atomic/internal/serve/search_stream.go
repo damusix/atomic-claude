@@ -1,6 +1,6 @@
-// search_stream.go — Server-Sent Events search stream (/search/stream).
+// search_stream.go — Server-Sent Events search stream (/api/search/stream).
 //
-// Route: GET /search/stream?q=<query>&src=<md|code|all>
+// Route: GET /api/search/stream?q=<query>&src=<md|code|all>
 //
 // Why streaming: a markdown grep is fast and local, but federated code search
 // fans out across realm members, each opening its own SQLite index — one large
@@ -16,21 +16,17 @@
 //     the EventSource (which also stops the browser from
 //     auto-reconnecting and replaying the stream).
 //
-// The dialog uses the plain fetch endpoints (/search/md, /code/search) for live,
-// debounced quick-jump; this stream backs the dedicated /search page, where the
-// user has committed to browsing all results and progressive arrival matters.
+// The handler itself lives in api_handlers.go (NewAPISearchStreamHandler);
+// this file carries the shared options type and the SSE wire-framing helper.
 package serve
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
-
-	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
 )
 
-// SearchStreamOptions configures NewSearchStreamHandler.
+// SearchStreamOptions configures NewAPISearchStreamHandler.
 type SearchStreamOptions struct {
 	// NavRoot is the markdown grep root (same as the md search handler).
 	NavRoot string
@@ -42,79 +38,13 @@ type SearchStreamOptions struct {
 	SearchFn MemberSearchFn
 }
 
-// NewSearchStreamHandler returns an http.Handler for GET /search/stream.
-func NewSearchStreamHandler(opts SearchStreamOptions) http.Handler {
-	fn := opts.SearchFn
-	if fn == nil {
-		fn = DefaultMemberSearchFn()
-	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
-			return
-		}
-
-		q := strings.TrimSpace(r.URL.Query().Get("q"))
-		src := normalizeSearchSrc(r.URL.Query().Get("src"))
-
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("X-Accel-Buffering", "no") // defeat any intermediary buffering
-		w.WriteHeader(http.StatusOK)
-
-		ctx := r.Context()
-
-		if q == "" {
-			writeSSE(w, flusher, "end", "")
-			return
-		}
-
-		// Markdown: fast local grep → one event.
-		if src == "md" || src == "all" {
-			mh := &mdSearchHandler{navRoot: opts.NavRoot}
-			matches, truncated := mh.search(q)
-			var sb strings.Builder
-			renderMdResults(&sb, q, matches, truncated)
-			writeSSE(w, flusher, "md", sb.String())
-		}
-
-		// Code: per-member, streamed as each concurrent query completes.
-		if src == "code" || src == "all" {
-			streamCodeResults(ctx, w, flusher, opts.RealmRoot, opts.ClaudeMDPath, q, fn)
-		}
-
-		writeSSE(w, flusher, "end", "")
-	})
-}
-
-// streamCodeResults resolves the realm and emits one "code" SSE event per member
-// as its concurrent search completes. A realm with no code members emits a single
-// not-indexed note so the client never sees a silent empty section.
-func streamCodeResults(
-	ctx context.Context,
-	w http.ResponseWriter,
-	flusher http.Flusher,
-	realmRoot, claudeMDPath, query string,
-	fn MemberSearchFn,
-) {
-	res, err := realm.Resolve(realmRoot, claudeMDPath)
-	if err != nil {
-		writeSSE(w, flusher, "code", codeSearchNoIndexNote())
-		return
-	}
-
-	emitted := false
-	groups := codeSearchGroups(ctx, res, realmRoot, nil, nil, query, fn, func(g memberResult) {
-		var sb strings.Builder
-		renderMemberGroup(&sb, g)
-		writeSSE(w, flusher, "code", sb.String())
-		emitted = true
-	})
-
-	if len(groups) == 0 && !emitted {
-		writeSSE(w, flusher, "code", codeSearchNoIndexNote())
+// normalizeSearchSrc clamps the src param to a known value (default "all").
+func normalizeSearchSrc(src string) string {
+	switch src {
+	case "md", "code", "all":
+		return src
+	default:
+		return "all"
 	}
 }
 

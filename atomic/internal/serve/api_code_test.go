@@ -8,13 +8,18 @@ package serve_test
 // codeexplorer_test.go (same package).
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/db"
+	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
 )
@@ -503,6 +508,56 @@ func TestAPICodeFile_NotIndexed_Degraded(t *testing.T) {
 	}
 	if len(got.Nodes) != 0 {
 		t.Errorf("expected no nodes, got %+v", got.Nodes)
+	}
+}
+
+// TestAPICodeFiles_ProductionRealIndex proves the production EngineProvider
+// (nil → DefaultEngineProvider) opens a real on-disk index and the /api/code/files
+// handler surfaces its indexed files — not just the fakeCodeEngine seam used by
+// the rest of this file. Ported from the pre-cutover codeexplorer_test.go.
+func TestAPICodeFiles_ProductionRealIndex(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping production-wiring test in short mode")
+	}
+
+	repoRoot := t.TempDir()
+	writeFile(t, filepath.Join(repoRoot, "main.go"), "package main\n\nfunc HelloWorld() {}\n")
+	writeFile(t, filepath.Join(repoRoot, "go.mod"), "module example.com/tiny\n\ngo 1.21\n")
+
+	dbDir := filepath.Join(repoRoot, ".claude", ".atomic-index")
+	if err := os.MkdirAll(dbDir, 0o755); err != nil {
+		t.Fatalf("mkdir dbDir: %v", err)
+	}
+	dbPath := filepath.Join(dbDir, "atomic.db")
+
+	eng, err := engine.NewWithDBPath(repoRoot, dbPath)
+	if err != nil {
+		t.Fatalf("NewWithDBPath: %v", err)
+	}
+	defer eng.Close()
+
+	ctx := context.Background()
+	if err := eng.Init(ctx); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	if err := eng.IndexAll(ctx); err != nil {
+		t.Fatalf("IndexAll: %v", err)
+	}
+
+	h := serve.NewCodeExplorerAPIHandler(serve.CodeExplorerOptions{
+		RealmRoot: repoRoot,
+		// EngineProvider nil → DefaultEngineProvider
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/code/files", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "main.go") {
+		t.Errorf("expected 'main.go' in file list; body: %s", rr.Body.String())
 	}
 }
 

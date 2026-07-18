@@ -10,7 +10,7 @@ import { Rail } from "../../components/rail/Rail";
 import { SearchPalette } from "../../components/search/SearchPalette";
 import { useHashScroll } from "../../hooks/useHashScroll";
 import { useLiveReload } from "../../hooks/useLiveReload";
-import { setNavigator, wireDismiss } from "../../utils/graphUI";
+import { installGraphUIGlobal, setNavigator, wireDismiss } from "../../utils/graphUI";
 import "./style.css";
 
 export function Shell() {
@@ -19,11 +19,15 @@ export function Shell() {
   const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
 
-  // Registers the SPA navigator utils/graphUI's navigateToPage delegates to
-  // (rail mini-graph clicks, the page modal's "Open full page" button, and
-  // CP8's graph-view click handlers all funnel through the one AtomicGraphUI
-  // contract) and wires the modal's dismiss handlers once.
+  // Exposes window.AtomicGraphUI so the carried vanilla profiles
+  // (system-graph.js, code-graph.js) can call showPreviewCard/openPageModal/
+  // etc. unqualified; registers the SPA navigator utils/graphUI's
+  // navigateToPage delegates to (rail mini-graph clicks, the page modal's
+  // "Open full page" button, and CP8's graph-view click handlers all funnel
+  // through the one AtomicGraphUI contract) and wires the modal's dismiss
+  // handlers once.
   useEffect(() => {
+    installGraphUIGlobal();
     setNavigator((nodeID) => navigate(`/page/${nodeID}`));
     wireDismiss();
     return () => setNavigator(null);

@@ -88,22 +88,16 @@ const VIEWS = {
       await page.goto(baseURL + '/graph', { waitUntil: 'load' });
     }
   },
-  // code: the real UI path (checkpoint 6) — no page.evaluate bridge. Lands on
-  // the landing page, clicks #btn-graph to enter graph mode (mounts the docs
-  // profile by default via system-graph.js's enterGraphMode), waits for the
-  // Docs|Code switcher to exist, then clicks its Code button — the same
-  // renderGraphPane() path a real user's click takes, tearing down docs and
-  // mounting window.CodeGraph on a fresh #code-cy[data-code-graph] container.
+  // code: the real UI path. Lands on the landing page, clicks the top bar's
+  // #btn-graph (React Router Link to /graph — mirrors the pre-cutover htmx
+  // button's placement/label), waits for the Docs|Code switcher to exist,
+  // then clicks its Code button — the same renderGraphPane()-equivalent path
+  // a real user's click takes, mounting window.CodeGraph on a fresh
+  // #code-cy[data-code-graph] container.
   code: {
     async navigate(page, baseURL) {
-      // The landing shell's #main-pane hx-get="{{.LandingURL}}" auto-fetch
-      // (FE8) must settle before #btn-graph's click-triggered /graph fetch
-      // starts, or the two htmx swaps race. 'networkidle' used to encode
-      // that, but the live-reload /events EventSource holds a connection
-      // open for the page's whole life, so networkidle never fires anymore —
-      // wait for the auto-fetch's own rendered marker instead.
       await page.goto(baseURL + '/', { waitUntil: 'load' });
-      await page.waitForSelector('#main-pane #page-content, #main-pane .md-content', { timeout: 15000 });
+      await page.waitForSelector('#main-pane .page-view, #main-pane .page-body', { timeout: 15000 });
       await page.click('#btn-graph');
       await page.waitForSelector('[data-graph-view="code"]');
       await page.click('[data-graph-view="code"]');

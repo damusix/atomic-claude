@@ -46,13 +46,14 @@ func TestWikilink_ResolvedBecomesHtmxLink(t *testing.T) {
 	for _, want := range []string{
 		`href="/page/wiki/knowledge/directus-cicd.md"`,
 		`href="/page/wiki/knowledge/directus-research.md"`,
-		`hx-get="/page/wiki/knowledge/directus-cicd.md"`,
-		`hx-target="#main-pane"`,
 		`class="wikilink"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("expected %q in output; got:\n%s", want, html)
 		}
+	}
+	if strings.Contains(html, "hx-get") {
+		t.Errorf("wikilink renderer must not emit hx-get attributes; got:\n%s", html)
 	}
 	// The display text is the page name when no alias is given.
 	if !strings.Contains(html, `>directus-cicd</a>`) {
