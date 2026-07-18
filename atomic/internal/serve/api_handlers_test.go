@@ -21,7 +21,7 @@ func TestAPIPage_File(t *testing.T) {
 	writeFile(t, filepath.Join(root, "docs", "guide.md"), "---\ntitle: Guide\n---\n# Guide\n\nBody text.\n")
 
 	graph := serve.BuildLinkGraph(root)
-	handler := serve.NewAPIPageHandler(root, graph)
+	handler := serve.NewAPIPageHandler(root, graph, "README.md")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/page/docs/guide.md", nil)
 	rr := httptest.NewRecorder()
@@ -77,7 +77,7 @@ func TestAPIPage_Directory(t *testing.T) {
 	// a rendered page.
 
 	graph := serve.BuildLinkGraph(root)
-	handler := serve.NewAPIPageHandler(root, graph)
+	handler := serve.NewAPIPageHandler(root, graph, "README.md")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/page/docs", nil)
 	rr := httptest.NewRecorder()
@@ -117,7 +117,7 @@ func TestAPIPage_Directory(t *testing.T) {
 func TestAPIPage_NotFound(t *testing.T) {
 	root := t.TempDir()
 	graph := serve.BuildLinkGraph(root)
-	handler := serve.NewAPIPageHandler(root, graph)
+	handler := serve.NewAPIPageHandler(root, graph, "README.md")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/page/missing.md", nil)
 	rr := httptest.NewRecorder()
@@ -140,7 +140,7 @@ func TestAPIPage_NotFound(t *testing.T) {
 func TestAPIPage_TraversalRejected(t *testing.T) {
 	root := t.TempDir()
 	graph := serve.BuildLinkGraph(root)
-	handler := serve.NewAPIPageHandler(root, graph)
+	handler := serve.NewAPIPageHandler(root, graph, "README.md")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/page/../../../../etc/passwd", nil)
 	rr := httptest.NewRecorder()

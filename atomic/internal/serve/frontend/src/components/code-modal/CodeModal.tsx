@@ -260,10 +260,15 @@ export function CodeModal() {
       onOpenChange={(details) => {
         if (!details.open) closeModal();
       }}
+      lazyMount
       unmountOnExit
       aria-label="Source file viewer"
     >
-      <Dialog.Positioner id="code-modal" className="open">
+      {/* app.css shows #code-modal only with .open — the class must track
+          state, not be hardcoded, or the scrim renders permanently (Ark keeps
+          content in the DOM when neither lazyMount nor unmountOnExit strip it,
+          and .code-modal-box's display:flex overrides the hidden attr). */}
+      <Dialog.Positioner id="code-modal" className={state.open ? "open" : ""}>
         <Dialog.Content className="code-modal-box">
           <div className="code-modal-header">
             <Dialog.Title className="code-modal-title">{top?.title ?? ""}</Dialog.Title>

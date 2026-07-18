@@ -195,17 +195,19 @@ export function SearchPalette({
               </button>
             </span>
           </div>
-          <Combobox.Positioner>
-            <Combobox.Content className="search-results" aria-label="Search results">
-              <SearchResultsBody
-                source={source}
-                debounced={debounced}
-                loading={loading}
-                items={items}
-                codeResults={codeResults}
-              />
-            </Combobox.Content>
-          </Combobox.Positioner>
+          {/* No Combobox.Positioner: the results render in normal flow inside
+              the modal box (header / results / footer column), matching the
+              carried .search-modal-box layout — a floating positioner would
+              overlay the footer. */}
+          <Combobox.Content className="search-results" aria-label="Search results">
+            <SearchResultsBody
+              source={source}
+              debounced={debounced}
+              loading={loading}
+              items={items}
+              codeResults={codeResults}
+            />
+          </Combobox.Content>
         </Combobox.Root>
         <div className="search-modal-footer">
           <button type="button" className="search-viewall" onClick={gotoSearchPage}>

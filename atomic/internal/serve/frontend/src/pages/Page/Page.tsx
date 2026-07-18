@@ -20,7 +20,7 @@ import "./style.css";
 
 function Skeleton() {
   return (
-    <div className="page-skeleton" aria-busy="true" aria-live="polite">
+    <div className="page-content-inner page-skeleton" aria-busy="true" aria-live="polite">
       <div className="page-skeleton-line page-skeleton-title" />
       <div className="page-skeleton-line" />
       <div className="page-skeleton-line" />
@@ -31,7 +31,7 @@ function Skeleton() {
 
 function NotFound({ relpath }: { relpath: string }) {
   return (
-    <div className="page-not-found">
+    <div className="page-content-inner page-not-found">
       <h1>Not found</h1>
       <p>
         <code>{relpath}</code> does not exist in this realm.
@@ -42,7 +42,7 @@ function NotFound({ relpath }: { relpath: string }) {
 
 function DirListing({ dir }: { dir: PageDirResponse }) {
   return (
-    <div className="page-dir-listing">
+    <div className="page-content-inner page-dir-listing">
       <h1>{dir.relpath || "/"}</h1>
       <ul>
         {dir.entries.map((entry: DirEntry) => (
@@ -61,17 +61,12 @@ function DirListing({ dir }: { dir: PageDirResponse }) {
 export function Page() {
   const params = useParams();
   const relpath = params["*"] ?? "";
-  // The "/" index route carries no relpath — the pre-cutover shell resolved
-  // landing via computeLandingURL (serve.go), a value never exposed as an
-  // /api/* field (no checkpoint owns it). README.md is that function's own
-  // repo-scope default, so it's the least-surprising fetch target here;
-  // realm scope's wiki/index.md landing isn't reachable from "/" until a
-  // later checkpoint surfaces it (falls through to the 404 view instead —
-  // no worse than the pre-CP6 stub route it replaces).
-  const fetchPath = relpath || "README.md";
+  // The "/" index route carries no relpath — /api/page/ with an empty relpath
+  // resolves the scope's landing server-side (realm → wiki/index.md, repo →
+  // README.md) and returns the resolved relpath in the response.
   const navigate = useNavigate();
   const { get } = useApi();
-  const { data, loading, failure, refetch } = get<PageResponse | PageDirResponse>(`/page/${fetchPath}`);
+  const { data, loading, failure, refetch } = get<PageResponse | PageDirResponse>(`/page/${relpath}`);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const resolvedRelpath = data && !isDirResponse(data) ? data.relpath : null;
@@ -115,7 +110,7 @@ export function Page() {
   }
 
   return (
-    <div className="page-view" data-route="page">
+    <div className="page-content-inner page-view" data-route="page">
       <nav className="page-breadcrumb" aria-label="Breadcrumb">
         {data.breadcrumb.map((seg, i) => (
           <span key={`${seg.label}:${i}`}>

@@ -86,8 +86,9 @@ describe("App routing (Shell mount)", () => {
 
     expect(document.getElementById("app-header")).not.toBeNull();
     expect(document.getElementById("nav-pane")).not.toBeNull();
-    // The index route has no relpath — Page falls back to README.md.
-    await waitFor(() => expect(screen.getByText("Page: README.md")).toBeInTheDocument());
+    // The index route has no relpath — /api/page/ resolves the landing
+    // server-side; the mock echoes the empty relpath back.
+    await waitFor(() => expect(screen.getByText("Page:", { exact: false })).toBeInTheDocument());
   });
 
   test("/page/<relpath> resolves to the Page route with the relpath param", async () => {

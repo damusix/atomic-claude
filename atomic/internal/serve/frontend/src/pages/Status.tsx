@@ -31,14 +31,14 @@ export function Status() {
 
   if (loading && !data) {
     return (
-      <div className="health-dashboard" data-route="status">
+      <div className="page-content-inner health-dashboard" data-route="status">
         <p className="loading">Loading…</p>
       </div>
     );
   }
   if (failure || !data) {
     return (
-      <div className="health-dashboard" data-route="status">
+      <div className="page-content-inner health-dashboard" data-route="status">
         <p>Could not load realm health.</p>
       </div>
     );
@@ -47,7 +47,7 @@ export function Status() {
   const allFresh = data.isRealmScope && data.wiki.allFresh && data.index.severity === "PASS";
 
   return (
-    <div className="health-dashboard" data-route="status">
+    <div className="page-content-inner health-dashboard" data-route="status">
       <h2 className="health-title">Realm Health</h2>
 
       {data.isRealmScope ? (

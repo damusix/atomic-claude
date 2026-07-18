@@ -53,7 +53,7 @@ func TestNewAPIPageHandler_TypedNilGraphProviderDegradesWithoutPanic(t *testing.
 
 	for name, g := range cases {
 		t.Run(name, func(t *testing.T) {
-			handler := NewAPIPageHandler(root, g)
+			handler := NewAPIPageHandler(root, g, "README.md")
 
 			req := httptest.NewRequest(http.MethodGet, "/api/page/page.md", nil)
 			rr := httptest.NewRecorder()

@@ -19,7 +19,7 @@ export function External() {
   const { data, loading, failure } = useApi().get<ApiExternalResponse>("/external");
 
   return (
-    <div className="md-content" data-route="external">
+    <div className="page-content-inner md-content" data-route="external">
       <h1>External links registry</h1>
       <p>All outbound http(s) URLs across the realm, with source pages and first-seen date.</p>
 

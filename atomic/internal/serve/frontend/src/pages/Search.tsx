@@ -30,7 +30,7 @@ export function Search() {
   }
 
   return (
-    <div className="md-content search-page" data-route="search">
+    <div className="page-content-inner md-content search-page" data-route="search">
       <h1 className="search-page-title">Search</h1>
       {query ? (
         <>

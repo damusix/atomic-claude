@@ -172,7 +172,16 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	// /api/* — JSON endpoints for the React frontend. Every handler reuses the
 	// same view-model builders the pre-cutover htmx fragments used, so link
 	// resolution stays single-sourced.
-	mux.Handle("/api/page/", NewAPIPageHandler(opts.TargetDir, store))
+	// Landing relpath: realm scope resolves to the realm index, repo scope to
+	// README.md — the /api/page/ handler serves it for an empty relpath so the
+	// SPA's "/" route never has to guess the scope.
+	landingRel := "README.md"
+	if isRealmScope && wikiIndexPath != "" {
+		if rel, relErr := filepath.Rel(opts.TargetDir, wikiIndexPath); relErr == nil {
+			landingRel = rel
+		}
+	}
+	mux.Handle("/api/page/", NewAPIPageHandler(opts.TargetDir, store, landingRel))
 	mux.Handle("/api/file/", NewAPIFileHandler(opts.TargetDir))
 	mux.Handle("/api/rail/", NewAPIRailHandler(navRoot, store))
 	mux.Handle("/api/nav", NewAPINavHandler(navOpts))

@@ -97,6 +97,10 @@ function SchemaSection({ title, tables, member }: { title: string; tables: ApiTa
 export function SchemaView() {
   const [members, setMembers] = useState<GraphMember[]>([]);
   const [member, setMember] = useState("");
+  // Fetching /code/schema before the member list resolves 500s at a realm
+  // root (no realm-level index) — hold the data fetch until membership is
+  // known, then fetch per-member (or memberless in bare-repo scope).
+  const [membersResolved, setMembersResolved] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -104,6 +108,7 @@ export function SchemaView() {
       if (cancelled) return;
       setMembers(fetched);
       setMember((prev) => resolveMember(fetched, prev));
+      setMembersResolved(true);
     });
     return () => {
       cancelled = true;
@@ -111,13 +116,34 @@ export function SchemaView() {
   }, []);
 
   const path = member ? `/code/schema?member=${encodeURIComponent(member)}` : "/code/schema";
+  return membersResolved ? (
+    <SchemaData key={path} path={path} members={members} member={member} setMember={setMember} />
+  ) : (
+    <div className="page-content-inner code-schema" data-route="schema">
+      <h2 className="code-schema-title">SQL Schema</h2>
+      <p className="code-schema-loading">Loading…</p>
+    </div>
+  );
+}
+
+function SchemaData({
+  path,
+  members,
+  member,
+  setMember,
+}: {
+  path: string;
+  members: GraphMember[];
+  member: string;
+  setMember: (m: string) => void;
+}) {
   const { data, loading, failure } = useApi().get<ApiCodeSchemaResponse>(path);
 
   const tables = data?.tables.filter((t) => t.node.kind !== "view") ?? [];
   const views = data?.tables.filter((t) => t.node.kind === "view") ?? [];
 
   return (
-    <div className="code-schema" data-route="schema">
+    <div className="page-content-inner code-schema" data-route="schema">
       <h2 className="code-schema-title">SQL Schema</h2>
 
       {members.length > 1 ? (

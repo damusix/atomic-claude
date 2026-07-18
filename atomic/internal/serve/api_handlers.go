@@ -81,12 +81,14 @@ type apiPageDirResponse struct {
 // uses for htmx requests (index-file resolution, RenderMarkdownWithGraph,
 // directory listing) so /api/page and /page render identical link
 // resolution.
-func NewAPIPageHandler(root string, g graphProvider) http.Handler {
+func NewAPIPageHandler(root string, g graphProvider, landing string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		relPath := strings.TrimPrefix(r.URL.Path, "/api/page/")
+		// Empty relpath is the SPA's "/" landing request — the server owns
+		// scope resolution (realm → wiki/index.md, repo → README.md), the
+		// client can't know it.
 		if relPath == "" || relPath == "/" {
-			writeAPIError(w, http.StatusNotFound, "missing relpath")
-			return
+			relPath = landing
 		}
 
 		var graph *Graph
