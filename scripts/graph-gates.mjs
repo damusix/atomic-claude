@@ -205,7 +205,7 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
     let settleMs = null;
     let settleErr = null;
     try {
-      await page.waitForSelector('.system-graph-loading', { state: 'detached', timeout: settleBudgetMs });
+      await page.waitForSelector('.system-graph-loading', { state: 'hidden', timeout: settleBudgetMs });
       settleMs = Date.now() - t0;
     } catch (e) {
       settleErr = 'did not settle within ' + settleBudgetMs + 'ms';
@@ -314,7 +314,7 @@ async function runGates(chromium, baseURL, view, settleBudgetMs) {
     await view.navigate(page, baseURL);
     let reloadSettleErr = null;
     try {
-      await page.waitForSelector('.system-graph-loading', { state: 'detached', timeout: settleBudgetMs });
+      await page.waitForSelector('.system-graph-loading', { state: 'hidden', timeout: settleBudgetMs });
     } catch (e) { reloadSettleErr = 'reload did not settle within ' + settleBudgetMs + 'ms'; }
 
     if (reloadSettleErr) {

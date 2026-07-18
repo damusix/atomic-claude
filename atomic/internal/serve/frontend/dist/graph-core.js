@@ -327,6 +327,25 @@ window.GraphCore = (function() {
   // records the target, not a proof.
   var MIN_POINT_SIZE = 8, MAX_POINT_SIZE = 14;
 
+  // ── Zoom-scaled point sizes (2026-07-18 user feedback) ────────────────────
+  //
+  // In screen-space-constant mode (scalePointsOnZoom=false) a point's
+  // rendered diameter never shrinks as the camera zooms out (see ZOOM_MAX's
+  // comment), so a fitted view of a dense graph reads as a solid mass of
+  // full-size dots. cosmos's pointSizeScale config is a live uniform
+  // multiplied into calculatePointSize() AND both GPU pick passes
+  // (findHoveredPoint/findPointsInRect read the same sizeScale uniform —
+  // verified against the vendored bundle), so scaling it per zoom shrinks
+  // dots and their hit targets together, O(1) per zoom event, no per-point
+  // array rebuild. Policy: full size at/above POINT_SCALE_FULL_ZOOM_X times
+  // the mount's own fit zoom, shrinking linearly with zoom-out, floored so
+  // the smallest dot never drops below POINT_SCALE_MIN_PX. Anchored to the
+  // dataset's fit zoom (same reasoning as effectiveZoomMin — natural fit
+  // zooms differ wildly between the docs realm and the 17.5k-node code
+  // graph, so a fixed zoom threshold can't work for both).
+  var POINT_SCALE_MIN_PX = 4;
+  var POINT_SCALE_FULL_ZOOM_X = 2.5;
+
   // ── Zoom clamp (item 2/3, graph-interactions brief) ────────────────────────
   //
   // cosmos has no scaleExtent/min-max-zoom config field (checked against the
@@ -760,9 +779,25 @@ window.GraphCore = (function() {
     try { window.history.replaceState(window.history.state, '', '/graph?' + params.toString()); } catch (e) {}
   }
 
+  // clearLoading HIDES the loading element instead of removing it — the
+  // element is rendered (and owned) by React's Graph route; removing a
+  // React-owned node breaks React's own reconciliation on the next
+  // Docs|Code switch ("Failed to execute 'insertBefore' on 'Node'": React
+  // inserts the fresh keyed mount container relative to this <p> as its
+  // recorded sibling anchor, which no longer exists). resetLoading is the
+  // mount-time counterpart that re-shows it for the next mount.
   function clearLoading(mainPane) {
     var l = mainPane && mainPane.querySelector('.system-graph-loading');
-    if (l) { l.remove(); }
+    if (l) { l.style.display = 'none'; }
+  }
+
+  function resetLoading(mainPane) {
+    var l = mainPane && mainPane.querySelector('.system-graph-loading');
+    if (l) {
+      l.style.display = '';
+      l.classList.remove('system-graph-error');
+      l.textContent = 'Laying out graph…';
+    }
   }
 
   // showError reuses the loading element as the error affordance — replacing
@@ -833,6 +868,7 @@ window.GraphCore = (function() {
     var mainPane = document.getElementById('main-pane');
     document.body.classList.add('mode-system');
     updateGraphBtnState(true);
+    resetLoading(mainPane);
 
     if (!isWebGL2Available()) {
       showError(mainPane, 'Your browser does not support WebGL2, which the Network View requires.');
@@ -869,6 +905,20 @@ window.GraphCore = (function() {
         // is a safe no-op until onSimulationEnd sets the real fit-anchored
         // value (see that handler's own comment).
         var effectiveZoomMin = 0;
+        var fitZoom = 0;             // computeFitZoomApprox() at settle — anchors the point-scale ramp below
+        var currentPointScale = 1;
+        // updatePointScale maps the current zoom onto pointSizeScale — see
+        // POINT_SCALE_MIN_PX's comment for the policy and why it's fit-
+        // anchored. 0.01 epsilon skips no-op config writes at wheel rates.
+        function updatePointScale(k) {
+          if (!fitZoom) { return; } // pre-settle: no anchor yet
+          var minScale = POINT_SCALE_MIN_PX / MIN_POINT_SIZE;
+          var s = Math.max(minScale, Math.min(1, k / (fitZoom * POINT_SCALE_FULL_ZOOM_X)));
+          if (Math.abs(s - currentPointScale) < 0.01) { return; }
+          currentPointScale = s;
+          graph.setConfigPartial({ pointSizeScale: s });
+          graph.render();
+        }
         var degrees = computeDegrees(adapted);
         var adjacency = computeAdjacency(adapted); // built once per data load — see its own comment
         var filteredTypes = {};      // type -> true while its legend chip is toggled off (alpha-0 + hover/click guard)
@@ -1176,7 +1226,8 @@ window.GraphCore = (function() {
             // fitted frame without letting the graph shrink toward a dot.
             // Computed unconditionally, before branching on `saved` below,
             // so a garbage/pre-clamp-era saved.zoom can never corrupt it.
-            effectiveZoomMin = computeFitZoomApprox() * 0.6;
+            fitZoom = computeFitZoomApprox();
+            effectiveZoomMin = fitZoom * 0.6;
             var saved = readViewFromURL();
             if (saved) {
               // Clamp a restored URL's zoom param into range — a pre-clamp-era
@@ -1190,13 +1241,19 @@ window.GraphCore = (function() {
               // below); fit must always be free to frame the graph.
               graph.fitView(undefined, undefined, false);
             }
-            buildLegend(adapted, profile.colors(), mainPane, onLegendToggle);
-            if (mainPane && !document.getElementById('graph-hint')) {
+            // Legend + hint mount into `container` (the keyed graph-mount
+            // div, a React leaf with no reconciled children), NOT #main-pane —
+            // React owns #main-pane's child list, and vanilla-inserted
+            // siblings there corrupt its insertBefore anchors on a Docs|Code
+            // switch. The keyed container is destroyed wholesale on switch,
+            // so these clean themselves up with no removal bookkeeping.
+            buildLegend(adapted, profile.colors(), container, onLegendToggle);
+            if (!container.querySelector('.graph-hint')) {
               var hint = document.createElement('div');
               hint.id = 'graph-hint';
               hint.className = 'graph-hint';
               hint.textContent = 'hold ⇧ Shift to highlight & drag';
-              mainPane.appendChild(hint);
+              container.appendChild(hint);
             }
             clearLoading(mainPane);
             updateLabels();
@@ -1276,6 +1333,10 @@ window.GraphCore = (function() {
               if (k < effectiveZoomMin) { graph.setZoomLevel(effectiveZoomMin, 0, false); }
               else if (k > ZOOM_MAX) { graph.setZoomLevel(ZOOM_MAX, 0, false); }
             }
+            // Applied for programmatic moves too (fitView's own transition
+            // ends at the fitted zoom, which should land at the scaled-down
+            // size) — userDriven is irrelevant to the size policy.
+            updatePointScale(e.transform.k);
             // Re-anchor for ANY zoom/pan, not only user-driven ones — the
             // hovered node's screen position moves either way.
             reanchorHoverCard();
