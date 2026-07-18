@@ -13,6 +13,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // ActionKind classifies what Init did for one guarantee.
@@ -31,10 +33,13 @@ type Action struct {
 	Kind ActionKind
 }
 
-// managedHeader precedes the managed rules when .claude/.gitignore is
-// created fresh (it does not exist yet). An existing file is never given
-// this header retroactively.
-const managedHeader = "# managed by atomic repo init; rules are relative to .claude/\n"
+// managedHeader precedes the managed rules when the nested <harness.dir>/.gitignore
+// is created fresh (it does not exist yet). An existing file is never given
+// this header retroactively. harnessDirRel is the harness dir's slash-form
+// name (e.g. ".claude" or ".pi").
+func managedHeader(harnessDirRel string) string {
+	return fmt.Sprintf("# managed by atomic repo init; rules are relative to %s/\n", harnessDirRel)
+}
 
 // probeFile is the nonexistent filename checked under each guarded directory
 // to answer "is it ignored" via git check-ignore. It never needs to exist —
@@ -45,27 +50,41 @@ const probeFile = ".repoinit-probe"
 // one Action per guarantee. It is safe to call repeatedly: a guarantee
 // already satisfied reports ActionOK and touches nothing. Returns an error
 // only on irrecoverable I/O failure (e.g. an unwritable directory).
+//
+// Every guarantee but the root tmp/ rule is nested under the resolved
+// harness.dir (default ".claude"; see config.ScratchpadDir et al.) — passing
+// "" as the root to those helpers yields the harness-relative subpath alone
+// (e.g. ".claude/.scratchpad" or ".pi/.scratchpad"), reusing the same
+// resolver repo-local consumers thread through elsewhere.
 func Init(root string) ([]Action, error) {
 	actions := make([]Action, 0, 6)
 
-	a, err := ensureDir(root, filepath.Join(".claude", ".scratchpad"), ".claude/.scratchpad/")
+	scratchpadRel := config.ScratchpadDir("")
+	projectRel := config.ProjectDir("")
+	indexRel := config.IndexDir("")
+	worktreesRel := config.WorktreesDir("")
+	harnessDirRel := filepath.Dir(scratchpadRel)
+	nestedGitignoreRel := filepath.Join(harnessDirRel, ".gitignore")
+	header := managedHeader(filepath.ToSlash(harnessDirRel))
+
+	a, err := ensureDir(root, scratchpadRel, dirName(scratchpadRel))
 	if err != nil {
 		return nil, err
 	}
 	actions = append(actions, a)
 
-	a, err = ensureDir(root, filepath.Join(".claude", "project"), ".claude/project/")
+	a, err = ensureDir(root, projectRel, dirName(projectRel))
 	if err != nil {
 		return nil, err
 	}
 	actions = append(actions, a)
 
 	a, err = ensureIgnored(root, ignoreGuarantee{
-		probeDirRel:   filepath.Join(".claude", ".scratchpad"),
-		ignoreFileRel: filepath.Join(".claude", ".gitignore"),
+		probeDirRel:   scratchpadRel,
+		ignoreFileRel: nestedGitignoreRel,
 		ruleLine:      "/.scratchpad/",
-		name:          ".claude/.scratchpad/ ignored",
-		withHeader:    true,
+		name:          dirName(scratchpadRel) + " ignored",
+		header:        header,
 	})
 	if err != nil {
 		return nil, err
@@ -73,11 +92,11 @@ func Init(root string) ([]Action, error) {
 	actions = append(actions, a)
 
 	a, err = ensureIgnored(root, ignoreGuarantee{
-		probeDirRel:   filepath.Join(".claude", ".atomic-index"),
-		ignoreFileRel: filepath.Join(".claude", ".gitignore"),
+		probeDirRel:   indexRel,
+		ignoreFileRel: nestedGitignoreRel,
 		ruleLine:      "/.atomic-index/",
-		name:          ".claude/.atomic-index/ ignored",
-		withHeader:    true,
+		name:          dirName(indexRel) + " ignored",
+		header:        header,
 	})
 	if err != nil {
 		return nil, err
@@ -96,11 +115,11 @@ func Init(root string) ([]Action, error) {
 	actions = append(actions, a)
 
 	a, err = ensureIgnored(root, ignoreGuarantee{
-		probeDirRel:   filepath.Join(".claude", "worktrees"),
-		ignoreFileRel: filepath.Join(".claude", ".gitignore"),
+		probeDirRel:   worktreesRel,
+		ignoreFileRel: nestedGitignoreRel,
 		ruleLine:      "/worktrees/",
-		name:          ".claude/worktrees/ ignored",
-		withHeader:    true,
+		name:          dirName(worktreesRel) + " ignored",
+		header:        header,
 	})
 	if err != nil {
 		return nil, err
@@ -108,6 +127,12 @@ func Init(root string) ([]Action, error) {
 	actions = append(actions, a)
 
 	return actions, nil
+}
+
+// dirName renders a root-relative path as the slash-form display name used
+// in Action.Name (e.g. ".claude/.scratchpad" → ".claude/.scratchpad/").
+func dirName(rel string) string {
+	return filepath.ToSlash(rel) + "/"
 }
 
 // ensureDir guarantees dirRel exists under root, reporting name as created or
@@ -129,7 +154,7 @@ type ignoreGuarantee struct {
 	ignoreFileRel string // ignore file the rule is appended to when missing
 	ruleLine      string // the managed rule line
 	name          string // Action.Name reported to the caller
-	withHeader    bool   // precede rules with managedHeader when creating ignoreFileRel fresh
+	header        string // precedes the rule when creating ignoreFileRel fresh; empty means no header
 }
 
 // ensureIgnored guarantees g.ruleLine's effect is already present (via
@@ -148,7 +173,7 @@ func ensureIgnored(root string, g ignoreGuarantee) (Action, error) {
 		return Action{Name: g.name, Kind: ActionOK}, nil
 	}
 
-	if err := appendRule(ignoreFile, g.ruleLine, g.withHeader); err != nil {
+	if err := appendRule(ignoreFile, g.ruleLine, g.header); err != nil {
 		return Action{}, fmt.Errorf("repoinit: append %q to %s: %w", g.ruleLine, g.ignoreFileRel, err)
 	}
 	return Action{Name: g.name, Kind: ActionCreated}, nil
@@ -192,11 +217,11 @@ func ignoreFileHasLine(path, ruleLine string) bool {
 }
 
 // appendRule appends ruleLine to the file at path, preserving every existing
-// byte. A missing file is created; withHeader precedes the rule with
-// managedHeader only in that fresh-file case. An existing file that does not
-// end in a newline gets one inserted before the appended rule; its content is
-// otherwise untouched.
-func appendRule(path, ruleLine string, withHeader bool) error {
+// byte. A missing file is created; a non-empty header precedes the rule only
+// in that fresh-file case. An existing file that does not end in a newline
+// gets one inserted before the appended rule; its content is otherwise
+// untouched.
+func appendRule(path, ruleLine, header string) error {
 	existing, err := os.ReadFile(path)
 	fileExists := err == nil
 	if err != nil && !os.IsNotExist(err) {
@@ -206,8 +231,8 @@ func appendRule(path, ruleLine string, withHeader bool) error {
 	var buf strings.Builder
 	switch {
 	case !fileExists:
-		if withHeader {
-			buf.WriteString(managedHeader)
+		if header != "" {
+			buf.WriteString(header)
 		}
 	case len(existing) > 0:
 		buf.Write(existing)

@@ -1,6 +1,6 @@
 ---
 type: Domain
-description: Two-voice taxonomy, diff-driven surface routing, prose style, design axioms.
+description: Two-voice taxonomy, diff-driven surface routing, prose style, design axioms; atomic docs scan/stale backing package.
 ---
 
 # docs-meta
@@ -18,7 +18,7 @@ Two-voice documentation taxonomy, surface routing, and the design axiom set. `at
 
 ## CLI code
 
-None. The docs-meta domain is entirely Claude Code artifacts. No Go packages implement documentation routing or prose generation.
+- [`atomic/internal/docs/docs.go`](../../atomic/internal/docs/docs.go) — backs the `atomic docs scan`/`atomic docs stale` binary subcommands that `/documentation` shells out to. `ScanWithOptions` walks [`docs/`](..), `doc/`, `documentation/`, `wiki/`, `ADR/`, `adr/`, `decisions/`, and root [`README.md`](../../README.md), extracts each file's H1 + up to 3 H2 headings via `mdparse.Sections`, and writes a `doc-surfaces.md` cache. `Stale` triggers on either mtime drift (a scanned file newer than the cache) or set drift (`docPaths` on disk vs. `cachedDocPaths` parsed from the cache — catches deletions, which don't bump any surviving file's mtime). `.signalsignore` exclude globs are respected via `matchesGlobs`. The cache path is `config.ProjectDir(root)` + `doc-surfaces.md` (config domain, harness.go) — default [`.claude/project/doc-surfaces.md`](../../.claude/project/doc-surfaces.md); prior to issue #150's consumer sweep this was a hardcoded `.claude/project/...` literal, caught as a gap during that feature's CP3 review.
 
 ## Docs
 
@@ -64,3 +64,4 @@ Adding a new artifact (command/agent/skill/output-style/rule) requires updating:
 - **→ workflow**: the four-voice taxonomy applies to all documentation produced during the workflow lifecycle. `/atomic-plan` uses spec/design voice for design docs and specs. Ship verbs use LLM-reference voice for signals files.
 - **→ signals**: signals files (`signals.md`, `signals/*.md`) use LLM-reference voice. `atomic-documentation` routes changes to these files to LLM-reference — no prose drafting, no atomic-writing.
 - **→ doctor**: `atomic-documentation` reads `## Documentation surfaces` override from [`claude.local.md`](../../claude.local.md) / [`CLAUDE.md`](../../CLAUDE.md). Doctor check 4 (`refs`) validates that these files are present and correctly formed.
+- **→ config**: [`atomic/internal/docs/docs.go`](../../atomic/internal/docs/docs.go)'s cache path is `config.ProjectDir(root)` (harness.go, config domain) + `doc-surfaces.md` — a `harness.dir` change (config domain) moves where `atomic docs scan`/`atomic docs stale` read and write.

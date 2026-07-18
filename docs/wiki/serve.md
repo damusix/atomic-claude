@@ -33,7 +33,7 @@ The UI is a single persistent Obsidian-style shell: top bar (breadcrumb + `md|co
   - `graphoverlay.go`, `codegraph.go`, `code_graph_members.go` — the carried, unreshaped `/graph/data`, `/code/graph/data`, `/code/graph/members` endpoints (unchanged paths and shapes from the pre-cutover build)
   - `graph.go` — `BuildLinkGraph`, node-type classification, root-relative link resolution; shared by the API page/rail handlers and the carried graph-data endpoints
   - `snapshot.go`, `events.go` — the live-reload realm-snapshot store and `/events` SSE endpoint; unchanged by the React cutover (server-side flows only)
-  - `code_members.go`, `stale.go`, `walk.go` — shared helpers (member discovery, staleness parsing, dir/file walk filters)
+  - `code_members.go`, `stale.go`, `walk.go` — shared helpers (member discovery, staleness parsing, dir/file walk filters); member db paths resolve via `config.IndexDBPath` (harness-dir-aware, config domain issue #150 — replaced the `localIndexRel` constant, merged from `next`)
   - `frontend_dist.go` — `//go:embed` source for the committed `frontend/dist/` build output
   - `frontend/` — the React + TypeScript SPA workspace (`src/pages`, `src/components`, `src/layouts/Shell`, `src/hooks`, `src/utils/api` shared `FetchEngine`); `public/` carries the vendored/carried assets verbatim (`graph-core.js`, `system-graph.js`, `code-graph.js`, vendored `cosmos-graph.js`/`cytoscape.min.js`/`mermaid.min.js`, `app.css`, pruned of htmx-specific selectors); `dist/` is the committed build output
 - [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) — dispatches `atomic serve`

@@ -1,5 +1,7 @@
 // Package claudeinstall writes the embedded artifact bundle to a target directory
-// (default ~/.claude) and manages backups for changed files.
+// (default ~/.claude) and manages backups for changed files. Config state
+// (config.toml, backups, profile.md, ...) always lives under the user's home
+// directory (~/.atomic — fixed, D1), independent of the artifact target.
 package claudeinstall
 
 import (
@@ -60,8 +62,8 @@ type FileAction struct {
 // loadAgentOverrides reads the config and returns the [agents] override map.
 // Best-effort: returns nil when the config is absent, unreadable, or has no
 // [agents] entries so callers treat nil as "no overrides, use bundled defaults".
-func loadAgentOverrides(targetDir string) map[string]string {
-	cfgPath := config.TOMLPath(targetDir)
+func loadAgentOverrides(home string) map[string]string {
+	cfgPath := config.TOMLPath(home)
 	cfg, _, err := config.Load(cfgPath)
 	if err != nil || len(cfg.Agents) == 0 {
 		return nil
@@ -121,11 +123,16 @@ func patchAgentContent(target string, content []byte, overrides map[string]strin
 // Plan computes the per-file action list without writing anything.
 // It loads the [agents] config overrides and factors the patched content into
 // the SHA comparison so the plan correctly reflects what Apply will write.
-func Plan(targetDir string, manifest []embedded.Artifact) ([]FileAction, error) {
-	overrides := loadAgentOverrides(targetDir)
+//
+// targetDir is the Claude artifact install root (commands/, agents/, ...);
+// home is the user's home directory, the root of atomic-owned config state
+// (~/.atomic). The two are split because --target can point install anywhere,
+// while config state always lives under the real home (D1/D4).
+func Plan(targetDir, home string, manifest []embedded.Artifact) ([]FileAction, error) {
+	overrides := loadAgentOverrides(home)
 	var plan []FileAction
 	for _, a := range manifest {
-		fa, err := planArtifact(targetDir, a, overrides)
+		fa, err := planArtifact(targetDir, home, a, overrides)
 		if err != nil {
 			return nil, err
 		}
@@ -145,7 +152,7 @@ func readPatchedEmbedded(a embedded.Artifact, overrides map[string]string) ([]by
 	return patchAgentContent(a.Target, data, overrides), nil
 }
 
-func planArtifact(targetDir string, a embedded.Artifact, agentOverrides map[string]string) (FileAction, error) {
+func planArtifact(targetDir, home string, a embedded.Artifact, agentOverrides map[string]string) (FileAction, error) {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(a.Target))
 
 	// Patch before SHA so the plan reflects the bytes Apply will write to disk.
@@ -184,7 +191,7 @@ func planArtifact(targetDir string, a embedded.Artifact, agentOverrides map[stri
 			}
 			return FileAction{Artifact: a, Kind: ActionBlockReplaced}, nil
 		}
-		proposedPath := config.ProposedCLAUDEMD(targetDir)
+		proposedPath := config.ProposedCLAUDEMD(home)
 		return FileAction{Artifact: a, Kind: ActionMergeRequired, ProposedPath: proposedPath}, nil
 	}
 
@@ -195,10 +202,10 @@ func planArtifact(targetDir string, a embedded.Artifact, agentOverrides map[stri
 // Apply executes a plan. If dryRun is true, no filesystem writes occur.
 // clock is used for the backup timestamp — pass RealClock for production use.
 //
-// Apply loads the [agents] config overrides from targetDir and patches each
+// Apply loads the [agents] config overrides from home and patches each
 // agent artifact's model: frontmatter key before writing, so the user's
 // configured tier is always re-applied on every install/update.
-func Apply(targetDir string, plan []FileAction, dryRun bool, clock Clock) error {
+func Apply(targetDir, home string, plan []FileAction, dryRun bool, clock Clock) error {
 	// Capture the run-start time once so all backups in this run share the same
 	// timestamp directory, regardless of when the first ActionUpdated is encountered.
 	runStart := clock()
@@ -214,26 +221,26 @@ func Apply(targetDir string, plan []FileAction, dryRun bool, clock Clock) error 
 
 	// Load agent model-tier overrides once for the whole apply run.
 	// Best-effort: nil means no overrides → bundled defaults used.
-	agentOverrides := loadAgentOverrides(targetDir)
+	agentOverrides := loadAgentOverrides(home)
 
 	for i := range plan {
-		if err := applyAction(targetDir, &plan[i], dryRun, backupTimestamp, agentOverrides); err != nil {
+		if err := applyAction(targetDir, home, &plan[i], dryRun, backupTimestamp, agentOverrides); err != nil {
 			return err
 		}
 	}
 	if !dryRun {
-		if err := ensureResolvedConfigStub(targetDir); err != nil {
+		if err := ensureResolvedConfigStub(home); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// ensureResolvedConfigStub creates <targetDir>/.atomic/config.resolved.md as an empty
+// ensureResolvedConfigStub creates <home>/.atomic/config.resolved.md as an empty
 // file if it does not already exist. Idempotent: leaves any existing content untouched.
 // This file is @-referenced from CLAUDE.md so every Claude session can load it.
-func ensureResolvedConfigStub(targetDir string) error {
-	resolvedPath := config.ResolvedPath(targetDir)
+func ensureResolvedConfigStub(home string) error {
+	resolvedPath := config.ResolvedPath(home)
 	if _, err := os.Stat(resolvedPath); err == nil {
 		return nil // already exists — leave it alone
 	}
@@ -246,14 +253,14 @@ func ensureResolvedConfigStub(targetDir string) error {
 // ProfileNudge is the bootstrap message printed to stdout when profile.md is
 // created for the first time. Tests reference this constant to avoid duplicating
 // the verbatim string.
-const ProfileNudge = "Profile created at ~/.claude/.atomic/profile.md. Mention your role, projects, and preferences in conversation and Claude will record them. Run /retrospective-learning to review drift."
+const ProfileNudge = "Profile created at ~/.atomic/profile.md. Mention your role, projects, and preferences in conversation and Claude will record them. Run /retrospective-learning to review drift."
 
-// ensureProfileStub creates <targetDir>/.atomic/profile.md with the initial schema
+// ensureProfileStub creates <home>/.atomic/profile.md with the initial schema
 // template if it does not already exist. Idempotent: leaves any existing content untouched.
 // When the file is created, it prints a bootstrap nudge to out.
 // Returns (true, nil) when the file was created, (false, nil) when it already existed.
-func ensureProfileStub(targetDir string, out io.Writer) (bool, error) {
-	profilePath := config.ProfilePath(targetDir)
+func ensureProfileStub(home string, out io.Writer) (bool, error) {
+	profilePath := config.ProfilePath(home)
 	if _, err := os.Stat(profilePath); err == nil {
 		return false, nil // already exists — leave it alone
 	}
@@ -273,13 +280,13 @@ func ensureProfileStub(targetDir string, out io.Writer) (bool, error) {
 // Any error returned by the seam and any panic are silently swallowed so
 // install/update never fails due to a detection error.
 // today is derived from clock so tests can inject a fixed date.
-func populateProfile(targetDir string, clock Clock) {
+func populateProfile(home string, clock Clock) {
 	defer func() { recover() }() // best-effort: swallows any panic from detection so install never fails
 	today := clock().Format("2006-01-02")
-	_, _ = ProfileRefresh(targetDir, today, profile.DefaultRefreshDays)
+	_, _ = ProfileRefresh(home, today, profile.DefaultRefreshDays)
 }
 
-func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]string) error {
+func applyAction(targetDir, home string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]string) error {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(fa.Artifact.Target))
 
 	// Patch agent frontmatter with configured model tier before any write.
@@ -301,7 +308,7 @@ func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp 
 		return os.WriteFile(onDiskPath, embeddedData, 0o644)
 
 	case ActionUpdated:
-		backupPath := filepath.Join(config.BackupDir(targetDir), backupTimestamp, filepath.FromSlash(fa.Artifact.Target))
+		backupPath := filepath.Join(config.BackupDir(home), backupTimestamp, filepath.FromSlash(fa.Artifact.Target))
 		fa.BackupPath = backupPath
 		if dryRun {
 			return nil
@@ -330,7 +337,7 @@ func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp 
 		return os.WriteFile(proposedPath, embeddedData, 0o644)
 
 	case ActionBlockReplaced:
-		backupPath := filepath.Join(config.BackupDir(targetDir), backupTimestamp, filepath.FromSlash(fa.Artifact.Target))
+		backupPath := filepath.Join(config.BackupDir(home), backupTimestamp, filepath.FromSlash(fa.Artifact.Target))
 		fa.BackupPath = backupPath
 		if dryRun {
 			return nil
@@ -366,28 +373,31 @@ func applyAction(targetDir string, fa *FileAction, dryRun bool, backupTimestamp 
 
 // Install computes and applies the install plan. Equivalent to Update — same semantics.
 // Profile nudge goes to os.Stdout.
-func Install(targetDir string, dryRun bool, clock Clock) ([]FileAction, error) {
-	return installWithOutput(targetDir, dryRun, clock, os.Stdout)
+//
+// targetDir is the Claude artifact install root; home is the user's home
+// directory, the root of atomic-owned config state (~/.atomic).
+func Install(targetDir, home string, dryRun bool, clock Clock) ([]FileAction, error) {
+	return installWithOutput(targetDir, home, dryRun, clock, os.Stdout)
 }
 
 // installWithOutput is Install with a configurable writer for the profile bootstrap nudge.
 // Unexported — exported via export_test.go for test use only.
-func installWithOutput(targetDir string, dryRun bool, clock Clock, out io.Writer) ([]FileAction, error) {
-	return installOrUpdate(targetDir, dryRun, clock, out)
+func installWithOutput(targetDir, home string, dryRun bool, clock Clock, out io.Writer) ([]FileAction, error) {
+	return installOrUpdate(targetDir, home, dryRun, clock, out)
 }
 
 // Update is the same flow as Install.
-func Update(targetDir string, dryRun bool, clock Clock) ([]FileAction, error) {
-	return installOrUpdate(targetDir, dryRun, clock, os.Stdout)
+func Update(targetDir, home string, dryRun bool, clock Clock) ([]FileAction, error) {
+	return installOrUpdate(targetDir, home, dryRun, clock, os.Stdout)
 }
 
-func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) ([]FileAction, error) {
+func installOrUpdate(targetDir, home string, dryRun bool, clock Clock, out io.Writer) ([]FileAction, error) {
 	manifest := embedded.Manifest()
 
 	// Capture pre-install state before any files are written. Write-once: if the
 	// snapshot dir already exists this is a no-op. Skip when dry-running.
 	if !dryRun {
-		if err := writePreInstallSnapshot(targetDir, manifest, clock); err != nil {
+		if err := writePreInstallSnapshot(targetDir, home, manifest, clock); err != nil {
 			return nil, fmt.Errorf("pre-install snapshot: %w", err)
 		}
 	}
@@ -398,7 +408,7 @@ func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) 
 	// install) storedTargetSlice returns nil → prune is a no-op.
 	var staleTargets []string
 	if !dryRun {
-		cfgPath := config.TOMLPath(targetDir)
+		cfgPath := config.TOMLPath(home)
 		if oldCfg, _, cfgErr := config.Load(cfgPath); cfgErr == nil {
 			stored := storedTargetSlice(oldCfg)
 			if len(stored) > 0 {
@@ -407,11 +417,11 @@ func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) 
 		}
 	}
 
-	plan, err := Plan(targetDir, manifest)
+	plan, err := Plan(targetDir, home, manifest)
 	if err != nil {
 		return nil, err
 	}
-	if err := Apply(targetDir, plan, dryRun, clock); err != nil {
+	if err := Apply(targetDir, home, plan, dryRun, clock); err != nil {
 		return nil, err
 	}
 	if !dryRun {
@@ -420,7 +430,7 @@ func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) 
 		// that should never be overwritten by a plain Apply call (e.g. a dry-run
 		// caller or a future Apply-only code path). Keeping it here ensures the file
 		// is only created when a real install/update is requested.
-		if _, err := ensureProfileStub(targetDir, out); err != nil {
+		if _, err := ensureProfileStub(home, out); err != nil {
 			return nil, err
 		}
 		// After the stub exists, populate the ## Environment fingerprint.
@@ -429,7 +439,7 @@ func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) 
 		// Re-install/update with fresh lastcheck: no-op.
 		// Best-effort: any error or panic is swallowed — install must not fail
 		// because detection failed (mirrors the session-start hook's swallow behavior).
-		populateProfile(targetDir, clock)
+		populateProfile(home, clock)
 
 		// Prune stale artifacts — those present in the old [install.artifacts] but
 		// absent from the current bundle (removed or renamed upstream).
@@ -440,7 +450,7 @@ func installOrUpdate(targetDir string, dryRun bool, clock Clock, out io.Writer) 
 		}
 
 		// Write the updated [install] manifest so the next run knows what is installed.
-		if err := writeInstallManifest(targetDir, plan); err != nil {
+		if err := writeInstallManifest(home, plan); err != nil {
 			return nil, fmt.Errorf("write install manifest: %w", err)
 		}
 	}
@@ -467,9 +477,9 @@ type DiffRow struct {
 // the patched content Apply would have written, not the raw bundle bytes —
 // otherwise a correct install with a configured tier override falsely reports
 // as drifted (issue #129).
-func Diff(targetDir string) ([]DiffRow, error) {
+func Diff(targetDir, home string) ([]DiffRow, error) {
 	manifest := embedded.Manifest()
-	agentOverrides := loadAgentOverrides(targetDir)
+	agentOverrides := loadAgentOverrides(home)
 	var rows []DiffRow
 	for _, a := range manifest {
 		onDiskPath := filepath.Join(targetDir, filepath.FromSlash(a.Target))

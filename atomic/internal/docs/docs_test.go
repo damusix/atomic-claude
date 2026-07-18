@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
 )
 
@@ -307,5 +308,39 @@ func TestStale_MissingCache(t *testing.T) {
 	err := docs.Stale(root)
 	if err == nil {
 		t.Error("expected error when cache does not exist, got nil")
+	}
+}
+
+// TestScan_HarnessAware verifies the cache file is written under the
+// resolved harness dir (e.g. .pi/project/doc-surfaces.md) instead of the
+// hardcoded .claude/project/ literal.
+func TestScan_HarnessAware(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := makeDocRepo(t, map[string]string{
+		"docs/guide.md": `# Getting Started
+
+## Installation
+
+Follow these steps to install.
+`,
+	})
+
+	if err := docs.Scan(root); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	cachePath := filepath.Join(root, ".pi/project/doc-surfaces.md")
+	data, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatalf("read cache under .pi harness dir: %v", err)
+	}
+	if !strings.Contains(string(data), "Getting Started") {
+		t.Errorf("expected H1 'Getting Started' in output:\n%s", string(data))
+	}
+
+	if _, err := os.Stat(filepath.Join(root, ".claude/project/doc-surfaces.md")); err == nil {
+		t.Error("cache must not be written under the default .claude harness dir when harness.dir=.pi")
 	}
 }

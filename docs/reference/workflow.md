@@ -133,7 +133,7 @@ Both mechanisms exist because shipping is not the end. The things you deferred d
 /retrospective-learning
 ```
 
-After a long session or a run of friction, `/retrospective-learning` looks back. It mines your session history and the current conversation for corrections, repeated requests, and places where Claude misbehaved, then cross-references those signals against your installed artifacts (commands, skills, agents, CLAUDE.md). It walks proposed improvements one at a time; you accept, modify, or skip each. A run log persists to `~/.claude/.atomic/retro-runs/`, so a later run can tell whether a past accept actually landed or quietly drifted back.
+After a long session or a run of friction, `/retrospective-learning` looks back. It mines your session history and the current conversation for corrections, repeated requests, and places where Claude misbehaved, then cross-references those signals against your installed artifacts (commands, skills, agents, CLAUDE.md). It walks proposed improvements one at a time; you accept, modify, or skip each. A run log persists to `~/.atomic/retro-runs/`, so a later run can tell whether a past accept actually landed or quietly drifted back.
 
 This is the stage that closes the loop. Shipping a feature teaches you something about how you and Claude work together, and `/retrospective-learning` is where that lesson becomes a durable config change instead of a frustration you re-hit next week.
 

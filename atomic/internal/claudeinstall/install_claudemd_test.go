@@ -55,7 +55,7 @@ func TestInstallMergedCLAUDEmdSameBlockUnchanged(t *testing.T) {
 	content := mergedCLAUDEmd(t)
 	path := writeCLAUDEmd(t, target, content)
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestInstallMergedCLAUDEmdStaleBlockReplaced(t *testing.T) {
 	content := staleBlock(mergedCLAUDEmd(t))
 	path := writeCLAUDEmd(t, target, content)
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestInstallMergedCLAUDEmdStaleBlockDryRun(t *testing.T) {
 	content := staleBlock(mergedCLAUDEmd(t))
 	path := writeCLAUDEmd(t, target, content)
 
-	plan, err := claudeinstall.Install(target, true, fixedClock)
+	plan, err := claudeinstall.Install(target, target, true, fixedClock)
 	if err != nil {
 		t.Fatalf("Install dry-run: %v", err)
 	}
@@ -156,12 +156,12 @@ func TestInstallMergedCLAUDEmdStaleBlockDryRun(t *testing.T) {
 // keeps doctor check 1 green on already-merged installs.
 func TestDiffMergedCLAUDEmdSameBlockMatches(t *testing.T) {
 	target := t.TempDir()
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 	writeCLAUDEmd(t, target, mergedCLAUDEmd(t))
 
-	rows, err := claudeinstall.Diff(target)
+	rows, err := claudeinstall.Diff(target, target)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -179,12 +179,12 @@ func TestDiffMergedCLAUDEmdSameBlockMatches(t *testing.T) {
 // Diff still reports differ when the block itself is stale.
 func TestDiffMergedCLAUDEmdStaleBlockDiffers(t *testing.T) {
 	target := t.TempDir()
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 	writeCLAUDEmd(t, target, staleBlock(mergedCLAUDEmd(t)))
 
-	rows, err := claudeinstall.Diff(target)
+	rows, err := claudeinstall.Diff(target, target)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestReportRendersBlockReplaced(t *testing.T) {
 	target := t.TempDir()
 	writeCLAUDEmd(t, target, staleBlock(mergedCLAUDEmd(t)))
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}

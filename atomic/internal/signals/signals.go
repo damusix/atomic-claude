@@ -37,7 +37,7 @@ type Options struct {
 	// (defaulting to 3 when the config file is absent or the key unset).
 	MaxDepth int
 	// ConfigPath is the path to the atomic config TOML file
-	// (~/.claude/.atomic/config.toml). When empty, ScanWithOptions resolves it
+	// (~/.atomic/config.toml). When empty, ScanWithOptions resolves it
 	// from os.UserHomeDir. Used by tests to inject an alternate config.
 	ConfigPath string
 	// ExcludeGlobs holds plain (no-prefix) glob patterns from .signalsignore.
@@ -101,7 +101,7 @@ func resolveConfigPath() string {
 	if err != nil {
 		return ""
 	}
-	return config.TOMLPath(filepath.Join(home, ".claude"))
+	return config.TOMLPath(home)
 }
 
 // resolveScanOptions fills opts with the .signalsignore globs and config-driven

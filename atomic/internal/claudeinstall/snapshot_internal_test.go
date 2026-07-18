@@ -39,7 +39,7 @@ func TestWritePreInstallSnapshot_CustomManifest(t *testing.T) {
 		{Target: "agents/atomic-surgeon.md", SHA256: "also-irrelevant"},
 	}
 
-	if err := writePreInstallSnapshot(targetDir, artifacts, fixedClock); err != nil {
+	if err := writePreInstallSnapshot(targetDir, targetDir, artifacts, fixedClock); err != nil {
 		t.Fatalf("writePreInstallSnapshot: %v", err)
 	}
 
@@ -106,12 +106,12 @@ func TestWritePreInstallSnapshot_WriteOnce(t *testing.T) {
 	}
 
 	clock1 := func() time.Time { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }
-	if err := writePreInstallSnapshot(targetDir, artifacts, clock1); err != nil {
+	if err := writePreInstallSnapshot(targetDir, targetDir, artifacts, clock1); err != nil {
 		t.Fatalf("first writePreInstallSnapshot: %v", err)
 	}
 
 	clock2 := func() time.Time { return time.Date(2027, 6, 1, 0, 0, 0, 0, time.UTC) }
-	if err := writePreInstallSnapshot(targetDir, artifacts, clock2); err != nil {
+	if err := writePreInstallSnapshot(targetDir, targetDir, artifacts, clock2); err != nil {
 		t.Fatalf("second writePreInstallSnapshot: %v", err)
 	}
 

@@ -9,11 +9,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
-)
-
-const (
-	// followupsFolder is the path of the followups folder relative to repo root.
-	followupsFolder = ".claude/project/followups"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // Run is the CLI entry point for `atomic followups <verb> [args]`.
@@ -29,7 +25,7 @@ func Run(args []string, repoRoot string, stdout, stderr io.Writer, clock func() 
 		return 2
 	}
 
-	dir := filepath.Join(repoRoot, followupsFolder)
+	dir := config.FollowupsDir(repoRoot)
 	verb := args[0]
 	rest := args[1:]
 

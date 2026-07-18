@@ -84,8 +84,15 @@ func Resolved(cfg *Config) map[string]string {
 	if !runDoctor && zeroValueConfig {
 		runDoctor = runDoctorDefault
 	}
+	// harness.dir: an empty string is never a valid explicit value (see
+	// Load's backfill comment), so it unambiguously means "use default".
+	harnessDirVal := cfg.Harness.Dir
+	if harnessDirVal == "" {
+		harnessDirVal = harnessDirDefault
+	}
 	return map[string]string{
 		"output.signals.max_depth": fmt.Sprintf("%d", maxDepth),
 		"update.run_doctor":        fmt.Sprintf("%t", runDoctor),
+		"harness.dir":              harnessDirVal,
 	}
 }

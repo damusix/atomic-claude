@@ -14,7 +14,14 @@ import (
 // ProfileRef is the @-ref string that must appear in one of the candidate
 // CLAUDE.md files to wire the user profile into every Claude session.
 // Exported so tests can reference the canonical value without duplicating it.
-const ProfileRef = "@~/.claude/.atomic/profile.md"
+const ProfileRef = "@~/.atomic/profile.md"
+
+// legacyProfileRef is the pre-v6 @-ref string (profile.md under the old
+// ~/.claude/.atomic/ location). A CLAUDE.md that still carries this ref was
+// installed by a v5 bundle and needs `atomic claude install` to pick up the
+// v6 refs — the compat symlink keeps it *resolving*, but the check should
+// still nudge the user toward the current path.
+const legacyProfileRef = "@~/.claude/.atomic/profile.md"
 
 // profileStaleDays is the doctor-WARN threshold for lastcheck freshness.
 //
@@ -30,15 +37,18 @@ const profileStaleDays = 30
 
 // checkProfile implements category 10: user profile wired.
 //
-// Checks three conditions against the installed ~/.claude/ directory:
-//  1. ~/.claude/.atomic/profile.md exists on disk and is readable.
-//  2. The @~/.claude/.atomic/profile.md @-ref is present in one of the
+// Checks four conditions against the user's home directory:
+//  1. ~/.atomic/profile.md exists on disk and is readable.
+//  2. The @~/.atomic/profile.md @-ref is present in one of the
 //     candidate files (same search order as checkRefs, but rooted at
-//     claudeHome, not the git repo toplevel).
+//     ~/.claude — the installed CLAUDE.md's home — not the git repo toplevel).
 //  3. The <deterministic lastcheck=YYYY-MM-DD> stamp inside the file is
 //     within the last 30 days (see profileStaleDays).
+//  4. None of the candidate files still carry the legacy
+//     @~/.claude/.atomic/profile.md ref (see legacyProfileRef) — a v5-bundle
+//     install that hasn't run `atomic claude install` since the v6 relocation.
 //
-// Returns PASS when all three conditions hold. WARN otherwise with detail
+// Returns PASS when all four conditions hold. WARN otherwise with detail
 // explaining which leg(s) failed. Severity: WARN (profile absence is
 // degraded experience, not a broken installation).
 func checkProfile(_ Opts) Result {
@@ -46,13 +56,16 @@ func checkProfile(_ Opts) Result {
 	if err != nil {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("could not determine home dir: %v", err)}
 	}
-	return RunCheckProfileWith(filepath.Join(home, ".claude"))
+	return RunCheckProfileWith(home)
 }
 
-// RunCheckProfileWith runs the profile check against an explicit claudeHome.
+// RunCheckProfileWith runs the profile check against an explicit home dir.
 // Exported for testing; production callers use checkProfile.
-func RunCheckProfileWith(claudeHome string) Result {
-	profilePath := config.ProfilePath(claudeHome)
+func RunCheckProfileWith(home string) Result {
+	profilePath := config.ProfilePath(home)
+	// The installed CLAUDE.md family lives under ~/.claude — the Claude
+	// integration target (D4), separate from the ~/.atomic state root.
+	claudeHome := filepath.Join(home, ".claude")
 
 	// Use os.Stat for existence and os.ReadFile for content so that a file
 	// that exists but is unreadable (e.g. permissions 000) is reported as
@@ -66,6 +79,7 @@ func RunCheckProfileWith(claudeHome string) Result {
 	}
 
 	refFound := false
+	legacyRefFound := false
 	refFile := ""
 	for _, name := range candidateFiles {
 		path := filepath.Join(claudeHome, name)
@@ -73,10 +87,15 @@ func RunCheckProfileWith(claudeHome string) Result {
 		if err != nil {
 			continue
 		}
-		if strings.Contains(string(b), ProfileRef) {
+		content := string(b)
+		if strings.Contains(content, ProfileRef) {
 			refFound = true
 			refFile = name
 			break
+		}
+		if strings.Contains(content, legacyProfileRef) {
+			legacyRefFound = true
+			refFile = name
 		}
 	}
 
@@ -85,11 +104,15 @@ func RunCheckProfileWith(claudeHome string) Result {
 		return Result{Severity: WARN, Detail: fmt.Sprintf("profile.md exists but is unreadable: %v", readErr)}
 	}
 
+	if !refFound && legacyRefFound {
+		return Result{Severity: WARN, Detail: fmt.Sprintf("%s carries the legacy @~/.claude/.atomic/profile.md ref; run `atomic claude install` to update to @~/.atomic/profile.md", refFile)}
+	}
+
 	switch {
 	case !fileExists && !refFound:
 		return Result{Severity: WARN, Detail: "profile.md absent and @-ref not found in any candidate file"}
 	case !fileExists && refFound:
-		return Result{Severity: WARN, Detail: fmt.Sprintf("@-ref wired in %s but ~/.claude/.atomic/profile.md does not exist", refFile)}
+		return Result{Severity: WARN, Detail: fmt.Sprintf("@-ref wired in %s but ~/.atomic/profile.md does not exist", refFile)}
 	case fileExists && !refFound:
 		return Result{Severity: WARN, Detail: "profile.md present but @-ref not found in CLAUDE.md, claude.local.md, CLAUDE.local.md, or claude.md"}
 	}

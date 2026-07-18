@@ -88,7 +88,7 @@ func TestPruneDiff_MultipleStale(t *testing.T) {
 func TestInstallWritesManifestToConfig(t *testing.T) {
 	target := t.TempDir()
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -141,10 +141,10 @@ func TestInstallWritesManifestToConfig(t *testing.T) {
 func TestInstallManifestRoundTrip(t *testing.T) {
 	target := t.TempDir()
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("second Install: %v", err)
 	}
 
@@ -165,7 +165,7 @@ func TestInstallManifestRoundTrip(t *testing.T) {
 func TestInstallDryRunDoesNotWriteManifest(t *testing.T) {
 	target := t.TempDir()
 
-	if _, err := claudeinstall.Install(target, true, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, true, fixedClock); err != nil {
 		t.Fatalf("Install dry-run: %v", err)
 	}
 
@@ -209,7 +209,7 @@ func TestPruneRemovesStaleFile(t *testing.T) {
 	}
 
 	// Install detects the stale entry, confirms (seam returns true), removes.
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -248,7 +248,7 @@ func TestPruneSkipsWhenConfirmDeclines(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -270,7 +270,7 @@ func TestPruneNotCalledOnFreshInstall(t *testing.T) {
 	}
 	t.Cleanup(func() { claudeinstall.PruneConfirm = claudeinstall.DefaultPruneConfirm })
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -303,7 +303,7 @@ func TestPruneConfirmReceivesStaleList(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -331,7 +331,7 @@ func TestBuildUninstallPlan_InstallArtifacts_ScopesDelete(t *testing.T) {
 		"agents/atomic-foo.md": true,
 	}
 
-	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, map[string]string{}, installedTargets)
+	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, targetDir, map[string]string{}, installedTargets)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlanWithManifest: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestBuildUninstallPlan_NilInstalledTargets_NoScoping(t *testing.T) {
 	})
 
 	// nil = no [install.artifacts] (pre-framework): existing snapshot-only behavior.
-	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, map[string]string{}, nil)
+	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, targetDir, map[string]string{}, nil)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlanWithManifest: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestBuildUninstallPlan_ManifestScopedFromConfig(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestPruneAbortedIsDecline(t *testing.T) {
 	}
 
 	// Install must succeed despite the aborted prompt.
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install returned error on aborted prune prompt: %v", err)
 	}
 
@@ -460,7 +460,7 @@ func TestBuildUninstallPlan_NoConfigToml_FallsBackToUnscoped(t *testing.T) {
 	})
 	// No config.toml written.
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}

@@ -11,14 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/ids"
 )
 
-const (
-	remindersRelPath = ".claude/.scratchpad/reminders"
-	slugMaxLen       = 50
-)
+const slugMaxLen = 50
 
 // validTransports is the set of accepted transport kinds.
 var validTransports = map[string]bool{
@@ -29,7 +27,7 @@ var validTransports = map[string]bool{
 
 // remindersDir returns the absolute path to the reminders directory.
 func remindersDir(repoRoot string) string {
-	return filepath.Join(repoRoot, remindersRelPath)
+	return config.RemindersDir(repoRoot)
 }
 
 // Option configures optional fields on a reminder.

@@ -118,11 +118,11 @@ If a survey reviewer detects any of the above in a freshly-rendered `CLAUDE.md`,
 
 
 <atomic-signals>
-@.claude/project/signals.md
+@docs/wiki/index.md
 </atomic-signals>
 ```
 
-The trailing `## Project signals (auto-loaded)` block is appended unconditionally — even when signals have not yet been scanned, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets).
+The trailing `## Project signals (auto-loaded)` block is appended unconditionally — even when signals have not yet been scanned, the `@-ref` is forward-compatible (Claude tolerates missing `@-ref` targets). Only `docs/wiki/index.md` (the compact router written by `/refresh-wiki`) is `@-ref`'d — `docs/wiki/scan.md` is too large for context on big repos.
 
 ## Existing `CLAUDE.md` (no overwrite)
 
@@ -168,3 +168,11 @@ When `CLAUDE.md` already exists, the survey does not run. The audit step gates o
 **What changed:** Command renamed from `/atomic-setup` to `/setup-wiki` (issue #124). Spec file moved from `docs/spec/atomic-setup.md` to `docs/spec/setup-wiki.md`; body self-references updated to the new verb.
 
 **Why:** Part of a four-artifact rename pass (`docs/spec/artifact-renames.md`) clarifying command names across the system.
+
+### 2026-07-16 — Wire @docs/wiki/index.md, drop the `<wiki-type>` write
+
+**What changed:** The render skeleton and the `CLAUDE.md` missing-`@-ref` append snippet now both target `@docs/wiki/index.md` instead of `@.claude/project/signals.md`. The audit step checks for the ref in any of `claude.local.md` / `CLAUDE.local.md` / `CLAUDE.md`, mirroring the `atomic-wiki-inferrer` search order, and only appends to `CLAUDE.md` when none of the three carry it. `/setup-wiki` no longer writes a `<wiki-type>` scope marker anywhere — `WIKI_SCOPE` (`repo` or `realm`, detected in the pre-flight/scope-detection step) is now surfaced only in the Step 5 report. The wiki pipeline (`/refresh-wiki`, via `atomic-wiki-inferrer`) owns writing `<wiki-type>` — it is machine-managed metadata inside `docs/wiki/index.md`'s own frontmatter, written when the index is generated, not by setup.
+
+**Why:** post-relocation, signals live at `docs/wiki/` (repo scope) — `.claude/project/signals.md` no longer exists and doctor's refs check only accepts `@docs/wiki/index.md` (GitHub issue #151). The old scaffold produced a permanently dangling `@-ref`, and setup's `<wiki-type>` write duplicated (and could drift from) the marker the wiki pipeline already writes into the index it generates.
+
+**Superseded:** Prior render skeleton and append snippet wrote `@.claude/project/signals.md`; prior audit checked `.claude/project/deterministic-signals.md` existence and a single-file `@-ref` grep on `CLAUDE.md` only. Prior Step 4 unconditionally wrote a `<wiki-type>` block to `claude.local.md` or `CLAUDE.md`.

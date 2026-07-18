@@ -43,7 +43,7 @@ func writeTestManifest(t *testing.T, preInstallDir string, files []map[string]in
 // manifest exists — the CLI must exit 1 in this case.
 func TestBuildUninstallPlan_MissingManifest(t *testing.T) {
 	targetDir := t.TempDir()
-	_, err := claudeinstall.BuildUninstallPlan(targetDir)
+	_, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err == nil {
 		t.Fatal("expected error for missing manifest, got nil")
 	}
@@ -63,7 +63,7 @@ func TestBuildUninstallPlan_ExistedTrue(t *testing.T) {
 		{"path": "CLAUDE.md", "sha256": "def456", "existed": true},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestBuildUninstallPlan_ExistedFalse(t *testing.T) {
 		{"path": "agents/atomic-reviewer.md", "sha256": "", "existed": false},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestBuildUninstallPlan_MergeDetection(t *testing.T) {
 		{"path": "CLAUDE.md", "sha256": "aaaaaa", "existed": true},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestBuildUninstallPlan_NoMergeWhenUnchanged(t *testing.T) {
 		{"path": "CLAUDE.md", "sha256": sum, "existed": true},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestBuildUninstallPlan_EmbeddedSHA_Delete(t *testing.T) {
 		{"path": "CLAUDE.md", "sha256": preInstallSHA, "existed": true},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, map[string]string{
+	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, targetDir, map[string]string{
 		"CLAUDE.md": embeddedSHA,
 	}, nil)
 	if err != nil {
@@ -222,7 +222,7 @@ func TestBuildUninstallPlan_EmbeddedSHA_NeedsMerge(t *testing.T) {
 		{"path": "CLAUDE.md", "sha256": preInstallSHA, "existed": true},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, map[string]string{
+	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, targetDir, map[string]string{
 		"CLAUDE.md": embeddedSHA,
 	}, nil)
 	if err != nil {
@@ -257,7 +257,7 @@ func TestBuildUninstallPlan_CurrentMatchesPreInstall(t *testing.T) {
 		{"path": "CLAUDE.md", "sha256": preInstallSHA, "existed": true},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, map[string]string{
+	plan, err := claudeinstall.BuildUninstallPlanWithManifest(targetDir, targetDir, map[string]string{
 		"CLAUDE.md": embeddedSHA,
 	}, nil)
 	if err != nil {
@@ -283,12 +283,12 @@ func TestGenerateUninstallPrompt_UsesTargetDir(t *testing.T) {
 		{"path": "agents/atomic-builder.md", "sha256": "", "existed": false},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
 
-	prompt := claudeinstall.GenerateUninstallPrompt(targetDir, plan)
+	prompt := claudeinstall.GenerateUninstallPrompt(targetDir, targetDir, plan)
 
 	if strings.Contains(prompt, "~/.claude/") {
 		t.Errorf("prompt contains hardcoded ~/.claude/ — should use targetDir %q", targetDir)
@@ -309,12 +309,12 @@ func TestGenerateUninstallPrompt_KeyStructure(t *testing.T) {
 		{"path": "agents/atomic-builder.md", "sha256": "", "existed": false},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
 
-	prompt := claudeinstall.GenerateUninstallPrompt(targetDir, plan)
+	prompt := claudeinstall.GenerateUninstallPrompt(targetDir, targetDir, plan)
 
 	requiredPhrases := []string{
 		"## Atomic Claude Uninstall",
@@ -346,7 +346,7 @@ func TestBuildUninstallPlan_ProfileMdExcluded(t *testing.T) {
 		{"path": "agents/atomic-builder.md", "sha256": "", "existed": false},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestBuildUninstallPlan_ProfileMdExcluded_ExistedTrue(t *testing.T) {
 		{"path": "agents/atomic-builder.md", "sha256": "", "existed": false},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
@@ -441,12 +441,12 @@ func TestGenerateUninstallPrompt_NeedsMergeLabel(t *testing.T) {
 		{"path": "CLAUDE.md", "sha256": "stale-sha", "existed": true},
 	})
 
-	plan, err := claudeinstall.BuildUninstallPlan(targetDir)
+	plan, err := claudeinstall.BuildUninstallPlan(targetDir, targetDir)
 	if err != nil {
 		t.Fatalf("BuildUninstallPlan: %v", err)
 	}
 
-	prompt := claudeinstall.GenerateUninstallPrompt(targetDir, plan)
+	prompt := claudeinstall.GenerateUninstallPrompt(targetDir, targetDir, plan)
 	if !strings.Contains(prompt, "NEEDS MERGE") {
 		t.Errorf("prompt missing 'NEEDS MERGE' label for modified CLAUDE.md")
 	}

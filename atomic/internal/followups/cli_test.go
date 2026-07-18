@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // cliTestRepo creates a fake repo with a followups/ folder, wires in a today clock,
@@ -31,6 +33,26 @@ func TestCLIPath(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "followups") {
 		t.Errorf("path output=%q, want it to contain 'followups'", out.String())
+	}
+}
+
+// TestCLIPath_UnderNonDefaultHarnessDir verifies Run threads repoRoot through
+// config.FollowupsDir — under a ".pi" harness dir, followups live at
+// .pi/project/followups, not the default .claude/project/followups.
+func TestCLIPath_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+	var out strings.Builder
+	var errOut strings.Builder
+	code := Run([]string{"path"}, root, &out, &errOut, nowFixed(2026, 5, 22))
+	if code != 0 {
+		t.Errorf("exit code=%d, want 0; stderr=%s", code, errOut.String())
+	}
+	want := filepath.Join(root, ".pi", "project", "followups")
+	if got := strings.TrimSpace(out.String()); got != want {
+		t.Errorf("path output=%q, want %q", got, want)
 	}
 }
 

@@ -45,11 +45,11 @@ func v1Profile() string {
 
 // PASS: profile.md exists and @-ref present in CLAUDE.md.
 func TestCheckProfile_FileAndRefPresent_Pass(t *testing.T) {
-	claudeHome := t.TempDir()
-	writeProfileFile(t, filepath.Join(claudeHome, ".atomic", "profile.md"), freshProfile())
-	writeProfileFile(t, filepath.Join(claudeHome, "CLAUDE.md"), profileBlock())
+	home := t.TempDir()
+	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
+	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), profileBlock())
 
-	r := doctor.RunCheckProfileWith(claudeHome)
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS; detail: %q", r.Severity, r.Detail)
 	}
@@ -57,11 +57,11 @@ func TestCheckProfile_FileAndRefPresent_Pass(t *testing.T) {
 
 // WARN: @-ref present, but profile.md file is absent.
 func TestCheckProfile_RefPresent_FileMissing_Warn(t *testing.T) {
-	claudeHome := t.TempDir()
+	home := t.TempDir()
 	// no .atomic/profile.md
-	writeProfileFile(t, filepath.Join(claudeHome, "CLAUDE.md"), profileBlock())
+	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), profileBlock())
 
-	r := doctor.RunCheckProfileWith(claudeHome)
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
 	}
@@ -69,12 +69,12 @@ func TestCheckProfile_RefPresent_FileMissing_Warn(t *testing.T) {
 
 // WARN: profile.md file present, but @-ref absent from all candidates.
 func TestCheckProfile_FilePresent_RefMissing_Warn(t *testing.T) {
-	claudeHome := t.TempDir()
-	writeProfileFile(t, filepath.Join(claudeHome, ".atomic", "profile.md"), freshProfile())
+	home := t.TempDir()
+	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
 	// CLAUDE.md exists but contains no ref
-	writeProfileFile(t, filepath.Join(claudeHome, "CLAUDE.md"), "# Hello\nno ref here\n")
+	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), "# Hello\nno ref here\n")
 
-	r := doctor.RunCheckProfileWith(claudeHome)
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
 	}
@@ -82,8 +82,8 @@ func TestCheckProfile_FilePresent_RefMissing_Warn(t *testing.T) {
 
 // WARN: both file and @-ref absent.
 func TestCheckProfile_BothAbsent_Warn(t *testing.T) {
-	claudeHome := t.TempDir()
-	r := doctor.RunCheckProfileWith(claudeHome)
+	home := t.TempDir()
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
 	}
@@ -91,11 +91,11 @@ func TestCheckProfile_BothAbsent_Warn(t *testing.T) {
 
 // PASS: @-ref wired in claude.local.md (not CLAUDE.md).
 func TestCheckProfile_RefInClaudeLocalMd_Pass(t *testing.T) {
-	claudeHome := t.TempDir()
-	writeProfileFile(t, filepath.Join(claudeHome, ".atomic", "profile.md"), freshProfile())
-	writeProfileFile(t, filepath.Join(claudeHome, "claude.local.md"), profileBlock())
+	home := t.TempDir()
+	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
+	writeProfileFile(t, filepath.Join(home, ".claude", "claude.local.md"), profileBlock())
 
-	r := doctor.RunCheckProfileWith(claudeHome)
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS; detail: %q", r.Severity, r.Detail)
 	}
@@ -103,11 +103,11 @@ func TestCheckProfile_RefInClaudeLocalMd_Pass(t *testing.T) {
 
 // PASS: @-ref wired in CLAUDE.local.md variant.
 func TestCheckProfile_RefInCLAUDELocalMd_Pass(t *testing.T) {
-	claudeHome := t.TempDir()
-	writeProfileFile(t, filepath.Join(claudeHome, ".atomic", "profile.md"), freshProfile())
-	writeProfileFile(t, filepath.Join(claudeHome, "CLAUDE.local.md"), profileBlock())
+	home := t.TempDir()
+	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
+	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.local.md"), profileBlock())
 
-	r := doctor.RunCheckProfileWith(claudeHome)
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS; detail: %q", r.Severity, r.Detail)
 	}
@@ -116,11 +116,11 @@ func TestCheckProfile_RefInCLAUDELocalMd_Pass(t *testing.T) {
 // WARN: profile.md present and ref wired, but lastcheck is stale (2000-01-01).
 // Detail must contain the lastcheck date and guidance to run `atomic profile refresh`.
 func TestCheckProfile_StaleLastcheck_Warn(t *testing.T) {
-	claudeHome := t.TempDir()
-	writeProfileFile(t, filepath.Join(claudeHome, ".atomic", "profile.md"), staleProfile())
-	writeProfileFile(t, filepath.Join(claudeHome, "CLAUDE.md"), profileBlock())
+	home := t.TempDir()
+	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), staleProfile())
+	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), profileBlock())
 
-	r := doctor.RunCheckProfileWith(claudeHome)
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
 	}
@@ -139,17 +139,17 @@ func TestCheckProfile_FileUnreadable_Warn(t *testing.T) {
 		t.Skip("running as root: chmod 000 does not restrict access")
 	}
 
-	claudeHome := t.TempDir()
-	profilePath := filepath.Join(claudeHome, ".atomic", "profile.md")
+	home := t.TempDir()
+	profilePath := filepath.Join(home, ".atomic", "profile.md")
 	writeProfileFile(t, profilePath, freshProfile())
 	if err := os.Chmod(profilePath, 0o000); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(profilePath, 0o644) })
 
-	writeProfileFile(t, filepath.Join(claudeHome, "CLAUDE.md"), profileBlock())
+	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), profileBlock())
 
-	r := doctor.RunCheckProfileWith(claudeHome)
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
 	}
@@ -164,11 +164,11 @@ func TestCheckProfile_FileUnreadable_Warn(t *testing.T) {
 // WARN: profile.md present and ref wired, but no lastcheck attribute (v1 format).
 // Detail must mention "atomic profile refresh" so the user knows how to fix it.
 func TestCheckProfile_AbsentLastcheck_Warn(t *testing.T) {
-	claudeHome := t.TempDir()
-	writeProfileFile(t, filepath.Join(claudeHome, ".atomic", "profile.md"), v1Profile())
-	writeProfileFile(t, filepath.Join(claudeHome, "CLAUDE.md"), profileBlock())
+	home := t.TempDir()
+	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), v1Profile())
+	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), profileBlock())
 
-	r := doctor.RunCheckProfileWith(claudeHome)
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
 	}
@@ -179,12 +179,30 @@ func TestCheckProfile_AbsentLastcheck_Warn(t *testing.T) {
 
 // PASS: profile.md present, ref wired, and lastcheck is today (fresh).
 func TestCheckProfile_FreshLastcheck_Pass(t *testing.T) {
-	claudeHome := t.TempDir()
-	writeProfileFile(t, filepath.Join(claudeHome, ".atomic", "profile.md"), freshProfile())
-	writeProfileFile(t, filepath.Join(claudeHome, "CLAUDE.md"), profileBlock())
+	home := t.TempDir()
+	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
+	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), profileBlock())
 
-	r := doctor.RunCheckProfileWith(claudeHome)
+	r := doctor.RunCheckProfileWith(home)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS; detail: %q", r.Severity, r.Detail)
+	}
+}
+
+// WARN: installed CLAUDE.md still carries the legacy @~/.claude/.atomic/profile.md
+// ref (stale v5 bundle) instead of the current @~/.atomic/profile.md ref. Detail
+// must name `atomic claude install` so the user knows how to refresh.
+func TestCheckProfile_LegacyRef_Warn(t *testing.T) {
+	home := t.TempDir()
+	writeProfileFile(t, filepath.Join(home, ".atomic", "profile.md"), freshProfile())
+	legacyBlock := "\n## User profile\n\n@~/.claude/.atomic/profile.md\n"
+	writeProfileFile(t, filepath.Join(home, ".claude", "CLAUDE.md"), legacyBlock)
+
+	r := doctor.RunCheckProfileWith(home)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %q, want WARN; detail: %q", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "atomic claude install") {
+		t.Errorf("detail should mention 'atomic claude install'; got: %q", r.Detail)
 	}
 }

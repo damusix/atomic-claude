@@ -54,7 +54,7 @@ Available tiers: `haiku`, `sonnet`, `opus`. (`fable` is forward-reserved and may
 
 **How it works.** The choice is stored in `config.toml [agents]` (machine-owned — not hand-edited). On every `atomic claude install` or `atomic claude update` the installer reads the map and patches `model:` in each agent file before writing it to `~/.claude/agents/`. An absent entry leaves the bundled default unchanged. Upgrades never clobber the choice because the tier is re-derived from config on every install, not baked into the installed file.
 
-**Viewing active overrides.** `~/.claude/.atomic/config.resolved.md` (auto-loaded every session) includes a `[agents]` section listing any active overrides:
+**Viewing active overrides.** `~/.atomic/config.resolved.md` (auto-loaded every session) includes a `[agents]` section listing any active overrides:
 
 ```
 ## [agents]

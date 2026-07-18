@@ -1156,18 +1156,23 @@ func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 // --- Profile refresh seam tests ---
 
 // TestSessionStart_ProfileRefreshCalled verifies that SessionStart invokes the
-// profileRefresh seam with days==7 and today==now.Format("2006-01-02").
+// profileRefresh seam with days==7, today==now.Format("2006-01-02"), and home
+// (not <home>/.claude — config.ProfilePath expects home directly per
+// docs/spec/configurable-state-paths.md).
 // WHY: the refresh is a ride-along; proving the seam fires with correct args
-// ensures the wiring is correct without real disk I/O.
+// ensures the wiring is correct without real disk I/O. Injects HOME via
+// t.Setenv so the assertion never depends on the real developer machine's home.
 func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
 	stubNoWherePosition(t)
 	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
 
-	var gotClaudeHome, gotToday string
+	var gotHome, gotToday string
 	var gotDays int
-	hooks.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
-		gotClaudeHome = claudeHome
+	hooks.ProfileRefresh = func(home, today string, days int) (bool, error) {
+		gotHome = home
 		gotToday = today
 		gotDays = days
 		return false, nil
@@ -1186,13 +1191,8 @@ func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
 	if gotToday != wantToday {
 		t.Errorf("profileRefresh called with today=%q, want %q", gotToday, wantToday)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("os.UserHomeDir: %v", err)
-	}
-	wantClaudeHome := filepath.Join(home, ".claude")
-	if gotClaudeHome != wantClaudeHome {
-		t.Errorf("profileRefresh called with claudeHome=%q, want %q", gotClaudeHome, wantClaudeHome)
+	if gotHome != home {
+		t.Errorf("profileRefresh called with home=%q, want %q (not <home>/.claude)", gotHome, home)
 	}
 }
 

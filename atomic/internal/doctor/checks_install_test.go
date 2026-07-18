@@ -19,7 +19,7 @@ func TestCheckInstall_pass(t *testing.T) {
 		installArtifact(t, target, a)
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS; detail: %s", r.Severity, r.Detail)
 	}
@@ -40,7 +40,7 @@ func TestCheckInstall_warn_drift(t *testing.T) {
 		}
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %s", r.Severity, r.Detail)
 	}
@@ -62,7 +62,7 @@ func TestCheckInstall_fail_missing(t *testing.T) {
 		installArtifact(t, target, a)
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.FAIL {
 		t.Errorf("severity = %q, want FAIL; detail: %s", r.Severity, r.Detail)
 	}
@@ -72,7 +72,7 @@ func TestCheckInstall_fail_missing(t *testing.T) {
 func TestCheckInstall_skip_missing_dir(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "nonexistent")
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.SKIP {
 		t.Errorf("severity = %q, want SKIP; detail: %s", r.Severity, r.Detail)
 	}
@@ -101,7 +101,7 @@ func TestCheckInstall_atomic_subtree_not_flagged(t *testing.T) {
 		writeFile(t, f, []byte("# atomic-owned state"))
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS; detail: %s (atomic subtree must not be flagged)", r.Severity, r.Detail)
 	}
@@ -123,7 +123,7 @@ func TestCheckInstall_findings_drift(t *testing.T) {
 		}
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.WARN {
 		t.Fatalf("severity = %q, want WARN; detail: %s", r.Severity, r.Detail)
 	}
@@ -159,7 +159,7 @@ func TestCheckInstall_findings_missing(t *testing.T) {
 		installArtifact(t, target, a)
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.FAIL {
 		t.Fatalf("severity = %q, want FAIL; detail: %s", r.Severity, r.Detail)
 	}
@@ -188,7 +188,7 @@ func TestCheckInstall_pass_no_findings(t *testing.T) {
 		installArtifact(t, target, a)
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.PASS {
 		t.Fatalf("severity = %q, want PASS; detail: %s", r.Severity, r.Detail)
 	}

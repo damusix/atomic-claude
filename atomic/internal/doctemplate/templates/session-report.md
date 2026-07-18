@@ -1,5 +1,5 @@
 <!--
-Template for .claude/.scratchpad/session-reports/<branch>/<YYYY-MM-DD-HHMM>-<slug>.md —
+Template for the scratchpad's session-reports/<branch>/<YYYY-MM-DD-HHMM>-<slug>.md —
 emitted by `atomic template session-report`. Written by /session-report, read by ship verbs when synthesizing the commit message.
 Copy this body, fill every <angle-bracket> placeholder, delete this comment.
 Working-memory voice — bullets + short paragraphs, not narrative prose.

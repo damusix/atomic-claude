@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
@@ -25,6 +26,9 @@ func writeRepoConfig(t *testing.T, root, content string) {
 // .claude/atomic.toml must produce PASS (informational), never WARN — the
 // repo config is optional and indexing proceeds unfiltered without it.
 func TestCheckRepoConfigAbsent(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
 	root := t.TempDir()
 	r := doctor.RunCheckRepoConfigWith(root)
 	if r.Severity != doctor.PASS {
@@ -35,9 +39,57 @@ func TestCheckRepoConfigAbsent(t *testing.T) {
 	}
 }
 
+// TestCheckRepoConfigAbsent_UnderNonDefaultHarnessDir verifies the Detail
+// string's path derives from the harness-aware resolver — under a ".pi"
+// harness dir it must read ".pi/atomic.toml", never the default-harness
+// literal ".claude/atomic.toml" (CP2 review finding).
+func TestCheckRepoConfigAbsent_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+	r := doctor.RunCheckRepoConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS when repo config absent", r.Severity)
+	}
+	if !strings.Contains(r.Detail, ".pi/atomic.toml") {
+		t.Errorf("Detail = %q, want mention of the harness-aware path \".pi/atomic.toml\"", r.Detail)
+	}
+	if strings.Contains(r.Detail, ".claude/atomic.toml") {
+		t.Errorf("Detail = %q, must not show the default-harness literal under a .pi harness", r.Detail)
+	}
+}
+
+// TestCheckRepoConfigValid_UnderNonDefaultHarnessDir verifies the PASS Detail
+// string names the harness-aware path for a well-formed config under ".pi".
+func TestCheckRepoConfigValid_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+	dir := filepath.Join(root, ".pi")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "atomic.toml"), []byte("[code]\nignore = [\"vendor/**\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := doctor.RunCheckRepoConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, ".pi/atomic.toml") {
+		t.Errorf("Detail = %q, want mention of \".pi/atomic.toml\"", r.Detail)
+	}
+}
+
 // TestCheckRepoConfigValid verifies PASS with a pattern-count detail for a
 // well-formed config.
 func TestCheckRepoConfigValid(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
 	root := t.TempDir()
 	writeRepoConfig(t, root, "[code]\nignore = [\"vendor/**\", \"*.min.js\"]\n")
 
@@ -54,6 +106,9 @@ func TestCheckRepoConfigValid(t *testing.T) {
 // indexing degrades to unfiltered rather than hard-failing, so doctor mirrors
 // that severity.
 func TestCheckRepoConfigMalformed(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
 	root := t.TempDir()
 	writeRepoConfig(t, root, "[code\nignore = [\"vendor/**\"\n")
 
@@ -69,6 +124,9 @@ func TestCheckRepoConfigMalformed(t *testing.T) {
 // TestCheckRepoConfigUnknownKey verifies WARN with the offending key named
 // in the detail.
 func TestCheckRepoConfigUnknownKey(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
 	root := t.TempDir()
 	writeRepoConfig(t, root, "[code]\nignore = [\"vendor/**\"]\n[bogus]\nkey = \"value\"\n")
 
@@ -84,6 +142,9 @@ func TestCheckRepoConfigUnknownKey(t *testing.T) {
 // TestCheckRepoConfigInvalidGlob verifies WARN with the offending pattern
 // named in the detail.
 func TestCheckRepoConfigInvalidGlob(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
 	root := t.TempDir()
 	writeRepoConfig(t, root, "[code]\nignore = [\"vendor[/**\"]\n")
 
@@ -100,6 +161,9 @@ func TestCheckRepoConfigInvalidGlob(t *testing.T) {
 // mirroring the code-index check's opt-in contract: a repo config problem
 // degrades indexing to unfiltered, it never blocks doctor with a hard FAIL.
 func TestCheckRepoConfigNeverFail(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
 	cases := []struct {
 		name    string
 		content string

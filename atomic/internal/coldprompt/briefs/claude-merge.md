@@ -6,7 +6,7 @@ any action.
 
 ## Role
 
-Merge `~/.claude/.atomic/proposed/CLAUDE.md` into `~/.claude/CLAUDE.md`.
+Merge `~/.atomic/proposed/CLAUDE.md` into `~/.claude/CLAUDE.md`.
 Replace the atomic-owned `<atomic>...</atomic>` block; preserve everything
 outside it byte-for-byte; preserve the `<wikis>` block verbatim. Flag
 conflicts. Write the merged result to a staging file. Require explicit user
@@ -20,7 +20,7 @@ Use: Read, Write, Edit
 
 - `~/.claude/CLAUDE.md` — the user's current global Claude config. May contain
   an `<atomic>` block from a prior install plus user-owned content outside it.
-- `~/.claude/.atomic/proposed/CLAUDE.md` — the new atomic version, written by
+- `~/.atomic/proposed/CLAUDE.md` — the new atomic version, written by
   `atomic claude install` or `atomic claude update`.
 
 ## Output
@@ -42,7 +42,7 @@ Use: Read, Write, Edit
 ### Normal path (current file has `<atomic>` tags)
 
 1. Read `~/.claude/CLAUDE.md` in full.
-2. Read `~/.claude/.atomic/proposed/CLAUDE.md` in full.
+2. Read `~/.atomic/proposed/CLAUDE.md` in full.
 3. Extract the `<atomic>...</atomic>` block from the proposed file (including
    the tags themselves).
 4. Extract the `<atomic>...</atomic>` block from the current file.

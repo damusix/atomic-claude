@@ -1,5 +1,7 @@
 # User profile
 
+> **Status:** point-in-time record. The state root moved to `~/.atomic/` in v6 — see `docs/design/configurable-state-paths.md`. Paths below reflect the pre-v6 layout.
+
 A global, auto-updated identity file at `~/.claude/.atomic/profile.md`. Captures durable facts about the user (name, role, projects, interests, people) so Claude can draw on them across every session and every project — closing a real gap in Claude Code's current memory model.
 
 

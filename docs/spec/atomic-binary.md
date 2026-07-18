@@ -129,8 +129,8 @@ Installs / updates the atomic-claude artifact bundle (CLAUDE.md, agents, command
 
 | Verb | Description |
 |------|-------------|
-| `install [--dry-run] [--target ~/.claude]` | First-time install. Writes embedded artifacts to `~/.claude/`. Refuses to touch any non-atomic-prefixed file. For an existing `~/.claude/CLAUDE.md`, applies block-aware handling: replaces a stale `<atomic>` block in place, or — when the file has no parseable block — writes the proposed version to `~/.claude/.atomic/proposed/CLAUDE.md` for `/atomic-claude-merge` (see [CLAUDE.md handling](#claudemd-handling)). |
-| `update [--dry-run] [--target ~/.claude]` | Refresh an existing install. Diff every embedded artifact against its on-disk counterpart, back up changed files to `~/.claude/.atomic/backups/<ISO-timestamp>/`, then overwrite. Same `CLAUDE.md` handling as `install`. |
+| `install [--dry-run] [--target ~/.claude]` | First-time install. Writes embedded artifacts to `~/.claude/`. Refuses to touch any non-atomic-prefixed file. For an existing `~/.claude/CLAUDE.md`, applies block-aware handling: replaces a stale `<atomic>` block in place, or — when the file has no parseable block — writes the proposed version to `~/.atomic/proposed/CLAUDE.md` for `/atomic-claude-merge` (see [CLAUDE.md handling](#claudemd-handling)). |
+| `update [--dry-run] [--target ~/.claude]` | Refresh an existing install. Diff every embedded artifact against its on-disk counterpart, back up changed files to `~/.atomic/backups/<ISO-timestamp>/`, then overwrite. Same `CLAUDE.md` handling as `install`. |
 | `list` | Print the artifact manifest embedded in this binary version: one row per artifact (kind, name, sha256). Useful for diffing against `~/.claude` state. |
 | `diff` | Show, per artifact, whether the on-disk file matches, differs, or is absent. Read-only. Pairs with `--dry-run` for safety review. |
 
@@ -320,8 +320,8 @@ Per-file flow:
 2. Read the on-disk target (if any), compute its sha256.
 3. If shas match → skip, report as `unchanged`.
 4. If on-disk file is missing → write source, report as `installed`.
-5. If on-disk file is bundle-managed (its target path appears in the bundle manifest) and differs → back up to `~/.claude/.atomic/backups/<ISO-timestamp>/<relative-path>`, then overwrite, report as `updated (backup at <path>)`.
-6. If on-disk file is `CLAUDE.md` and differs → block-aware comparison. When both the embedded source and the on-disk file carry exactly one parseable `<atomic>...</atomic>` block: equal blocks → report as `unchanged` (user content outside the block is not drift); different blocks → back up the whole file to `~/.claude/.atomic/backups/<ISO-timestamp>/CLAUDE.md`, replace only the block in place, report as `block replaced`. When the on-disk file has no parseable block (pre-tag install, unclosed or duplicate tags) → write source to `~/.claude/.atomic/proposed/CLAUDE.md`, report as `merge required (proposed at <path>)`.
+5. If on-disk file is bundle-managed (its target path appears in the bundle manifest) and differs → back up to `~/.atomic/backups/<ISO-timestamp>/<relative-path>`, then overwrite, report as `updated (backup at <path>)`.
+6. If on-disk file is `CLAUDE.md` and differs → block-aware comparison. When both the embedded source and the on-disk file carry exactly one parseable `<atomic>...</atomic>` block: equal blocks → report as `unchanged` (user content outside the block is not drift); different blocks → back up the whole file to `~/.atomic/backups/<ISO-timestamp>/CLAUDE.md`, replace only the block in place, report as `block replaced`. When the on-disk file has no parseable block (pre-tag install, unclosed or duplicate tags) → write source to `~/.atomic/proposed/CLAUDE.md`, report as `merge required (proposed at <path>)`.
 7. If on-disk file does not appear in the bundle manifest and is not `CLAUDE.md` → refuse to touch, report as `skipped (not owned by atomic)`. Defensive guard against accidental writes outside the bundle.
 
 
@@ -343,15 +343,15 @@ Per-file flow:
 **Merge path (no parseable block — pre-tag install, unclosed or duplicate tags).** Code cannot draw the ownership boundary safely, so it defers to the LLM merge — it never spawns Claude, never edits CLAUDE.md itself:
 
 
-1. Binary writes the embedded `CLAUDE.md` content to `~/.claude/.atomic/proposed/CLAUDE.md`.
+1. Binary writes the embedded `CLAUDE.md` content to `~/.atomic/proposed/CLAUDE.md`.
 2. Binary prints:
     ```
     CLAUDE.md needs review.
       old: ~/.claude/CLAUDE.md
-      new: ~/.claude/.atomic/proposed/CLAUDE.md
+      new: ~/.atomic/proposed/CLAUDE.md
 
     Run /atomic-claude-merge inside any Claude Code session when you're ready to merge.
-    Or inspect manually:  diff ~/.claude/CLAUDE.md ~/.claude/.atomic/proposed/CLAUDE.md
+    Or inspect manually:  diff ~/.claude/CLAUDE.md ~/.atomic/proposed/CLAUDE.md
     ```
 3. User runs `/atomic-claude-merge` themselves, on their own schedule. The slash command (installed by `atomic claude install` into `~/.claude/commands/`) dispatches the `atomic-claude-merger` agent, which reads both files, produces a merged version, presents a diff, asks for confirmation, then writes the result and removes the proposed file. See [`install-workflow.md`](./install-workflow.md) for the slash-command spec.
 
@@ -376,7 +376,7 @@ The binary never spawns Claude. Three reasons:
 ### Backups
 
 
-Path: `~/.claude/.atomic/backups/<ISO-timestamp>/<relative-path>`
+Path: `~/.atomic/backups/<ISO-timestamp>/<relative-path>`
 
 
 - Created on first `update` that needs to overwrite any atomic-prefixed file.
@@ -396,7 +396,7 @@ Installed (4):
   ✓ output-styles/atomic.md
   ✓ rules/typescript/no-as-cast.md
 
-Updated (2, backed up to ~/.claude/.atomic/backups/2026-05-16T18-32-11Z/):
+Updated (2, backed up to ~/.atomic/backups/2026-05-16T18-32-11Z/):
   ↻ agents/atomic-reviewer.md
   ↻ commands/commit-only.md
 
@@ -409,7 +409,7 @@ Unchanged (5):
 
 Needs review (1):
   ⚠ ~/.claude/CLAUDE.md
-    proposed at ~/.claude/.atomic/proposed/CLAUDE.md
+    proposed at ~/.atomic/proposed/CLAUDE.md
     next step: run /atomic-claude-merge inside any Claude Code session
 ```
 
@@ -641,7 +641,7 @@ Or via `make build` at repo root.
 - `atomic reminder add "x"` creates a file with `id` and `created`; `list` shows it; `rm <id>` deletes it.
 - `atomic hooks session-start` emits non-empty output when reminders exist, empty output when none.
 - `atomic claude install` into an empty `~/.claude` writes all bundled artifacts and `CLAUDE.md`; rerunning is a no-op (all `unchanged`).
-- `atomic claude update` against an existing install where one atomic artifact has been hand-edited backs that file up under `~/.claude/.atomic/backups/<timestamp>/` and overwrites with the bundled version.
+- `atomic claude update` against an existing install where one atomic artifact has been hand-edited backs that file up under `~/.atomic/backups/<timestamp>/` and overwrites with the bundled version.
 - `atomic claude update` against an existing `~/.claude/CLAUDE.md` writes `.atomic/proposed/CLAUDE.md` and prints the merge instruction; it never overwrites `CLAUDE.md` directly.
 - `atomic claude install --dry-run` makes no filesystem changes; output enumerates would-be actions.
 - `atomic update --check` against a current binary exits 0; against a stale binary exits 1 and prints the available version.
@@ -708,6 +708,14 @@ Built across 11 iterations of `/subagent-implementation`. Commits chronologicall
 
 ## Change log
 
+
+### 2026-07-16 — User state root relocated to ~/.atomic
+
+**What changed:** Every body mention of the backup and proposed-merge paths (`atomic claude` verb table, per-file flow, CLAUDE.md handling, backups section, final report, success criteria) now reads `~/.atomic/...` in place of `~/.claude/.atomic/...`.
+
+**Why:** `docs/spec/configurable-state-paths.md` (issue #150) moves per-user state from `~/.claude/.atomic/` to `~/.atomic/`, with an automatic, idempotent migration (rename + compat symlink at the old path) so pre-relocation `@~/.claude/.atomic/...` refs keep resolving.
+
+**Superseded:** Prior body named `~/.claude/.atomic/` as the state root throughout (itself a 2026-05-23 correction from an even older `~/.claude/.atomic-backups/` naming — see that entry below).
 
 ### 2026-06-03 — signals stale becomes content-based
 

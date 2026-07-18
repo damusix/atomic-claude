@@ -181,8 +181,13 @@ func TestIgnoreMatcher_NilSafe(t *testing.T) {
 	}
 }
 
-// TestRepoConfigPath: joins projectRoot with the fixed repo-relative path.
+// TestRepoConfigPath: joins projectRoot with the harness dir and the fixed
+// repo-relative suffix. Uses the test seam so it never touches the real home
+// (RepoConfigPath is harness-dir-aware as of CP2; see harness.go).
 func TestRepoConfigPath(t *testing.T) {
+	restore := SetHarnessDirForTest(".claude")
+	defer restore()
+
 	got := RepoConfigPath("/repo")
 	want := filepath.Join("/repo", ".claude", "atomic.toml")
 	if got != want {
