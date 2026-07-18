@@ -9,6 +9,8 @@
   },
   "dependencies": {
     "@ark-ui/react": "^5.37.2",
+    "@fortawesome/free-brands-svg-icons": "7.3.1",
+    "@fortawesome/free-solid-svg-icons": "7.3.1",
     "@logosdx/fetch": "^9.1.0",
     "@logosdx/observer": "^2.5.3",
     "@logosdx/react": "^6.0.0",
