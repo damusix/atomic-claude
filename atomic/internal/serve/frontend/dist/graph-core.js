@@ -958,6 +958,27 @@ window.GraphCore = (function() {
           graph.render();
         }
 
+        // Pinned highlight (2026-07-18 user feedback): a Shift-click pins a
+        // node's neighborhood emphasis so it survives mouse-out and Shift
+        // release; a second Shift-click on the SAME node opens it (modal),
+        // and a plain (no-Shift) click always opens directly. Unpinned by a
+        // background click, by pinning another node, or by legend-hiding the
+        // pinned node's type. applyHighlightState is the single resolver:
+        // pin wins, then live Shift-hover, else clear — every handler that
+        // used to call clearHighlight on its way out calls this instead so
+        // a transient hover/edge highlight falls back to the pin, not to
+        // nothing.
+        var pinnedIndex = null;
+        function applyHighlightState() {
+          if (pinnedIndex != null) {
+            setHighlight(adjacency.neighbors[pinnedIndex].concat([pinnedIndex]), adjacency.links[pinnedIndex]);
+          } else if (shiftDown && hoverIndex != null && !filteredTypes[typeOf(adapted, hoverIndex)]) {
+            setHighlight(adjacency.neighbors[hoverIndex].concat([hoverIndex]), adjacency.links[hoverIndex]);
+          } else {
+            clearHighlight();
+          }
+        }
+
         // linkHoverMeta builds the "A -kind-> B" preview-card meta for edge hover
         // (item 6) — reusing profile.labelText(), the same text the node hover card
         // and DOM labels already show for each endpoint, so no new lookup machinery.
@@ -1069,6 +1090,12 @@ window.GraphCore = (function() {
         // never setPointPositions.
         function onLegendToggle(type, hidden) {
           if (hidden) { filteredTypes[type] = true; } else { delete filteredTypes[type]; }
+          if (hidden && pinnedIndex != null && typeOf(adapted, pinnedIndex) === type) {
+            // Hiding the pinned node's type unpins it — a highlight anchored
+            // to an invisible point would be unreachable to dismiss.
+            pinnedIndex = null;
+            applyHighlightState();
+          }
           if (hidden && hoverIndex != null && typeOf(adapted, hoverIndex) === type) {
             // F-5 carry-along: hiding the hovered node's own type would
             // otherwise leave the preview card frozen at its last position —
@@ -1077,7 +1104,7 @@ window.GraphCore = (function() {
             hoverIndex = null;
             hoverSpacePos = null;
             profile.onHoverOut();
-            clearHighlight();
+            applyHighlightState();
           }
           applyStyling(graph, adapted, filteredTypes, degrees, profile);
           updateLabels();
@@ -1172,11 +1199,10 @@ window.GraphCore = (function() {
           if (down && hoverIndex != null && !filteredTypes[typeOf(adapted, hoverIndex)]) {
             // Shift pressed while already hovering a node: light it up now.
             reanchorHoverCard();
-            setHighlight(adjacency.neighbors[hoverIndex].concat([hoverIndex]), adjacency.links[hoverIndex]);
           } else if (!down) {
             profile.onHoverOut();
-            clearHighlight();
           }
+          applyHighlightState(); // pin survives Shift release — see its comment
         }
         document.addEventListener('keydown', onShiftChange);
         document.addEventListener('keyup', onShiftChange);
@@ -1252,7 +1278,7 @@ window.GraphCore = (function() {
               var hint = document.createElement('div');
               hint.id = 'graph-hint';
               hint.className = 'graph-hint';
-              hint.textContent = 'hold ⇧ Shift to highlight & drag';
+              hint.textContent = 'hold ⇧ to highlight & drag · ⇧-click pins, again opens';
               container.appendChild(hint);
             }
             clearLoading(mainPane);
@@ -1371,19 +1397,34 @@ window.GraphCore = (function() {
             if (sameNode) { return; }
             // Item 5: emphasize this node + its neighbors + the edges between
             // them, dim everything else — adjacency was built once at mount,
-            // so this is two array lookups, not a graph walk.
-            setHighlight(adjacency.neighbors[index].concat([index]), adjacency.links[index]);
+            // so this is two array lookups, not a graph walk. A pinned node
+            // keeps its highlight — hover doesn't override the pin.
+            if (pinnedIndex == null) {
+              setHighlight(adjacency.neighbors[index].concat([index]), adjacency.links[index]);
+            }
           },
           onPointMouseOut: function() {
             hoverIndex = null;
             hoverSpacePos = null;
             profile.onHoverOut();
             updateLabels();
-            clearHighlight();
+            applyHighlightState(); // falls back to the pin, or clears
           },
           onPointClick: function(index, pointPosition) {
             if (filteredTypes[typeOf(adapted, index)]) { return; }
+            // Shift-click: first click pins this node's highlight; a second
+            // Shift-click on the SAME node opens it. Plain click always opens.
+            if (shiftDown && pinnedIndex !== index) {
+              pinnedIndex = index;
+              applyHighlightState();
+              return;
+            }
             profile.onClick(adapted.indexToId[index], profile.nodeMeta(adapted, index));
+          },
+          onBackgroundClick: function() {
+            if (pinnedIndex == null) { return; }
+            pinnedIndex = null;
+            applyHighlightState();
           },
           // Item 6 (edge hover). Registering onLinkMouseOver/onLinkMouseOut is
           // what ENABLES cosmos's link hit-testing at all — verified against
@@ -1405,7 +1446,7 @@ window.GraphCore = (function() {
           },
           onLinkMouseOut: function() {
             profile.onHoverOut();
-            clearHighlight();
+            applyHighlightState(); // falls back to the pin, or clears
           },
           // onMouseMove only tracks the raw pointer position for
           // linkHoverScreenPos's anchor (see its own comment) — no other work,
@@ -1439,7 +1480,14 @@ window.GraphCore = (function() {
         // closure's already-computed state for debugState() below, which
         // scripts/graph-gates.mjs (SC3 gate harness) polls via page.evaluate.
         // Nothing here is mutated by debugState() — it only reads.
-        instance.__atomicDebug = { adapted: adapted, degrees: degrees, cacheHit: hit };
+        instance.__atomicDebug = {
+          adapted: adapted, degrees: degrees, cacheHit: hit,
+          // Live getters (test-only): the SC3 harness and ad-hoc probes read
+          // interaction state that lives in this closure.
+          get pinnedIndex() { return pinnedIndex; },
+          get hoverIndex() { return hoverIndex; },
+          get shiftDown() { return shiftDown; }
+        };
         // Bounded readback: only the degree-ranked candidate pool is tracked,
         // never the whole node set — see LABEL_CANDIDATE_POOL's comment.
         graph.trackPointPositionsByIndices(labelCandidateIndices);
@@ -1526,7 +1574,10 @@ window.GraphCore = (function() {
         size: sizeForDegree(dbg.degrees[i])
       };
     }
-    return { isSimulationRunning: instance.isSimulationRunning, cacheHit: dbg.cacheHit, nodes: nodes };
+    return {
+      isSimulationRunning: instance.isSimulationRunning, cacheHit: dbg.cacheHit, nodes: nodes,
+      pinnedIndex: dbg.pinnedIndex, hoverIndex: dbg.hoverIndex, shiftDown: dbg.shiftDown
+    };
   }
 
   // simRunning (test-only, read-only) — O(1) sibling of debugState() for
