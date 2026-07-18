@@ -57,6 +57,18 @@
   align-items: center;
 }
 
+/* Deeply nested labels stay on one line (min 120px of label room) and the
+   pane scrolls horizontally instead of wrapping entries into tall slivers. */
+#nav-pane {
+  overflow-x: auto;
+}
+
+#nav-pane .nav-item,
+#nav-pane [data-part="branch-text"] {
+  white-space: nowrap;
+  min-width: 120px;
+}
+
 /* Group headers (Realm/Repos/Knowledge/...) are top-level TreeView branches —
    same visual contract as the pre-cutover summary.nav-group, minus the
    <details> element (the branch-control ::before above supplies the ▸/▾). */
