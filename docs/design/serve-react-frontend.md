@@ -219,10 +219,18 @@ Four decision dimensions.
 | E | Hand-roll everything on APG patterns | zero dependencies | palette + tree are genuinely nontrivial (typeahead, roving tabindex, IME-safe filtering); recreates maintained code |
 
 
+### D6 — Data / reactivity layer
+
+| # | Approach | Pros | Cons |
+|---|----------|------|------|
+| A | LogosDX: `@logosdx/fetch` FetchEngine (+ `@logosdx/utils` attempt tuples, `@logosdx/observer` event bus, `@logosdx/react` context factories) | resilience (retry/dedupe/cache/rate-limit) is engine config, not hand-rolled; house stack the owner maintains; typed event bus fits live-reload/theme cascades; verified clean under `bun build` (~29 kB gz over React — probe `tmp/ark-probe/logos.tsx`) | one more dependency lineage beside Ark |
+| B | Hand-rolled fetch helper + ad-hoc React state | zero deps | reinvents retry/dedupe/cache; error handling drifts per component |
+
+
 ## Recommendation
 
 
-**A across all five dimensions**: Bun-toolchained React + TS workspace at `atomic/internal/serve/frontend/` (workspace conventions — domain-scoped `layouts/pages/components/hooks/utils` layout, per-component folders, `ui/` barrel — codified in `frontend/CLAUDE.md`), committed `dist/` embedded via `go:embed` with a render/bundle-style drift gate, hybrid API (HTML-in-JSON for rendered content, JSON for structure) under `/api/*`, React Router SPA preserving today's URL scheme with carried-JS endpoints left at their current paths, and Ark UI as the sole primitive library — TreeView gives the left nav its folder-dropdown tree UX (collapsible branches, keyboard navigation), Dialog/Tabs/Tooltip/Combobox cover the modals, search tabs, connection indicator, and ⌘K palette.
+**A across all six dimensions**: Bun-toolchained React + TS workspace at `atomic/internal/serve/frontend/` (workspace conventions — domain-scoped `layouts/pages/components/hooks/utils` layout, per-component folders, `ui/` barrel — codified in `frontend/CLAUDE.md`), committed `dist/` embedded via `go:embed` with a render/bundle-style drift gate, hybrid API (HTML-in-JSON for rendered content, JSON for structure) under `/api/*`, React Router SPA preserving today's URL scheme with carried-JS endpoints left at their current paths, and Ark UI as the sole primitive library — TreeView gives the left nav its folder-dropdown tree UX (collapsible branches, keyboard navigation), Dialog/Tabs/Tooltip/Combobox cover the modals, search tabs, connection indicator, and ⌘K palette. LogosDX is the data/reactivity layer: one `FetchEngine` behind every `/api/*` call (resilience as config), `attempt()` tuples for all I/O, and a typed `ObserverEngine` bus for live-reload and theme events, wired into React via `@logosdx/react` context factories.
 
 Migration strategy: **additive, then cutover**. `/api/*` endpoints land alongside the existing htmx routes (both read the same snapshot store and render pipeline), the React app is built screen-by-screen against them, and a final checkpoint flips `/` to the SPA shell and deletes `layout.html`, the htmx vendor, the fragment templates, and the OOB handlers. Every intermediate checkpoint keeps the existing UI working and tests green.
 

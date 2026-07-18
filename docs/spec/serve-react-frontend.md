@@ -102,10 +102,11 @@ Additive-then-cutover migration to a Bun-toolchained React + TypeScript SPA, com
         code-modal/ — source pane, intel pane, back-stack
         schema/ — code schema tables/views/FK graph
       hooks/
-        useLiveReload — /events SSE, quiet-window reconcile, scroll preservation
-        useTheme — toggle + retheme cascade (mermaid, cosmos, rail Cytoscape)
+        useLiveReload — /events SSE → emits realm.changed on the observer bus; reconcile logic (nav-always, page-conditional) subscribes there; scroll preservation
+        useTheme — toggle + retheme cascade (mermaid, cosmos, rail Cytoscape) via theme.changed observer event
       utils/
-        api — shared fetch helper: /api/* error-envelope handling, JSON typing; every component fetch goes through it
+        api — the shared FetchEngine instance (@logosdx/fetch: baseUrl /api, retry, dedupePolicy) + its createFetchContext pair; error-envelope handling; every component fetch goes through it via attempt() tuples
+        events — typed ObserverEngine (@logosdx/observer) + createObserverContext pair: the cross-cutting event bus (realm.changed from live-reload, theme.changed for the retheme cascade)
         graphEngineAdapter — mount/teardown glue honoring window.GraphCore / AtomicGraphUI / AtomicCodeExplorer contracts
         graphUI — rebuild of the AtomicGraphUI shared block (hover preview card, page modal, navigate); exposed as window.AtomicGraphUI so the carried profiles' hooks keep working; consumed by the rail mini-graph and both graph views
         typeColors — TYPE_HUE/ramp/atomicCyTypeColors: single OKF type→color source reading CSS custom properties; exposed as a window global so the carried system-graph.js/code-graph.js profiles keep their existing call site unmodified; imported directly by React components and by railCytoscapeStyle
@@ -151,7 +152,7 @@ Conventions (every `/api/*` endpoint):
 - `Content-Type: application/json`; Go `encoding/json` default HTML-escaping stays enabled.
 - One error envelope: non-200 status + `{"error": "<message>"}` (adopts `writeGraphError`, codegraph.go). 404 = missing target or traversal rejection; 400 = bad/missing params; 500 = render/query failure. Soft per-member states inside composite responses (not-indexed members, degraded intel) are data fields, not errors.
 - Fields carrying pre-rendered HTML are named `html` (or `*Html`); every other field is plain data the client renders.
-- All fetches in the React app go through one shared helper (`utils/api`) that owns envelope handling — no bare `fetch` in components.
+- All fetches in the React app go through one shared `FetchEngine` instance (`@logosdx/fetch`, `utils/api`) exposed via `createFetchContext` — no bare `fetch` in components. Resilience (retry, dedupe, caching) is engine config, never hand-rolled; every call sits behind an `attempt()` tuple (`@logosdx/utils`), with the error envelope handled in the `!res.ok` branch. Live-reload-triggered refetches must bypass or invalidate any `cachePolicy` so a reconcile never serves a stale cached page.
 
 | Endpoint | Shape (source struct) |
 |----------|----------------------|
@@ -291,3 +292,11 @@ Flow: theme toggle retheme cascade
 **What changed:** New `## API contracts` section pins the cross-checkpoint JSON/SSE contracts (shapes derived from the handlers' existing view-model structs, cited per endpoint), one error envelope (`{"error": …}` + status, adopting `writeGraphError`), the html-field naming convention, and a mandatory shared fetch helper (`utils/api`). Ownership fixes: the `AtomicGraphUI` shared block (hover preview card, page modal, navigate) is rebuilt as `utils/graphUI` in CP6 and consumed by CP8's profiles via the preserved window contract; CP5 gains Back/Forward scroll restoration + `location.hash` anchor scrolling; CP6 gains a no-blank-flash skeleton gate; CP1 wires `bun test` into CI for `next`-targeting PRs and the change tree records the `ci.yml` trigger fix. Non-goals gains the explicitly accepted cutover regressions (no-JS readability, 200-on-unmatched-paths, stale pre-cutover tabs, forward-fix rollback).
 
 **Why:** Challenge-swarm findings, owner-triaged: fresh-context checkpoint subagents need pinned boundary contracts to build coherently; several existing behaviors had no owning checkpoint; the accepted regressions were implicit.
+
+### 2026-07-17 — LogosDX data/reactivity layer
+
+**What changed:** `utils/api` is a shared `FetchEngine` instance (`@logosdx/fetch`) exposed through `createFetchContext` — resilience (retry/dedupe/cache) is engine config, hand-rolled loops and caches are prohibited; all I/O sits behind `@logosdx/utils` `attempt()` tuples (no try-catch). New `utils/events` — a typed `ObserverEngine` (`@logosdx/observer`) as the cross-cutting event bus: `useLiveReload` emits `realm.changed`, `useTheme` emits `theme.changed`, consumers subscribe via the `@logosdx/react` context hooks. Live-reload refetches must bypass/invalidate any fetch cache.
+
+**Superseded:** the hand-rolled `utils/api` fetch helper.
+
+**Why:** Owner decision — LogosDX is the house stack; FetchEngine ships the exact resilience the API layer needs as config. Verified to bundle clean under `bun build` (~29 kB gz over React for fetch+utils+observer+react — probe at `tmp/ark-probe/logos.tsx`).
