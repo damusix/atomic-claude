@@ -6,7 +6,7 @@ import type { RouteObject } from "react-router";
 import { Shell } from "./layouts/Shell/Shell";
 import { External } from "./pages/External";
 import { Graph } from "./pages/Graph";
-import { Page } from "./pages/Page";
+import { Page } from "./pages/Page/Page";
 import { Search } from "./pages/Search";
 import { Status } from "./pages/Status";
 

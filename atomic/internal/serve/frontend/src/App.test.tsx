@@ -16,14 +16,38 @@ function renderAt(path: string) {
   );
 }
 
-function mockNav(body: unknown = { scope: "repo", groups: [] }) {
-  globalThis.fetch = mock(
-    async () =>
-      new Response(JSON.stringify(body), {
+// Routes every fetch by URL so /api/nav, /api/page/*, and /api/rail/* each
+// get a response shaped like their real handler — Page (CP6) now issues its
+// own /api/page fetch on every route, no longer a text stub, so a single
+// shared body (the pre-CP6 test setup) no longer works.
+function mockNav(navBody: unknown = { scope: "repo", groups: [] }) {
+  globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.includes("/api/nav")) {
+      return new Response(JSON.stringify(navBody), {
         status: 200,
         headers: { "Content-Type": "application/json" },
-      }),
-  ) as unknown as typeof fetch;
+      });
+    }
+    if (url.includes("/api/page/")) {
+      const relpath = decodeURIComponent(url.split("/api/page/")[1] ?? "");
+      return new Response(
+        JSON.stringify({
+          html: `<p>Page: ${relpath}</p>`,
+          title: relpath,
+          relpath,
+          hasMermaid: false,
+          breadcrumb: [],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }
+    // /api/rail/* and anything else: no rail for these routing-only tests.
+    return new Response(JSON.stringify({ error: "not found" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as unknown as typeof fetch;
 }
 
 describe("App routing (Shell mount)", () => {
@@ -31,13 +55,14 @@ describe("App routing (Shell mount)", () => {
     mock.restore();
   });
 
-  test("the landing route mounts the Shell (top bar + nav pane + page stub)", async () => {
+  test("the landing route mounts the Shell (top bar + nav pane + Page)", async () => {
     mockNav();
     renderAt("/");
 
     expect(document.getElementById("app-header")).not.toBeNull();
     expect(document.getElementById("nav-pane")).not.toBeNull();
-    await waitFor(() => expect(screen.getByText(/\(landing\)/)).toBeInTheDocument());
+    // The index route has no relpath — Page falls back to README.md.
+    await waitFor(() => expect(screen.getByText("Page: README.md")).toBeInTheDocument());
   });
 
   test("/page/<relpath> resolves to the Page route with the relpath param", async () => {

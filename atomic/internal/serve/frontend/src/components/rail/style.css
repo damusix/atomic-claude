@@ -1,0 +1,15 @@
+/* components/rail — most rail visuals (props list, mini-graph container,
+   preview card, page modal) are carried verbatim in public/app.css
+   (#right-rail, .rail-props-list, #cy-preview-card, .cy-modal*). This file
+   holds only the pieces the React rebuild introduces. */
+
+.rail-edge-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rail-empty {
+  color: var(--ink-faint, #8a8072);
+  font-style: italic;
+}

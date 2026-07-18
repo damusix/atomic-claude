@@ -1,0 +1,55 @@
+/* pages/Page — the injected markdown body (.page-body) inherits its
+   typography from public/app.css's #main-pane/.md-content rules (carried).
+   This file covers only the pieces this rebuild introduces: the loading
+   skeleton, the directory listing, and the not-found view. */
+
+.page-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 0;
+}
+
+.page-skeleton-line {
+  height: 1em;
+  border-radius: 4px;
+  background: var(--paper-sunk, #f5f3ee);
+  animation: page-skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+.page-skeleton-title {
+  width: 40%;
+  height: 1.5em;
+}
+
+.page-skeleton-short {
+  width: 60%;
+}
+
+@keyframes page-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.page-breadcrumb {
+  margin-bottom: 0.75rem;
+  color: var(--ink-faint, #8a8072);
+  font-size: 0.85em;
+}
+
+.page-dir-listing ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.page-not-found code {
+  background: var(--paper-sunk, #f5f3ee);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}

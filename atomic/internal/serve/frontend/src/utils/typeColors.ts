@@ -74,7 +74,10 @@ const TYPE_HUE: Record<OkfType, string> = {
 
 // Accepts a 6-digit hex string ("#rrggbb") and returns a new hex string
 // darkened by `amount` (0..1).
-function darken(hex: string, amount: number): string {
+// Exported for railCytoscapeStyle (components/rail) — the focus-node and
+// selected-state gradient stops need the same darken transform this module
+// already uses for its own fallback gradient stops.
+export function darken(hex: string, amount: number): string {
   const h = hex.replace("#", "");
   if (h.length !== 6) return hex;
   const f = 1 - amount;
