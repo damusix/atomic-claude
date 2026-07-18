@@ -14,7 +14,13 @@ const result = await Bun.build({
   entrypoints: ["src/main.tsx"],
   outdir: `${outdir}/assets`,
   target: "browser",
-  minify: true,
+  // Identifier minification's renamer has a non-deterministic tie-breaker
+  // at this dependency-graph size (react-router + @ark-ui/react pull in
+  // enough modules that symbol-name collisions resolve differently across
+  // otherwise-identical builds) — verified byte-for-byte on repeat builds
+  // with identifiers off. Whitespace/syntax minification stays on for most
+  // of the size win; only the renamer is disabled.
+  minify: { whitespace: true, syntax: true, identifiers: false },
   naming: "[name].[ext]",
 });
 

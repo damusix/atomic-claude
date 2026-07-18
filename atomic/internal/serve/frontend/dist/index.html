@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>atomic serve</title>
     <link rel="stylesheet" href="/app.css" />
+    <!-- Component-scoped CSS (src/components/**/style.css) bundled by
+         build.ts into a single deterministic asset alongside main.js. -->
+    <link rel="stylesheet" href="/assets/main.css" />
     <script>
       // Before-paint theme init: avoids a flash of the wrong theme while
       // React boots. Mirrors the persisted-choice/OS-fallback contract that

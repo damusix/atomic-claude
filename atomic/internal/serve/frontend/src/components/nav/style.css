@@ -1,0 +1,42 @@
+/* nav/ — top bar (brand/breadcrumb/search/theme/connection) and the left nav
+   Ark TreeView. #app-header, .breadcrumb, .search-trigger, .theme-toggle,
+   .conn-indicator, #nav-pane, and .nav-item are already styled globally by
+   the carried public/app.css (same selectors the pre-cutover markup used) —
+   this file only adds what's new: the TreeView's own data-part hooks and the
+   stale badge, built from app.css's custom properties, never redefined here. */
+
+.nav-badge-stale {
+  margin-left: 6px;
+  font-size: 8px;
+  color: var(--c-knowledge-ink);
+}
+
+.nav-folder {
+  cursor: pointer;
+  user-select: none;
+}
+
+.nav-empty {
+  display: block;
+  padding: 4px 12px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+[data-scope="tree-view"][data-part="branch-control"] {
+  display: flex;
+  align-items: center;
+}
+
+[data-scope="tree-view"][data-part="branch-control"]::before {
+  content: "▸ ";
+  color: var(--ink-ghost);
+}
+
+[data-scope="tree-view"][data-part="branch-control"][data-state="open"]::before {
+  content: "▾ ";
+}
+
+[data-scope="tree-view"][data-part="branch-content"] {
+  padding-left: 14px;
+}

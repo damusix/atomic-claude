@@ -1,0 +1,5 @@
+/* Shell — three-pane Obsidian shell (#shell/#content-column/#main-pane/
+   #right-rail) is already fully styled by the carried public/app.css (same
+   selectors the pre-cutover markup used). Nothing new to add here yet — the
+   rail pane's own content (Properties/mini-graph/OUT/IN) lands in CP6 with
+   its own components/rail/style.css. */
