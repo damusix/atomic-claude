@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { ApiProvider } from "../../utils/api";
+import { events } from "../../utils/events";
 import { NavTree } from "./NavTree";
 import type { NavResponse } from "./types";
 
@@ -104,5 +105,33 @@ describe("NavTree", () => {
 
     const external = screen.getByText("External links registry").closest("a");
     expect(external).toHaveAttribute("href", "/external");
+  });
+
+  test("refetches /api/nav on every realm.changed — the nav-always leg of the live-reload reconcile", async () => {
+    const fetchSpy = mock(
+      async () =>
+        new Response(JSON.stringify(NAV_FIXTURE), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    render(
+      <MemoryRouter>
+        <ApiProvider>
+          <NavTree />
+        </ApiProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByText("index")).toBeInTheDocument());
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      events.emit("realm.changed", { fp: "fp2", changed: ["some/other.md"] });
+    });
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
   });
 });

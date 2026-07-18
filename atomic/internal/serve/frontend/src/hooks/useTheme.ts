@@ -1,12 +1,18 @@
 // useTheme — light/dark toggle, persisted to localStorage under the same
 // key index.html's before-paint inline script reads ("atomic-theme"), with
 // an OS-preference fallback when nothing is persisted. Emits "theme.changed"
-// on the shared observer bus (utils/events) so the retheme cascade
-// (mermaid/cosmos/rail-Cytoscape consumers, wired in CP11) can react without
-// this hook knowing who's listening.
+// on the shared observer bus (utils/events), and — since TopBar mounts this
+// hook exactly once for the whole app — also owns the retheme cascade
+// subscription itself: every "theme.changed" (including the one this same
+// hook instance just emitted) re-invokes the three typeColors-derived
+// consumers named in the spec's retheme-cascade Flow. Each re-reads the
+// now-flipped CSS vars and repaints; none re-fetches data.
 import { useCallback, useEffect, useState } from "react";
 import { attemptSync } from "@logosdx/utils";
+import { rethemeRailGraph } from "../components/rail/railCytoscapeStyle";
 import { events, type Theme } from "../utils/events";
+import { rethemeGraph } from "../utils/graphEngineAdapter";
+import { rethemeMermaid } from "../utils/mermaid";
 
 const STORAGE_KEY = "atomic-theme";
 
@@ -36,6 +42,14 @@ export function useTheme() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => {
+    return events.on("theme.changed", () => {
+      rethemeRailGraph();
+      rethemeGraph();
+      void rethemeMermaid();
+    });
+  }, []);
 
   const toggle = useCallback(() => {
     setTheme((current) => {

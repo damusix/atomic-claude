@@ -9,11 +9,13 @@ import { PageModal } from "../../components/rail/PageModal";
 import { Rail } from "../../components/rail/Rail";
 import { SearchPalette } from "../../components/search/SearchPalette";
 import { useHashScroll } from "../../hooks/useHashScroll";
+import { useLiveReload } from "../../hooks/useLiveReload";
 import { setNavigator, wireDismiss } from "../../utils/graphUI";
 import "./style.css";
 
 export function Shell() {
   useHashScroll();
+  const { connState } = useLiveReload();
   const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -29,7 +31,7 @@ export function Shell() {
 
   return (
     <>
-      <TopBar onOpenSearch={() => setSearchOpen(true)} />
+      <TopBar connState={connState} onOpenSearch={() => setSearchOpen(true)} />
       <div id="shell">
         <NavTree />
         <div id="content-column">

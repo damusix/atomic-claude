@@ -1,6 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { atomicCyTypeColors } from "../../utils/typeColors";
-import { railCytoscapeStyle } from "./railCytoscapeStyle";
+import { railCytoscapeStyle, registerRailCy, rethemeRailGraph } from "./railCytoscapeStyle";
 
 describe("railCytoscapeStyle", () => {
   test("is built from typeColors — the default node fill matches atomicCyTypeColors()'s default-fill/default-dark", () => {
@@ -46,5 +46,26 @@ describe("railCytoscapeStyle", () => {
     const rules = railCytoscapeStyle("x");
     expect(rules.some((r) => r.selector === "edge.md-link")).toBe(true);
     expect(rules.some((r) => r.selector === "edge.wikilink")).toBe(true);
+  });
+});
+
+describe("registerRailCy / rethemeRailGraph", () => {
+  afterEach(() => {
+    delete window.__railCy;
+  });
+
+  test("no-ops with nothing registered", () => {
+    expect(() => rethemeRailGraph()).not.toThrow();
+  });
+
+  test("re-applies railCytoscapeStyle for the registered focus node to the registered instance", () => {
+    const style = mock(() => {});
+    registerRailCy({ style }, "wiki/index.md");
+
+    rethemeRailGraph();
+
+    expect(style).toHaveBeenCalledTimes(1);
+    const call = style.mock.calls[0] as unknown as [ReturnType<typeof railCytoscapeStyle>];
+    expect(call[0]).toEqual(railCytoscapeStyle("wiki/index.md"));
   });
 });

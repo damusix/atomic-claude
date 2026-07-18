@@ -3,10 +3,11 @@
 // cutover markup, still the source of truth for structure/classes until the
 // cutover checkpoint deletes it).
 import { Link, useLocation } from "react-router";
+import type { ConnState } from "../../hooks/useLiveReload";
 import { useTheme } from "../../hooks/useTheme";
 import "./style.css";
 
-export type ConnState = "live" | "reconnecting" | "disconnected";
+export type { ConnState };
 
 const CONN_LABEL: Record<ConnState, string> = {
   live: "live",

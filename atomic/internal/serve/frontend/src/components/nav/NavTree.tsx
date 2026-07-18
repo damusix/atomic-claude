@@ -2,9 +2,11 @@
 // section per /api/nav group (Realm/Repos/Concerns/... or Docs, depending on
 // scope). Folder nodes (Buckets, repo-scope docs subdirectories) are
 // TreeView.Branch; leaves are TreeView.Item that route via React Router.
+import { useEffect } from "react";
 import { TreeView, createTreeCollection } from "@ark-ui/react";
 import { Link } from "react-router";
 import { useApi } from "../../utils/api";
+import { events } from "../../utils/events";
 import { navNodeHref, type NavGroup, type NavNode, type NavResponse } from "./types";
 import "./style.css";
 
@@ -100,7 +102,14 @@ function NavGroupTree({ group }: { group: NavGroup }) {
 
 export function NavTree() {
   const { get } = useApi();
-  const { data, loading, failure } = get<NavResponse>("/nav");
+  const { data, loading, failure, refetch } = get<NavResponse>("/nav");
+
+  // Live-reload reconcile (spec Flow): nav has no conditional — every
+  // realm.changed message refetches it, unlike page/rail's changed-list
+  // check (see pages/Page and components/rail/Rail).
+  useEffect(() => {
+    return events.on("realm.changed", () => refetch());
+  }, [refetch]);
 
   if (loading && !data) {
     return (

@@ -1,8 +1,9 @@
 // utils/mermaid — mounts fenced ```mermaid blocks (server-emitted as
 // <pre class="mermaid">…raw…</pre>, see render.go's mermaidCodeRenderer)
 // within a container. Ports templates/layout.html's atomicMermaidInit()/
-// atomicMermaidThemeVars() minimally for CP6 (initial mount only — the
-// light/dark retheme re-run belongs to CP11's useTheme retheme cascade).
+// atomicMermaidThemeVars()/atomicMermaidRetheme() — initial mount
+// (mountMermaid, CP6) plus the light/dark retheme re-run (rethemeMermaid,
+// CP11's useTheme retheme cascade).
 import { attempt } from "@logosdx/utils";
 import { loadScript } from "./loadScript";
 
@@ -86,5 +87,32 @@ export async function mountMermaid(container: HTMLElement): Promise<void> {
   });
   // Malformed diagram source — leave the raw <pre> visible rather than
   // throwing out of the mount effect.
+  await attempt(async () => window.mermaid?.run({ nodes }));
+}
+
+// rethemeMermaid re-runs every already-mounted diagram in the document
+// (data-mermaid-src stashed by mountMermaid) against the now-flipped CSS
+// vars: restores each diagram's stashed source, drops mermaid's own
+// data-processed flag, re-initializes with the new palette, and re-runs
+// scoped to those nodes. A no-op with nothing mounted or the vendor script
+// never loaded (page view with no diagrams, or theme toggled before any
+// mermaid mount completed).
+export async function rethemeMermaid(): Promise<void> {
+  if (!window.mermaid) return;
+  const nodes = document.querySelectorAll("pre.mermaid[data-mermaid-src]");
+  if (nodes.length === 0) return;
+
+  nodes.forEach((el) => {
+    const node = el as HTMLElement;
+    node.removeAttribute("data-processed");
+    node.innerHTML = node.dataset.mermaidSrc ?? "";
+  });
+
+  window.mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "loose",
+    theme: "base",
+    themeVariables: mermaidThemeVars(),
+  });
   await attempt(async () => window.mermaid?.run({ nodes }));
 }

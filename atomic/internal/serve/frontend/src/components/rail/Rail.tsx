@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { attempt } from "@logosdx/utils";
 import { openFile } from "../code-modal/store";
+import { shouldRefetchPage } from "../../hooks/useLiveReload";
 import { api } from "../../utils/api";
 import { events } from "../../utils/events";
 import { MiniGraph } from "./MiniGraph";
@@ -27,14 +28,28 @@ export function Rail() {
       setRail(null);
       return;
     }
-    void attempt(() => api.get<RailResponse>(`/rail/${relpath}`)).then(([res, err]) => {
-      // api.get() resolves (never rejects) on a server-said-no response —
-      // res.ok distinguishes a real payload (200) from the {error} envelope
-      // a 404 (no graph membership) carries.
-      if (!cancelled) setRail(!err && res?.ok ? res.data : null);
+
+    function fetchRail() {
+      void attempt(() => api.get<RailResponse>(`/rail/${relpath}`)).then(([res, err]) => {
+        // api.get() resolves (never rejects) on a server-said-no response —
+        // res.ok distinguishes a real payload (200) from the {error}
+        // envelope a 404 (no graph membership) carries.
+        if (!cancelled) setRail(!err && res?.ok ? res.data : null);
+      });
+    }
+
+    fetchRail();
+    // Live-reload reconcile (spec Flow): rail follows the same open-relpath
+    // conditional as pages/Page's own subscription — a separate subscription
+    // rather than a shared trigger since Rail is mounted outside Page's
+    // subtree (Shell's aside) and owns its own fetch/state independently.
+    const off = events.on("realm.changed", ({ changed }) => {
+      if (shouldRefetchPage(relpath, changed)) fetchRail();
     });
+
     return () => {
       cancelled = true;
+      off();
     };
   }, [relpath]);
 

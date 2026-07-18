@@ -14,6 +14,43 @@ export interface CyStyleRule {
   style: Record<string, string | number>;
 }
 
+// A minimal structural interface for the retheme cascade (CP11) — the same
+// pattern MiniGraph.tsx uses for its own CyInstance, scoped to just the one
+// method restyle needs.
+interface RestyleableCy {
+  style(rules: CyStyleRule[]): void;
+}
+
+declare global {
+  interface Window {
+    // Set by MiniGraph on mount (registerRailCy) so the theme-toggle retheme
+    // cascade can re-apply the stylesheet without MiniGraph itself
+    // subscribing to "theme.changed" — ports templates/layout.html's
+    // `window.__railCy.style(atomicCyStyle())` re-application on toggle.
+    __railCy?: RestyleableCy;
+  }
+}
+
+let currentFocusNode = "";
+
+// registerRailCy stashes the live Cytoscape instance and its focus node so
+// rethemeRailGraph can rebuild and re-apply the stylesheet later. Called by
+// MiniGraph after each (re)mount; a stale registration from an unmounted
+// instance is harmless — the next mount overwrites it, and restyling a
+// detached Cytoscape instance is a documented no-op in Cytoscape itself.
+export function registerRailCy(cy: RestyleableCy, focusNode: string): void {
+  window.__railCy = cy;
+  currentFocusNode = focusNode;
+}
+
+// rethemeRailGraph re-applies railCytoscapeStyle (freshly rebuilt from the
+// now-flipped CSS vars) to the currently registered instance. A no-op with
+// nothing mounted (page view with no rail graph, or theme toggled before any
+// MiniGraph mount completed).
+export function rethemeRailGraph(): void {
+  window.__railCy?.style(railCytoscapeStyle(currentFocusNode));
+}
+
 const TYPE_NAMES = ["page", "repo", "concern", "knowledge", "bucket", "external", "index", "domain"];
 
 function colorStr(colors: TypeColorMap, key: string, fallback: string): string {

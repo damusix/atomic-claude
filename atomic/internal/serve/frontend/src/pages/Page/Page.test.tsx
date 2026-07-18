@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { ApiProvider } from "../../utils/api";
 import { events } from "../../utils/events";
@@ -220,5 +220,88 @@ describe("Page", () => {
     link.dispatchEvent(clickEvent);
 
     expect(clickEvent.defaultPrevented).toBe(false);
+  });
+
+  test("refetches on realm.changed when the open relpath is in the changed list", async () => {
+    const fetchSpy = mock(
+      async () =>
+        new Response(
+          JSON.stringify({
+            html: "<p>ok</p>",
+            title: "README",
+            relpath: "README.md",
+            hasMermaid: false,
+            breadcrumb: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    renderAt("/page/README.md");
+    await waitFor(() => expect(screen.getByText("ok")).toBeInTheDocument());
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      events.emit("realm.changed", { fp: "fp2", changed: ["README.md"] });
+    });
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+  });
+
+  test("does not refetch on realm.changed when the open relpath is absent from a bounded changed list", async () => {
+    const fetchSpy = mock(
+      async () =>
+        new Response(
+          JSON.stringify({
+            html: "<p>ok</p>",
+            title: "README",
+            relpath: "README.md",
+            hasMermaid: false,
+            breadcrumb: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    renderAt("/page/README.md");
+    await waitFor(() => expect(screen.getByText("ok")).toBeInTheDocument());
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      events.emit("realm.changed", { fp: "fp2", changed: ["some/other.md"] });
+    });
+
+    // Give any spurious refetch a beat to land, then assert it didn't.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("refetches on realm.changed when the changed list is omitted (cap exceeded — refetch-all)", async () => {
+    const fetchSpy = mock(
+      async () =>
+        new Response(
+          JSON.stringify({
+            html: "<p>ok</p>",
+            title: "README",
+            relpath: "README.md",
+            hasMermaid: false,
+            breadcrumb: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    renderAt("/page/README.md");
+    await waitFor(() => expect(screen.getByText("ok")).toBeInTheDocument());
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      events.emit("realm.changed", { fp: "fp2" });
+    });
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
   });
 });

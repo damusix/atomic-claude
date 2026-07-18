@@ -9,7 +9,7 @@ import { attempt } from "@logosdx/utils";
 import { api } from "../../utils/api";
 import { hidePreviewCard, navigateToPage, showPreviewCard } from "../../utils/graphUI";
 import { loadScript } from "../../utils/loadScript";
-import { railCytoscapeStyle } from "./railCytoscapeStyle";
+import { type CyStyleRule, railCytoscapeStyle, registerRailCy } from "./railCytoscapeStyle";
 
 // Minimal shape of the carried Cytoscape instance this component touches —
 // the library itself stays a vanilla global (see frontend/CLAUDE.md's
@@ -24,6 +24,7 @@ interface CyInstance {
   one(event: string, cb: () => void): void;
   ready(cb: () => void): void;
   on(event: string, selector: string, cb: (evt: { target: CyNode }) => void): void;
+  style(rules: CyStyleRule[]): void;
 }
 type CytoscapeFactory = (opts: {
   container: HTMLElement;
@@ -100,6 +101,10 @@ export function MiniGraph({ graphDataURL, focusNode }: { graphDataURL: string; f
         });
         cy.on("mouseout", "node", () => hidePreviewCard());
         cy.on("tap", "node", (evt) => navigateToPage(evt.target.data("id") as string));
+
+        // Expose for the theme-toggle retheme cascade (CP11) — see
+        // railCytoscapeStyle's registerRailCy comment.
+        registerRailCy(cy, focusNode);
       });
 
     return () => {

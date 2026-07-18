@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { ApiProvider } from "../../utils/api";
 import { events } from "../../utils/events";
 import { Rail } from "./Rail";
@@ -141,5 +141,60 @@ describe("Rail", () => {
     // fixed-tick setTimeout races the attempt()/FetchEngine promise chain.
     await new Promise((r) => setTimeout(r, 20));
     await waitFor(() => expect(document.querySelector("#rail-props")).toBeNull());
+  });
+
+  test("refetches /api/rail/<relpath> on realm.changed when the open relpath is in the changed list", async () => {
+    const fetchSpy = mock(
+      async () =>
+        new Response(JSON.stringify(RAIL_FIXTURE), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    render(
+      <ApiProvider>
+        <Rail />
+      </ApiProvider>,
+    );
+
+    events.emit("page.resolved", { relpath: "wiki/index.md" });
+    await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      events.emit("realm.changed", { fp: "fp2", changed: ["wiki/index.md"] });
+    });
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+  });
+
+  test("does not refetch on realm.changed when the open relpath is absent from a bounded changed list", async () => {
+    const fetchSpy = mock(
+      async () =>
+        new Response(JSON.stringify(RAIL_FIXTURE), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    render(
+      <ApiProvider>
+        <Rail />
+      </ApiProvider>,
+    );
+
+    events.emit("page.resolved", { relpath: "wiki/index.md" });
+    await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      events.emit("realm.changed", { fp: "fp2", changed: ["some/other.md"] });
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });

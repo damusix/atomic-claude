@@ -115,6 +115,14 @@ export function __resetGraphEngineLoadedForTest(): void {
   engineLoaded = null;
 }
 
+// rethemeGraph re-pushes point/link colors on the live carried engine
+// instance (window.GraphCore.retheme(), part of the theme toggle retheme
+// cascade — CP11). A no-op with no mounted graph, per graph-core.js's own
+// retheme() guard (instance may be null between navigations).
+export function rethemeGraph(): void {
+  window.GraphCore?.retheme();
+}
+
 // teardownGraph releases the WebGL context via the matching profile's
 // teardown() (both profiles delegate to the same window.GraphCore.teardown()
 // under the hood, so either call is equivalent — the view argument just picks

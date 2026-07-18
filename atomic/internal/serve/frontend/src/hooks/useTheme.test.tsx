@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { registerRailCy } from "../components/rail/railCytoscapeStyle";
 import { events } from "../utils/events";
 import { useTheme } from "./useTheme";
 
@@ -65,5 +66,41 @@ describe("useTheme", () => {
     expect(seen).toEqual(["dark"]);
 
     off();
+  });
+
+  test("toggle fires the retheme cascade — rail Cytoscape, carried graph engine, mermaid", async () => {
+    window.localStorage.setItem(STORAGE_KEY, "light");
+
+    const cyStyle = mock(() => {});
+    registerRailCy({ style: cyStyle }, "wiki/index.md");
+
+    const graphRetheme = mock(() => {});
+    window.GraphCore = { mount: mock(() => {}), teardown: mock(() => {}), retheme: graphRetheme };
+
+    const mermaidRun = mock(() => {});
+    (window as unknown as { mermaid: { initialize: () => void; run: typeof mermaidRun } }).mermaid = {
+      initialize: () => {},
+      run: mermaidRun,
+    };
+    const pre = document.createElement("pre");
+    pre.className = "mermaid";
+    pre.dataset.mermaidSrc = "graph TD; A-->B;";
+    document.body.appendChild(pre);
+
+    render(<ThemeProbe />);
+    const user = userEvent.setup();
+    await act(async () => {
+      await user.click(screen.getByRole("button"));
+    });
+
+    expect(cyStyle).toHaveBeenCalledTimes(1);
+    expect(graphRetheme).toHaveBeenCalledTimes(1);
+    await act(async () => {}); // flush rethemeMermaid's async attempt()
+    expect(mermaidRun).toHaveBeenCalledTimes(1);
+
+    delete window.GraphCore;
+    delete window.__railCy;
+    delete (window as { mermaid?: unknown }).mermaid;
+    document.body.innerHTML = "";
   });
 });

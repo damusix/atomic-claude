@@ -9,6 +9,7 @@
 import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
 import { openFile } from "../../components/code-modal/store";
+import { shouldRefetchPage } from "../../hooks/useLiveReload";
 import { useApi } from "../../utils/api";
 import { events } from "../../utils/events";
 import { mountMermaid } from "../../utils/mermaid";
@@ -70,7 +71,7 @@ export function Page() {
   const fetchPath = relpath || "README.md";
   const navigate = useNavigate();
   const { get } = useApi();
-  const { data, loading, failure } = get<PageResponse | PageDirResponse>(`/page/${fetchPath}`);
+  const { data, loading, failure, refetch } = get<PageResponse | PageDirResponse>(`/page/${fetchPath}`);
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const resolvedRelpath = data && !isDirResponse(data) ? data.relpath : null;
@@ -78,6 +79,18 @@ export function Page() {
   useEffect(() => {
     events.emit("page.resolved", { relpath: resolvedRelpath });
   }, [resolvedRelpath]);
+
+  // Live-reload reconcile (spec Flow): refetch this page only when it's the
+  // one that changed (or the server's diff exceeded its cap and omitted the
+  // list — shouldRefetchPage treats that as "everything changed"). Re-fetch
+  // re-renders the same route in place — no pane swap, so scroll position is
+  // preserved as a natural property of the update rather than anything this
+  // effect has to manage itself.
+  useEffect(() => {
+    return events.on("realm.changed", ({ changed }) => {
+      if (shouldRefetchPage(resolvedRelpath, changed)) refetch();
+    });
+  }, [resolvedRelpath, refetch]);
 
   useEffect(() => {
     if (!data || isDirResponse(data) || !data.hasMermaid || !bodyRef.current) return;

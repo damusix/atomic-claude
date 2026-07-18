@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { __resetLoadScriptCacheForTest } from "./loadScript";
-import { mountMermaid } from "./mermaid";
+import { mountMermaid, rethemeMermaid } from "./mermaid";
 
 // See loadScript.test.ts's stubScriptLoad comment: happy-dom's
 // HTMLScriptElement throws synchronously on connect when real script-file
@@ -63,5 +63,47 @@ describe("mountMermaid", () => {
     const call = run.mock.calls[0] as unknown as [{ nodes: NodeListOf<Element> }];
     expect(call[0].nodes.length).toBe(1);
     restore();
+  });
+});
+
+describe("rethemeMermaid", () => {
+  afterEach(() => {
+    delete (window as { mermaid?: unknown }).mermaid;
+    document.body.innerHTML = "";
+  });
+
+  test("no-ops with nothing previously mounted", async () => {
+    const run = mock(() => {});
+    (window as unknown as { mermaid: { initialize: () => void; run: typeof run } }).mermaid = {
+      initialize: () => {},
+      run,
+    };
+    await rethemeMermaid();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  test("restores the stashed source, re-initializes, and re-runs scoped to the previously-mounted nodes", async () => {
+    const run = mock(() => {});
+    const initialize = mock(() => {});
+    (window as unknown as { mermaid: { initialize: typeof initialize; run: typeof run } }).mermaid = {
+      initialize,
+      run,
+    };
+
+    const pre = document.createElement("pre");
+    pre.className = "mermaid";
+    pre.dataset.mermaidSrc = "graph TD; A --- B;";
+    pre.dataset.processed = "true"; // mermaid's own post-run marker
+    pre.innerHTML = "<svg></svg>"; // mermaid's own rendered output from the prior mount
+    document.body.appendChild(pre);
+
+    await rethemeMermaid();
+
+    expect(pre.dataset.processed).toBeUndefined();
+    expect(pre.innerHTML).toBe("graph TD; A --- B;");
+    expect(initialize).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledTimes(1);
+    const call = run.mock.calls[0] as unknown as [{ nodes: NodeListOf<Element> }];
+    expect(call[0].nodes.length).toBe(1);
   });
 });

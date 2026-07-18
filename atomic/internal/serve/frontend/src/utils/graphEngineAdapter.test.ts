@@ -6,6 +6,7 @@ import {
   type GraphMember,
   mountGraph,
   resolveMember,
+  rethemeGraph,
   teardownGraph,
 } from "./graphEngineAdapter";
 import { __resetLoadScriptCacheForTest } from "./loadScript";
@@ -98,6 +99,17 @@ describe("graphEngineAdapter", () => {
 
     teardownGraph("code");
     expect(codeTeardown).toHaveBeenCalledTimes(1);
+  });
+
+  test("rethemeGraph delegates to window.GraphCore.retheme when a graph is mounted", () => {
+    const retheme = mock(() => {});
+    window.GraphCore = { mount: mock(() => {}), teardown: mock(() => {}), retheme };
+    rethemeGraph();
+    expect(retheme).toHaveBeenCalledTimes(1);
+  });
+
+  test("rethemeGraph no-ops with no engine loaded", () => {
+    expect(() => rethemeGraph()).not.toThrow();
   });
 
   test("resolveMember keeps the request when there's one member or fewer", () => {
