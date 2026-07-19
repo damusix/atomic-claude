@@ -81,14 +81,6 @@ atomic code index
 Once the index exists, the investigator, reviewer, and signals agents query the graph instead of grepping, and you can query it yourself from the terminal with no Claude involved. Indexing is opt-in and everything degrades to plain search when it is absent. See the [code intelligence reference](/reference/code-intel), including how to use it as a standalone CLI.
 
 
-## Running under another harness
-
-
-The binary's project-scoped verbs (repo init, signals, followups, reminders, code intelligence, doc scanning) also work under coding agents other than Claude Code. The repo-local state directory follows the agent that launched the command: Claude Code sessions use `.claude/`, pi agent sessions use `.pi/`, detected automatically from each agent's environment fingerprint. To pin it explicitly, set `ATOMIC_HARNESS=pi` in the agent's launcher, or `atomic config set harness.dir .pi` for plain-terminal use. The first `atomic repo init` from a pi session scaffolds `.pi/` fresh; nothing crosses between the two layouts. See [concepts](../reference/concepts.md) for the full resolution order.
-
-The Claude-specific pieces (the `~/.claude` artifact bundle, output style, hooks) stay Claude-only; other harnesses get the binary's deterministic layer, not the prompt artifacts.
-
-
 ## Keeping atomic current
 
 

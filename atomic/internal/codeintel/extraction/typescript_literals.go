@@ -47,6 +47,12 @@ type TSLiteralSpan struct {
 	StartLine int
 	// EndLine is the 1-based line where the closing delimiter sits.
 	EndLine int
+	// CalleeExpr is the bare name of the nearest enclosing call_expression's
+	// callee (e.g. "selectFrom" for db.selectFrom("x"), "from" for a member
+	// call knex.from("x")) when the literal sits in that call's argument list.
+	// Empty when the literal is not inside a call expression. Used by
+	// sql-string-match (C1) confidence tiering.
+	CalleeExpr string
 }
 
 // HarvestTypeScriptLiterals parses src as TypeScript or TSX via inst. The
@@ -76,7 +82,7 @@ func HarvestTypeScriptLiterals(ctx context.Context, inst Instance, src string, l
 	lineOffsets := buildLineOffsets(src)
 
 	var spans []TSLiteralSpan
-	if err := tsWalkNode(ctx, root, src, lineOffsets, &spans); err != nil {
+	if err := tsWalkNode(ctx, root, src, lineOffsets, "", &spans); err != nil {
 		return nil, err
 	}
 
@@ -84,8 +90,10 @@ func HarvestTypeScriptLiterals(ctx context.Context, inst Instance, src string, l
 }
 
 // tsWalkNode recursively walks the tree rooted at node, collecting string and
-// template_string literals.
-func tsWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets []int, out *[]TSLiteralSpan) error {
+// template_string literals. calleeCtx is the bare callee name of the nearest
+// enclosing call_expression (sql-string-match C1 callee capture), or "" when
+// node is not inside one.
+func tsWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets []int, calleeCtx string, out *[]TSLiteralSpan) error {
 	kind, err := node.Kind(ctx)
 	if err != nil {
 		return nil // best-effort: Kind() failed — skip this subtree entirely
@@ -97,16 +105,27 @@ func tsWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets [
 		if err != nil || span == nil {
 			return nil // best-effort: harvest failed — skip this literal
 		}
+		span.CalleeExpr = calleeCtx
 		*out = append(*out, *span)
 		return nil // do not recurse into string children
 
+	case "call_expression":
+		// Nearest enclosing call: recompute calleeCtx for this subtree, but
+		// scope it to the "arguments" field only — a literal in the callee/
+		// receiver position (e.g. "tbl".toUpperCase()) must not inherit the
+		// call's own callee. Children outside "arguments" keep the outer
+		// calleeCtx; deeper nested calls will overwrite it again for their
+		// own arguments subtree.
+		newCallee := tsCalleeBareName(ctx, node, src)
+		return tsWalkCallChildren(ctx, node, src, lineOffsets, calleeCtx, newCallee, out)
+
 	default:
-		return tsWalkChildren(ctx, node, src, lineOffsets, out)
+		return tsWalkChildren(ctx, node, src, lineOffsets, calleeCtx, out)
 	}
 }
 
 // tsWalkChildren visits all named children of node.
-func tsWalkChildren(ctx context.Context, node sitter.Node, src string, lineOffsets []int, out *[]TSLiteralSpan) error {
+func tsWalkChildren(ctx context.Context, node sitter.Node, src string, lineOffsets []int, calleeCtx string, out *[]TSLiteralSpan) error {
 	cnt, err := node.NamedChildCount(ctx)
 	if err != nil {
 		return nil
@@ -116,11 +135,90 @@ func tsWalkChildren(ctx context.Context, node sitter.Node, src string, lineOffse
 		if err != nil {
 			continue
 		}
-		if err := tsWalkNode(ctx, child, src, lineOffsets, out); err != nil {
+		if err := tsWalkNode(ctx, child, src, lineOffsets, calleeCtx, out); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// tsWalkCallChildren visits the named children of a call_expression node,
+// passing argsCallee to the subtree rooted at the "arguments" field and
+// outerCallee to every other child (the "function" field and any
+// type_arguments).
+func tsWalkCallChildren(ctx context.Context, node sitter.Node, src string, lineOffsets []int, outerCallee, argsCallee string, out *[]TSLiteralSpan) error {
+	argsNode, argsErr := node.ChildByFieldName(ctx, "arguments")
+	var argsStart, argsEnd uint64
+	haveArgs := argsErr == nil
+	if haveArgs {
+		argsStart, _ = argsNode.StartByte(ctx)
+		argsEnd, _ = argsNode.EndByte(ctx)
+	}
+
+	cnt, err := node.NamedChildCount(ctx)
+	if err != nil {
+		return nil
+	}
+	for i := uint64(0); i < cnt; i++ {
+		child, err := node.NamedChild(ctx, i)
+		if err != nil {
+			continue
+		}
+		calleeCtx := outerCallee
+		if haveArgs {
+			sb, _ := child.StartByte(ctx)
+			eb, _ := child.EndByte(ctx)
+			if sb == argsStart && eb == argsEnd {
+				calleeCtx = argsCallee
+			}
+		}
+		if err := tsWalkNode(ctx, child, src, lineOffsets, calleeCtx, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// tsCalleeBareName returns the bare invoked name of a call_expression node's
+// "function" field: the identifier itself for a plain call ("foo(...)"), or
+// the "property" field of a member_expression for a method call
+// ("db.selectFrom(...)" → "selectFrom"). Returns "" for any other callee
+// shape (e.g. a chained call result, a computed member) — best-effort, per
+// the harvester's existing failure policy.
+func tsCalleeBareName(ctx context.Context, callExpr sitter.Node, src string) string {
+	fn, err := callExpr.ChildByFieldName(ctx, "function")
+	if err != nil {
+		return ""
+	}
+	kind, err := fn.Kind(ctx)
+	if err != nil {
+		return ""
+	}
+	switch kind {
+	case "identifier":
+		return tsNodeText(ctx, fn, src)
+	case "member_expression":
+		prop, err := fn.ChildByFieldName(ctx, "property")
+		if err != nil {
+			return ""
+		}
+		return tsNodeText(ctx, prop, src)
+	default:
+		return ""
+	}
+}
+
+// tsNodeText returns the raw source text spanned by node, or "" on failure.
+func tsNodeText(ctx context.Context, node sitter.Node, src string) string {
+	sb, err := node.StartByte(ctx)
+	if err != nil {
+		return ""
+	}
+	eb, err := node.EndByte(ctx)
+	if err != nil || int(eb) > len(src) || sb >= eb {
+		return ""
+	}
+	return src[sb:eb]
 }
 
 // tsHarvestLiteral extracts text and line numbers from a "string" or

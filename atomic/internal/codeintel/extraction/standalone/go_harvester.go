@@ -18,6 +18,14 @@ package standalone
 //
 // WHY separate file: CP3/CP4 will add Python/TypeScript harvesters alongside
 // this one. Keeping each harvester in its own file keeps diffs surgical.
+//
+// Heuristic limits: the callee-capture parenStack is paren-only (braces are
+// not tracked), so a func literal's own "(" params frame is excluded from
+// the callee vocabulary — otherwise a nested paren inside a closure passed
+// as a call argument (e.g. db.Query(func(x string) string { ... })) could
+// surface the nonsense callee name "func" instead of "" or the outer call.
+
+import "strings"
 
 // StringLiteralSpan holds one harvested literal's content and file-absolute
 // line numbers. StartLine and EndLine are 1-based.
@@ -25,6 +33,11 @@ type StringLiteralSpan struct {
 	Text      string // content of the literal (without surrounding delimiters)
 	StartLine int    // 1-based line in the host file where the opening delimiter sits
 	EndLine   int    // 1-based line where the closing delimiter sits
+	// CalleeExpr is the bare name of the nearest enclosing call expression's
+	// callee (e.g. "selectFrom" for db.selectFrom("x")), when the literal sits
+	// in that call's argument list. Empty when the literal is not inside a
+	// call expression. Used by sql-string-match (C1) confidence tiering.
+	CalleeExpr string
 }
 
 // HarvestGoStringLiterals scans src (a Go source file) and returns all string
@@ -45,8 +58,30 @@ func HarvestGoStringLiterals(src string) []StringLiteralSpan {
 	i := 0
 	n := len(src)
 
+	// parenStack tracks the bare callee name active at each nesting level of
+	// '(' ... ')', for sql-string-match (C1) callee capture. A non-call paren
+	// (grouping, if/for/switch conditions) pushes "" so it doesn't leak a
+	// stale callee name into its body. No AST is available in this
+	// hand-written scanner, so this is a best-effort heuristic: it only
+	// recognizes the common `identifier(` (no space) call form.
+	var parenStack []string
+
 	for i < n {
 		ch := src[i]
+
+		// ---------- call/group open paren ----------
+		if ch == '(' {
+			parenStack = append(parenStack, precedingGoIdentifier(src, i))
+			i++
+			continue
+		}
+		if ch == ')' {
+			if len(parenStack) > 0 {
+				parenStack = parenStack[:len(parenStack)-1]
+			}
+			i++
+			continue
+		}
 
 		// ---------- newline ----------
 		if ch == '\n' {
@@ -98,9 +133,10 @@ func HarvestGoStringLiterals(src string) []StringLiteralSpan {
 				i++ // consume closing backtick
 			}
 			spans = append(spans, StringLiteralSpan{
-				Text:      text,
-				StartLine: startLine,
-				EndLine:   endLine,
+				Text:       text,
+				StartLine:  startLine,
+				EndLine:    endLine,
+				CalleeExpr: topOfStack(parenStack),
 			})
 			continue
 		}
@@ -133,9 +169,10 @@ func HarvestGoStringLiterals(src string) []StringLiteralSpan {
 				i++ // consume closing quote
 			}
 			spans = append(spans, StringLiteralSpan{
-				Text:      string(buf),
-				StartLine: startLine,
-				EndLine:   endLine,
+				Text:       string(buf),
+				StartLine:  startLine,
+				EndLine:    endLine,
+				CalleeExpr: topOfStack(parenStack),
 			})
 			continue
 		}
@@ -165,4 +202,45 @@ func HarvestGoStringLiterals(src string) []StringLiteralSpan {
 	}
 
 	return spans
+}
+
+// topOfStack returns the last element of stack, or "" when empty.
+func topOfStack(stack []string) string {
+	if len(stack) == 0 {
+		return ""
+	}
+	return stack[len(stack)-1]
+}
+
+// precedingGoIdentifier looks backward from src[parenPos] (the index of a '('
+// byte) for an immediately-adjacent identifier (no space) and returns its bare
+// name — the callee of a call expression like "identifier(". Returns "" when
+// the preceding bytes are not an identifier (grouping parens, control-flow
+// conditions with a space before '(', or a chained call/index expression
+// this scanner does not resolve) or the identifier is a Go keyword that is
+// never a callable (if/for/switch/select/range).
+//
+// For a qualified call like "db.Query(", this returns only the bare segment
+// after the last '.' ("Query") — matching C1's "bare callee name" contract.
+func precedingGoIdentifier(src string, parenPos int) string {
+	j := parenPos
+	for j > 0 && isGoIdentByte(src[j-1]) {
+		j--
+	}
+	if j == parenPos || (src[j] >= '0' && src[j] <= '9') {
+		return "" // no identifier immediately before '(', or it starts with a digit
+	}
+	name := src[j:parenPos]
+	switch name {
+	case "if", "for", "switch", "select", "range", "return", "go", "defer", "func":
+		return ""
+	}
+	if dot := strings.LastIndexByte(name, '.'); dot >= 0 {
+		name = name[dot+1:]
+	}
+	return name
+}
+
+func isGoIdentByte(b byte) bool {
+	return b == '_' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }

@@ -223,3 +223,40 @@ CREATE TABLE orders (id SERIAL PRIMARY KEY)
 		t.Error("assignment string incorrectly marked as docstring")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Callee scoping (sql-string-match C1 finding 2): calleeCtx must apply only
+// to the call's "arguments" subtree, not the callee/receiver position.
+// ---------------------------------------------------------------------------
+
+func TestHarvestPythonLiterals_CalleeExprScopedToArguments(t *testing.T) {
+	// WHY: "tbl".upper() puts the literal in the receiver position of the
+	// upper() call — it must not inherit "upper" as its CalleeExpr.
+	pool := newPyPool(t)
+	src := "\"tbl\".upper()\n"
+	spans := pyHarvest(t, pool, src)
+
+	sp := findPySpan(spans, "tbl")
+	if sp == nil {
+		t.Fatalf("expected span containing 'tbl'; got %v", spans)
+	}
+	if sp.CalleeExpr != "" {
+		t.Errorf("CalleeExpr = %q, want empty (literal is in receiver position, not arguments)", sp.CalleeExpr)
+	}
+}
+
+func TestHarvestPythonLiterals_CalleeExprSetForArgument(t *testing.T) {
+	// WHY: control case — a literal actually inside the arguments list still
+	// picks up the call's bare callee name.
+	pool := newPyPool(t)
+	src := "db.select_from(\"orders_view\")\n"
+	spans := pyHarvest(t, pool, src)
+
+	sp := findPySpan(spans, "orders_view")
+	if sp == nil {
+		t.Fatalf("expected span containing 'orders_view'; got %v", spans)
+	}
+	if sp.CalleeExpr != "select_from" {
+		t.Errorf("CalleeExpr = %q, want %q", sp.CalleeExpr, "select_from")
+	}
+}

@@ -106,8 +106,6 @@ atomic migrate --realm <path> # fan-out across all atomic'd member repos (prompt
 
 `atomic doctor` nudges you to run `atomic migrate` whenever the binary version is newer than the recorded install version. The nudge is suppressed for development builds (`dev` version string).
 
-One migration runs automatically on every invocation rather than through `atomic migrate`: v6 moved per-user state from `~/.claude/.atomic/` to `~/.atomic/`. The first run of any verb on a v6 binary renames the legacy directory and leaves a symlink at the old path, so a CLAUDE.md installed by v5 keeps resolving its `@`-references until `atomic claude install` rewrites them. `atomic doctor` warns while either the legacy directory or the old references remain.
-
 
 ## If you already have a CLAUDE.md
 

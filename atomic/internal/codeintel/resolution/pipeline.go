@@ -900,6 +900,15 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 		var resolvedIDs []string // ref ids to delete (resolved + skipped built-ins)
 
 		for _, ref := range refs {
+			if ref.ReferenceKind == types.ReferenceKindSQLString || ref.ReferenceKind == types.ReferenceKindSQLFragment {
+				// C1/C8 precondition for C2/C3: sql_string and sql_fragment
+				// are discriminators, never fed to resolveOne/promoteEdgeKind.
+				// Left untouched here (not deleted, not resolved) — passes A/B
+				// consume them in a separate batch step and either edge them
+				// or delete them (C5). CP6 wires sql_fragment matching itself;
+				// for now it is only excluded here and swept by C5 cleanup.
+				continue
+			}
 			targetID, edgeKind, skip, err := p.resolveOne(ctx, ref, files, names)
 			if err != nil {
 				prof.MatchDur = time.Since(matchStart)
@@ -968,6 +977,15 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 	if emit != nil {
 		emit("resolve.synth", prof.SynthDur, 0)
 	}
+
+	// Phase 4: sql_string pass A + pass B + cleanup (C2/C3/C4/C5). Runs
+	// after standard resolution completes — the refs were left untouched
+	// by the batch loop above (see the ReferenceKindSQLString skip).
+	_, sqlStringEdges, err := p.resolveSQLStringRefs(ctx)
+	if err != nil {
+		return prof, totalEdges, err
+	}
+	totalEdges += sqlStringEdges
 
 	return prof, totalEdges, nil
 }
