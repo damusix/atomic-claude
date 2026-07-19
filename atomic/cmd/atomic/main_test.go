@@ -820,7 +820,10 @@ func TestRunProfile_UsesHomeNotClaudeHome(t *testing.T) {
 
 	home := t.TempDir()
 	cmd := exec.Command(os.Args[0], "-test.run=TestRunProfile_UsesHomeNotClaudeHome")
-	cmd.Env = append(os.Environ(), "ATOMIC_TEST_RUN_PROFILE_HELPER=1", "HOME="+home)
+	// PATH is stripped so the profile detectors find no real tools: the test
+	// guards home-path resolution only, and a real probe (e.g. bazel) writes
+	// its cache into the temp HOME and races t.TempDir cleanup on CI.
+	cmd.Env = append(os.Environ(), "ATOMIC_TEST_RUN_PROFILE_HELPER=1", "HOME="+home, "PATH=")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("subprocess runProfile failed: %v\n%s", err, out)
 	}

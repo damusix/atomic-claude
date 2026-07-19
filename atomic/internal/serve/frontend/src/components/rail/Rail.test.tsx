@@ -1,46 +1,32 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { ApiProvider } from "../../utils/api";
 import { events } from "../../utils/events";
-import { __resetLoadScriptCacheForTest } from "../../utils/loadScript";
+
+// Rail mounts MiniGraph whenever a fixture carries graphDataURL. The graph
+// subsystem itself (Cytoscape lazy-load, layout wiring, hover/click) is
+// covered in isolation by MiniGraph.test.tsx — this file only asserts the
+// Properties/OUT/IN panels and the clear-on-null behavior, so mocking
+// MiniGraph out here removes an entire async surface these tests never
+// needed exercised (script load + a FetchEngine graph-data request that
+// MiniGraph never passes an AbortController for, so it's still in flight
+// when a test unmounts it) with zero coverage loss.
+//
+// mock.module() is process-global once registered, and bun:test's own
+// mock.restore() does NOT undo it (verified: an afterAll(() => mock.restore())
+// here left the mock active for a later file). Capture the real module via
+// require() — evaluated exactly where it's written, unlike a hoisted static
+// import — before registering the mock, then re-register that real module
+// explicitly in afterAll so a later file (e.g. MiniGraph.test.tsx) importing
+// "./MiniGraph" directly still gets the genuine component.
+const RealMiniGraph: typeof import("./MiniGraph") = require("./MiniGraph");
+
+mock.module("./MiniGraph", () => ({
+  MiniGraph: () => null,
+}));
+
 import { Rail } from "./Rail";
 import type { RailResponse } from "./types";
-
-// Every RAIL_FIXTURE below carries a graphDataURL, so every test in this file
-// mounts MiniGraph, which lazy-loads the carried Cytoscape vendor script via
-// loadScript(). Left unstubbed, that hits happy-dom's real script-element
-// connect path (see loadScript.test.ts's stubScriptLoad comment) — locally
-// that rejects synchronously, but it's a browser-API implementation detail,
-// not a contract: on CI it was observed to not settle promptly, riding
-// "clears the rail"'s awaits to bun's 5s per-test timeout. Stubbing the
-// script element (and providing a minimal window.cytoscape so MiniGraph's
-// mount promise chain always resolves the same way) decouples this file's
-// assertions from that environment-dependent timing entirely.
-function stubScriptLoad() {
-  const origCreate = document.createElement.bind(document);
-  document.createElement = ((tag: string) => {
-    if (tag === "script") {
-      const el = origCreate("div") as unknown as HTMLScriptElement;
-      queueMicrotask(() => el.dispatchEvent(new Event("load")));
-      return el;
-    }
-    return origCreate(tag);
-  }) as typeof document.createElement;
-  return () => {
-    document.createElement = origCreate;
-  };
-}
-
-function stubCytoscape() {
-  return mock(() => ({
-    resize: () => {},
-    fit: () => {},
-    one: (_event: string, cb: () => void) => cb(),
-    ready: (cb: () => void) => cb(),
-    on: () => {},
-    style: () => {},
-  }));
-}
 
 const RAIL_FIXTURE: RailResponse = {
   relpath: "wiki/index.md",
@@ -98,30 +84,15 @@ function mockFetchOnce(body: unknown, status = 200) {
   ) as unknown as typeof fetch;
 }
 
-// Counts only /api/rail/* calls out of a fetch mock — MiniGraph's own
-// graphDataURL fetch shares the same globalThis.fetch and would otherwise
-// inflate a spy meant to track Rail's own refetch-on-realm.changed behavior.
-function railCallCount(fetchSpy: ReturnType<typeof mock>): number {
-  return fetchSpy.mock.calls.filter(([input]: [RequestInfo | URL]) =>
-    (typeof input === "string" ? input : input.toString()).includes("/rail/"),
-  ).length;
-}
-
 describe("Rail", () => {
-  let restoreScriptLoad: () => void;
-
-  beforeEach(() => {
-    restoreScriptLoad = stubScriptLoad();
-    (window as unknown as { cytoscape: ReturnType<typeof stubCytoscape> }).cytoscape = stubCytoscape();
-  });
-
-  afterEach(() => {
-    mock.restore();
-    // Module-scope cache — reset so no test's script-load resolution leaks
-    // into a later file's own loadScript assertions.
-    __resetLoadScriptCacheForTest();
-    restoreScriptLoad();
-    delete (window as { cytoscape?: unknown }).cytoscape;
+  // Deliberately no per-test mock.restore(): every test reassigns
+  // globalThis.fetch fresh, so there's no cross-test mock-call-history to
+  // clean up. Restored once, for the whole file, in afterAll instead — so a
+  // later file (e.g. MiniGraph.test.tsx) still resolves the real
+  // "./MiniGraph" (mock.restore() alone does not undo mock.module(), so this
+  // re-registers the captured real module explicitly).
+  afterAll(() => {
+    mock.module("./MiniGraph", () => RealMiniGraph);
   });
 
   test("renders nothing but the bare aside until page.resolved fires", () => {
@@ -143,7 +114,9 @@ describe("Rail", () => {
       </ApiProvider>,
     );
 
-    events.emit("page.resolved", { relpath: "wiki/index.md" });
+    await act(async () => {
+      events.emit("page.resolved", { relpath: "wiki/index.md" });
+    });
 
     await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
 
@@ -178,10 +151,14 @@ describe("Rail", () => {
       </ApiProvider>,
     );
 
-    events.emit("page.resolved", { relpath: "wiki/index.md" });
+    await act(async () => {
+      events.emit("page.resolved", { relpath: "wiki/index.md" });
+    });
     await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
 
-    events.emit("page.resolved", { relpath: null });
+    await act(async () => {
+      events.emit("page.resolved", { relpath: null });
+    });
     await waitFor(() => expect(document.querySelector("#rail-props")).toBeNull());
   });
 
@@ -219,13 +196,13 @@ describe("Rail", () => {
 
     events.emit("page.resolved", { relpath: "wiki/index.md" });
     await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
-    expect(railCallCount(fetchSpy)).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       events.emit("realm.changed", { fp: "fp2", changed: ["wiki/index.md"] });
     });
 
-    await waitFor(() => expect(railCallCount(fetchSpy)).toBe(2));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
   });
 
   test("does not refetch on realm.changed when the open relpath is absent from a bounded changed list", async () => {
@@ -246,13 +223,13 @@ describe("Rail", () => {
 
     events.emit("page.resolved", { relpath: "wiki/index.md" });
     await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
-    expect(railCallCount(fetchSpy)).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       events.emit("realm.changed", { fp: "fp2", changed: ["some/other.md"] });
     });
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(railCallCount(fetchSpy)).toBe(1);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
