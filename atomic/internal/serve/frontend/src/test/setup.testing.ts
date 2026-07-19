@@ -6,9 +6,19 @@
 import { afterEach, expect } from "bun:test";
 import * as matchers from "@testing-library/jest-dom/matchers";
 import { cleanup } from "@testing-library/react";
+import { __resetLoadScriptCacheForTest } from "../utils/loadScript";
 
 expect.extend(matchers);
 
 afterEach(() => {
   cleanup();
+  // loadScript's `loaded` Map and railCytoscapeStyle's `window.__railCy` are
+  // both module-level state shared across every test FILE in the process
+  // (bun:test does not reset modules between files). Individual suites that
+  // exercise the real script-load path (MiniGraph, Rail, mountMermaid, the
+  // App /graph route) already reset what they touch, but relying on every
+  // suite to remember is fragile — a leaked cache entry or leaked instance
+  // silently short-circuits an unrelated file's test. Reset centrally too.
+  __resetLoadScriptCacheForTest();
+  delete window.__railCy;
 });

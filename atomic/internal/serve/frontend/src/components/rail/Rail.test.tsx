@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { ApiProvider } from "../../utils/api";
 import { events } from "../../utils/events";
+import { __resetLoadScriptCacheForTest } from "../../utils/loadScript";
 import { Rail } from "./Rail";
 import type { RailResponse } from "./types";
 
@@ -64,6 +65,12 @@ function mockFetchOnce(body: unknown, status = 200) {
 describe("Rail", () => {
   afterEach(() => {
     mock.restore();
+    // Rail mounts MiniGraph whenever a fixture carries graphDataURL, which
+    // drives the real (unstubbed here) loadScript("/vendor/cytoscape.min.js")
+    // path — happy-dom throws synchronously on the real script append, and
+    // that rejected promise stays cached at module scope unless cleared,
+    // short-circuiting any later file's stubbed load for the same src.
+    __resetLoadScriptCacheForTest();
   });
 
   test("renders nothing but the bare aside until page.resolved fires", () => {

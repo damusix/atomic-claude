@@ -63,6 +63,10 @@ describe("MiniGraph", () => {
     __resetForTest();
     __resetLoadScriptCacheForTest();
     delete (window as { cytoscape?: unknown }).cytoscape;
+    // registerRailCy (railCytoscapeStyle.ts) stashes the mounted Cytoscape
+    // instance on this same module-level global — leaking it here makes
+    // railCytoscapeStyle.test.ts's "nothing registered" case order-dependent.
+    delete window.__railCy;
     document.body.innerHTML = "";
   });
 
