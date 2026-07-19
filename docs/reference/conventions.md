@@ -5,7 +5,6 @@
 - `CLAUDE.md` in any project should hold only meaningful context for that codebase — not general reminders, not duplicated tool lists. Keep it lean.
 - No AI bylines in commit messages or PR descriptions.
 - The scratchpad (`.claude/.scratchpad/`) is LLM working memory — ephemeral, gitignored, not for human consumption. Durable decisions go in `docs/`.
-- `.claude/` paths throughout these docs describe the default (Claude Code) harness. Under another agent the same layout resolves beneath that harness's directory (`.pi/.scratchpad/`, `.pi/project/`, …) via harness detection — see [concepts](concepts.md).
 - Tests verify intent, not behavior. A test that still passes when the business logic changes is wrong.
 - `tmp/` is for throwaway experiments and ad-hoc verification scripts. Not a scratch directory for checked-in work.
 - When `/subagent-implementation` is about to start significant work, it prompts whether to use an isolated worktree. Already inside `.claude/worktrees/*` (or any linked worktree)? It skips the prompt.

@@ -172,6 +172,27 @@ var AllEdgeKinds = []EdgeKind{
 	EdgeKindWrites,
 }
 
+// ReferenceKindSQLString is a discriminator value valid only in
+// UnresolvedReference.ReferenceKind — it is never a valid Edge.Kind and is
+// deliberately excluded from AllEdgeKinds. It marks a speculative reference
+// harvested from a host-language string literal that looks identifier-shaped
+// but failed the embedded-SQL admission gate (docs/spec/sql-string-match.md
+// C1). The standard resolution pipeline filters these refs out before
+// resolveOne ever sees one; passes A/B (C2/C3) consume them instead and
+// always create edges with Kind: EdgeKindReferences explicitly.
+const ReferenceKindSQLString EdgeKind = "sql_string"
+
+// ReferenceKindSQLFragment is a discriminator value valid only in
+// UnresolvedReference.ReferenceKind — it is never a valid Edge.Kind and is
+// deliberately excluded from AllEdgeKinds. It marks a speculative reference
+// harvested from a host-language string literal that failed both C1's
+// identifier shape and the embedded-SQL admission gate, but passed the C8
+// fragment gate (docs/spec/sql-string-match.md C8). The standard resolution
+// pipeline filters these refs out before resolveOne ever sees one; passes
+// A/B (C2/C3) consume them instead and always create edges with Kind:
+// EdgeKindReferences explicitly.
+const ReferenceKindSQLFragment EdgeKind = "sql_fragment"
+
 // ---------------------------------------------------------------------------
 // Language — the 31 language strings (appendix C, verbatim)
 // ---------------------------------------------------------------------------

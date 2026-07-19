@@ -43,9 +43,10 @@ func harvestPythonStringLiterals(ctx context.Context, src string, pool *extracti
 			continue
 		}
 		out = append(out, standalone.StringLiteralSpan{
-			Text:      s.Text,
-			StartLine: s.StartLine,
-			EndLine:   s.EndLine,
+			Text:       s.Text,
+			StartLine:  s.StartLine,
+			EndLine:    s.EndLine,
+			CalleeExpr: s.CalleeExpr,
 		})
 	}
 	return out, nil

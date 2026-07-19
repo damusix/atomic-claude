@@ -80,6 +80,22 @@ func (d *DB) GetUnresolvedRefsAfter(ctx context.Context, afterID string, limit i
 	return collectUnresolvedRefs(rows)
 }
 
+// GetUnresolvedRefsByKind returns every unresolved_refs row matching the
+// given reference_kind, in id order. Unlike GetUnresolvedRefsAfter (keyset
+// pagination for the main resolveOne loop), this is a single bulk fetch — it
+// backs the sql_string pass-A/pass-B batch step (C2/C3), which is its own
+// pass over a bounded, sql_string-only slice of the table, not the full
+// unresolved_refs scan.
+func (d *DB) GetUnresolvedRefsByKind(ctx context.Context, kind types.EdgeKind) ([]types.UnresolvedReference, error) {
+	rows, err := d.db.QueryContext(ctx, `
+		SELECT id, from_node_id, reference_name, reference_kind, line, col, candidates, file_path, language, arguments, callee_expr
+		FROM unresolved_refs WHERE reference_kind = ? ORDER BY id`, string(kind))
+	if err != nil {
+		return nil, fmt.Errorf("codeintel/db: GetUnresolvedRefsByKind %s: %w", kind, err)
+	}
+	return collectUnresolvedRefs(rows)
+}
+
 // DeleteUnresolvedRef deletes the unresolved_ref with the given id.
 func (d *DB) DeleteUnresolvedRef(ctx context.Context, id string) error {
 	_, err := d.db.ExecContext(ctx, "DELETE FROM unresolved_refs WHERE id = ?", id)

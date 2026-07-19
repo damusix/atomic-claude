@@ -594,13 +594,20 @@ func renderTrail(ctx context.Context, eng *engine.Engine, sb *strings.Builder, n
 	}
 }
 
+// isSynthesizedProvenance reports whether an edge's provenance marks it as
+// synthesized rather than directly extracted — heuristic (dynamic-call
+// resolution) or string-match (SQL identifier-string matching).
+func isSynthesizedProvenance(p string) bool {
+	return p == "heuristic" || p == "string-match"
+}
+
 // heuristicAnnotation returns " [dynamic]" if any edge between fromID and toID
-// in sg has heuristic provenance, else "".
+// in sg has synthesized provenance, else "".
 func heuristicAnnotation(sg types.Subgraph, fromID, toID string) string {
 	for _, e := range sg.Edges {
 		if (e.Source == fromID && e.Target == toID) ||
 			(e.Source == toID && e.Target == fromID) {
-			if e.Provenance == "heuristic" {
+			if isSynthesizedProvenance(e.Provenance) {
 				return " [dynamic]"
 			}
 		}
@@ -830,13 +837,13 @@ func buildFlowFromNamedSymbols(ctx context.Context, eng *engine.Engine, query st
 	for _, nn := range named {
 		callees, _ := eng.GetCallees(ctx, nn.node.ID, 1)
 		for _, e := range callees.Edges {
-			if e.Provenance == "heuristic" {
+			if isSynthesizedProvenance(e.Provenance) {
 				hEdges = append(hEdges, heuristicEdge{from: e.Source, to: e.Target})
 			}
 		}
 		callers, _ := eng.GetCallers(ctx, nn.node.ID, 1)
 		for _, e := range callers.Edges {
-			if e.Provenance == "heuristic" {
+			if isSynthesizedProvenance(e.Provenance) {
 				hEdges = append(hEdges, heuristicEdge{from: e.Source, to: e.Target})
 			}
 		}
