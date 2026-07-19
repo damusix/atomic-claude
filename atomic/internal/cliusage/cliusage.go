@@ -101,6 +101,12 @@ var commands = []Command{
 		Description: "Set per-agent model tiers interactively",
 	},
 	{
+		Path:        []string{"config", "resolve"},
+		Args:        "",
+		Flags:       []string{"--repo", "--json"},
+		Description: "Resolve Pi agent configuration",
+	},
+	{
 		Path:        []string{"docker", "init"},
 		Args:        "",
 		Flags:       []string{"--target", "--force"},

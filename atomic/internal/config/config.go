@@ -56,6 +56,7 @@ var knownSchemaKeys = func() []string {
 // AgentWarnings.
 var opaqueSections = map[string]bool{
 	"agents": true,
+	"pi":     true,
 }
 
 // knownSections is the set of known top-level TOML table names.
@@ -152,6 +153,9 @@ type Config struct {
 	Output  outputSection  `toml:"output"`
 	Update  updateSection  `toml:"update"`
 	Harness harnessSection `toml:"harness"`
+	// Pi preserves the opaque [pi] tree so unrelated config writes do not discard
+	// Pi agent overrides. ResolvePiAgents performs semantic validation.
+	Pi map[string]any `toml:"pi,omitempty"`
 	// Install is omitted from TOML when zero-valued (no install manifest yet).
 	Install installSection `toml:"install,omitempty"`
 	// Agents maps bundled agent filenames (no .md suffix) to model tier strings.

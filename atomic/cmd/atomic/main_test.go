@@ -108,6 +108,7 @@ var cp3WantMeta = []struct {
 	{[]string{"config", "list"}, "", "List all resolved key=value pairs"},
 	{[]string{"config", "path"}, "", "Print path to config.toml"},
 	{[]string{"config", "agents"}, "", "Set per-agent model tiers interactively"},
+	{[]string{"config", "resolve"}, "", "Resolve Pi agent configuration"},
 	// wiki subcommands
 	{[]string{"wiki", "scan"}, "", "Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md"},
 	{[]string{"wiki", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)"},

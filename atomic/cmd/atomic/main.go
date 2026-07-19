@@ -647,7 +647,7 @@ func buildCodeCmd(repoOverride *string) *cobra.Command {
 	return parent
 }
 
-// buildConfigCmd builds the "config" parent + get|set|unset|list|path|agents children.
+// buildConfigCmd builds the "config" parent and its config-operation children.
 // Dispatch is config.Run (from internal/config/cli.go).
 func buildConfigCmd() *cobra.Command {
 	dispatch := func(args []string) {
@@ -660,7 +660,7 @@ func buildConfigCmd() *cobra.Command {
 	}
 	parent := &cobra.Command{
 		Use:   "config",
-		Short: "Read and write atomic config (get|set|unset|list|path|agents)",
+		Short: "Read and write atomic config (get|set|unset|list|path|agents|resolve)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -688,6 +688,10 @@ func buildConfigCmd() *cobra.Command {
 	})
 	addSub("path", "Print path to config.toml", "", nil)
 	addSub("agents", "Set per-agent model tiers interactively", "", nil)
+	addSub("resolve", "Resolve Pi agent configuration", "", func(c *cobra.Command) {
+		c.Flags().String("repo", "", "repository root")
+		c.Flags().Bool("json", false, "print as JSON object")
+	})
 	return parent
 }
 

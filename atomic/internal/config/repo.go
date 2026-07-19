@@ -27,6 +27,7 @@ type RepoConfig struct {
 // repo config schema.
 var repoKnownSections = map[string]bool{
 	"code": true,
+	"pi":   true,
 }
 
 // repoKnownLeaves is the set of known dotted leaf keys in the repo config schema.
@@ -80,6 +81,9 @@ func checkUnknownRepoKeys(m map[string]any, prefix string) []Warning {
 				warns = append(warns, Warning{
 					Message: fmt.Sprintf("config: unknown key %q (ignored)", dotted),
 				})
+				continue
+			}
+			if k == "pi" {
 				continue
 			}
 		} else if !repoKnownLeaves[dotted] {

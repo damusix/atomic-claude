@@ -137,6 +137,47 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 		}
 		return 0
 
+	case "resolve":
+		fs := flag.NewFlagSet("config-resolve", flag.ContinueOnError)
+		cliutil.SetUsage(fs, "atomic config resolve --repo <root> --json")
+		fs.SetOutput(stderr)
+		var repoRoot string
+		var asJSON bool
+		fs.StringVar(&repoRoot, "repo", "", "repository root")
+		fs.BoolVar(&asJSON, "json", false, "print as JSON object")
+		if err := fs.Parse(rest); err != nil {
+			return 2
+		}
+		if repoRoot == "" || !asJSON || fs.NArg() != 0 {
+			fmt.Fprintln(stderr, "Usage: atomic config resolve --repo <root> --json")
+			return 2
+		}
+		repoAbs, err := filepath.Abs(repoRoot)
+		if err != nil {
+			fmt.Fprintf(stderr, "atomic config resolve: repo path: %v\n", err)
+			return 1
+		}
+		info, err := os.Stat(repoAbs)
+		if err != nil {
+			fmt.Fprintf(stderr, "atomic config resolve: repo path: %v\n", err)
+			return 1
+		}
+		if !info.IsDir() {
+			fmt.Fprintf(stderr, "atomic config resolve: repo path is not a directory: %s\n", repoAbs)
+			return 1
+		}
+		env := ResolvePiAgents(TOMLPath(home), filepath.Join(repoAbs, ".pi", "atomic.toml"))
+		data, err := json.Marshal(env)
+		if err != nil {
+			fmt.Fprintf(stderr, "atomic config resolve: marshal json: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(data))
+		if !env.Valid {
+			return 1
+		}
+		return 0
+
 	case "agents":
 		cfg, _, err := Load(TOMLPath(home))
 		if err != nil {
@@ -190,7 +231,7 @@ func writeResolved(home string, cfg *Config) error {
 }
 
 func printConfigUsage(w io.Writer) {
-	fmt.Fprintln(w, "Usage: atomic config <get|set|unset|list|path|agents> [args]")
+	fmt.Fprintln(w, "Usage: atomic config <get|set|unset|list|path|agents|resolve> [args]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  get <key>           Print resolved value for key")
 	fmt.Fprintln(w, "  set <key> <value>   Set key to value; writes config.toml and re-renders config.resolved.md")
@@ -198,4 +239,5 @@ func printConfigUsage(w io.Writer) {
 	fmt.Fprintln(w, "  list [--json]       Print all resolved key=value pairs")
 	fmt.Fprintln(w, "  path                Print path to config.toml")
 	fmt.Fprintln(w, "  agents              Set per-agent model tiers interactively")
+	fmt.Fprintln(w, "  resolve --repo <root> --json  Print resolved Pi agent overrides")
 }
