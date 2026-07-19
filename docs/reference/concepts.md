@@ -28,12 +28,26 @@ Every concept below plays a role in that flow. Signals gave Claude the project m
 
 - **Deterministic signals** — scans the filesystem (tree, manifests, languages, lockfiles) into a reproducible facts file that grounds everything Claude infers about your repo.
 - **Code intelligence** — builds and queries the symbol graph (below).
-- **Repo scaffolding** — `atomic repo init` creates the `.claude/` layout once, idempotently: the scratchpad and project directories plus the ignore rules that keep them out of git. Commands call it instead of hand-editing `.gitignore`. The repo-local directory name is configurable (`harness.dir`, default `.claude`) and auto-detected from the running harness — set `ATOMIC_HARNESS`, or let a `PI_CODING_AGENT`/`CLAUDECODE` fingerprint pick `.pi`/`.claude` for you.
+- **Repo scaffolding** — `atomic repo init` creates the harness layout once, idempotently: the scratchpad and project directories plus the ignore rules that keep them out of git. Commands call it instead of hand-editing `.gitignore`. The directory name follows harness detection (below).
 - **Document templates** — `atomic template <name>` emits the fill-in skeleton for each document the workflow coordinates (design doc, spec, scratchpad brief/state/followups, session report, and more). Commands seed those files from it so structure is copied, never reconstructed from memory.
 - **Self-update and health** — `atomic update` swaps the binary against a verified checksum; `atomic doctor` and `atomic validate` check the install.
 - **Config and state** — `~/.atomic/config.toml`, follow-ups, install/uninstall, and the user profile.
 
 Everything below is either produced by this binary or grounded by what it produces. Run `atomic --help` for the full surface.
+
+
+## Harness detection and state paths
+
+
+The binary is not tied to Claude Code. Per-user state (config, profile, backups) lives at `~/.atomic/`, a harness-neutral location. Repo-local state (scratchpad, project files, code index, worktrees) lives under one dot-directory per repo, and the binary picks that directory by asking which coding agent launched it:
+
+1. `ATOMIC_HARNESS=<name>` in the environment wins outright. `ATOMIC_HARNESS=pi` resolves every repo-local path under `.pi/`. Set it in an agent's launcher for a durable contract, and to break ties when one agent launches another.
+2. `PI_CODING_AGENT=true` (set by the pi agent for its shell commands) resolves to `.pi/`.
+3. `CLAUDECODE=1` (set by Claude Code) resolves to `.claude/`.
+4. `harness.dir` in `~/.atomic/config.toml` covers plain terminals and CI: `atomic config set harness.dir .pi`.
+5. With none of the above, the default is `.claude/`.
+
+Detection means a machine running both Claude Code and a pi agent needs no configuration: each agent's sessions read and write their own layout, and neither creates the other's directory. Harness names are generic; an unknown name in `ATOMIC_HARNESS` resolves to its dot-directory as long as it is a single safe path segment.
 
 
 ## Code intelligence
