@@ -1,7 +1,30 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, describe, expect, mock, test } from "bun:test";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { ApiProvider } from "../../utils/api";
 import { events } from "../../utils/events";
+
+// Rail mounts MiniGraph whenever a fixture carries graphDataURL. The graph
+// subsystem itself (Cytoscape lazy-load, layout wiring, hover/click) is
+// covered in isolation by MiniGraph.test.tsx — this file only asserts the
+// Properties/OUT/IN panels and the clear-on-null behavior, so mocking
+// MiniGraph out here removes an entire async surface these tests never
+// needed exercised (script load + a FetchEngine graph-data request that
+// MiniGraph never passes an AbortController for, so it's still in flight
+// when a test unmounts it) with zero coverage loss.
+//
+// mock.module() is process-global once registered, and bun:test's own
+// mock.restore() does NOT undo it (verified: an afterAll(() => mock.restore())
+// here left the mock active for a later file). Capture the real module via
+// require() — evaluated exactly where it's written, unlike a hoisted static
+// import — before registering the mock, then re-register that real module
+// explicitly in afterAll so a later file (e.g. MiniGraph.test.tsx) importing
+// "./MiniGraph" directly still gets the genuine component.
+const RealMiniGraph: typeof import("./MiniGraph") = require("./MiniGraph");
+
+mock.module("./MiniGraph", () => ({
+  MiniGraph: () => null,
+}));
+
 import { Rail } from "./Rail";
 import type { RailResponse } from "./types";
 
@@ -62,8 +85,14 @@ function mockFetchOnce(body: unknown, status = 200) {
 }
 
 describe("Rail", () => {
-  afterEach(() => {
-    mock.restore();
+  // Deliberately no per-test mock.restore(): every test reassigns
+  // globalThis.fetch fresh, so there's no cross-test mock-call-history to
+  // clean up. Restored once, for the whole file, in afterAll instead — so a
+  // later file (e.g. MiniGraph.test.tsx) still resolves the real
+  // "./MiniGraph" (mock.restore() alone does not undo mock.module(), so this
+  // re-registers the captured real module explicitly).
+  afterAll(() => {
+    mock.module("./MiniGraph", () => RealMiniGraph);
   });
 
   test("renders nothing but the bare aside until page.resolved fires", () => {
@@ -85,7 +114,9 @@ describe("Rail", () => {
       </ApiProvider>,
     );
 
-    events.emit("page.resolved", { relpath: "wiki/index.md" });
+    await act(async () => {
+      events.emit("page.resolved", { relpath: "wiki/index.md" });
+    });
 
     await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
 
@@ -120,10 +151,14 @@ describe("Rail", () => {
       </ApiProvider>,
     );
 
-    events.emit("page.resolved", { relpath: "wiki/index.md" });
+    await act(async () => {
+      events.emit("page.resolved", { relpath: "wiki/index.md" });
+    });
     await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
 
-    events.emit("page.resolved", { relpath: null });
+    await act(async () => {
+      events.emit("page.resolved", { relpath: null });
+    });
     await waitFor(() => expect(document.querySelector("#rail-props")).toBeNull());
   });
 

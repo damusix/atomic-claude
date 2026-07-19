@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { ApiProvider } from "../../utils/api";
 import { events } from "../../utils/events";
+import { __resetLoadScriptCacheForTest } from "../../utils/loadScript";
 import { Page } from "./Page";
 
 function renderAt(path: string) {
@@ -49,6 +50,12 @@ function stubScriptLoad() {
 describe("Page", () => {
   afterEach(() => {
     mock.restore();
+    // "mounts mermaid when hasMermaid is true" (below) drives the real
+    // loadScript("/vendor/mermaid.min.js") path — reset its module-level
+    // cache so a leaked resolved entry doesn't short-circuit
+    // loadScript.test.ts's own createCount() assertions in a later file.
+    __resetLoadScriptCacheForTest();
+    document.head.innerHTML = "";
   });
 
   test("skeleton renders before /api/page resolves — no blank flash", async () => {

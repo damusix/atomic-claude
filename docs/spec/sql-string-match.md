@@ -66,14 +66,14 @@ Covers builder-arg SQL fragments (ActiveRecord `where("title LIKE ?")`, GORM `Wh
 
 ## Checkpoints
 
-| # | Deliverable | Done when |
-|---|-------------|-----------|
-| 1 | C1: `sql_string` speculative harvest + callee capture (TS/TSX, Python, Go) + identifier filter + dedupe | Unit tests cover positive/negative literal shapes, owner attribution, callee capture per language, gate-passing literals untouched; `go test ./internal/codeintel/...` green |
-| 2 | C2 + C4 + C5: pass A object matching, vocabulary, provenance/metadata stamping, ambiguity cap, unmatched deletion | Unit tests cover high/medium tiers, case-insensitivity, ambiguity cap, non-SQL-node exclusion, ref cleanup; green |
-| 3 | C3: pass B qualified + anchored column matching | Unit tests cover qualified medium, anchored low, no-anchor never-emit, anchor scoping (wrong owner's anchor does not leak); green |
-| 4 | C6 + C7: MCP provenance parity, fixture corpus, end-to-end integration test | Integration test asserts the C7 edge set; full `go test ./...` green |
-| 5 | C8 fragment harvest: `sql_fragment` discriminator, fragment gate, tokenizer, stoplist, resolution-input exclusion | Unit tests cover gate boundaries (length cap, discriminator presence, prose rejection), tokenization (bare + qualified, keyword stoplist, dedupe), exclusion; green |
-| 6 | C8 resolution + C4 vocabulary expansion + C3 vocab column upgrade + fixture extension | Unit tests cover one-notch demotion at every tier, vocab column upgrade, both-kind C5 cleanup; e2e fixture gains fragment cases (where-fragment, order-DESC, comma pluck, prose negative) and asserts their edges; full `go test ./...` green |
+| # | Checkpoint | Files/areas | Verifies |
+|---|------------|-------------|----------|
+| 1 | C1: `sql_string` speculative harvest + callee capture (TS/TSX, Python, Go) + identifier filter + dedupe | `types/types.go`, `indexer/embedded_sql_postpass.go`, TS/Python/Go literal harvesters, `resolution/pipeline.go` | Unit tests cover positive/negative literal shapes, owner attribution, callee capture per language, gate-passing literals untouched; `go test ./internal/codeintel/...` green |
+| 2 | C2 + C4 + C5: pass A object matching, vocabulary, provenance/metadata stamping, ambiguity cap, unmatched deletion | `resolution/sql_string_match.go`, `extraction/standalone/query_builder_vocab.go`, `db/resolution.go` | Unit tests cover high/medium tiers, case-insensitivity, ambiguity cap, non-SQL-node exclusion, ref cleanup; green |
+| 3 | C3: pass B qualified + anchored column matching | `resolution/sql_string_match.go` | Unit tests cover qualified medium, anchored low, no-anchor never-emit, anchor scoping (wrong owner's anchor does not leak); green |
+| 4 | C6 + C7: MCP provenance parity, fixture corpus, end-to-end integration test | `mcp/server.go`, `scripts/code-eval/fixtures/sql-string-match/`, `engine` e2e test | Integration test asserts the C7 edge set; full `go test ./...` green |
+| 5 | C8 fragment harvest: `sql_fragment` discriminator, fragment gate, tokenizer, stoplist, resolution-input exclusion | `types/types.go`, `indexer/sql_fragment_harvest.go`, `indexer/embedded_sql_postpass.go` | Unit tests cover gate boundaries (length cap, discriminator presence, prose rejection), tokenization (bare + qualified, keyword stoplist, dedupe), exclusion; green |
+| 6 | C8 resolution + C4 vocabulary expansion + C3 vocab column upgrade + fixture extension | `resolution/sql_string_match.go`, `query_builder_vocab.go`, fixture + e2e test | Unit tests cover one-notch demotion at every tier, vocab column upgrade, both-kind C5 cleanup; e2e fixture gains fragment cases (where-fragment, order-DESC, comma pluck, prose negative) and asserts their edges; full `go test ./...` green |
 
 
 ## Implementation log
