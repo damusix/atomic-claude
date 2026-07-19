@@ -1,10 +1,46 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { ApiProvider } from "../../utils/api";
 import { events } from "../../utils/events";
 import { __resetLoadScriptCacheForTest } from "../../utils/loadScript";
 import { Rail } from "./Rail";
 import type { RailResponse } from "./types";
+
+// Every RAIL_FIXTURE below carries a graphDataURL, so every test in this file
+// mounts MiniGraph, which lazy-loads the carried Cytoscape vendor script via
+// loadScript(). Left unstubbed, that hits happy-dom's real script-element
+// connect path (see loadScript.test.ts's stubScriptLoad comment) — locally
+// that rejects synchronously, but it's a browser-API implementation detail,
+// not a contract: on CI it was observed to not settle promptly, riding
+// "clears the rail"'s awaits to bun's 5s per-test timeout. Stubbing the
+// script element (and providing a minimal window.cytoscape so MiniGraph's
+// mount promise chain always resolves the same way) decouples this file's
+// assertions from that environment-dependent timing entirely.
+function stubScriptLoad() {
+  const origCreate = document.createElement.bind(document);
+  document.createElement = ((tag: string) => {
+    if (tag === "script") {
+      const el = origCreate("div") as unknown as HTMLScriptElement;
+      queueMicrotask(() => el.dispatchEvent(new Event("load")));
+      return el;
+    }
+    return origCreate(tag);
+  }) as typeof document.createElement;
+  return () => {
+    document.createElement = origCreate;
+  };
+}
+
+function stubCytoscape() {
+  return mock(() => ({
+    resize: () => {},
+    fit: () => {},
+    one: (_event: string, cb: () => void) => cb(),
+    ready: (cb: () => void) => cb(),
+    on: () => {},
+    style: () => {},
+  }));
+}
 
 const RAIL_FIXTURE: RailResponse = {
   relpath: "wiki/index.md",
@@ -62,15 +98,30 @@ function mockFetchOnce(body: unknown, status = 200) {
   ) as unknown as typeof fetch;
 }
 
+// Counts only /api/rail/* calls out of a fetch mock — MiniGraph's own
+// graphDataURL fetch shares the same globalThis.fetch and would otherwise
+// inflate a spy meant to track Rail's own refetch-on-realm.changed behavior.
+function railCallCount(fetchSpy: ReturnType<typeof mock>): number {
+  return fetchSpy.mock.calls.filter(([input]: [RequestInfo | URL]) =>
+    (typeof input === "string" ? input : input.toString()).includes("/rail/"),
+  ).length;
+}
+
 describe("Rail", () => {
+  let restoreScriptLoad: () => void;
+
+  beforeEach(() => {
+    restoreScriptLoad = stubScriptLoad();
+    (window as unknown as { cytoscape: ReturnType<typeof stubCytoscape> }).cytoscape = stubCytoscape();
+  });
+
   afterEach(() => {
     mock.restore();
-    // Rail mounts MiniGraph whenever a fixture carries graphDataURL, which
-    // drives the real (unstubbed here) loadScript("/vendor/cytoscape.min.js")
-    // path — happy-dom throws synchronously on the real script append, and
-    // that rejected promise stays cached at module scope unless cleared,
-    // short-circuiting any later file's stubbed load for the same src.
+    // Module-scope cache — reset so no test's script-load resolution leaks
+    // into a later file's own loadScript assertions.
     __resetLoadScriptCacheForTest();
+    restoreScriptLoad();
+    delete (window as { cytoscape?: unknown }).cytoscape;
   });
 
   test("renders nothing but the bare aside until page.resolved fires", () => {
@@ -168,13 +219,13 @@ describe("Rail", () => {
 
     events.emit("page.resolved", { relpath: "wiki/index.md" });
     await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(railCallCount(fetchSpy)).toBe(1);
 
     await act(async () => {
       events.emit("realm.changed", { fp: "fp2", changed: ["wiki/index.md"] });
     });
 
-    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(railCallCount(fetchSpy)).toBe(2));
   });
 
   test("does not refetch on realm.changed when the open relpath is absent from a bounded changed list", async () => {
@@ -195,13 +246,13 @@ describe("Rail", () => {
 
     events.emit("page.resolved", { relpath: "wiki/index.md" });
     await waitFor(() => expect(document.querySelector("#rail-props")).not.toBeNull());
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(railCallCount(fetchSpy)).toBe(1);
 
     await act(async () => {
       events.emit("realm.changed", { fp: "fp2", changed: ["some/other.md"] });
     });
 
     await new Promise((r) => setTimeout(r, 20));
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(railCallCount(fetchSpy)).toBe(1);
   });
 });
