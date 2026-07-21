@@ -71,8 +71,9 @@ func loadAgentOverrides(home string) map[string]config.AgentOverride {
 	return cfg.Agents
 }
 
-// patchAgentContent rewrites the model: key in an agent artifact's frontmatter
-// to the configured model, preserving all other keys and their source order.
+// patchAgentContent rewrites the model: and/or effort: keys in an agent
+// artifact's frontmatter to the configured overrides, preserving all other
+// keys and their source order.
 //
 // It is a no-op when:
 //   - overrides is nil or has no entry for this agent name
@@ -81,7 +82,8 @@ func loadAgentOverrides(home string) map[string]config.AgentOverride {
 //   - the file has no parseable frontmatter block
 //   - frontmatter parsing or emission fails (returns original content unchanged)
 //
-// CP1 patches only the model: key; effort: is applied at a later checkpoint.
+// Model and Effort are patched independently: an effort-only override leaves
+// model: untouched, and vice versa.
 //
 // This is called from both Plan (to compute the correct expected SHA) and
 // Apply (to write the patched bytes) so both sides agree on the on-disk content.
@@ -95,10 +97,6 @@ func patchAgentContent(target string, content []byte, overrides map[string]confi
 	if !ok || (ov.Model == "" && ov.Effort == "") {
 		return content
 	}
-	if ov.Model == "" {
-		// Effort-only override: nothing to patch until effort application lands.
-		return content
-	}
 
 	kvs, body, err := frontmatter.ParseOrdered(string(content))
 	if err != nil || len(kvs) == 0 {
@@ -107,17 +105,11 @@ func patchAgentContent(target string, content []byte, overrides map[string]confi
 		return content
 	}
 
-	// Set existing model: key or append it when absent.
-	found := false
-	for i := range kvs {
-		if kvs[i].Key == "model" {
-			kvs[i].Value = ov.Model
-			found = true
-			break
-		}
+	if ov.Model != "" {
+		kvs = setOrAppendKey(kvs, "model", ov.Model)
 	}
-	if !found {
-		kvs = append(kvs, frontmatter.KV{Key: "model", Value: ov.Model})
+	if ov.Effort != "" {
+		kvs = setOrAppendKey(kvs, "effort", ov.Effort)
 	}
 
 	result, err := frontmatter.EmitOrdered(kvs, body)
@@ -125,6 +117,18 @@ func patchAgentContent(target string, content []byte, overrides map[string]confi
 		return content // best-effort: return original on serialisation failure
 	}
 	return []byte(result)
+}
+
+// setOrAppendKey sets the value of an existing key or appends it when absent,
+// preserving the source order of every other key.
+func setOrAppendKey(kvs []frontmatter.KV, key, value string) []frontmatter.KV {
+	for i := range kvs {
+		if kvs[i].Key == key {
+			kvs[i].Value = value
+			return kvs
+		}
+	}
+	return append(kvs, frontmatter.KV{Key: key, Value: value})
 }
 
 // Plan computes the per-file action list without writing anything.
@@ -210,8 +214,9 @@ func planArtifact(targetDir, home string, a embedded.Artifact, agentOverrides ma
 // clock is used for the backup timestamp — pass RealClock for production use.
 //
 // Apply loads the [agents] config overrides from home and patches each
-// agent artifact's model: frontmatter key before writing, so the user's
-// configured tier is always re-applied on every install/update.
+// agent artifact's model: and effort: frontmatter keys before writing, so the
+// user's configured model/effort overrides are always re-applied on every
+// install/update.
 func Apply(targetDir, home string, plan []FileAction, dryRun bool, clock Clock) error {
 	// Capture the run-start time once so all backups in this run share the same
 	// timestamp directory, regardless of when the first ActionUpdated is encountered.
@@ -296,9 +301,9 @@ func populateProfile(home string, clock Clock) {
 func applyAction(targetDir, home string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]config.AgentOverride) error {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(fa.Artifact.Target))
 
-	// Patch agent frontmatter with configured model tier before any write.
-	// This ensures the user's tier choice survives every install/update cycle,
-	// including binary upgrades that ship new bundled agent content.
+	// Patch agent frontmatter with the configured model/effort overrides before
+	// any write. This ensures the user's choices survive every install/update
+	// cycle, including binary upgrades that ship new bundled agent content.
 	embeddedData, err := readPatchedEmbedded(fa.Artifact, agentOverrides)
 	if err != nil {
 		return err

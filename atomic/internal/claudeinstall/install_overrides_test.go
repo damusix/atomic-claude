@@ -299,6 +299,196 @@ func TestAgentModelOverride_DiffMatchesAfterInstall(t *testing.T) {
 	t.Error("agents/atomic-implementer.md not found in Diff rows")
 }
 
+// TestAgentOverride_EffortOnly: an effort-only override patches effort: and
+// leaves the bundled model: untouched.
+func TestAgentOverride_EffortOnly(t *testing.T) {
+	overrides := map[string]config.AgentOverride{"atomic-implementer": {Effort: "high"}}
+	content, err := fs.ReadFile(embedded.FS, "bundle/agents/atomic-implementer.md")
+	if err != nil {
+		t.Fatalf("read embedded atomic-implementer: %v", err)
+	}
+
+	result := claudeinstall.PatchAgentContent("agents/atomic-implementer.md", content, overrides)
+
+	meta, _, err := frontmatter.Parse(string(result))
+	if err != nil {
+		t.Fatalf("parse patched frontmatter: %v", err)
+	}
+	if meta["effort"] != "high" {
+		t.Errorf("effort = %q, want %q", meta["effort"], "high")
+	}
+	origMeta, _, err := frontmatter.Parse(string(content))
+	if err != nil {
+		t.Fatalf("parse original frontmatter: %v", err)
+	}
+	if meta["model"] != origMeta["model"] {
+		t.Errorf("model = %q, want unchanged %q", meta["model"], origMeta["model"])
+	}
+}
+
+// TestAgentOverride_ModelOnly: a model-only override patches model: and does
+// not add an effort: key.
+func TestAgentOverride_ModelOnly(t *testing.T) {
+	content := []byte("---\nname: test-agent\nmodel: sonnet\n---\nBody.\n")
+	overrides := map[string]config.AgentOverride{"test-agent": {Model: "haiku"}}
+
+	result := claudeinstall.PatchAgentContent("agents/test-agent.md", content, overrides)
+
+	meta, _, err := frontmatter.Parse(string(result))
+	if err != nil {
+		t.Fatalf("parse patched frontmatter: %v", err)
+	}
+	if meta["model"] != "haiku" {
+		t.Errorf("model = %q, want %q", meta["model"], "haiku")
+	}
+	if _, ok := meta["effort"]; ok {
+		t.Errorf("effort key present = %q, want absent", meta["effort"])
+	}
+}
+
+// TestAgentOverride_BothSet: both fields set patches both keys.
+func TestAgentOverride_BothSet(t *testing.T) {
+	content := []byte("---\nname: test-agent\nmodel: sonnet\n---\nBody.\n")
+	overrides := map[string]config.AgentOverride{"test-agent": {Model: "opus", Effort: "max"}}
+
+	result := claudeinstall.PatchAgentContent("agents/test-agent.md", content, overrides)
+
+	meta, _, err := frontmatter.Parse(string(result))
+	if err != nil {
+		t.Fatalf("parse patched frontmatter: %v", err)
+	}
+	if meta["model"] != "opus" {
+		t.Errorf("model = %q, want %q", meta["model"], "opus")
+	}
+	if meta["effort"] != "max" {
+		t.Errorf("effort = %q, want %q", meta["effort"], "max")
+	}
+}
+
+// TestAgentOverride_BothEmpty: an entry with both fields empty is a no-op —
+// bytes returned unchanged.
+func TestAgentOverride_BothEmpty(t *testing.T) {
+	content := []byte("---\nname: test-agent\nmodel: sonnet\n---\nBody.\n")
+	overrides := map[string]config.AgentOverride{"test-agent": {}}
+
+	result := claudeinstall.PatchAgentContent("agents/test-agent.md", content, overrides)
+	if sha256hex(result) != sha256hex(content) {
+		t.Error("both-empty override modified content — must be a no-op")
+	}
+}
+
+// TestAgentOverride_EffortAppended_KeyOrderPreserved: effort: is appended when
+// absent, after the existing keys, with source order otherwise preserved.
+func TestAgentOverride_EffortAppended_KeyOrderPreserved(t *testing.T) {
+	original := "---\nname: my-agent\ntools: [Read]\nmodel: sonnet\n---\nMy body.\n"
+	overrides := map[string]config.AgentOverride{"my-agent": {Effort: "low"}}
+
+	result := claudeinstall.PatchAgentContent("agents/my-agent.md", []byte(original), overrides)
+
+	kvs, body, err := frontmatter.ParseOrdered(string(result))
+	if err != nil {
+		t.Fatalf("parse result: %v", err)
+	}
+
+	wantOrder := []string{"name", "tools", "model", "effort"}
+	if len(kvs) != len(wantOrder) {
+		t.Fatalf("key count = %d, want %d", len(kvs), len(wantOrder))
+	}
+	for i, kv := range kvs {
+		if kv.Key != wantOrder[i] {
+			t.Errorf("key[%d] = %q, want %q", i, kv.Key, wantOrder[i])
+		}
+	}
+	if kvs[3].Value != "low" {
+		t.Errorf("effort = %v, want %q", kvs[3].Value, "low")
+	}
+	// model: must be untouched (effort-only override).
+	if kvs[2].Value != "sonnet" {
+		t.Errorf("model = %v, want unchanged %q", kvs[2].Value, "sonnet")
+	}
+	if body != "My body.\n" {
+		t.Errorf("body = %q, want %q", body, "My body.\n")
+	}
+}
+
+// TestAgentOverride_BothAppended: when the source has neither model: nor
+// effort:, both are appended in order (model then effort).
+func TestAgentOverride_BothAppended(t *testing.T) {
+	content := []byte("---\nname: test-agent\ndescription: simple test\n---\nBody here.\n")
+	overrides := map[string]config.AgentOverride{"test-agent": {Model: "opus", Effort: "xhigh"}}
+
+	result := claudeinstall.PatchAgentContent("agents/test-agent.md", content, overrides)
+
+	kvs, body, err := frontmatter.ParseOrdered(string(result))
+	if err != nil {
+		t.Fatalf("parse result: %v", err)
+	}
+	wantOrder := []string{"name", "description", "model", "effort"}
+	if len(kvs) != len(wantOrder) {
+		t.Fatalf("key count = %d, want %d", len(kvs), len(wantOrder))
+	}
+	for i, kv := range kvs {
+		if kv.Key != wantOrder[i] {
+			t.Errorf("key[%d] = %q, want %q", i, kv.Key, wantOrder[i])
+		}
+	}
+	if kvs[2].Value != "opus" {
+		t.Errorf("model = %v, want %q", kvs[2].Value, "opus")
+	}
+	if kvs[3].Value != "xhigh" {
+		t.Errorf("effort = %v, want %q", kvs[3].Value, "xhigh")
+	}
+	if body != "Body here.\n" {
+		t.Errorf("body = %q, want %q", body, "Body here.\n")
+	}
+}
+
+// TestAgentOverride_PlanReflectsEffort: Plan's SHA computation routes through
+// patchAgentContent, so an effort-only override changes the planned action
+// from unchanged to installed on a fresh target (Plan and Apply agree).
+func TestAgentOverride_PlanReflectsEffort(t *testing.T) {
+	target := t.TempDir()
+	suppressProfileRefresh(t)
+	cfg := config.Default()
+	cfg.Agents = map[string]config.AgentOverride{"atomic-implementer": {Effort: "high"}}
+	if err := config.WritePersist(config.TOMLPath(target), cfg); err != nil {
+		t.Fatalf("write override config: %v", err)
+	}
+
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	agentPath := filepath.Join(target, "agents", "atomic-implementer.md")
+	data, err := os.ReadFile(agentPath)
+	if err != nil {
+		t.Fatalf("read installed agent: %v", err)
+	}
+	meta, _, err := frontmatter.Parse(string(data))
+	if err != nil {
+		t.Fatalf("parse frontmatter: %v", err)
+	}
+	if meta["effort"] != "high" {
+		t.Errorf("effort = %q, want %q", meta["effort"], "high")
+	}
+
+	// Re-plan: Diff must agree the installed content matches (Plan and Apply
+	// both route the effort patch through the same function).
+	rows, err := claudeinstall.Diff(target, target)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	for _, row := range rows {
+		if row.Artifact.Target == "agents/atomic-implementer.md" {
+			if row.Status != claudeinstall.DiffMatch {
+				t.Errorf("Diff status for effort-overridden agent = %s, want %s", row.Status, claudeinstall.DiffMatch)
+			}
+			return
+		}
+	}
+	t.Error("agents/atomic-implementer.md not found in Diff rows")
+}
+
 // TestAgentModelOverride_OtherAgentsUnaffected: installing with an override for
 // one agent must leave other agents with their bundled-default model: values.
 func TestAgentModelOverride_OtherAgentsUnaffected(t *testing.T) {
