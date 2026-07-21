@@ -126,16 +126,6 @@ type installSection struct {
 	Artifacts installArtifactsSection `toml:"artifacts"`
 }
 
-// validTiers is the allowlist of model tier values for [agents] overrides.
-// "fable" is forward-reserved and may not yet correspond to a recognized Claude Code
-// model tier at runtime, but is allowlisted to avoid validation churn when it lands.
-var validTiers = map[string]bool{
-	"haiku":  true,
-	"sonnet": true,
-	"opus":   true,
-	"fable":  true, // forward-reserved; may not be a live Claude Code model tier yet
-}
-
 // knownAtomicAgents is the static set of bundled atomic agent filenames (no .md suffix).
 // Used as the fallback known-agent set when [install.artifacts].agents is absent.
 // Must stay in sync with the agent files shipped under agents/ in the repo.
@@ -158,10 +148,12 @@ type Config struct {
 	Pi map[string]any `toml:"pi,omitempty"`
 	// Install is omitted from TOML when zero-valued (no install manifest yet).
 	Install installSection `toml:"install,omitempty"`
-	// Agents maps bundled agent filenames (no .md suffix) to model tier strings.
-	// Machine-written by `atomic config agents` (CP3); re-applied at install time (CP4).
-	// Omitted from TOML when empty. NOT in knownKeys — not user-settable via `atomic config set`.
-	Agents map[string]string `toml:"agents,omitempty"`
+	// Agents maps bundled agent filenames (no .md suffix) to their model/effort
+	// override. Machine-written by `atomic config agents`; re-applied at install
+	// time. Omitted from TOML when empty. NOT in knownKeys — not user-settable
+	// via `atomic config set`. Flat `agents.x = "opus"` entries decode via
+	// AgentOverride.UnmarshalText; nested [agents.x] tables decode both fields.
+	Agents map[string]AgentOverride `toml:"agents,omitempty"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -340,11 +332,13 @@ func Validate(cfg *Config) error {
 	if cfg.Install.Version != "" && !selfupdate.IsValidSemver(cfg.Install.Version) {
 		return fmt.Errorf("config: install.version %q is not a valid semver string (e.g. \"1.2.0\")", cfg.Install.Version)
 	}
-	// [agents]: any value outside the tier allowlist is a hard validation failure.
-	// A key that is not a known agent name is a non-fatal warning (see AgentWarnings).
-	for agentName, tier := range cfg.Agents {
-		if !validTiers[tier] {
-			return fmt.Errorf("config: agents.%s: invalid tier %q; must be one of: haiku, sonnet, opus, fable", agentName, tier)
+	// [agents]: effort is strict — any non-empty value outside the enum is a hard
+	// validation failure. model is lenient and never blocks loading (see
+	// AgentWarnings for the non-fatal malformed-model check). A key that is not
+	// a known agent name is also a non-fatal warning (see AgentWarnings).
+	for agentName, ov := range cfg.Agents {
+		if ov.Effort != "" && !validEfforts[ov.Effort] {
+			return fmt.Errorf("config: agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
 		}
 	}
 	return nil
@@ -372,10 +366,15 @@ func AgentWarnings(cfg *Config) []Warning {
 	}
 
 	var warns []Warning
-	for agentName := range cfg.Agents {
+	for agentName, ov := range cfg.Agents {
 		if !known[agentName] {
 			warns = append(warns, Warning{
-				Message: fmt.Sprintf("config: agents.%s: unknown agent (not in installed set); tier override stored but agent must exist at apply time", agentName),
+				Message: fmt.Sprintf("config: agents.%s: unknown agent (not in installed set); override stored but agent must exist at apply time", agentName),
+			})
+		}
+		if ov.Model != "" && !validModelFormat(ov.Model) {
+			warns = append(warns, Warning{
+				Message: fmt.Sprintf("config: agents.%s.model: questionable value %q; passed through as-is", agentName, ov.Model),
 			})
 		}
 	}

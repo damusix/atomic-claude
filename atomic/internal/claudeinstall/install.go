@@ -62,7 +62,7 @@ type FileAction struct {
 // loadAgentOverrides reads the config and returns the [agents] override map.
 // Best-effort: returns nil when the config is absent, unreadable, or has no
 // [agents] entries so callers treat nil as "no overrides, use bundled defaults".
-func loadAgentOverrides(home string) map[string]string {
+func loadAgentOverrides(home string) map[string]config.AgentOverride {
 	cfgPath := config.TOMLPath(home)
 	cfg, _, err := config.Load(cfgPath)
 	if err != nil || len(cfg.Agents) == 0 {
@@ -72,24 +72,31 @@ func loadAgentOverrides(home string) map[string]string {
 }
 
 // patchAgentContent rewrites the model: key in an agent artifact's frontmatter
-// to the configured tier, preserving all other keys and their source order.
+// to the configured model, preserving all other keys and their source order.
 //
 // It is a no-op when:
 //   - overrides is nil or has no entry for this agent name
 //   - target does not start with "agents/"
+//   - the entry has both Model and Effort empty
 //   - the file has no parseable frontmatter block
 //   - frontmatter parsing or emission fails (returns original content unchanged)
 //
+// CP1 patches only the model: key; effort: is applied at a later checkpoint.
+//
 // This is called from both Plan (to compute the correct expected SHA) and
 // Apply (to write the patched bytes) so both sides agree on the on-disk content.
-func patchAgentContent(target string, content []byte, overrides map[string]string) []byte {
+func patchAgentContent(target string, content []byte, overrides map[string]config.AgentOverride) []byte {
 	if len(overrides) == 0 || !strings.HasPrefix(target, "agents/") {
 		return content
 	}
 	// Agent name is the basename without the .md suffix.
 	agentName := strings.TrimSuffix(filepath.Base(filepath.FromSlash(target)), ".md")
-	tier, ok := overrides[agentName]
-	if !ok || tier == "" {
+	ov, ok := overrides[agentName]
+	if !ok || (ov.Model == "" && ov.Effort == "") {
+		return content
+	}
+	if ov.Model == "" {
+		// Effort-only override: nothing to patch until effort application lands.
 		return content
 	}
 
@@ -104,13 +111,13 @@ func patchAgentContent(target string, content []byte, overrides map[string]strin
 	found := false
 	for i := range kvs {
 		if kvs[i].Key == "model" {
-			kvs[i].Value = tier
+			kvs[i].Value = ov.Model
 			found = true
 			break
 		}
 	}
 	if !found {
-		kvs = append(kvs, frontmatter.KV{Key: "model", Value: tier})
+		kvs = append(kvs, frontmatter.KV{Key: "model", Value: ov.Model})
 	}
 
 	result, err := frontmatter.EmitOrdered(kvs, body)
@@ -144,7 +151,7 @@ func Plan(targetDir, home string, manifest []embedded.Artifact) ([]FileAction, e
 // readPatchedEmbedded reads an embedded artifact's bytes and applies the
 // [agents] tier override (a no-op for non-agent artifacts or when overrides
 // is nil), so every caller compares/writes against the same effective content.
-func readPatchedEmbedded(a embedded.Artifact, overrides map[string]string) ([]byte, error) {
+func readPatchedEmbedded(a embedded.Artifact, overrides map[string]config.AgentOverride) ([]byte, error) {
 	data, err := fs.ReadFile(embedded.FS, a.Source)
 	if err != nil {
 		return nil, fmt.Errorf("read embedded %s: %w", a.Source, err)
@@ -152,7 +159,7 @@ func readPatchedEmbedded(a embedded.Artifact, overrides map[string]string) ([]by
 	return patchAgentContent(a.Target, data, overrides), nil
 }
 
-func planArtifact(targetDir, home string, a embedded.Artifact, agentOverrides map[string]string) (FileAction, error) {
+func planArtifact(targetDir, home string, a embedded.Artifact, agentOverrides map[string]config.AgentOverride) (FileAction, error) {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(a.Target))
 
 	// Patch before SHA so the plan reflects the bytes Apply will write to disk.
@@ -286,7 +293,7 @@ func populateProfile(home string, clock Clock) {
 	_, _ = ProfileRefresh(home, today, profile.DefaultRefreshDays)
 }
 
-func applyAction(targetDir, home string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]string) error {
+func applyAction(targetDir, home string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]config.AgentOverride) error {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(fa.Artifact.Target))
 
 	// Patch agent frontmatter with configured model tier before any write.

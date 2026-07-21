@@ -642,19 +642,19 @@ func TestSignalsMaxDepthRoundTrip(t *testing.T) {
 
 // --- [agents] table tests (CP2) ---
 
-// TestAgentsRoundTrip: config with [agents] (valid tiers for all 5 known agents)
+// TestAgentsRoundTrip: config with [agents] (model overrides for all 5 known agents)
 // survives WritePersist→Load without structural warnings or Validate error.
 func TestAgentsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 
 	cfg := Default()
-	cfg.Agents = map[string]string{
-		"atomic-implementer":   "sonnet",
-		"atomic-investigator":  "haiku",
-		"atomic-reviewer":      "sonnet",
-		"atomic-strategist":    "opus",
-		"atomic-wiki-inferrer": "sonnet",
+	cfg.Agents = map[string]AgentOverride{
+		"atomic-implementer":   {Model: "sonnet"},
+		"atomic-investigator":  {Model: "haiku"},
+		"atomic-reviewer":      {Model: "sonnet"},
+		"atomic-strategist":    {Model: "opus"},
+		"atomic-wiki-inferrer": {Model: "sonnet"},
 	}
 
 	if err := WritePersist(path, cfg); err != nil {
@@ -675,33 +675,122 @@ func TestAgentsRoundTrip(t *testing.T) {
 	if len(loaded.Agents) != 5 {
 		t.Errorf("Agents len = %d, want 5", len(loaded.Agents))
 	}
-	if loaded.Agents["atomic-implementer"] != "sonnet" {
-		t.Errorf("atomic-implementer = %q, want %q", loaded.Agents["atomic-implementer"], "sonnet")
+	if loaded.Agents["atomic-implementer"].Model != "sonnet" {
+		t.Errorf("atomic-implementer = %q, want %q", loaded.Agents["atomic-implementer"].Model, "sonnet")
 	}
-	if loaded.Agents["atomic-investigator"] != "haiku" {
-		t.Errorf("atomic-investigator = %q, want %q", loaded.Agents["atomic-investigator"], "haiku")
+	if loaded.Agents["atomic-investigator"].Model != "haiku" {
+		t.Errorf("atomic-investigator = %q, want %q", loaded.Agents["atomic-investigator"].Model, "haiku")
 	}
-	if loaded.Agents["atomic-strategist"] != "opus" {
-		t.Errorf("atomic-strategist = %q, want %q", loaded.Agents["atomic-strategist"], "opus")
+	if loaded.Agents["atomic-strategist"].Model != "opus" {
+		t.Errorf("atomic-strategist = %q, want %q", loaded.Agents["atomic-strategist"].Model, "opus")
 	}
 }
 
-// TestAgentsInvalidTier: Validate returns an error when an agents value is outside
-// the allowlist {haiku, sonnet, opus, fable}.
-func TestAgentsInvalidTier(t *testing.T) {
+// TestAgentsFlatMigratesToNestedOnWrite: a flat `agents.x = "opus"` file loads
+// as {Model: "opus"} and the next WritePersist re-marshals it to a nested
+// [agents.<name>] table — the auto-migration is automatic, no separate pass.
+func TestAgentsFlatMigratesToNestedOnWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	flat := "[agents]\natomic-implementer = \"opus\"\n"
+	if err := os.WriteFile(path, []byte(flat), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Agents["atomic-implementer"].Model != "opus" {
+		t.Fatalf("loaded Model = %q, want %q", cfg.Agents["atomic-implementer"].Model, "opus")
+	}
+
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := string(raw)
+	if !strings.Contains(out, "[agents.atomic-implementer]") {
+		t.Errorf("expected nested table header in re-marshaled output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "model = 'opus'") {
+		t.Errorf("expected model = 'opus' in re-marshaled output, got:\n%s", out)
+	}
+}
+
+// TestAgentsInvalidEffort: Validate returns an error when an agents effort value
+// is outside the allowlist {low, medium, high, xhigh, max}.
+func TestAgentsInvalidEffort(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]string{
-		"atomic-implementer": "turbo", // invalid
+	cfg.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Effort: "turbo"}, // invalid
 	}
 	err := Validate(cfg)
 	if err == nil {
-		t.Fatal("Validate should error on invalid tier, got nil")
+		t.Fatal("Validate should error on invalid effort, got nil")
 	}
 	if !strings.Contains(err.Error(), "atomic-implementer") {
 		t.Errorf("error should mention agent name, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "turbo") {
-		t.Errorf("error should mention the invalid tier value, got: %v", err)
+		t.Errorf("error should mention the invalid effort value, got: %v", err)
+	}
+}
+
+// TestAgentsValidEffort: Validate accepts every enum value with no error.
+func TestAgentsValidEffort(t *testing.T) {
+	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+		cfg := Default()
+		cfg.Agents = map[string]AgentOverride{
+			"atomic-implementer": {Effort: effort},
+		}
+		if err := Validate(cfg); err != nil {
+			t.Errorf("Validate(effort=%q): unexpected error: %v", effort, err)
+		}
+	}
+}
+
+// TestAgentsArbitraryModelNoError: model validation is lenient — an arbitrary
+// well-formed model id never fails Validate or produces an AgentWarnings entry.
+func TestAgentsArbitraryModelNoError(t *testing.T) {
+	cfg := Default()
+	cfg.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Model: "claude-opus-4-6[1m]"},
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate: unexpected error for well-formed model: %v", err)
+	}
+	for _, w := range AgentWarnings(cfg) {
+		if strings.Contains(w.Message, "questionable value") {
+			t.Errorf("unexpected malformed-model warning for well-formed model: %v", w)
+		}
+	}
+}
+
+// TestAgentsMalformedModelWarns: a model with internal whitespace produces a
+// warning from AgentWarnings, not a Validate error.
+func TestAgentsMalformedModelWarns(t *testing.T) {
+	cfg := Default()
+	cfg.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Model: "claude opus"},
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate should not error on malformed model, got: %v", err)
+	}
+	warns := AgentWarnings(cfg)
+	found := false
+	for _, w := range warns {
+		if strings.Contains(w.Message, "questionable value") && strings.Contains(w.Message, "atomic-implementer") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a malformed-model warning, got: %v", warns)
 	}
 }
 
@@ -709,8 +798,8 @@ func TestAgentsInvalidTier(t *testing.T) {
 // Warning from AgentWarnings (non-fatal), not a Validate error (FAIL).
 func TestAgentsUnknownKeyIsWarn(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]string{
-		"made-up-agent": "haiku", // unknown key, but valid tier
+	cfg.Agents = map[string]AgentOverride{
+		"made-up-agent": {Model: "haiku"}, // unknown key, but well-formed model
 	}
 
 	// Validate must succeed (unknown key is a WARNING, not a FAIL).
@@ -787,14 +876,15 @@ atomic-investigator = "haiku"
 	}
 }
 
-// TestAgentsFableIsValid: "fable" tier passes Validate (forward-reserved).
+// TestAgentsFableIsValid: an arbitrary forward-reserved model name like
+// "fable" passes Validate — model validation has no allowlist.
 func TestAgentsFableIsValid(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]string{
-		"atomic-implementer": "fable",
+	cfg.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Model: "fable"},
 	}
 	if err := Validate(cfg); err != nil {
-		t.Errorf("Validate should accept 'fable' (forward-reserved tier), got: %v", err)
+		t.Errorf("Validate should accept 'fable' (lenient model validation), got: %v", err)
 	}
 }
 
@@ -803,9 +893,9 @@ func TestAgentsFableIsValid(t *testing.T) {
 func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
 	cfg := Default()
 	cfg.Install.Artifacts.Agents = []string{"custom-agent.md", "atomic-implementer.md"}
-	cfg.Agents = map[string]string{
-		"custom-agent":       "haiku", // in manifest → known
-		"atomic-implementer": "sonnet",
+	cfg.Agents = map[string]AgentOverride{
+		"custom-agent":       {Model: "haiku"}, // in manifest → known
+		"atomic-implementer": {Model: "sonnet"},
 	}
 	warns := AgentWarnings(cfg)
 	if len(warns) != 0 {
@@ -817,7 +907,7 @@ func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
 // not user-settable via `atomic config set`).
 func TestAgentsNotInConfigList(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]string{"atomic-implementer": "haiku"}
+	cfg.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "haiku"}}
 	m := Resolved(cfg)
 	for k := range m {
 		if strings.HasPrefix(k, "agents") {

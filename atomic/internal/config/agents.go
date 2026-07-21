@@ -31,26 +31,27 @@ var tierOptionLabels = map[string]string{
 	"fable":  "fable (future tier — forward-reserved)",
 }
 
-// applyAgentTiers merges selections into cfg.Agents.
-// A selection value of "" removes the agent's entry from [agents] (no override).
-// A non-empty value is validated against validTiers before writing.
-// Pure function: no I/O, no TTY interaction.
-func applyAgentTiers(cfg *Config, selections map[string]string) error {
-	for agentName, tier := range selections {
-		if tier == "" {
+// applyAgentOverrides merges selections into cfg.Agents.
+// A selection with both Model and Effort empty removes the agent's entry
+// from [agents] (no override). Effort is validated against the strict enum;
+// model is never a hard failure (lenient — see AgentWarnings for the
+// non-fatal malformed-model check). Pure function: no I/O, no TTY interaction.
+func applyAgentOverrides(cfg *Config, selections map[string]AgentOverride) error {
+	for agentName, ov := range selections {
+		if ov.Model == "" && ov.Effort == "" {
 			// "leave unchanged / use bundled default" — remove any existing override.
 			if cfg.Agents != nil {
 				delete(cfg.Agents, agentName)
 			}
 			continue
 		}
-		if !validTiers[tier] {
-			return fmt.Errorf("config: agents.%s: invalid tier %q; must be one of: haiku, sonnet, opus, fable", agentName, tier)
+		if ov.Effort != "" && !validEfforts[ov.Effort] {
+			return fmt.Errorf("config: agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
 		}
 		if cfg.Agents == nil {
-			cfg.Agents = make(map[string]string)
+			cfg.Agents = make(map[string]AgentOverride)
 		}
-		cfg.Agents[agentName] = tier
+		cfg.Agents[agentName] = ov
 	}
 	// Nil out empty map so TOML omits the [agents] table when no overrides remain.
 	if len(cfg.Agents) == 0 {
@@ -68,10 +69,11 @@ var ErrNonInteractiveAgents = errors.New("atomic config agents: non-interactive 
 var ErrAgentsAborted = errors.New("atomic config agents: user aborted")
 
 // defaultAgentTierSelector presents a huh-backed multi-select form — one
-// Select field per agent — and returns the chosen tier per agent.
-// "" in the result means "use bundled default / no override".
+// Select field per agent — and returns the chosen model tier per agent as an
+// AgentOverride with Effort left empty (the effort Select is a later
+// checkpoint). "" in the result means "use bundled default / no override".
 // Returns ErrNonInteractiveAgents when stdin or stdout is not a TTY.
-func defaultAgentTierSelector(cfg *Config) (map[string]string, error) {
+func defaultAgentTierSelector(cfg *Config) (map[string]AgentOverride, error) {
 	if !isAgentsTTY() {
 		return nil, ErrNonInteractiveAgents
 	}
@@ -79,7 +81,7 @@ func defaultAgentTierSelector(cfg *Config) (map[string]string, error) {
 	// Build one huh.Select per agent, pre-populating the current value.
 	results := make(map[string]*string, len(agentOrder))
 	for _, agent := range agentOrder {
-		v := cfg.Agents[agent] // "" when absent (no override)
+		v := cfg.Agents[agent].Model // "" when absent (no override)
 		s := v
 		results[agent] = &s
 	}
@@ -115,9 +117,9 @@ func defaultAgentTierSelector(cfg *Config) (map[string]string, error) {
 		return nil, fmt.Errorf("agents tier form: %w", err)
 	}
 
-	selections := make(map[string]string, len(agentOrder))
+	selections := make(map[string]AgentOverride, len(agentOrder))
 	for _, agent := range agentOrder {
-		selections[agent] = *results[agent]
+		selections[agent] = AgentOverride{Model: *results[agent]}
 	}
 	return selections, nil
 }
@@ -133,8 +135,8 @@ var isAgentsTTY = func() bool {
 // Exported so tests can restore it after overriding AgentTierSelector.
 var DefaultAgentTierSelector = defaultAgentTierSelector
 
-// AgentTierSelector is the injectable seam for the interactive tier selection.
-// Production code uses defaultAgentTierSelector (huh-backed).
+// AgentTierSelector is the injectable seam for the interactive agent override
+// selection. Production code uses defaultAgentTierSelector (huh-backed).
 // Tests override this to return crafted selections without spawning a TTY.
-// Signature: func(cfg *Config) (map[string]string, error)
+// Signature: func(cfg *Config) (map[string]AgentOverride, error)
 var AgentTierSelector = defaultAgentTierSelector

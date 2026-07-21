@@ -119,25 +119,45 @@ func TestRenderHarnessDirSetValue(t *testing.T) {
 // TestRenderAgentsSection: Render includes the [agents] section when overrides are set.
 func TestRenderAgentsSection(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]string{
-		"atomic-implementer":  "sonnet",
-		"atomic-investigator": "haiku",
+	cfg.Agents = map[string]AgentOverride{
+		"atomic-implementer":  {Model: "sonnet"},
+		"atomic-investigator": {Model: "haiku"},
 	}
 	out := Render(cfg)
 	if !strings.Contains(out, "## [agents]") {
 		t.Errorf("expected '## [agents]' section in render, got:\n%s", out)
 	}
-	if !strings.Contains(out, "agents.atomic-implementer") {
-		t.Errorf("expected 'agents.atomic-implementer' in render, got:\n%s", out)
+	if !strings.Contains(out, "agents.atomic-implementer.model") {
+		t.Errorf("expected 'agents.atomic-implementer.model' in render, got:\n%s", out)
 	}
 	if !strings.Contains(out, "sonnet") {
-		t.Errorf("expected 'sonnet' tier in render, got:\n%s", out)
+		t.Errorf("expected 'sonnet' model in render, got:\n%s", out)
 	}
-	if !strings.Contains(out, "agents.atomic-investigator") {
-		t.Errorf("expected 'agents.atomic-investigator' in render, got:\n%s", out)
+	if !strings.Contains(out, "agents.atomic-investigator.model") {
+		t.Errorf("expected 'agents.atomic-investigator.model' in render, got:\n%s", out)
 	}
 	if !strings.Contains(out, "haiku") {
-		t.Errorf("expected 'haiku' tier in render, got:\n%s", out)
+		t.Errorf("expected 'haiku' model in render, got:\n%s", out)
+	}
+}
+
+// TestRenderAgentsSectionEffort: Render emits the .effort dotted key alongside
+// (or independently of) .model, per agent.
+func TestRenderAgentsSectionEffort(t *testing.T) {
+	cfg := Default()
+	cfg.Agents = map[string]AgentOverride{
+		"atomic-implementer":  {Model: "opus", Effort: "high"},
+		"atomic-investigator": {Effort: "low"}, // effort-only, no model
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, "agents.atomic-implementer.model") || !strings.Contains(out, "agents.atomic-implementer.effort") {
+		t.Errorf("expected both .model and .effort keys for atomic-implementer, got:\n%s", out)
+	}
+	if !strings.Contains(out, "agents.atomic-investigator.effort") {
+		t.Errorf("expected '.effort' key for atomic-investigator, got:\n%s", out)
+	}
+	if strings.Contains(out, "agents.atomic-investigator.model") {
+		t.Errorf("expected no '.model' key for effort-only atomic-investigator, got:\n%s", out)
 	}
 }
 
@@ -155,15 +175,15 @@ func TestRenderAgentsSectionAbsent(t *testing.T) {
 // sections so sessions reading the file see the full active configuration.
 func TestRenderAgentsInRenderedFileOnly(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]string{"atomic-implementer": "opus"}
+	cfg.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "opus"}}
 
 	// Render (config.resolved.md) must include the agents entry.
 	rendered := Render(cfg)
-	if !strings.Contains(rendered, "agents.atomic-implementer") {
-		t.Errorf("Render: expected 'agents.atomic-implementer' in rendered output, got:\n%s", rendered)
+	if !strings.Contains(rendered, "agents.atomic-implementer.model") {
+		t.Errorf("Render: expected 'agents.atomic-implementer.model' in rendered output, got:\n%s", rendered)
 	}
 	if !strings.Contains(rendered, "opus") {
-		t.Errorf("Render: expected 'opus' tier in rendered output, got:\n%s", rendered)
+		t.Errorf("Render: expected 'opus' model in rendered output, got:\n%s", rendered)
 	}
 
 	// Resolved (atomic config list) must NOT include agents — machine-written section.

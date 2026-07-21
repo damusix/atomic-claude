@@ -198,7 +198,7 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "atomic config agents: %v\n", err)
 			return 1
 		}
-		if err := applyAgentTiers(cfg, selections); err != nil {
+		if err := applyAgentOverrides(cfg, selections); err != nil {
 			fmt.Fprintf(stderr, "atomic config agents: %v\n", err)
 			return 1
 		}

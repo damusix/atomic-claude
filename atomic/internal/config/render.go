@@ -18,9 +18,15 @@ func Render(cfg *Config) string {
 	m := Resolved(cfg)
 	// Merge in [agents] overrides. These are machine-written (not user-settable
 	// via `atomic config set`), but belong in the rendered file so sessions
-	// reading config.resolved.md can see which agents are pinned to which tier.
-	for agentName, tier := range cfg.Agents {
-		m["agents."+agentName] = tier
+	// reading config.resolved.md can see which agents are pinned to which
+	// model and/or effort.
+	for agentName, ov := range cfg.Agents {
+		if ov.Model != "" {
+			m["agents."+agentName+".model"] = ov.Model
+		}
+		if ov.Effort != "" {
+			m["agents."+agentName+".effort"] = ov.Effort
+		}
 	}
 
 	// Sort keys for determinism.

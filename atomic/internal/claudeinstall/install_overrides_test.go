@@ -20,7 +20,7 @@ import (
 func writeOverrideConfig(t *testing.T, targetDir, agentName, tier string) {
 	t.Helper()
 	cfg := config.Default()
-	cfg.Agents = map[string]string{agentName: tier}
+	cfg.Agents = map[string]config.AgentOverride{agentName: {Model: tier}}
 	if err := config.WritePersist(config.TOMLPath(targetDir), cfg); err != nil {
 		t.Fatalf("write override config: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestAgentModelOverride_ConfigChange(t *testing.T) {
 func TestAgentModelOverride_KeyAdded(t *testing.T) {
 	// Synthetic content without a model: key.
 	content := []byte("---\nname: test-agent\ndescription: simple test\n---\nBody here.\n")
-	overrides := map[string]string{"test-agent": "opus"}
+	overrides := map[string]config.AgentOverride{"test-agent": {Model: "opus"}}
 
 	result := claudeinstall.PatchAgentContent("agents/test-agent.md", content, overrides)
 
@@ -222,7 +222,7 @@ func TestAgentModelOverride_DryRun(t *testing.T) {
 func TestAgentModelOverride_RoundTrip(t *testing.T) {
 	// Simple content with known key order: name, tools, model.
 	original := "---\nname: my-agent\ntools: [Read]\nmodel: sonnet\n---\nMy body.\n"
-	overrides := map[string]string{"my-agent": "haiku"}
+	overrides := map[string]config.AgentOverride{"my-agent": {Model: "haiku"}}
 
 	result := claudeinstall.PatchAgentContent("agents/my-agent.md", []byte(original), overrides)
 
@@ -262,7 +262,7 @@ func TestAgentModelOverride_RoundTrip(t *testing.T) {
 // non-agent targets even when an override is configured.
 func TestAgentModelOverride_NonAgentUnchanged(t *testing.T) {
 	content := []byte("---\nname: test\n---\nBody.\n")
-	overrides := map[string]string{"test": "haiku"}
+	overrides := map[string]config.AgentOverride{"test": {Model: "haiku"}}
 
 	result := claudeinstall.PatchAgentContent("commands/test.md", content, overrides)
 	if sha256hex(result) != sha256hex(content) {
