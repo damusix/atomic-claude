@@ -18,43 +18,42 @@ var agentOrder = []string{
 	"atomic-wiki-inferrer",
 }
 
-// tierOptionValues is the ordered list of selectable tier values.
-// The empty string represents "Use bundled default (no override)".
-var tierOptionValues = []string{"", "haiku", "sonnet", "opus", "fable"}
-
-// tierOptionLabels maps a tier value to its human-readable label.
-var tierOptionLabels = map[string]string{
-	"":       "Use bundled default (no override)",
-	"haiku":  "haiku (fast, cost-efficient)",
-	"sonnet": "sonnet (balanced)",
-	"opus":   "opus (most capable)",
-	"fable":  "fable (future tier — forward-reserved)",
+// effortOptionLabels maps an effort option value to its label in the
+// interactive Select. Terse and factual — no per-agent editorializing.
+var effortOptionLabels = map[string]string{
+	"":       "(bundled default)",
+	"low":    "low",
+	"medium": "medium",
+	"high":   "high",
+	"xhigh":  "xhigh",
+	"max":    "max",
 }
 
-// applyAgentTiers merges selections into cfg.Agents.
-// A selection value of "" removes the agent's entry from [agents] (no override).
-// A non-empty value is validated against validTiers before writing.
-// Pure function: no I/O, no TTY interaction.
-func applyAgentTiers(cfg *Config, selections map[string]string) error {
-	for agentName, tier := range selections {
-		if tier == "" {
+// applyAgentOverrides merges selections into cfg.Claude.Agents.
+// A selection with both Model and Effort empty removes the agent's entry
+// from [claude.agents] (no override). Effort is validated against the strict
+// enum; model is never a hard failure (lenient — see AgentWarnings for the
+// non-fatal malformed-model check). Pure function: no I/O, no TTY interaction.
+func applyAgentOverrides(cfg *Config, selections map[string]AgentOverride) error {
+	for agentName, ov := range selections {
+		if ov.Model == "" && ov.Effort == "" {
 			// "leave unchanged / use bundled default" — remove any existing override.
-			if cfg.Agents != nil {
-				delete(cfg.Agents, agentName)
+			if cfg.Claude.Agents != nil {
+				delete(cfg.Claude.Agents, agentName)
 			}
 			continue
 		}
-		if !validTiers[tier] {
-			return fmt.Errorf("config: agents.%s: invalid tier %q; must be one of: haiku, sonnet, opus, fable", agentName, tier)
+		if ov.Effort != "" && !validEfforts[ov.Effort] {
+			return fmt.Errorf("config: claude.agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
 		}
-		if cfg.Agents == nil {
-			cfg.Agents = make(map[string]string)
+		if cfg.Claude.Agents == nil {
+			cfg.Claude.Agents = make(map[string]AgentOverride)
 		}
-		cfg.Agents[agentName] = tier
+		cfg.Claude.Agents[agentName] = ov
 	}
-	// Nil out empty map so TOML omits the [agents] table when no overrides remain.
-	if len(cfg.Agents) == 0 {
-		cfg.Agents = nil
+	// Nil out empty map so TOML omits the [claude.agents] table when no overrides remain.
+	if len(cfg.Claude.Agents) == 0 {
+		cfg.Claude.Agents = nil
 	}
 	return nil
 }
@@ -67,43 +66,56 @@ var ErrNonInteractiveAgents = errors.New("atomic config agents: non-interactive 
 // ErrAgentsAborted is returned when the user aborts the huh form (Ctrl+C).
 var ErrAgentsAborted = errors.New("atomic config agents: user aborted")
 
-// defaultAgentTierSelector presents a huh-backed multi-select form — one
-// Select field per agent — and returns the chosen tier per agent.
-// "" in the result means "use bundled default / no override".
-// Returns ErrNonInteractiveAgents when stdin or stdout is not a TTY.
-func defaultAgentTierSelector(cfg *Config) (map[string]string, error) {
+// validateModelInput is the huh.Input validator for the model field. Empty
+// is always valid (no override); a non-empty value must satisfy
+// validModelFormat. Named and exported at package scope so it is
+// unit-testable without spawning a TTY.
+func validateModelInput(s string) error {
+	if s == "" || validModelFormat(s) {
+		return nil
+	}
+	return fmt.Errorf("no spaces; use a tier (opus) or a model id (claude-opus-4-8)")
+}
+
+// defaultAgentTierSelector presents a huh-backed form — a free-text model
+// Input plus an effort Select per agent — and returns the chosen
+// AgentOverride per agent. Both fields empty means "use bundled default /
+// no override". Returns ErrNonInteractiveAgents when stdin or stdout is not
+// a TTY.
+func defaultAgentTierSelector(cfg *Config) (map[string]AgentOverride, error) {
 	if !isAgentsTTY() {
 		return nil, ErrNonInteractiveAgents
 	}
 
-	// Build one huh.Select per agent, pre-populating the current value.
-	results := make(map[string]*string, len(agentOrder))
+	// One model + one effort pointer per agent, pre-populated from cfg.
+	models := make(map[string]*string, len(agentOrder))
+	efforts := make(map[string]*string, len(agentOrder))
 	for _, agent := range agentOrder {
-		v := cfg.Agents[agent] // "" when absent (no override)
-		s := v
-		results[agent] = &s
+		m := cfg.Claude.Agents[agent].Model
+		e := cfg.Claude.Agents[agent].Effort
+		models[agent] = &m
+		efforts[agent] = &e
+	}
+
+	var effortOpts []huh.Option[string]
+	for _, v := range effortOptionValues {
+		effortOpts = append(effortOpts, huh.NewOption(effortOptionLabels[v], v))
 	}
 
 	var fields []huh.Field
 	for _, agent := range agentOrder {
 		agent := agent // capture
-		ptr := results[agent]
 
-		var opts []huh.Option[string]
-		for _, v := range tierOptionValues {
-			opts = append(opts, huh.NewOption(tierOptionLabels[v], v))
-		}
-
-		current := *ptr
-		title := fmt.Sprintf("Model tier for %s", agent)
-		if current != "" {
-			title = fmt.Sprintf("Model tier for %s (current: %s)", agent, current)
-		}
-
+		fields = append(fields, huh.NewInput().
+			Title(fmt.Sprintf("Model for %s (blank = bundled default)", agent)).
+			Placeholder("opus | claude-opus-4-8").
+			Value(models[agent]).
+			Validate(validateModelInput),
+		)
 		fields = append(fields, huh.NewSelect[string]().
-			Title(title).
-			Options(opts...).
-			Value(ptr),
+			Title(fmt.Sprintf("Effort for %s", agent)).
+			Options(effortOpts...).
+			Value(efforts[agent]),
 		)
 	}
 
@@ -115,9 +127,9 @@ func defaultAgentTierSelector(cfg *Config) (map[string]string, error) {
 		return nil, fmt.Errorf("agents tier form: %w", err)
 	}
 
-	selections := make(map[string]string, len(agentOrder))
+	selections := make(map[string]AgentOverride, len(agentOrder))
 	for _, agent := range agentOrder {
-		selections[agent] = *results[agent]
+		selections[agent] = AgentOverride{Model: *models[agent], Effort: *efforts[agent]}
 	}
 	return selections, nil
 }
@@ -133,8 +145,8 @@ var isAgentsTTY = func() bool {
 // Exported so tests can restore it after overriding AgentTierSelector.
 var DefaultAgentTierSelector = defaultAgentTierSelector
 
-// AgentTierSelector is the injectable seam for the interactive tier selection.
-// Production code uses defaultAgentTierSelector (huh-backed).
+// AgentTierSelector is the injectable seam for the interactive agent override
+// selection. Production code uses defaultAgentTierSelector (huh-backed).
 // Tests override this to return crafted selections without spawning a TTY.
-// Signature: func(cfg *Config) (map[string]string, error)
+// Signature: func(cfg *Config) (map[string]AgentOverride, error)
 var AgentTierSelector = defaultAgentTierSelector

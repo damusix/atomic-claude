@@ -55,7 +55,7 @@ var knownSchemaKeys = func() []string {
 // semantic validation (value allowlist, known-key check) is left to Validate /
 // AgentWarnings.
 var opaqueSections = map[string]bool{
-	"agents": true,
+	"claude": true,
 	"pi":     true,
 }
 
@@ -126,16 +126,6 @@ type installSection struct {
 	Artifacts installArtifactsSection `toml:"artifacts"`
 }
 
-// validTiers is the allowlist of model tier values for [agents] overrides.
-// "fable" is forward-reserved and may not yet correspond to a recognized Claude Code
-// model tier at runtime, but is allowlisted to avoid validation churn when it lands.
-var validTiers = map[string]bool{
-	"haiku":  true,
-	"sonnet": true,
-	"opus":   true,
-	"fable":  true, // forward-reserved; may not be a live Claude Code model tier yet
-}
-
 // knownAtomicAgents is the static set of bundled atomic agent filenames (no .md suffix).
 // Used as the fallback known-agent set when [install.artifacts].agents is absent.
 // Must stay in sync with the agent files shipped under agents/ in the repo.
@@ -145,6 +135,17 @@ var knownAtomicAgents = map[string]bool{
 	"atomic-reviewer":      true,
 	"atomic-strategist":    true,
 	"atomic-wiki-inferrer": true,
+}
+
+// claudeSection is the [claude] TOML table, namespaced to mirror pi's
+// [pi.agents]: both harnesses read [<harness>.agents.<name>].
+type claudeSection struct {
+	// Agents maps bundled agent filenames (no .md suffix) to their model/effort
+	// override, read from [claude.agents.<name>] tables. Machine-written by
+	// `atomic config agents`; re-applied at install time. Omitted from TOML
+	// when empty. NOT in knownKeys — not user-settable via `atomic config set`.
+	// Nested-table decode only — no scalar form, no migration.
+	Agents map[string]AgentOverride `toml:"agents,omitempty"`
 }
 
 // Config is the parsed + defaulted configuration.
@@ -158,10 +159,9 @@ type Config struct {
 	Pi map[string]any `toml:"pi,omitempty"`
 	// Install is omitted from TOML when zero-valued (no install manifest yet).
 	Install installSection `toml:"install,omitempty"`
-	// Agents maps bundled agent filenames (no .md suffix) to model tier strings.
-	// Machine-written by `atomic config agents` (CP3); re-applied at install time (CP4).
-	// Omitted from TOML when empty. NOT in knownKeys — not user-settable via `atomic config set`.
-	Agents map[string]string `toml:"agents,omitempty"`
+	// Claude carries the Claude Code harness's per-agent overrides. Omitted
+	// from TOML when zero-valued.
+	Claude claudeSection `toml:"claude,omitempty"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -300,7 +300,7 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 				})
 				continue
 			}
-			// Opaque sections (e.g. [agents]) accept arbitrary child keys.
+			// Opaque sections (e.g. [claude]) accept arbitrary child keys.
 			// Do not recurse — structural checking is skipped for their children.
 			// Semantic validation (value allowlist, known-key check) is in Validate / AgentWarnings.
 			if opaqueSections[k] {
@@ -340,25 +340,28 @@ func Validate(cfg *Config) error {
 	if cfg.Install.Version != "" && !selfupdate.IsValidSemver(cfg.Install.Version) {
 		return fmt.Errorf("config: install.version %q is not a valid semver string (e.g. \"1.2.0\")", cfg.Install.Version)
 	}
-	// [agents]: any value outside the tier allowlist is a hard validation failure.
-	// A key that is not a known agent name is a non-fatal warning (see AgentWarnings).
-	for agentName, tier := range cfg.Agents {
-		if !validTiers[tier] {
-			return fmt.Errorf("config: agents.%s: invalid tier %q; must be one of: haiku, sonnet, opus, fable", agentName, tier)
+	// [claude.agents]: effort is strict — any non-empty value outside the enum
+	// is a hard validation failure. model is lenient and never blocks loading
+	// (see AgentWarnings for the non-fatal malformed-model check). A key that
+	// is not a known agent name is also a non-fatal warning (see AgentWarnings).
+	for agentName, ov := range cfg.Claude.Agents {
+		if ov.Effort != "" && !validEfforts[ov.Effort] {
+			return fmt.Errorf("config: claude.agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
 		}
 	}
 	return nil
 }
 
-// AgentWarnings returns non-fatal warnings for [agents] keys that are not in the
-// known bundled-agent set. An unknown key does not prevent loading or rendering —
-// the user may have a custom agent or may have removed a bundled one.
+// AgentWarnings returns non-fatal warnings for [claude.agents] keys that are
+// not in the known bundled-agent set. An unknown key does not prevent loading
+// or rendering — the user may have a custom agent or may have removed a
+// bundled one.
 //
 // The known-agent set is derived from cfg.Install.Artifacts.Agents (the install
 // manifest, filenames including .md suffix) when available; otherwise falls back
 // to knownAtomicAgents (the static set of the 5 shipped atomic-* agents).
 func AgentWarnings(cfg *Config) []Warning {
-	if len(cfg.Agents) == 0 {
+	if len(cfg.Claude.Agents) == 0 {
 		return nil
 	}
 
@@ -372,10 +375,15 @@ func AgentWarnings(cfg *Config) []Warning {
 	}
 
 	var warns []Warning
-	for agentName := range cfg.Agents {
+	for agentName, ov := range cfg.Claude.Agents {
 		if !known[agentName] {
 			warns = append(warns, Warning{
-				Message: fmt.Sprintf("config: agents.%s: unknown agent (not in installed set); tier override stored but agent must exist at apply time", agentName),
+				Message: fmt.Sprintf("config: claude.agents.%s: unknown agent (not in installed set); override stored but agent must exist at apply time", agentName),
+			})
+		}
+		if ov.Model != "" && !validModelFormat(ov.Model) {
+			warns = append(warns, Warning{
+				Message: fmt.Sprintf("config: claude.agents.%s.model: questionable value %q; passed through as-is", agentName, ov.Model),
 			})
 		}
 	}

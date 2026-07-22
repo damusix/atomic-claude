@@ -59,37 +59,43 @@ type FileAction struct {
 	ProposedPath string // set when ActionMergeRequired
 }
 
-// loadAgentOverrides reads the config and returns the [agents] override map.
-// Best-effort: returns nil when the config is absent, unreadable, or has no
-// [agents] entries so callers treat nil as "no overrides, use bundled defaults".
-func loadAgentOverrides(home string) map[string]string {
+// loadAgentOverrides reads the config and returns the [claude.agents] override
+// map. Best-effort: returns nil when the config is absent, unreadable, or has
+// no [claude.agents] entries so callers treat nil as "no overrides, use
+// bundled defaults".
+func loadAgentOverrides(home string) map[string]config.AgentOverride {
 	cfgPath := config.TOMLPath(home)
 	cfg, _, err := config.Load(cfgPath)
-	if err != nil || len(cfg.Agents) == 0 {
+	if err != nil || len(cfg.Claude.Agents) == 0 {
 		return nil
 	}
-	return cfg.Agents
+	return cfg.Claude.Agents
 }
 
-// patchAgentContent rewrites the model: key in an agent artifact's frontmatter
-// to the configured tier, preserving all other keys and their source order.
+// patchAgentContent rewrites the model: and/or effort: keys in an agent
+// artifact's frontmatter to the configured overrides, preserving all other
+// keys and their source order.
 //
 // It is a no-op when:
 //   - overrides is nil or has no entry for this agent name
 //   - target does not start with "agents/"
+//   - the entry has both Model and Effort empty
 //   - the file has no parseable frontmatter block
 //   - frontmatter parsing or emission fails (returns original content unchanged)
 //
+// Model and Effort are patched independently: an effort-only override leaves
+// model: untouched, and vice versa.
+//
 // This is called from both Plan (to compute the correct expected SHA) and
 // Apply (to write the patched bytes) so both sides agree on the on-disk content.
-func patchAgentContent(target string, content []byte, overrides map[string]string) []byte {
+func patchAgentContent(target string, content []byte, overrides map[string]config.AgentOverride) []byte {
 	if len(overrides) == 0 || !strings.HasPrefix(target, "agents/") {
 		return content
 	}
 	// Agent name is the basename without the .md suffix.
 	agentName := strings.TrimSuffix(filepath.Base(filepath.FromSlash(target)), ".md")
-	tier, ok := overrides[agentName]
-	if !ok || tier == "" {
+	ov, ok := overrides[agentName]
+	if !ok || (ov.Model == "" && ov.Effort == "") {
 		return content
 	}
 
@@ -100,17 +106,11 @@ func patchAgentContent(target string, content []byte, overrides map[string]strin
 		return content
 	}
 
-	// Set existing model: key or append it when absent.
-	found := false
-	for i := range kvs {
-		if kvs[i].Key == "model" {
-			kvs[i].Value = tier
-			found = true
-			break
-		}
+	if ov.Model != "" {
+		kvs = setOrAppendKey(kvs, "model", ov.Model)
 	}
-	if !found {
-		kvs = append(kvs, frontmatter.KV{Key: "model", Value: tier})
+	if ov.Effort != "" {
+		kvs = setOrAppendKey(kvs, "effort", ov.Effort)
 	}
 
 	result, err := frontmatter.EmitOrdered(kvs, body)
@@ -120,8 +120,20 @@ func patchAgentContent(target string, content []byte, overrides map[string]strin
 	return []byte(result)
 }
 
+// setOrAppendKey sets the value of an existing key or appends it when absent,
+// preserving the source order of every other key.
+func setOrAppendKey(kvs []frontmatter.KV, key, value string) []frontmatter.KV {
+	for i := range kvs {
+		if kvs[i].Key == key {
+			kvs[i].Value = value
+			return kvs
+		}
+	}
+	return append(kvs, frontmatter.KV{Key: key, Value: value})
+}
+
 // Plan computes the per-file action list without writing anything.
-// It loads the [agents] config overrides and factors the patched content into
+// It loads the [claude.agents] config overrides and factors the patched content into
 // the SHA comparison so the plan correctly reflects what Apply will write.
 //
 // targetDir is the Claude artifact install root (commands/, agents/, ...);
@@ -142,9 +154,9 @@ func Plan(targetDir, home string, manifest []embedded.Artifact) ([]FileAction, e
 }
 
 // readPatchedEmbedded reads an embedded artifact's bytes and applies the
-// [agents] tier override (a no-op for non-agent artifacts or when overrides
+// [claude.agents] tier override (a no-op for non-agent artifacts or when overrides
 // is nil), so every caller compares/writes against the same effective content.
-func readPatchedEmbedded(a embedded.Artifact, overrides map[string]string) ([]byte, error) {
+func readPatchedEmbedded(a embedded.Artifact, overrides map[string]config.AgentOverride) ([]byte, error) {
 	data, err := fs.ReadFile(embedded.FS, a.Source)
 	if err != nil {
 		return nil, fmt.Errorf("read embedded %s: %w", a.Source, err)
@@ -152,7 +164,7 @@ func readPatchedEmbedded(a embedded.Artifact, overrides map[string]string) ([]by
 	return patchAgentContent(a.Target, data, overrides), nil
 }
 
-func planArtifact(targetDir, home string, a embedded.Artifact, agentOverrides map[string]string) (FileAction, error) {
+func planArtifact(targetDir, home string, a embedded.Artifact, agentOverrides map[string]config.AgentOverride) (FileAction, error) {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(a.Target))
 
 	// Patch before SHA so the plan reflects the bytes Apply will write to disk.
@@ -199,12 +211,49 @@ func planArtifact(targetDir, home string, a embedded.Artifact, agentOverrides ma
 	return FileAction{Artifact: a, Kind: ActionUpdated}, nil
 }
 
+// ReapplyAgents re-patches only the agent artifacts already installed on
+// disk at targetDir with the current [claude.agents] config overrides from home. It
+// never performs a first-time install: an agent artifact absent from disk is
+// left untouched. changed holds the basenames (without .md) of the agent
+// files actually rewritten; installed counts every agent artifact found
+// already present on disk (in sync or rewritten).
+//
+// Reuses Plan/Apply so writes get the same backup behavior as a normal
+// install/update, filtered down to the agent-artifact ActionUpdated subset.
+func ReapplyAgents(targetDir, home string) (changed []string, installed int, err error) {
+	plan, err := Plan(targetDir, home, embedded.Manifest())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var toApply []FileAction
+	for _, fa := range plan {
+		if fa.Artifact.Kind != "agent" || fa.Kind == ActionInstalled {
+			continue // not an agent, or absent on disk — never a first-time install
+		}
+		installed++
+		if fa.Kind == ActionUpdated {
+			toApply = append(toApply, fa)
+		}
+	}
+
+	if err := Apply(targetDir, home, toApply, false, RealClock); err != nil {
+		return nil, installed, err
+	}
+
+	for _, fa := range toApply {
+		changed = append(changed, strings.TrimSuffix(filepath.Base(filepath.FromSlash(fa.Artifact.Target)), ".md"))
+	}
+	return changed, installed, nil
+}
+
 // Apply executes a plan. If dryRun is true, no filesystem writes occur.
 // clock is used for the backup timestamp — pass RealClock for production use.
 //
-// Apply loads the [agents] config overrides from home and patches each
-// agent artifact's model: frontmatter key before writing, so the user's
-// configured tier is always re-applied on every install/update.
+// Apply loads the [claude.agents] config overrides from home and patches each
+// agent artifact's model: and effort: frontmatter keys before writing, so the
+// user's configured model/effort overrides are always re-applied on every
+// install/update.
 func Apply(targetDir, home string, plan []FileAction, dryRun bool, clock Clock) error {
 	// Capture the run-start time once so all backups in this run share the same
 	// timestamp directory, regardless of when the first ActionUpdated is encountered.
@@ -286,12 +335,12 @@ func populateProfile(home string, clock Clock) {
 	_, _ = ProfileRefresh(home, today, profile.DefaultRefreshDays)
 }
 
-func applyAction(targetDir, home string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]string) error {
+func applyAction(targetDir, home string, fa *FileAction, dryRun bool, backupTimestamp string, agentOverrides map[string]config.AgentOverride) error {
 	onDiskPath := filepath.Join(targetDir, filepath.FromSlash(fa.Artifact.Target))
 
-	// Patch agent frontmatter with configured model tier before any write.
-	// This ensures the user's tier choice survives every install/update cycle,
-	// including binary upgrades that ship new bundled agent content.
+	// Patch agent frontmatter with the configured model/effort overrides before
+	// any write. This ensures the user's choices survive every install/update
+	// cycle, including binary upgrades that ship new bundled agent content.
 	embeddedData, err := readPatchedEmbedded(fa.Artifact, agentOverrides)
 	if err != nil {
 		return err
@@ -473,7 +522,7 @@ type DiffRow struct {
 }
 
 // Diff compares each manifest artifact against the on-disk state. Read-only.
-// Loads the [agents] config overrides once so agent rows are compared against
+// Loads the [claude.agents] config overrides once so agent rows are compared against
 // the patched content Apply would have written, not the raw bundle bytes —
 // otherwise a correct install with a configured tier override falsely reports
 // as drifted (issue #129).

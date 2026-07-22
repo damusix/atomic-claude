@@ -9,9 +9,19 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 )
+
+// ApplyAgentsHook re-patches already-installed agent files with the current
+// [claude.agents] overrides after `atomic config agents` saves. nil in production
+// until cmd/atomic wires it to claudeinstall.ReapplyAgents at startup — this
+// seam exists because internal/config must not import internal/claudeinstall
+// (claudeinstall already imports config, which would be a cycle). changed is
+// the list of agent basenames rewritten; installed is how many configured
+// agents were already present on disk.
+var ApplyAgentsHook func(home string) (changed []string, installed int, err error)
 
 // Run is the CLI entry point for `atomic config <verb> [args]`.
 // home is the user's home directory (caller resolves it; Run does not call os.UserHomeDir).
@@ -198,7 +208,7 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "atomic config agents: %v\n", err)
 			return 1
 		}
-		if err := applyAgentTiers(cfg, selections); err != nil {
+		if err := applyAgentOverrides(cfg, selections); err != nil {
 			fmt.Fprintf(stderr, "atomic config agents: %v\n", err)
 			return 1
 		}
@@ -210,7 +220,23 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "atomic config agents: write resolved: %v\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "Agent tier overrides saved.")
+		if ApplyAgentsHook == nil {
+			fmt.Fprintln(stdout, "Agent tier overrides saved.")
+			return 0
+		}
+		changed, installed, applyErr := ApplyAgentsHook(home)
+		switch {
+		case applyErr != nil:
+			fmt.Fprintf(stderr, "atomic config agents: saved, but could not auto-apply to installed agents: %v\n", applyErr)
+			fmt.Fprintln(stderr, "Run 'atomic claude install' to apply.")
+		case installed == 0:
+			fmt.Fprintln(stdout, "Saved. No installed agents found — will apply on the next 'atomic claude install'.")
+		case len(changed) == 0:
+			fmt.Fprintln(stdout, "Saved. Installed agents already up to date.")
+		default:
+			fmt.Fprintf(stdout, "Saved and applied to %d installed agent file(s): %s.\n", len(changed), strings.Join(changed, ", "))
+			fmt.Fprintln(stdout, "Restart Claude Code sessions to pick up the change.")
+		}
 		return 0
 
 	default:

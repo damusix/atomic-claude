@@ -7,137 +7,197 @@ import (
 	"testing"
 )
 
-// --- applyAgentTiers (pure function) ---
+// --- validateModelInput (huh.Input validator, pure function) ---
 
-// TestApplyAgentTiers_validSelections: valid tier selections are written to cfg.Agents.
-func TestApplyAgentTiers_validSelections(t *testing.T) {
-	cfg := Default()
-	selections := map[string]string{
-		"atomic-implementer":   "sonnet",
-		"atomic-investigator":  "haiku",
-		"atomic-reviewer":      "sonnet",
-		"atomic-strategist":    "opus",
-		"atomic-wiki-inferrer": "haiku",
+// TestValidateModelInput: empty passes (no override); well-formed model
+// strings pass; strings with internal whitespace fail with a guidance error.
+func TestValidateModelInput(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		wantErr bool
+	}{
+		{"empty", "", false},
+		{"tier", "opus", false},
+		{"model id with bracket suffix", "claude-opus-4-6[1m]", false},
+		{"two words", "two words", true},
+		{"leading space", " opus", true},
+		{"trailing space", "opus ", true},
+		{"leading tab", "\topus", true},
 	}
-	if err := applyAgentTiers(cfg, selections); err != nil {
-		t.Fatalf("applyAgentTiers: unexpected error: %v", err)
-	}
-	if len(cfg.Agents) != 5 {
-		t.Fatalf("Agents len = %d, want 5", len(cfg.Agents))
-	}
-	if cfg.Agents["atomic-implementer"] != "sonnet" {
-		t.Errorf("atomic-implementer = %q, want %q", cfg.Agents["atomic-implementer"], "sonnet")
-	}
-	if cfg.Agents["atomic-strategist"] != "opus" {
-		t.Errorf("atomic-strategist = %q, want %q", cfg.Agents["atomic-strategist"], "opus")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateModelInput(tc.in)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("validateModelInput(%q) = %v, wantErr %v", tc.in, err, tc.wantErr)
+			}
+		})
 	}
 }
 
-// TestApplyAgentTiers_invalidTier: an invalid tier value returns an error
-// (delegates to validTiers allowlist).
-func TestApplyAgentTiers_invalidTier(t *testing.T) {
+// --- effort option list (interactive Select) ---
+
+// TestEffortOptionValues_order: the ordered option list is exactly
+// "" (bundled default) followed by the five-level enum, in enum order.
+func TestEffortOptionValues_order(t *testing.T) {
+	want := []string{"", "low", "medium", "high", "xhigh", "max"}
+	if len(effortOptionValues) != len(want) {
+		t.Fatalf("effortOptionValues = %v, want %v", effortOptionValues, want)
+	}
+	for i, v := range want {
+		if effortOptionValues[i] != v {
+			t.Errorf("effortOptionValues[%d] = %q, want %q", i, effortOptionValues[i], v)
+		}
+	}
+}
+
+// --- applyAgentOverrides (pure function) ---
+
+// TestApplyAgentOverrides_validSelections: valid model selections are written to cfg.Claude.Agents.
+func TestApplyAgentOverrides_validSelections(t *testing.T) {
 	cfg := Default()
-	err := applyAgentTiers(cfg, map[string]string{
-		"atomic-implementer": "turbo", // not in allowlist
+	selections := map[string]AgentOverride{
+		"atomic-implementer":   {Model: "sonnet"},
+		"atomic-investigator":  {Model: "haiku"},
+		"atomic-reviewer":      {Model: "sonnet"},
+		"atomic-strategist":    {Model: "opus"},
+		"atomic-wiki-inferrer": {Model: "haiku"},
+	}
+	if err := applyAgentOverrides(cfg, selections); err != nil {
+		t.Fatalf("applyAgentOverrides: unexpected error: %v", err)
+	}
+	if len(cfg.Claude.Agents) != 5 {
+		t.Fatalf("Agents len = %d, want 5", len(cfg.Claude.Agents))
+	}
+	if cfg.Claude.Agents["atomic-implementer"].Model != "sonnet" {
+		t.Errorf("atomic-implementer = %q, want %q", cfg.Claude.Agents["atomic-implementer"].Model, "sonnet")
+	}
+	if cfg.Claude.Agents["atomic-strategist"].Model != "opus" {
+		t.Errorf("atomic-strategist = %q, want %q", cfg.Claude.Agents["atomic-strategist"].Model, "opus")
+	}
+}
+
+// TestApplyAgentOverrides_invalidModelNeverFails: model validation is lenient —
+// applyAgentOverrides never hard-fails on an arbitrary model string.
+func TestApplyAgentOverrides_invalidModelNeverFails(t *testing.T) {
+	cfg := Default()
+	err := applyAgentOverrides(cfg, map[string]AgentOverride{
+		"atomic-implementer": {Model: "turbo"}, // arbitrary, still accepted
+	})
+	if err != nil {
+		t.Fatalf("applyAgentOverrides: unexpected error for lenient model: %v", err)
+	}
+	if cfg.Claude.Agents["atomic-implementer"].Model != "turbo" {
+		t.Errorf("atomic-implementer = %q, want %q", cfg.Claude.Agents["atomic-implementer"].Model, "turbo")
+	}
+}
+
+// TestApplyAgentOverrides_invalidEffort: an invalid effort value returns an error
+// (delegates to the validEfforts allowlist).
+func TestApplyAgentOverrides_invalidEffort(t *testing.T) {
+	cfg := Default()
+	err := applyAgentOverrides(cfg, map[string]AgentOverride{
+		"atomic-implementer": {Effort: "turbo"}, // not in allowlist
 	})
 	if err == nil {
-		t.Fatal("expected error for invalid tier, got nil")
+		t.Fatal("expected error for invalid effort, got nil")
 	}
 	if !strings.Contains(err.Error(), "turbo") {
-		t.Errorf("error should mention invalid tier value, got: %v", err)
+		t.Errorf("error should mention invalid effort value, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "atomic-implementer") {
 		t.Errorf("error should mention agent name, got: %v", err)
 	}
 }
 
-// TestApplyAgentTiers_emptySelectionRemovesEntry: selecting "" (bundled default)
-// removes the agent's entry from cfg.Agents.
-func TestApplyAgentTiers_emptySelectionRemovesEntry(t *testing.T) {
+// TestApplyAgentOverrides_emptySelectionRemovesEntry: selecting {} (bundled default)
+// removes the agent's entry from cfg.Claude.Agents.
+func TestApplyAgentOverrides_emptySelectionRemovesEntry(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]string{
-		"atomic-implementer": "sonnet",
-		"atomic-reviewer":    "haiku",
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Model: "sonnet"},
+		"atomic-reviewer":    {Model: "haiku"},
 	}
 	// Decline override for atomic-implementer.
-	if err := applyAgentTiers(cfg, map[string]string{
-		"atomic-implementer": "", // remove override
+	if err := applyAgentOverrides(cfg, map[string]AgentOverride{
+		"atomic-implementer": {}, // remove override
 	}); err != nil {
-		t.Fatalf("applyAgentTiers: %v", err)
+		t.Fatalf("applyAgentOverrides: %v", err)
 	}
-	if _, ok := cfg.Agents["atomic-implementer"]; ok {
-		t.Error("atomic-implementer should be absent from cfg.Agents after empty selection")
+	if _, ok := cfg.Claude.Agents["atomic-implementer"]; ok {
+		t.Error("atomic-implementer should be absent from cfg.Claude.Agents after empty selection")
 	}
 	// atomic-reviewer was not in selections → should remain untouched.
-	if cfg.Agents["atomic-reviewer"] != "haiku" {
-		t.Errorf("atomic-reviewer should still be %q, got %q", "haiku", cfg.Agents["atomic-reviewer"])
+	if cfg.Claude.Agents["atomic-reviewer"].Model != "haiku" {
+		t.Errorf("atomic-reviewer should still be %q, got %q", "haiku", cfg.Claude.Agents["atomic-reviewer"].Model)
 	}
 }
 
-// TestApplyAgentTiers_allEmptyNilsMap: when all agents select "" (bundled default)
-// and cfg.Agents was nil/empty, the map remains nil (no empty [agents] TOML section).
-func TestApplyAgentTiers_allEmptyNilsMap(t *testing.T) {
+// TestApplyAgentOverrides_allEmptyNilsMap: when all agents select {} (bundled default)
+// and cfg.Claude.Agents was nil/empty, the map remains nil (no empty [claude.agents] TOML section).
+func TestApplyAgentOverrides_allEmptyNilsMap(t *testing.T) {
 	cfg := Default()
-	selections := map[string]string{
-		"atomic-implementer":   "",
-		"atomic-investigator":  "",
-		"atomic-reviewer":      "",
-		"atomic-strategist":    "",
-		"atomic-wiki-inferrer": "",
+	selections := map[string]AgentOverride{
+		"atomic-implementer":   {},
+		"atomic-investigator":  {},
+		"atomic-reviewer":      {},
+		"atomic-strategist":    {},
+		"atomic-wiki-inferrer": {},
 	}
-	if err := applyAgentTiers(cfg, selections); err != nil {
-		t.Fatalf("applyAgentTiers: %v", err)
+	if err := applyAgentOverrides(cfg, selections); err != nil {
+		t.Fatalf("applyAgentOverrides: %v", err)
 	}
-	if cfg.Agents != nil {
-		t.Errorf("cfg.Agents should be nil when all selections are empty, got %v", cfg.Agents)
+	if cfg.Claude.Agents != nil {
+		t.Errorf("cfg.Claude.Agents should be nil when all selections are empty, got %v", cfg.Claude.Agents)
 	}
 }
 
-// TestApplyAgentTiers_clearAllExistingOverrides: selecting "" for every agent
+// TestApplyAgentOverrides_clearAllExistingOverrides: selecting {} for every agent
 // when overrides exist should result in nil Agents map.
-func TestApplyAgentTiers_clearAllExistingOverrides(t *testing.T) {
+func TestApplyAgentOverrides_clearAllExistingOverrides(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]string{
-		"atomic-implementer": "haiku",
-		"atomic-reviewer":    "opus",
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Model: "haiku"},
+		"atomic-reviewer":    {Model: "opus"},
 	}
-	selections := map[string]string{
-		"atomic-implementer": "",
-		"atomic-reviewer":    "",
+	selections := map[string]AgentOverride{
+		"atomic-implementer": {},
+		"atomic-reviewer":    {},
 	}
-	if err := applyAgentTiers(cfg, selections); err != nil {
-		t.Fatalf("applyAgentTiers: %v", err)
+	if err := applyAgentOverrides(cfg, selections); err != nil {
+		t.Fatalf("applyAgentOverrides: %v", err)
 	}
-	if cfg.Agents != nil {
-		t.Errorf("cfg.Agents should be nil after clearing all overrides, got %v", cfg.Agents)
+	if cfg.Claude.Agents != nil {
+		t.Errorf("cfg.Claude.Agents should be nil after clearing all overrides, got %v", cfg.Claude.Agents)
 	}
 }
 
-// TestApplyAgentTiers_fableIsValid: "fable" (forward-reserved) is accepted.
-func TestApplyAgentTiers_fableIsValid(t *testing.T) {
+// TestApplyAgentOverrides_fableIsValid: an arbitrary forward-reserved model
+// name like "fable" is accepted (no allowlist).
+func TestApplyAgentOverrides_fableIsValid(t *testing.T) {
 	cfg := Default()
-	if err := applyAgentTiers(cfg, map[string]string{
-		"atomic-strategist": "fable",
+	if err := applyAgentOverrides(cfg, map[string]AgentOverride{
+		"atomic-strategist": {Model: "fable"},
 	}); err != nil {
-		t.Errorf("applyAgentTiers: fable should be valid, got: %v", err)
+		t.Errorf("applyAgentOverrides: fable should be valid, got: %v", err)
 	}
-	if cfg.Agents["atomic-strategist"] != "fable" {
-		t.Errorf("atomic-strategist = %q, want %q", cfg.Agents["atomic-strategist"], "fable")
+	if cfg.Claude.Agents["atomic-strategist"].Model != "fable" {
+		t.Errorf("atomic-strategist = %q, want %q", cfg.Claude.Agents["atomic-strategist"].Model, "fable")
 	}
 }
 
-// TestApplyAgentTiers_roundTrip: apply → WritePersist → Load → Validate is clean.
-func TestApplyAgentTiers_roundTrip(t *testing.T) {
+// TestApplyAgentOverrides_roundTrip: apply → WritePersist → Load → Validate is clean.
+func TestApplyAgentOverrides_roundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 
 	cfg := Default()
-	if err := applyAgentTiers(cfg, map[string]string{
-		"atomic-implementer":  "sonnet",
-		"atomic-investigator": "haiku",
-		"atomic-reviewer":     "", // leave unchanged
+	if err := applyAgentOverrides(cfg, map[string]AgentOverride{
+		"atomic-implementer":  {Model: "sonnet"},
+		"atomic-investigator": {Model: "haiku"},
+		"atomic-reviewer":     {}, // leave unchanged
 	}); err != nil {
-		t.Fatalf("applyAgentTiers: %v", err)
+		t.Fatalf("applyAgentOverrides: %v", err)
 	}
 
 	if err := WritePersist(path, cfg); err != nil {
@@ -155,40 +215,57 @@ func TestApplyAgentTiers_roundTrip(t *testing.T) {
 		t.Errorf("Validate: %v", err)
 	}
 
-	if loaded.Agents["atomic-implementer"] != "sonnet" {
-		t.Errorf("atomic-implementer = %q, want %q", loaded.Agents["atomic-implementer"], "sonnet")
+	if loaded.Claude.Agents["atomic-implementer"].Model != "sonnet" {
+		t.Errorf("atomic-implementer = %q, want %q", loaded.Claude.Agents["atomic-implementer"].Model, "sonnet")
 	}
-	if loaded.Agents["atomic-investigator"] != "haiku" {
-		t.Errorf("atomic-investigator = %q, want %q", loaded.Agents["atomic-investigator"], "haiku")
+	if loaded.Claude.Agents["atomic-investigator"].Model != "haiku" {
+		t.Errorf("atomic-investigator = %q, want %q", loaded.Claude.Agents["atomic-investigator"].Model, "haiku")
 	}
-	// atomic-reviewer was "" → should be absent from [agents].
-	if _, ok := loaded.Agents["atomic-reviewer"]; ok {
+	// atomic-reviewer was {} → should be absent from [claude.agents].
+	if _, ok := loaded.Claude.Agents["atomic-reviewer"]; ok {
 		t.Error("atomic-reviewer should be absent (empty selection = no override)")
+	}
+}
+
+// TestApplyAgentOverrides_modelAndEffortRoundTrip: a selection carrying both
+// fields (as the reworked model-Input + effort-Select form now returns)
+// writes both into cfg.Claude.Agents.
+func TestApplyAgentOverrides_modelAndEffortRoundTrip(t *testing.T) {
+	cfg := Default()
+	if err := applyAgentOverrides(cfg, map[string]AgentOverride{
+		"atomic-implementer": {Model: "claude-opus-4-8", Effort: "high"},
+	}); err != nil {
+		t.Fatalf("applyAgentOverrides: %v", err)
+	}
+	got := cfg.Claude.Agents["atomic-implementer"]
+	want := AgentOverride{Model: "claude-opus-4-8", Effort: "high"}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
 
 // --- AgentTierSelector seam: CLI-level tests ---
 
 // withAgentTierSelectorStub replaces the AgentTierSelector seam for the duration of f.
-func withAgentTierSelectorStub(sel func(*Config) (map[string]string, error), f func()) {
+func withAgentTierSelectorStub(sel func(*Config) (map[string]AgentOverride, error), f func()) {
 	orig := AgentTierSelector
 	AgentTierSelector = sel
 	defer func() { AgentTierSelector = orig }()
 	f()
 }
 
-// TestRunAgents_writesSelections: agents verb with a stubbed selector writes tiers,
+// TestRunAgents_writesSelections: agents verb with a stubbed selector writes models,
 // creates config.toml, and returns exit 0.
 func TestRunAgents_writesSelections(t *testing.T) {
 	home := t.TempDir()
 
-	withAgentTierSelectorStub(func(_ *Config) (map[string]string, error) {
-		return map[string]string{
-			"atomic-implementer":   "sonnet",
-			"atomic-investigator":  "haiku",
-			"atomic-reviewer":      "",
-			"atomic-strategist":    "opus",
-			"atomic-wiki-inferrer": "haiku",
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{
+			"atomic-implementer":   {Model: "sonnet"},
+			"atomic-investigator":  {Model: "haiku"},
+			"atomic-reviewer":      {},
+			"atomic-strategist":    {Model: "opus"},
+			"atomic-wiki-inferrer": {Model: "haiku"},
 		}, nil
 	}, func() {
 		code, _, stderr := runCLI(t, home, "agents")
@@ -202,14 +279,14 @@ func TestRunAgents_writesSelections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load after agents: %v", err)
 	}
-	if cfg.Agents["atomic-implementer"] != "sonnet" {
-		t.Errorf("atomic-implementer = %q, want sonnet", cfg.Agents["atomic-implementer"])
+	if cfg.Claude.Agents["atomic-implementer"].Model != "sonnet" {
+		t.Errorf("atomic-implementer = %q, want sonnet", cfg.Claude.Agents["atomic-implementer"].Model)
 	}
-	if cfg.Agents["atomic-strategist"] != "opus" {
-		t.Errorf("atomic-strategist = %q, want opus", cfg.Agents["atomic-strategist"])
+	if cfg.Claude.Agents["atomic-strategist"].Model != "opus" {
+		t.Errorf("atomic-strategist = %q, want opus", cfg.Claude.Agents["atomic-strategist"].Model)
 	}
-	// atomic-reviewer was "" → should be absent.
-	if _, ok := cfg.Agents["atomic-reviewer"]; ok {
+	// atomic-reviewer was {} → should be absent.
+	if _, ok := cfg.Claude.Agents["atomic-reviewer"]; ok {
 		t.Error("atomic-reviewer should be absent (empty selection = no override)")
 	}
 }
@@ -218,7 +295,7 @@ func TestRunAgents_writesSelections(t *testing.T) {
 func TestRunAgents_nonInteractive(t *testing.T) {
 	home := t.TempDir()
 
-	withAgentTierSelectorStub(func(_ *Config) (map[string]string, error) {
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
 		return nil, ErrNonInteractiveAgents
 	}, func() {
 		code, _, stderr := runCLI(t, home, "agents")
@@ -235,7 +312,7 @@ func TestRunAgents_nonInteractive(t *testing.T) {
 func TestRunAgents_aborted(t *testing.T) {
 	home := t.TempDir()
 
-	withAgentTierSelectorStub(func(_ *Config) (map[string]string, error) {
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
 		return nil, ErrAgentsAborted
 	}, func() {
 		code, _, stderr := runCLI(t, home, "agents")
@@ -248,13 +325,13 @@ func TestRunAgents_aborted(t *testing.T) {
 	})
 }
 
-// TestRunAgents_invalidTierFromSelector: when the selector somehow returns an invalid
-// tier, applyAgentTiers catches it and agents exits 1.
-func TestRunAgents_invalidTierFromSelector(t *testing.T) {
+// TestRunAgents_invalidEffortFromSelector: when the selector somehow returns an
+// invalid effort, applyAgentOverrides catches it and agents exits 1.
+func TestRunAgents_invalidEffortFromSelector(t *testing.T) {
 	home := t.TempDir()
 
-	withAgentTierSelectorStub(func(_ *Config) (map[string]string, error) {
-		return map[string]string{"atomic-implementer": "turbo"}, nil
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Effort: "turbo"}}, nil
 	}, func() {
 		code, _, stderr := runCLI(t, home, "agents")
 		if code != 1 {
@@ -266,17 +343,17 @@ func TestRunAgents_invalidTierFromSelector(t *testing.T) {
 	})
 }
 
-// TestRunAgents_allDefault: all empty selections produce nil Agents (no [agents] section).
+// TestRunAgents_allDefault: all empty selections produce nil Agents (no [claude.agents] section).
 func TestRunAgents_allDefault(t *testing.T) {
 	home := t.TempDir()
 
-	withAgentTierSelectorStub(func(_ *Config) (map[string]string, error) {
-		return map[string]string{
-			"atomic-implementer":   "",
-			"atomic-investigator":  "",
-			"atomic-reviewer":      "",
-			"atomic-strategist":    "",
-			"atomic-wiki-inferrer": "",
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{
+			"atomic-implementer":   {},
+			"atomic-investigator":  {},
+			"atomic-reviewer":      {},
+			"atomic-strategist":    {},
+			"atomic-wiki-inferrer": {},
 		}, nil
 	}, func() {
 		code, _, _ := runCLI(t, home, "agents")
@@ -289,8 +366,8 @@ func TestRunAgents_allDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if len(cfg.Agents) != 0 {
-		t.Errorf("expected no agent overrides, got %v", cfg.Agents)
+	if len(cfg.Claude.Agents) != 0 {
+		t.Errorf("expected no agent overrides, got %v", cfg.Claude.Agents)
 	}
 }
 
@@ -301,21 +378,21 @@ func TestRunAgents_selectorReceivesExistingConfig(t *testing.T) {
 
 	// Pre-write a config with an existing override.
 	existing := Default()
-	existing.Agents = map[string]string{"atomic-implementer": "haiku"}
+	existing.Claude.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "haiku"}}
 	if err := WritePersist(TOMLPath(home), existing); err != nil {
 		t.Fatalf("WritePersist: %v", err)
 	}
 
-	var seenTier string
-	withAgentTierSelectorStub(func(cfg *Config) (map[string]string, error) {
-		seenTier = cfg.Agents["atomic-implementer"]
-		return map[string]string{}, nil
+	var seenModel string
+	withAgentTierSelectorStub(func(cfg *Config) (map[string]AgentOverride, error) {
+		seenModel = cfg.Claude.Agents["atomic-implementer"].Model
+		return map[string]AgentOverride{}, nil
 	}, func() {
 		runCLI(t, home, "agents")
 	})
 
-	if seenTier != "haiku" {
-		t.Errorf("selector received atomic-implementer tier %q, want %q", seenTier, "haiku")
+	if seenModel != "haiku" {
+		t.Errorf("selector received atomic-implementer model %q, want %q", seenModel, "haiku")
 	}
 }
 
@@ -331,8 +408,8 @@ func TestRunAgents_preservesOtherConfigSections(t *testing.T) {
 		t.Fatalf("WritePersist: %v", err)
 	}
 
-	withAgentTierSelectorStub(func(_ *Config) (map[string]string, error) {
-		return map[string]string{"atomic-implementer": "sonnet"}, nil
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Model: "sonnet"}}, nil
 	}, func() {
 		if code, _, _ := runCLI(t, home, "agents"); code != 0 {
 			t.Fatal("expected exit 0")
@@ -346,9 +423,117 @@ func TestRunAgents_preservesOtherConfigSections(t *testing.T) {
 	if cfg.Output.Signals.MaxDepth != 7 {
 		t.Errorf("MaxDepth = %d, want 7 (should be preserved)", cfg.Output.Signals.MaxDepth)
 	}
-	if cfg.Agents["atomic-implementer"] != "sonnet" {
-		t.Errorf("atomic-implementer = %q, want sonnet", cfg.Agents["atomic-implementer"])
+	if cfg.Claude.Agents["atomic-implementer"].Model != "sonnet" {
+		t.Errorf("atomic-implementer = %q, want sonnet", cfg.Claude.Agents["atomic-implementer"].Model)
 	}
+}
+
+// withApplyAgentsHookStub swaps ApplyAgentsHook for the duration of f, restoring
+// the original (nil in production) afterward.
+func withApplyAgentsHookStub(hook func(home string) ([]string, int, error), f func()) {
+	orig := ApplyAgentsHook
+	ApplyAgentsHook = hook
+	defer func() { ApplyAgentsHook = orig }()
+	f()
+}
+
+// TestRunAgents_appliesViaHook: after a successful save, the agents verb
+// calls ApplyAgentsHook with the resolved home and reports the applied
+// agents + a restart note on stdout.
+func TestRunAgents_appliesViaHook(t *testing.T) {
+	home := t.TempDir()
+
+	var gotHome string
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Effort: "high"}}, nil
+	}, func() {
+		withApplyAgentsHookStub(func(h string) ([]string, int, error) {
+			gotHome = h
+			return []string{"atomic-implementer"}, 1, nil
+		}, func() {
+			code, stdout, stderr := runCLI(t, home, "agents")
+			if code != 0 {
+				t.Fatalf("expected exit 0, got %d; stderr: %s", code, stderr)
+			}
+			if !strings.Contains(stdout, "atomic-implementer") {
+				t.Errorf("stdout missing applied agent name: %q", stdout)
+			}
+			if !strings.Contains(stdout, "Restart Claude Code sessions") {
+				t.Errorf("stdout missing restart note: %q", stdout)
+			}
+		})
+	})
+	if gotHome != home {
+		t.Errorf("ApplyAgentsHook called with home %q, want %q", gotHome, home)
+	}
+}
+
+// TestRunAgents_hookErrorNonFatal: a hook error is reported on stderr but the
+// verb still exits 0 — the config write itself succeeded.
+func TestRunAgents_hookErrorNonFatal(t *testing.T) {
+	home := t.TempDir()
+
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Model: "opus"}}, nil
+	}, func() {
+		withApplyAgentsHookStub(func(_ string) ([]string, int, error) {
+			return nil, 0, errors.New("boom")
+		}, func() {
+			code, _, stderr := runCLI(t, home, "agents")
+			if code != 0 {
+				t.Fatalf("expected exit 0 (config saved despite hook error), got %d", code)
+			}
+			if !strings.Contains(stderr, "boom") {
+				t.Errorf("stderr missing hook error: %q", stderr)
+			}
+			if !strings.Contains(stderr, "atomic claude install") {
+				t.Errorf("stderr missing fallback guidance: %q", stderr)
+			}
+		})
+	})
+}
+
+// TestRunAgents_hookNoInstalledAgents: installed == 0 reports the
+// will-apply-on-next-install message.
+func TestRunAgents_hookNoInstalledAgents(t *testing.T) {
+	home := t.TempDir()
+
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Model: "opus"}}, nil
+	}, func() {
+		withApplyAgentsHookStub(func(_ string) ([]string, int, error) {
+			return nil, 0, nil
+		}, func() {
+			code, stdout, _ := runCLI(t, home, "agents")
+			if code != 0 {
+				t.Fatalf("expected exit 0, got %d", code)
+			}
+			if !strings.Contains(stdout, "No installed agents found") {
+				t.Errorf("stdout missing no-installed-agents message: %q", stdout)
+			}
+		})
+	})
+}
+
+// TestRunAgents_hookAlreadyUpToDate: installed > 0, no changes.
+func TestRunAgents_hookAlreadyUpToDate(t *testing.T) {
+	home := t.TempDir()
+
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Model: "opus"}}, nil
+	}, func() {
+		withApplyAgentsHookStub(func(_ string) ([]string, int, error) {
+			return nil, 3, nil
+		}, func() {
+			code, stdout, _ := runCLI(t, home, "agents")
+			if code != 0 {
+				t.Fatalf("expected exit 0, got %d", code)
+			}
+			if !strings.Contains(stdout, "already up to date") {
+				t.Errorf("stdout missing already-up-to-date message: %q", stdout)
+			}
+		})
+	})
 }
 
 // TestDefaultAgentTierSelector_nonInteractive: the default selector returns
