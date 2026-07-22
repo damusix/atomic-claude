@@ -1,4 +1,4 @@
-# Spec: per-agent effort in the `[agents]` config block
+# Spec: per-agent effort in the `[claude.agents]` config block
 
 Design + rationale: [`docs/design/agents-effort-config.md`](../design/agents-effort-config.md).
 Structural model to mirror: [`internal/config/pi_agent.go`](../../atomic/internal/config/pi_agent.go).
@@ -11,38 +11,47 @@ when amending.
 ## Summary
 
 
-Extend the `[agents]` block in `~/.atomic/config.toml` from a flat `agent → tier` string map
-into a nested table per agent with two optional fields: `model` and `effort`. Both are
-applied at install time by patching the agent frontmatter (`model:` and `effort:` keys).
-Existing flat entries keep working and auto-migrate to nested on the next config write.
+Per-agent Claude overrides live in `~/.atomic/config.toml` under `[claude.agents.<name>]`,
+with two optional fields: `model` and `effort`. Both are applied to the installed agent
+frontmatter (`model:` and `effort:` keys) at install time and immediately on save. pi's
+equivalent block is renamed `[pi.agent]` → `[pi.agents]` for symmetry (config key only —
+applying it to pi's agent files remains the pi extension's job via `atomic config resolve`).
+Nothing here has shipped in a release, so there is no back-compat and no migration.
 
 
 ## Data model (`internal/config`)
 
 
-Replace `Config.Agents map[string]string` with `map[string]AgentOverride`:
+Per-agent overrides live under a harness-namespaced table, `[claude.agents.<name>]`, parallel
+to pi's `[pi.agents.<name>]`. Both harnesses read `[<harness>.agents.<name>]`; the second field
+differs because each uses its own harness's real frontmatter key (`effort` for Claude Code,
+`thinking` for pi).
+
+    [claude.agents.atomic-implementer]
+    model = "opus"
+    effort = "high"
+
+Config carries a `claude` section holding the override map:
 
     type AgentOverride struct {
         Model  string `toml:"model,omitempty"`
         Effort string `toml:"effort,omitempty"`
     }
 
-`AgentOverride` implements `encoding.TextUnmarshaler`:
+    type claudeSection struct {
+        Agents map[string]AgentOverride `toml:"agents,omitempty"`
+    }
+    // Config: Claude claudeSection `toml:"claude,omitempty"`
 
-    func (a *AgentOverride) UnmarshalText(b []byte) error { a.Model = string(b); return nil }
+Nested-table decode only. There is **no** flat/scalar form and **no** migration: do not
+implement `encoding.TextUnmarshaler`, `TextMarshaler`, `EnableUnmarshalerInterface`, or an
+`unstable.Unmarshaler`. Plain struct decode/encode is the whole contract — `toml.Marshal`
+emits `[claude.agents.<name>]` tables directly.
 
-This is the back-compat seam: go-toml v2 calls `UnmarshalText` only for scalar values, so a
-flat `agents.x = "opus"` decodes to `{Model: "opus"}` while a nested `[agents.x]` table
-decodes into the struct fields. Proven against go-toml v2.3.1 (see design doc). Do **not**
-add `EnableUnmarshalerInterface` or an `unstable.Unmarshaler` — the default decoder path is
-what this relies on.
-
-Do not implement `TextMarshaler` — marshaling must stay struct-based so `WritePersist`
-(`toml.Marshal`) emits nested `[agents.<name>]` tables and a flat file auto-migrates to
-nested on write.
-
-`[agents]` stays in `opaqueSections` (structural unknown-key checks skipped; semantic checks
-live in `Validate` / `AgentWarnings`).
+`claude` (and `pi`) are the opaque top-level sections (structural unknown-key checks skipped;
+semantic checks live in `Validate` / `AgentWarnings`). `agents` is no longer a top-level
+section, so a stale top-level `[agents]` block from a pre-rename `next` build is reported as
+an unknown key and ignored.
 
 
 ## Validation
@@ -51,7 +60,7 @@ live in `Validate` / `AgentWarnings`).
 `Validate` (`config.go`):
 
 - **effort**: must be one of `{"", low, medium, high, xhigh, max}` per agent, else hard error:
-  `config: agents.<name>.effort: invalid effort "<v>"; must be one of: low, medium, high, xhigh, max`.
+  `config: claude.agents.<name>.effort: invalid effort "<v>"; must be one of: low, medium, high, xhigh, max`.
   Empty means "no effort override".
 - **model**: lenient — never a hard failure. Drop the current `validTiers` hard-fail. An
   empty model means "no model override". (Malformed model → warning, see below.)
@@ -60,7 +69,7 @@ live in `Validate` / `AgentWarnings`).
 
 - Preserve the existing unknown-agent warning (agent name not in the installed/known set).
 - Add a malformed-model warning when `Model` is non-empty and contains internal whitespace
-  or control characters: `config: agents.<name>.model: questionable value "<v>"; passed through as-is`.
+  or control characters: `config: claude.agents.<name>.model: questionable value "<v>"; passed through as-is`.
   Never blocks loading or install.
 
 `validTiers` / the tier allowlist is removed from the validation path. A validity helper for
@@ -106,7 +115,7 @@ shape — the SHA comparison must reflect both patched keys so install/plan agre
 
 Replace `applyAgentTiers` with `applyAgentOverrides(cfg *Config, selections map[string]AgentOverride) error`:
 per agent, if both fields empty → delete the entry; else validate (effort enum; model lenient)
-and store. Nil out `cfg.Agents` when empty so the `[agents]` table is omitted.
+and store. Nil out `cfg.Claude.Agents` when empty so the `[claude.agents]` table is omitted.
 
 The selector seam (`AgentTierSelector` / `DefaultAgentTierSelector`) keeps its
 test-injection role; its signature becomes `func(cfg *Config) (map[string]AgentOverride, error)`.
@@ -119,19 +128,23 @@ keep the public `AgentTierSelector` name to avoid churn unless trivially safe to
 ## Render (`internal/config/render.go`)
 
 
-`Render` emits, per agent with an override, up to two dotted keys under the `[agents]`
-section: `agents.<name>.model` and `agents.<name>.effort` (only for non-empty fields). Sorted,
+`Render` emits, per agent with an override, up to two dotted keys under the `[claude]`
+section: `claude.agents.<name>.model` and `claude.agents.<name>.effort` (only for non-empty fields). Sorted,
 byte-stable. This is the auto-loaded `config.resolved.md` view.
 
 
-## Back-compat + migration
+## No back-compat, no migration
 
 
-- A flat `[agents]\n atomic-implementer = "opus"` file loads as `{atomic-implementer: {Model:"opus"}}`.
-- The next `WritePersist` (any `atomic config` write, including `atomic config agents`)
-  re-marshals to nested `[agents.<name>]` tables — the migration is automatic, no separate pass.
-- No config schema version bump is required (the `[agents]` table is machine-written and not
-  part of `knownKeys`); the shape change is backward-compatible on read.
+Neither the top-level `[agents]` block nor `[pi.agent]` has ever shipped in a release (both
+exist only on the unreleased `next`/v6 line), so there is no compatibility obligation and no
+migration code.
+
+- No flat/scalar entry form is accepted; `[claude.agents.<name>]` tables are the only shape.
+- A stale top-level `[agents]` block left by a pre-rename `next` build is an unknown key:
+  reported as a warning and ignored. The user re-runs `atomic config agents`.
+- Same for a stale `[pi.agent]` block after the `[pi.agents]` rename.
+- No config schema version bump (these tables are machine-written, not in `knownKeys`).
 
 
 ## Change tree
@@ -139,9 +152,10 @@ byte-stable. This is the auto-loaded `config.resolved.md` view.
 
 ```text
 atomic/internal/config/
-  agentoverride.go              A  AgentOverride{Model,Effort}, UnmarshalText, validEfforts, effortOptionValues, validModelFormat
-  config.go                     M  Agents map[string]AgentOverride; Validate (effort-strict, model-lenient); AgentWarnings malformed-model; validTiers removed
-  render.go                     M  Render emits agents.<name>.model / .effort
+  agentoverride.go              A  AgentOverride{Model,Effort}, validEfforts, effortOptionValues, validModelFormat (no UnmarshalText)
+  config.go                     M  claudeSection{Agents map[string]AgentOverride} under [claude]; Validate (effort-strict, model-lenient); AgentWarnings malformed-model; validTiers removed
+  pi_agent.go                   M  parser key [pi.agent] -> [pi.agents] (config key only)
+  render.go                     M  Render emits claude.agents.<name>.model / .effort
   agents.go                     M  model Input + effort Select; applyAgentOverrides; validateModelInput; tier options removed
   cli.go                        M  agents verb -> applyAgentOverrides
 atomic/internal/claudeinstall/
@@ -163,10 +177,11 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 
 - `agentoverride.go`
   - `AgentOverride` — model + effort override for one agent; TOML tags `omitempty`
-    - `UnmarshalText` — scalar back-compat seam: sets Model from a flat string value
+    - (no custom unmarshaler — plain struct decode from `[claude.agents.<name>]`)
   - `validEfforts` / `effortOptionValues` — effort enum set + ordered list (shared by Validate and the Select)
   - `validModelFormat` — lenient model shape check (non-empty, no internal whitespace/control chars)
 - `config.go`
+  - `claudeSection` — the `[claude]` table holding `Agents map[string]AgentOverride`
   - `Validate` — effort strict against the enum; model no hard-fail (validTiers removed)
   - `AgentWarnings` — unknown-agent warning + malformed-model warning
 - `render.go`
@@ -188,8 +203,8 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 ## Flows
 
 
-1. **Back-compat read** — `config.Load` decodes `[agents]`: a scalar `agents.x = "opus"` → `AgentOverride.UnmarshalText` → `{Model:"opus"}`; a `[agents.x]` table → struct decode → `{Model,Effort}`.
-2. **Auto-migration on write** — user runs `atomic config agents` → selector returns overrides → `applyAgentOverrides` mutates `cfg.Agents` → `WritePersist` → `toml.Marshal` emits nested `[agents.<name>]` tables (a formerly-flat file is now nested).
+1. **Read** — `config.Load` decodes `[claude.agents.<name>]` tables straight into `Config.Claude.Agents` (`map[string]AgentOverride`) by plain struct decode. No scalar form, no custom unmarshaler.
+2. **Write** — user runs `atomic config agents` → selector returns overrides → `applyAgentOverrides` mutates `cfg.Claude.Agents` → `WritePersist` → `toml.Marshal` emits `[claude.agents.<name>]` tables.
 3. **Install patch** — `atomic claude install`/`update` → `loadAgentOverrides` → for each `agents/*.md` artifact, `patchAgentContent` sets/appends `model:` (from Model) and `effort:` (from Effort), each only when set → patched bytes written to `~/.claude/agents/` and factored into the Plan SHA.
 4. **Auto-apply** — `atomic config agents` → after `WritePersist`, the `ApplyAgentsHook` runs `ReapplyAgents(~/.claude, home)`: re-patches only the agent files already present on disk (drift-only writes; absent agents skipped, no first-time install), then prints the changed count and a "restart Claude Code sessions to pick up the change" note. No-op (silent) when nothing is installed yet.
 5. **Drift detection + repair** — `atomic doctor` install-integrity check → `claudeinstall.Diff` compares each on-disk agent against `readPatchedEmbedded` (bundle patched with model+effort). A configured override missing from the installed file → SHA mismatch → WARN. `atomic doctor --fix` → idempotent `Install` re-patches. Fully deterministic (SHA + frontmatter surgery, no model). This behavior is inherited from the CP2 patch threading through `Diff`; CP6 only locks it with a test and documents it — no new doctor check.
@@ -200,21 +215,24 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 
 | # | Checkpoint | Files/areas | Acceptance | Verifies |
 |---|-----------|-------------|------------|----------|
-| CP1 | Schema type + back-compat decode/encode | `internal/config/{agentoverride,config,render,agents,cli}.go`; `internal/claudeinstall/install.go` (type thread) | `AgentOverride` + `UnmarshalText`; `Config.Agents` is `map[string]AgentOverride`; `Validate` effort-strict / model-lenient; `AgentWarnings` gains malformed-model warning; `validTiers` hard-fail removed | Round-trip: flat string decodes to `{Model}`; nested table decodes to `{Model,Effort}`; effort-only decodes to `{Effort}`; `WritePersist` of a flat-loaded config emits nested tables; invalid effort → Validate error; malformed model → warning not error; well-formed arbitrary id (`claude-opus-4-8`, `claude-opus-4-6[1m]`) → no error/warning |
+| CP1 | Schema type + decode/encode | `internal/config/{agentoverride,config,render,agents,cli}.go`; `internal/claudeinstall/install.go` (type thread) | `AgentOverride{Model,Effort}` with no custom unmarshaler; `Config.Claude.Agents` is `map[string]AgentOverride`; `Validate` effort-strict / model-lenient; `AgentWarnings` gains malformed-model warning; `validTiers` hard-fail removed | Nested `[claude.agents.x]` table decodes to `{Model,Effort}`; effort-only decodes to `{Effort}`; a scalar under `[claude.agents]` is a decode error; `WritePersist` emits `[claude.agents.<name>]` tables; invalid effort → Validate error; malformed model → warning not error; well-formed arbitrary id (`claude-opus-4-8`, `claude-opus-4-6[1m]`) → no error/warning |
 | CP2 | Install-time patch of `model:` + `effort:` | `internal/claudeinstall/install.go` | `loadAgentOverrides` + `patchAgentContent` handle both fields independently; effort-only patches only `effort:`; both-empty is a no-op; order preserved | model-only patch; effort-only patch (model frontmatter unchanged); both patched; neither → unchanged bytes; append when key absent; Plan SHA reflects both keys |
 | CP3 | Interactive form + render | `internal/config/agents.go` | `atomic config agents` model Input + effort Select per agent; `applyAgentOverrides`; both-empty deletes entry; `Render` emits `.model`/`.effort` dotted keys | selector seam returns overrides → applied to cfg; empty-both removes entry; render output for model-only, effort-only, both; non-interactive + abort errors preserved |
-| CP4 | Docs + discovery surfaces | `docs/reference/agents.md`; `templates/commands/atomic-help.md`; `docs/spec/agent-model-overrides.md`; regenerated `commands/` + embedded bundle | `docs/reference` `[agents]` doc updated; `/atomic-help` cli topic mentions effort; prior spec superseded; design/spec committed | `atomic validate` clean; `/atomic-help` MISSING-scan clean; render+bundle parity clean |
+| CP4 | Docs + discovery surfaces | `docs/reference/agents.md`; `templates/commands/atomic-help.md`; `docs/spec/agent-model-overrides.md`; regenerated `commands/` + embedded bundle | `docs/reference` `[claude.agents]` doc updated; `/atomic-help` cli topic mentions effort; prior spec superseded; design/spec committed | `atomic validate` clean; `/atomic-help` MISSING-scan clean; render+bundle parity clean |
 | CP5 | Auto-apply on `atomic config agents` | `internal/claudeinstall/install.go` (`ReapplyAgents`); `internal/config/cli.go` + `ApplyAgentsHook` seam; `cmd/atomic/main.go` (wiring) | `ReapplyAgents` re-patches only already-installed `agents/*.md` (drift-only writes; absent → skip, never a first-time install); `atomic config agents` calls the hook after save, prints changed count + restart note; silent no-op when not installed; config↛claudeinstall import cycle avoided via the hook | `ReapplyAgents` patches an installed agent's frontmatter to match config; skips an absent agent (not created); no-op when on-disk already matches; config cli test with fake hook asserts it is called + output; whole module builds (no import cycle) |
 | CP6 | Drift detection guard + docs | `internal/doctor/checks_install_test.go`; `docs/reference/agents.md` | The existing install-integrity check already flags config↔installed agent drift (via `Diff`→`readPatchedEmbedded`, deterministic) and `--fix` repairs it — lock with a regression test; document auto-apply + doctor drift/repair + session-restart caveat. No new doctor check (reuse-first) | doctor install check returns WARN when an installed agent lacks a configured effort/model; `applyInstallRepair`/`Install` re-syncs it to PASS; docs updated |
+| CP7 | Harness-namespaced keys + drop back-compat | `internal/config/{config,agentoverride,agents,cli,render,pi_agent}.go`; `internal/claudeinstall/install.go`; `internal/doctor/*`; docs; `templates/commands/atomic-help.md` (+ rendered/bundled) | Top-level `[agents]` → `[claude.agents.<name>]` via a `claudeSection` on Config; `[pi.agent]` → `[pi.agents]` (parser key rename ONLY — no pi agent-file writing, that stays the pi extension's job); `AgentOverride.UnmarshalText`, the flat/scalar form, the auto-migration and their tests all REMOVED; `opaqueSections`/`knownSections` carry `claude` + `pi`, not `agents`; all error/warning/render key paths say `claude.agents.<name>.…` | nested `[claude.agents.x]` decodes; a scalar under it is a decode error (no silent accept); a stale top-level `[agents]` block warns as unknown-key and is ignored; `[pi.agents.x]` resolves via `ResolvePiAgents` and `[pi.agent]` no longer does; `WritePersist` emits `[claude.agents.<name>]`; render emits `claude.agents.<name>.model/.effort`; install patch + auto-apply + doctor drift still green; whole suite + validate + render/bundle parity clean |
 
 
 ## Non-goals
 
 
-- No change to the `pi` (`[pi.agent]`) path.
+- No behavioral change to the pi path: `[pi.agent]` → `[pi.agents]` is a config-key rename only.
+  Applying pi overrides to pi's own agent files stays the pi extension's job, consumed via
+  `atomic config resolve`. No pi agent-file writing or patching is added here.
 - No committed `agents/*.md` edits — effort is applied to the installed copy at install time.
   Therefore no `make render` / `make bundle` unless a source artifact is actually touched.
-- No new config schema version, no CLI `set`/`get` support for `[agents]` (unchanged: it is
+- No new config schema version, no CLI `set`/`get` support for `[claude.agents]` (unchanged: it is
   machine-written via `atomic config agents`, not user-settable via `atomic config set`).
 
 
@@ -264,3 +282,23 @@ regression test locking that and documents it. No new doctor check.
 **Why:** feedback — the config alone was inert (Claude reads agent-md frontmatter, never
 `config.toml`), so setting an override had no effect until a separate reinstall; and drift should be
 caught by a deterministic check, not left to the user to notice.
+
+
+### 2026-07-22 — Harness-namespaced keys, back-compat removed (CP7)
+
+**What changed:** the top-level `[agents]` block moved to `[claude.agents.<name>]` (a `claude`
+section on `Config`), and pi's `[pi.agent]` was renamed `[pi.agents]` so both harnesses read
+`[<harness>.agents.<name>]`. The pi change is a config-key rename only; applying pi overrides to
+pi's agent files remains the pi extension's job via `atomic config resolve`. All flat/scalar
+back-compat was deleted: `AgentOverride.UnmarshalText`, the scalar entry form, the flat→nested
+auto-migration, and their tests are gone. Nested tables are the only accepted shape.
+
+**Why:** two review points. (1) `[agents]` top-level vs `[pi.agent]` namespaced was an
+inconsistent way to express the same concept. (2) The flat form was never released — it exists
+only on the unreleased `next`/v6 line (`git tag --contains` on its commit is empty; not an
+ancestor of `v5.9.0`), so preserving compatibility with it was unjustified complexity. `next` is
+not shipped.
+
+**Superseded:** the prior contract accepted a flat `agents.<name> = "<tier>"` scalar via
+`encoding.TextUnmarshaler` and auto-migrated it to nested tables on the next config write, under
+a top-level `[agents]` table. None of that remains.

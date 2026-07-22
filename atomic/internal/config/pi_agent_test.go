@@ -34,7 +34,7 @@ func TestRunResolvePiAgentsAlwaysUsesPiRepoConfig(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, ".pi"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".pi", "atomic.toml"), []byte(`[pi.agent.scout]
+	if err := os.WriteFile(filepath.Join(repo, ".pi", "atomic.toml"), []byte(`[pi.agents.scout]
 model = "openai-codex/gpt-5.4-mini"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -62,11 +62,11 @@ func TestRunResolvePiAgentsMergesLocalFieldsOverGlobal(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".atomic"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agent.scout]
+	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agents.scout]
 model = "openai-codex/gpt-5.4-mini"
 thinking = "off"
 
-[pi.agent.reviewer]
+[pi.agents.reviewer]
 model = "anthropic/claude-sonnet-4"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ model = "anthropic/claude-sonnet-4"
 	if err := os.MkdirAll(filepath.Join(repo, ".pi"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".pi", "atomic.toml"), []byte(`[pi.agent.scout]
+	if err := os.WriteFile(filepath.Join(repo, ".pi", "atomic.toml"), []byte(`[pi.agents.scout]
 thinking = "high"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -104,7 +104,7 @@ func TestRunResolvePiAgentsInvalidLocalSuppressesGlobal(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".atomic"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agent.scout]
+	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agents.scout]
 model = "openai-codex/gpt-5.4-mini"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -112,7 +112,7 @@ model = "openai-codex/gpt-5.4-mini"
 	if err := os.MkdirAll(filepath.Join(repo, ".pi"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".pi", "atomic.toml"), []byte(`[pi.agent.scout]
+	if err := os.WriteFile(filepath.Join(repo, ".pi", "atomic.toml"), []byte(`[pi.agents.scout]
 thinking = "loud"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -133,11 +133,11 @@ func TestRunResolvePiAgentsInvalidEntryIsIsolated(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".atomic"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agent.good]
+	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agents.good]
 model = "openai-codex/gpt-5.4-mini"
 thinking = "minimal"
 
-[pi.agent.bad]
+[pi.agents.bad]
 model = ""
 thinking = "loud"
 prompt = "nope"
@@ -173,19 +173,19 @@ func TestRunResolvePiAgentsValidatesAuthoredNameGrammar(t *testing.T) {
 		t.Fatal(err)
 	}
 	long := "a" + strings.Repeat("b", 64)
-	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agent.valid-name-1]
+	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agents.valid-name-1]
 model = "provider/model/with/slash"
 
-[pi.agent.Bad]
+[pi.agents.Bad]
 model = "provider/model"
 
-[pi.agent.bad_underscore]
+[pi.agents.bad_underscore]
 model = "provider/model"
 
-[pi.agent.bad-]
+[pi.agents.bad-]
 model = "provider/model"
 
-[pi.agent.`+long+`]
+[pi.agents.`+long+`]
 model = "provider/model"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -223,7 +223,7 @@ func TestRunResolvePiAgentsOmitsInvalidNonTableAgentIdentity(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".atomic"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agent]
+	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agents]
 Bad_Name = "not a table"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -239,7 +239,7 @@ Bad_Name = "not a table"
 
 func TestRunResolvePiAgentsPiNonTablesAreSourceInvalid(t *testing.T) {
 	for _, content := range []string{`pi = "nope"`, `[pi]
-agent = "nope"
+agents = "nope"
 `} {
 		t.Run(content, func(t *testing.T) {
 			home := t.TempDir()
@@ -267,18 +267,18 @@ func TestRunResolvePiAgentsEmptyTablesAndInvalidModels(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".atomic"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agent.empty]
+	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agents.empty]
 
-[pi.agent.star]
+[pi.agents.star]
 model = "openai/*"
 
-[pi.agent.space]
+[pi.agents.space]
 model = "openai/gpt 5"
 
-[pi.agent.prefix]
+[pi.agents.prefix]
 model = "openai/gpt-*"
 
-[pi.agent.question]
+[pi.agents.question]
 model = "openai/gpt?"
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -306,12 +306,12 @@ func TestRunResolvePiAgentsDiagnosticsAreDeterministic(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(home, ".atomic"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agent.zed]
+	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agents.zed]
 prompt = "nope"
 thinking = "loud"
 model = ""
 
-[pi.agent.alpha]
+[pi.agents.alpha]
 tools = []
 `), 0o644); err != nil {
 		t.Fatal(err)
@@ -343,13 +343,38 @@ func TestRunResolvePiAgentsRejectsUnsafeRepoPath(t *testing.T) {
 	}
 }
 
-func TestRunResolvePiAgentsSourceParseFailureEmitsInvalidEnvelope(t *testing.T) {
+// TestRunResolvePiAgentsStaleSingularKeyResolvesEmpty: the pre-rename
+// `[pi.agent.<name>]` key no longer resolves — CP7 renamed the parsed table
+// to `[pi.agents.<name>]`. A stale singular block is silently ignored (valid
+// envelope, no overrides), not an error.
+func TestRunResolvePiAgentsStaleSingularKeyResolvesEmpty(t *testing.T) {
 	home := t.TempDir()
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".atomic"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agent.scout]
+model = "openai-codex/gpt-5.4-mini"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, env, out, stderr := runResolveForTest(t, home, repo)
+	if code != 0 || !env.Valid {
+		t.Fatalf("stale [pi.agent] block should resolve as a valid, empty envelope: code=%d out=%q stderr=%q", code, out, stderr)
+	}
+	if len(env.Agents) != 0 {
+		t.Fatalf("expected no agents from stale [pi.agent] key, got %+v", env.Agents)
+	}
+}
+
+func TestRunResolvePiAgentsSourceParseFailureEmitsInvalidEnvelope(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".atomic"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(TOMLPath(home), []byte(`[pi.agents.scout]
 model = `), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +394,7 @@ func TestWritePersistPreservesPiAgentTables(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`[pi.agent.scout]
+	if err := os.WriteFile(path, []byte(`[pi.agents.scout]
 model = "openai-codex/gpt-5.4-mini"
 thinking = "off"
 `), 0o644); err != nil {
@@ -399,7 +424,7 @@ func TestLoadRecognizesPiAgentTablesWithoutStructuralWarnings(t *testing.T) {
 	if err := os.WriteFile(TOMLPath(home), []byte(`[agents]
 atomic-reviewer = "sonnet"
 
-[pi.agent.scout]
+[pi.agents.scout]
 model = "openai-codex/gpt-5.4-mini"
 thinking = "off"
 `), 0o644); err != nil {
@@ -421,7 +446,7 @@ func TestLoadRepoConfigRecognizesPiAgentTablesAndPreservesCodeIgnore(t *testing.
 	if err := os.WriteFile(repoPath, []byte(`[code]
 ignore = ["vendor/**"]
 
-[pi.agent.scout]
+[pi.agents.scout]
 model = "openai-codex/gpt-5.4-mini"
 `), 0o644); err != nil {
 		t.Fatal(err)

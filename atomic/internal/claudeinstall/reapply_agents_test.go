@@ -41,7 +41,7 @@ func TestReapplyAgents_PatchesInstalledAgent(t *testing.T) {
 
 	// Config: effort override for the installed agent only.
 	cfg := config.Default()
-	cfg.Agents = map[string]config.AgentOverride{"atomic-implementer": {Effort: "high"}}
+	cfg.Claude.Agents = map[string]config.AgentOverride{"atomic-implementer": {Effort: "high"}}
 	if err := config.WritePersist(config.TOMLPath(home), cfg); err != nil {
 		t.Fatalf("write override config: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestReapplyAgents_SkipsAbsentAgent(t *testing.T) {
 
 	// No agent files installed at all.
 	cfg := config.Default()
-	cfg.Agents = map[string]config.AgentOverride{"atomic-implementer": {Model: "opus"}}
+	cfg.Claude.Agents = map[string]config.AgentOverride{"atomic-implementer": {Model: "opus"}}
 	if err := config.WritePersist(config.TOMLPath(home), cfg); err != nil {
 		t.Fatalf("write override config: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestReapplyAgents_IdempotentOnSecondCall(t *testing.T) {
 	writeInstalledAgent(t, target)
 
 	cfg := config.Default()
-	cfg.Agents = map[string]config.AgentOverride{"atomic-implementer": {Effort: "max"}}
+	cfg.Claude.Agents = map[string]config.AgentOverride{"atomic-implementer": {Effort: "max"}}
 	if err := config.WritePersist(config.TOMLPath(home), cfg); err != nil {
 		t.Fatalf("write override config: %v", err)
 	}

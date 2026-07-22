@@ -15,7 +15,7 @@ import (
 )
 
 // ApplyAgentsHook re-patches already-installed agent files with the current
-// [agents] overrides after `atomic config agents` saves. nil in production
+// [claude.agents] overrides after `atomic config agents` saves. nil in production
 // until cmd/atomic wires it to claudeinstall.ReapplyAgents at startup — this
 // seam exists because internal/config must not import internal/claudeinstall
 // (claudeinstall already imports config, which would be a cycle). changed is

@@ -29,31 +29,31 @@ var effortOptionLabels = map[string]string{
 	"max":    "max",
 }
 
-// applyAgentOverrides merges selections into cfg.Agents.
+// applyAgentOverrides merges selections into cfg.Claude.Agents.
 // A selection with both Model and Effort empty removes the agent's entry
-// from [agents] (no override). Effort is validated against the strict enum;
-// model is never a hard failure (lenient — see AgentWarnings for the
+// from [claude.agents] (no override). Effort is validated against the strict
+// enum; model is never a hard failure (lenient — see AgentWarnings for the
 // non-fatal malformed-model check). Pure function: no I/O, no TTY interaction.
 func applyAgentOverrides(cfg *Config, selections map[string]AgentOverride) error {
 	for agentName, ov := range selections {
 		if ov.Model == "" && ov.Effort == "" {
 			// "leave unchanged / use bundled default" — remove any existing override.
-			if cfg.Agents != nil {
-				delete(cfg.Agents, agentName)
+			if cfg.Claude.Agents != nil {
+				delete(cfg.Claude.Agents, agentName)
 			}
 			continue
 		}
 		if ov.Effort != "" && !validEfforts[ov.Effort] {
-			return fmt.Errorf("config: agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
+			return fmt.Errorf("config: claude.agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
 		}
-		if cfg.Agents == nil {
-			cfg.Agents = make(map[string]AgentOverride)
+		if cfg.Claude.Agents == nil {
+			cfg.Claude.Agents = make(map[string]AgentOverride)
 		}
-		cfg.Agents[agentName] = ov
+		cfg.Claude.Agents[agentName] = ov
 	}
-	// Nil out empty map so TOML omits the [agents] table when no overrides remain.
-	if len(cfg.Agents) == 0 {
-		cfg.Agents = nil
+	// Nil out empty map so TOML omits the [claude.agents] table when no overrides remain.
+	if len(cfg.Claude.Agents) == 0 {
+		cfg.Claude.Agents = nil
 	}
 	return nil
 }
@@ -91,8 +91,8 @@ func defaultAgentTierSelector(cfg *Config) (map[string]AgentOverride, error) {
 	models := make(map[string]*string, len(agentOrder))
 	efforts := make(map[string]*string, len(agentOrder))
 	for _, agent := range agentOrder {
-		m := cfg.Agents[agent].Model
-		e := cfg.Agents[agent].Effort
+		m := cfg.Claude.Agents[agent].Model
+		e := cfg.Claude.Agents[agent].Effort
 		models[agent] = &m
 		efforts[agent] = &e
 	}

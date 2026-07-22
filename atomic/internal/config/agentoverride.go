@@ -4,23 +4,11 @@ import "unicode"
 
 // AgentOverride is a per-agent installer override applied to the agent's
 // frontmatter at install time: an optional model pin and an optional
-// Claude Code subagent effort level.
+// Claude Code subagent effort level. Decoded only from a nested
+// `[claude.agents.<name>]` table — plain struct decode, no scalar form.
 type AgentOverride struct {
 	Model  string `toml:"model,omitempty"`
 	Effort string `toml:"effort,omitempty"`
-}
-
-// UnmarshalText is the back-compat seam for the flat `agents.x = "opus"`
-// form. go-toml v2.3.1 calls encoding.TextUnmarshaler.UnmarshalText only for
-// scalar TOML values, so a flat string entry decodes here (as a bare model
-// pin) while a nested `[agents.x]` table decodes into the struct fields via
-// the default decoder path — the two forms never collide. Do not add a
-// TextMarshaler: marshaling must stay struct-based so WritePersist
-// (toml.Marshal) always emits nested [agents.<name>] tables, which is what
-// auto-migrates a flat file to nested on the next config write.
-func (a *AgentOverride) UnmarshalText(b []byte) error {
-	a.Model = string(b)
-	return nil
 }
 
 // validEfforts is the Claude Code subagent effort enum. Exactly these five

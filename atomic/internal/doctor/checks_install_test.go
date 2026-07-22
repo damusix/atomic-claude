@@ -213,7 +213,7 @@ func TestCheckInstall_agentOverrideDrift_detectAndRepair(t *testing.T) {
 	target := t.TempDir()
 	suppressClaudeinstallSeams(t)
 
-	// Clean install, no [agents] overrides configured yet.
+	// Clean install, no [claude.agents] overrides configured yet.
 	if _, err := claudeinstall.Install(target, target, false, claudeinstall.RealClock); err != nil {
 		t.Fatalf("initial Install: %v", err)
 	}
@@ -253,12 +253,12 @@ func TestCheckInstall_agentOverrideDrift_detectAndRepair(t *testing.T) {
 // --- helpers ---
 
 // writeAgentOverride writes <home>/.atomic/config.toml with a single
-// [agents.<agentName>] override entry. Uses config.WritePersist for
+// [claude.agents.<agentName>] override entry. Uses config.WritePersist for
 // correctness, mirroring claudeinstall_test's writeOverrideConfig.
 func writeAgentOverride(t *testing.T, home, agentName string, ov config.AgentOverride) {
 	t.Helper()
 	cfg := config.Default()
-	cfg.Agents = map[string]config.AgentOverride{agentName: ov}
+	cfg.Claude.Agents = map[string]config.AgentOverride{agentName: ov}
 	if err := config.WritePersist(config.TOMLPath(home), cfg); err != nil {
 		t.Fatalf("write override config: %v", err)
 	}

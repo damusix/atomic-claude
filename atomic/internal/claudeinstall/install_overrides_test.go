@@ -16,11 +16,11 @@ import (
 )
 
 // writeOverrideConfig creates <targetDir>/.atomic/config.toml with a single
-// [agents] override entry. Uses config.WritePersist for correctness.
+// [claude.agents] override entry. Uses config.WritePersist for correctness.
 func writeOverrideConfig(t *testing.T, targetDir, agentName, tier string) {
 	t.Helper()
 	cfg := config.Default()
-	cfg.Agents = map[string]config.AgentOverride{agentName: {Model: tier}}
+	cfg.Claude.Agents = map[string]config.AgentOverride{agentName: {Model: tier}}
 	if err := config.WritePersist(config.TOMLPath(targetDir), cfg); err != nil {
 		t.Fatalf("write override config: %v", err)
 	}
@@ -43,7 +43,7 @@ func suppressProfileRefresh(t *testing.T) {
 	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
 }
 
-// TestAgentModelOverride_FreshInstall: install with [agents] override → installed
+// TestAgentModelOverride_FreshInstall: install with [claude.agents] override → installed
 // file carries model: <tier> in frontmatter; other keys are preserved.
 func TestAgentModelOverride_FreshInstall(t *testing.T) {
 	target := t.TempDir()
@@ -74,7 +74,7 @@ func TestAgentModelOverride_FreshInstall(t *testing.T) {
 	}
 }
 
-// TestAgentModelOverride_NoOverride: absent [agents] config → installed agent keeps
+// TestAgentModelOverride_NoOverride: absent [claude.agents] config → installed agent keeps
 // the bundled-default model: value (bytes identical to embedded bundle).
 func TestAgentModelOverride_NoOverride(t *testing.T) {
 	target := t.TempDir()
@@ -271,7 +271,7 @@ func TestAgentModelOverride_NonAgentUnchanged(t *testing.T) {
 }
 
 // TestAgentModelOverride_DiffMatchesAfterInstall: after installing with an
-// [agents] tier override, Diff must report DiffMatch for the overridden agent —
+// [claude.agents] tier override, Diff must report DiffMatch for the overridden agent —
 // it has to compare against the patched embedded content, not the raw bundle
 // bytes, or a correct install falsely shows as drifted (issue #129).
 func TestAgentModelOverride_DiffMatchesAfterInstall(t *testing.T) {
@@ -450,7 +450,7 @@ func TestAgentOverride_PlanReflectsEffort(t *testing.T) {
 	target := t.TempDir()
 	suppressProfileRefresh(t)
 	cfg := config.Default()
-	cfg.Agents = map[string]config.AgentOverride{"atomic-implementer": {Effort: "high"}}
+	cfg.Claude.Agents = map[string]config.AgentOverride{"atomic-implementer": {Effort: "high"}}
 	if err := config.WritePersist(config.TOMLPath(target), cfg); err != nil {
 		t.Fatalf("write override config: %v", err)
 	}

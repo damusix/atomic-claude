@@ -107,13 +107,13 @@ func loadPiAgentSource(source, path string) (piAgentSource, bool) {
 		result.diags = append(result.diags, PiAgentDiagnostic{Code: "config-source-invalid", Severity: "error", Source: source, Path: path, Message: "pi must be a table"})
 		return result, false
 	}
-	agentRaw, exists := piTable["agent"]
+	agentRaw, exists := piTable["agents"]
 	if !exists {
 		return result, true
 	}
 	agentTable, ok := agentRaw.(map[string]any)
 	if !ok {
-		result.diags = append(result.diags, PiAgentDiagnostic{Code: "config-source-invalid", Severity: "error", Source: source, Path: path, Message: "pi.agent must be a table"})
+		result.diags = append(result.diags, PiAgentDiagnostic{Code: "config-source-invalid", Severity: "error", Source: source, Path: path, Message: "pi.agents must be a table"})
 		return result, false
 	}
 	for _, name := range sortedAnyKeys(agentTable) {

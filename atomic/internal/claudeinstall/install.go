@@ -59,16 +59,17 @@ type FileAction struct {
 	ProposedPath string // set when ActionMergeRequired
 }
 
-// loadAgentOverrides reads the config and returns the [agents] override map.
-// Best-effort: returns nil when the config is absent, unreadable, or has no
-// [agents] entries so callers treat nil as "no overrides, use bundled defaults".
+// loadAgentOverrides reads the config and returns the [claude.agents] override
+// map. Best-effort: returns nil when the config is absent, unreadable, or has
+// no [claude.agents] entries so callers treat nil as "no overrides, use
+// bundled defaults".
 func loadAgentOverrides(home string) map[string]config.AgentOverride {
 	cfgPath := config.TOMLPath(home)
 	cfg, _, err := config.Load(cfgPath)
-	if err != nil || len(cfg.Agents) == 0 {
+	if err != nil || len(cfg.Claude.Agents) == 0 {
 		return nil
 	}
-	return cfg.Agents
+	return cfg.Claude.Agents
 }
 
 // patchAgentContent rewrites the model: and/or effort: keys in an agent
@@ -132,7 +133,7 @@ func setOrAppendKey(kvs []frontmatter.KV, key, value string) []frontmatter.KV {
 }
 
 // Plan computes the per-file action list without writing anything.
-// It loads the [agents] config overrides and factors the patched content into
+// It loads the [claude.agents] config overrides and factors the patched content into
 // the SHA comparison so the plan correctly reflects what Apply will write.
 //
 // targetDir is the Claude artifact install root (commands/, agents/, ...);
@@ -153,7 +154,7 @@ func Plan(targetDir, home string, manifest []embedded.Artifact) ([]FileAction, e
 }
 
 // readPatchedEmbedded reads an embedded artifact's bytes and applies the
-// [agents] tier override (a no-op for non-agent artifacts or when overrides
+// [claude.agents] tier override (a no-op for non-agent artifacts or when overrides
 // is nil), so every caller compares/writes against the same effective content.
 func readPatchedEmbedded(a embedded.Artifact, overrides map[string]config.AgentOverride) ([]byte, error) {
 	data, err := fs.ReadFile(embedded.FS, a.Source)
@@ -211,7 +212,7 @@ func planArtifact(targetDir, home string, a embedded.Artifact, agentOverrides ma
 }
 
 // ReapplyAgents re-patches only the agent artifacts already installed on
-// disk at targetDir with the current [agents] config overrides from home. It
+// disk at targetDir with the current [claude.agents] config overrides from home. It
 // never performs a first-time install: an agent artifact absent from disk is
 // left untouched. changed holds the basenames (without .md) of the agent
 // files actually rewritten; installed counts every agent artifact found
@@ -249,7 +250,7 @@ func ReapplyAgents(targetDir, home string) (changed []string, installed int, err
 // Apply executes a plan. If dryRun is true, no filesystem writes occur.
 // clock is used for the backup timestamp — pass RealClock for production use.
 //
-// Apply loads the [agents] config overrides from home and patches each
+// Apply loads the [claude.agents] config overrides from home and patches each
 // agent artifact's model: and effort: frontmatter keys before writing, so the
 // user's configured model/effort overrides are always re-applied on every
 // install/update.
@@ -521,7 +522,7 @@ type DiffRow struct {
 }
 
 // Diff compares each manifest artifact against the on-disk state. Read-only.
-// Loads the [agents] config overrides once so agent rows are compared against
+// Loads the [claude.agents] config overrides once so agent rows are compared against
 // the patched content Apply would have written, not the raw bundle bytes —
 // otherwise a correct install with a configured tier override falsely reports
 // as drifted (issue #129).

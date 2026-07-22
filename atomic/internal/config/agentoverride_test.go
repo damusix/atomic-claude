@@ -6,20 +6,6 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// TestAgentOverride_UnmarshalFlatString: a flat `x = "opus"` TOML scalar
-// decodes to {Model: "opus"} via the UnmarshalText back-compat seam.
-func TestAgentOverride_UnmarshalFlatString(t *testing.T) {
-	var m map[string]AgentOverride
-	if err := toml.Unmarshal([]byte(`atomic-implementer = "opus"`), &m); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	got := m["atomic-implementer"]
-	want := AgentOverride{Model: "opus"}
-	if got != want {
-		t.Errorf("got %+v, want %+v", got, want)
-	}
-}
-
 // TestAgentOverride_UnmarshalNestedTable: a nested [x] table with both
 // fields decodes into the struct via the default decoder path.
 func TestAgentOverride_UnmarshalNestedTable(t *testing.T) {

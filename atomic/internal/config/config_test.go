@@ -640,16 +640,17 @@ func TestSignalsMaxDepthRoundTrip(t *testing.T) {
 	}
 }
 
-// --- [agents] table tests (CP2) ---
+// --- [claude.agents] table tests (CP2/CP7) ---
 
-// TestAgentsRoundTrip: config with [agents] (model overrides for all 5 known agents)
-// survives WritePersist→Load without structural warnings or Validate error.
+// TestAgentsRoundTrip: config with [claude.agents] (model overrides for all 5
+// known agents) survives WritePersist→Load without structural warnings or
+// Validate error.
 func TestAgentsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 
 	cfg := Default()
-	cfg.Agents = map[string]AgentOverride{
+	cfg.Claude.Agents = map[string]AgentOverride{
 		"atomic-implementer":   {Model: "sonnet"},
 		"atomic-investigator":  {Model: "haiku"},
 		"atomic-reviewer":      {Model: "sonnet"},
@@ -672,54 +673,72 @@ func TestAgentsRoundTrip(t *testing.T) {
 		t.Errorf("Validate: unexpected error: %v", err)
 	}
 
-	if len(loaded.Agents) != 5 {
-		t.Errorf("Agents len = %d, want 5", len(loaded.Agents))
+	if len(loaded.Claude.Agents) != 5 {
+		t.Errorf("Agents len = %d, want 5", len(loaded.Claude.Agents))
 	}
-	if loaded.Agents["atomic-implementer"].Model != "sonnet" {
-		t.Errorf("atomic-implementer = %q, want %q", loaded.Agents["atomic-implementer"].Model, "sonnet")
+	if loaded.Claude.Agents["atomic-implementer"].Model != "sonnet" {
+		t.Errorf("atomic-implementer = %q, want %q", loaded.Claude.Agents["atomic-implementer"].Model, "sonnet")
 	}
-	if loaded.Agents["atomic-investigator"].Model != "haiku" {
-		t.Errorf("atomic-investigator = %q, want %q", loaded.Agents["atomic-investigator"].Model, "haiku")
+	if loaded.Claude.Agents["atomic-investigator"].Model != "haiku" {
+		t.Errorf("atomic-investigator = %q, want %q", loaded.Claude.Agents["atomic-investigator"].Model, "haiku")
 	}
-	if loaded.Agents["atomic-strategist"].Model != "opus" {
-		t.Errorf("atomic-strategist = %q, want %q", loaded.Agents["atomic-strategist"].Model, "opus")
-	}
-}
-
-// TestAgentsFlatMigratesToNestedOnWrite: a flat `agents.x = "opus"` file loads
-// as {Model: "opus"} and the next WritePersist re-marshals it to a nested
-// [agents.<name>] table — the auto-migration is automatic, no separate pass.
-func TestAgentsFlatMigratesToNestedOnWrite(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
-
-	flat := "[agents]\natomic-implementer = \"opus\"\n"
-	if err := os.WriteFile(path, []byte(flat), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, _, err := Load(path)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if cfg.Agents["atomic-implementer"].Model != "opus" {
-		t.Fatalf("loaded Model = %q, want %q", cfg.Agents["atomic-implementer"].Model, "opus")
-	}
-
-	if err := WritePersist(path, cfg); err != nil {
-		t.Fatalf("WritePersist: %v", err)
+	if loaded.Claude.Agents["atomic-strategist"].Model != "opus" {
+		t.Errorf("atomic-strategist = %q, want %q", loaded.Claude.Agents["atomic-strategist"].Model, "opus")
 	}
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := string(raw)
-	if !strings.Contains(out, "[agents.atomic-implementer]") {
-		t.Errorf("expected nested table header in re-marshaled output, got:\n%s", out)
+	if !strings.Contains(string(raw), "[claude.agents.atomic-implementer]") {
+		t.Errorf("expected nested [claude.agents.<name>] table header in written output, got:\n%s", raw)
 	}
-	if !strings.Contains(out, "model = 'opus'") {
-		t.Errorf("expected model = 'opus' in re-marshaled output, got:\n%s", out)
+}
+
+// TestAgentsScalarUnderClaudeAgentsIsDecodeError: nested tables are the only
+// accepted shape — a scalar value under [claude.agents] is a plain decode
+// error (no silent accept, no back-compat seam).
+func TestAgentsScalarUnderClaudeAgentsIsDecodeError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	scalar := "[claude.agents]\natomic-implementer = \"opus\"\n"
+	if err := os.WriteFile(path, []byte(scalar), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := Load(path); err == nil {
+		t.Fatal("Load should error on a scalar value under [claude.agents], got nil")
+	}
+}
+
+// TestAgentsStaleTopLevelBlockIsUnknownKeyWarning: a stale top-level [agents]
+// block (left by a pre-rename build) is no longer a recognized section — it
+// produces an unknown-key warning and is ignored, not loaded as an override.
+func TestAgentsStaleTopLevelBlockIsUnknownKeyWarning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	stale := "[agents.atomic-implementer]\nmodel = \"opus\"\n"
+	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Claude.Agents) != 0 {
+		t.Errorf("cfg.Claude.Agents should be empty for a stale top-level [agents] block, got %v", cfg.Claude.Agents)
+	}
+	found := false
+	for _, w := range warns {
+		if strings.Contains(w.Message, `unknown key "agents"`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an unknown-key warning for stale top-level [agents], got: %v", warns)
 	}
 }
 
@@ -727,7 +746,7 @@ func TestAgentsFlatMigratesToNestedOnWrite(t *testing.T) {
 // is outside the allowlist {low, medium, high, xhigh, max}.
 func TestAgentsInvalidEffort(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]AgentOverride{
+	cfg.Claude.Agents = map[string]AgentOverride{
 		"atomic-implementer": {Effort: "turbo"}, // invalid
 	}
 	err := Validate(cfg)
@@ -746,7 +765,7 @@ func TestAgentsInvalidEffort(t *testing.T) {
 func TestAgentsValidEffort(t *testing.T) {
 	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
 		cfg := Default()
-		cfg.Agents = map[string]AgentOverride{
+		cfg.Claude.Agents = map[string]AgentOverride{
 			"atomic-implementer": {Effort: effort},
 		}
 		if err := Validate(cfg); err != nil {
@@ -759,7 +778,7 @@ func TestAgentsValidEffort(t *testing.T) {
 // well-formed model id never fails Validate or produces an AgentWarnings entry.
 func TestAgentsArbitraryModelNoError(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]AgentOverride{
+	cfg.Claude.Agents = map[string]AgentOverride{
 		"atomic-implementer": {Model: "claude-opus-4-6[1m]"},
 	}
 	if err := Validate(cfg); err != nil {
@@ -776,7 +795,7 @@ func TestAgentsArbitraryModelNoError(t *testing.T) {
 // warning from AgentWarnings, not a Validate error.
 func TestAgentsMalformedModelWarns(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]AgentOverride{
+	cfg.Claude.Agents = map[string]AgentOverride{
 		"atomic-implementer": {Model: "claude opus"},
 	}
 	if err := Validate(cfg); err != nil {
@@ -798,7 +817,7 @@ func TestAgentsMalformedModelWarns(t *testing.T) {
 // Warning from AgentWarnings (non-fatal), not a Validate error (FAIL).
 func TestAgentsUnknownKeyIsWarn(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]AgentOverride{
+	cfg.Claude.Agents = map[string]AgentOverride{
 		"made-up-agent": {Model: "haiku"}, // unknown key, but well-formed model
 	}
 
@@ -824,7 +843,7 @@ func TestAgentsUnknownKeyIsWarn(t *testing.T) {
 	}
 }
 
-// TestAgentsAbsent: no [agents] table → no structural warnings, Validate returns nil,
+// TestAgentsAbsent: no [claude.agents] table → no structural warnings, Validate returns nil,
 // AgentWarnings returns empty.
 func TestAgentsAbsent(t *testing.T) {
 	dir := t.TempDir()
@@ -843,23 +862,26 @@ func TestAgentsAbsent(t *testing.T) {
 		t.Errorf("unexpected warnings: %v", warns)
 	}
 	if err := Validate(cfg); err != nil {
-		t.Errorf("Validate on config without [agents]: %v", err)
+		t.Errorf("Validate on config without [claude.agents]: %v", err)
 	}
 	agentWarns := AgentWarnings(cfg)
 	if len(agentWarns) != 0 {
-		t.Errorf("AgentWarnings on config without [agents] = %v, want empty", agentWarns)
+		t.Errorf("AgentWarnings on config without [claude.agents] = %v, want empty", agentWarns)
 	}
 }
 
-// TestAgentsNoStructuralWarningsFromLoad: [agents] with valid known-agent keys does not
-// produce structural unknown-key warnings from Load.
+// TestAgentsNoStructuralWarningsFromLoad: [claude.agents.<name>] with valid
+// known-agent keys does not produce structural unknown-key warnings from Load
+// — [claude] is opaque, so its children are never structurally checked.
 func TestAgentsNoStructuralWarningsFromLoad(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
 
-	content := `[agents]
-atomic-implementer = "sonnet"
-atomic-investigator = "haiku"
+	content := `[claude.agents.atomic-implementer]
+model = "sonnet"
+
+[claude.agents.atomic-investigator]
+model = "haiku"
 `
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -870,8 +892,8 @@ atomic-investigator = "haiku"
 		t.Fatalf("Load: %v", err)
 	}
 	for _, w := range warns {
-		if strings.Contains(w.Message, "atomic-implementer") || strings.Contains(w.Message, "agents") {
-			t.Errorf("unexpected structural warning for [agents] key: %q", w.Message)
+		if strings.Contains(w.Message, "atomic-implementer") || strings.Contains(w.Message, "claude") {
+			t.Errorf("unexpected structural warning for [claude.agents] key: %q", w.Message)
 		}
 	}
 }
@@ -880,7 +902,7 @@ atomic-investigator = "haiku"
 // "fable" passes Validate — model validation has no allowlist.
 func TestAgentsFableIsValid(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]AgentOverride{
+	cfg.Claude.Agents = map[string]AgentOverride{
 		"atomic-implementer": {Model: "fable"},
 	}
 	if err := Validate(cfg); err != nil {
@@ -893,7 +915,7 @@ func TestAgentsFableIsValid(t *testing.T) {
 func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
 	cfg := Default()
 	cfg.Install.Artifacts.Agents = []string{"custom-agent.md", "atomic-implementer.md"}
-	cfg.Agents = map[string]AgentOverride{
+	cfg.Claude.Agents = map[string]AgentOverride{
 		"custom-agent":       {Model: "haiku"}, // in manifest → known
 		"atomic-implementer": {Model: "sonnet"},
 	}
@@ -903,15 +925,15 @@ func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
 	}
 }
 
-// TestAgentsNotInConfigList: [agents] keys do not appear in Resolved() (machine-written section,
-// not user-settable via `atomic config set`).
+// TestAgentsNotInConfigList: [claude.agents] keys do not appear in Resolved()
+// (machine-written section, not user-settable via `atomic config set`).
 func TestAgentsNotInConfigList(t *testing.T) {
 	cfg := Default()
-	cfg.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "haiku"}}
+	cfg.Claude.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "haiku"}}
 	m := Resolved(cfg)
 	for k := range m {
-		if strings.HasPrefix(k, "agents") {
-			t.Errorf("Resolved() contains agents key %q — agents is machine-written, must not appear in config list", k)
+		if strings.HasPrefix(k, "claude.agents") {
+			t.Errorf("Resolved() contains claude.agents key %q — agents is machine-written, must not appear in config list", k)
 		}
 	}
 }

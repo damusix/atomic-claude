@@ -11,21 +11,21 @@ import (
 // An empty Config still renders a file with the header so the @-ref resolves.
 //
 // Unlike Resolved (the user-facing list), Render includes machine-written
-// sections such as [agents] so the auto-loaded config.resolved.md reflects
-// the full active configuration including per-agent model tier overrides.
+// sections such as [claude.agents] so the auto-loaded config.resolved.md
+// reflects the full active configuration including per-agent overrides.
 func Render(cfg *Config) string {
 	// Start from user-settable keys.
 	m := Resolved(cfg)
-	// Merge in [agents] overrides. These are machine-written (not user-settable
-	// via `atomic config set`), but belong in the rendered file so sessions
-	// reading config.resolved.md can see which agents are pinned to which
-	// model and/or effort.
-	for agentName, ov := range cfg.Agents {
+	// Merge in [claude.agents] overrides. These are machine-written (not
+	// user-settable via `atomic config set`), but belong in the rendered file
+	// so sessions reading config.resolved.md can see which agents are pinned
+	// to which model and/or effort.
+	for agentName, ov := range cfg.Claude.Agents {
 		if ov.Model != "" {
-			m["agents."+agentName+".model"] = ov.Model
+			m["claude.agents."+agentName+".model"] = ov.Model
 		}
 		if ov.Effort != "" {
-			m["agents."+agentName+".effort"] = ov.Effort
+			m["claude.agents."+agentName+".effort"] = ov.Effort
 		}
 	}
 
