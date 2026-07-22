@@ -71,6 +71,12 @@ A legacy flat entry (`atomic-implementer = "opus"`, from before per-agent effort
 
 On every `atomic claude install` or `atomic claude update` the installer reads the map and patches `model:` and `effort:` in each agent file's frontmatter before writing it to `~/.claude/agents/`, applying only the fields that are set. An absent field leaves the bundled default for that field unchanged. Upgrades never clobber the choice because both fields are re-derived from config on every install, not baked into the installed file.
 
+**Applied immediately.** `atomic config agents` no longer requires a separate reinstall: after saving, it re-patches your already-installed `~/.claude/agents/*.md` files with the new `model:`/`effort:` values. Running Claude Code sessions must be restarted to pick up the new frontmatter.
+
+This immediate re-patch only touches agent files that are already installed under the default `~/.claude` root; it never performs a first-time install. A custom `--target` install directory is not covered. Re-sync it by re-running `atomic claude install --target <dir>`.
+
+**Drift detection and repair.** `atomic doctor`'s install-integrity check compares each installed agent's frontmatter against what your `[agents]` config would produce (the bundle patched with your `model`/`effort` overrides). An installed agent missing a configured override reports WARN, the same way any other install drift does. `atomic doctor --fix` re-applies the patch and clears it. This is not a separate check; it reuses the same install-integrity check that already covers every installed artifact.
+
 **Viewing active overrides.** `~/.atomic/config.resolved.md` (auto-loaded every session) includes a `[agents]` section listing any active overrides:
 
 ```
