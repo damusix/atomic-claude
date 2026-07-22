@@ -211,3 +211,23 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
   `effort`; effort applied at install by patching the `effort:` agent frontmatter key;
   model validation relaxed from a hard tier allowlist to a lenient format check; flat
   entries read as `{model}` and auto-migrate to nested on write.
+
+
+### 2026-07-21 — Implemented (autopilot)
+
+**What changed:** All four checkpoints delivered on branch `agents-effort-config` (base `next`).
+CP1 `e67ead2` — `AgentOverride{Model,Effort}` + `UnmarshalText` scalar back-compat seam,
+`Config.Agents` retyped, effort-strict/model-lenient `Validate`, malformed-model `AgentWarnings`,
+`validTiers` removed. CP2 `b13bece` — `patchAgentContent` sets/appends `model:` and `effort:`
+independently via `setOrAppendKey`. CP3 `f45a7ff` — `atomic config agents` model Input + effort
+Select. CP4 `37bc2cd` — `docs/reference/agents.md`, `atomic config agents` help row (rendered +
+bundled), prior spec superseded. Follow-on `515ebf3` — `internal/doctor` config-check test updated
+to the new contract (invalid effort → FAIL, arbitrary model → not FAIL), caught by full-suite verify.
+
+**Why:** feature request — set reasoning effort per agent (e.g. implementer high, reviewer max)
+alongside the model, mirroring `[pi.agent]`.
+
+**Verified:** `go test ./...` green (the sole red, `internal/doctor/TestRepairPlan_configWARN_fixable`,
+fails only against a real `~/.atomic` with `install.version="dev"`; passes under a clean HOME —
+pre-existing, filed `doctor-config-test-reads-real-home`). `atomic validate` clean; render + bundle
+parity clean; `/atomic-help` MISSING-scan 0.
