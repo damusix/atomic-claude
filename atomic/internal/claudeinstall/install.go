@@ -210,6 +210,42 @@ func planArtifact(targetDir, home string, a embedded.Artifact, agentOverrides ma
 	return FileAction{Artifact: a, Kind: ActionUpdated}, nil
 }
 
+// ReapplyAgents re-patches only the agent artifacts already installed on
+// disk at targetDir with the current [agents] config overrides from home. It
+// never performs a first-time install: an agent artifact absent from disk is
+// left untouched. changed holds the basenames (without .md) of the agent
+// files actually rewritten; installed counts every agent artifact found
+// already present on disk (in sync or rewritten).
+//
+// Reuses Plan/Apply so writes get the same backup behavior as a normal
+// install/update, filtered down to the agent-artifact ActionUpdated subset.
+func ReapplyAgents(targetDir, home string) (changed []string, installed int, err error) {
+	plan, err := Plan(targetDir, home, embedded.Manifest())
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var toApply []FileAction
+	for _, fa := range plan {
+		if fa.Artifact.Kind != "agent" || fa.Kind == ActionInstalled {
+			continue // not an agent, or absent on disk — never a first-time install
+		}
+		installed++
+		if fa.Kind == ActionUpdated {
+			toApply = append(toApply, fa)
+		}
+	}
+
+	if err := Apply(targetDir, home, toApply, false, RealClock); err != nil {
+		return nil, installed, err
+	}
+
+	for _, fa := range toApply {
+		changed = append(changed, strings.TrimSuffix(filepath.Base(filepath.FromSlash(fa.Artifact.Target)), ".md"))
+	}
+	return changed, installed, nil
+}
+
 // Apply executes a plan. If dryRun is true, no filesystem writes occur.
 // clock is used for the backup timestamp — pass RealClock for production use.
 //

@@ -647,6 +647,23 @@ func buildCodeCmd(repoOverride *string) *cobra.Command {
 	return parent
 }
 
+// init wires config.ApplyAgentsHook to claudeinstall.ReapplyAgents. internal/config
+// cannot import internal/claudeinstall directly (claudeinstall already imports
+// config, which would be a cycle), so main — which imports both — closes the loop.
+func init() {
+	config.ApplyAgentsHook = func(home string) ([]string, int, error) {
+		// Auto-apply targets the default install root (~/.claude). A custom
+		// `atomic claude install --target <dir>` root is not recorded anywhere the
+		// config command can read, so those installs are not auto-applied here and
+		// report "no installed agents found" — the user re-runs install for them.
+		target, err := claudeinstall.ResolveTarget("~/.claude")
+		if err != nil {
+			return nil, 0, err
+		}
+		return claudeinstall.ReapplyAgents(target, home)
+	}
+}
+
 // buildConfigCmd builds the "config" parent and its config-operation children.
 // Dispatch is config.Run (from internal/config/cli.go).
 func buildConfigCmd() *cobra.Command {

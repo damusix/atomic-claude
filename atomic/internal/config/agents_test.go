@@ -428,6 +428,114 @@ func TestRunAgents_preservesOtherConfigSections(t *testing.T) {
 	}
 }
 
+// withApplyAgentsHookStub swaps ApplyAgentsHook for the duration of f, restoring
+// the original (nil in production) afterward.
+func withApplyAgentsHookStub(hook func(home string) ([]string, int, error), f func()) {
+	orig := ApplyAgentsHook
+	ApplyAgentsHook = hook
+	defer func() { ApplyAgentsHook = orig }()
+	f()
+}
+
+// TestRunAgents_appliesViaHook: after a successful save, the agents verb
+// calls ApplyAgentsHook with the resolved home and reports the applied
+// agents + a restart note on stdout.
+func TestRunAgents_appliesViaHook(t *testing.T) {
+	home := t.TempDir()
+
+	var gotHome string
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Effort: "high"}}, nil
+	}, func() {
+		withApplyAgentsHookStub(func(h string) ([]string, int, error) {
+			gotHome = h
+			return []string{"atomic-implementer"}, 1, nil
+		}, func() {
+			code, stdout, stderr := runCLI(t, home, "agents")
+			if code != 0 {
+				t.Fatalf("expected exit 0, got %d; stderr: %s", code, stderr)
+			}
+			if !strings.Contains(stdout, "atomic-implementer") {
+				t.Errorf("stdout missing applied agent name: %q", stdout)
+			}
+			if !strings.Contains(stdout, "Restart Claude Code sessions") {
+				t.Errorf("stdout missing restart note: %q", stdout)
+			}
+		})
+	})
+	if gotHome != home {
+		t.Errorf("ApplyAgentsHook called with home %q, want %q", gotHome, home)
+	}
+}
+
+// TestRunAgents_hookErrorNonFatal: a hook error is reported on stderr but the
+// verb still exits 0 — the config write itself succeeded.
+func TestRunAgents_hookErrorNonFatal(t *testing.T) {
+	home := t.TempDir()
+
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Model: "opus"}}, nil
+	}, func() {
+		withApplyAgentsHookStub(func(_ string) ([]string, int, error) {
+			return nil, 0, errors.New("boom")
+		}, func() {
+			code, _, stderr := runCLI(t, home, "agents")
+			if code != 0 {
+				t.Fatalf("expected exit 0 (config saved despite hook error), got %d", code)
+			}
+			if !strings.Contains(stderr, "boom") {
+				t.Errorf("stderr missing hook error: %q", stderr)
+			}
+			if !strings.Contains(stderr, "atomic claude install") {
+				t.Errorf("stderr missing fallback guidance: %q", stderr)
+			}
+		})
+	})
+}
+
+// TestRunAgents_hookNoInstalledAgents: installed == 0 reports the
+// will-apply-on-next-install message.
+func TestRunAgents_hookNoInstalledAgents(t *testing.T) {
+	home := t.TempDir()
+
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Model: "opus"}}, nil
+	}, func() {
+		withApplyAgentsHookStub(func(_ string) ([]string, int, error) {
+			return nil, 0, nil
+		}, func() {
+			code, stdout, _ := runCLI(t, home, "agents")
+			if code != 0 {
+				t.Fatalf("expected exit 0, got %d", code)
+			}
+			if !strings.Contains(stdout, "No installed agents found") {
+				t.Errorf("stdout missing no-installed-agents message: %q", stdout)
+			}
+		})
+	})
+}
+
+// TestRunAgents_hookAlreadyUpToDate: installed > 0, no changes.
+func TestRunAgents_hookAlreadyUpToDate(t *testing.T) {
+	home := t.TempDir()
+
+	withAgentTierSelectorStub(func(_ *Config) (map[string]AgentOverride, error) {
+		return map[string]AgentOverride{"atomic-implementer": {Model: "opus"}}, nil
+	}, func() {
+		withApplyAgentsHookStub(func(_ string) ([]string, int, error) {
+			return nil, 3, nil
+		}, func() {
+			code, stdout, _ := runCLI(t, home, "agents")
+			if code != 0 {
+				t.Fatalf("expected exit 0, got %d", code)
+			}
+			if !strings.Contains(stdout, "already up to date") {
+				t.Errorf("stdout missing already-up-to-date message: %q", stdout)
+			}
+		})
+	})
+}
+
 // TestDefaultAgentTierSelector_nonInteractive: the default selector returns
 // ErrNonInteractiveAgents when not attached to a TTY (CI / test environment).
 // This test verifies the no-panic contract: it must not hang or crash.

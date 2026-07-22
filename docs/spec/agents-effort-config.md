@@ -145,8 +145,14 @@ atomic/internal/config/
   agents.go                     M  model Input + effort Select; applyAgentOverrides; validateModelInput; tier options removed
   cli.go                        M  agents verb -> applyAgentOverrides
 atomic/internal/claudeinstall/
-  install.go                    M  loadAgentOverrides + patchAgentContent patch model: and effort: (setOrAppendKey)
-docs/reference/agents.md        M  "Model and effort overrides" section
+  install.go                    M  loadAgentOverrides + patchAgentContent patch model: and effort: (setOrAppendKey); ReapplyAgents (agent-scoped re-apply)
+atomic/internal/config/
+  cli.go                        M  agents verb: after save, call ApplyAgentsHook (auto-apply)
+  config.go (or cli.go)         M  ApplyAgentsHook seam var (nil default; wired by cmd/atomic)
+atomic/cmd/atomic/main.go       M  wire ApplyAgentsHook to a claudeinstall.ReapplyAgents closure at startup
+atomic/internal/doctor/
+  checks_install_test.go        M  regression test: config↔installed agent drift → WARN; --fix repairs
+docs/reference/agents.md        M  "Model and effort overrides" section + auto-apply + doctor-drift notes
 docs/spec/agent-model-overrides.md  M  supersession banner + change-log entry
 templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered commands/atomic-help.md + embedded bundle)
 ```
@@ -172,6 +178,11 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 - `install.go`
   - `patchAgentContent` — set-or-append `model:` and `effort:` independently, order-preserving
   - `setOrAppendKey` — shared find-existing-or-append frontmatter helper
+  - `ReapplyAgents` — re-patch only already-installed `agents/*.md` from bundle+overrides; skips absent (no first-time install); returns changed names
+- `config` seam + `cmd/atomic`
+  - `ApplyAgentsHook` — package var in config (nil default), wired by `cmd/atomic` to a `ReapplyAgents` closure; called by the `agents` verb after save
+- `checks_install_test.go`
+  - regression test — an installed agent whose frontmatter lacks a configured override → doctor install check WARN; `--fix` re-syncs
 
 
 ## Flows
@@ -180,6 +191,8 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 1. **Back-compat read** — `config.Load` decodes `[agents]`: a scalar `agents.x = "opus"` → `AgentOverride.UnmarshalText` → `{Model:"opus"}`; a `[agents.x]` table → struct decode → `{Model,Effort}`.
 2. **Auto-migration on write** — user runs `atomic config agents` → selector returns overrides → `applyAgentOverrides` mutates `cfg.Agents` → `WritePersist` → `toml.Marshal` emits nested `[agents.<name>]` tables (a formerly-flat file is now nested).
 3. **Install patch** — `atomic claude install`/`update` → `loadAgentOverrides` → for each `agents/*.md` artifact, `patchAgentContent` sets/appends `model:` (from Model) and `effort:` (from Effort), each only when set → patched bytes written to `~/.claude/agents/` and factored into the Plan SHA.
+4. **Auto-apply** — `atomic config agents` → after `WritePersist`, the `ApplyAgentsHook` runs `ReapplyAgents(~/.claude, home)`: re-patches only the agent files already present on disk (drift-only writes; absent agents skipped, no first-time install), then prints the changed count and a "restart Claude Code sessions to pick up the change" note. No-op (silent) when nothing is installed yet.
+5. **Drift detection + repair** — `atomic doctor` install-integrity check → `claudeinstall.Diff` compares each on-disk agent against `readPatchedEmbedded` (bundle patched with model+effort). A configured override missing from the installed file → SHA mismatch → WARN. `atomic doctor --fix` → idempotent `Install` re-patches. Fully deterministic (SHA + frontmatter surgery, no model). This behavior is inherited from the CP2 patch threading through `Diff`; CP6 only locks it with a test and documents it — no new doctor check.
 
 
 ## Checkpoints
@@ -191,6 +204,8 @@ templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered
 | CP2 | Install-time patch of `model:` + `effort:` | `internal/claudeinstall/install.go` | `loadAgentOverrides` + `patchAgentContent` handle both fields independently; effort-only patches only `effort:`; both-empty is a no-op; order preserved | model-only patch; effort-only patch (model frontmatter unchanged); both patched; neither → unchanged bytes; append when key absent; Plan SHA reflects both keys |
 | CP3 | Interactive form + render | `internal/config/agents.go` | `atomic config agents` model Input + effort Select per agent; `applyAgentOverrides`; both-empty deletes entry; `Render` emits `.model`/`.effort` dotted keys | selector seam returns overrides → applied to cfg; empty-both removes entry; render output for model-only, effort-only, both; non-interactive + abort errors preserved |
 | CP4 | Docs + discovery surfaces | `docs/reference/agents.md`; `templates/commands/atomic-help.md`; `docs/spec/agent-model-overrides.md`; regenerated `commands/` + embedded bundle | `docs/reference` `[agents]` doc updated; `/atomic-help` cli topic mentions effort; prior spec superseded; design/spec committed | `atomic validate` clean; `/atomic-help` MISSING-scan clean; render+bundle parity clean |
+| CP5 | Auto-apply on `atomic config agents` | `internal/claudeinstall/install.go` (`ReapplyAgents`); `internal/config/cli.go` + `ApplyAgentsHook` seam; `cmd/atomic/main.go` (wiring) | `ReapplyAgents` re-patches only already-installed `agents/*.md` (drift-only writes; absent → skip, never a first-time install); `atomic config agents` calls the hook after save, prints changed count + restart note; silent no-op when not installed; config↛claudeinstall import cycle avoided via the hook | `ReapplyAgents` patches an installed agent's frontmatter to match config; skips an absent agent (not created); no-op when on-disk already matches; config cli test with fake hook asserts it is called + output; whole module builds (no import cycle) |
+| CP6 | Drift detection guard + docs | `internal/doctor/checks_install_test.go`; `docs/reference/agents.md` | The existing install-integrity check already flags config↔installed agent drift (via `Diff`→`readPatchedEmbedded`, deterministic) and `--fix` repairs it — lock with a regression test; document auto-apply + doctor drift/repair + session-restart caveat. No new doctor check (reuse-first) | doctor install check returns WARN when an installed agent lacks a configured effort/model; `applyInstallRepair`/`Install` re-syncs it to PASS; docs updated |
 
 
 ## Non-goals
@@ -231,3 +246,21 @@ alongside the model, mirroring `[pi.agent]`.
 fails only against a real `~/.atomic` with `install.version="dev"`; passes under a clean HOME —
 pre-existing, filed `doctor-config-test-reads-real-home`). `atomic validate` clean; render + bundle
 parity clean; `/atomic-help` MISSING-scan 0.
+
+
+### 2026-07-22 — Auto-apply + drift detection (CP5/CP6)
+
+**What changed:** `atomic config agents` now applies immediately — after writing the config it
+re-patches the already-installed `~/.claude/agents/*.md` frontmatter via a new
+`claudeinstall.ReapplyAgents` (invoked through a `config.ApplyAgentsHook` seam so `internal/config`
+does not import `internal/claudeinstall`), so a user no longer has to run `atomic claude install`
+separately. It writes only drifted, already-installed agent files (never a first-time install) and
+prints the changed count plus a note that running Claude Code sessions must restart to pick up the
+new frontmatter. Drift between `[agents]` config and installed agent files is detected
+deterministically by the existing `atomic doctor` install-integrity check (`Diff` compares against
+`readPatchedEmbedded`, which patches model+effort) and repaired by `atomic doctor --fix`; CP6 adds a
+regression test locking that and documents it. No new doctor check.
+
+**Why:** feedback — the config alone was inert (Claude reads agent-md frontmatter, never
+`config.toml`), so setting an override had no effect until a separate reinstall; and drift should be
+caught by a deterministic check, not left to the user to notice.
