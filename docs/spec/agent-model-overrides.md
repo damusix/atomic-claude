@@ -1,5 +1,7 @@
 # Agent model overrides
 
+**Partially superseded.** The flat `agent = "tier"` shape and the hard tier allowlist described below are no longer current: the `[agents]` block now carries per-agent `effort` alongside `model`, model values accept arbitrary Claude Code model ids (not just a fixed tier set), and both fields live in nested `[agents.<name>]` tables. See [`docs/spec/agents-effort-config.md`](agents-effort-config.md) for current truth.
+
 Child of [`docs/design/signals-wiki-unification.md`](../design/signals-wiki-unification.md) workstream F. Contracts config-driven, persistent per-agent model tier overrides applied at install time.
 
 **Approach:** `config.toml [agents]` maps full agent filenames to tier strings (`haiku|sonnet|opus|fable`); `claudeinstall` reads the map at apply time and patches `model:` in each agent file's frontmatter via `internal/frontmatter.Parse`+`Emit`; `atomic config agents` (huh) is the only write path. See [`docs/design/signals-wiki-unification.md`](../design/signals-wiki-unification.md) §"Config-driven agent model overrides (workstream F)".
@@ -47,4 +49,10 @@ Users pin any installed atomic agent to a cost tier via `atomic config agents`. 
 
 ## Change log
 
-(none)
+### 2026-07-21 — Partially superseded by agents-effort-config
+
+**What changed:** [`docs/spec/agents-effort-config.md`](agents-effort-config.md) extends the `[agents]` block this spec introduced: entries move from a flat `agent = "tier"` string to a nested `[agents.<name>]` table carrying `model` (now validated leniently — any well-formed value, not just the `{haiku, sonnet, opus, fable}` allowlist) and a new `effort` field (`low|medium|high|xhigh|max`, strict enum). Flat entries still decode and auto-migrate to nested on the next config write.
+
+**Why:** users wanted arbitrary Claude Code model ids (e.g. `claude-opus-4-8`) and independent per-agent reasoning-effort control, not just a fixed tier label.
+
+**Superseded:** SC1/SC2's flat-map schema and hard tier allowlist, and this file's `## Goal`/`## Data model` description of `config.toml [agents]` as `map[string]string` with allowlist validation — both are replaced by the nested `map[string]AgentOverride` schema in `docs/spec/agents-effort-config.md`.

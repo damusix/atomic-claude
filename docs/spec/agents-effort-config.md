@@ -134,15 +134,63 @@ byte-stable. This is the auto-loaded `config.resolved.md` view.
   part of `knownKeys`); the shape change is backward-compatible on read.
 
 
+## Change tree
+
+
+```text
+atomic/internal/config/
+  agentoverride.go              A  AgentOverride{Model,Effort}, UnmarshalText, validEfforts, effortOptionValues, validModelFormat
+  config.go                     M  Agents map[string]AgentOverride; Validate (effort-strict, model-lenient); AgentWarnings malformed-model; validTiers removed
+  render.go                     M  Render emits agents.<name>.model / .effort
+  agents.go                     M  model Input + effort Select; applyAgentOverrides; validateModelInput; tier options removed
+  cli.go                        M  agents verb -> applyAgentOverrides
+atomic/internal/claudeinstall/
+  install.go                    M  loadAgentOverrides + patchAgentContent patch model: and effort: (setOrAppendKey)
+docs/reference/agents.md        M  "Model and effort overrides" section
+docs/spec/agent-model-overrides.md  M  supersession banner + change-log entry
+templates/commands/atomic-help.md   M  config agents cli-topic row  (-> rendered commands/atomic-help.md + embedded bundle)
+```
+
+
+## Outline
+
+
+- `agentoverride.go`
+  - `AgentOverride` — model + effort override for one agent; TOML tags `omitempty`
+    - `UnmarshalText` — scalar back-compat seam: sets Model from a flat string value
+  - `validEfforts` / `effortOptionValues` — effort enum set + ordered list (shared by Validate and the Select)
+  - `validModelFormat` — lenient model shape check (non-empty, no internal whitespace/control chars)
+- `config.go`
+  - `Validate` — effort strict against the enum; model no hard-fail (validTiers removed)
+  - `AgentWarnings` — unknown-agent warning + malformed-model warning
+- `render.go`
+  - `Render` — per-agent `.model`/`.effort` dotted keys, byte-stable
+- `agents.go`
+  - `validateModelInput` — wraps validModelFormat with the empty-is-ok rule + error message
+  - `defaultAgentTierSelector` — model Input + effort Select per agent, returns `map[string]AgentOverride`
+  - `applyAgentOverrides` — merge selections into cfg.Agents; both-empty deletes; validate on store
+- `install.go`
+  - `patchAgentContent` — set-or-append `model:` and `effort:` independently, order-preserving
+  - `setOrAppendKey` — shared find-existing-or-append frontmatter helper
+
+
+## Flows
+
+
+1. **Back-compat read** — `config.Load` decodes `[agents]`: a scalar `agents.x = "opus"` → `AgentOverride.UnmarshalText` → `{Model:"opus"}`; a `[agents.x]` table → struct decode → `{Model,Effort}`.
+2. **Auto-migration on write** — user runs `atomic config agents` → selector returns overrides → `applyAgentOverrides` mutates `cfg.Agents` → `WritePersist` → `toml.Marshal` emits nested `[agents.<name>]` tables (a formerly-flat file is now nested).
+3. **Install patch** — `atomic claude install`/`update` → `loadAgentOverrides` → for each `agents/*.md` artifact, `patchAgentContent` sets/appends `model:` (from Model) and `effort:` (from Effort), each only when set → patched bytes written to `~/.claude/agents/` and factored into the Plan SHA.
+
+
 ## Checkpoints
 
 
-| # | Checkpoint | Acceptance | Key tests |
-|---|-----------|------------|-----------|
-| CP1 | Schema type + back-compat decode/encode | `AgentOverride` + `UnmarshalText`; `Config.Agents` is `map[string]AgentOverride`; `Validate` effort-strict / model-lenient; `AgentWarnings` gains malformed-model warning; `validTiers` hard-fail removed | Round-trip: flat string decodes to `{Model}`; nested table decodes to `{Model,Effort}`; effort-only decodes to `{Effort}`; `WritePersist` of a flat-loaded config emits nested tables; invalid effort → Validate error; malformed model → warning not error; well-formed arbitrary id (`claude-opus-4-8`, `claude-opus-4-6[1m]`) → no error/warning |
-| CP2 | Install-time patch of `model:` + `effort:` | `loadAgentOverrides` + `patchAgentContent` handle both fields independently; effort-only patches only `effort:`; both-empty is a no-op; order preserved | model-only patch; effort-only patch (model frontmatter unchanged); both patched; neither → unchanged bytes; append when key absent; Plan SHA reflects both keys |
-| CP3 | Interactive form + render | `atomic config agents` model Input + effort Select per agent; `applyAgentOverrides`; both-empty deletes entry; `Render` emits `.model`/`.effort` dotted keys | selector seam returns overrides → applied to cfg; empty-both removes entry; render output for model-only, effort-only, both; non-interactive + abort errors preserved |
-| CP4 | Docs + discovery surfaces | `docs/reference` `[agents]` doc updated; `/atomic-help` cli topic mentions effort if it names `[agents]`; README updated if it documents `[agents]`; design/spec committed | `atomic validate` clean; `/atomic-help` MISSING-scan clean if artifacts touched (none expected) |
+| # | Checkpoint | Files/areas | Acceptance | Verifies |
+|---|-----------|-------------|------------|----------|
+| CP1 | Schema type + back-compat decode/encode | `internal/config/{agentoverride,config,render,agents,cli}.go`; `internal/claudeinstall/install.go` (type thread) | `AgentOverride` + `UnmarshalText`; `Config.Agents` is `map[string]AgentOverride`; `Validate` effort-strict / model-lenient; `AgentWarnings` gains malformed-model warning; `validTiers` hard-fail removed | Round-trip: flat string decodes to `{Model}`; nested table decodes to `{Model,Effort}`; effort-only decodes to `{Effort}`; `WritePersist` of a flat-loaded config emits nested tables; invalid effort → Validate error; malformed model → warning not error; well-formed arbitrary id (`claude-opus-4-8`, `claude-opus-4-6[1m]`) → no error/warning |
+| CP2 | Install-time patch of `model:` + `effort:` | `internal/claudeinstall/install.go` | `loadAgentOverrides` + `patchAgentContent` handle both fields independently; effort-only patches only `effort:`; both-empty is a no-op; order preserved | model-only patch; effort-only patch (model frontmatter unchanged); both patched; neither → unchanged bytes; append when key absent; Plan SHA reflects both keys |
+| CP3 | Interactive form + render | `internal/config/agents.go` | `atomic config agents` model Input + effort Select per agent; `applyAgentOverrides`; both-empty deletes entry; `Render` emits `.model`/`.effort` dotted keys | selector seam returns overrides → applied to cfg; empty-both removes entry; render output for model-only, effort-only, both; non-interactive + abort errors preserved |
+| CP4 | Docs + discovery surfaces | `docs/reference/agents.md`; `templates/commands/atomic-help.md`; `docs/spec/agent-model-overrides.md`; regenerated `commands/` + embedded bundle | `docs/reference` `[agents]` doc updated; `/atomic-help` cli topic mentions effort; prior spec superseded; design/spec committed | `atomic validate` clean; `/atomic-help` MISSING-scan clean; render+bundle parity clean |
 
 
 ## Non-goals

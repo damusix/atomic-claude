@@ -32,15 +32,20 @@ These handle system-level tasks.
 | `atomic-wiki-inferrer` | Owns the full signals pipeline: scans the repo via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), writes `signals.md` (and per-domain files on large repos), wires the `@-ref` into `CLAUDE.md`. Dispatched by `/refresh-wiki` and silently by ship verbs. | Sonnet |
 
 
-## Model tier overrides
+## Model and effort overrides
 
-Each agent's `model:` frontmatter defaults to its bundled tier (shown in the tables above). You can pin any installed atomic agent to a different tier via `atomic config agents`, which prompts interactively and writes the choice to `config.toml [agents]`.
+Each agent's `model:` frontmatter defaults to its bundled tier (shown in the tables above). You can pin any installed atomic agent to a different model and reasoning effort via `atomic config agents`, which prompts interactively per agent and writes the choice to `config.toml [agents]`.
 
 ```
 atomic config agents
 ```
 
-Available tiers: `haiku`, `sonnet`, `opus`. (`fable` is forward-reserved and may not correspond to a live Claude Code model tier yet.)
+For each agent, the prompt asks for:
+
+- a **model** (free text, blank = bundled default): a tier alias (`haiku`, `sonnet`, `opus`) or an exact Claude Code model id, e.g. `claude-opus-4-8`. No provider prefix (`anthropic/` etc.). Validation is lenient: any well-formed value is accepted and passed through to the frontmatter, and Claude Code resolves it at runtime.
+- an **effort** level: `low`, `medium`, `high`, `xhigh`, or `max`. Claude Code downgrades gracefully per model at runtime if a model doesn't support the requested level.
+
+Model and effort are independent. Set either one alone, both, or neither.
 
 **Bundled defaults:**
 
@@ -52,14 +57,27 @@ Available tiers: `haiku`, `sonnet`, `opus`. (`fable` is forward-reserved and may
 | `atomic-wiki-inferrer` | sonnet |
 | `atomic-strategist` | opus |
 
-**How it works.** The choice is stored in `config.toml [agents]` (machine-owned — not hand-edited). On every `atomic claude install` or `atomic claude update` the installer reads the map and patches `model:` in each agent file before writing it to `~/.claude/agents/`. An absent entry leaves the bundled default unchanged. Upgrades never clobber the choice because the tier is re-derived from config on every install, not baked into the installed file.
+(`fable` is forward-reserved and may not correspond to a live Claude Code model tier yet.)
+
+**How it works.** Overrides are stored as nested `[agents.<name>]` tables in `config.toml` (machine-owned, not hand-edited), each with optional `model` and `effort` fields:
+
+```toml
+[agents.atomic-implementer]
+model = "claude-opus-4-8"
+effort = "high"
+```
+
+A legacy flat entry (`atomic-implementer = "opus"`, from before per-agent effort) still loads correctly (it is read as `{model = "opus"}`) and auto-migrates to the nested form the next time any `atomic config` command writes the file.
+
+On every `atomic claude install` or `atomic claude update` the installer reads the map and patches `model:` and `effort:` in each agent file's frontmatter before writing it to `~/.claude/agents/`, applying only the fields that are set. An absent field leaves the bundled default for that field unchanged. Upgrades never clobber the choice because both fields are re-derived from config on every install, not baked into the installed file.
 
 **Viewing active overrides.** `~/.atomic/config.resolved.md` (auto-loaded every session) includes a `[agents]` section listing any active overrides:
 
 ```
 ## [agents]
 
-- `agents.atomic-implementer` = `haiku`
+- `agents.atomic-implementer.model` = `claude-opus-4-8`
+- `agents.atomic-reviewer.effort` = `high`
 ```
 
 No override stored → no `[agents]` section in the file.
