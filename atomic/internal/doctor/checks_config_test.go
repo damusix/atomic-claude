@@ -385,17 +385,43 @@ rules = []
 
 // --- [agents] doctor tests (CP2) ---
 
-// TestCheckConfig_agents_invalidTier: [agents] with an invalid tier value → FAIL.
-func TestCheckConfig_agents_invalidTier(t *testing.T) {
+// TestCheckConfig_agents_invalidEffort: [agents.<name>] with an invalid
+// effort value → FAIL. effort is validated against a strict enum; model is
+// lenient (see TestCheckConfig_agents_arbitraryModelNotFail).
+func TestCheckConfig_agents_invalidEffort(t *testing.T) {
 	root := t.TempDir()
-	writeTOML(t, root, "[agents]\natomic-implementer = \"turbo\"\n")
+	writeTOML(t, root, "[agents.atomic-implementer]\neffort = \"turbo\"\n")
 
 	r := doctor.RunCheckConfigWith(root)
 	if r.Severity != doctor.FAIL {
-		t.Errorf("severity = %q, want FAIL for invalid agent tier; detail: %s", r.Severity, r.Detail)
+		t.Errorf("severity = %q, want FAIL for invalid agent effort; detail: %s", r.Severity, r.Detail)
 	}
 	if !strings.Contains(r.Detail, "atomic-implementer") {
 		t.Errorf("detail %q: want mention of agent name 'atomic-implementer'", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "effort") {
+		t.Errorf("detail %q: want mention of 'effort'", r.Detail)
+	}
+}
+
+// TestCheckConfig_agents_arbitraryModelNotFail: [agents] model value is
+// lenient — any well-formed string passes doctor's config check, since
+// Claude Code (not atomic) resolves the model name.
+func TestCheckConfig_agents_arbitraryModelNotFail(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[agents]\natomic-implementer = \"turbo\"\n")
+
+	// Pre-render resolved.md so drift doesn't confound the severity.
+	cfg, warns, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	_ = warns
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity == doctor.FAIL {
+		t.Errorf("severity = %q, want not-FAIL for arbitrary (lenient) model value; detail: %s", r.Severity, r.Detail)
 	}
 }
 
@@ -421,7 +447,7 @@ func TestCheckConfig_agents_unknownAgent(t *testing.T) {
 	}
 }
 
-// TestCheckConfig_agents_valid: [agents] with known agents + valid tiers → PASS (when resolved synced).
+// TestCheckConfig_agents_valid: [agents] with known agents + valid model/effort → PASS (when resolved synced).
 func TestCheckConfig_agents_valid(t *testing.T) {
 	root := t.TempDir()
 	writeTOML(t, root, `[agents]

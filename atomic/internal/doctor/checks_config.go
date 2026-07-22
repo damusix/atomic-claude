@@ -36,7 +36,7 @@ func RunCheckConfigWith(home string) Result {
 		return Result{Severity: FAIL, Detail: fmt.Sprintf("config parse error: %v", err)}
 	}
 
-	// Invalid values → FAIL (includes [agents] tier validation).
+	// Invalid values → FAIL (includes [agents] effort validation; model is lenient).
 	// Unknown keys are non-fatal for the drift check, but invalid values mean we
 	// cannot render a valid resolved.md, so stop here.
 	if err := config.Validate(cfg); err != nil {
