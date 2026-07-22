@@ -142,7 +142,10 @@ migration code.
 
 - No flat/scalar entry form is accepted; `[claude.agents.<name>]` tables are the only shape.
 - A stale top-level `[agents]` block left by a pre-rename `next` build is an unknown key:
-  reported as a warning and ignored. The user re-runs `atomic config agents`.
+  reported as a warning and ignored on load, and dropped from the file on the next config
+  write (no `Config` field holds it, so the struct round-trip does not preserve it — unlike
+  `[pi]`, which `Config.Pi map[string]any` preserves deliberately). It self-cleans; the user
+  re-runs `atomic config agents` to set overrides under the new key.
 - Same for a stale `[pi.agent]` block after the `[pi.agents]` rename.
 - No config schema version bump (these tables are machine-written, not in `knownKeys`).
 
