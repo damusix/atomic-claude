@@ -7,6 +7,50 @@ import (
 	"testing"
 )
 
+// --- validateModelInput (huh.Input validator, pure function) ---
+
+// TestValidateModelInput: empty passes (no override); well-formed model
+// strings pass; strings with internal whitespace fail with a guidance error.
+func TestValidateModelInput(t *testing.T) {
+	cases := []struct {
+		name    string
+		in      string
+		wantErr bool
+	}{
+		{"empty", "", false},
+		{"tier", "opus", false},
+		{"model id with bracket suffix", "claude-opus-4-6[1m]", false},
+		{"two words", "two words", true},
+		{"leading space", " opus", true},
+		{"trailing space", "opus ", true},
+		{"leading tab", "\topus", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateModelInput(tc.in)
+			if (err != nil) != tc.wantErr {
+				t.Errorf("validateModelInput(%q) = %v, wantErr %v", tc.in, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+// --- effort option list (interactive Select) ---
+
+// TestEffortOptionValues_order: the ordered option list is exactly
+// "" (bundled default) followed by the five-level enum, in enum order.
+func TestEffortOptionValues_order(t *testing.T) {
+	want := []string{"", "low", "medium", "high", "xhigh", "max"}
+	if len(effortOptionValues) != len(want) {
+		t.Fatalf("effortOptionValues = %v, want %v", effortOptionValues, want)
+	}
+	for i, v := range want {
+		if effortOptionValues[i] != v {
+			t.Errorf("effortOptionValues[%d] = %q, want %q", i, effortOptionValues[i], v)
+		}
+	}
+}
+
 // --- applyAgentOverrides (pure function) ---
 
 // TestApplyAgentOverrides_validSelections: valid model selections are written to cfg.Agents.
@@ -180,6 +224,23 @@ func TestApplyAgentOverrides_roundTrip(t *testing.T) {
 	// atomic-reviewer was {} → should be absent from [agents].
 	if _, ok := loaded.Agents["atomic-reviewer"]; ok {
 		t.Error("atomic-reviewer should be absent (empty selection = no override)")
+	}
+}
+
+// TestApplyAgentOverrides_modelAndEffortRoundTrip: a selection carrying both
+// fields (as the reworked model-Input + effort-Select form now returns)
+// writes both into cfg.Agents.
+func TestApplyAgentOverrides_modelAndEffortRoundTrip(t *testing.T) {
+	cfg := Default()
+	if err := applyAgentOverrides(cfg, map[string]AgentOverride{
+		"atomic-implementer": {Model: "claude-opus-4-8", Effort: "high"},
+	}); err != nil {
+		t.Fatalf("applyAgentOverrides: %v", err)
+	}
+	got := cfg.Agents["atomic-implementer"]
+	want := AgentOverride{Model: "claude-opus-4-8", Effort: "high"}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
 	}
 }
 
