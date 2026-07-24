@@ -60,6 +60,16 @@ When the user wants a folder for notes, tickets, research, or any loose material
 
 Reserved name `wiki` is refused by the binary. If `<wiki-buckets>` carries `declined="true"`, `bucket add` removes the attribute when registering a new bucket.
 
+## Bucket doc authoring route
+
+When the user wants a new topic file inside a registered bucket, or asks about a bucket's own conventions:
+
+- `atomic wiki bucket doc <bucket> <slug> [--router]` scaffolds `<bucket>/<slug>.md` from the embedded template (six-key frontmatter, `created` pre-stamped). `--router` also creates `<bucket>/<slug>/` + a `CLAUDE.md` stub for a topic that outgrows one file. Refuses on an existing target — never overwrites.
+- `atomic wiki bucket skill <bucket>` scaffolds `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line. No-op if the file exists.
+- `atomic wiki bucket index [<bucket>]` rebuilds the `<bucket-docs>` region in one bucket's `index.md` (or every registered bucket when omitted) plus the realm `<wiki-bucket-list>` region in `wiki/index.md`. `atomic wiki scan` already runs this as part of its pass — only reach for the verb directly to force a rebuild outside a scan.
+
+See `references/realm.md` for the full frontmatter contract.
+
 ## Karpathy-wiki setup route
 
 When the user asks to set up a wiki for a folder of projects:

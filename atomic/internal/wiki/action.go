@@ -1,12 +1,14 @@
 package wiki
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -296,11 +298,11 @@ func splitCites(s string) []string {
 	return out
 }
 
-// wikiBucketAction implements `atomic wiki bucket <add|list|diff|promote> [flags]`.
+// wikiBucketAction implements `atomic wiki bucket <add|list|diff|promote|doc|skill|index> [flags]`.
 // Root is resolved from --root flag or cwd.
 func wikiBucketAction(args []string, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket <add|list|diff|promote> [--root=<path>] [name]\n")
+		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket <add|list|diff|promote|doc|skill|index> [--root=<path>] [args]\n")
 		return 1
 	}
 
@@ -314,10 +316,44 @@ func wikiBucketAction(args []string, cwd string, out io.Writer) int {
 		return wikiBucketDiffAction(args[1:], cwd, out)
 	case "promote":
 		return wikiBucketPromoteAction(args[1:], cwd, out)
+	case "doc":
+		return wikiBucketDocAction(args[1:], cwd, out)
+	case "skill":
+		return wikiBucketSkillAction(args[1:], cwd, out)
+	case "index":
+		return wikiBucketIndexAction(args[1:], cwd, out)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket: unknown verb %q\n", verb)
 		return 1
 	}
+}
+
+// resolveRegisteredBucket reads the <wiki-buckets> registry at indexPath and
+// returns the bucket dir for name. If name is not registered, the error lists
+// the currently registered bucket names (sorted) so the caller's message is
+// actionable.
+func resolveRegisteredBucket(indexPath, name string) (string, error) {
+	entries, err := readBucketEntries(indexPath)
+	if err != nil {
+		return "", fmt.Errorf("read bucket registry: %w", err)
+	}
+
+	for _, e := range entries {
+		if e.Name == name {
+			return e.Path, nil
+		}
+	}
+
+	if len(entries) == 0 {
+		return "", fmt.Errorf("bucket %q is not registered — no buckets registered (run: atomic wiki bucket add <name>)", name)
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name)
+	}
+	sort.Strings(names)
+	return "", fmt.Errorf("bucket %q is not registered — registered buckets: %s", name, strings.Join(names, ", "))
 }
 
 // resolveWikiRoot parses a --root flag from args and falls back to cwd.
@@ -573,6 +609,230 @@ func wikiBucketPromoteAction(args []string, cwd string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket promote: %v\n", err)
 		return 1
 	}
+	return 0
+}
+
+// parseBucketDocArgs parses --root and --router (in any position) from args
+// for the doc verb, returning the resolved absolute root, the remaining
+// positional args, and whether --router was given. Mirrors resolveWikiRoot's
+// any-position handling; --router takes no value (boolean flag).
+func parseBucketDocArgs(args []string, cwd string) (absRoot string, positional []string, router bool, err error) {
+	var root string
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		switch {
+		case arg == "--root":
+			if i+1 >= len(args) {
+				return "", nil, false, fmt.Errorf("flag --root requires a value")
+			}
+			root = args[i+1]
+			i += 2
+		case strings.HasPrefix(arg, "--root="):
+			val := arg[len("--root="):]
+			if val == "" {
+				return "", nil, false, fmt.Errorf("flag --root requires a value")
+			}
+			root = val
+			i++
+		case arg == "--router":
+			router = true
+			i++
+		case strings.HasPrefix(arg, "--"):
+			return "", nil, false, fmt.Errorf("unrecognized flag %q", arg)
+		default:
+			positional = append(positional, arg)
+			i++
+		}
+	}
+	if root == "" {
+		root = cwd
+	}
+	abs, aerr := filepath.Abs(root)
+	if aerr != nil {
+		return "", nil, false, fmt.Errorf("resolve root: %w", aerr)
+	}
+	return abs, positional, router, nil
+}
+
+// wikiBucketDocAction implements `atomic wiki bucket doc [--root=<path>] <bucket> <slug> [--router]`.
+func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
+	absRoot, positional, router, err := parseBucketDocArgs(args, cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket doc: %v\n", err)
+		return 2
+	}
+	if len(positional) < 2 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket doc [--root=<path>] <bucket> <slug> [--router]\n")
+		return 1
+	}
+	if len(positional) > 2 {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket doc: unexpected extra arguments: %v\n", positional[2:])
+		return 1
+	}
+	bucketName, slug := positional[0], positional[1]
+
+	indexPath := filepath.Join(absRoot, "wiki", "index.md")
+	bucketDir, err := resolveRegisteredBucket(indexPath, bucketName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket doc: %v\n", err)
+		return 1
+	}
+
+	path, err := ScaffoldBucketDoc(bucketDir, slug, router, time.Now())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket doc: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintln(out, path)
+	return 0
+}
+
+// wikiBucketSkillAction implements `atomic wiki bucket skill [--root=<path>] <bucket>`.
+func wikiBucketSkillAction(args []string, cwd string, out io.Writer) int {
+	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket skill: %v\n", err)
+		return 2
+	}
+	if len(positional) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket skill [--root=<path>] <bucket>\n")
+		return 1
+	}
+	if len(positional) > 1 {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket skill: unexpected extra arguments: %v\n", positional[1:])
+		return 1
+	}
+	bucketName := positional[0]
+
+	indexPath := filepath.Join(absRoot, "wiki", "index.md")
+	bucketDir, err := resolveRegisteredBucket(indexPath, bucketName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket skill: %v\n", err)
+		return 1
+	}
+
+	// ScaffoldBucketSkill reports the same (path, nil) shape whether it wrote
+	// the file or found it already present; stat beforehand to distinguish
+	// the two for the stdout message.
+	target := filepath.Join(absRoot, ".claude", "skills", bucketName+"-management", "SKILL.md")
+	_, statErr := os.Lstat(target)
+	alreadyExists := statErr == nil
+
+	path, err := ScaffoldBucketSkill(absRoot, bucketName, bucketDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket skill: %v\n", err)
+		return 1
+	}
+
+	if alreadyExists {
+		fmt.Fprintf(out, "already exists: %s\n", path)
+		return 0
+	}
+
+	fmt.Fprintln(out, path)
+	fmt.Fprintln(out, "note: this skill loads for Claude Code sessions started at the realm root")
+	return 0
+}
+
+// printBucketIndexCounts writes one "<name>: N indexed, M unindexed" line to
+// out for the named bucket, using the same topic walk RebuildBucketIndex uses
+// internally. A walk failure is reported to stderr but never blocks the
+// caller from attempting the rebuild.
+func printBucketIndexCounts(out io.Writer, name, bucketDir string) {
+	topics, err := walkBucketTopics(bucketDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: count %s: %v\n", name, err)
+		return
+	}
+	var indexed, unindexed int
+	for _, t := range topics {
+		if t.Indexed {
+			indexed++
+		} else {
+			unindexed++
+		}
+	}
+	fmt.Fprintf(out, "%s: %d indexed, %d unindexed\n", name, indexed, unindexed)
+}
+
+// wikiBucketIndexAction implements `atomic wiki bucket index [--root=<path>] [<bucket>]`.
+//
+// No bucket arg → every registered bucket is rebuilt (RebuildAllBucketIndexes
+// covers this directly). A bucket arg → confirm registration, rebuild just
+// that bucket via RebuildBucketIndex, then refresh only the realm
+// <wiki-bucket-list> splice via rebuildRealmBucketList — no re-walk of the
+// other registered buckets' <bucket-docs> regions, so a broken sibling bucket
+// is never re-reported by a single-bucket rebuild.
+//
+// An errUnpairedRegion from either rebuild step is a non-fatal warning,
+// mirroring Scan's established "warn to stderr, keep going" pattern.
+func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
+	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", err)
+		return 2
+	}
+	if len(positional) > 1 {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: unexpected extra arguments: %v\n", positional[1:])
+		return 1
+	}
+
+	wikiDir := filepath.Join(absRoot, "wiki")
+	indexPath := filepath.Join(wikiDir, "index.md")
+
+	if len(positional) == 1 {
+		name := positional[0]
+		bucketDir, rerr := resolveRegisteredBucket(indexPath, name)
+		if rerr != nil {
+			fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rerr)
+			return 1
+		}
+
+		printBucketIndexCounts(out, name, bucketDir)
+
+		if rebErr := RebuildBucketIndex(bucketDir); rebErr != nil {
+			if errors.Is(rebErr, errUnpairedRegion) {
+				fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
+			} else {
+				fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
+				return 1
+			}
+		}
+
+		entries, rerr := readBucketEntries(indexPath)
+		if rerr != nil {
+			fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rerr)
+			return 1
+		}
+		if rebErr := rebuildRealmBucketList(wikiDir, entries); rebErr != nil {
+			// Non-fatal: mirrors RebuildAllBucketIndexes' established
+			// "warn to stderr, keep going" pattern for the realm splice.
+			fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
+		}
+
+		return 0
+	}
+
+	entries, rerr := readBucketEntries(indexPath)
+	if rerr != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rerr)
+		return 1
+	}
+	for _, e := range entries {
+		if !fileExists(e.Path) {
+			continue
+		}
+		printBucketIndexCounts(out, e.Name, e.Path)
+	}
+
+	if rebErr := RebuildAllBucketIndexes(absRoot, wikiDir); rebErr != nil {
+		// Non-fatal: a broken bucket region (or the realm splice) never
+		// blocks the others — report and continue, mirroring Scan.
+		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", rebErr)
+	}
+
 	return 0
 }
 

@@ -311,6 +311,81 @@ func TestBucketIndexStub_CreatesStub(t *testing.T) {
 	}
 }
 
+// TestBucketIndexStub_CarriesOKFFrontmatterAndEmptyRegion verifies the
+// reshaped stub carries OKF frontmatter (title, type: Bucket, description
+// placeholder) plus a well-formed, empty <bucket-docs> region.
+func TestBucketIndexStub_CarriesOKFFrontmatterAndEmptyRegion(t *testing.T) {
+	dir := t.TempDir()
+	bucketDir := filepath.Join(dir, "research")
+	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := createBucketIndexStub(bucketDir, "research"); err != nil {
+		t.Fatalf("createBucketIndexStub: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(bucketDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.HasPrefix(content, "---\n") {
+		t.Fatalf("expected frontmatter block, got:\n%s", content)
+	}
+	if !strings.Contains(content, "title: research") {
+		t.Errorf("expected title: research in frontmatter, got:\n%s", content)
+	}
+	if !strings.Contains(content, "type: Bucket") {
+		t.Errorf("expected type: Bucket in frontmatter, got:\n%s", content)
+	}
+	if !strings.Contains(content, "description:") {
+		t.Errorf("expected description placeholder in frontmatter, got:\n%s", content)
+	}
+
+	state, _ := findRegion(content, "bucket-docs")
+	if state != regionWellFormed {
+		t.Fatalf("expected a well-formed <bucket-docs> region, got state %v; content:\n%s", state, content)
+	}
+}
+
+// TestBucketIndexStub_ThenRebuildFillsRegion verifies that a subsequent
+// RebuildBucketIndex call fills the stub's empty <bucket-docs> region in
+// place (well-formed replace) rather than appending a second region.
+func TestBucketIndexStub_ThenRebuildFillsRegion(t *testing.T) {
+	dir := t.TempDir()
+	bucketDir := filepath.Join(dir, "research")
+	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := createBucketIndexStub(bucketDir, "research"); err != nil {
+		t.Fatalf("createBucketIndexStub: %v", err)
+	}
+	writeTopicFile(t, filepath.Join(bucketDir, "seo.md"), "---\ntitle: SEO\ndescription: Technical SEO checklist.\n---\n\nBody.\n")
+
+	if err := RebuildBucketIndex(bucketDir); err != nil {
+		t.Fatalf("RebuildBucketIndex: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(bucketDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if strings.Count(content, "<bucket-docs>") != 1 {
+		t.Fatalf("expected exactly one <bucket-docs> open tag, got:\n%s", content)
+	}
+	if !strings.Contains(content, "[SEO](seo.md) - Technical SEO checklist.") {
+		t.Errorf("expected topic listing spliced into the region, got:\n%s", content)
+	}
+	// Prose outside the region (## Conventions, the H1) must survive.
+	if !strings.Contains(content, "## Conventions") {
+		t.Errorf("expected ## Conventions to survive the rebuild, got:\n%s", content)
+	}
+}
+
 // TestBucketIndexStub_PreservesExisting verifies that createBucketIndexStub
 // does NOT overwrite an existing index.md.
 func TestBucketIndexStub_PreservesExisting(t *testing.T) {
