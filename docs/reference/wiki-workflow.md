@@ -178,6 +178,37 @@ atomic wiki bucket promote research   # advance the baseline after synthesis
 **Knowledge-page citations.** Concern docs can cite a knowledge page as `knowledge/<topic>.md@<sha256>`. `atomic wiki stale` resolves this as a content hash of the knowledge page file, the same fingerprint mechanism used for repo summaries. A knowledge page that has changed since the concern was authored triggers a `STALE concern <path> (knowledge/<topic>.md)` line.
 
 
+### Authoring bucket docs
+
+A bucket's own content is a set of topic files, one per file: `<bucket>/<slug>.md`. Each carries six recognized frontmatter keys, all optional at index time:
+
+| Key | Writer | Fallback if absent |
+|-----|--------|---------------------|
+| `title` | you | first H1 in the body, then the filename stem |
+| `type` | you | (none) |
+| `description` | you | first prose line of the body |
+| `tags` | you | (none rendered) |
+| `status` | you | (none) |
+| `created` | code, at scaffold time | (none) |
+
+A doc with no frontmatter at all still indexes, listed under an `### Unindexed` heading with a derived title and description rather than being rejected. Capture stays frictionless either way.
+
+Three verbs manage this layer:
+
+```
+atomic wiki bucket doc research seo             # scaffold research/seo.md
+atomic wiki bucket doc research seo --router     # also scaffold research/seo/ + a CLAUDE.md stub
+atomic wiki bucket skill research                # scaffold a per-bucket authoring skill
+atomic wiki bucket index [research]              # rebuild the listing regions (scan already does this)
+```
+
+`atomic wiki bucket doc <bucket> <slug>` writes `<bucket>/<slug>.md` from an embedded scaffold, `created` pre-stamped, and refuses if the target already exists. A topic that outgrows a single file becomes a **router**: pass `--router` (or rerun the command later) to add a sibling `<slug>/` subtree and a `CLAUDE.md` stub, while `<slug>.md` stays the one index entry and its summary.
+
+`atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line and the frontmatter contract above, so the bucket's own authoring conventions travel with it as a skill Claude can pick up automatically in that realm. It is a no-op if the file already exists.
+
+`atomic wiki bucket index [<bucket>]` rebuilds two managed regions from frontmatter: a `<bucket-docs>` region in the named bucket's `index.md` (or every registered bucket, when no name is given), and the `<wiki-bucket-list>` region in `wiki/index.md`. Both are code-generated and spliced idempotently; everything outside the region is preserved untouched. `atomic wiki scan` runs this rebuild as part of its own pass, so you rarely need to call `bucket index` directly.
+
+
 ## Relationship to signals
 
 Signals and wikis are the same Karpathy-inspired pattern at two scales. Signals compile one repo's filesystem into a markdown model Claude reads every session. A wiki compiles a realm of repos into a markdown knowledge base one level up — pointing at the repos that already have signals, summarizing the ones that do not, writing up what they share, and synthesizing loose capture material into a knowledge layer. Neither replaces the other; the wiki points at signals, it never copies them.

@@ -37,9 +37,11 @@ const scanMarkerOpen = "<wiki-scan"
 // scanMarkerClose is the literal close tag of the managed block.
 const scanMarkerClose = "</wiki-scan>"
 
-// membersMarkerStart / membersMarkerEnd are the HTML-comment boundaries of the
-// managed ## Members section. Content between the markers is replaced on each
-// scan; content outside the markers (including the heading itself) is preserved.
+// membersMarkerStart / membersMarkerEnd are the legacy HTML-comment
+// boundaries of the ## Members section, superseded by the `wiki-member-list`
+// XML region (managedregion.go). Retained ONLY so migrateLegacyMemberMarkers
+// can detect and excise a pre-migration section — no new write ever emits
+// these markers again.
 const membersMarkerStart = "<!-- wiki-members:start -->"
 const membersMarkerEnd = "<!-- wiki-members:end -->"
 
@@ -115,6 +117,12 @@ func Scan(root string, opts Options) ([]Member, error) {
 	// --- Write ## Members section ---
 	if err := writeMembersSection(indexPath, classified); err != nil {
 		return nil, fmt.Errorf("wiki scan: write members section: %w", err)
+	}
+
+	// --- Rebuild bucket indexes (non-fatal) ---
+	// A broken bucket region never blocks membership — collect and warn.
+	if err := RebuildAllBucketIndexes(root, wikiDir); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: bucket index rebuild: %v\n", err)
 	}
 
 	return classified, nil
@@ -538,8 +546,19 @@ func defaultNarrative() string {
 }
 
 // writeMembersSection writes (or replaces) the managed ## Members section in
-// indexPath. The section uses HTML-comment boundary markers so it can be
-// re-spliced idempotently while narrative outside it is preserved byte-for-byte.
+// indexPath as a `wiki-member-list` region through the shared managed-region
+// primitive (managedregion.go) — no comment markers are emitted. Before
+// splicing, migrateLegacyMemberMarkers relocates any legacy
+// `<!-- wiki-members:start/end -->` region (heading included) onto a
+// well-formed, empty `<wiki-member-list>` region occupying the same
+// position, so the fresh XML region fills in cleanly with no duplicate
+// "## Members" heading.
+//
+// A stray unpaired legacy marker is left byte-for-byte untouched and the
+// write is skipped this scan (non-fatal): a fresh region must never be
+// appended alongside an unresolved legacy marker, which would produce an
+// orphan comment plus a duplicate member listing. A human resolves it by
+// hand.
 //
 // Link targets are relative to the directory containing indexPath (wiki/).
 //   - indexed (new layout)  → [<repo>](../<repo>/docs/wiki/index.md)
@@ -549,21 +568,103 @@ func defaultNarrative() string {
 func writeMembersSection(indexPath string, members []Member) error {
 	indexDir := filepath.Dir(indexPath)
 
-	section := buildMembersSection(indexDir, members)
+	content := buildMembersSection(indexDir, members)
 
 	existing, err := os.ReadFile(indexPath)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read index.md: %w", err)
 	}
 
-	var newContent string
-	if os.IsNotExist(err) || len(existing) == 0 {
-		newContent = section
-	} else {
-		newContent = rewriteMembersSection(string(existing), section)
+	document, skip := migrateLegacyMemberMarkers(string(existing))
+	if skip {
+		fmt.Fprintf(os.Stderr, "atomic wiki scan: %s: unpaired legacy wiki-members marker — skipping members section write; resolve by hand\n", indexPath)
+		return nil
 	}
 
-	return os.WriteFile(indexPath, []byte(newContent), 0o644)
+	newDocument, err := spliceManagedRegion(document, managedRegion{tag: "wiki-member-list", content: content})
+	if err != nil {
+		return fmt.Errorf("splice members section: %w", err)
+	}
+
+	return os.WriteFile(indexPath, []byte(newDocument), 0o644)
+}
+
+// migrateLegacyMemberMarkers relocates the legacy comment-delimited Members
+// region — the "## Members" heading through the `<!-- wiki-members:end -->`
+// marker — onto a well-formed, EMPTY `<wiki-member-list>` region occupying
+// the same position. It does no `\n` accounting of its own: locating the
+// span (detect → guard → compute bounds) is all this function does: every
+// boundary byte is normalized by spliceRegionAt (managedregion.go), the
+// single tested home for interior-region boundary whitespace.
+//
+// Migration only relocates delimiters; it never excises the span outright.
+// This matters because writeMembersSection immediately calls
+// spliceManagedRegion afterward: with the region now PRESENT (well-formed),
+// that call replaces its body in place, so the position — and therefore the
+// relative order of any narrative before/after the legacy block — is
+// preserved.
+//
+// Returns (content, true) when the caller must skip the members write this
+// scan: a stray unpaired legacy marker was found (start without end, end
+// without start, or reversed order) and content is returned byte-for-byte
+// untouched — never a half-migrated document. Returns (newContent, false)
+// otherwise: newContent is unchanged when there is nothing to migrate (no
+// legacy markers present, or a well-formed `wiki-member-list` region already
+// exists — migration is one-shot), or the migrated document.
+//
+// Detection of both the heading and the comment markers is line-anchored
+// (mirrors managedregion.go's findLineAnchored discipline) to avoid a false
+// match inside prose or a code fence.
+func migrateLegacyMemberMarkers(content string) (string, bool) {
+	// P3 guard: a present well-formed region means migration already ran.
+	if state, _ := findRegion(content, "wiki-member-list"); state == regionWellFormed {
+		return content, false
+	}
+
+	startIdx := findLineAnchored(content, membersMarkerStart)
+	endIdx := findLineAnchored(content, membersMarkerEnd)
+
+	if startIdx == -1 && endIdx == -1 {
+		return content, false
+	}
+	if startIdx == -1 || endIdx == -1 || endIdx < startIdx {
+		return content, true
+	}
+
+	spanEnd := endIdx + len(membersMarkerEnd)
+
+	// Extend the span backward to include an adjacent "## Members" heading
+	// — the new region supplies its own heading — but ONLY when nothing but
+	// whitespace separates the heading from the start marker. A user who
+	// typed prose between the heading and the markers keeps both in place;
+	// never delete user prose, even at the cost of a transient duplicate
+	// "## Members" heading (the region carries its own).
+	spanStart := startIdx
+	if headingIdx := lastLineAnchored(content[:startIdx], "## Members"); headingIdx != -1 {
+		gap := content[headingIdx+len("## Members") : startIdx]
+		if strings.TrimSpace(gap) == "" {
+			spanStart = headingIdx
+		}
+	}
+
+	return spliceRegionAt(content, spanStart, spanEnd, managedRegion{tag: "wiki-member-list"}), false
+}
+
+// lastLineAnchored returns the byte offset of the last (rightmost)
+// line-anchored, whole-line occurrence of line in s, or -1 if absent. Same
+// whole-line matching rules as findLineAnchored (managedregion.go), but scans
+// for the rightmost match instead of the leftmost.
+func lastLineAnchored(s, line string) int {
+	if strings.HasSuffix(s, "\n"+line) {
+		return len(s) - len(line)
+	}
+	if idx := strings.LastIndex(s, "\n"+line+"\n"); idx != -1 {
+		return idx + 1
+	}
+	if s == line || strings.HasPrefix(s, line+"\n") {
+		return 0
+	}
+	return -1
 }
 
 // deriveSummaryFilePath returns the absolute path to the primary summary file
@@ -634,8 +735,16 @@ func DeriveMemberDescription(summaryFilePath string) string {
 		return ""
 	}
 
-	meta, body, err := frontmatter.Parse(string(data))
-	if err == nil && meta != nil {
+	meta, body, _ := frontmatter.Parse(string(data))
+	return deriveDescriptionFrom(meta, body)
+}
+
+// deriveDescriptionFrom applies DeriveMemberDescription's resolution ladder
+// (frontmatter "description:" -> first prose line -> "") to already-parsed
+// frontmatter metadata and body, so a caller that already read+parsed the
+// file (e.g. bucketindex.go's readTopicMeta) doesn't have to re-read it.
+func deriveDescriptionFrom(meta map[string]any, body string) string {
+	if meta != nil {
 		if v, ok := meta["description"]; ok {
 			if s, ok := v.(string); ok {
 				s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
@@ -790,32 +899,36 @@ func truncate(s string, n int) string {
 	return string(runes[:n])
 }
 
-// buildMembersSection produces the full ## Members managed section string,
-// bounded by the HTML-comment markers. Each entry follows the OKF §6 listing
-// form: "- [Title](url) - description" when a description is derivable, or
+// buildMembersSection produces the content for inside the `wiki-member-list`
+// region: a "## Members" heading plus one OKF §6 listing line per member —
+// "- [Title](url) - description" when a description is derivable, or
 // "- [Title](url)" when no description can be found (link-only is valid per
 // §6 SHOULD semantics).
 func buildMembersSection(indexDir string, members []Member) string {
 	var sb strings.Builder
-	sb.WriteString("## Members\n\n")
-	sb.WriteString(membersMarkerStart)
-	sb.WriteString("\n")
-	for _, m := range members {
-		name := filepath.Base(m.Path)
-		target := memberLinkTarget(indexDir, m)
-		summaryFile := deriveSummaryFilePath(indexDir, m)
-		desc := ""
-		if summaryFile != "" {
-			desc = DeriveMemberDescription(summaryFile)
-		}
-		if desc != "" {
-			fmt.Fprintf(&sb, "- [%s](%s) - %s\n", name, target, desc)
-		} else {
-			fmt.Fprintf(&sb, "- [%s](%s)\n", name, target)
+	sb.WriteString("## Members")
+
+	if len(members) > 0 {
+		sb.WriteString("\n\n")
+		for i, m := range members {
+			if i > 0 {
+				sb.WriteString("\n")
+			}
+			name := filepath.Base(m.Path)
+			target := memberLinkTarget(indexDir, m)
+			summaryFile := deriveSummaryFilePath(indexDir, m)
+			desc := ""
+			if summaryFile != "" {
+				desc = DeriveMemberDescription(summaryFile)
+			}
+			if desc != "" {
+				fmt.Fprintf(&sb, "- [%s](%s) - %s", name, target, desc)
+			} else {
+				fmt.Fprintf(&sb, "- [%s](%s)", name, target)
+			}
 		}
 	}
-	sb.WriteString(membersMarkerEnd)
-	sb.WriteString("\n")
+
 	return sb.String()
 }
 
@@ -845,59 +958,6 @@ func memberLinkTarget(indexDir string, m Member) string {
 		// Link to the repo directory.
 		return "../" + m.Path + "/"
 	}
-}
-
-// rewriteMembersSection replaces the managed ## Members section in content.
-// The heading "## Members" and the markers are both managed — the whole block
-// from "## Members\n" through the end marker is replaced.
-// Content outside is preserved byte-for-byte.
-func rewriteMembersSection(content, newSection string) string {
-	// Strategy: find "## Members\n" followed eventually by the start marker.
-	// If the start marker is present, replace everything from the heading to the
-	// end marker. If neither exists, append.
-
-	startIdx := strings.Index(content, membersMarkerStart)
-	if startIdx == -1 {
-		// No existing managed section — append.
-		result := content
-		if !strings.HasSuffix(result, "\n") {
-			result += "\n"
-		}
-		return result + "\n" + newSection
-	}
-
-	// Find the heading "## Members" before the start marker.
-	// Walk backwards from startIdx to find the start of the line containing "## Members".
-	headingPrefix := "## Members"
-	before := content[:startIdx]
-	headingIdx := strings.LastIndex(before, headingPrefix)
-	if headingIdx == -1 {
-		// Marker exists but no heading — replace just from the marker.
-		endIdx := strings.Index(content[startIdx:], membersMarkerEnd)
-		if endIdx == -1 {
-			// No end marker — replace from start marker to EOF.
-			return content[:startIdx] + newSection
-		}
-		blockEnd := startIdx + endIdx + len(membersMarkerEnd)
-		return content[:startIdx] + newSection + content[blockEnd:]
-	}
-
-	// Find the end marker.
-	endIdx := strings.Index(content[startIdx:], membersMarkerEnd)
-	if endIdx == -1 {
-		// No end marker — replace from heading to EOF.
-		return content[:headingIdx] + newSection
-	}
-	blockEnd := startIdx + endIdx + len(membersMarkerEnd)
-
-	// Consume trailing newline after end marker if present.
-	afterBlock := content[blockEnd:]
-	if strings.HasPrefix(afterBlock, "\n") {
-		blockEnd++
-		afterBlock = content[blockEnd:]
-	}
-
-	return content[:headingIdx] + newSection + afterBlock
 }
 
 // rewriteScanBlock replaces the <wiki-scan> block in content with newBlock.

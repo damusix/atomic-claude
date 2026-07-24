@@ -235,6 +235,13 @@ Manifest location: `wiki/.buckets/<name>/` over `<bucket>/.fingerprints/` — ba
 
 **Why:** Capture-intent phrases ("I want a space for tickets") had no deterministic route to `atomic wiki bucket add`. Without the skill the harness would mkdir a bare folder, bypassing the manifest system. Skills are the harness's intent-routing mechanism; the description is the trigger surface.
 
+### 2026-07-24 — Adding behavior: bucket doc management (child spec)
+
+**What changed:** Added `docs/spec/bucket-doc-management.md` as a child spec of this one, covering: a six-key bucket-doc frontmatter contract (`title`, `type`, `description`, `tags`, `status`, `created`); a two-level deterministic index (a `<bucket-docs>` region per bucket `index.md`, a `<wiki-bucket-list>` region in the realm `wiki/index.md`), both spliced through one shared managed-region primitive; and two scaffold verbs, `atomic wiki bucket doc <bucket> <slug> [--router]` and `atomic wiki bucket skill <bucket>`, plus `atomic wiki bucket index [<bucket>]` to rebuild the index regions on demand. `atomic wiki scan` now rebuilds both index levels as part of its existing pass. The `## Members` region in `wiki/index.md` was also migrated from the legacy `<!-- wiki-members:start/end -->` comment markers to the same XML managed-region form, for one delimiter syntax across the file.
+
+**Why:** Bucket content (`wiki/knowledge/`) had no bucket-facing index of its own — a bucket's docs were discoverable only by listing the directory. This child spec makes the frontmatter contract and the two listing regions cheap to produce and keep current, without touching manifest or staleness granularity (both unchanged, per the child spec's non-goals).
+
+
 ## Implementation log
 
 

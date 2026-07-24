@@ -713,7 +713,7 @@ func buildConfigCmd() *cobra.Command {
 }
 
 // buildWikiCmd builds the "wiki" parent + scan|stale|linkify children and the
-// 3-level "wiki bucket" intermediate command with add|list|diff|promote leaves.
+// 3-level "wiki bucket" intermediate command with add|list|diff|promote|doc|skill|index leaves.
 // Dispatch is runWiki (→ wiki.WikiAction from internal/wiki/action.go).
 func buildWikiCmd() *cobra.Command {
 	dispatch := func(args []string) { runWiki(args) }
@@ -766,14 +766,14 @@ func buildWikiCmd() *cobra.Command {
 	// reach wiki.WikiAction unchanged.
 	bucketParent := &cobra.Command{
 		Use:   "bucket",
-		Short: "Manage capture buckets (add|list|diff|promote)",
+		Short: "Manage capture buckets (add|list|diff|promote|doc|skill|index)",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dispatch(append([]string{"bucket"}, args...))
 			return nil
 		},
 	}
-	addBucketSub := func(verb, short, argsHint string) {
+	addBucketSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
 		c := &cobra.Command{
 			Use:                verb,
 			Short:              short,
@@ -785,12 +785,20 @@ func buildWikiCmd() *cobra.Command {
 			},
 		}
 		c.Flags().String("root", "", "realm root directory (default: cwd)")
+		if flagFn != nil {
+			flagFn(c)
+		}
 		bucketParent.AddCommand(c)
 	}
-	addBucketSub("add", "Register a capture bucket; create index.md stub and manifest dir", "<name>")
-	addBucketSub("list", "List registered buckets with baseline count and pending/fresh status", "")
-	addBucketSub("diff", "Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty", "<name>")
-	addBucketSub("promote", "Snapshot bucket and rotate baseline→previous, current→baseline", "<name>")
+	addBucketSub("add", "Register a capture bucket; create index.md stub and manifest dir", "<name>", nil)
+	addBucketSub("list", "List registered buckets with baseline count and pending/fresh status", "", nil)
+	addBucketSub("diff", "Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty", "<name>", nil)
+	addBucketSub("promote", "Snapshot bucket and rotate baseline→previous, current→baseline", "<name>", nil)
+	addBucketSub("doc", "Scaffold <bucket>/<slug>.md from the embedded doc template; --router also scaffolds the sibling subtree", "<bucket> <slug>", func(c *cobra.Command) {
+		c.Flags().Bool("router", false, "also scaffold the sibling <slug>/ subtree and its CLAUDE.md stub")
+	})
+	addBucketSub("skill", "Scaffold the realm per-bucket SKILL.md for <bucket> (no-op if present)", "<bucket>", nil)
+	addBucketSub("index", "Rebuild the <bucket-docs> region for one bucket (or all when omitted) plus the realm bucket list", "[<bucket>]", nil)
 	parent.AddCommand(bucketParent)
 
 	return parent

@@ -383,6 +383,24 @@ var commands = []Command{
 		Description: "Snapshot bucket and rotate baseline→previous, current→baseline",
 	},
 	{
+		Path:        []string{"wiki", "bucket", "doc"},
+		Args:        "<bucket> <slug>",
+		Flags:       []string{"--root", "--router"},
+		Description: "Scaffold <bucket>/<slug>.md from the embedded doc template; --router also scaffolds the sibling subtree",
+	},
+	{
+		Path:        []string{"wiki", "bucket", "skill"},
+		Args:        "<bucket>",
+		Flags:       []string{"--root"},
+		Description: "Scaffold the realm per-bucket SKILL.md for <bucket> (no-op if present)",
+	},
+	{
+		Path:        []string{"wiki", "bucket", "index"},
+		Args:        "[<bucket>]",
+		Flags:       []string{"--root"},
+		Description: "Rebuild the <bucket-docs> region for one bucket (or all when omitted) plus the realm bucket list",
+	},
+	{
 		Path:        []string{"prompt", "git-cleanup"},
 		Args:        "",
 		Flags:       nil,

@@ -110,6 +110,30 @@ Do not print concerns in wiki-output mode — concerns are surfaced by the `/ref
 
 Activated when the caller provides **all three** of `bucket_name`, `bucket_path`, and `wiki_dir`. When all three are present, run the bucket-synthesis pipeline below instead of Steps 1-9 or the wiki-output pipeline. The default and wiki-output pipelines are not executed.
 
+### Bucket-doc frontmatter contract
+
+Bucket docs (`<bucket>/<slug>.md`, one topic per file) carry six recognized keys — read them structurally instead of re-deriving from prose:
+
+| Key | Writer | Notes |
+|-----|--------|-------|
+| `title` | author | falls back to first H1, then filename stem, if absent |
+| `type` | author | free-form (e.g. `Research`, `Experiment`, `Ticket`) |
+| `description` | author | one-line; falls back to first prose line if absent |
+| `tags` | author | YAML list of strings; a bare string reads as a single-element list |
+| `status` | author | free-form (e.g. `active`, `done`) |
+| `created` | code (scaffold) | stamped by `atomic wiki bucket doc` at creation time |
+
+Every key is optional at index time — a doc with no frontmatter at all still indexes, under an `### Unindexed` heading. This contract is B1/B3 context: use `title`/`type`/`description`/`tags`/`status` to frame synthesis rather than re-inferring them from the doc body.
+
+### Two-level index (code-generated, read-only to this agent)
+
+`atomic wiki scan` and `atomic wiki bucket index` maintain two managed regions from this frontmatter — never write to them:
+
+- `<bucket>/index.md` — a `<bucket-docs>` region listing every topic in the bucket (title, description, tags, router/unindexed flags).
+- `wiki/index.md` — a `<wiki-bucket-list>` region listing every registered bucket with its description.
+
+Both regions are spliced idempotently by code; the inferrer never authors them.
+
 **Partial-arg guard.** Bucket intent = `bucket_name` or `bucket_path` supplied. If bucket intent is shown and any of the three args (`bucket_name`, `bucket_path`, `wiki_dir`) is missing, stop immediately:
 
 ```

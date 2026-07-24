@@ -205,6 +205,8 @@ Parse the stdout handoff:
 
 Record the member list (path, status) for use in the incremental pass.
 
+`atomic wiki scan` also rebuilds the two bucket-doc index levels as part of this pass — the `<bucket-docs>` region in each registered bucket's `index.md`, and the `<wiki-bucket-list>` region in `wiki/index.md`. No separate call is needed here.
+
 If `atomic wiki scan` exits non-zero, stop and surface the error verbatim. The most common cause is a `wiki/` directory with a missing or malformed `index.md` — the error message names the path.
 
 ### Step 3 — One-time bucket offer (judgment)
