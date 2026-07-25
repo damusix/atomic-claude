@@ -356,6 +356,11 @@ func resolveRegisteredBucket(indexPath, name string) (string, error) {
 	return "", fmt.Errorf("bucket %q is not registered — registered buckets: %s", name, strings.Join(names, ", "))
 }
 
+// errUsageRequested signals that args contained a help token (-h, -help,
+// --help). Mirrors flag.ErrHelp: callers check it with errors.Is, print
+// their own usage to out, and return 0 without touching the filesystem.
+var errUsageRequested = errors.New("usage requested")
+
 // resolveWikiRoot parses a --root flag from args and falls back to cwd.
 // Returns the absolute root and the remaining positional args.
 //
@@ -364,13 +369,19 @@ func resolveRegisteredBucket(indexPath, name string) (string, error) {
 // flag.FlagSet stops parsing at the first non-flag token. Both forms are
 // accepted: --root=<path> and --root <path>.
 //
-// Unrecognized flags are returned as an error so callers can refuse them
-// instead of silently treating them as extra positionals.
+// -h, -help, and --help are recognized in any position and short-circuit
+// with errUsageRequested. Any other dash-prefixed token — single dash or
+// double — is rejected with an error rather than falling through to
+// positional: a bucket name can never begin with "-", so a stray flag typo
+// must not silently become the name.
 func resolveWikiRoot(args []string, cwd string) (absRoot string, positional []string, err error) {
 	var root string
 	i := 0
 	for i < len(args) {
 		arg := args[i]
+		if arg == "-h" || arg == "-help" || arg == "--help" {
+			return "", nil, errUsageRequested
+		}
 		if arg == "--root" {
 			// Space-separated form: --root <value>
 			if i+1 >= len(args) {
@@ -390,8 +401,8 @@ func resolveWikiRoot(args []string, cwd string) (absRoot string, positional []st
 			i++
 			continue
 		}
-		if strings.HasPrefix(arg, "--") {
-			// Unrecognized flag — reject loudly.
+		if strings.HasPrefix(arg, "-") {
+			// Unrecognized flag, single- or double-dash — reject loudly.
 			return "", nil, fmt.Errorf("unrecognized flag %q", arg)
 		}
 		// Positional arg.
@@ -410,13 +421,19 @@ func resolveWikiRoot(args []string, cwd string) (absRoot string, positional []st
 
 // wikiBucketAddAction implements `atomic wiki bucket add [--root=<path>] <name>`.
 func wikiBucketAddAction(args []string, cwd string, out io.Writer) int {
+	const usage = "Usage: atomic wiki bucket add [--root=<path>] <name>\n"
+
 	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	if errors.Is(err, errUsageRequested) {
+		fmt.Fprintf(out, usage)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket add: %v\n", err)
 		return 2
 	}
 	if len(positional) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket add [--root=<path>] <name>\n")
+		fmt.Fprintf(os.Stderr, usage)
 		return 1
 	}
 	if len(positional) > 1 {
@@ -467,7 +484,13 @@ func wikiBucketAddAction(args []string, cwd string, out io.Writer) int {
 // Prints one line per bucket: "<name>  <abs-path>  <N> files  (<pending|fresh>)"
 // or "(no baseline)" when never promoted. Exits 0 even when empty.
 func wikiBucketListAction(args []string, cwd string, out io.Writer) int {
+	const usage = "Usage: atomic wiki bucket list [--root=<path>]\n"
+
 	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	if errors.Is(err, errUsageRequested) {
+		fmt.Fprintf(out, usage)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket list: %v\n", err)
 		return 2
@@ -540,13 +563,19 @@ func wikiBucketListAction(args []string, cwd string, out io.Writer) int {
 // wikiBucketDiffAction implements `atomic wiki bucket diff [--root=<path>] <name>`.
 // Prints "new|changed|removed <relpath>" lines. Exits 0 when empty, 1 when non-empty.
 func wikiBucketDiffAction(args []string, cwd string, out io.Writer) int {
+	const usage = "Usage: atomic wiki bucket diff [--root=<path>] <name>\n"
+
 	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	if errors.Is(err, errUsageRequested) {
+		fmt.Fprintf(out, usage)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket diff: %v\n", err)
 		return 2
 	}
 	if len(positional) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket diff [--root=<path>] <name>\n")
+		fmt.Fprintf(os.Stderr, usage)
 		return 1
 	}
 	if len(positional) > 1 {
@@ -587,13 +616,19 @@ func wikiBucketDiffAction(args []string, cwd string, out io.Writer) int {
 
 // wikiBucketPromoteAction implements `atomic wiki bucket promote [--root=<path>] <name>`.
 func wikiBucketPromoteAction(args []string, cwd string, out io.Writer) int {
+	const usage = "Usage: atomic wiki bucket promote [--root=<path>] <name>\n"
+
 	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	if errors.Is(err, errUsageRequested) {
+		fmt.Fprintf(out, usage)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket promote: %v\n", err)
 		return 2
 	}
 	if len(positional) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket promote [--root=<path>] <name>\n")
+		fmt.Fprintf(os.Stderr, usage)
 		return 1
 	}
 	if len(positional) > 1 {
@@ -612,58 +647,41 @@ func wikiBucketPromoteAction(args []string, cwd string, out io.Writer) int {
 	return 0
 }
 
-// parseBucketDocArgs parses --root and --router (in any position) from args
-// for the doc verb, returning the resolved absolute root, the remaining
-// positional args, and whether --router was given. Mirrors resolveWikiRoot's
-// any-position handling; --router takes no value (boolean flag).
+// parseBucketDocArgs consumes --router (in any position, no value) from args
+// for the doc verb and delegates everything else to resolveWikiRoot — so the
+// doc verb's --root handling, help sentinel, and unrecognized-flag
+// rejection all come from the one shared scanner.
 func parseBucketDocArgs(args []string, cwd string) (absRoot string, positional []string, router bool, err error) {
-	var root string
-	i := 0
-	for i < len(args) {
-		arg := args[i]
-		switch {
-		case arg == "--root":
-			if i+1 >= len(args) {
-				return "", nil, false, fmt.Errorf("flag --root requires a value")
-			}
-			root = args[i+1]
-			i += 2
-		case strings.HasPrefix(arg, "--root="):
-			val := arg[len("--root="):]
-			if val == "" {
-				return "", nil, false, fmt.Errorf("flag --root requires a value")
-			}
-			root = val
-			i++
-		case arg == "--router":
+	filtered := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--router" {
 			router = true
-			i++
-		case strings.HasPrefix(arg, "--"):
-			return "", nil, false, fmt.Errorf("unrecognized flag %q", arg)
-		default:
-			positional = append(positional, arg)
-			i++
+			continue
 		}
+		filtered = append(filtered, arg)
 	}
-	if root == "" {
-		root = cwd
+	absRoot, positional, err = resolveWikiRoot(filtered, cwd)
+	if err != nil {
+		return "", nil, false, err
 	}
-	abs, aerr := filepath.Abs(root)
-	if aerr != nil {
-		return "", nil, false, fmt.Errorf("resolve root: %w", aerr)
-	}
-	return abs, positional, router, nil
+	return absRoot, positional, router, nil
 }
 
 // wikiBucketDocAction implements `atomic wiki bucket doc [--root=<path>] <bucket> <slug> [--router]`.
 func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
+	const usage = "Usage: atomic wiki bucket doc [--root=<path>] <bucket> <slug> [--router]\n"
+
 	absRoot, positional, router, err := parseBucketDocArgs(args, cwd)
+	if errors.Is(err, errUsageRequested) {
+		fmt.Fprintf(out, usage)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket doc: %v\n", err)
 		return 2
 	}
 	if len(positional) < 2 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket doc [--root=<path>] <bucket> <slug> [--router]\n")
+		fmt.Fprintf(os.Stderr, usage)
 		return 1
 	}
 	if len(positional) > 2 {
@@ -691,13 +709,19 @@ func wikiBucketDocAction(args []string, cwd string, out io.Writer) int {
 
 // wikiBucketSkillAction implements `atomic wiki bucket skill [--root=<path>] <bucket>`.
 func wikiBucketSkillAction(args []string, cwd string, out io.Writer) int {
+	const usage = "Usage: atomic wiki bucket skill [--root=<path>] <bucket>\n"
+
 	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	if errors.Is(err, errUsageRequested) {
+		fmt.Fprintf(out, usage)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket skill: %v\n", err)
 		return 2
 	}
 	if len(positional) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: atomic wiki bucket skill [--root=<path>] <bucket>\n")
+		fmt.Fprintf(os.Stderr, usage)
 		return 1
 	}
 	if len(positional) > 1 {
@@ -769,7 +793,13 @@ func printBucketIndexCounts(out io.Writer, name, bucketDir string) {
 // An errUnpairedRegion from either rebuild step is a non-fatal warning,
 // mirroring Scan's established "warn to stderr, keep going" pattern.
 func wikiBucketIndexAction(args []string, cwd string, out io.Writer) int {
+	const usage = "Usage: atomic wiki bucket index [--root=<path>] [<bucket>]\n"
+
 	absRoot, positional, err := resolveWikiRoot(args, cwd)
+	if errors.Is(err, errUsageRequested) {
+		fmt.Fprintf(out, usage)
+		return 0
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic wiki bucket index: %v\n", err)
 		return 2

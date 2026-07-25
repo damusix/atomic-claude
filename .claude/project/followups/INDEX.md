@@ -32,9 +32,10 @@ Open: 26  •  Stale: 1  •  Last rendered: 2026-07-25
 - [scratchpad-deleted-by-test](scratchpad-deleted-by-test.md) — A go test deletes .claude/.scratchpad/<today>-* against the real repo (26d)
 - [signals-stale-repo-scope-gap](signals-stale-repo-scope-gap.md) — atomic signals stale / wiki stale: no repo-scope docs/wiki/ staleness check (22d)
 
-## 🔵 nits (4)
+## 🔵 nits (5)
 
 - [agent-config-effort-enum-stale](agent-config-effort-enum-stale.md) — agent-config.md effort enum stale (omits xhigh, lists int) (3d)
+- [atomic-validate-inspects-zero-files](atomic-validate-inspects-zero-files.md) — atomic validate always prints "0 PASS" — reads as nothing-inspected (0d)
 - [dev-install-version-fails-doctor](dev-install-version-fails-doctor.md) — Dev-build install writes install.version='dev', which fails doctor config check (3d)
 - [serve-pipe-escaping](serve-pipe-escaping.md) — Serve domain one-liner has unescaped pipes (mis-renders table) (26d)
 - [tsql-alter-procedure-bodies](tsql-alter-procedure-bodies.md) — T-SQL extractor skips standalone ALTER PROCEDURE/FUNCTION bodies (CREATE-stub + ALTER-body idiom invisible) (31d)

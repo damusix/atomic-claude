@@ -44,6 +44,73 @@ func writeBucketCLIFile(t *testing.T, path, content string) {
 	}
 }
 
+// TestBucketAdd_HelpProbeLeavesAllFourMutationSitesUntouched reproduces issue
+// #164 (`bucket add -h` silently created a bucket named "-h") and asserts,
+// explicitly and individually, that a help probe leaves every one of the
+// four places `wikiBucketAddAction` writes on a real add untouched: the
+// realm-root bucket dir, the wiki/.buckets manifest dir, the <wiki-buckets>
+// entry in wiki/index.md, and the ## Capture surfaces bullet in the realm
+// CLAUDE.md.
+func TestBucketAdd_HelpProbeLeavesAllFourMutationSitesUntouched(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	claudeHome := t.TempDir()
+
+	indexPath := filepath.Join(wikiDir, "index.md")
+	writeBucketCLIFile(t, indexPath, "# Wiki index\n\nSome content.\n")
+	claudeMDPath := filepath.Join(root, "CLAUDE.md")
+	writeBucketCLIFile(t, claudeMDPath, "# CLAUDE.md\n\nSome content.\n")
+
+	indexBefore, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claudeMDBefore, err := os.ReadFile(claudeMDPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	code := wikiAction([]string{"bucket", "add", "--root=" + root, "-h"}, claudeHome, root, &out)
+	if code != 0 {
+		t.Fatalf("expected exit 0 for -h, got %d; output: %q", code, out.String())
+	}
+
+	// Site 1: no realm-root <name>/ directory.
+	if _, statErr := os.Lstat(filepath.Join(root, "-h")); statErr == nil {
+		t.Error("realm-root -h/ directory was created")
+	}
+
+	// Site 2: no wiki/.buckets/<name>/ manifest dir.
+	if _, statErr := os.Lstat(filepath.Join(wikiDir, ".buckets", "-h")); statErr == nil {
+		t.Error("wiki/.buckets/-h manifest dir was created")
+	}
+
+	// Site 3: no <bucket> entry in wiki/index.md; file is byte-identical.
+	indexAfter, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(indexBefore, indexAfter) {
+		t.Errorf("wiki/index.md was modified by a help probe: before %q, after %q", indexBefore, indexAfter)
+	}
+	if strings.Contains(string(indexAfter), `name="-h"`) {
+		t.Error("wiki/index.md gained a <bucket name=\"-h\"> entry")
+	}
+
+	// Site 4: no ## Capture surfaces bullet in the realm CLAUDE.md; file is
+	// byte-identical.
+	claudeMDAfter, err := os.ReadFile(claudeMDPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(claudeMDBefore, claudeMDAfter) {
+		t.Errorf("realm CLAUDE.md was modified by a help probe: before %q, after %q", claudeMDBefore, claudeMDAfter)
+	}
+	if strings.Contains(string(claudeMDAfter), "## Capture surfaces") {
+		t.Error("realm CLAUDE.md gained a ## Capture surfaces section")
+	}
+}
+
 // ---- <wiki-buckets> block splice tests ----
 
 // TestWriteWikiBucketsBlock_AppendsWhenAbsent verifies that when wiki/index.md
