@@ -131,23 +131,30 @@ func Stale(root string, out io.Writer) (int, error) {
 	repoFiles = append(repoFiles, subRepoFiles...)
 
 	for _, fp := range repoFiles {
-		// Derive the repo path from the summary file location.
-		// repos/<name>.md  → name is the repo path fragment relative to root.
-		// repos/<dir>/<domain>.md → dir is the repo path.
-		rel, err := filepath.Rel(reposDir, fp)
-		if err != nil {
-			continue
-		}
-		// The repo dir name is the first component of the relative path under repos/.
-		repoName := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-		repoDir := filepath.Join(root, repoName)
-
 		// wikiRel is relative to root (e.g. "wiki/repos/repoA.md").
 		wikiRel, err := filepath.Rel(root, fp)
 		if err != nil {
 			wikiRel = fp
 		}
 		wikiPath := wikiRel
+
+		// summaryRel is relative to wikiDir (e.g. "repos/repoA.md" or
+		// "repos/beta/design.md") — the form Member.SummaryPath is recorded in.
+		summaryRel, err := filepath.Rel(wikiDir, fp)
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("STALE summary %s", wikiPath))
+			stale = true
+			continue
+		}
+
+		memberPath, resolved := resolveSummaryMember(summaryRel, classified)
+		if !resolved {
+			// Orphaned or ambiguous summary → stale (fail-safe).
+			lines = append(lines, fmt.Sprintf("STALE summary %s", wikiPath))
+			stale = true
+			continue
+		}
+		repoDir := filepath.Join(root, memberPath)
 
 		doc, readErr := os.ReadFile(fp)
 		if readErr != nil {
@@ -328,6 +335,67 @@ func Stale(root string, out io.Writer) (int, error) {
 		return StaleCodeStale, nil
 	}
 	return StaleCodeFresh, nil
+}
+
+// resolveSummaryMember resolves a summary file to the Member that owns it.
+// summaryRel is the summary's path relative to wikiDir (e.g. "repos/alpha.md"
+// or "repos/beta/design.md") — the same form Member.SummaryPath is recorded
+// in. Returns the owning Member.Path and true, or ("", false) when the
+// summary cannot be resolved. See docs/spec/wiki-stale-summary-resolution.md
+// "Approach" for the rationale behind each step.
+func resolveSummaryMember(summaryRel string, classified []Member) (string, bool) {
+	// Step 1: claimed match — a member whose SummaryPath equals summaryRel
+	// (flat form) or is the directory prefix of summaryRel (split form).
+	// This is authoritative: it matches what scan wrote.
+	for _, m := range classified {
+		if m.SummaryPath == "" {
+			continue
+		}
+		if m.SummaryPath == summaryRel {
+			return m.Path, true
+		}
+		if strings.HasSuffix(m.SummaryPath, "/") && strings.HasPrefix(summaryRel, m.SummaryPath) {
+			return m.Path, true
+		}
+	}
+
+	// Step 2: base-name fallback — the exact inverse of discoverSummary's
+	// naming convention. classifyMembers rule 2 (indexed) outranks rule 3
+	// (summarized), so a graduated member carries an empty SummaryPath even
+	// when a leftover summary file is still on disk; without this fallback
+	// such a summary resolves to nothing and reports a false STALE.
+	stem := summaryStem(summaryRel)
+	if stem == "" {
+		return "", false
+	}
+	match, matches := "", 0
+	for _, m := range classified {
+		if filepath.Base(m.Path) == stem {
+			match = m.Path
+			matches++
+		}
+	}
+	if matches == 1 {
+		return match, true
+	}
+
+	// Step 3: unresolved — no claim and zero or ambiguous base-name matches.
+	// Fail-safe: report stale rather than guess.
+	return "", false
+}
+
+// summaryStem extracts the repo base name a summary file was named for —
+// the inverse of discoverSummary: "repos/<name>.md" and
+// "repos/<name>/<domain>.md" both yield "<name>".
+func summaryStem(summaryRel string) string {
+	rel := strings.TrimPrefix(summaryRel, "repos/")
+	if rel == summaryRel {
+		return ""
+	}
+	if idx := strings.Index(rel, "/"); idx != -1 {
+		return rel[:idx]
+	}
+	return strings.TrimSuffix(rel, ".md")
 }
 
 // parseBlockMembers parses the content inside a <wiki-scan> block and returns
