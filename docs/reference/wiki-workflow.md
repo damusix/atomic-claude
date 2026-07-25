@@ -165,6 +165,10 @@ atomic wiki bucket diff research   # see what changed since the last synthesis
 atomic wiki bucket promote research   # advance the baseline after synthesis
 ```
 
+**Bucket names.** `atomic wiki bucket add <name>` rejects an empty or whitespace-only name, a name that starts with `-`, a name containing `/` or `\`, the names `.` and `..`, and the reserved name `wiki`. Any other name registers: hyphenated, underscored, digits, and mixed case all work.
+
+**Help.** `-h`, `-help`, and `--help` work on every bucket sub-verb (`add`, `list`, `diff`, `promote`, `doc`, `skill`, `index`). Each prints usage and exits 0 without creating or modifying anything.
+
 **Two-phase contract.** `diff` is read-only: it computes a SHA-256 manifest of the current folder contents and compares against the stored baseline, reporting `new`, `changed`, and `removed` files. `promote` is a state change: it advances the baseline to the current manifest, marking the bucket in-sync. You run `promote` only after a successful synthesis so that a failed or aborted synthesis leaves the diff intact and `/refresh-wiki` retries.
 
 **What gets synthesized.** `/refresh-wiki` runs the bucket-synthesis phase after repo summaries. For each bucket with a non-empty diff, it dispatches `atomic-wiki-inferrer` in bucket-synthesis mode (fresh context per bucket). The inferrer reads the bucket's `index.md` (where you describe the bucket's purpose and conventions) and the changed files, then writes or updates topic-keyed pages under `wiki/knowledge/`. Multiple buckets' content about the same topic merges into one page; provenance lives in each page's `sources:` frontmatter, written by `atomic wiki stamp --knowledge` — the model declares which source files contributed, the code writes every SHA-256 value.
