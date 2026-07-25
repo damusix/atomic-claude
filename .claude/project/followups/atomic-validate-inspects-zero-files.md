@@ -1,32 +1,37 @@
 ---
 id: atomic-validate-inspects-zero-files
-title: atomic validate reports 0 PASS/0 WARN/0 FAIL — inspects nothing
+title: atomic validate always prints "0 PASS" — reads as nothing-inspected
 created: "2026-07-25"
 origin: |
     discovered during #164 autopilot Phase 4 verification
 kind: finding
-severity: risk
+severity: nit
 review_by: "2026-09-23"
 status: open
-file: atomic/internal/validate/
+file: atomic/internal/validate/finding.go
 ---
 
-`atomic validate` (whole-repo, no subcommand) and `atomic validate config` both report
-`0 PASS, 0 WARN, 0 FAIL. exit 0.` for all rule groups — config, bundle, artifacts. Zero
-files are inspected, so the exit 0 is vacuous rather than a pass.
+`atomic validate` prints a summary of the form `0 PASS, 0 WARN, 0 FAIL. exit 0.` on a clean
+repo, for every rule group. The `PASS` count is structurally always zero: `summarize`
+(`internal/validate/finding.go:44`) counts *findings* by severity, and no rule ever emits a
+finding with a severity other than WARN or FAIL, so `Pass` can never be incremented.
 
-Reproduced on this repo from both a worktree root and the main checkout, on two different
-branches, with both the installed binary and a freshly built one. Pre-existing, not
-introduced by the #164 branch.
+The line therefore reads as "nothing was inspected" when it actually means "nothing was wrong".
 
-**Why it matters:** ship verbs and the `atomic-verify` skill treat `atomic validate` exit 0
-as a gate. A gate that inspects nothing passes everything, so spec/config/artifact
-regressions that A1 and the config rules are meant to catch would ship silently.
+**Correction of the original filing.** This entry first claimed the validator inspects zero
+files and that its exit 0 is vacuous. That was wrong. Verified against a scratch repo: a broken
+`@`-ref in `CLAUDE.md` produces `FAIL C5 ... does not resolve` with exit 1, and a spec missing
+required sections produces `FAIL S5` and `FAIL S6` with exit 1. `runWholeRepo`
+(`internal/validate/dispatch.go:137`) globs `docs/spec/*.md` and runs the config rules against
+the repo root as intended. The gate works. Only its output misleads.
 
-**Suspected cause:** likely the same root as `cli-repo-flag-never-parses` — every leaf Cobra
-command sets `DisableFlagParsing: true`, so path arguments and `--repo` never reach the verb
-and the file set to validate resolves empty. Unconfirmed; needs a debugger or a print pass
-through `internal/validate` entry points.
+**Why it still matters:** the misleading line has already produced one wrong conclusion — an
+autopilot run read `0 PASS` as evidence the gate was inert and filed this follow-up on that
+basis. Anyone auditing whether the ship-verb gates actually check anything hits the same trap.
 
-**How to verify a fix:** `atomic validate` in this repo must report a non-zero PASS count,
-and deliberately breaking a `@`-ref in a scratch copy of CLAUDE.md must produce a FAIL.
+**Options:** drop the `PASS` column, or make it meaningful by counting what was inspected
+(files scanned, rules evaluated) instead of findings emitted. The second is more useful —
+`47 files checked, 0 WARN, 0 FAIL` answers the question the current line only appears to answer.
+
+**How to verify a fix:** on a clean repo the summary must not imply an empty inspection, and
+deliberately breaking an `@`-ref must still produce `FAIL` and exit 1.

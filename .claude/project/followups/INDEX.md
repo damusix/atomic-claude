@@ -20,10 +20,9 @@ Open: 26  •  Stale: 1  •  Last rendered: 2026-07-25
 - [phoenix-route-resolver](phoenix-route-resolver.md) — Wire Phoenix route resolver (after Elixir support) → atomic/internal/codeintel/resolution/frameworks/elixir.go
 - [rails-dsl-symbol-synthesis](rails-dsl-symbol-synthesis.md) — Synthesize symbols from Rails DSL macros (has_many/scope/...)
 
-## 🟡 risks (9)
+## 🟡 risks (8)
 
 - [a1-unknown-verb-path-silent-pass](a1-unknown-verb-path-silent-pass.md) — A1 lint silently passes citations with unknown verb paths (21d)
-- [atomic-validate-inspects-zero-files](atomic-validate-inspects-zero-files.md) — atomic validate reports 0 PASS/0 WARN/0 FAIL — inspects nothing (0d)
 - [cli-repo-flag-never-parses](cli-repo-flag-never-parses.md) — Global --repo flag never parses on any verb (DisableFlagParsing) (16d)
 - [code-graph-hub-drag-unverified](code-graph-hub-drag-unverified.md) — Code-graph drag-overlap unverified for max-degree hub-on-hub drags (17d)
 - [doctor-config-test-reads-real-home](doctor-config-test-reads-real-home.md) — TestRepairPlan_configWARN_fixable reads the real ~/.atomic config (9d)
@@ -32,9 +31,10 @@ Open: 26  •  Stale: 1  •  Last rendered: 2026-07-25
 - [scratchpad-deleted-by-test](scratchpad-deleted-by-test.md) — A go test deletes .claude/.scratchpad/<today>-* against the real repo (26d)
 - [signals-stale-repo-scope-gap](signals-stale-repo-scope-gap.md) — atomic signals stale / wiki stale: no repo-scope docs/wiki/ staleness check (22d)
 
-## 🔵 nits (4)
+## 🔵 nits (5)
 
 - [agent-config-effort-enum-stale](agent-config-effort-enum-stale.md) — agent-config.md effort enum stale (omits xhigh, lists int) (3d)
+- [atomic-validate-inspects-zero-files](atomic-validate-inspects-zero-files.md) — atomic validate always prints "0 PASS" — reads as nothing-inspected (0d)
 - [dev-install-version-fails-doctor](dev-install-version-fails-doctor.md) — Dev-build install writes install.version='dev', which fails doctor config check (3d)
 - [serve-pipe-escaping](serve-pipe-escaping.md) — Serve domain one-liner has unescaped pipes (mis-renders table) (26d)
 - [tsql-alter-procedure-bodies](tsql-alter-procedure-bodies.md) — T-SQL extractor skips standalone ALTER PROCEDURE/FUNCTION bodies (CREATE-stub + ALTER-body idiom invisible) (31d)
