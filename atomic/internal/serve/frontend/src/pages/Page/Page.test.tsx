@@ -249,6 +249,16 @@ describe("Page", () => {
     await waitFor(() => expect(screen.getByText("ok")).toBeInTheDocument());
     expect(fetchSpy).toHaveBeenCalledTimes(1);
 
+    // waitFor's polling loop runs with the act() environment deliberately
+    // suppressed (@testing-library/react's asyncWrapper) and the effect that
+    // re-subscribes "realm.changed" with the post-fetch resolvedRelpath
+    // closure is scheduled on React's real (non-act) passive-effect
+    // scheduler — a genuine macrotask hop a synchronous act() can't force. A
+    // no-op *async* act() yields to the event loop across ticks until that
+    // scheduler drains, so the emit below can't land on the stale
+    // (pre-fetch, relpath-null) listener and silently no-op the refetch.
+    await act(async () => {});
+
     await act(async () => {
       events.emit("realm.changed", { fp: "fp2", changed: ["README.md"] });
     });
@@ -275,6 +285,11 @@ describe("Page", () => {
     renderAt("/page/README.md");
     await waitFor(() => expect(screen.getByText("ok")).toBeInTheDocument());
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    // See the "in the changed list" test above: force the realm.changed
+    // re-subscribe effect to flush before emitting, so this assertion
+    // exercises the post-fetch listener rather than a stale one.
+    await act(async () => {});
 
     await act(async () => {
       events.emit("realm.changed", { fp: "fp2", changed: ["some/other.md"] });
@@ -304,6 +319,11 @@ describe("Page", () => {
     renderAt("/page/README.md");
     await waitFor(() => expect(screen.getByText("ok")).toBeInTheDocument());
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    // See the "in the changed list" test above: force the realm.changed
+    // re-subscribe effect to flush before emitting, so this assertion
+    // exercises the post-fetch listener rather than a stale one.
+    await act(async () => {});
 
     await act(async () => {
       events.emit("realm.changed", { fp: "fp2" });
