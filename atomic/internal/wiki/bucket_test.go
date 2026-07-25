@@ -204,6 +204,67 @@ func TestRegisterBucket_DoubleRegisterRefused(t *testing.T) {
 	}
 }
 
+// TestRegisterBucket_UnsafeNamesRejected covers the RegisterBucket-level
+// backstop behind the CLI arg scanner (issue #164): a caller that reaches
+// RegisterBucket programmatically, bypassing the CLI parser entirely, must
+// still be refused an unsafe name before any filesystem write.
+func TestRegisterBucket_UnsafeNamesRejected(t *testing.T) {
+	cases := []string{
+		"",
+		"   ",
+		"-h",
+		"-",
+		"--help",
+		"a/b",
+		"a\\b",
+		".",
+		"..",
+		"wiki",
+	}
+	for _, name := range cases {
+		t.Run(name, func(t *testing.T) {
+			wikiDir := filepath.Join(wikiRoot(t), "wiki")
+			err := wiki.RegisterBucket(wikiDir, name)
+			if err == nil {
+				t.Fatalf("RegisterBucket(%q): expected error, got nil", name)
+			}
+
+			// A rejected name must never reach MkdirAll — checking for the
+			// .buckets dir itself (rather than .buckets/<name>) sidesteps
+			// filepath.Join collapsing "." / ".." into wikiDir.
+			bucketsDir := filepath.Join(wikiDir, ".buckets")
+			if _, statErr := os.Lstat(bucketsDir); statErr == nil {
+				t.Errorf("RegisterBucket(%q): %s was created despite rejection", name, bucketsDir)
+			}
+		})
+	}
+}
+
+// TestRegisterBucket_OrdinaryNamesAccepted is the back-compat guard: name
+// validation must reject only unsafe shapes, never ordinary bucket names
+// already in use in the wild.
+func TestRegisterBucket_OrdinaryNamesAccepted(t *testing.T) {
+	names := []string{
+		"content-ideas",
+		"social-media",
+		"facts",
+		"raw",
+		"research",
+		"tickets",
+		"under_scored",
+		"has123digits",
+		"MixedCase",
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			wikiDir := filepath.Join(wikiRoot(t), "wiki")
+			if err := wiki.RegisterBucket(wikiDir, name); err != nil {
+				t.Fatalf("RegisterBucket(%q): unexpected error: %v", name, err)
+			}
+		})
+	}
+}
+
 // ---- BucketDiff tests ----
 
 func TestBucketDiff_EmptyBaselineAllNew(t *testing.T) {
