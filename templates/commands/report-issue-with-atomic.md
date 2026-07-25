@@ -25,12 +25,15 @@ Hardcoded target: `damusix/atomic-claude`. Do **not** infer the target from `gh 
 4. Search for duplicates: `gh issue list --repo damusix/atomic-claude --search "<key terms>" --state all --limit 5`. If close match exists, surface URL + ask before opening new.
 5. Check repo templates: `gh api repos/damusix/atomic-claude/contents/.github/ISSUE_TEMPLATE 2>/dev/null` — if templates exist, prefer `--template <file>`. Otherwise build body inline.
 6. Draft title — imperative for features (`Add X`), declarative for bugs (`/commit skips signals refresh on staged-only changes`). ≤70 chars. No "Bug:" / "Feature:" prefix.
-7. Draft body per shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines.
+7. Draft body per shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines. Redact per the **Privacy** section as you draft — never write raw PII, secrets, or third-party identifiers into the body. This target repo is public, so redaction is not optional.
 8. Map classification → label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify the label exists on the target repo first: `gh label list --repo damusix/atomic-claude --search <name>`. Skip the label if it doesn't exist (don't auto-create). User-specified labels stack on top.
-9. `gh issue create --repo damusix/atomic-claude --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`.
-10. Print issue URL.
+9. Preview: print the full rendered issue — title, body, target repo, labels — and get an explicit go-ahead from the user before creating. See **Privacy**.
+10. `gh issue create --repo damusix/atomic-claude --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`.
+11. Print issue URL.
 
 </workflow>
+
+{{ template "report-issue-privacy" . }}
 
 ## Body shapes
 

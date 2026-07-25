@@ -126,7 +126,7 @@ S0 exists because `mdparse` only handles ATX correctly; silent mis-parsing of Se
 | ID | Rule | Severity |
 |----|------|----------|
 | C3 | Every `subagent_type: "<name>"` in `commands/*.md` resolves to `agents/<name>.md` or a built-in (`general-purpose`, `Explore`, `Plan`) | FAIL |
-| C5 | Every `@-ref` in `CLAUDE.md`, `claude.local.md`, `CLAUDE.local.md` resolves to an existing path (case-sensitive) | FAIL |
+| C5 | Every `@-ref` in `CLAUDE.md`, `claude.local.md`, `CLAUDE.local.md` resolves to an existing path (case-sensitive). An `@-ref` is `@`-prefixed at a word boundary; an `@` preceded by an email local-part character (`bob@host.com`) is prose, not a ref, and is skipped | FAIL |
 | C7 | No duplicate `name:` across `agents/*.md` | FAIL |
 | C9 | Files in `agents/`, `skills/`, `output-styles/` without the `atomic-` prefix (when not `_templates/` or similar known-skip dirs) | WARN |
 
@@ -264,6 +264,14 @@ Never suggests names, never fuzzy-matches against existing artifacts. The author
 
 <!-- Drafting/refinement edits before approval are not logged. First entry is at v1 ship. -->
 
+
+### 2026-07-21 — C5 email false-positive guard
+
+**What changed:** `runC5` now skips any `reAtRef` match whose `@` is immediately preceded by an email local-part character (`[A-Za-z0-9._%+-]`), via a new `isEmailLocalChar` helper. Email addresses in ordinary `CLAUDE.md` prose (`bob@example.com`, including inside backticks) no longer parse as unresolvable `@`-refs. The C5 row above gained a word-boundary clause; fixture `testdata/config/pass/C5-email/` and `TestRunConfigRules_C5_EmailNotRef` cover it (the fixture also carries a real `@.claude/project/signals.md` ref to prove the guard does not over-suppress).
+
+**Why:** issue #159 — `atomic validate config` reported two false C5 FAILs on a prose line containing email addresses. RE2 has no lookbehind, so the boundary check is applied at match time rather than in the regex.
+
+**Correction:** the prior C5 grammar matched the domain half of any `user@host.tld`; the body's "resolves to an existing path" contract was unchanged, but the set of strings treated as `@`-refs was too broad.
 
 ### 2026-06-24 — C1 rule retired
 

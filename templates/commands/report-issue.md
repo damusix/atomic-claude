@@ -16,12 +16,15 @@ description: Open a atomic GitHub issue via gh. Bug report or feature request �
 3. List existing issue templates: `gh issue create --help` notes `--template`. Check `.github/ISSUE_TEMPLATE/` — if templates exist, prefer `--template <file>` and let user fill in via editor. Otherwise build body inline.
 4. Search for duplicates: `gh issue list --search "<key terms>" --state all --limit 5`. If close match exists, surface URL + ask before opening new.
 5. Draft title — imperative for features (`Add X`), declarative for bugs (`X crashes when Y`). ≤70 chars. No "Bug:" / "Feature:" prefix unless repo convention demands.
-6. Draft body per shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines.
+6. Draft body per shape below (HEREDOC). Atomic tone — drop filler, exact symbols in backticks, no hedging, no AI bylines. Redact per the **Privacy** section as you draft — never write raw PII, secrets, or third-party identifiers into the body.
 7. Map classification → label: `bug` → `bug`, `feature/enhancement` → `enhancement`, `question` → `question`. Verify the label exists on the repo first: `gh label list --search <name>`. Skip the label if it doesn't exist (don't auto-create). User-specified labels stack on top.
-8. `gh issue create --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`.
-9. Print issue URL.
+8. Preview: print the full rendered issue — title, body, target repo, labels — and get an explicit go-ahead from the user before creating. See **Privacy**.
+9. `gh issue create --title "<title>" --body "$(cat <<'EOF' … EOF)" [--label <classified>] [--label <user-specified>]`.
+10. Print issue URL.
 
 </workflow>
+
+{{ template "report-issue-privacy" . }}
 
 ## Body shapes
 

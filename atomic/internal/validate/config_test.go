@@ -148,6 +148,24 @@ func TestRunConfigRules_C5_IgnoresLocalOverlay(t *testing.T) {
 	}
 }
 
+// TestRunConfigRules_C5_EmailNotRef proves that email addresses in CLAUDE.md
+// prose (e.g. bob@example.com) are NOT parsed as @-refs, so they produce zero
+// C5 findings. WHY: an @-ref is @-prefixed at a word boundary; an email's @ is
+// preceded by its local part. Treating the domain half as a file include
+// produced false FAILs on ordinary prose (issue #159). The same fixture carries
+// a genuine @.claude/project/signals.md ref that must still resolve, proving the
+// email guard does not over-suppress real refs.
+func TestRunConfigRules_C5_EmailNotRef(t *testing.T) {
+	root := configFixtureDir(t, "pass/C5-email")
+	findings, err := validate.RunConfigRules(root)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if hasRule(findings, "C5") {
+		t.Errorf("C5 false-positive on email addresses; findings: %+v", findings)
+	}
+}
+
 // --- C7: no duplicate name: across agents/*.md ---
 
 // TestRunConfigRules_C7_Pass proves that agents with distinct name: values
