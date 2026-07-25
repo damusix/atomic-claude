@@ -143,6 +143,43 @@ func writeSummaryFile(t *testing.T, wikiDir, name, reflectsRev string) string {
 	return p
 }
 
+// writeSplitSummaryFile writes a domain-split summary at
+// repos/<name>/<domain>.md with the given reflects_rev in frontmatter.
+func writeSplitSummaryFile(t *testing.T, wikiDir, name, domain, reflectsRev string) string {
+	t.Helper()
+	p := filepath.Join(wikiDir, "repos", name, domain+".md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	content := fmt.Sprintf("---\nreflects_rev: %s\n---\n## Summary\n", reflectsRev)
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// patchMemberSummarized rewrites <repo path="path" status="pending"/> in
+// wikiDir/index.md's <wiki-scan> block to status="summarized" with the given
+// summary attribute, so it matches what the live classifyMembers call inside
+// Stale will independently derive from the summary files already on disk.
+func patchMemberSummarized(t *testing.T, wikiDir, path, summaryRelPath string) {
+	t.Helper()
+	indexPath := filepath.Join(wikiDir, "index.md")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("read index.md: %v", err)
+	}
+	old := fmt.Sprintf(`path=%q status="pending"`, path)
+	replacement := fmt.Sprintf(`path=%q status="summarized" summary=%q`, path, summaryRelPath)
+	updated := strings.ReplaceAll(string(data), old, replacement)
+	if updated == string(data) {
+		t.Fatalf("failed to patch %q into summarized in index.md; content:\n%s", path, data)
+	}
+	if err := os.WriteFile(indexPath, []byte(updated), 0o644); err != nil {
+		t.Fatalf("write index.md: %v", err)
+	}
+}
+
 // writeConcernFile writes a concerns/<name>.md with a reflects: list in frontmatter.
 func writeConcernFile(t *testing.T, wikiDir, name string, entries []string) string {
 	t.Helper()
@@ -680,5 +717,96 @@ func TestStale_ConcernNoReflectsKey(t *testing.T) {
 	}
 	if !strings.Contains(out, "no-reflects.md") {
 		t.Errorf("expected concern filename in output; got: %q", out)
+	}
+}
+
+// TestStale_ShapeMatrixAllFresh is the C3 centerpiece: it builds a realm
+// covering all four rows of the spec's shape matrix — root+flat, root+split,
+// nested+split, nested+flat — stamps every summary to its member's HEAD, and
+// asserts Stale reports fresh with zero output. Before the fix, only
+// root+domain-split (the "beta" member here) passed; the other three
+// resolved to a nonexistent repoDir and reported a false STALE summary.
+func TestStale_ShapeMatrixAllFresh(t *testing.T) {
+	root := t.TempDir()
+
+	_, alphaSHA := makeCommittedRepo(t, root, "alpha")          // root + flat
+	_, betaSHA := makeCommittedRepo(t, root, "beta")            // root + domain-split
+	_, gammaSHA := makeCommittedRepo(t, root, "packages/gamma") // nested + domain-split
+	_, deltaSHA := makeCommittedRepo(t, root, "packages/delta") // nested + flat
+
+	runScan(t, root)
+
+	wikiDir := filepath.Join(root, "wiki")
+
+	writeSummaryFile(t, wikiDir, "alpha", alphaSHA)
+	patchMemberSummarized(t, wikiDir, "alpha", "repos/alpha.md")
+
+	writeSplitSummaryFile(t, wikiDir, "beta", "design", betaSHA)
+	patchMemberSummarized(t, wikiDir, "beta", "repos/beta/")
+
+	writeSplitSummaryFile(t, wikiDir, "gamma", "design", gammaSHA)
+	patchMemberSummarized(t, wikiDir, "packages/gamma", "repos/gamma/")
+
+	writeSummaryFile(t, wikiDir, "delta", deltaSHA)
+	patchMemberSummarized(t, wikiDir, "packages/delta", "repos/delta.md")
+
+	code, out := runStale(t, root)
+
+	if code != 0 {
+		t.Errorf("expected exit 0 (fresh) across all four shapes, got %d; stdout: %q", code, out)
+	}
+	if out != "" {
+		t.Errorf("expected zero output for a fully-fresh shape matrix, got: %q", out)
+	}
+}
+
+// TestStale_ShapeMatrixOneMovedHEAD is the companion to the shape-matrix
+// test: starting from the all-fresh realm, only one member's HEAD moves, and
+// only that member's summary is reported stale — the other three shapes
+// stay fresh.
+func TestStale_ShapeMatrixOneMovedHEAD(t *testing.T) {
+	root := t.TempDir()
+
+	_, alphaSHA := makeCommittedRepo(t, root, "alpha")
+	_, betaSHA := makeCommittedRepo(t, root, "beta")
+	gammaDir, gammaSHA := makeCommittedRepo(t, root, "packages/gamma")
+	_, deltaSHA := makeCommittedRepo(t, root, "packages/delta")
+
+	runScan(t, root)
+
+	wikiDir := filepath.Join(root, "wiki")
+
+	writeSummaryFile(t, wikiDir, "alpha", alphaSHA)
+	patchMemberSummarized(t, wikiDir, "alpha", "repos/alpha.md")
+
+	writeSplitSummaryFile(t, wikiDir, "beta", "design", betaSHA)
+	patchMemberSummarized(t, wikiDir, "beta", "repos/beta/")
+
+	writeSplitSummaryFile(t, wikiDir, "gamma", "design", gammaSHA)
+	patchMemberSummarized(t, wikiDir, "packages/gamma", "repos/gamma/")
+
+	writeSummaryFile(t, wikiDir, "delta", deltaSHA)
+	patchMemberSummarized(t, wikiDir, "packages/delta", "repos/delta.md")
+
+	// Confirm the baseline is fresh before moving anything.
+	if code, out := runStale(t, root); code != 0 {
+		t.Fatalf("expected fresh baseline before moving HEAD, got exit %d: %q", code, out)
+	}
+
+	// Move only packages/gamma's HEAD — a nested + domain-split member,
+	// one of the three shapes the pre-fix code got wrong.
+	addCommit(t, gammaDir)
+
+	code, out := runStale(t, root)
+
+	if code != 1 {
+		t.Errorf("expected exit 1 (stale) after moving packages/gamma's HEAD, got %d; stdout: %q", code, out)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly one output line, got %d: %q", len(lines), out)
+	}
+	if !strings.Contains(lines[0], "STALE summary wiki/repos/gamma/design.md") {
+		t.Errorf("expected STALE summary line for packages/gamma's summary, got: %q", lines[0])
 	}
 }
