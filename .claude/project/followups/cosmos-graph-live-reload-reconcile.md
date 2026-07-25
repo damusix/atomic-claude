@@ -7,7 +7,27 @@ origin: |
 kind: plan
 review_by: "2026-09-06"
 status: open
-file: atomic/internal/serve/templates/layout.html
+file: atomic/internal/serve/frontend/src/pages/Graph/Graph.tsx
 ---
 
-serve-live-reload CP5 implemented graph-mode reconcile (SSE-triggered /graph/data refetch, id-diff patch, neighbor-seeded positions, IndexedDB re-key) against the old Cytoscape system-graph client. The cosmos engine swap (PR #123) replaced that client wholesale, so the capability was dropped at merge: in graph mode, live-reload events currently do nothing (page mode fully works; the server-side snapshot store is intact and /graph/data reflects changes on the next fetch). Rebuilding it against cosmos means: listen for atomic:live-reload in graph-core or the profiles, diff fresh /graph/data against the mounted set, patch or remount with the settle-then-pause policy and layout-cache re-key (fingerprint changes with the data, so the cache key machinery already handles invalidation). Spec docs/spec/serve-live-reload.md change log records the gap.
+In graph mode, live-reload events do nothing. Page mode works fully, and the server side is
+intact — the snapshot store and `/events` are unaffected, and `/graph/data` reflects a realm
+change on its next fetch. Only the in-place patch of a mounted graph is missing.
+
+serve-live-reload CP5 had implemented this (SSE-triggered `/graph/data` refetch, id-diff
+patch, neighbor-seeded positions, IndexedDB re-key), but it was written against the old
+Cytoscape system-graph client. PR #123 replaced that client wholesale with the cosmos.gl
+engine, so CP5 had no surviving attachment point and was dropped at the merge. The change log
+in `docs/spec/serve-live-reload.md` records the gap.
+
+**Rebuild target (updated 2026-07-25 — the original entry pointed at
+`atomic/internal/serve/templates/layout.html`, deleted in the React SPA cutover):** the work
+now lives in the React frontend. `src/hooks/useLiveReload.ts` already owns the SSE subscription
+that page mode consumes; `src/pages/Graph/Graph.tsx` mounts the carried engine from
+`public/graph-core.js` plus the `system-graph.js` / `code-graph.js` profiles via the `window`
+contracts. Reconcile means subscribing the graph page to the same hook, diffing a fresh
+`/graph/data` against the mounted set, and patching or remounting under the settle-then-pause
+policy with a layout-cache re-key. The cache key is fingerprint-derived, so invalidation is
+already handled.
+
+Both graph views need it — docs (`/graph/data`) and code (`/code/graph/data`).
