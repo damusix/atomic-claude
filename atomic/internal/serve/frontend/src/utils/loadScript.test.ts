@@ -54,4 +54,20 @@ describe("loadScript", () => {
     await expect(loadScript("/vendor/broken.js")).rejects.toThrow();
     stub.restore();
   });
+
+  // Regression: a script tag matching `src` can already be in the DOM (left
+  // by an earlier, unrelated loadScript() call) with the cache empty — a
+  // cache miss with a live, already-settled tag is reachable in the app, not
+  // only a test artifact. Built directly via document.createElement rather
+  // than stubScriptLoad's <div> swap: the "existing" branch's querySelector
+  // is `script[src=...]`, which only ever matches a real script tag.
+  test("resolves immediately when a matching script tag is already present and already loaded", async () => {
+    const src = "/vendor/already-loaded.js";
+    const el = document.createElement("script");
+    el.src = src;
+    el.dataset.loaded = "true";
+    document.head.appendChild(el);
+
+    await expect(loadScript(src)).resolves.toBeUndefined();
+  });
 });

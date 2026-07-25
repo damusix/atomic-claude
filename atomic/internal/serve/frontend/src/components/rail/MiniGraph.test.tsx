@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { render, waitFor } from "@testing-library/react";
 import { __resetForTest, setNavigator } from "../../utils/graphUI";
 import { __resetLoadScriptCacheForTest } from "../../utils/loadScript";
@@ -58,6 +58,18 @@ function stubScriptLoad() {
 }
 
 describe("MiniGraph", () => {
+  // afterEach only clears document.body — a previously-run file's script
+  // tag (e.g. a stale "/vendor/cytoscape.min.js") lives in document.head and
+  // survives into this file's first case otherwise, making it order-
+  // dependent on whatever ran before it.
+  beforeEach(() => {
+    __resetForTest();
+    __resetLoadScriptCacheForTest();
+    delete (window as { cytoscape?: unknown }).cytoscape;
+    delete window.__railCy;
+    document.head.innerHTML = "";
+  });
+
   afterEach(() => {
     mock.restore();
     __resetForTest();

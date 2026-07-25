@@ -13,14 +13,40 @@ export function loadScript(src: string): Promise<void> {
   const promise = new Promise<void>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>(`script[src="${src}"]`);
     if (existing) {
-      existing.addEventListener("load", () => resolve());
-      existing.addEventListener("error", () => reject(new Error(`failed to load ${src}`)));
+      // The tag can have already fired "load"/"error" before this call ever
+      // ran (a cache miss for a src some earlier, unrelated call already
+      // settled) — a fresh listener on a past event never fires, hanging
+      // this promise forever. `dataset.loaded` is stamped by the listener
+      // below the moment the tag settles, so a cache miss can check it
+      // instead of re-listening blind.
+      if (existing.dataset.loaded === "true") {
+        resolve();
+        return;
+      }
+      if (existing.dataset.loaded === "error") {
+        reject(new Error(`failed to load ${src}`));
+        return;
+      }
+      existing.addEventListener("load", () => {
+        existing.dataset.loaded = "true";
+        resolve();
+      });
+      existing.addEventListener("error", () => {
+        existing.dataset.loaded = "error";
+        reject(new Error(`failed to load ${src}`));
+      });
       return;
     }
     const el = document.createElement("script");
     el.src = src;
-    el.addEventListener("load", () => resolve());
-    el.addEventListener("error", () => reject(new Error(`failed to load ${src}`)));
+    el.addEventListener("load", () => {
+      el.dataset.loaded = "true";
+      resolve();
+    });
+    el.addEventListener("error", () => {
+      el.dataset.loaded = "error";
+      reject(new Error(`failed to load ${src}`));
+    });
     document.head.appendChild(el);
   });
 
