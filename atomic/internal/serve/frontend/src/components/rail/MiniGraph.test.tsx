@@ -58,10 +58,13 @@ function stubScriptLoad() {
 }
 
 describe("MiniGraph", () => {
-  // afterEach only clears document.body — a previously-run file's script
-  // tag (e.g. a stale "/vendor/cytoscape.min.js") lives in document.head and
-  // survives into this file's first case otherwise, making it order-
-  // dependent on whatever ran before it.
+  // afterEach only clears document.body — a real (unstubbed) script tag left
+  // in document.head by an earlier file would otherwise survive into this
+  // file's first case, since loadScript()'s "existing" branch matches on the
+  // live DOM, not the reset load cache. Defensive; the actual CI hang here
+  // (Rail.test.tsx's mock.module() corrupting its own captured "real module"
+  // reference in place, so the component this file imported was still the
+  // stub) is fixed at its source in Rail.test.tsx.
   beforeEach(() => {
     __resetForTest();
     __resetLoadScriptCacheForTest();
