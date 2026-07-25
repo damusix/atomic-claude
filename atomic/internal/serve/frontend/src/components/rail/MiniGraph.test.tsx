@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { render, waitFor } from "@testing-library/react";
 import { __resetForTest, setNavigator } from "../../utils/graphUI";
 import { __resetLoadScriptCacheForTest } from "../../utils/loadScript";
@@ -58,6 +58,21 @@ function stubScriptLoad() {
 }
 
 describe("MiniGraph", () => {
+  // afterEach only clears document.body — a real (unstubbed) script tag left
+  // in document.head by an earlier file would otherwise survive into this
+  // file's first case, since loadScript()'s "existing" branch matches on the
+  // live DOM, not the reset load cache. Defensive; the actual CI hang here
+  // (Rail.test.tsx's mock.module() corrupting its own captured "real module"
+  // reference in place, so the component this file imported was still the
+  // stub) is fixed at its source in Rail.test.tsx.
+  beforeEach(() => {
+    __resetForTest();
+    __resetLoadScriptCacheForTest();
+    delete (window as { cytoscape?: unknown }).cytoscape;
+    delete window.__railCy;
+    document.head.innerHTML = "";
+  });
+
   afterEach(() => {
     mock.restore();
     __resetForTest();

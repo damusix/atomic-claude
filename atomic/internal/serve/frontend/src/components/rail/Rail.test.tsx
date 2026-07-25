@@ -12,17 +12,28 @@ import { events } from "../../utils/events";
 // MiniGraph never passes an AbortController for, so it's still in flight
 // when a test unmounts it) with zero coverage loss.
 //
-// mock.module() is process-global once registered, and bun:test's own
-// mock.restore() does NOT undo it (verified: an afterAll(() => mock.restore())
-// here left the mock active for a later file). Capture the real module via
-// require() — evaluated exactly where it's written, unlike a hoisted static
-// import — before registering the mock, then re-register that real module
-// explicitly in afterAll so a later file (e.g. MiniGraph.test.tsx) importing
-// "./MiniGraph" directly still gets the genuine component.
-const RealMiniGraph: typeof import("./MiniGraph") = require("./MiniGraph");
+// mock.module(id, factory) mutates the SAME exports object require(id)
+// already returned, in place — it does not swap in a fresh one. So capturing
+// `const RealMiniGraph = require("./MiniGraph")` and reading
+// `RealMiniGraph.MiniGraph` later (e.g. from an afterAll trying to "restore"
+// the real module) silently reads the now-stubbed function: RealMiniGraph
+// and the mocked module are the same object (verified directly). This is
+// what corrupted every attempt to un-mock MiniGraph for a later file (e.g.
+// MiniGraph.test.tsx on Linux CI) — restoring never worked because there was
+// nothing real left to restore. Destructuring the function out immediately
+// detaches a real reference from that object's future mutation; a plain
+// module-level flag (read at render time, so it's live for every future
+// import of "./MiniGraph" too — in this file or any later one) then chooses
+// between the stub and the real component.
+const { MiniGraph: RealMiniGraphComponent }: typeof import("./MiniGraph") = require("./MiniGraph");
+let useMiniGraphStub = true;
 
 mock.module("./MiniGraph", () => ({
-  MiniGraph: () => null,
+  // Rendered through JSX (a distinct element, its own fiber/hooks) rather
+  // than calling RealMiniGraphComponent(props) as a plain function — the
+  // latter would run its hooks against the wrapper's own fiber instead.
+  MiniGraph: (props: Parameters<typeof RealMiniGraphComponent>[0]) =>
+    useMiniGraphStub ? null : <RealMiniGraphComponent {...props} />,
 }));
 
 import { Rail } from "./Rail";
@@ -87,12 +98,11 @@ function mockFetchOnce(body: unknown, status = 200) {
 describe("Rail", () => {
   // Deliberately no per-test mock.restore(): every test reassigns
   // globalThis.fetch fresh, so there's no cross-test mock-call-history to
-  // clean up. Restored once, for the whole file, in afterAll instead — so a
-  // later file (e.g. MiniGraph.test.tsx) still resolves the real
-  // "./MiniGraph" (mock.restore() alone does not undo mock.module(), so this
-  // re-registers the captured real module explicitly).
+  // clean up. Flips the shared flag once, for the whole file, in afterAll —
+  // the wrapper registered above starts delegating to the real component for
+  // every subsequent render, in this file or any later one.
   afterAll(() => {
-    mock.module("./MiniGraph", () => RealMiniGraph);
+    useMiniGraphStub = false;
   });
 
   test("renders nothing but the bare aside until page.resolved fires", () => {

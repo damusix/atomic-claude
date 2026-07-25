@@ -20,13 +20,14 @@ Open: 26  •  Stale: 1  •  Last rendered: 2026-07-25
 - [phoenix-route-resolver](phoenix-route-resolver.md) — Wire Phoenix route resolver (after Elixir support) → atomic/internal/codeintel/resolution/frameworks/elixir.go
 - [rails-dsl-symbol-synthesis](rails-dsl-symbol-synthesis.md) — Synthesize symbols from Rails DSL macros (has_many/scope/...)
 
-## 🟡 risks (8)
+## 🟡 risks (9)
 
 - [a1-unknown-verb-path-silent-pass](a1-unknown-verb-path-silent-pass.md) — A1 lint silently passes citations with unknown verb paths (21d)
 - [cli-repo-flag-never-parses](cli-repo-flag-never-parses.md) — Global --repo flag never parses on any verb (DisableFlagParsing) (16d)
 - [code-graph-hub-drag-unverified](code-graph-hub-drag-unverified.md) — Code-graph drag-overlap unverified for max-degree hub-on-hub drags (17d)
 - [doctor-config-test-reads-real-home](doctor-config-test-reads-real-home.md) — TestRepairPlan_configWARN_fixable reads the real ~/.atomic config (9d)
 - [install-output-style-f-2](install-output-style-f-2.md) — huh PointerAccessor read-timing risk on huh upgrade (65d, **stale**)
+- [page-realm-changed-linux-flake](page-realm-changed-linux-flake.md) — Page 'refetches on realm.changed (cap exceeded)' flakes 10-20% on Linux (0d)
 - [realm-fanout-index-empty-db](realm-fanout-index-empty-db.md) — Realm-fanout atomic code index reports success but writes 0-byte member db (6d)
 - [scratchpad-deleted-by-test](scratchpad-deleted-by-test.md) — A go test deletes .claude/.scratchpad/<today>-* against the real repo (26d)
 - [signals-stale-repo-scope-gap](signals-stale-repo-scope-gap.md) — atomic signals stale / wiki stale: no repo-scope docs/wiki/ staleness check (22d)
