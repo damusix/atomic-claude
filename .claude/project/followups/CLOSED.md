@@ -50,3 +50,4 @@
 - 2026-07-25 serve-pipe-escaping — "Serve domain one-liner has unescaped pipes (mis-renders table)" — *(closed 2026-07-25)*
 - 2026-07-25 signals-stale-repo-scope-gap — "atomic signals stale / wiki stale: no repo-scope docs/wiki/ staleness check" — *(closed 2026-07-25)*
 - 2026-07-25 doctor-config-test-reads-real-home — "TestRepairPlan_configWARN_fixable reads the real ~/.atomic config" — *(closed 2026-07-25)*
+- 2026-07-26 cli-repo-flag-never-parses — "Global --repo flag never parses on any verb (DisableFlagParsing)" — *(closed 2026-07-26)*
