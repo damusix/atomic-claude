@@ -61,10 +61,33 @@ func main() {
 		}
 	}
 
-	// Build the Cobra command tree. repoOverride is populated by Cobra's
-	// persistent-flag parsing for "--repo" placed before the subcommand.
+	// Pre-scan 3: extract a global --repo override from argv, in any
+	// position, before Cobra or any leaf's own flag.NewFlagSet ever sees it.
+	// Every leaf sets DisableFlagParsing:true (see buildRootCmd), which makes
+	// Cobra's ParseFlags a no-op regardless of where --repo sits — the
+	// persistent flag registered on rootCmd below is never actually parsed
+	// at runtime, so this scan is what makes --repo do anything at all.
+	// Skipped for verbs whose own --repo flag already carries different,
+	// established semantics (migrate, config resolve, wiki stamp).
+	var repoOverrideVal string
+	if !repoFlagExempt(os.Args[1:]) {
+		val, cleaned, rerr := scanRepoOverride(os.Args)
+		if rerr != nil {
+			fmt.Fprintf(os.Stderr, "atomic: %v\n", rerr)
+			os.Exit(2)
+		}
+		repoOverrideVal = val
+		os.Args = cleaned
+	}
+
+	// Build the Cobra command tree. repoOverride starts at "" via the
+	// persistent-flag registration in buildRootCmd (kept for --help docs and
+	// cliusage's live-tree derivation only) and is then set to the
+	// pre-scanned value above — StringVar resets the pointer to its default
+	// at registration time, so the assignment must happen after.
 	var repoOverride string
 	rootCmd := buildRootCmd(&repoOverride)
+	repoOverride = repoOverrideVal
 
 	// Derive the cliusage surface from the live Cobra tree so Commands(),
 	// LookupByPath(), and TopLevelVerbs() all reflect the real flag metadata
@@ -187,8 +210,11 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	// --version / -v is handled by a pre-scan in main() that exits before
 	// Execute(); the BoolP registration is for `atomic --help` docs only.
 	//
-	// --repo is the only flag Cobra actually parses and applies at runtime
-	// (for arguments placed before the subcommand name).
+	// --repo is extracted from argv by scanRepoOverride() in main() before
+	// Execute() runs (same reason as --no-update-check above, plus every
+	// leaf's DisableFlagParsing:true — see main()); the StringVar
+	// registration below is for `atomic --help` docs and cliusage's
+	// live-tree derivation only, matching the pattern above.
 	rootCmd.PersistentFlags().StringVar(repoOverride, "repo", "", "repo root override (default: detect via git)")
 	rootCmd.PersistentFlags().Bool("no-update-check", false, "suppress background update check")
 	rootCmd.PersistentFlags().BoolP("version", "v", false, "print version and exit")
@@ -1012,6 +1038,90 @@ func scanNoUpdateCheck(argv []string) (found bool, cleaned []string) {
 		}
 	}
 	return found, cleaned
+}
+
+// repoFlagExemptions are verb paths (leading positional-token prefixes)
+// whose own --repo flag already carries different, established semantics —
+// a required target path, not the global context override — so
+// scanRepoOverride must leave their argv untouched entirely:
+//
+//	migrate --repo <path>            : repo-scope migration target
+//	config resolve --repo <root>     : the repo to resolve Pi config for
+//	wiki stamp <file> --repo <path>  : summary-mode repo whose HEAD to stamp
+var repoFlagExemptions = [][]string{
+	{"migrate"},
+	{"config", "resolve"},
+	{"wiki", "stamp"},
+}
+
+// repoFlagExempt reports whether argv's verb path is one of
+// repoFlagExemptions (or is prefixed by one — wiki stamp takes a positional
+// <file> before its own flags, so the exempt prefix still matches).
+func repoFlagExempt(argv []string) bool {
+	prefix := verbPrefix(argv)
+	for _, exempt := range repoFlagExemptions {
+		if len(prefix) < len(exempt) {
+			continue
+		}
+		matched := true
+		for i, tok := range exempt {
+			if prefix[i] != tok {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+	return false
+}
+
+// verbPrefix returns the leading run of non-flag tokens in argv. Every
+// atomic invocation places its full verb path, and any of that verb's own
+// positional args, before its flags (see each verb's own usage string), so
+// this identifies the target verb without a full argv parse.
+func verbPrefix(argv []string) []string {
+	var out []string
+	for _, a := range argv {
+		if strings.HasPrefix(a, "-") {
+			break
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// scanRepoOverride pre-scans argv for a global "--repo <path>" or
+// "--repo=<path>" override in any position and strips it, so no verb — a
+// Cobra leaf or a hand-rolled flag.NewFlagSet — ever sees an unrecognized
+// flag. DisableFlagParsing:true on every leaf command (see buildRootCmd)
+// makes Cobra's own persistent-flag parsing a no-op regardless of --repo's
+// position; this scan is the only place --repo is actually read. Not called
+// when repoFlagExempt reports the invocation targets a verb with its own,
+// differently-scoped --repo flag.
+//
+// Returns an error when --repo has no value to consume — end of argv, or the
+// next token looks like another flag — rather than silently treating an
+// unrelated token (e.g. the verb name) as the path.
+func scanRepoOverride(argv []string) (value string, cleaned []string, err error) {
+	cleaned = make([]string, 0, len(argv))
+	for i := 0; i < len(argv); i++ {
+		a := argv[i]
+		switch {
+		case a == "--repo":
+			if i+1 >= len(argv) || strings.HasPrefix(argv[i+1], "-") {
+				return "", nil, fmt.Errorf("--repo requires a value")
+			}
+			value = argv[i+1]
+			i++
+		case strings.HasPrefix(a, "--repo="):
+			value = strings.TrimPrefix(a, "--repo=")
+		default:
+			cleaned = append(cleaned, a)
+		}
+	}
+	return value, cleaned, nil
 }
 
 func runDoctor(args []string) {
