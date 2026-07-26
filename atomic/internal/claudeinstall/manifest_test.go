@@ -101,8 +101,15 @@ func TestInstallWritesManifestToConfig(t *testing.T) {
 		t.Errorf("unexpected config warnings: %v", warns)
 	}
 
-	// Version must equal the binary's current version constant.
-	if cfg.Install.Version != version.Version {
+	// Dev test binaries build with version.Version == "dev" (no ldflags); that
+	// literal must never be written to Install.Version (not a parseable
+	// semver — see TestInstallDoesNotRecordDevVersion). A real release build
+	// must still record its version normally.
+	if version.Version == "dev" {
+		if cfg.Install.Version != "" {
+			t.Errorf("Install.Version = %q, want empty for dev build", cfg.Install.Version)
+		}
+	} else if cfg.Install.Version != version.Version {
 		t.Errorf("Install.Version = %q, want %q", cfg.Install.Version, version.Version)
 	}
 
@@ -136,6 +143,33 @@ func TestInstallWritesManifestToConfig(t *testing.T) {
 	}
 }
 
+// TestInstallDoesNotRecordDevVersion: a dev build (version.Version == "dev",
+// the un-ldflagged default every `go test`/`go build` invocation produces
+// without -ldflags) must leave config.toml in a state config.Validate accepts.
+// Writing the literal "dev" into Install.Version fails Validate's semver
+// check and permanently reds `atomic doctor` for every dev-build install.
+func TestInstallDoesNotRecordDevVersion(t *testing.T) {
+	if version.Version != "dev" {
+		t.Skipf("test binary built with -ldflags version=%q; dev-version behavior not exercised", version.Version)
+	}
+
+	target := t.TempDir()
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	cfg, _, err := config.Load(config.TOMLPath(target))
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if err := config.Validate(cfg); err != nil {
+		t.Errorf("config.Validate after dev-build install: %v", err)
+	}
+	if cfg.Install.Version != "" {
+		t.Errorf("Install.Version = %q, want empty (dev builds do not record a version)", cfg.Install.Version)
+	}
+}
+
 // TestInstallManifestRoundTrip: second install reads back the prior manifest and
 // updates it cleanly (idempotent).
 func TestInstallManifestRoundTrip(t *testing.T) {
@@ -153,7 +187,11 @@ func TestInstallManifestRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load after second install: %v", err)
 	}
-	if cfg.Install.Version != version.Version {
+	if version.Version == "dev" {
+		if cfg.Install.Version != "" {
+			t.Errorf("Install.Version after second install = %q, want empty for dev build", cfg.Install.Version)
+		}
+	} else if cfg.Install.Version != version.Version {
 		t.Errorf("Install.Version after second install = %q, want %q", cfg.Install.Version, version.Version)
 	}
 	if len(cfg.Install.Artifacts.Agents) == 0 {
