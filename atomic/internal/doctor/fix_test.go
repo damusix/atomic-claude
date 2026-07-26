@@ -51,6 +51,7 @@ func nopRepairer() doctor.Repairer {
 		ManifestFn:        func(io.Writer) error { return nil },
 		FollowupsRenderFn: func(io.Writer) error { return nil },
 		ConfigFn:          func(string) error { return nil },
+		HomeFn:            func() (string, error) { return os.TempDir(), nil },
 		IsRepoDevFn:       func() (bool, error) { return true, nil },
 		RepoRootFn:        func() string { return os.TempDir() },
 	}

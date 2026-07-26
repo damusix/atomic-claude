@@ -111,7 +111,15 @@ func writeInstallManifest(home string, plan []FileAction) error {
 		return fmt.Errorf("load config for manifest write: %w", err)
 	}
 
-	cfg.Install.Version = version.Version
+	// Dev builds (version.Version == "dev", the un-ldflagged default) do not
+	// record a version — "dev" is not a parseable semver, and config.Validate
+	// requires one, so writing it would permanently fail every dev
+	// contributor's `atomic doctor`. Leave any prior recorded version
+	// untouched (an empty string is already the documented pre-framework
+	// state everywhere else in this codebase reads Install.Version).
+	if version.Version != "dev" {
+		cfg.Install.Version = version.Version
+	}
 
 	// Reset per-kind lists before repopulating from the current plan.
 	cfg.Install.Artifacts.Agents = nil

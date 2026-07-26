@@ -307,6 +307,10 @@ func TestRepairPlan_configWARN_fixable(t *testing.T) {
 
 	var repairCalled bool
 	rp := doctor.DefaultRepairer()
+	// HomeFn must be overridden too: applyConfigRepair resolves home itself
+	// before calling ConfigFn, so without this the test still hits the real
+	// $HOME regardless of what ConfigFn does with the home arg it receives.
+	rp.HomeFn = func() (string, error) { return root, nil }
 	rp.ConfigFn = func(home string) error {
 		repairCalled = true
 		// Actually do the repair so the summary says Applied=1.

@@ -45,6 +45,7 @@ type Repairer struct {
 	ManifestFn        func(io.Writer) error
 	FollowupsRenderFn func(io.Writer) error
 	ConfigFn          func(home string) error
+	HomeFn            func() (string, error)
 	IsRepoDevFn       func() (bool, error)
 	RepoRootFn        func() string
 }
@@ -57,6 +58,7 @@ func DefaultRepairer() Repairer {
 		ManifestFn:        defaultManifestRepair,
 		FollowupsRenderFn: defaultFollowupsRenderRepair,
 		ConfigFn:          defaultConfigRepair,
+		HomeFn:            resolveHome,
 		IsRepoDevFn:       defaultIsRepoDev,
 		RepoRootFn:        defaultRepoRoot,
 	}
@@ -272,7 +274,7 @@ func (rp Repairer) applyFollowupsRepair(r Result, out io.Writer) error {
 // applyConfigRepair re-renders config.resolved.md from the current TOML.
 func (rp Repairer) applyConfigRepair(out io.Writer) error {
 	fmt.Fprintln(out, "$ re-rendering config.resolved.md")
-	home, err := resolveHome()
+	home, err := rp.HomeFn()
 	if err != nil {
 		return fmt.Errorf("resolve home dir: %w", err)
 	}
