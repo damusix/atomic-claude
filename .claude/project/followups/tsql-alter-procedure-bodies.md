@@ -5,10 +5,18 @@ created: "2026-06-24"
 origin: |
     #70 phase-2 CP5 real-repo eval (Brent Ozar First Responder Kit)
 kind: finding
-severity: nit
+severity: risk
 review_by: "2026-08-23"
 status: open
+file: atomic/internal/codeintel/extraction/standalone/sql.go
 ---
+
+**Severity raised nit -> risk, 2026-07-26.** The measured impact is feature-defeating, not
+cosmetic: a real 139K-LOC T-SQL repo yielded 60 nodes / 46 edges. The CREATE-stub +
+ALTER-body idiom is standard in DBA and utility T-SQL, so for that whole class of repo the
+extractor sees almost nothing and the SQL lineage feature silently under-delivers — with no
+error to signal it. A user would reasonably conclude lineage does not work rather than that
+one statement form is unscanned.
 
 Surfaced during #70 phase-2 CP5 validation. Indexing the Brent Ozar First
 Responder Kit (real-world T-SQL, ~139K LOC) produced only 60 nodes / 46 edges —
