@@ -9,7 +9,7 @@ description: >
   other agent", "who else is on the bus", "what rooms are open", "watch the
   room", "halt the room", "stop the agents". Also fires when the user asks to
   work alongside a session they have open in another terminal. Wraps the
-  `atomic bus` CLI: join, then a Monitor on `recv --follow` so peer messages
+  `atomic bus` CLI: join, then a Monitor on `recv` so peer messages
   arrive as prompts. Carries the reaction policy that decides when an arriving
   message is an instruction to act on and when it is only news.
 ---
@@ -48,16 +48,17 @@ Then start the listener:
 
 ```
 Monitor(
-  command="atomic bus recv <room> --follow",
+  command="atomic bus recv <room>",
   description="bus messages in <room>",
   persistent=true,
   timeout_ms=3600000
 )
 ```
 
-Each stdout line is one JSON envelope. `join` does not start this, and nothing arrives until it
-runs — but a session that has joined can `send` without a listener, so `join` alone is enough if
-this session only needs to talk.
+`recv` always streams — there is no one-shot mode and no `--follow` flag to remember. Each stdout
+line is one JSON envelope for a message published *after* this Monitor starts; nothing sent before
+it started is ever replayed, so `join` alone (without this Monitor) is enough if this session only
+needs to talk, but it will never hear anything without a live `recv`.
 
 ## The envelope
 

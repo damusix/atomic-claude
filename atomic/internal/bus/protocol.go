@@ -51,8 +51,6 @@ type Request struct {
 	To      []string `json:"to,omitempty"`
 	ReplyTo string   `json:"reply_to,omitempty"`
 	Text    string   `json:"text,omitempty"`
-	Follow  bool     `json:"follow,omitempty"`
-	Since   string   `json:"since,omitempty"`
 
 	// Filters narrows a tail subscription (e.g. "only_addressed", "from").
 	// Kept as a generic map rather than a named type so the render/action
@@ -83,10 +81,8 @@ type Response struct {
 }
 
 // MaxTextBytes bounds Envelope.Text as enforced by Hub.Publish: a message
-// over this limit is rejected with ExitUsage rather than written, because
-// an unbounded text field written to a room log can make that room's
-// ReadSince fail forever after (see roomlog.go's scanner buffer, sized
-// above this limit so anything Publish admits always reads back).
+// over this limit is rejected with ExitUsage rather than written, so a room
+// log line can never grow unbounded.
 const MaxTextBytes = 1024 * 1024
 
 // MaxIdentifierBytes bounds Room and a member's assigned Name (both

@@ -211,10 +211,7 @@ func TestCollapse_LongTextTruncatesAndNamesLogPath_FullTextStillInRoomLog(t *tes
 	if err := Append(home, "potato", env); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
-	envs, err := ReadSince(home, "potato", "")
-	if err != nil {
-		t.Fatalf("ReadSince: %v", err)
-	}
+	envs := readRoomLog(t, home, "potato")
 	if len(envs) != 1 || envs[0].Text != full {
 		t.Fatalf("room log did not preserve the full text: got %d envelope(s)", len(envs))
 	}

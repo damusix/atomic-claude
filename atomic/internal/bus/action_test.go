@@ -260,26 +260,20 @@ func TestSendAction_ToFlag_AddressesParsedCorrectly(t *testing.T) {
 	}
 	t.Setenv(sessionEnvVar, "sess-sender")
 
+	subConn, r := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato"})
+	defer subConn.Close()
+
 	var out bytes.Buffer
 	code := sendAction([]string{"potato", "ping", "--to", "backend, frontend"}, home, &out)
 	if code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
 
-	resp := dialAndDo(t, addr, Request{Op: OpRecv, Room: "potato"})
-	if !resp.OK {
-		t.Fatalf("recv: %s", resp.Error)
+	env, ok := readEnvelopeBounded(t, r)
+	if !ok {
+		t.Fatal("timed out waiting for the delivered envelope")
 	}
-	var payload struct {
-		Envelopes []Envelope `json:"envelopes"`
-	}
-	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(payload.Envelopes) != 1 {
-		t.Fatalf("got %d envelopes, want 1", len(payload.Envelopes))
-	}
-	got := payload.Envelopes[0].To
+	got := env.To
 	want := []string{"backend", "frontend"}
 	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("To = %v, want %v", got, want)
@@ -298,26 +292,20 @@ func TestSendAction_ToOmitted_FYIToWholeRoom(t *testing.T) {
 	}
 	t.Setenv(sessionEnvVar, "sess-sender")
 
+	subConn, r := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato"})
+	defer subConn.Close()
+
 	var out bytes.Buffer
 	if code := sendAction([]string{"potato", "fyi"}, home, &out); code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d", code, ExitOK)
 	}
 
-	resp := dialAndDo(t, addr, Request{Op: OpRecv, Room: "potato"})
-	if !resp.OK {
-		t.Fatalf("recv: %s", resp.Error)
+	env, ok := readEnvelopeBounded(t, r)
+	if !ok {
+		t.Fatal("timed out waiting for the delivered envelope")
 	}
-	var payload struct {
-		Envelopes []Envelope `json:"envelopes"`
-	}
-	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(payload.Envelopes) != 1 {
-		t.Fatalf("got %d envelopes, want 1", len(payload.Envelopes))
-	}
-	if len(payload.Envelopes[0].To) != 0 {
-		t.Fatalf("To = %v, want empty (FYI)", payload.Envelopes[0].To)
+	if len(env.To) != 0 {
+		t.Fatalf("To = %v, want empty (FYI)", env.To)
 	}
 }
 
@@ -331,6 +319,9 @@ func TestSendAction_StdinDash_MultilinePayloadIntact(t *testing.T) {
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "sender", Kind: KindAgent, Session: "sess-sender"}); !resp.OK {
 		t.Fatalf("seed join: %s", resp.Error)
 	}
+
+	subConn, subReader := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato"})
+	defer subConn.Close()
 
 	payload := "line one\nline two\n\ttabbed line three\n"
 	r, w, err := os.Pipe()
@@ -352,21 +343,12 @@ func TestSendAction_StdinDash_MultilinePayloadIntact(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
 
-	resp := dialAndDo(t, addr, Request{Op: OpRecv, Room: "potato"})
-	if !resp.OK {
-		t.Fatalf("recv: %s", resp.Error)
+	env, ok := readEnvelopeBounded(t, subReader)
+	if !ok {
+		t.Fatal("timed out waiting for the delivered envelope")
 	}
-	var recvPayload struct {
-		Envelopes []Envelope `json:"envelopes"`
-	}
-	if err := json.Unmarshal(resp.Payload, &recvPayload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(recvPayload.Envelopes) != 1 {
-		t.Fatalf("got %d envelopes, want 1", len(recvPayload.Envelopes))
-	}
-	if got := recvPayload.Envelopes[0].Text; got != payload {
-		t.Fatalf("Text = %q, want %q (multi-line payload must survive intact)", got, payload)
+	if env.Text != payload {
+		t.Fatalf("Text = %q, want %q (multi-line payload must survive intact)", env.Text, payload)
 	}
 }
 
@@ -431,15 +413,15 @@ func TestSendAction_JSONOutput_EmitsFullEnvelope(t *testing.T) {
 // --- daemon-gone recovery: respawn only, roster restored by rehydration ---
 //
 // These reproduce the original finding literally — join a room, stop the
-// daemon exactly as idle shutdown does, then run a follow-up command — but
-// now exercise the current fix: dialDaemonRecovered only respawns
-// (recoveryEnsurer points the package-level seam at an in-process daemon so
-// recovery never shells out to a real `atomic` binary), and the respawned
-// daemon's own Hub.Rehydrate at Serve startup is what restores the roster,
-// not a client-side rejoin.
+// daemon (via `bus stop`), then run a follow-up command — but now exercise
+// the current fix: dialDaemonRecovered only respawns (recoveryEnsurer
+// points the package-level seam at an in-process daemon so recovery never
+// shells out to a real `atomic` binary), and the respawned daemon's own
+// Hub.Rehydrate at Serve startup is what restores the roster, not a
+// client-side rejoin.
 
 // waitForDaemonGone polls until SocketPath(home) refuses connections,
-// bounded by wireTimeout. serveAction --stop returns as soon as the daemon
+// bounded by wireTimeout. stopAction returns as soon as the daemon
 // acknowledges the shutdown request over the wire — daemon.go's handleConn
 // replies, then calls triggerShutdown, but the listener's actual Close()
 // runs asynchronously in Serve's own loop goroutine. Proceeding straight
@@ -481,9 +463,9 @@ func swapRecoveryEnsurer(t *testing.T, spawn func(home string) error) {
 }
 
 // TestWhoAction_DaemonGoneAfterJoin_RecoversAndSucceeds reproduces the
-// finding's exact repro: join, then `atomic bus serve --stop` (what idle
-// shutdown does after the default window), then `who` — must succeed, not
-// exit 6, and the roster must be restored under the original name.
+// finding's exact repro: join, then `atomic bus stop`, then `who` — must
+// succeed, not exit 6, and the roster must be restored under the original
+// name.
 func TestWhoAction_DaemonGoneAfterJoin_RecoversAndSucceeds(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -493,8 +475,8 @@ func TestWhoAction_DaemonGoneAfterJoin_RecoversAndSucceeds(t *testing.T) {
 	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
-	if code := serveAction([]string{"--stop"}, home, &discard); code != int(ExitOK) {
-		t.Fatalf("serve --stop exit code = %d", code)
+	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
+		t.Fatalf("stop exit code = %d", code)
 	}
 	waitForDaemonGone(t, home)
 
@@ -504,7 +486,7 @@ func TestWhoAction_DaemonGoneAfterJoin_RecoversAndSucceeds(t *testing.T) {
 	var out bytes.Buffer
 	code := whoAction([]string{"potato"}, home, &out)
 	if code != int(ExitOK) {
-		t.Fatalf("who exit code = %d, want %d (idle shutdown must be invisible); output: %s", code, ExitOK, out.String())
+		t.Fatalf("who exit code = %d, want %d (a daemon gone between commands must be invisible); output: %s", code, ExitOK, out.String())
 	}
 	if !strings.Contains(out.String(), "backend") {
 		t.Fatalf("who output = %q, want it to list backend (respawn's own Hub.Rehydrate must restore the roster)", out.String())
@@ -526,8 +508,8 @@ func TestSendAction_DaemonGoneAfterJoin_RecoversAndRetries(t *testing.T) {
 	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
-	if code := serveAction([]string{"--stop"}, home, &discard); code != int(ExitOK) {
-		t.Fatalf("serve --stop exit code = %d", code)
+	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
+		t.Fatalf("stop exit code = %d", code)
 	}
 	waitForDaemonGone(t, home)
 
@@ -566,8 +548,8 @@ func TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn
 		t.Fatalf("join sess-b exit code = %d", code)
 	}
 
-	if code := serveAction([]string{"--stop"}, home, &discard); code != int(ExitOK) {
-		t.Fatalf("serve --stop exit code = %d", code)
+	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
+		t.Fatalf("stop exit code = %d", code)
 	}
 	waitForDaemonGone(t, home)
 
@@ -623,8 +605,8 @@ func TestDialDaemonRecovered_RecoveryFailsPersistently_NoLoop(t *testing.T) {
 	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
-	if code := serveAction([]string{"--stop"}, home, &discard); code != int(ExitOK) {
-		t.Fatalf("serve --stop exit code = %d", code)
+	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
+		t.Fatalf("stop exit code = %d", code)
 	}
 	waitForDaemonGone(t, home)
 
@@ -670,8 +652,8 @@ func TestServeAction_Restart_RehydratesNamesIncludingSuffixed(t *testing.T) {
 		t.Fatalf("join sess-2 exit code = %d", code)
 	}
 
-	if code := serveAction([]string{"--stop"}, home, &discard); code != int(ExitOK) {
-		t.Fatalf("serve --stop exit code = %d", code)
+	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
+		t.Fatalf("stop exit code = %d", code)
 	}
 	waitForDaemonGone(t, home)
 
@@ -696,57 +678,7 @@ func TestServeAction_Restart_RehydratesNamesIncludingSuffixed(t *testing.T) {
 	}
 }
 
-// --- recv (one-shot) ---
-
-func TestRecvAction_OneShot_JSONOutput(t *testing.T) {
-	home := testBusHome(t)
-	mustStartTestDaemon(t, home)
-	addr := SocketPath(home)
-	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "sender", Kind: KindAgent, Session: "sess-sender"}); !resp.OK {
-		t.Fatalf("seed join: %s", resp.Error)
-	}
-	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-sender", Text: "hello"}); !resp.OK {
-		t.Fatalf("seed send: %s", resp.Error)
-	}
-
-	var out bytes.Buffer
-	code := recvAction([]string{"potato", "--json"}, home, &out)
-	if code != int(ExitOK) {
-		t.Fatalf("exit code = %d, want %d", code, ExitOK)
-	}
-
-	dec := json.NewDecoder(&out)
-	var env Envelope
-	if err := dec.Decode(&env); err != nil {
-		t.Fatalf("decode line: %v\n%s", err, out.String())
-	}
-	if env.Text != "hello" {
-		t.Fatalf("Text = %q, want %q", env.Text, "hello")
-	}
-}
-
-func TestRecvAction_OneShot_PlainOutput(t *testing.T) {
-	home := testBusHome(t)
-	mustStartTestDaemon(t, home)
-	addr := SocketPath(home)
-	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "sender", Kind: KindAgent, Session: "sess-sender"}); !resp.OK {
-		t.Fatalf("seed join: %s", resp.Error)
-	}
-	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-sender", Text: "hello"}); !resp.OK {
-		t.Fatalf("seed send: %s", resp.Error)
-	}
-
-	var out bytes.Buffer
-	code := recvAction([]string{"potato"}, home, &out)
-	if code != int(ExitOK) {
-		t.Fatalf("exit code = %d, want %d", code, ExitOK)
-	}
-	if !strings.Contains(out.String(), "hello") {
-		t.Fatalf("output does not contain the message text: %q", out.String())
-	}
-}
-
-// --- recv --follow ---
+// --- recv (always streams) ---
 
 // publishUntilDelivered repeatedly publishes text to room until a decoded
 // envelope arrives on delivered, bounded by deadline. A retry loop rather
@@ -790,7 +722,7 @@ func decodeEnvelopesInto(pr io.Reader, delivered chan<- Envelope) {
 	}
 }
 
-func TestRecvAction_Follow_DeliversPublishedMessageUnderOneSecond(t *testing.T) {
+func TestRecvAction_DeliversPublishedMessageUnderOneSecond(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
 	addr := SocketPath(home)
@@ -807,7 +739,7 @@ func TestRecvAction_Follow_DeliversPublishedMessageUnderOneSecond(t *testing.T) 
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvFollow(client, "potato", "", pw) }()
+	go func() { recvDone <- recvStream(client, "potato", pw) }()
 
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
@@ -820,30 +752,30 @@ func TestRecvAction_Follow_DeliversPublishedMessageUnderOneSecond(t *testing.T) 
 		t.Fatalf("From = %q, want %q", env.From, "sender")
 	}
 
-	// Closing the client unblocks recvFollow's subscription channel (it
+	// Closing the client unblocks recvStream's subscription channel (it
 	// closes on connection close — client.go's Subscribe doc), giving this
-	// test a clean, bounded way to confirm recvFollow actually returns
+	// test a clean, bounded way to confirm recvStream actually returns
 	// rather than leaking the goroutine.
 	client.Close()
 	select {
 	case code := <-recvDone:
 		if code != int(ExitOK) {
-			t.Fatalf("recvFollow exit code = %d, want %d", code, ExitOK)
+			t.Fatalf("recvStream exit code = %d, want %d", code, ExitOK)
 		}
 	case <-time.After(wireTimeout):
-		t.Fatal("recvFollow did not exit after the client was closed")
+		t.Fatal("recvStream did not exit after the client was closed")
 	}
 }
 
-// TestRecvAction_Follow_ExitsZeroOnSIGTERM_NoPartialLine sends a real
-// SIGTERM to this test process. This is safe only because
-// publishUntilDelivered has already proven, before the signal is sent, that
-// recvFollow reached its signal.NotifyContext registration (the first
-// statement in the function, strictly before the Subscribe call that has to
-// succeed for any envelope to arrive at all) — so the default
-// process-terminating disposition for SIGTERM is already disabled for this
-// process by the time the signal is sent.
-func TestRecvAction_Follow_ExitsZeroOnSIGTERM_NoPartialLine(t *testing.T) {
+// TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine sends a real SIGTERM to
+// this test process. This is safe only because publishUntilDelivered has
+// already proven, before the signal is sent, that recvStream reached its
+// signal.NotifyContext registration (the first statement in the function,
+// strictly before the Subscribe call that has to succeed for any envelope
+// to arrive at all) — so the default process-terminating disposition for
+// SIGTERM is already disabled for this process by the time the signal is
+// sent.
+func TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
 	addr := SocketPath(home)
@@ -860,7 +792,7 @@ func TestRecvAction_Follow_ExitsZeroOnSIGTERM_NoPartialLine(t *testing.T) {
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvFollow(client, "potato", "", pw) }()
+	go func() { recvDone <- recvStream(client, "potato", pw) }()
 
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
@@ -879,10 +811,51 @@ func TestRecvAction_Follow_ExitsZeroOnSIGTERM_NoPartialLine(t *testing.T) {
 	select {
 	case code := <-recvDone:
 		if code != int(ExitOK) {
-			t.Fatalf("recvFollow exit code = %d, want %d (ExitOK) on SIGTERM", code, ExitOK)
+			t.Fatalf("recvStream exit code = %d, want %d (ExitOK) on SIGTERM", code, ExitOK)
 		}
 	case <-time.After(wireTimeout):
-		t.Fatal("recvFollow did not exit within the bounded wait after SIGTERM")
+		t.Fatal("recvStream did not exit within the bounded wait after SIGTERM")
+	}
+}
+
+// TestRecvAction_NoBacklogDeliveredForPriorTraffic is the action-layer
+// proof that recv never replays: a message published before recv is
+// invoked must never arrive, only one published after it subscribes.
+func TestRecvAction_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "sender", Kind: KindAgent, Session: "sess-sender"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-sender", Text: "before subscribing"}); !resp.OK {
+		t.Fatalf("seed send: %s", resp.Error)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	recvDone := make(chan int, 1)
+	go func() { recvDone <- recvStream(client, "potato", pw) }()
+
+	delivered := make(chan Envelope, 1)
+	go decodeEnvelopesInto(pr, delivered)
+
+	env := publishUntilDelivered(t, addr, "potato", "sess-sender", "after subscribing", delivered, wireTimeout)
+	if env.Text != "after subscribing" {
+		t.Fatalf("first delivered Text = %q, want %q (no backlog should have preceded it)", env.Text, "after subscribing")
+	}
+
+	client.Close()
+	select {
+	case <-recvDone:
+	case <-time.After(wireTimeout):
+		t.Fatal("recvStream did not exit after the client was closed")
 	}
 }
 
@@ -1061,23 +1034,26 @@ func TestStatusAction_DaemonRunning_ReportsJoinedRoom(t *testing.T) {
 	}
 }
 
-// --- serve ---
+// --- start / stop / restart ---
 
-func TestServeAction_StopShutsDownRunningDaemon(t *testing.T) {
+// TestStopAction_ShutsDownRunningDaemon proves `bus stop` — the verb
+// `serve --stop` folded into — actually retires a live daemon: the wire
+// shutdown op, the socket unlinked, and Serve returning.
+func TestStopAction_ShutsDownRunningDaemon(t *testing.T) {
 	home := testBusHome(t)
 
 	serveDone := make(chan int, 1)
 	go func() {
 		var out bytes.Buffer
-		serveDone <- serveAction([]string{"--idle-shutdown-minutes", "0"}, home, &out)
+		serveDone <- serveAction(nil, home, &out)
 	}()
-	// Safety net: if an assertion below fails before the --stop call runs,
+	// Safety net: if an assertion below fails before the stop call runs,
 	// this still retires the daemon rather than leaking it for the rest of
-	// the test binary's life. serveStop is idempotent against an
+	// the test binary's life. stopAction is idempotent against an
 	// already-stopped daemon (reports "no daemon running", exit 0).
 	t.Cleanup(func() {
 		var discard bytes.Buffer
-		serveAction([]string{"--stop"}, home, &discard)
+		stopAction(nil, home, &discard)
 	})
 
 	// Poll until the socket accepts connections, bounded — mirrors
@@ -1096,21 +1072,21 @@ func TestServeAction_StopShutsDownRunningDaemon(t *testing.T) {
 	}
 
 	var stopOut bytes.Buffer
-	code := serveAction([]string{"--stop"}, home, &stopOut)
+	code := stopAction(nil, home, &stopOut)
 	if code != int(ExitOK) {
-		t.Fatalf("serve --stop exit code = %d, want %d", code, ExitOK)
+		t.Fatalf("stop exit code = %d, want %d", code, ExitOK)
 	}
 	if got := stopOut.String(); got != "daemon stopped\n" {
-		t.Fatalf("serve --stop output = %q, want %q", got, "daemon stopped\n")
+		t.Fatalf("stop output = %q, want %q", got, "daemon stopped\n")
 	}
 
 	select {
 	case code := <-serveDone:
 		if code != int(ExitOK) {
-			t.Fatalf("serveAction exit code = %d, want %d after --stop", code, ExitOK)
+			t.Fatalf("serveAction exit code = %d, want %d after stop", code, ExitOK)
 		}
 	case <-time.After(wireTimeout):
-		t.Fatal("serveAction did not exit after --stop")
+		t.Fatal("serveAction did not exit after stop")
 	}
 
 	// The socket file is unlinked on close (net.Listen's default
@@ -1118,19 +1094,140 @@ func TestServeAction_StopShutsDownRunningDaemon(t *testing.T) {
 	// now fail, proving the daemon actually stopped rather than merely
 	// acknowledging the shutdown request.
 	if _, err := net.DialTimeout("unix", SocketPath(home), 200*time.Millisecond); err == nil {
-		t.Fatal("expected the socket to be gone after --stop, but a dial succeeded")
+		t.Fatal("expected the socket to be gone after stop, but a dial succeeded")
 	}
 }
 
-func TestServeAction_StopNoDaemon_ExitOK(t *testing.T) {
+func TestStopAction_NoDaemon_ExitOK(t *testing.T) {
 	home := testBusHome(t)
 	var out bytes.Buffer
-	code := serveAction([]string{"--stop"}, home, &out)
+	code := stopAction(nil, home, &out)
 	if code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d", code, ExitOK)
 	}
 	if got := out.String(); got != "no daemon running\n" {
 		t.Fatalf("output = %q, want %q", got, "no daemon running\n")
+	}
+}
+
+// TestStartAction_ColdStart_SpawnsAndReportsStarted is start's cold path:
+// nothing listening, one spawn, a "daemon started" confirmation.
+func TestStartAction_ColdStart_SpawnsAndReportsStarted(t *testing.T) {
+	home := testBusHome(t)
+	if err := EnsureDirs(home); err != nil {
+		t.Fatalf("EnsureDirs: %v", err)
+	}
+
+	var spawnCount int32
+	swapRecoveryEnsurer(t, countingSpawn(t, &spawnCount))
+	t.Cleanup(func() {
+		var discard bytes.Buffer
+		stopAction(nil, home, &discard)
+	})
+
+	var out bytes.Buffer
+	if code := startAction(nil, home, &out); code != int(ExitOK) {
+		t.Fatalf("start exit code = %d, want %d", code, ExitOK)
+	}
+	if got := out.String(); got != "daemon started\n" {
+		t.Fatalf("start output = %q, want %q", got, "daemon started\n")
+	}
+	if got := atomic.LoadInt32(&spawnCount); got != 1 {
+		t.Fatalf("spawn invoked %d times, want 1", got)
+	}
+}
+
+// TestStartAction_Idempotent_SecondStartDoesNotSpawnASecondDaemon is the
+// explicit success criterion: a second start against an already-running,
+// version-compatible daemon reports that and does not spawn again.
+func TestStartAction_Idempotent_SecondStartDoesNotSpawnASecondDaemon(t *testing.T) {
+	home := testBusHome(t)
+	if err := EnsureDirs(home); err != nil {
+		t.Fatalf("EnsureDirs: %v", err)
+	}
+
+	var spawnCount int32
+	swapRecoveryEnsurer(t, countingSpawn(t, &spawnCount))
+	t.Cleanup(func() {
+		var discard bytes.Buffer
+		stopAction(nil, home, &discard)
+	})
+
+	var out1 bytes.Buffer
+	if code := startAction(nil, home, &out1); code != int(ExitOK) {
+		t.Fatalf("first start exit code = %d, want %d", code, ExitOK)
+	}
+
+	var out2 bytes.Buffer
+	if code := startAction(nil, home, &out2); code != int(ExitOK) {
+		t.Fatalf("second start exit code = %d, want %d", code, ExitOK)
+	}
+	if got := out2.String(); got != "daemon already running\n" {
+		t.Fatalf("second start output = %q, want %q", got, "daemon already running\n")
+	}
+	if got := atomic.LoadInt32(&spawnCount); got != 1 {
+		t.Fatalf("spawn invoked %d times across two starts, want exactly 1", got)
+	}
+}
+
+// TestRestartAction_WorksWhenRunning_RosterSurvives proves restart against
+// a live daemon holding a joined session: exactly one spawn, and the
+// roster comes back via the respawned daemon's own rehydration.
+func TestRestartAction_WorksWhenRunning_RosterSurvives(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	t.Setenv(sessionEnvVar, "sess-1")
+
+	var discard bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
+		t.Fatalf("join exit code = %d", code)
+	}
+
+	var spawnCount int32
+	swapRecoveryEnsurer(t, countingSpawn(t, &spawnCount))
+
+	var out bytes.Buffer
+	if code := restartAction(nil, home, &out); code != int(ExitOK) {
+		t.Fatalf("restart exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	if got := atomic.LoadInt32(&spawnCount); got != 1 {
+		t.Fatalf("spawn invoked %d times during restart, want exactly 1", got)
+	}
+
+	var whoOut bytes.Buffer
+	if code := whoAction([]string{"potato"}, home, &whoOut); code != int(ExitOK) {
+		t.Fatalf("who exit code = %d", code)
+	}
+	if !strings.Contains(whoOut.String(), "backend") {
+		t.Fatalf("who output = %q, want it to list backend (restart must rehydrate the roster)", whoOut.String())
+	}
+}
+
+// TestRestartAction_WorksWhenNotRunning_DegeneratesToStart proves restart
+// with nothing listening: stopAction's own "no daemon" case is exit 0, so
+// restart falls straight through to a plain start.
+func TestRestartAction_WorksWhenNotRunning_DegeneratesToStart(t *testing.T) {
+	home := testBusHome(t)
+	if err := EnsureDirs(home); err != nil {
+		t.Fatalf("EnsureDirs: %v", err)
+	}
+
+	var spawnCount int32
+	swapRecoveryEnsurer(t, countingSpawn(t, &spawnCount))
+	t.Cleanup(func() {
+		var discard bytes.Buffer
+		stopAction(nil, home, &discard)
+	})
+
+	var out bytes.Buffer
+	if code := restartAction(nil, home, &out); code != int(ExitOK) {
+		t.Fatalf("restart exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	if got := atomic.LoadInt32(&spawnCount); got != 1 {
+		t.Fatalf("spawn invoked %d times, want exactly 1", got)
+	}
+	if !strings.Contains(out.String(), "no daemon running") || !strings.Contains(out.String(), "daemon started") {
+		t.Fatalf("restart output = %q, want it to report no daemon then a fresh start", out.String())
 	}
 }
 
@@ -1153,11 +1250,11 @@ func TestServeAction_MalformedBusJSON_DegradesToEmptyRosterAndStillServes(t *tes
 	serveDone := make(chan int, 1)
 	go func() {
 		var out bytes.Buffer
-		serveDone <- serveAction([]string{"--idle-shutdown-minutes", "0"}, home, &out)
+		serveDone <- serveAction(nil, home, &out)
 	}()
 	t.Cleanup(func() {
 		var discard bytes.Buffer
-		serveAction([]string{"--stop"}, home, &discard)
+		stopAction(nil, home, &discard)
 	})
 
 	deadline := time.Now().Add(wireTimeout)
@@ -1188,8 +1285,8 @@ func TestServeAction_MalformedBusJSON_DegradesToEmptyRosterAndStillServes(t *tes
 	}
 
 	var stopOut bytes.Buffer
-	if code := serveAction([]string{"--stop"}, home, &stopOut); code != int(ExitOK) {
-		t.Fatalf("serve --stop exit code = %d", code)
+	if code := stopAction(nil, home, &stopOut); code != int(ExitOK) {
+		t.Fatalf("stop exit code = %d", code)
 	}
 	select {
 	case code := <-serveDone:
@@ -1240,6 +1337,9 @@ func TestSendAction_UnknownAddressee_WarnsOnStderrStillExitsOK(t *testing.T) {
 	}
 	t.Setenv(sessionEnvVar, "sess-sender")
 
+	subConn, r := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato"})
+	defer subConn.Close()
+
 	var out bytes.Buffer
 	var code int
 	stderr := captureStderr(t, func() {
@@ -1252,18 +1352,12 @@ func TestSendAction_UnknownAddressee_WarnsOnStderrStillExitsOK(t *testing.T) {
 		t.Fatalf("stderr = %q, want it to name the unknown addressee %q", stderr, "nobody-here")
 	}
 
-	resp := dialAndDo(t, addr, Request{Op: OpRecv, Room: "potato"})
-	if !resp.OK {
-		t.Fatalf("recv: %s", resp.Error)
+	env, ok := readEnvelopeBounded(t, r)
+	if !ok {
+		t.Fatal("timed out waiting for delivery — the warning must never withhold delivery")
 	}
-	var payload struct {
-		Envelopes []Envelope `json:"envelopes"`
-	}
-	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(payload.Envelopes) != 1 || payload.Envelopes[0].Text != "ghost" {
-		t.Fatalf("envelopes = %+v, want one delivered envelope with text %q — the warning must never withhold delivery", payload.Envelopes, "ghost")
+	if env.Text != "ghost" {
+		t.Fatalf("delivered Text = %q, want %q", env.Text, "ghost")
 	}
 }
 
@@ -1356,7 +1450,7 @@ func TestParseFlags_PositionalBeforeFlags(t *testing.T) {
 }
 
 // newTestFlagSet builds a FlagSet with one flag of each shape parseFlags
-// has to distinguish: a string ("--text"/"--as"), a bool ("--follow"), and
+// has to distinguish: a string ("--text"/"--as"), a bool ("--json"), and
 // a second string ("--mode") so repeated/second-flag cases have something
 // to target. Output is silenced so a deliberately-triggered usage error
 // doesn't spam test output.
@@ -1364,11 +1458,11 @@ func newTestFlagSet() (*flag.FlagSet, *string, *string, *bool) {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	var text, mode string
-	var follow bool
+	var jsonOut bool
 	fs.StringVar(&text, "text", "", "")
 	fs.StringVar(&mode, "mode", "", "")
-	fs.BoolVar(&follow, "follow", false, "")
-	return fs, &text, &mode, &follow
+	fs.BoolVar(&jsonOut, "json", false, "")
+	return fs, &text, &mode, &jsonOut
 }
 
 // TestParseFlags_PositionalBeginningWithDash pins the reviewer's repro:
@@ -1542,17 +1636,17 @@ func TestParseFlags_EmptyValue(t *testing.T) {
 }
 
 // TestParseFlags_BoolFlagDoesNotConsumeNextToken proves a bool flag like
-// --follow/--json never swallows the following positional as its value —
-// isBoolFlag has to correctly identify it as argument-free.
+// --json never swallows the following positional as its value — isBoolFlag
+// has to correctly identify it as argument-free.
 func TestParseFlags_BoolFlagDoesNotConsumeNextToken(t *testing.T) {
-	fs, _, _, follow := newTestFlagSet()
+	fs, _, _, jsonOut := newTestFlagSet()
 
-	positional, err := parseFlags(fs, []string{"potato", "--follow", "extra"})
+	positional, err := parseFlags(fs, []string{"potato", "--json", "extra"})
 	if err != nil {
 		t.Fatalf("parseFlags: %v", err)
 	}
-	if !*follow {
-		t.Fatal("follow = false, want true")
+	if !*jsonOut {
+		t.Fatal("json = false, want true")
 	}
 	if len(positional) != 2 || positional[0] != "potato" || positional[1] != "extra" {
 		t.Fatalf("positional = %v, want [potato extra]", positional)
@@ -1644,23 +1738,20 @@ func TestSayAction_PublishesAsHuman_NoRosterMemberAdded(t *testing.T) {
 		t.Fatalf("seed join: %s", resp.Error)
 	}
 
+	subConn, r := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato"})
+	defer subConn.Close()
+
 	var out bytes.Buffer
 	if code := sayAction([]string{"potato", "operator speaking"}, home, &out); code != int(ExitOK) {
 		t.Fatalf("say exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
 
-	resp := dialAndDo(t, addr, Request{Op: OpRecv, Room: "potato"})
-	if !resp.OK {
-		t.Fatalf("recv: %s", resp.Error)
+	env, ok := readEnvelopeBounded(t, r)
+	if !ok {
+		t.Fatal("timed out waiting for the delivered envelope")
 	}
-	var payload struct {
-		Envelopes []Envelope `json:"envelopes"`
-	}
-	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(payload.Envelopes) != 1 || payload.Envelopes[0].FromKind != KindHuman {
-		t.Fatalf("envelopes = %+v, want one with FromKind %q", payload.Envelopes, KindHuman)
+	if env.FromKind != KindHuman {
+		t.Fatalf("FromKind = %q, want %q", env.FromKind, KindHuman)
 	}
 
 	whoResp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
@@ -1683,6 +1774,9 @@ func TestSayAction_StdinDash_ReadsFullPayload(t *testing.T) {
 		t.Fatalf("seed join: %s", resp.Error)
 	}
 
+	subConn, subReader := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato"})
+	defer subConn.Close()
+
 	payload := "line one\nline two\n"
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -1701,15 +1795,12 @@ func TestSayAction_StdinDash_ReadsFullPayload(t *testing.T) {
 		t.Fatalf("say exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
 
-	resp := dialAndDo(t, addr, Request{Op: OpRecv, Room: "potato"})
-	var recvPayload struct {
-		Envelopes []Envelope `json:"envelopes"`
+	env, ok := readEnvelopeBounded(t, subReader)
+	if !ok {
+		t.Fatal("timed out waiting for the delivered envelope")
 	}
-	if err := json.Unmarshal(resp.Payload, &recvPayload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(recvPayload.Envelopes) != 1 || recvPayload.Envelopes[0].Text != payload {
-		t.Fatalf("Text = %q, want %q", recvPayload.Envelopes[0].Text, payload)
+	if env.Text != payload {
+		t.Fatalf("Text = %q, want %q", env.Text, payload)
 	}
 }
 
@@ -1856,7 +1947,7 @@ func TestTailAction_TooManyPositionals_ExitUsage(t *testing.T) {
 	}
 }
 
-// --- tail: tailStream (the subscription loop, factored like recvFollow) ---
+// --- tail: tailStream (the subscription loop, factored like recvStream) ---
 
 // TestTailStream_SeesMessageAddressedToOtherMember_NotInWho is the
 // checkpoint's headline success criterion: tail sees mail addressed to
@@ -1879,7 +1970,7 @@ func TestTailStream_SeesMessageAddressedToOtherMember_NotInWho(t *testing.T) {
 
 	streamDone := make(chan int, 1)
 	go func() {
-		streamDone <- tailStream(client, []string{"potato"}, "", false, "", true, false, false, home, 80, pw)
+		streamDone <- tailStream(client, []string{"potato"}, false, "", true, false, false, home, 80, pw)
 	}()
 
 	delivered := make(chan Envelope, 1)
@@ -1938,10 +2029,10 @@ func TestTailStream_TwoConcurrentTails_BothReceiveEverything_NeitherOccupiesName
 	done1 := make(chan int, 1)
 	done2 := make(chan int, 1)
 	go func() {
-		done1 <- tailStream(client1, []string{"potato"}, "", false, "", true, false, false, home, 80, pw1)
+		done1 <- tailStream(client1, []string{"potato"}, false, "", true, false, false, home, 80, pw1)
 	}()
 	go func() {
-		done2 <- tailStream(client2, []string{"potato"}, "", false, "", true, false, false, home, 80, pw2)
+		done2 <- tailStream(client2, []string{"potato"}, false, "", true, false, false, home, 80, pw2)
 	}()
 
 	delivered1 := make(chan Envelope, 1)
@@ -2006,7 +2097,7 @@ func TestTailStream_OnlyAddressedFilter_DropsFYIMessages(t *testing.T) {
 
 	streamDone := make(chan int, 1)
 	go func() {
-		streamDone <- tailStream(client, []string{"potato"}, "", true, "", true, false, false, home, 80, pw)
+		streamDone <- tailStream(client, []string{"potato"}, true, "", true, false, false, home, 80, pw)
 	}()
 
 	delivered := make(chan Envelope, 1)
@@ -2061,7 +2152,7 @@ func TestTailStream_FromFilter_KeepsOnlyMatchingSender(t *testing.T) {
 
 	streamDone := make(chan int, 1)
 	go func() {
-		streamDone <- tailStream(client, []string{"potato"}, "", false, "frontend", true, false, false, home, 80, pw)
+		streamDone <- tailStream(client, []string{"potato"}, false, "frontend", true, false, false, home, 80, pw)
 	}()
 
 	delivered := make(chan Envelope, 1)
@@ -2095,7 +2186,7 @@ func TestTailStream_JSONOutput_EmitsJSONL(t *testing.T) {
 
 	streamDone := make(chan int, 1)
 	go func() {
-		streamDone <- tailStream(client, []string{"potato"}, "", false, "", true, false, false, home, 80, pw)
+		streamDone <- tailStream(client, []string{"potato"}, false, "", true, false, false, home, 80, pw)
 	}()
 
 	delivered := make(chan Envelope, 1)
@@ -2137,7 +2228,7 @@ func TestTailStream_PlainOutput_NoColour_NoANSIEscapes(t *testing.T) {
 	// colour=false here matches what tailAction computes for any
 	// non-terminal destination (isTerminalWriter's own *os.File check).
 	go func() {
-		streamDone <- tailStream(client, []string{"potato"}, "", false, "", false, false, false, home, 80, pw)
+		streamDone <- tailStream(client, []string{"potato"}, false, "", false, false, false, home, 80, pw)
 	}()
 
 	captured := make(chan []byte, 1)
@@ -2147,15 +2238,26 @@ func TestTailStream_PlainOutput_NoColour_NoANSIEscapes(t *testing.T) {
 		captured <- buf[:n]
 	}()
 
-	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-be", Text: "hello"}); !resp.OK {
-		t.Fatalf("send: %s", resp.Error)
-	}
-
+	// Retried, not a single send: the subscription registers asynchronously
+	// (tailStream's own goroutine has to reach client.Subscribe before the
+	// daemon's fan-out will see it), and there is no backlog to fall back
+	// on if a send lands before that — see daemon.go's subscribe doc.
 	var got []byte
-	select {
-	case got = <-captured:
-	case <-time.After(wireTimeout):
-		t.Fatal("no output captured within the deadline")
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(wireTimeout)
+loop:
+	for {
+		select {
+		case got = <-captured:
+			break loop
+		case <-ticker.C:
+			if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-be", Text: "hello"}); !resp.OK {
+				t.Fatalf("send: %s", resp.Error)
+			}
+		case <-timeout:
+			t.Fatal("no output captured within the deadline")
+		}
 	}
 
 	client.Close()

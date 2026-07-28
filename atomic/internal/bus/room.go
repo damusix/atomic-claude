@@ -10,11 +10,6 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/ids"
 )
 
-// ringCapacity bounds each room's in-memory replay buffer. It is the
-// only durable-in-process history a `--since` catch-up can serve without
-// touching disk; the room log (roomlog.go) is the actual durable record.
-const ringCapacity = 256
-
 // subscriberBuffer bounds each live subscriber's delivery channel. See
 // Room.fanOut for why a full channel drops rather than blocks.
 const subscriberBuffer = 32
@@ -47,9 +42,8 @@ func NewHub(home string) *Hub {
 	return &Hub{home: home, rooms: map[string]*Room{}}
 }
 
-// Room is one named room's authoritative state: who's in it, its bounded
-// replay ring, whether it's halted, and who is currently subscribed to its
-// live traffic.
+// Room is one named room's authoritative state: who's in it, whether it's
+// halted, and who is currently subscribed to its live traffic.
 //
 // Room has no lock of its own — every field here is guarded by the owning
 // Hub's mutex, and every method on Room assumes that lock is already held.
@@ -61,10 +55,6 @@ type Room struct {
 	bySession map[string]string // session id -> assigned name
 
 	halted bool
-
-	ring    []Envelope // fixed-length circular buffer, len == ringCapacity
-	ringPos int        // next write index
-	ringLen int        // number of valid entries currently in ring
 
 	// usedIDs records every envelope id this Room has assigned during this
 	// daemon's lifetime — nextEnvelopeID's collision guard. See that
@@ -94,7 +84,6 @@ func (h *Hub) getOrCreateRoom(name string) *Room {
 		r = &Room{
 			members:   map[string]Member{},
 			bySession: map[string]string{},
-			ring:      make([]Envelope, ringCapacity),
 			usedIDs:   map[string]struct{}{},
 			subs:      map[int]*subscriber{},
 		}
@@ -356,8 +345,7 @@ func (h *Hub) Rooms() []RoomInfo {
 
 // Publish assigns an id and timestamp, stamps from/from_kind from the
 // sender's roster membership, appends unconditionally to the durable room
-// log, pushes onto the bounded in-memory ring, and fans out to live
-// subscribers.
+// log, and fans out to live subscribers.
 //
 // Halt is enforced here, not merely advertised: a member whose kind is not
 // exactly KindHuman is rejected before any of that happens when the room
@@ -432,10 +420,9 @@ func (h *Hub) PublishAsOperator(room string, to []string, replyTo, text string) 
 // the caller has resolved from/fromKind (via a roster lookup, or supplied
 // directly) and cleared any halt check, this validates the wire-size
 // limits (MaxTextBytes, MaxIdentifierBytes for replyTo, MaxAddressees/
-// MaxAddresseesBytes for to — the same limits roomlog.go's scanner budget
-// is sized against), assigns an id, appends to the durable room log,
-// pushes onto the ring, and fans out to subscribers. Caller must hold h.mu
-// (both Hub.Publish and Hub.PublishAs do).
+// MaxAddresseesBytes for to), assigns an id, appends to the durable room
+// log, and fans out to subscribers. Caller must hold h.mu (both Hub.Publish
+// and Hub.PublishAs do).
 func (r *Room) publishValidated(home, room, from, fromKind string, to []string, replyTo, text string) (Envelope, error) {
 	if len(text) > MaxTextBytes {
 		return Envelope{}, &Error{
@@ -485,7 +472,6 @@ func (r *Room) publishValidated(home, room, from, fromKind string, to []string, 
 		return Envelope{}, fmt.Errorf("bus: append room log: %w", err)
 	}
 
-	r.pushRing(env)
 	r.fanOut(env, home)
 	return env, nil
 }
@@ -536,7 +522,6 @@ func (h *Hub) setHalted(room string, halted bool, text string) error {
 	}
 
 	r.halted = halted
-	r.pushRing(env)
 	r.fanOut(env, h.home)
 	return nil
 }
@@ -551,22 +536,6 @@ func (h *Hub) IsHalted(room string) (bool, error) {
 		return false, noRoomError(room)
 	}
 	return r.halted, nil
-}
-
-// Since returns every envelope in room's ring after the one whose id is
-// since, or every envelope currently in the ring if since is empty or no
-// longer present (evicted by the ringCapacity cap) — an evicted id is not
-// an error, per docs/spec/atomic-bus.md's Since row; the caller notices a
-// gap by comparing the id it asked for against what came back.
-func (h *Hub) Since(room, since string) ([]Envelope, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	r, ok := h.getRoom(room)
-	if !ok {
-		return nil, noRoomError(room)
-	}
-	return r.since(since), nil
 }
 
 // Subscribe registers ch to receive every future Publish (including
@@ -650,39 +619,6 @@ func randomIDHalf(prefix string) (string, error) {
 	return strings.TrimPrefix(id, prefix+"-"), nil
 }
 
-func (r *Room) pushRing(env Envelope) {
-	r.ring[r.ringPos] = env
-	r.ringPos = (r.ringPos + 1) % ringCapacity
-	if r.ringLen < ringCapacity {
-		r.ringLen++
-	}
-}
-
-// ringSnapshot returns the ring's contents oldest-to-newest.
-func (r *Room) ringSnapshot() []Envelope {
-	out := make([]Envelope, 0, r.ringLen)
-	start := (r.ringPos - r.ringLen + ringCapacity) % ringCapacity
-	for i := 0; i < r.ringLen; i++ {
-		out = append(out, r.ring[(start+i)%ringCapacity])
-	}
-	return out
-}
-
-func (r *Room) since(id string) []Envelope {
-	all := r.ringSnapshot()
-	if id == "" {
-		return all
-	}
-	for i, env := range all {
-		if env.ID == id {
-			return append([]Envelope{}, all[i+1:]...)
-		}
-	}
-	// id not found: either evicted or never existed. Return what remains
-	// rather than erroring — see the Since doc comment above.
-	return all
-}
-
 // fanOut delivers env to every live subscriber without blocking the
 // publisher. Each subscriber's channel is buffered (subscriberBuffer); a
 // full channel means that subscriber is falling behind or its reader has
@@ -713,13 +649,13 @@ func (r *Room) fanOut(env Envelope, home string) {
 
 // dropMarkerEnvelope builds the synthetic control envelope fanOut delivers
 // ahead of the next real one once a subscriber has missed messages. It is
-// never appended to the room log or ring — it exists only on the one
+// never appended to the room log — it exists only on the one
 // subscriber's live stream that actually missed something, and other
 // subscribers of the same room may never see one at all. A ShortID failure
 // here (rand exhausted — not realistically reachable) falls back to an
 // empty id rather than dropping the marker itself: this envelope is never
-// looked up by id (never logged, never replayed via Since), so an empty id
-// costs nothing.
+// looked up by id (never logged, never replayed — there is no replay of
+// any kind), so an empty id costs nothing.
 func (r *Room) dropMarkerEnvelope(room, home string, n int) Envelope {
 	id, err := r.nextEnvelopeID()
 	if err != nil {

@@ -316,7 +316,7 @@ func (e Ensurer) connectAndVerify(home string) (*Client, error) {
 // checkVersion pings client and refuses on a ProtocolVersion mismatch —
 // see docs/design/atomic-bus.md's "Resolved open decisions" #2: refuse
 // rather than drain-and-restart, because another session may be holding a
-// live `recv --follow` subscription that one client's upgrade must not
+// live `recv` subscription that one client's upgrade must not
 // silently kill. Health is judged strictly by this round trip: a
 // live process at the other end of the socket is not, on its own, proof
 // that process is a working daemon serving this protocol — only a
@@ -351,7 +351,7 @@ type versionSkewError struct {
 
 func (e *versionSkewError) Error() string {
 	return fmt.Sprintf(
-		"bus: protocol version mismatch: daemon is running v%d, this client is v%d; run `atomic bus serve --stop` to retire the old daemon, then retry",
+		"bus: protocol version mismatch: daemon is running v%d, this client is v%d; run `atomic bus restart` to retire the old daemon, then retry",
 		e.running, e.client,
 	)
 }

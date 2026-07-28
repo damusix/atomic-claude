@@ -298,9 +298,9 @@ func TestHub_Join_InvalidKindRejected(t *testing.T) {
 }
 
 // TestHub_Join_OverLongRoomNameRejected is finding 2's Join-side half: an
-// unbounded room name written into every envelope's Room field could
-// overflow roomlog.go's scanner budget and break ReadSince for that room
-// forever, the same failure class MaxTextBytes closed for Text.
+// unbounded room name written into every envelope's Room field could grow
+// the room log without bound, the same failure class MaxTextBytes closed
+// for Text.
 func TestHub_Join_OverLongRoomNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	overlong := strings.Repeat("r", MaxIdentifierBytes+1)
@@ -783,8 +783,7 @@ func TestHub_Publish_SlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 
 // TestHub_Publish_OversizedTextRejected proves a message over
 // MaxTextBytes is rejected at Publish, before it ever reaches the room
-// log — the deterministic fix for a >1MB message otherwise breaking
-// ReadSince for that room forever (roomlog.go's scanner buffer).
+// log — a bound on how large a single room-log line can grow.
 func TestHub_Publish_OversizedTextRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
@@ -874,6 +873,46 @@ func TestHub_Subscribe_ReceivesEnvelopePublishedAfterSubscribing(t *testing.T) {
 	env := recvEnvelope(t, ch)
 	if env.Text != "hello" {
 		t.Fatalf("received Text = %q, want %q", env.Text, "hello")
+	}
+}
+
+// TestHub_Subscribe_PriorTrafficNotDelivered_OnlyFuturePublishesArrive is
+// the Hub-level proof of the bug this change fixes: a room with existing
+// traffic must not replay any of it to a newly subscribing recv — a
+// subscriber sees only what is published after it subscribes
+// (docs/spec/atomic-bus.md: "Non-goals: Replay of any kind"). The prior
+// ring-backed Since("") returned the entire ring, so a recv on a busy room
+// delivered old messages as Monitor notifications, each acted on as if
+// freshly arrived.
+func TestHub_Subscribe_PriorTrafficNotDelivered_OnlyFuturePublishesArrive(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	// Traffic published before anyone subscribes.
+	if _, err := h.Publish("potato", "sess-1", nil, "", "before subscribing"); err != nil {
+		t.Fatalf("Publish before: %v", err)
+	}
+
+	ch := make(chan Envelope, 4)
+	unsub := h.Subscribe("potato", ch)
+	defer unsub()
+
+	select {
+	case env := <-ch:
+		t.Fatalf("received an envelope published before subscribing: %+v", env)
+	case <-time.After(200 * time.Millisecond):
+		// expected: nothing delivered yet
+	}
+
+	if _, err := h.Publish("potato", "sess-1", nil, "", "after subscribing"); err != nil {
+		t.Fatalf("Publish after: %v", err)
+	}
+
+	env := recvEnvelope(t, ch)
+	if env.Text != "after subscribing" {
+		t.Fatalf("received Text = %q, want %q (only post-subscribe traffic should ever arrive)", env.Text, "after subscribing")
 	}
 }
 
@@ -972,100 +1011,6 @@ func TestHub_FanOut_DropMarkerPrecedesNextDeliveryAfterOverflow(t *testing.T) {
 	next := recvEnvelope(t, ch)
 	if next.Text != "real" {
 		t.Fatalf("expected the real envelope right after the marker, got %+v", next)
-	}
-}
-
-// --- Since / ring replay ---
-
-func TestHub_Since_ReplaysEverythingAfterGivenID(t *testing.T) {
-	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
-		t.Fatalf("Join: %v", err)
-	}
-
-	first, err := h.Publish("potato", "sess-1", nil, "", "one")
-	if err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
-	if _, err := h.Publish("potato", "sess-1", nil, "", "two"); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
-	if _, err := h.Publish("potato", "sess-1", nil, "", "three"); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
-
-	envs, err := h.Since("potato", first.ID)
-	if err != nil {
-		t.Fatalf("Since: %v", err)
-	}
-	if len(envs) != 2 {
-		t.Fatalf("Since(%q) returned %d envelopes, want 2: %+v", first.ID, len(envs), envs)
-	}
-	if envs[0].Text != "two" || envs[1].Text != "three" {
-		t.Fatalf("Since(%q) = %+v, want [two, three]", first.ID, envs)
-	}
-}
-
-func TestHub_Since_EmptyCursorReturnsEverythingInRing(t *testing.T) {
-	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
-		t.Fatalf("Join: %v", err)
-	}
-	for _, text := range []string{"one", "two"} {
-		if _, err := h.Publish("potato", "sess-1", nil, "", text); err != nil {
-			t.Fatalf("Publish: %v", err)
-		}
-	}
-
-	envs, err := h.Since("potato", "")
-	if err != nil {
-		t.Fatalf("Since: %v", err)
-	}
-	if len(envs) != 2 {
-		t.Fatalf("Since(\"\") returned %d envelopes, want 2", len(envs))
-	}
-}
-
-func TestHub_Since_UnknownRoomReturnsExitNoRoom(t *testing.T) {
-	h := NewHub(t.TempDir())
-	_, err := h.Since("nonexistent", "")
-	mustError(t, err, ExitNoRoom)
-}
-
-// TestHub_Since_ToleratesAnEvictedID publishes past the ring's capacity so
-// the id it asks Since for has fallen out of the 256-entry window, and
-// asserts that is not an error — Since instead returns whatever remains,
-// per docs/spec/atomic-bus.md's Since row ("an id no longer in the ring is
-// not an error").
-func TestHub_Since_ToleratesAnEvictedID(t *testing.T) {
-	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
-		t.Fatalf("Join: %v", err)
-	}
-
-	first, err := h.Publish("potato", "sess-1", nil, "", "evicted")
-	if err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
-
-	// Push well past ringCapacity so `first` is guaranteed evicted.
-	var lastText string
-	for i := 0; i < ringCapacity+10; i++ {
-		lastText = "msg-" + string(rune('a'+(i%26)))
-		if _, err := h.Publish("potato", "sess-1", nil, "", lastText); err != nil {
-			t.Fatalf("Publish %d: %v", i, err)
-		}
-	}
-
-	envs, err := h.Since("potato", first.ID)
-	if err != nil {
-		t.Fatalf("Since with an evicted id must not error, got: %v", err)
-	}
-	if len(envs) != ringCapacity {
-		t.Fatalf("Since with an evicted id returned %d envelopes, want the full ring (%d)", len(envs), ringCapacity)
-	}
-	if envs[len(envs)-1].Text != lastText {
-		t.Fatalf("last envelope = %q, want the most recently published %q", envs[len(envs)-1].Text, lastText)
 	}
 }
 
@@ -1204,13 +1149,42 @@ func TestHub_Halt_PublishesControlEnvelopeVisibleToSubscribers(t *testing.T) {
 	}
 }
 
-// --- roomlog.go: Append / ReadSince ---
+// --- roomlog.go: Append ---
 //
-// No dedicated roomlog_test.go exists in this checkpoint's file scope
-// (see the atomic-bus brief); Append and ReadSince are exercised directly
-// here rather than only indirectly through Hub.Publish.
+// No dedicated roomlog_test.go exists in this checkpoint's file scope (see
+// the atomic-bus brief); Append is exercised directly here rather than
+// only indirectly through Hub.Publish. Reads go straight at the on-disk
+// JSONL file rather than through a package API — roomlog.go no longer
+// exposes a read path (ReadSince backed --since replay, now removed); the
+// room log is the durable record, not something the daemon reads back.
 
-func TestAppend_ReadSince_RoundTrip(t *testing.T) {
+// readRoomLog reads every envelope in room's on-disk log, in append order.
+// A missing log file yields an empty, nil-error result — mirrors Append's
+// own "room has never had a message" case.
+func readRoomLog(t *testing.T, home, room string) []Envelope {
+	t.Helper()
+	b, err := os.ReadFile(RoomLogPath(home, room))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		t.Fatalf("read room log: %v", err)
+	}
+	var all []Envelope
+	for _, line := range strings.Split(strings.TrimRight(string(b), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		var env Envelope
+		if err := json.Unmarshal([]byte(line), &env); err != nil {
+			t.Fatalf("unmarshal room log line %q: %v", line, err)
+		}
+		all = append(all, env)
+	}
+	return all
+}
+
+func TestAppend_RoundTrip(t *testing.T) {
 	home := t.TempDir()
 
 	env1 := Envelope{ID: "1", Room: "potato", From: "frontend", FromKind: "agent", Text: "one", Ts: time.Now()}
@@ -1223,29 +1197,19 @@ func TestAppend_ReadSince_RoundTrip(t *testing.T) {
 		t.Fatalf("Append: %v", err)
 	}
 
-	all, err := ReadSince(home, "potato", "")
-	if err != nil {
-		t.Fatalf("ReadSince: %v", err)
-	}
+	all := readRoomLog(t, home, "potato")
 	if len(all) != 2 {
-		t.Fatalf("ReadSince(\"\") = %d envelopes, want 2", len(all))
+		t.Fatalf("room log has %d envelopes, want 2", len(all))
 	}
-
-	afterFirst, err := ReadSince(home, "potato", "1")
-	if err != nil {
-		t.Fatalf("ReadSince: %v", err)
-	}
-	if len(afterFirst) != 1 || afterFirst[0].Text != "two" {
-		t.Fatalf("ReadSince(%q) = %+v, want [two]", "1", afterFirst)
+	if all[0].Text != "one" || all[1].Text != "two" {
+		t.Fatalf("room log = %+v, want [one, two] in append order", all)
 	}
 }
 
-// TestAppend_ReadSince_MessageAtMaxTextBytesRoundTrips is the other half
-// of finding 7's fix: a message right at the limit Publish admits must
-// always read back — the scanner buffer has to clear MaxTextBytes by
-// enough margin to cover the envelope's JSON wrapper and escaping
-// overhead, not just equal it.
-func TestAppend_ReadSince_MessageAtMaxTextBytesRoundTrips(t *testing.T) {
+// TestAppend_MessageAtMaxTextBytesRoundTrips is the other half of finding
+// 7's fix: a message right at the limit Publish admits must always read
+// back intact.
+func TestAppend_MessageAtMaxTextBytesRoundTrips(t *testing.T) {
 	home := t.TempDir()
 	text := strings.Repeat("a", MaxTextBytes)
 	env := Envelope{ID: "1", Room: "potato", From: "frontend", FromKind: "agent", Text: text, Ts: time.Now()}
@@ -1254,35 +1218,30 @@ func TestAppend_ReadSince_MessageAtMaxTextBytesRoundTrips(t *testing.T) {
 		t.Fatalf("Append: %v", err)
 	}
 
-	all, err := ReadSince(home, "potato", "")
-	if err != nil {
-		t.Fatalf("ReadSince: %v", err)
-	}
+	all := readRoomLog(t, home, "potato")
 	if len(all) != 1 {
-		t.Fatalf("ReadSince returned %d envelopes, want 1", len(all))
+		t.Fatalf("room log has %d envelopes, want 1", len(all))
 	}
 	if len(all[0].Text) != MaxTextBytes {
 		t.Fatalf("round-tripped Text length = %d, want %d", len(all[0].Text), MaxTextBytes)
 	}
 }
 
-// TestAppend_ReadSince_EnvelopeAtEveryMetadataLimitRoundTrips is finding 2's
-// full regression, and the actual proof behind scannerMaxLineBytes's
-// arithmetic comment: every capped field (Room, From, ReplyTo at
+// TestAppend_EnvelopeAtEveryMetadataLimitRoundTrips is finding 2's full
+// regression: every capped field (Room, From, ReplyTo at
 // MaxIdentifierBytes; To with MaxAddressees entries whose combined length
 // is exactly MaxAddresseesBytes) simultaneously at its admitted limit,
-// alongside Text at MaxTextBytes, must still round-trip through
-// Append/ReadSince — not merely Text alone, which
-// TestAppend_ReadSince_MessageAtMaxTextBytesRoundTrips above already
-// covers.
+// alongside Text at MaxTextBytes, must still round-trip through Append —
+// not merely Text alone, which TestAppend_MessageAtMaxTextBytesRoundTrips
+// above already covers.
 //
 // Every capped field is filled with 0x01 rather than a plain letter: a
 // plain ASCII byte marshals to itself, so a same-length fill only proves
 // maximum *length* round-trips. 0x01 has no short escape in encoding/json
-// (unlike \n, \t, ...), so it marshals to the full 6-byte \u0001
-// escape sequence — this is what actually exercises the worst-case
-// *escaped* size scannerMaxLineBytes's arithmetic is derived from.
-func TestAppend_ReadSince_EnvelopeAtEveryMetadataLimitRoundTrips(t *testing.T) {
+// (unlike \n, \t, ...), so it marshals to the full 6-byte \u0001 escape
+// sequence — the worst-case *escaped* size a Publish-admitted envelope
+// can reach on disk.
+func TestAppend_EnvelopeAtEveryMetadataLimitRoundTrips(t *testing.T) {
 	home := t.TempDir()
 
 	const escaping = "\x01"
@@ -1302,28 +1261,13 @@ func TestAppend_ReadSince_EnvelopeAtEveryMetadataLimitRoundTrips(t *testing.T) {
 		To: to, ReplyTo: replyTo, Ts: time.Now(), Text: text,
 	}
 
-	// The worst-case envelope must actually fit inside scannerMaxLineBytes
-	// with room to spare — not merely happen to round-trip through this
-	// particular filesystem/scanner combination. This is the assertion a
-	// too-small scanner budget fails first.
-	marshaled, err := json.Marshal(env)
-	if err != nil {
-		t.Fatalf("json.Marshal: %v", err)
-	}
-	if len(marshaled) > scannerMaxLineBytes {
-		t.Fatalf("worst-case envelope marshals to %d bytes, exceeds scannerMaxLineBytes = %d", len(marshaled), scannerMaxLineBytes)
-	}
-
 	if err := Append(home, room, env); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
 
-	all, err := ReadSince(home, room, "")
-	if err != nil {
-		t.Fatalf("ReadSince: %v", err)
-	}
+	all := readRoomLog(t, home, room)
 	if len(all) != 1 {
-		t.Fatalf("ReadSince returned %d envelopes, want 1", len(all))
+		t.Fatalf("room log has %d envelopes, want 1", len(all))
 	}
 
 	got := all[0]
@@ -1352,13 +1296,10 @@ func TestAppend_ReadSince_EnvelopeAtEveryMetadataLimitRoundTrips(t *testing.T) {
 	}
 }
 
-func TestReadSince_MissingLogFileIsNotAnError(t *testing.T) {
+func TestReadRoomLog_MissingLogFileIsNotAnError(t *testing.T) {
 	home := t.TempDir()
 
-	envs, err := ReadSince(home, "nevertouched", "")
-	if err != nil {
-		t.Fatalf("ReadSince on a room with no log file should not error, got: %v", err)
-	}
+	envs := readRoomLog(t, home, "nevertouched")
 	if len(envs) != 0 {
 		t.Fatalf("expected no envelopes, got %d", len(envs))
 	}
@@ -1386,12 +1327,9 @@ func TestAppend_ConcurrentAppendsAllLandWithoutCorruption(t *testing.T) {
 	}
 	wg.Wait()
 
-	envs, err := ReadSince(home, "potato", "")
-	if err != nil {
-		t.Fatalf("ReadSince: %v", err)
-	}
+	envs := readRoomLog(t, home, "potato")
 	if len(envs) != n {
-		t.Fatalf("ReadSince returned %d envelopes, want %d (a corrupted/interleaved write would drop or mangle lines)", len(envs), n)
+		t.Fatalf("room log has %d envelopes, want %d (a corrupted/interleaved write would drop or mangle lines)", len(envs), n)
 	}
 }
 

@@ -27,7 +27,7 @@ import (
 // --root-style flag), so it is unused.
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume|chat> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|chat> [flags]")
 		return int(ExitUsage)
 	}
 
@@ -49,6 +49,12 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 		return statusAction(rest, home, out)
 	case "serve":
 		return serveAction(rest, home, out)
+	case "start":
+		return startAction(rest, home, out)
+	case "stop":
+		return stopAction(rest, home, out)
+	case "restart":
+		return restartAction(rest, home, out)
 	case "tail":
 		return tailAction(rest, home, out)
 	case "say":
@@ -152,7 +158,7 @@ func flagName(arg string) (name string, ok bool) {
 
 // isBoolFlag reports whether f takes no argument, using the same
 // interface flag.FlagSet checks internally — a bool flag's Value
-// implements IsBoolFlag() bool. Without this, "--follow" or "--json"
+// implements IsBoolFlag() bool. Without this, "--json" or "--all-rooms"
 // would swallow the next positional as their value.
 func isBoolFlag(f *flag.Flag) bool {
 	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
@@ -196,18 +202,19 @@ var recoveryEnsurer = DefaultEnsurer
 
 // dialDaemonRecovered dials the daemon, and — only when it is unreachable —
 // respawns it via EnsureDaemon and retries exactly once
-// (docs/spec/atomic-bus.md: "idle shutdown is invisible to a joined
-// session"). Idle shutdown and `serve --stop` both tear the daemon process
-// down along with its in-memory roster, but bus.json already holds every
-// session's membership, and the respawned daemon's own Hub.Rehydrate call
-// at Serve startup (see serveAction) restores that whole roster before it
-// accepts a single connection — so recovery here is nothing more than
-// getting a live daemon back; there is no client-side rejoin left to do
-// (see docs/spec/atomic-bus.md's "the daemon rehydrates the roster"
-// change-log entry, which replaced the per-session re-registration this
-// used to do). EnsureDaemon owns its own bounded spawn-and-retry loop, so a
-// daemon that still won't come back surfaces that terminal error directly
-// — never a second recovery attempt on top of it.
+// (docs/spec/atomic-bus.md: "a client that finds the daemon gone respawns
+// it and retries once before surfacing exit 6"). A stop or a crash both
+// tear the daemon process down along with its in-memory roster, but
+// bus.json already holds every session's membership, and the respawned
+// daemon's own Hub.Rehydrate call at Serve startup (see serveAction)
+// restores that whole roster before it accepts a single connection — so
+// recovery here is nothing more than getting a live daemon back; there is
+// no client-side rejoin left to do (see docs/spec/atomic-bus.md's "the
+// daemon rehydrates the roster" change-log entry, which replaced the
+// per-session re-registration this used to do). EnsureDaemon owns its own
+// bounded spawn-and-retry loop, so a daemon that still won't come back
+// surfaces that terminal error directly — never a second recovery attempt
+// on top of it.
 func dialDaemonRecovered(home string) (*Client, error) {
 	client, err := dialDaemon(home)
 	if err == nil {
@@ -472,21 +479,20 @@ func parseTo(to string) []string {
 	return out
 }
 
-// recvAction implements `atomic bus recv <room> [--follow] [--since
-// <msg-id>] [--json]`. --follow always emits JSONL (the Monitor path); a
-// one-shot recv renders a plain line per envelope by default and JSONL
-// under --json — see docs/design/atomic-bus.md's "Ambiguity resolved in the
-// contract". Table/colour rendering is checkpoint 5's render.go.
+// recvAction implements `atomic bus recv <room> [--json]`. recv always
+// streams: one JSON envelope per line, flushed per line, exiting 0 on
+// SIGTERM — there is no one-shot mode and no --follow flag to forget (a
+// `recv` that returned and exited would leave a Monitor silently hearing
+// nothing; see docs/spec/atomic-bus.md's "replay removed entirely" change-
+// log entry). --json is accepted for consistency with every other read verb
+// but is a no-op: the stream is already one JSON envelope per line.
 func recvAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus recv <room> [--follow] [--since <msg-id>] [--json]\n"
+	const usage = "Usage: atomic bus recv <room> [--json]\n"
 
 	fs := flag.NewFlagSet("bus-recv", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	var follow, jsonOut bool
-	var since string
-	fs.BoolVar(&follow, "follow", false, "stream live JSONL until SIGTERM/SIGINT")
-	fs.StringVar(&since, "since", "", "replay envelopes after this message id")
-	fs.BoolVar(&jsonOut, "json", false, "emit JSONL for a one-shot recv (--follow always emits JSONL)")
+	var jsonOut bool
+	fs.BoolVar(&jsonOut, "json", false, "no-op: recv always streams one JSON envelope per line")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -502,43 +508,10 @@ func recvAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
 		return exitFromErr(err)
 	}
-
-	if follow {
-		return recvFollow(client, room, since, out)
-	}
-	defer client.Close()
-
-	resp, err := client.Do(Request{Op: OpRecv, Room: room, Since: since})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
-		return exitFromErr(err)
-	}
-	var payload struct {
-		Envelopes []Envelope `json:"envelopes"`
-	}
-	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus recv: parse response: %v\n", err)
-		return int(ExitHard)
-	}
-
-	if jsonOut {
-		enc := json.NewEncoder(out)
-		for _, env := range payload.Envelopes {
-			if err := enc.Encode(env); err != nil {
-				fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
-				return int(ExitHard)
-			}
-		}
-		return int(ExitOK)
-	}
-
-	for _, env := range payload.Envelopes {
-		fmt.Fprintf(out, "%s\t%s\t%s\n", env.ID, env.From, env.Text)
-	}
-	return int(ExitOK)
+	return recvStream(client, room, out)
 }
 
-// recvFollow is the Monitor path: one JSON envelope per line, flushed per
+// recvStream is the Monitor path: one JSON envelope per line, flushed per
 // line — json.Encoder.Encode issues exactly one Write per call, and out is
 // the raw stdout stream with nothing buffering in front of it, so every
 // line reaches the reader the instant it's written. Termination is checked
@@ -546,12 +519,14 @@ func recvAction(args []string, home string, out io.Writer) int {
 // a SIGTERM/SIGINT arriving while a line is being written cannot truncate
 // it — the current write always completes before the next select decides
 // whether to exit. A buffered or dropped line here is the entire recv
-// --follow feature failing silently (docs/spec/atomic-bus.md).
-func recvFollow(client *Client, room, since string, out io.Writer) int {
+// feature failing silently (docs/spec/atomic-bus.md). No backlog is
+// replayed: this subscribes and delivers only what is published after —
+// see daemon.go's subscribe doc.
+func recvStream(client *Client, room string, out io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ch, err := client.Subscribe(Request{Op: OpRecv, Room: room, Follow: true, Since: since})
+	ch, err := client.Subscribe(Request{Op: OpRecv, Room: room})
 	if err != nil {
 		client.Close()
 		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
@@ -804,8 +779,8 @@ func joinedRooms(st *State, session string) []joinedRoomStatus {
 
 // emitJSON writes v as a single JSON value followed by a newline. Every
 // --json read verb that answers with a snapshot (who, rooms, status) uses
-// this; recv's --json path is JSONL instead, one envelope per line, to
-// match --follow's wire shape.
+// this; recv always streams JSONL instead, one envelope per line — see
+// recvStream.
 func emitJSON(out io.Writer, v any) int {
 	if err := json.NewEncoder(out).Encode(v); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus: encode JSON: %v\n", err)
@@ -814,32 +789,26 @@ func emitJSON(out io.Writer, v any) int {
 	return int(ExitOK)
 }
 
-// serveAction implements `atomic bus serve [--idle-shutdown-minutes N]
-// [--stop]`. Without --stop it runs the daemon in the foreground — this is
-// exactly what EnsureDaemon spawns (client.go's spawnServe) — binding the
-// real socket, owning the socket file and this invocation's share of the
-// spawn-lock protocol (Serve itself only owns what happens once it has a
-// live listener; see daemon.go's Serve doc). --stop instead sends the wire
-// shutdown op to a daemon that's already running.
+// serveAction implements `atomic bus serve`: runs the daemon in the
+// foreground — this is exactly what EnsureDaemon spawns (client.go's
+// spawnServe) — binding the real socket, owning the socket file and this
+// invocation's share of the spawn-lock protocol (Serve itself only owns
+// what happens once it has a live listener; see daemon.go's Serve doc).
+// There is no --idle-shutdown-minutes flag and no --stop flag: no timer
+// ever retires the daemon on its own, and stopping one is `atomic bus
+// stop`'s job (docs/spec/atomic-bus.md: "atomic bus start | stop | restart
+// control the daemon explicitly").
 func serveAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus serve [--idle-shutdown-minutes N] [--stop]\n"
+	const usage = "Usage: atomic bus serve\n"
 
 	fs := flag.NewFlagSet("bus-serve", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	var idleMinutes int
-	var stopFlag bool
-	fs.IntVar(&idleMinutes, "idle-shutdown-minutes", int(DefaultIdleWindow/time.Minute), "idle-shutdown window in minutes (0 disables)")
-	fs.BoolVar(&stopFlag, "stop", false, "stop a running daemon and exit")
 	if err := fs.Parse(args); err != nil {
 		return int(ExitUsage)
 	}
 	if fs.NArg() > 0 {
 		fmt.Fprint(os.Stderr, usage)
 		return int(ExitUsage)
-	}
-
-	if stopFlag {
-		return serveStop(home, out)
 	}
 
 	if err := EnsureDirs(home); err != nil {
@@ -870,24 +839,87 @@ func serveAction(args []string, home string, out io.Writer) int {
 	} else {
 		hub.Rehydrate(st)
 	}
-	idleWindow := time.Duration(idleMinutes) * time.Minute
 
-	// nil == ok: Serve returns nil on a wire shutdown (--stop) or an idle
-	// timeout, and context.Canceled on our own signal-driven ctx — both are
-	// a clean stop, not a failure to report.
-	if err := Serve(ctx, ln, hub, idleWindow, nil); err != nil && !errors.Is(err, context.Canceled) {
+	// nil == ok: Serve returns nil on a wire shutdown (`bus stop`), and
+	// context.Canceled on our own signal-driven ctx — both are a clean
+	// stop, not a failure to report.
+	if err := Serve(ctx, ln, hub, nil); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "atomic bus serve: %v\n", err)
 		return int(ExitHard)
 	}
 	return int(ExitOK)
 }
 
-// serveStop sends the shutdown op to a running daemon. No daemon running is
-// treated as already-stopped (exit 0, not an error): --stop's job is to
-// reach the goal state "no daemon", which a missing daemon has already
-// reached — this is the documented remedy the version-skew error message
-// points users at, so it must succeed even when there is nothing to stop.
-func serveStop(home string, out io.Writer) int {
+// startAction implements `atomic bus start`: spawns the daemon if none is
+// listening. Idempotent — a daemon already live and version-matched is
+// reported as such and left alone, rather than spawned again — and goes
+// through the same recoveryEnsurer seam every other verb's recovery path
+// uses (see joinAction's comment), so there is exactly one spawn
+// implementation, not two.
+func startAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus start\n"
+
+	fs := flag.NewFlagSet("bus-start", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return int(ExitUsage)
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+
+	alreadyRunning := probeRunning(home)
+
+	client, err := recoveryEnsurer().EnsureDaemon(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus start: %v\n", err)
+		return exitFromErr(err)
+	}
+	client.Close()
+
+	if alreadyRunning {
+		fmt.Fprintln(out, "daemon already running")
+	} else {
+		fmt.Fprintln(out, "daemon started")
+	}
+	return int(ExitOK)
+}
+
+// probeRunning reports whether a live, version-matched daemon is already
+// listening — used only to choose start's message. EnsureDaemon's own
+// flock (client.go) is what actually makes concurrent start calls
+// idempotent, not this probe: two racing starts can both observe "not
+// running" here and both print "daemon started", but only one of them
+// spawns — the lock, not the message, is the correctness guarantee.
+func probeRunning(home string) bool {
+	client, err := dialDaemon(home)
+	if err != nil {
+		return false
+	}
+	defer client.Close()
+	return checkVersion(client) == nil
+}
+
+// stopAction implements `atomic bus stop`: sends the wire shutdown op to a
+// running daemon. No daemon running is treated as already-stopped (exit 0,
+// not an error): stop's job is to reach the goal state "no daemon", which a
+// missing daemon has already reached — this is also the documented remedy
+// the version-skew error message points users at (via restartAction), so
+// it must succeed even when there is nothing to stop.
+func stopAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus stop\n"
+
+	fs := flag.NewFlagSet("bus-stop", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return int(ExitUsage)
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+
 	client, err := Dial(home, defaultDialTimeout)
 	if err != nil {
 		fmt.Fprintln(out, "no daemon running")
@@ -896,11 +928,61 @@ func serveStop(home string, out io.Writer) int {
 	defer client.Close()
 
 	if _, err := client.Do(Request{Op: OpShutdown}); err != nil {
-		fmt.Fprintf(os.Stderr, "atomic bus serve --stop: %v\n", err)
+		fmt.Fprintf(os.Stderr, "atomic bus stop: %v\n", err)
 		return exitFromErr(err)
 	}
 	fmt.Fprintln(out, "daemon stopped")
 	return int(ExitOK)
+}
+
+// restartWaitTimeout bounds restartAction's wait for stop's socket teardown
+// to complete before start tries to dial or bind it again. Serve's actual
+// listener Close() (and the unlink it performs) runs asynchronously in its
+// own run-loop goroutine, after the shutdown op's reply is already sent
+// (daemon.go's Serve doc) — so a start immediately following stop can race
+// a socket file that hasn't been removed yet.
+const restartWaitTimeout = 2 * time.Second
+
+// restartAction implements `atomic bus restart`: stop then start. Works
+// whether or not a daemon is currently running — stopAction's own
+// "no daemon" case is exit 0, so restart degenerates cleanly to a plain
+// start — and is what the version-skew error tells a user to run.
+func restartAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus restart\n"
+
+	fs := flag.NewFlagSet("bus-restart", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return int(ExitUsage)
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+
+	if code := stopAction(nil, home, out); code != int(ExitOK) {
+		return code
+	}
+	waitForSocketGone(home, restartWaitTimeout)
+
+	return startAction(nil, home, out)
+}
+
+// waitForSocketGone polls SocketPath(home) until it refuses connections or
+// timeout elapses. Best-effort: even a timeout here still lets
+// startAction's own EnsureDaemon proceed — its stale-socket recovery
+// (client.go: unlinkStaleSocket, one respawn retry) reaches a live daemon
+// regardless — this just avoids relying on that retry for the common case.
+func waitForSocketGone(home string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		conn, err := net.DialTimeout("unix", SocketPath(home), 50*time.Millisecond)
+		if err != nil {
+			return
+		}
+		conn.Close()
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // --- halt / resume ---
@@ -1111,20 +1193,21 @@ func resolveTailRooms(home, explicit string, allRoomsFlag bool) (rooms []string,
 }
 
 // tailAction implements `atomic bus tail [<room>] [--all-rooms] [--json]
-// [--since <id>] [--only-addressed] [--from <name>]`. tail never joins
-// (resolveTailRooms and daemon.go's OpTail dispatch both operate purely
-// through Hub.Subscribe) — it does not occupy a name and does not appear
-// in `who`, so any number of operators can watch the same room at once.
+// [--only-addressed] [--from <name>]`. tail never joins (resolveTailRooms
+// and daemon.go's OpTail dispatch both operate purely through
+// Hub.Subscribe) — it does not occupy a name and does not appear in `who`,
+// so any number of operators can watch the same room at once. Like recv,
+// tail delivers only what is published after it subscribes; there is no
+// --since.
 func tailAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus tail [<room>] [--all-rooms] [--json] [--since <id>] [--only-addressed] [--from <name>]\n"
+	const usage = "Usage: atomic bus tail [<room>] [--all-rooms] [--json] [--only-addressed] [--from <name>]\n"
 
 	fs := flag.NewFlagSet("bus-tail", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var allRoomsFlag, jsonOut, onlyAddressed bool
-	var since, from string
+	var from string
 	fs.BoolVar(&allRoomsFlag, "all-rooms", false, "interleave every room, prefixed per line")
 	fs.BoolVar(&jsonOut, "json", false, "emit JSONL instead of rendered lines")
-	fs.StringVar(&since, "since", "", "replay envelopes after this message id")
 	fs.BoolVar(&onlyAddressed, "only-addressed", false, "show only messages with an explicit addressee")
 	fs.StringVar(&from, "from", "", "show only messages from this sender")
 	positional, err := parseFlags(fs, args)
@@ -1158,22 +1241,22 @@ func tailAction(args []string, home string, out io.Writer) int {
 
 	colour := isTerminalWriter(out)
 	width := terminalWidth(out)
-	return tailStream(client, rooms, since, onlyAddressed, from, jsonOut, colour, roomPrefix, home, width, out)
+	return tailStream(client, rooms, onlyAddressed, from, jsonOut, colour, roomPrefix, home, width, out)
 }
 
 // tailStream is tailAction's subscription loop, factored out so tests can
-// drive it against an already-connected *Client — mirrors recvFollow's own
+// drive it against an already-connected *Client — mirrors recvStream's own
 // factoring above, for the identical reason: closing the client is the
 // only clean way to end a subscription loop deterministically in a test.
 // Filtering (--only-addressed, --from) happens here, client-side: the
 // daemon's OpTail dispatch (daemon.go) delivers every envelope on the
 // subscribed rooms unfiltered by design, so two operators tailing the same
 // room with different filters never affect each other.
-func tailStream(client *Client, rooms []string, since string, onlyAddressed bool, from string, jsonOut, colour, roomPrefix bool, home string, width int, out io.Writer) int {
+func tailStream(client *Client, rooms []string, onlyAddressed bool, from string, jsonOut, colour, roomPrefix bool, home string, width int, out io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ch, err := client.Subscribe(Request{Op: OpTail, Rooms: rooms, Since: since})
+	ch, err := client.Subscribe(Request{Op: OpTail, Rooms: rooms})
 	if err != nil {
 		client.Close()
 		fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
@@ -1294,7 +1377,7 @@ func chatAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
 		return exitFromErr(err)
 	}
-	envelopes, err := subClient.Subscribe(Request{Op: OpRecv, Room: room, Follow: true})
+	envelopes, err := subClient.Subscribe(Request{Op: OpRecv, Room: room})
 	if err != nil {
 		subClient.Close()
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)

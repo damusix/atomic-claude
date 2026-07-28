@@ -52,7 +52,7 @@ func startTestDaemon(t *testing.T, home string) error {
 	if st, err := Load(home); err == nil {
 		hub.Rehydrate(st)
 	}
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	return nil
 }
 
@@ -120,7 +120,7 @@ func countingSpawn(t *testing.T, count *int32) func(home string) error {
 func TestClient_Do_PingRoundTrip(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 
 	conn, err := net.DialTimeout("unix", ln.Addr().String(), wireTimeout)
 	if err != nil {
@@ -154,7 +154,7 @@ func TestClient_Do_PingRoundTrip(t *testing.T) {
 func TestClient_Do_FailedResponseMapsToErrorWithDaemonsCode(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 
 	conn, err := net.DialTimeout("unix", ln.Addr().String(), wireTimeout)
 	if err != nil {
@@ -189,7 +189,7 @@ func TestClient_Do_FailedResponseMapsToErrorWithDaemonsCode(t *testing.T) {
 func TestClient_Subscribe_DeliversFramePublishedAfterSubscription(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	// Each daemon connection is one-shot — the daemon closes it after a
@@ -208,7 +208,7 @@ func TestClient_Subscribe_DeliversFramePublishedAfterSubscription(t *testing.T) 
 	sub := newClient(subConn, wireTimeout)
 	defer sub.Close()
 
-	ch, err := sub.Subscribe(Request{Op: OpRecv, Room: "potato", Follow: true})
+	ch, err := sub.Subscribe(Request{Op: OpRecv, Room: "potato"})
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestClient_Subscribe_DeliversFramePublishedAfterSubscription(t *testing.T) 
 func TestClient_Subscribe_ChannelClosesWhenClientCloses(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 
 	conn, err := net.DialTimeout("unix", ln.Addr().String(), wireTimeout)
 	if err != nil {
@@ -260,7 +260,7 @@ func TestClient_Subscribe_ChannelClosesWhenClientCloses(t *testing.T) {
 func TestClient_Close_IsSafeToCallTwice(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 
 	conn, err := net.DialTimeout("unix", ln.Addr().String(), wireTimeout)
 	if err != nil {
@@ -584,7 +584,7 @@ func TestEnsureDaemon_VersionMismatch_ExitsSix_NamesBothVersionsAndRemedy(t *tes
 	if !strings.Contains(msg, fmt.Sprintf("v%d", ProtocolVersion)) {
 		t.Errorf("message %q does not name the client version v%d", msg, ProtocolVersion)
 	}
-	if !strings.Contains(msg, "atomic bus serve --stop") {
+	if !strings.Contains(msg, "atomic bus restart") {
 		t.Errorf("message %q does not name the remedy", msg)
 	}
 	if got := atomic.LoadInt32(&spawnCount); got != 0 {

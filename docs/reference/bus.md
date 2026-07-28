@@ -43,7 +43,7 @@ Every message on the wire, and every line in a room's log, is one JSON envelope:
 | `text` | Message body. |
 | `truncated`, `log` | Present only when `text` was cut for the notification cap; `truncated` is the byte count cut, `log` points at the room log where the full body is recoverable. |
 
-`recv --follow` and `tail` write one envelope per line to stdout, flushed immediately — the wire protocol is line-delimited JSON rather than request-scoped precisely because a subscription's output is unbounded.
+`recv` and `tail` write one envelope per line to stdout, flushed immediately — the wire protocol is line-delimited JSON rather than request-scoped precisely because a subscription's output is unbounded. Neither replays anything: a subscriber sees only what is published after it subscribes. `~/.atomic/rooms/<room>.log` is the durable record for anything published earlier.
 
 
 ## Agent vs human members
@@ -59,13 +59,15 @@ Agents join with `join`. The operator reaches a room without joining, through `t
 
 **Auto-spawn.** The first `join` (or any other verb) that can't reach a live daemon spawns one, detached, and waits for its socket to accept connections before proceeding. The whole probe-and-spawn sequence runs under one exclusive flock, so concurrent `join` calls racing from a cold start still produce exactly one daemon — the loser of the race blocks on the lock, wakes up once the winner's daemon is live, and finds its own probe already succeeding.
 
-**Idle shutdown.** The daemon tracks open subscriptions (`recv --follow`, `tail`, `chat`). When that count reaches zero it arms a timer; a new subscription before it fires disarms it; if it fires, the daemon closes its listener, unlinks the socket, and exits. The window defaults to 10 minutes and is configurable with `serve --idle-shutdown-minutes <N>` (`0` disables idle shutdown entirely). A plain request/reply call — `send`, `who`, `status` — does not count as activity on its own; only a standing subscription does.
+**Explicit control — no idle shutdown.** No timer ever stops the daemon on its own; `atomic bus start | stop | restart` are the only ways it goes up or down.
 
-Idle shutdown is invisible to a joined session. A client that reaches for the daemon and finds it gone respawns it and retries once before surfacing an error, so a session that joined correctly and then went quiet for eleven minutes does not come back to a `daemon unreachable` failure the next time it sends.
+- `bus start` spawns the daemon if none is listening. Idempotent: a second `start` against an already-running, version-compatible daemon reports that and leaves it alone rather than spawning again.
+- `bus stop` sends the shutdown op to a running daemon. No daemon running is exit 0 with a plain message, not an error — the goal state "no daemon" is already reached.
+- `bus restart` is `stop` then `start`, and works whether or not a daemon is currently running. It is also the remedy a version-skew error names.
 
-**Rehydration on restart.** The daemon has no memory of its own between processes; `~/.atomic/bus.json` does. At startup, before accepting any connection, the daemon reads that file and rebuilds the full roster — every room, every member, their `mode` and `kind` — in one pass. This runs once at startup rather than as each session happens to run its next command, because the alternative silently drops any member who stays idle across the restart: a peer addressing them by name would otherwise reach an empty room and never know why.
+A client that reaches for the daemon between commands and finds it gone (crashed, or stopped by another process) still respawns it and retries once before surfacing an error, so a session that joined correctly does not come back to a `daemon unreachable` failure the next time it sends.
 
-**Retiring a daemon.** `serve --stop` stops a running daemon cleanly. This is also the required remedy after a protocol version mismatch: a client whose version differs from the running daemon's refuses to proceed rather than draining and auto-restarting, because another session may hold a live subscription that an unannounced restart would silently kill.
+**Rehydration on restart.** The daemon has no memory of its own between processes; `~/.atomic/bus.json` does. At startup, before accepting any connection, the daemon reads that file and rebuilds the full roster — every room, every member, their `mode` and `kind` — in one pass. This runs once at startup rather than as each session happens to run its next command, because the alternative silently drops any member who was idle across the restart: a peer addressing them by name would otherwise reach an empty room and never know why.
 
 
 ## Exit codes
@@ -90,7 +92,7 @@ These reach a room without holding a roster slot in it, for a human watching or 
 
 | Verb | Effect |
 |---|---|
-| `atomic bus tail [<room>] [--all-rooms] [--only-addressed] [--from <name>] [--since <id>] [--json]` | Watch traffic without joining. Sees messages addressed to other members too — a superset of what any one participant sees. |
+| `atomic bus tail [<room>] [--all-rooms] [--only-addressed] [--from <name>] [--json]` | Watch traffic without joining. Sees messages addressed to other members too — a superset of what any one participant sees. Like `recv`, delivers only what is published after it subscribes. |
 | `atomic bus say <room> "<text>" [--to <name>]` | Speak into a room as the operator, without joining. Always succeeds, even in a halted room — see Halting below. |
 | `atomic bus chat <room> [--as <name>] [--session <id>]` | Interactive client: joins as a human member, pinned transcript above an input line. In-line commands: `@name` addresses a reply, `/who`, `/rooms`, `/halt`, `/resume`, `/quit`. |
 | `atomic bus halt <room> [--text "<why>"]` | Set a room's halt flag. |
@@ -98,7 +100,7 @@ These reach a room without holding a roster slot in it, for a human watching or 
 
 **Halting.** `halt` is a stop signal, not a room-wide mute. Once a room is halted, an agent's `send` into it fails with exit `7` until `resume` clears the flag; `say` bypasses the flag unconditionally, so the operator can still explain what went wrong or give a new instruction while every agent is blocked from sending. The daemon enforces this by checking `kind` on the publish path itself — `say`'s human identity is never a parameter a request can claim, so no client can manufacture a halt bypass by asserting `kind: "human"` on a `send`.
 
-**Every room's traffic is durable.** Regardless of whether anyone is watching, every published envelope appends to `~/.atomic/rooms/<room>.log` — the record of record. The daemon's in-memory ring buffer, which backs `--since` replay for anyone currently subscribed, is bounded and does not survive a restart; the log is what `--since` falls back to across one.
+**Every room's traffic is durable.** Regardless of whether anyone is watching, every published envelope appends to `~/.atomic/rooms/<room>.log` — the record of record, and the only history: `recv` and `tail` replay nothing, so this log is where past traffic lives.
 
 
 ## State on disk

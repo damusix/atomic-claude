@@ -44,13 +44,13 @@ func testListener(t *testing.T) net.Listener {
 // startServe runs Serve in the background and guarantees it has exited —
 // no leaked daemon goroutine — before the test finishes: t.Cleanup
 // cancels ctx and then waits (bounded) for Serve to return.
-func startServe(t *testing.T, ln net.Listener, hub *Hub, idleWindow time.Duration) {
+func startServe(t *testing.T, ln net.Listener, hub *Hub) {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Serve(ctx, ln, hub, idleWindow, nil)
+		done <- Serve(ctx, ln, hub, nil)
 	}()
 
 	t.Cleanup(func() {
@@ -228,7 +228,7 @@ func readEnvelopeBounded(t *testing.T, r *bufio.Reader) (Envelope, bool) {
 func TestServe_Ping_ReturnsVersionPidStarted(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 
 	resp := dialAndDo(t, ln.Addr().String(), Request{Op: OpPing})
 	if !resp.OK {
@@ -259,7 +259,7 @@ func TestServe_Ping_ReturnsVersionPidStarted(t *testing.T) {
 func TestServe_JoinThenWho_RoundTrip(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	joinResp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: "agent", Mode: "normal", Session: "sess-1"})
@@ -318,7 +318,7 @@ func TestServe_JoinThenWho_RoundTrip(t *testing.T) {
 func TestServe_DuplicateNameRejected(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	first := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: "agent", Session: "sess-1"})
@@ -359,7 +359,7 @@ func TestServe_ConcurrentJoin_WireLevel(t *testing.T) {
 	const n = 12
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	var wg sync.WaitGroup
@@ -409,14 +409,14 @@ func TestServe_ConcurrentJoin_WireLevel(t *testing.T) {
 
 // --- send / recv (subscription) ---
 
-// TestServe_RecvFollow_DeliversPublishedEnvelope is the "under one second"
-// success criterion end to end over the wire: subscribe with recv
-// --follow, publish from a second connection, and read the delivered
-// frame with a bounded timeout.
-func TestServe_RecvFollow_DeliversPublishedEnvelope(t *testing.T) {
+// TestServe_Recv_DeliversPublishedEnvelope is the "under one second"
+// success criterion end to end over the wire: subscribe with recv, publish
+// from a second connection, and read the delivered frame with a bounded
+// timeout.
+func TestServe_Recv_DeliversPublishedEnvelope(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: "agent", Session: "sess-fe"}); !resp.OK {
@@ -426,7 +426,7 @@ func TestServe_RecvFollow_DeliversPublishedEnvelope(t *testing.T) {
 		t.Fatalf("join backend: %s", resp.Error)
 	}
 
-	subConn, r := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato", Follow: true})
+	subConn, r := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato"})
 	defer subConn.Close()
 
 	sendResp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-fe", To: []string{"backend"}, Text: "please pick this up"})
@@ -436,7 +436,7 @@ func TestServe_RecvFollow_DeliversPublishedEnvelope(t *testing.T) {
 
 	env, ok := readEnvelopeBounded(t, r)
 	if !ok {
-		t.Fatal("timed out waiting for the published envelope on recv --follow")
+		t.Fatal("timed out waiting for the published envelope on recv")
 	}
 	if env.Text != "please pick this up" {
 		t.Fatalf("delivered Text = %q, want %q", env.Text, "please pick this up")
@@ -446,31 +446,41 @@ func TestServe_RecvFollow_DeliversPublishedEnvelope(t *testing.T) {
 	}
 }
 
-func TestServe_RecvOnce_WithoutFollowReturnsBacklogAndCloses(t *testing.T) {
+// TestServe_Recv_NoBacklogDeliveredForPriorTraffic is the wire-level proof
+// of the bug this change fixes: a room with existing traffic must not
+// replay any of it to a newly subscribing recv — since("") used to return
+// the entire ring, so a recv on a busy room delivered up to 256 old
+// messages as Monitor notifications, each evaluated against the reaction
+// policy as if freshly arrived (docs/spec/atomic-bus.md's "replay removed
+// entirely" change-log entry). Only a message published after the
+// subscription opens may ever arrive.
+func TestServe_Recv_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: "agent", Session: "sess-fe"}); !resp.OK {
 		t.Fatalf("join: %s", resp.Error)
 	}
-	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-fe", Text: "one"}); !resp.OK {
-		t.Fatalf("send: %s", resp.Error)
+	// Traffic published before anyone subscribes.
+	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-fe", Text: "before subscribing"}); !resp.OK {
+		t.Fatalf("send before: %s", resp.Error)
 	}
 
-	resp := dialAndDo(t, addr, Request{Op: OpRecv, Room: "potato"})
-	if !resp.OK {
-		t.Fatalf("recv failed: %s", resp.Error)
+	subConn, r := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato"})
+	defer subConn.Close()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-fe", Text: "after subscribing"}); !resp.OK {
+		t.Fatalf("send after: %s", resp.Error)
 	}
-	var payload struct {
-		Envelopes []Envelope `json:"envelopes"`
+
+	env, ok := readEnvelopeBounded(t, r)
+	if !ok {
+		t.Fatal("timed out waiting for the post-subscribe envelope")
 	}
-	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(payload.Envelopes) != 1 || payload.Envelopes[0].Text != "one" {
-		t.Fatalf("envelopes = %+v, want one envelope with Text=one", payload.Envelopes)
+	if env.Text != "after subscribing" {
+		t.Fatalf("first delivered envelope Text = %q, want %q (no backlog should have preceded it)", env.Text, "after subscribing")
 	}
 }
 
@@ -481,7 +491,7 @@ func TestServe_RecvOnce_WithoutFollowReturnsBacklogAndCloses(t *testing.T) {
 func TestServe_Tail_NeverJoinsAndSeesOthersMail(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: "agent", Session: "sess-fe"}); !resp.OK {
@@ -520,7 +530,7 @@ func TestServe_Tail_NeverJoinsAndSeesOthersMail(t *testing.T) {
 func TestServe_Halt_BlocksAgentSend_HumanSendStillSucceeds_ResumeRestores(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: "agent", Session: "sess-agent"}); !resp.OK {
@@ -567,7 +577,7 @@ func TestServe_Halt_BlocksAgentSend_HumanSendStillSucceeds_ResumeRestores(t *tes
 func TestServe_Say_PublishesAsHumanWithoutJoining(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: "agent", Session: "sess-agent"}); !resp.OK {
@@ -607,7 +617,7 @@ func TestServe_Say_PublishesAsHumanWithoutJoining(t *testing.T) {
 func TestServe_Say_BypassesHalt(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: "agent", Session: "sess-agent"}); !resp.OK {
@@ -633,7 +643,7 @@ func TestServe_Say_BypassesHalt(t *testing.T) {
 func TestServe_UnknownOp_ReturnsUsageError(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 
 	resp := dialAndDo(t, ln.Addr().String(), Request{Op: "not-a-real-op"})
 	if resp.OK {
@@ -654,7 +664,7 @@ func TestServe_ShutdownOp_ReturnsOKAndStopsTheDaemon(t *testing.T) {
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
 	go func() {
-		done <- Serve(ctx, ln, hub, 0, nil)
+		done <- Serve(ctx, ln, hub, nil)
 	}()
 
 	resp := dialAndDo(t, ln.Addr().String(), Request{Op: OpShutdown})
@@ -672,138 +682,19 @@ func TestServe_ShutdownOp_ReturnsOKAndStopsTheDaemon(t *testing.T) {
 	}
 }
 
-// --- idle shutdown ---
-
-// TestServe_IdleShutdown_FiresAfterWindowWithNoSubscriptions uses a short
-// injected window instead of DefaultIdleWindow's 10 minutes — the "make
-// the window injectable" requirement exists exactly so this test doesn't
-// sleep for ten minutes.
-func TestServe_IdleShutdown_FiresAfterWindowWithNoSubscriptions(t *testing.T) {
-	ln := testListener(t)
-	hub := NewHub(t.TempDir())
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	done := make(chan error, 1)
-	go func() {
-		done <- Serve(ctx, ln, hub, 30*time.Millisecond, nil)
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Serve returned an error on idle shutdown: %v", err)
-		}
-	case <-time.After(wireTimeout):
-		t.Fatal("Serve did not shut down after the idle window elapsed with no subscriptions")
-	}
-}
-
-// TestServe_IdleShutdown_DisarmsWhileASubscriptionIsOpen proves a live
-// recv --follow prevents the idle timer from firing even past the
-// configured window, and that closing the subscription re-arms a fresh
-// window that then fires normally.
-func TestServe_IdleShutdown_DisarmsWhileASubscriptionIsOpen(t *testing.T) {
-	ln := testListener(t)
-	hub := NewHub(t.TempDir())
-	addr := ln.Addr().String()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	done := make(chan error, 1)
-	go func() {
-		done <- Serve(ctx, ln, hub, 30*time.Millisecond, nil)
-	}()
-
-	subConn, _ := dialSubscribe(t, addr, Request{Op: OpTail, Rooms: []string{"potato"}})
-
-	// Outlive several idle windows while the subscription is open; Serve
-	// must not have shut down.
-	select {
-	case err := <-done:
-		t.Fatalf("Serve shut down while a subscription was still open (err=%v)", err)
-	case <-time.After(150 * time.Millisecond):
-	}
-
-	// Closing the subscription should let a fresh idle window elapse and
-	// shut the daemon down.
-	subConn.Close()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Serve returned an error on idle shutdown: %v", err)
-		}
-	case <-time.After(wireTimeout):
-		t.Fatal("Serve did not shut down after the subscription closed and a fresh idle window elapsed")
-	}
-}
-
-// TestServe_IdleShutdown_DoesNotFireWhileAConnectionIsMidAccept reproduces
-// the checkpoint 2 review finding: the idle-fire handler only re-checked
-// d.subs, so a connection accepted but not yet through
-// subscriptionOpened/pendingResolved was invisible to it — the daemon
-// could close the listener and return while a client's request was still
-// in flight, orphaning that handleConn goroutine. This test dials without
-// ever writing a request, so the server's Decode blocks — holding the
-// connection "accepted but not yet classified" across several idle
-// windows — then finally sends the request and proves the daemon is
-// still alive to answer both it and a fresh connection afterward.
-func TestServe_IdleShutdown_DoesNotFireWhileAConnectionIsMidAccept(t *testing.T) {
-	ln := testListener(t)
-	hub := NewHub(t.TempDir())
-	addr := ln.Addr().String()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	done := make(chan error, 1)
-	go func() {
-		done <- Serve(ctx, ln, hub, 30*time.Millisecond, nil)
-	}()
-
-	conn, err := net.DialTimeout("unix", addr, wireTimeout)
-	if err != nil {
-		t.Fatalf("dial: %v", err)
-	}
-	defer conn.Close()
-
-	select {
-	case err := <-done:
-		t.Fatalf("Serve shut down while a connection was accepted but not yet classified (err=%v)", err)
-	case <-time.After(150 * time.Millisecond):
-	}
-
-	// Finish what the held connection started.
-	if err := json.NewEncoder(conn).Encode(Request{Op: OpPing}); err != nil {
-		t.Fatalf("encode request on the previously-held connection: %v", err)
-	}
-	var resp Response
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		t.Fatalf("decode response on the previously-held connection: %v", err)
-	}
-	if !resp.OK {
-		t.Fatalf("ping on the previously-held connection failed: %s", resp.Error)
-	}
-
-	// The daemon must still be answering afterward — proves it neither
-	// shut down nor got left permanently disarmed by the race.
-	if resp := dialAndDo(t, addr, Request{Op: OpPing}); !resp.OK {
-		t.Fatalf("ping after the held connection completed failed: %s", resp.Error)
-	}
-}
-
-// TestServe_IdleWindowZero_DisablesIdleShutdown proves the documented
-// "0 disables" contract: with no subscriptions and no activity at all,
-// Serve must still be running after several multiples of what would
-// otherwise have been an idle window.
-func TestServe_IdleWindowZero_DisablesIdleShutdown(t *testing.T) {
+// TestServe_NoTimerStopsTheDaemon proves the daemon has no idle-shutdown
+// timer: with no subscriptions, no connections, and no activity at all, it
+// must still be running well past what used to be the default idle window
+// (docs/spec/atomic-bus.md: "no timer ever stops the daemon on its own").
+// Only OpShutdown (proven above) or ctx cancellation ever ends Serve.
+func TestServe_NoTimerStopsTheDaemon(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
-		done <- Serve(ctx, ln, hub, 0, nil)
+		done <- Serve(ctx, ln, hub, nil)
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -816,8 +707,8 @@ func TestServe_IdleWindowZero_DisablesIdleShutdown(t *testing.T) {
 
 	select {
 	case err := <-done:
-		t.Fatalf("Serve shut down with idleWindow=0, which must disable idle shutdown (err=%v)", err)
-	case <-time.After(100 * time.Millisecond):
+		t.Fatalf("Serve shut down on its own with no activity and no timer configured (err=%v)", err)
+	case <-time.After(150 * time.Millisecond):
 		// expected: still running
 	}
 }
@@ -837,7 +728,7 @@ func TestServe_IdleWindowZero_DisablesIdleShutdown(t *testing.T) {
 func TestServe_Say_IgnoresClientSuppliedIdentity(t *testing.T) {
 	ln := testListener(t)
 	hub := NewHub(t.TempDir())
-	startServe(t, ln, hub, 0)
+	startServe(t, ln, hub)
 	addr := ln.Addr().String()
 
 	joinResp := dialAndDo(t, addr, Request{

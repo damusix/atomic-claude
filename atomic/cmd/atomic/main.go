@@ -741,13 +741,14 @@ func buildConfigCmd() *cobra.Command {
 	return parent
 }
 
-// buildBusCmd builds the "bus" parent + join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume|chat
+// buildBusCmd builds the "bus" parent +
+// join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|chat
 // children. Dispatch is runBus (→ bus.BusAction from internal/bus/action.go).
 func buildBusCmd() *cobra.Command {
 	dispatch := func(args []string) { runBus(args) }
 	parent := &cobra.Command{
 		Use:   "bus",
-		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume|chat)",
+		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|chat)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -778,10 +779,8 @@ func buildBusCmd() *cobra.Command {
 		c.Flags().String("reply-to", "", "id of the message being replied to")
 		c.Flags().Bool("json", false, "emit the full envelope as JSON (captures the id for --reply-to)")
 	})
-	addSub("recv", "Receive messages; --follow streams JSONL until SIGTERM", "<room>", func(c *cobra.Command) {
-		c.Flags().Bool("follow", false, "stream live JSONL until SIGTERM")
-		c.Flags().String("since", "", "replay envelopes after this message id")
-		c.Flags().Bool("json", false, "emit JSONL for a one-shot recv")
+	addSub("recv", "Receive messages; streams JSON envelopes until SIGTERM", "<room>", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "no-op: recv always streams one JSON envelope per line")
 	})
 	addSub("who", "List a room's members (default: the session's last-joined room)", "[<room>]", func(c *cobra.Command) {
 		c.Flags().Bool("json", false, "emit JSON")
@@ -792,14 +791,13 @@ func buildBusCmd() *cobra.Command {
 	addSub("status", "Report this session's joined rooms and the daemon's state", "", func(c *cobra.Command) {
 		c.Flags().Bool("json", false, "emit JSON")
 	})
-	addSub("serve", "Run the daemon in the foreground; --stop retires a running one", "", func(c *cobra.Command) {
-		c.Flags().Int("idle-shutdown-minutes", 10, "idle-shutdown window in minutes (0 disables)")
-		c.Flags().Bool("stop", false, "stop a running daemon and exit")
-	})
+	addSub("serve", "Run the daemon in the foreground; stopped via bus stop", "", nil)
+	addSub("start", "Spawn the daemon if none is listening; idempotent", "", nil)
+	addSub("stop", "Stop a running daemon; exit 0 if none is running", "", nil)
+	addSub("restart", "Stop then start the daemon; the version-skew remedy", "", nil)
 	addSub("tail", "Watch a room's traffic without joining; never appears in who", "[<room>]", func(c *cobra.Command) {
 		c.Flags().Bool("all-rooms", false, "interleave every room, prefixed per line")
 		c.Flags().Bool("json", false, "emit JSONL instead of rendered lines")
-		c.Flags().String("since", "", "replay envelopes after this message id")
 		c.Flags().Bool("only-addressed", false, "show only messages with an explicit addressee")
 		c.Flags().String("from", "", "show only messages from this sender")
 	})

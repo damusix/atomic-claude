@@ -346,7 +346,7 @@ func TestRunBus_DispatchUsesRealHomeFromEnv(t *testing.T) {
 	hub := bus.NewHub(home)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- bus.Serve(ctx, ln, hub, 0, nil) }()
+	go func() { done <- bus.Serve(ctx, ln, hub, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		select {

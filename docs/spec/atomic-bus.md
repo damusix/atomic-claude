@@ -23,8 +23,10 @@ can stop the exchange with `atomic bus halt`.
   roster (or pinned to the operator sentinel), never read from the request. So one member cannot
   impersonate another, and no agent can manufacture a halt bypass by claiming to be human.
 - Replacing subagents or agent teams. This connects sessions that already exist.
-- Replay that survives a daemon restart. Room logs are the durable record; `--since` replays from
-  a bounded in-memory ring.
+- Replay of any kind. A subscriber receives what is published after it subscribes and nothing
+  before. Replaying a backlog to a joining agent hands it stale instructions to act on, which is
+  worse than the gap it fills. `~/.atomic/rooms/<room>.log` is the durable record and the place to
+  look for history.
 - True scroll-position awareness in `chat`. Buffering keys on "the operator is mid-composition"
   (a non-empty input line), which covers the case that actually corrupts state — an envelope
   landing mid-word. An operator who has scrolled up with an *empty* input line still gets pushed
@@ -41,10 +43,13 @@ can stop the exchange with `atomic bus halt`.
 - [ ] Two concurrent `join` calls racing from cold produce exactly one daemon.
 - [ ] A second `join` with a taken name in the same room retries once with a numeric suffix; a
       third fails with exit 4.
-- [ ] `atomic bus recv <room> --follow` emits one JSON envelope per line, flushed per line, and
-      exits 0 on SIGTERM.
-- [ ] A message sent by one session appears on another session's `recv --follow` stdout in under
-      one second.
+- [ ] `atomic bus recv <room>` always streams: one JSON envelope per line, flushed per line,
+      exiting 0 on SIGTERM. There is no one-shot mode and no `--follow` flag to forget — a `recv`
+      that returned and exited would leave a `Monitor` silently hearing nothing.
+- [ ] A subscriber receives only what is published after it subscribes. Joining a busy room
+      delivers no backlog.
+- [ ] A message sent by one session appears on another session's `recv` stdout in under one
+      second.
 - [ ] A socket file whose listener is dead is unlinked, respawned, and connected to — once, not in
       a loop; a second failure exits 6.
 - [ ] A client whose version differs from the running daemon's refuses with exit 6 and names both
@@ -57,11 +62,12 @@ can stop the exchange with `atomic bus halt`.
 - [ ] `who`, `rooms`, `recv`, and `status` all accept `--json`.
 - [ ] The envelope on the wire matches the documented shape exactly: `ts` is Unix seconds, `id` is
       a short opaque string, `to` is always present.
-- [ ] Message ids stay unique across a daemon restart, so `--since <id>` is never ambiguous against
-      a room log that outlives the daemon.
+- [ ] Message ids stay unique across a daemon restart, so an id in a room log never collides with
+      a later one.
 - [ ] `rooms` reports a member count per room, in both table and `--json` form.
-- [ ] Idle shutdown is invisible to a joined session: a client that finds the daemon gone respawns
-      it and retries once before surfacing exit 6.
+- [ ] `atomic bus start | stop | restart` control the daemon explicitly. `start` is idempotent,
+      `restart` is the version-skew remedy, and no timer ever stops the daemon on its own.
+- [ ] A client that finds the daemon gone respawns it and retries once before surfacing exit 6.
 - [ ] A restarted daemon rehydrates the **whole** roster from `~/.atomic/bus.json` at startup, not
       one session at a time as each happens to run a command. A member who has been idle across
       the restart is still present in `who` and still addressable.
@@ -92,11 +98,11 @@ atomic/internal/bus/
 ├── identity_test.go ....... A
 ├── client.go .............. A  (Dial, Do, EnsureDaemon, Subscribe)
 ├── client_test.go ......... A
-├── daemon.go .............. A  (Serve, connection loop, idle shutdown)
+├── daemon.go .............. A  (Serve, connection loop, explicit shutdown)
 ├── daemon_test.go ......... A
-├── room.go ................ A  (Room, Hub, roster, ring, halt)
+├── room.go ................ A  (Room, Hub, roster, halt)
 ├── room_test.go ........... A
-├── roomlog.go ............. A  (Append, ReadSince)
+├── roomlog.go ............. A  (Append)
 ├── action.go .............. A  (BusAction verb dispatch)
 ├── action_test.go ......... A
 ├── render.go .............. A  (tail line, tables, colour, wrap)
@@ -105,7 +111,7 @@ atomic/internal/bus/
 └── chat_test.go ........... A
 atomic/cmd/atomic/main.go .. M  (buildBusCmd, runBus)
 atomic/cmd/atomic/main_test.go  M  (dispatch + verb-count assertions)
-atomic/internal/cliusage/cliusage.go  M  (12 bus entries)
+atomic/internal/cliusage/cliusage.go  M  (bus entries)
 skills/atomic-bus/SKILL.md . A  (connect + reaction policy)
 templates/commands/atomic-help.md  M  (topic row + tour stage)
 CLAUDE.md .................. M  (one clause)
@@ -149,29 +155,28 @@ atomic/internal/bus/client.go
   checkVersion — refuse on skew with an actionable message
 
 atomic/internal/bus/daemon.go
-  Serve — listen, accept, idle-shutdown timer, signal handling
+  Serve — listen, accept, signal handling; runs until told to stop
   conn  — per-connection state and op dispatch
     handleJoin, handleLeave, handleSend, handleRecv, handleTail,
     handleWho, handleRooms, handleHalt, handleResume, handlePing, handleShutdown
-  idleTimer — fire when subscriber count has been zero for the configured window
 
 atomic/internal/bus/room.go
   Hub — all rooms, guarded by one mutex
     Join    — atomic name claim with numeric-suffix retry
     Leave, Who, Rooms
-    Publish — assign id, append to log and ring, fan out to subscribers
+    Publish — assign id, append to log, fan out to live subscribers
     Halt, Resume, IsHalted
-  Room — roster, ring buffer, halt flag, subscribers
-    Since — replay from ring
+    Rehydrate — restore the roster from persisted state at daemon startup
+  Room — roster, halt flag, subscribers
 
 atomic/internal/bus/roomlog.go
-  Append   — one JSON line per envelope, 0600
-  ReadSince — recover envelopes after a daemon restart
+  Append — one JSON line per envelope, 0600; the durable record of a room
 
 atomic/internal/bus/action.go
   BusAction — exported entry; verb switch
     joinAction, leaveAction, sendAction, recvAction, whoAction, roomsAction,
-    serveAction, tailAction, chatAction, sayAction, haltAction, resumeAction, statusAction
+    serveAction, startAction, stopAction, restartAction,
+    tailAction, chatAction, sayAction, haltAction, resumeAction, statusAction
   readText — positional text, or stdin when "-"
   parseTo  — comma-separated names to []string
 
@@ -193,7 +198,7 @@ atomic/cmd/atomic/main.go
   runBus      — resolve home and cwd, delegate to bus.BusAction
 
 skills/atomic-bus/SKILL.md
-  Connecting — join then Monitor(recv --follow)
+  Connecting — join then Monitor(recv)
   Reaction policy — addressed vs FYI, human vs agent, observe mode
   Replying — send with --to and --reply-to
   Halt — what a halted room means for the agent
@@ -216,10 +221,9 @@ Flow: join
 
 Flow: send and receive
 1. sender runs `atomic bus send <room> <text> --to backend`
-2. daemon assigns a short id, stamps ts and from_kind, appends to the room log,
-   pushes onto the room ring
+2. daemon assigns a short id, stamps ts and from_kind, appends to the room log
 3. daemon writes the envelope to every open subscriber on that room
-4. the receiving session's `recv --follow` writes one JSON line and flushes
+4. the receiving session's `recv` writes one JSON line and flushes
 5. Monitor turns that line into a notification; the skill's reaction policy decides
    act (addressed) or note (FYI)
 
@@ -236,11 +240,12 @@ Flow: version skew
    "run `atomic bus serve --stop` to retire the old daemon", exits 6
 3. no drain, no auto-restart: another session may hold a live subscription
 
-Flow: idle shutdown
-1. daemon tracks open subscriptions
-2. count reaches zero -> arm a timer for the configured window (default 10m, 0 disables)
-3. new subscription before it fires -> disarm
-4. timer fires -> close the listener, unlink the socket, release the lock, exit 0
+Flow: daemon lifecycle
+1. `bus start` spawns a daemon if none is listening; already running -> say so, exit 0
+2. the daemon runs until told to stop; no timer ever retires it
+3. `bus stop` sends the shutdown op -> listener closed, socket unlinked, lock released, exit 0
+4. `bus restart` is stop then start, and is what a version-skew error tells the user to run
+5. any verb that finds no daemon still spawns one and retries once (see the join flow)
 ```
 
 
@@ -250,9 +255,9 @@ Flow: idle shutdown
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|------------|-------------|-------|------------|----------|
 | 1 | Protocol, paths, identity. Wire types, exit-code constants, `~/.atomic` path helpers, session-id resolution, `bus.json` state with `ResolveRoom`. No daemon, no CLI. | `internal/bus/{protocol,paths,identity}.go` + tests | atomic-implementer (mode: feature) | ~6 | `go test ./internal/bus/...`; state round-trips; missing session id errors |
-| 2 | Hub and daemon. Rooms, roster with atomic name claim, ring buffer, halt flag, room log, subscriber fan-out, `serve` with idle shutdown and `--stop`. | `internal/bus/{room,roomlog,daemon}.go` + tests | atomic-implementer (mode: feature) | ~7 | duplicate name rejected; halt blocks agent publish; idle timer arms and disarms; log appended |
+| 2 | Hub and daemon. Rooms, roster with atomic name claim, halt flag, room log, subscriber fan-out, `serve` as the foreground daemon. | `internal/bus/{room,roomlog,daemon}.go` + tests | atomic-implementer (mode: feature) | ~7 | duplicate name rejected; halt blocks agent publish; log appended |
 | 3 | Client and daemon lifecycle. Dial, round trip, subscribe, flock-guarded `EnsureDaemon`, stale-socket recovery, version refusal. | `internal/bus/client.go` + tests | atomic-implementer (mode: feature) | ~3 | **concurrent join spawns exactly one daemon**; stale socket recovered once then exit 6; skew exits 6 |
-| 4 | Agent verbs. `join leave send recv who rooms serve status` through `BusAction`; `buildBusCmd` and `runBus`; `cliusage` entries. | `internal/bus/action.go`, `cmd/atomic/main.go`, `cliusage.go` + tests | atomic-implementer (mode: feature) | ~6 | `--json` on every read verb; exit codes 3/4/5/6; `recv --follow` delivery under 1s; stdin on `-`; **its own `t.Setenv("HOME", …)` real-filesystem test at the dispatch layer** — checkpoint 1's disk test injects `home` directly and so cannot catch a wrong `os.UserHomeDir()` hand-off here |
+| 4 | Agent verbs. `join leave send recv who rooms serve status` through `BusAction`; `buildBusCmd` and `runBus`; `cliusage` entries. | `internal/bus/action.go`, `cmd/atomic/main.go`, `cliusage.go` + tests | atomic-implementer (mode: feature) | ~6 | `--json` on every read verb; exit codes 3/4/5/6; `recv` delivery under 1s; stdin on `-`; **its own `t.Setenv("HOME", …)` real-filesystem test at the dispatch layer** — checkpoint 1's disk test injects `home` directly and so cannot catch a wrong `os.UserHomeDir()` hand-off here |
 | 5 | Human participation. `kind` on roster and envelope, `tail say halt resume`, `render.go` formatting with colour, wrap, collapse, and the `--only-addressed` / `--from` filters. | `internal/bus/{render,action,room}.go` + tests | atomic-implementer (mode: feature) | ~6 | tail sees others' mail; halt blocks agent, permits human; no colour when not a tty |
 | 6 | `chat`. Interactive client: pinned input, `@name` and slash commands, scroll backpressure. | `internal/bus/chat.go` + tests | atomic-implementer (mode: feature) | ~3 | input line survives concurrent arrivals; `/halt` and `/quit` work |
 | 7 | Artifacts and docs. `skills/atomic-bus/SKILL.md` with the reaction policy; `atomic-help` topic row and tour stage; `CLAUDE.md`, `README.md`, `docs/reference/bus.md`, commands and skills tables; `make render` and `make bundle`. | `skills/`, `templates/commands/atomic-help.md`, docs | atomic-implementer (mode: feature) | ~9 | help MISSING-scan clean; render and bundle parity; `atomic validate artifacts` passes |
@@ -265,7 +270,7 @@ Flow: idle shutdown
 |------|-----------|-----------|
 | Daemon spawn race yields two daemons | med | The entire probe-and-spawn path runs under one exclusive `flock`; the daemon holds the lock for its lifetime, so acquiring it is itself proof the previous daemon is gone. CP3 test spawns N concurrent joins from cold and asserts one pid. |
 | Test suite leaves stray daemons or sockets behind | high | Every test overrides `HOME` to `t.TempDir()`, so socket, lock, and state land in the temp dir; `t.Cleanup` shuts the daemon down. No test touches the real `~/.atomic`. |
-| `recv --follow` tests hang forever on a missed message | med | Every subscription assertion is bounded by a `select` on a timeout channel and fails with a clear message rather than blocking the suite. |
+| `recv`/`tail` subscription tests hang forever on a missed message | med | Every subscription assertion is bounded by a `select` on a timeout channel and fails with a clear message rather than blocking the suite. |
 | Notification cap silently truncates a long message | med | Envelopes over the threshold carry `truncated` and `log`; the full body is always in the room log, and the skill documents how to fetch it. |
 | Daemon spawn fork-bombs the developer's machine under `go test` | **occurred** | `spawnServe` locates the binary with `os.Executable`, which under `go test` is `<pkg>.test` — it ignores the `bus serve` arguments, re-runs the whole suite, and each generation spawns more. Triggered once by a single call site using the package-level `EnsureDaemon` instead of the `recoveryEnsurer` seam. `spawnServe` now refuses to spawn from a test binary (`.test` suffix or `-test.*` in argv), pinned by `spawn_guard_test.go`. The seam remains the mechanism; the guard exists because forgetting it costs a machine, not a test. |
 | `chat` TUI scope creeps into a terminal-emulator rewrite | med | CP6 is last and deliberately minimal — line-oriented redraw, not a full-screen widget tree. Slipping it does not block CP1-5 or the skill. |
@@ -274,6 +279,46 @@ Flow: idle shutdown
 
 
 ## Change log
+
+### 2026-07-28 — replay removed entirely; recv is stream-only
+
+**What changed:** `--since` is gone from `recv` and `tail`, the per-room ring buffer and `Since`
+are deleted, subscribers no longer receive a backlog, and `recv` has no `--follow` flag or one-shot
+mode — it always streams. `roomlog.ReadSince` goes with the ring; `Append` stays.
+
+**Why:** cutting `--since` exposed that `since("")` returned the *entire* ring, so a `recv`
+subscribing to a room with existing traffic replayed up to 256 old messages as notifications. Each
+becomes a prompt and runs the reaction policy, so any addressed to that agent get acted on — stale
+instructions executed on connect. Removing the backlog fixes that at the source. With nothing left
+to replay the ring has no consumer, and one-shot `recv` — which held no subscription and exited
+immediately — was the silent-`Monitor` trap: a listener started without `--follow` heard nothing,
+forever, while `join`, `who`, and `status` all still looked healthy. A stream-only `recv` has no
+wrong way to call it.
+
+**Superseded:** `recv [--follow] [--since <id>]` with ring-backed replay, and `tail --since`.
+
+### 2026-07-28 — idle shutdown removed; the daemon is controlled explicitly
+
+Owner's call after reviewing the reap/respawn behavior. Idle shutdown bought two small things —
+not leaving a process idle, and bounding how long a stale daemon survives an upgrade — and cost
+more than it bought:
+
+- `recv --since <id>` returned **nothing with exit 0** after a reap, because rehydration restores
+  the roster but not the replay ring, while the messages sat in the room log. A confidently wrong
+  answer to "what did I miss".
+- Every failure mode it created needed compensating machinery: roster rehydration became
+  load-bearing rather than crash recovery, and the accept-race `pending` counter existed only to
+  keep the timer from firing mid-handshake.
+- A session that only sends, never subscribes, respawned the daemon per send — which is not tidy
+  either, the one property idle shutdown was for.
+
+The timer, its flag, and the `pending` counter are deleted. `atomic bus start | stop | restart`
+replace them, and `restart` is what the version-skew error now names. `serve` remains the
+foreground daemon process that `start` spawns; its `--stop` flag folds into `bus stop`.
+
+The `--since` gap is fixed by making it honest rather than by scanning the log: an id the ring no
+longer holds reports that and names the room log. A log-fallback scan would be unbounded, and the
+room log is already the documented durable record.
 
 ### 2026-07-28 — sender identity is assigned server-side, never accepted from the wire
 

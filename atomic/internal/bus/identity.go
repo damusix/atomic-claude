@@ -39,9 +39,9 @@ func SessionID(override string) (string, error) {
 // retry — see docs/design/atomic-bus.md's join flow, step 6), its kind and
 // mode, and when. Mode and Kind exist so a restarted daemon can rehydrate a
 // member exactly as it joined (room.go's Hub.Rehydrate) — before this they
-// were held only in the daemon's memory, so an idle-shutdown restart
-// silently reset every observer back to participate (docs/spec/
-// atomic-bus.md: "mode and kind survive a daemon restart").
+// were held only in the daemon's memory, so any daemon restart silently
+// reset every observer back to participate (docs/spec/atomic-bus.md:
+// "mode and kind survive a daemon restart").
 type roomMembership struct {
 	Name   string    `json:"name"`
 	Mode   string    `json:"mode,omitempty"`

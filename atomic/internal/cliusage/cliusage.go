@@ -55,8 +55,8 @@ var commands = []Command{
 	{
 		Path:        []string{"bus", "recv"},
 		Args:        "<room>",
-		Flags:       []string{"--follow", "--since", "--json"},
-		Description: "Receive messages; --follow streams JSONL until SIGTERM",
+		Flags:       []string{"--json"},
+		Description: "Receive messages; streams JSON envelopes until SIGTERM",
 	},
 	{
 		Path:        []string{"bus", "who"},
@@ -79,13 +79,31 @@ var commands = []Command{
 	{
 		Path:        []string{"bus", "serve"},
 		Args:        "",
-		Flags:       []string{"--idle-shutdown-minutes", "--stop"},
-		Description: "Run the daemon in the foreground; --stop retires a running one",
+		Flags:       nil,
+		Description: "Run the daemon in the foreground; stopped via bus stop",
+	},
+	{
+		Path:        []string{"bus", "start"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Spawn the daemon if none is listening; idempotent",
+	},
+	{
+		Path:        []string{"bus", "stop"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Stop a running daemon; exit 0 if none is running",
+	},
+	{
+		Path:        []string{"bus", "restart"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Stop then start the daemon; the version-skew remedy",
 	},
 	{
 		Path:        []string{"bus", "tail"},
 		Args:        "[<room>]",
-		Flags:       []string{"--all-rooms", "--json", "--since", "--only-addressed", "--from"},
+		Flags:       []string{"--all-rooms", "--json", "--only-addressed", "--from"},
 		Description: "Watch a room's traffic without joining; never appears in who",
 	},
 	{

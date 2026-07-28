@@ -27,8 +27,8 @@ func StatePath(home string) string {
 }
 
 // RoomLogPath returns <home>/.atomic/rooms/<room>.log — the durable,
-// append-only record of a room's traffic. The in-memory ring buffer is
-// replay-bounded; this file is the record of record.
+// append-only record of a room's traffic. There is no replay of any kind
+// (docs/spec/atomic-bus.md's Non-goals); this file is the only history.
 func RoomLogPath(home, room string) string {
 	return filepath.Join(roomsDir(home), room+".log")
 }
