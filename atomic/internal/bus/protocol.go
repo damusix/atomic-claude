@@ -81,6 +81,30 @@ type Response struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// MaxTextBytes bounds Envelope.Text as enforced by Hub.Publish: a message
+// over this limit is rejected with ExitUsage rather than written, because
+// an unbounded text field written to a room log can make that room's
+// ReadSince fail forever after (see roomlog.go's scanner buffer, sized
+// above this limit so anything Publish admits always reads back).
+const MaxTextBytes = 1024 * 1024
+
+// MaxIdentifierBytes bounds Room and a member's assigned Name (both
+// enforced by Hub.Join) and ReplyTo (enforced by Hub.Publish) — the other
+// string-typed envelope metadata fields roomlog.go's scanner budget has to
+// hold room for alongside Text. See roomlog.go's scannerMaxLineBytes.
+const MaxIdentifierBytes = 128
+
+// MaxAddressees bounds how many entries Hub.Publish's to may carry, and
+// MaxAddresseesBytes bounds their combined raw length (summed across every
+// entry, not per entry — a large count of short names and a small count of
+// long ones are both covered by one budget). Both are enforced by
+// Hub.Publish and feed roomlog.go's scannerMaxLineBytes the same way
+// MaxTextBytes and MaxIdentifierBytes do.
+const (
+	MaxAddressees      = 16
+	MaxAddresseesBytes = 256
+)
+
 // Envelope is one message on a room: the unit sent to subscribers of recv
 // --follow, tail, and chat, and the unit appended to a room's log.
 type Envelope struct {
@@ -128,11 +152,22 @@ func (e Envelope) MarshalJSON() ([]byte, error) {
 	}{alias: alias(e), To: to})
 }
 
+// KindAgent and KindHuman are the only two values Member.Kind (and a join
+// request's Kind) may hold — Hub.Join rejects anything else with
+// ExitUsage. Closing Kind to exactly these two values is what lets
+// room.go's systemName reservation guarantee a real member's envelope can
+// never be mistaken for a daemon control envelope (see room.go's validKind
+// and Hub.Join).
+const (
+	KindAgent = "agent"
+	KindHuman = "human"
+)
+
 // Member is one room participant, as reported by `who` and carried on every
 // Envelope's implied roster context.
 type Member struct {
 	Name    string    `json:"name"`
-	Kind    string    `json:"kind"` // "agent" or "human"
+	Kind    string    `json:"kind"` // KindAgent or KindHuman
 	Mode    string    `json:"mode,omitempty"`
 	Session string    `json:"session"`
 	Joined  time.Time `json:"joined"`
