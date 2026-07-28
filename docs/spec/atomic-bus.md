@@ -246,10 +246,19 @@ Flow: idle shutdown
 | Notification cap silently truncates a long message | med | Envelopes over the threshold carry `truncated` and `log`; the full body is always in the room log, and the skill documents how to fetch it. |
 | `chat` TUI scope creeps into a terminal-emulator rewrite | med | CP6 is last and deliberately minimal — line-oriented redraw, not a full-screen widget tree. Slipping it does not block CP1-5 or the skill. |
 | Session id absent outside Claude Code breaks scripted use | low | `--session` override on `join`, exercised by tests. |
-| Unix-only build breaks the Windows release target | low | `flock` and `net.Listen("unix", ...)` are POSIX; the package builds on darwin and linux. goreleaser still emits a Windows binary, and `bus` returns a clear unsupported error there via a build-tagged stub. |
+| Unix-only build breaks a release target | none | `.goreleaser.yaml` builds `linux` and `darwin` only — there is no Windows target to break. `syscall.Flock` and `SysProcAttr.Setsid` are used unguarded, matching the existing precedent in `atomic/internal/codeintel/mcp/proxy.go:66,113`. No build tag and no platform stub. |
 
 
 ## Change log
+
+### 2026-07-28 — correction: there is no Windows release target
+
+The Windows risk row claimed goreleaser emits a Windows binary and required a build-tagged stub
+returning an unsupported error. That was wrong: `.goreleaser.yaml` lists only `linux` and `darwin`
+under `goos`. The row now records that no stub is needed and that unguarded `syscall.Flock` /
+`Setsid` matches existing precedent in `internal/codeintel/mcp/proxy.go`. Caught at checkpoint 3,
+where the implementer flagged the deviation rather than silently adding the stub the spec asked
+for.
 
 ### 2026-07-28 — checkpoint 4 owes its own real-filesystem test
 
