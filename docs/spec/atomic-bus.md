@@ -229,7 +229,7 @@ Flow: idle shutdown
 | 1 | Protocol, paths, identity. Wire types, exit-code constants, `~/.atomic` path helpers, session-id resolution, `bus.json` state with `ResolveRoom`. No daemon, no CLI. | `internal/bus/{protocol,paths,identity}.go` + tests | atomic-implementer (mode: feature) | ~6 | `go test ./internal/bus/...`; state round-trips; missing session id errors |
 | 2 | Hub and daemon. Rooms, roster with atomic name claim, ring buffer, halt flag, room log, subscriber fan-out, `serve` with idle shutdown and `--stop`. | `internal/bus/{room,roomlog,daemon}.go` + tests | atomic-implementer (mode: feature) | ~7 | duplicate name rejected; halt blocks agent publish; idle timer arms and disarms; log appended |
 | 3 | Client and daemon lifecycle. Dial, round trip, subscribe, flock-guarded `EnsureDaemon`, stale-socket recovery, version refusal. | `internal/bus/client.go` + tests | atomic-implementer (mode: feature) | ~3 | **concurrent join spawns exactly one daemon**; stale socket recovered once then exit 6; skew exits 6 |
-| 4 | Agent verbs. `join leave send recv who rooms serve status` through `BusAction`; `buildBusCmd` and `runBus`; `cliusage` entries. | `internal/bus/action.go`, `cmd/atomic/main.go`, `cliusage.go` + tests | atomic-implementer (mode: feature) | ~6 | `--json` on every read verb; exit codes 3/4/5/6; `recv --follow` delivery under 1s; stdin on `-` |
+| 4 | Agent verbs. `join leave send recv who rooms serve status` through `BusAction`; `buildBusCmd` and `runBus`; `cliusage` entries. | `internal/bus/action.go`, `cmd/atomic/main.go`, `cliusage.go` + tests | atomic-implementer (mode: feature) | ~6 | `--json` on every read verb; exit codes 3/4/5/6; `recv --follow` delivery under 1s; stdin on `-`; **its own `t.Setenv("HOME", …)` real-filesystem test at the dispatch layer** — checkpoint 1's disk test injects `home` directly and so cannot catch a wrong `os.UserHomeDir()` hand-off here |
 | 5 | Human participation. `kind` on roster and envelope, `tail say halt resume`, `render.go` formatting with colour, wrap, collapse, and the `--only-addressed` / `--from` filters. | `internal/bus/{render,action,room}.go` + tests | atomic-implementer (mode: feature) | ~6 | tail sees others' mail; halt blocks agent, permits human; no colour when not a tty |
 | 6 | `chat`. Interactive client: pinned input, `@name` and slash commands, scroll backpressure. | `internal/bus/chat.go` + tests | atomic-implementer (mode: feature) | ~3 | input line survives concurrent arrivals; `/halt` and `/quit` work |
 | 7 | Artifacts and docs. `skills/atomic-bus/SKILL.md` with the reaction policy; `atomic-help` topic row and tour stage; `CLAUDE.md`, `README.md`, `docs/reference/bus.md`, commands and skills tables; `make render` and `make bundle`. | `skills/`, `templates/commands/atomic-help.md`, docs | atomic-implementer (mode: feature) | ~9 | help MISSING-scan clean; render and bundle parity; `atomic validate artifacts` passes |
@@ -251,4 +251,10 @@ Flow: idle shutdown
 
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+### 2026-07-28 — checkpoint 4 owes its own real-filesystem test
+
+Checkpoint 4's `Verifies` column now requires a `t.Setenv("HOME", …)` test at the CLI dispatch
+layer. Raised by the checkpoint 1 review: that checkpoint's real-disk test passes `home` in
+directly, because nothing in `internal/bus` reads `$HOME`. The env-var-to-`home` hand-off first
+exists in `runBus`, so the scope-root class of bug (`.claude/skills/atomic-cli-contrib/SKILL.md`
+§3) is only reachable — and only catchable — at checkpoint 4.
