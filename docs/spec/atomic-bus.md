@@ -25,6 +25,11 @@ can stop the exchange with `atomic bus halt`.
 - Replacing subagents or agent teams. This connects sessions that already exist.
 - Replay that survives a daemon restart. Room logs are the durable record; `--since` replays from
   a bounded in-memory ring.
+- True scroll-position awareness in `chat`. Buffering keys on "the operator is mid-composition"
+  (a non-empty input line), which covers the case that actually corrupts state — an envelope
+  landing mid-word. An operator who has scrolled up with an *empty* input line still gets pushed
+  to the bottom by new output. Querying native scrollback needs a full-screen TUI library, which
+  this checkpoint deliberately does not take on.
 - Windows support.
 
 

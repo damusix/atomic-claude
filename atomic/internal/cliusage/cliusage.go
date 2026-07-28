@@ -107,6 +107,12 @@ var commands = []Command{
 		Description: "Clear a room's halt flag; restores agent send",
 	},
 	{
+		Path:        []string{"bus", "chat"},
+		Args:        "<room>",
+		Flags:       []string{"--as", "--session"},
+		Description: "Interactive client: joins as a human member; @name, /who, /rooms, /halt, /resume, /quit",
+	},
+	{
 		Path:        []string{"claude", "install"},
 		Args:        "",
 		Flags:       []string{"--dry-run", "--target", "--no-hooks"},

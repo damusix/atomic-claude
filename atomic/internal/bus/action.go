@@ -25,12 +25,9 @@ import (
 // path in this package stays testable against a temp dir. cwd is accepted
 // for signature parity with WikiAction; nothing in bus needs it today (no
 // --root-style flag), so it is unused.
-//
-// chat is not wired here — checkpoint 6 (docs/spec/atomic-bus.md) — so that
-// verb falls through to the unknown-verb case below like any other typo.
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume|chat> [flags]")
 		return int(ExitUsage)
 	}
 
@@ -60,6 +57,8 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 		return haltAction(rest, home, out)
 	case "resume":
 		return resumeAction(rest, home, out)
+	case "chat":
+		return chatAction(rest, home, out)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic bus: unknown verb %q\n", verb)
 		return int(ExitUsage)
@@ -1206,5 +1205,237 @@ func tailStream(client *Client, rooms []string, since string, onlyAddressed bool
 		case <-ctx.Done():
 			return int(ExitOK)
 		}
+	}
+}
+
+// --- chat ---
+
+// chatAction implements `atomic bus chat <room> [--as <name>] [--session
+// <id>]`: an interactive client that joins room as a kind: "human" member
+// (docs/spec/atomic-bus.md checkpoint 6) and then hands off to Chat's core
+// loop (chat.go) against a real raw-mode stdin and the daemon's live
+// subscription stream. --as defaults to $USER; identity is resolved
+// exactly like join (SessionID, --session override) — chat calls Hub.Join
+// too, and docs/design/atomic-bus.md's Identity section makes no exception
+// for it.
+func chatAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus chat <room> [--as <name>] [--session <id>]\n"
+
+	fs := flag.NewFlagSet("bus-chat", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var as, session string
+	fs.StringVar(&as, "as", "", "member name to claim in the room (default: $USER)")
+	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
+		return int(ExitUsage)
+	}
+	if len(positional) != 1 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+	room := positional[0]
+
+	if as == "" {
+		as = os.Getenv("USER")
+	}
+	if as == "" {
+		fmt.Fprintln(os.Stderr, "atomic bus chat: --as is required ($USER is not set)")
+		return int(ExitUsage)
+	}
+
+	sessionID, err := SessionID(session)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
+		return exitFromErr(err)
+	}
+
+	// Through the recoveryEnsurer seam, not the package-level EnsureDaemon —
+	// see joinAction's identical comment; the two call sites share the same
+	// fork-bomb hazard under `go test`.
+	joinClient, err := recoveryEnsurer().EnsureDaemon(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
+		return exitFromErr(err)
+	}
+	resp, err := joinClient.Do(Request{Op: OpJoin, Room: room, Name: as, Mode: "participate", Kind: KindHuman, Session: sessionID})
+	joinClient.Close()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
+		return exitFromErr(err)
+	}
+	var joinPayload struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(resp.Payload, &joinPayload); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus chat: parse response: %v\n", err)
+		return int(ExitHard)
+	}
+	name := joinPayload.Name
+
+	st, err := Load(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
+		return int(ExitHard)
+	}
+	st.Join(sessionID, room, name, "participate", KindHuman)
+	if err := st.Save(home); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
+		return int(ExitHard)
+	}
+	if name != as {
+		fmt.Fprintf(out, "joined %s as %s (requested %s was taken)\n", room, name, as)
+	} else {
+		fmt.Fprintf(out, "joined %s as %s\n", room, name)
+	}
+
+	subClient, err := dialDaemonRecovered(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
+		return exitFromErr(err)
+	}
+	envelopes, err := subClient.Subscribe(Request{Op: OpRecv, Room: room, Follow: true})
+	if err != nil {
+		subClient.Close()
+		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
+		return exitFromErr(err)
+	}
+	defer subClient.Close()
+
+	if restore := makeStdinRaw(); restore != nil {
+		defer restore()
+	}
+
+	chat := &Chat{
+		home:      home,
+		room:      room,
+		in:        os.Stdin,
+		out:       out,
+		colour:    isTerminalWriter(out),
+		width:     terminalWidth(out),
+		envelopes: envelopes,
+		send:      chatSendFunc(home, room, sessionID),
+		who:       chatWhoFunc(home, room),
+		rooms:     chatRoomsFunc(home),
+		halt:      chatHaltFunc(home, room),
+		resume:    chatResumeFunc(home, room),
+		leave:     chatLeaveFunc(home, room, sessionID),
+	}
+
+	if err := chat.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "\natomic bus chat: %v\n", err)
+		return int(ExitHard)
+	}
+	return int(ExitOK)
+}
+
+// makeStdinRaw puts a live terminal stdin into raw mode so Chat can decode
+// and echo one keystroke at a time itself (see chat.go's Run doc) instead
+// of the tty line-discipline buffering a whole line before this process
+// ever sees it. Returns nil, doing nothing, when stdin is not a terminal
+// (piped input, a non-interactive CI shell) — chat still works there, just
+// without raw single-keystroke echo. The returned func restores the
+// original terminal state; the caller must defer it.
+func makeStdinRaw() func() {
+	fd := os.Stdin.Fd()
+	if !charmterm.IsTerminal(fd) {
+		return nil
+	}
+	oldState, err := charmterm.MakeRaw(fd)
+	if err != nil {
+		return nil
+	}
+	return func() { _ = charmterm.Restore(fd, oldState) }
+}
+
+// chatSendFunc, chatWhoFunc, chatRoomsFunc, chatHaltFunc, chatResumeFunc,
+// and chatLeaveFunc are chatAction's wiring of Chat's collaborator fields
+// to the daemon — each its own named closure so chatAction's own body
+// stays a flat sequence of setup steps rather than a wall of inline
+// func literals.
+func chatSendFunc(home, room, sessionID string) func(text string, to []string) error {
+	return func(text string, to []string) error {
+		_, err := doWithRecovery(home, Request{Op: OpSend, Room: room, Session: sessionID, To: to, Text: text})
+		return err
+	}
+}
+
+func chatWhoFunc(home, room string) func() ([]Member, error) {
+	return func() ([]Member, error) {
+		client, err := dialDaemonRecovered(home)
+		if err != nil {
+			return nil, err
+		}
+		defer client.Close()
+		resp, err := client.Do(Request{Op: OpWho, Room: room})
+		if err != nil {
+			return nil, err
+		}
+		var payload struct {
+			Members []Member `json:"members"`
+		}
+		if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("bus: parse who response: %w", err)
+		}
+		return payload.Members, nil
+	}
+}
+
+func chatRoomsFunc(home string) func() ([]RoomInfo, error) {
+	return func() ([]RoomInfo, error) {
+		client, err := dialDaemonRecovered(home)
+		if err != nil {
+			return nil, err
+		}
+		defer client.Close()
+		resp, err := client.Do(Request{Op: OpRooms})
+		if err != nil {
+			return nil, err
+		}
+		var payload struct {
+			Rooms []RoomInfo `json:"rooms"`
+		}
+		if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+			return nil, fmt.Errorf("bus: parse rooms response: %w", err)
+		}
+		return payload.Rooms, nil
+	}
+}
+
+func chatHaltFunc(home, room string) func(text string) error {
+	return func(text string) error {
+		client, err := dialDaemonRecovered(home)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+		_, err = client.Do(Request{Op: OpHalt, Room: room, Text: text})
+		return err
+	}
+}
+
+func chatResumeFunc(home, room string) func() error {
+	return func() error {
+		client, err := dialDaemonRecovered(home)
+		if err != nil {
+			return err
+		}
+		defer client.Close()
+		_, err = client.Do(Request{Op: OpResume, Room: room})
+		return err
+	}
+}
+
+func chatLeaveFunc(home, room, sessionID string) func() error {
+	return func() error {
+		if _, err := doWithRecovery(home, Request{Op: OpLeave, Room: room, Session: sessionID}); err != nil {
+			return err
+		}
+		st, err := Load(home)
+		if err != nil {
+			return err
+		}
+		st.Leave(sessionID, room)
+		return st.Save(home)
 	}
 }

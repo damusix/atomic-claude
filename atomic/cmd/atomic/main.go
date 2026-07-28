@@ -741,14 +741,13 @@ func buildConfigCmd() *cobra.Command {
 	return parent
 }
 
-// buildBusCmd builds the "bus" parent + join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume
+// buildBusCmd builds the "bus" parent + join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume|chat
 // children. Dispatch is runBus (→ bus.BusAction from internal/bus/action.go).
-// chat is not wired here — checkpoint 6 (docs/spec/atomic-bus.md).
 func buildBusCmd() *cobra.Command {
 	dispatch := func(args []string) { runBus(args) }
 	parent := &cobra.Command{
 		Use:   "bus",
-		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume)",
+		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume|chat)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -811,6 +810,10 @@ func buildBusCmd() *cobra.Command {
 		c.Flags().String("text", "", "reason broadcast with the halt")
 	})
 	addSub("resume", "Clear a room's halt flag; restores agent send", "<room>", nil)
+	addSub("chat", "Interactive client: joins as a human member; @name, /who, /rooms, /halt, /resume, /quit", "<room>", func(c *cobra.Command) {
+		c.Flags().String("as", "", "member name to claim (default: $USER)")
+		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")
+	})
 	return parent
 }
 

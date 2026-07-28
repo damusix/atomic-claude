@@ -48,15 +48,16 @@ func TestBusAction_UnknownVerb_ExitUsage(t *testing.T) {
 	}
 }
 
-// TestBusAction_ChatIsNotWiredYet pins the checkpoint boundary: chat is
-// checkpoint 6 (docs/spec/atomic-bus.md) — until then it must fall through
-// to the unknown-verb case, not silently no-op. tail, say, halt, and resume
-// are checkpoint 5's own verbs and are exercised as such below.
-func TestBusAction_ChatIsNotWiredYet(t *testing.T) {
+// TestBusAction_Chat_MissingRoom_ExitUsage proves chat is wired into
+// BusAction's dispatch (checkpoint 6) rather than falling through to the
+// unknown-verb case — exercised here via a usage error, since a full chat
+// session needs a live daemon and a terminal, both covered by chat_test.go
+// and action_test.go's other daemon-backed tests instead.
+func TestBusAction_Chat_MissingRoom_ExitUsage(t *testing.T) {
 	var out bytes.Buffer
 	code := BusAction([]string{"chat"}, t.TempDir(), t.TempDir(), &out)
 	if code != int(ExitUsage) {
-		t.Errorf("BusAction(%q) exit code = %d, want %d (ExitUsage, not yet implemented)", "chat", code, ExitUsage)
+		t.Errorf("BusAction(%q) exit code = %d, want %d (ExitUsage, missing <room>)", "chat", code, ExitUsage)
 	}
 }
 
@@ -2225,5 +2226,100 @@ func TestTerminalWidth_NonFileWriter_ReturnsDefault(t *testing.T) {
 	var buf bytes.Buffer
 	if got := terminalWidth(&buf); got != defaultLineWidth {
 		t.Fatalf("terminalWidth = %d, want %d (defaultLineWidth)", got, defaultLineWidth)
+	}
+}
+
+// --- chat: end-to-end wiring (join, live subscription, /quit's leave) ---
+//
+// chat_test.go's own tests drive Chat directly against spies and no daemon
+// at all — the right level for exercising the redraw/backlog logic without
+// paying for a socket round trip on every assertion. This one test instead
+// proves chatAction's wiring: join really happens (visible in a real who
+// round trip, kind human), and /quit really leaves (bus.json cleared),
+// exactly as joinAction/leaveAction's own tests prove for their verbs.
+
+// waitForBufferContains polls buf until it contains want, bounded by
+// wireTimeout — chatAction's join confirmation and Chat's own redraw output
+// land on buf from a background goroutine, so this is the same
+// poll-until-condition pattern publishUntilDelivered/waitForDaemonGone use
+// above for the identical cross-goroutine reason.
+func waitForBufferContains(t *testing.T, buf *syncBuffer, want string) {
+	t.Helper()
+	deadline := time.Now().Add(wireTimeout)
+	for {
+		if strings.Contains(buf.String(), want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("output did not contain %q within %s; got:\n%s", want, wireTimeout, buf.String())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestChatAction_JoinsRunsQuit_EndToEnd(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	t.Setenv(sessionEnvVar, "sess-operator")
+
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = pr
+	t.Cleanup(func() { os.Stdin = origStdin })
+
+	out := &syncBuffer{}
+	codeCh := make(chan int, 1)
+	go func() { codeCh <- chatAction([]string{"potato", "--as", "operator"}, home, out) }()
+
+	waitForBufferContains(t, out, "joined potato as operator")
+
+	addr := SocketPath(home)
+	resp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
+	if !resp.OK {
+		t.Fatalf("who: %s", resp.Error)
+	}
+	var whoPayload struct {
+		Members []Member `json:"members"`
+	}
+	if err := json.Unmarshal(resp.Payload, &whoPayload); err != nil {
+		t.Fatalf("unmarshal who: %v", err)
+	}
+	found := false
+	for _, m := range whoPayload.Members {
+		if m.Name == "operator" && m.Kind == KindHuman {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("who = %+v, want operator listed with kind %q", whoPayload.Members, KindHuman)
+	}
+
+	if _, err := pw.Write([]byte("/quit\n")); err != nil {
+		t.Fatalf("write /quit: %v", err)
+	}
+
+	select {
+	case code := <-codeCh:
+		if code != int(ExitOK) {
+			t.Fatalf("chatAction exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+		}
+	case <-time.After(wireTimeout):
+		t.Fatal("chatAction did not return after /quit")
+	}
+	_ = pw.Close()
+
+	if !strings.Contains(out.String(), "left potato") {
+		t.Fatalf("output = %q, want a \"left potato\" confirmation", out.String())
+	}
+
+	st, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := st.LastRoom("sess-operator"); ok {
+		t.Fatal("expected LastRoom cleared after /quit's leave")
 	}
 }
