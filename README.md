@@ -157,8 +157,9 @@ One decision is yours, how to merge. Everything else runs unattended. → [workf
 | **Bucket doc management** | Capture-bucket docs carry a six-key frontmatter contract (`title`, `type`, `description`, `tags`, `status`, `created`); `atomic wiki bucket doc <bucket> <slug>` scaffolds a topic file (`--router` for one that outgrows a single file), `atomic wiki bucket skill <bucket>` scaffolds a per-bucket authoring skill, and `atomic wiki bucket index` rebuilds the bucket and realm listing regions from that frontmatter, work `atomic wiki scan` already covers as part of its own pass. | [wiki](docs/reference/wiki-workflow.md) |
 | **Self-sharpening config** | `/retrospective-learning` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
 | **Output style** | Multi-part answers shaped as tables, trees, and ASCII flows, filler cut. The most optional piece. | [output-style](docs/reference/output-style.md) |
-| **Discipline skills** | Nine that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing, visual-options. | [skills](docs/reference/skills.md) |
+| **Discipline skills** | Ten that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing, visual-options, bus messaging. | [skills](docs/reference/skills.md) |
 | **Quick fixes** | `/quick-fix <task>` runs the implement-review loop without a spec, for a fix with a known cause and one obvious approach. | [workflow](docs/reference/workflow.md) |
+| **Inter-session messaging** | `atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms: `join` a room, address a peer by name or send a room-wide FYI, watch or halt a room as the operator. The daemon auto-spawns on first use and idle-shuts-down when nothing is subscribed. | [bus](docs/reference/bus.md) |
 | **Git commands** | `/commit [push\|pr\|merge\|squash\|squash merge]` covers all ship paths from one verb; ask-don't-enumerate. Plus CI watch, branch cleanup, worktrees, reminders. | [commands](docs/reference/commands.md) |
 | **Persistent profile** | `~/.atomic/profile.md`: who you are plus auto-detected dev tooling, read every session, refreshed on a staleness check. | [concepts](docs/reference/concepts.md) |
 | **Multi-harness paths** | The binary detects which coding agent launched it and keeps repo-local state under that agent's directory: `.claude/` for Claude Code, `.pi/` for the pi agent, `ATOMIC_HARNESS=<name>` for anything else. Per-user state lives harness-neutral at `~/.atomic/`. | [concepts](docs/reference/concepts.md) |
@@ -260,6 +261,7 @@ Atomic Claude dogfoods itself: the root artifacts are both the live config and t
 | Output style | [docs/reference/output-style.md](docs/reference/output-style.md) |
 | Signals workflow | [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md) |
 | Wiki workflow | [docs/reference/wiki-workflow.md](docs/reference/wiki-workflow.md) |
+| Bus (inter-session messaging) | [docs/reference/bus.md](docs/reference/bus.md) |
 | Code intelligence | [docs/reference/code-intel.md](docs/reference/code-intel.md) |
 | Code-intel MCP setup | [docs/guides/code-intel-mcp.md](docs/guides/code-intel-mcp.md) |
 | Concepts (how it flows) | [docs/reference/concepts.md](docs/reference/concepts.md) |
