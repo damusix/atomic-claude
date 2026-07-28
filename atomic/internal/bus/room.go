@@ -126,10 +126,26 @@ func noRoomError(room string) error {
 // From == systemName. setHalted's control envelope uses KindHuman instead
 // (see docs/design/atomic-bus.md's halt flow, step 2); systemName alone is
 // what makes that one unspoofable too.
+// operatorName is the fixed From of every `say` / `halt` / `resume` envelope.
+// The daemon assigns it in handleSay — it is never read from the request — and
+// Join reserves it exactly as it reserves systemName, so From == operatorName
+// is proof the message came from a human operator. That proof is load-bearing:
+// the skill tells agents to treat operator messages as authoritative user
+// input, so a forgeable operator identity is a privilege escalation between
+// agents, not a cosmetic confusion.
 const (
-	systemName = "system"
-	kindSystem = "system"
+	systemName   = "system"
+	kindSystem   = "system"
+	operatorName = "human"
 )
+
+// reservedNames are the sentinel From values no member may claim at Join.
+// Adding a sentinel elsewhere in the package means adding it here — that is
+// the point of the set existing rather than a chain of != comparisons.
+var reservedNames = map[string]bool{
+	systemName:   true,
+	operatorName: true,
+}
 
 // validKind reports whether kind is one of the two values Member.Kind
 // accepts (protocol.go's KindAgent/KindHuman). Join rejects anything else
@@ -180,10 +196,10 @@ func (h *Hub) Join(room, name, mode, kind, session string) (string, error) {
 			Msg:  fmt.Sprintf("bus: name is %d bytes, over the %d-byte limit (MaxIdentifierBytes)", len(name), MaxIdentifierBytes),
 		}
 	}
-	if name == systemName {
+	if reservedNames[name] {
 		return "", &Error{
 			Code: ExitUsage,
-			Msg:  fmt.Sprintf("bus: name %q is reserved for daemon control envelopes", systemName),
+			Msg:  fmt.Sprintf("bus: name %q is reserved for daemon and operator envelopes", name),
 		}
 	}
 	if !validKind(kind) {
@@ -377,6 +393,50 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 		}
 	}
 
+	return r.publishValidated(h.home, room, name, member.Kind, to, replyTo, text)
+}
+
+// PublishAs publishes on behalf of name/kind directly, without requiring
+// name to hold a room membership via Join — the path `say` uses to speak
+// into a room without occupying a roster slot or appearing in `who`
+// (docs/spec/atomic-bus.md checkpoint 5: "say — one-shot send without
+// joining"). Unlike Publish, room must already exist (getRoom, not
+// getOrCreateRoom) — nothing is listening in a room nobody has ever
+// joined, mirroring Halt/Resume's own "room must exist" contract.
+//
+// The sender identity is fixed — operatorName / KindHuman — and deliberately
+// not a parameter. An earlier signature took name and kind from the caller and
+// was reachable from the wire via OpSay, which let any local process publish
+// under an existing agent's name with kind "agent" and, because this path does
+// not consult the halt flag, speak into a halted room. Both the impersonation
+// and the halt bypass came from the daemon trusting a client-supplied identity
+// — the same mistake Join's reserved-name and kind-enum checks exist to
+// prevent. A function that cannot accept an identity cannot be talked into
+// believing one.
+//
+// Skipping the halt check is correct here precisely because the identity is
+// pinned: halt binds agents, and a human is the one who lifts it. Publish's own
+// check lets KindHuman through for the same reason.
+func (h *Hub) PublishAsOperator(room string, to []string, replyTo, text string) (Envelope, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	r, ok := h.getRoom(room)
+	if !ok {
+		return Envelope{}, noRoomError(room)
+	}
+	return r.publishValidated(h.home, room, operatorName, KindHuman, to, replyTo, text)
+}
+
+// publishValidated is the shared tail end of Publish and PublishAs: once
+// the caller has resolved from/fromKind (via a roster lookup, or supplied
+// directly) and cleared any halt check, this validates the wire-size
+// limits (MaxTextBytes, MaxIdentifierBytes for replyTo, MaxAddressees/
+// MaxAddresseesBytes for to — the same limits roomlog.go's scanner budget
+// is sized against), assigns an id, appends to the durable room log,
+// pushes onto the ring, and fans out to subscribers. Caller must hold h.mu
+// (both Hub.Publish and Hub.PublishAs do).
+func (r *Room) publishValidated(home, room, from, fromKind string, to []string, replyTo, text string) (Envelope, error) {
 	if len(text) > MaxTextBytes {
 		return Envelope{}, &Error{
 			Code: ExitUsage,
@@ -413,20 +473,20 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 	env := Envelope{
 		ID:       id,
 		Room:     room,
-		From:     name,
-		FromKind: member.Kind,
+		From:     from,
+		FromKind: fromKind,
 		To:       to,
 		ReplyTo:  replyTo,
 		Ts:       time.Now(),
 		Text:     text,
 	}
 
-	if err := Append(h.home, room, env); err != nil {
+	if err := Append(home, room, env); err != nil {
 		return Envelope{}, fmt.Errorf("bus: append room log: %w", err)
 	}
 
 	r.pushRing(env)
-	r.fanOut(env, h.home)
+	r.fanOut(env, home)
 	return env, nil
 }
 

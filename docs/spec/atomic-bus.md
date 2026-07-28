@@ -17,7 +17,11 @@ can stop the exchange with `atomic bus halt`.
 
 
 - Remote or cross-machine messaging. Localhost only; Unix-only (macOS, Linux, WSL2).
-- Authentication beyond Unix file permissions. Any process running as this user may connect.
+- Authentication beyond Unix file permissions. Any process running as this user may connect, and
+  may therefore inject an operator message. What the daemon *does* guarantee is that no client can
+  choose the identity it publishes under: `From` and `FromKind` are assigned server-side from the
+  roster (or pinned to the operator sentinel), never read from the request. So one member cannot
+  impersonate another, and no agent can manufacture a halt bypass by claiming to be human.
 - Replacing subagents or agent teams. This connects sessions that already exist.
 - Replay that survives a daemon restart. Room logs are the durable record; `--since` replays from
   a bounded in-memory ring.
@@ -265,6 +269,23 @@ Flow: idle shutdown
 
 
 ## Change log
+
+### 2026-07-28 — sender identity is assigned server-side, never accepted from the wire
+
+`say` pinned its identity in the CLI wrapper while the daemon forwarded the request's own `name`
+and `kind` to the publish path. A reviewer proved the gap by speaking the socket directly: a raw
+`OpSay` claiming `name: "backend", kind: "agent"` published successfully **into a halted room**,
+and landed indistinguishable from a genuine send by that agent. Two failures in one — impersonation
+between members, and an agent-reachable halt bypass — both from the daemon trusting a client's
+claim about who it is. The socket is the trust boundary; pinning identity in the CLI protects only
+callers who use the CLI.
+
+`Hub.PublishAs(room, name, kind, …)` is now `Hub.PublishAsOperator(room, …)`. The identity is not a
+parameter, so no caller and no wire request can influence it. Skipping the halt check is sound
+precisely because of that: halt binds agents, and a human is who lifts it. `human` joins `system`
+as a reserved name, both in one `reservedNames` set so a future sentinel gets added in one place.
+
+The `## Non-goals` entry on authentication now states what the boundary does and does not promise.
 
 ### 2026-07-28 — the daemon rehydrates the roster; client-side re-registration was the wrong seam
 

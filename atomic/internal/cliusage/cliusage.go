@@ -83,6 +83,30 @@ var commands = []Command{
 		Description: "Run the daemon in the foreground; --stop retires a running one",
 	},
 	{
+		Path:        []string{"bus", "tail"},
+		Args:        "[<room>]",
+		Flags:       []string{"--all-rooms", "--json", "--since", "--only-addressed", "--from"},
+		Description: "Watch a room's traffic without joining; never appears in who",
+	},
+	{
+		Path:        []string{"bus", "say"},
+		Args:        "<room> <text>",
+		Flags:       []string{"--to"},
+		Description: "Send a one-shot human message without joining; always passes, even halted",
+	},
+	{
+		Path:        []string{"bus", "halt"},
+		Args:        "<room>",
+		Flags:       []string{"--text"},
+		Description: "Stop a room: agent send fails with exit 7 until resume",
+	},
+	{
+		Path:        []string{"bus", "resume"},
+		Args:        "<room>",
+		Flags:       nil,
+		Description: "Clear a room's halt flag; restores agent send",
+	},
+	{
 		Path:        []string{"claude", "install"},
 		Args:        "",
 		Flags:       []string{"--dry-run", "--target", "--no-hooks"},

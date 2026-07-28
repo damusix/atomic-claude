@@ -24,6 +24,7 @@ const (
 	OpJoin     = "join"
 	OpLeave    = "leave"
 	OpSend     = "send"
+	OpSay      = "say"
 	OpRecv     = "recv"
 	OpTail     = "tail"
 	OpWho      = "who"

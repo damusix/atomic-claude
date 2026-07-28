@@ -48,17 +48,15 @@ func TestBusAction_UnknownVerb_ExitUsage(t *testing.T) {
 	}
 }
 
-// TestBusAction_DeferredVerbsAreNotWiredYet pins the checkpoint boundary:
-// tail, say, halt, resume, and chat are checkpoints 5 and 6
-// (docs/spec/atomic-bus.md) — until then they must fall through to the
-// unknown-verb case, not silently no-op.
-func TestBusAction_DeferredVerbsAreNotWiredYet(t *testing.T) {
-	for _, verb := range []string{"tail", "say", "halt", "resume", "chat"} {
-		var out bytes.Buffer
-		code := BusAction([]string{verb}, t.TempDir(), t.TempDir(), &out)
-		if code != int(ExitUsage) {
-			t.Errorf("BusAction(%q) exit code = %d, want %d (ExitUsage, not yet implemented)", verb, code, ExitUsage)
-		}
+// TestBusAction_ChatIsNotWiredYet pins the checkpoint boundary: chat is
+// checkpoint 6 (docs/spec/atomic-bus.md) — until then it must fall through
+// to the unknown-verb case, not silently no-op. tail, say, halt, and resume
+// are checkpoint 5's own verbs and are exercised as such below.
+func TestBusAction_ChatIsNotWiredYet(t *testing.T) {
+	var out bytes.Buffer
+	code := BusAction([]string{"chat"}, t.TempDir(), t.TempDir(), &out)
+	if code != int(ExitUsage) {
+		t.Errorf("BusAction(%q) exit code = %d, want %d (ExitUsage, not yet implemented)", "chat", code, ExitUsage)
 	}
 }
 
@@ -1557,5 +1555,675 @@ func TestParseFlags_BoolFlagDoesNotConsumeNextToken(t *testing.T) {
 	}
 	if len(positional) != 2 || positional[0] != "potato" || positional[1] != "extra" {
 		t.Fatalf("positional = %v, want [potato extra]", positional)
+	}
+}
+
+// --- halt / resume ---
+
+// TestHaltAction_BlocksAgentSend_SayStillSucceeds_ResumeRestores is the
+// action-layer marquee test for the whole checkpoint 5 halt/say asymmetry
+// (docs/spec/atomic-bus.md: "`halt` blocks an agent `send` with exit 7
+// while `say` still succeeds; `resume` restores").
+func TestHaltAction_BlocksAgentSend_SayStillSucceeds_ResumeRestores(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-agent"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	var haltOut bytes.Buffer
+	if code := haltAction([]string{"potato", "--text", "stop, wrong approach"}, home, &haltOut); code != int(ExitOK) {
+		t.Fatalf("halt exit code = %d, want %d; output: %s", code, ExitOK, haltOut.String())
+	}
+
+	t.Setenv(sessionEnvVar, "sess-agent")
+	var sendOut bytes.Buffer
+	code := sendAction([]string{"potato", "still going"}, home, &sendOut)
+	if code != int(ExitHalted) {
+		t.Fatalf("agent send exit code = %d, want %d (ExitHalted)", code, ExitHalted)
+	}
+
+	var sayOut bytes.Buffer
+	if code := sayAction([]string{"potato", "hold on"}, home, &sayOut); code != int(ExitOK) {
+		t.Fatalf("say exit code = %d, want %d (say must bypass halt); output: %s", code, ExitOK, sayOut.String())
+	}
+
+	var resumeOut bytes.Buffer
+	if code := resumeAction([]string{"potato"}, home, &resumeOut); code != int(ExitOK) {
+		t.Fatalf("resume exit code = %d, want %d; output: %s", code, ExitOK, resumeOut.String())
+	}
+
+	var sendAfterResume bytes.Buffer
+	if code := sendAction([]string{"potato", "resumed"}, home, &sendAfterResume); code != int(ExitOK) {
+		t.Fatalf("agent send after resume exit code = %d, want %d", code, ExitOK)
+	}
+}
+
+func TestHaltAction_UnknownRoom_ExitNoRoom(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+
+	var out bytes.Buffer
+	code := haltAction([]string{"nonexistent"}, home, &out)
+	if code != int(ExitNoRoom) {
+		t.Fatalf("exit code = %d, want %d (ExitNoRoom)", code, ExitNoRoom)
+	}
+}
+
+func TestHaltAction_MissingRoom_ExitUsage(t *testing.T) {
+	home := testBusHome(t)
+	var out bytes.Buffer
+	code := haltAction(nil, home, &out)
+	if code != int(ExitUsage) {
+		t.Fatalf("exit code = %d, want %d (ExitUsage)", code, ExitUsage)
+	}
+}
+
+func TestResumeAction_UnknownRoom_ExitNoRoom(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+
+	var out bytes.Buffer
+	code := resumeAction([]string{"nonexistent"}, home, &out)
+	if code != int(ExitNoRoom) {
+		t.Fatalf("exit code = %d, want %d (ExitNoRoom)", code, ExitNoRoom)
+	}
+}
+
+// --- say ---
+
+// TestSayAction_PublishesAsHuman_NoRosterMemberAdded proves say's kind and
+// its "never occupies a name" contract at the action layer.
+func TestSayAction_PublishesAsHuman_NoRosterMemberAdded(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-agent"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	if code := sayAction([]string{"potato", "operator speaking"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("say exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+
+	resp := dialAndDo(t, addr, Request{Op: OpRecv, Room: "potato"})
+	if !resp.OK {
+		t.Fatalf("recv: %s", resp.Error)
+	}
+	var payload struct {
+		Envelopes []Envelope `json:"envelopes"`
+	}
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(payload.Envelopes) != 1 || payload.Envelopes[0].FromKind != KindHuman {
+		t.Fatalf("envelopes = %+v, want one with FromKind %q", payload.Envelopes, KindHuman)
+	}
+
+	whoResp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
+	var whoPayload struct {
+		Members []Member `json:"members"`
+	}
+	if err := json.Unmarshal(whoResp.Payload, &whoPayload); err != nil {
+		t.Fatalf("unmarshal who: %v", err)
+	}
+	if len(whoPayload.Members) != 1 || whoPayload.Members[0].Name != "backend" {
+		t.Fatalf("members = %+v, want only backend (say must not add a roster entry)", whoPayload.Members)
+	}
+}
+
+func TestSayAction_StdinDash_ReadsFullPayload(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-agent"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	payload := "line one\nline two\n"
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	go func() {
+		_, _ = w.WriteString(payload)
+		w.Close()
+	}()
+
+	var out bytes.Buffer
+	if code := sayAction([]string{"potato", "-"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("say exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+
+	resp := dialAndDo(t, addr, Request{Op: OpRecv, Room: "potato"})
+	var recvPayload struct {
+		Envelopes []Envelope `json:"envelopes"`
+	}
+	if err := json.Unmarshal(resp.Payload, &recvPayload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(recvPayload.Envelopes) != 1 || recvPayload.Envelopes[0].Text != payload {
+		t.Fatalf("Text = %q, want %q", recvPayload.Envelopes[0].Text, payload)
+	}
+}
+
+func TestSayAction_UnknownAddressee_WarnsOnStderrStillExitsOK(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-agent"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	var code int
+	stderr := captureStderr(t, func() {
+		code = sayAction([]string{"potato", "ghost", "--to", "nobody-here"}, home, &out)
+	})
+	if code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	if !strings.Contains(stderr, "nobody-here") {
+		t.Fatalf("stderr = %q, want it to name the unknown addressee", stderr)
+	}
+}
+
+func TestSayAction_MissingArgs_ExitUsage(t *testing.T) {
+	home := testBusHome(t)
+	var out bytes.Buffer
+	code := sayAction([]string{"potato"}, home, &out)
+	if code != int(ExitUsage) {
+		t.Fatalf("exit code = %d, want %d (ExitUsage)", code, ExitUsage)
+	}
+}
+
+func TestSayAction_RoomDoesNotExist_ExitNoRoom(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+
+	var out bytes.Buffer
+	code := sayAction([]string{"nonexistent", "hello"}, home, &out)
+	if code != int(ExitNoRoom) {
+		t.Fatalf("exit code = %d, want %d (ExitNoRoom)", code, ExitNoRoom)
+	}
+}
+
+// --- tail: resolveTailRooms ---
+
+func TestResolveTailRooms_ExplicitRoom_NoPrefix(t *testing.T) {
+	home := testBusHome(t)
+	rooms, roomPrefix, err := resolveTailRooms(home, "potato", false)
+	if err != nil {
+		t.Fatalf("resolveTailRooms: %v", err)
+	}
+	if len(rooms) != 1 || rooms[0] != "potato" {
+		t.Fatalf("rooms = %v, want [potato]", rooms)
+	}
+	if roomPrefix {
+		t.Fatal("roomPrefix = true, want false for an explicit single room")
+	}
+}
+
+// TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix
+// pins docs/spec/atomic-bus.md CP5, quoted verbatim: "[--all-rooms] is the
+// default when no room argument is given and exactly one room exists."
+func TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	rooms, roomPrefix, err := resolveTailRooms(home, "", false)
+	if err != nil {
+		t.Fatalf("resolveTailRooms: %v", err)
+	}
+	if len(rooms) != 1 || rooms[0] != "potato" {
+		t.Fatalf("rooms = %v, want [potato]", rooms)
+	}
+	if !roomPrefix {
+		t.Fatal("roomPrefix = false, want true (spec default with exactly one room)")
+	}
+}
+
+func TestResolveTailRooms_NoExplicit_MultipleRoomsNoFlag_ExitUsage(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1"}); !resp.OK {
+		t.Fatalf("seed join potato: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "carrot", Name: "backend", Kind: KindAgent, Session: "sess-2"}); !resp.OK {
+		t.Fatalf("seed join carrot: %s", resp.Error)
+	}
+
+	_, _, err := resolveTailRooms(home, "", false)
+	if err == nil {
+		t.Fatal("expected an error when multiple rooms exist and neither an explicit room nor --all-rooms is given")
+	}
+	if exitFromErr(err) != int(ExitUsage) {
+		t.Fatalf("exit code = %d, want %d (ExitUsage)", exitFromErr(err), ExitUsage)
+	}
+}
+
+func TestResolveTailRooms_AllRoomsFlag_MultipleRooms(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1"}); !resp.OK {
+		t.Fatalf("seed join potato: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "carrot", Name: "backend", Kind: KindAgent, Session: "sess-2"}); !resp.OK {
+		t.Fatalf("seed join carrot: %s", resp.Error)
+	}
+
+	rooms, roomPrefix, err := resolveTailRooms(home, "", true)
+	if err != nil {
+		t.Fatalf("resolveTailRooms: %v", err)
+	}
+	if len(rooms) != 2 {
+		t.Fatalf("rooms = %v, want 2 entries", rooms)
+	}
+	if !roomPrefix {
+		t.Fatal("roomPrefix = false, want true under --all-rooms")
+	}
+}
+
+// --- tail: tailAction usage validation ---
+
+func TestTailAction_ExplicitRoomWithAllRoomsFlag_ExitUsage(t *testing.T) {
+	home := testBusHome(t)
+	var out bytes.Buffer
+	code := tailAction([]string{"potato", "--all-rooms"}, home, &out)
+	if code != int(ExitUsage) {
+		t.Fatalf("exit code = %d, want %d (ExitUsage)", code, ExitUsage)
+	}
+}
+
+func TestTailAction_TooManyPositionals_ExitUsage(t *testing.T) {
+	home := testBusHome(t)
+	var out bytes.Buffer
+	code := tailAction([]string{"potato", "carrot"}, home, &out)
+	if code != int(ExitUsage) {
+		t.Fatalf("exit code = %d, want %d (ExitUsage)", code, ExitUsage)
+	}
+}
+
+// --- tail: tailStream (the subscription loop, factored like recvFollow) ---
+
+// TestTailStream_SeesMessageAddressedToOtherMember_NotInWho is the
+// checkpoint's headline success criterion: tail sees mail addressed to
+// someone else, and never appears in who.
+func TestTailStream_SeesMessageAddressedToOtherMember_NotInWho(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-fe"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	streamDone := make(chan int, 1)
+	go func() {
+		streamDone <- tailStream(client, []string{"potato"}, "", false, "", true, false, false, home, 80, pw)
+	}()
+
+	delivered := make(chan Envelope, 1)
+	go decodeEnvelopesInto(pr, delivered)
+
+	env := publishUntilDelivered(t, addr, "potato", "sess-fe", "for backend", delivered, time.Second)
+	if env.Text != "for backend" {
+		t.Fatalf("Text = %q, want %q", env.Text, "for backend")
+	}
+
+	whoResp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
+	var whoPayload struct {
+		Members []Member `json:"members"`
+	}
+	if err := json.Unmarshal(whoResp.Payload, &whoPayload); err != nil {
+		t.Fatalf("unmarshal who: %v", err)
+	}
+	if len(whoPayload.Members) != 1 {
+		t.Fatalf("who = %+v, want tail to not appear (only frontend)", whoPayload.Members)
+	}
+
+	client.Close()
+	select {
+	case code := <-streamDone:
+		if code != int(ExitOK) {
+			t.Fatalf("tailStream exit code = %d, want %d", code, ExitOK)
+		}
+	case <-time.After(wireTimeout):
+		t.Fatal("tailStream did not exit after the client was closed")
+	}
+}
+
+// TestTailStream_TwoConcurrentTails_BothReceiveEverything_NeitherOccupiesName
+// proves two operators can watch the same room simultaneously.
+func TestTailStream_TwoConcurrentTails_BothReceiveEverything_NeitherOccupiesName(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-be"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	client1, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon 1: %v", err)
+	}
+	client2, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon 2: %v", err)
+	}
+
+	pr1, pw1 := io.Pipe()
+	pr2, pw2 := io.Pipe()
+	t.Cleanup(func() { pr1.Close(); pw1.Close(); pr2.Close(); pw2.Close() })
+
+	done1 := make(chan int, 1)
+	done2 := make(chan int, 1)
+	go func() {
+		done1 <- tailStream(client1, []string{"potato"}, "", false, "", true, false, false, home, 80, pw1)
+	}()
+	go func() {
+		done2 <- tailStream(client2, []string{"potato"}, "", false, "", true, false, false, home, 80, pw2)
+	}()
+
+	delivered1 := make(chan Envelope, 1)
+	delivered2 := make(chan Envelope, 1)
+	go decodeEnvelopesInto(pr1, delivered1)
+	go decodeEnvelopesInto(pr2, delivered2)
+
+	env1 := publishUntilDelivered(t, addr, "potato", "sess-be", "broadcast", delivered1, time.Second)
+	if env1.Text != "broadcast" {
+		t.Fatalf("tail 1 Text = %q, want %q", env1.Text, "broadcast")
+	}
+	select {
+	case env2 := <-delivered2:
+		if env2.Text != "broadcast" {
+			t.Fatalf("tail 2 Text = %q, want %q", env2.Text, "broadcast")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("tail 2 did not receive the envelope")
+	}
+
+	whoResp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
+	var whoPayload struct {
+		Members []Member `json:"members"`
+	}
+	if err := json.Unmarshal(whoResp.Payload, &whoPayload); err != nil {
+		t.Fatalf("unmarshal who: %v", err)
+	}
+	if len(whoPayload.Members) != 1 {
+		t.Fatalf("who = %+v, want neither tail to occupy a name (only backend)", whoPayload.Members)
+	}
+
+	client1.Close()
+	client2.Close()
+	for _, done := range []chan int{done1, done2} {
+		select {
+		case code := <-done:
+			if code != int(ExitOK) {
+				t.Fatalf("tailStream exit code = %d, want %d", code, ExitOK)
+			}
+		case <-time.After(wireTimeout):
+			t.Fatal("tailStream did not exit after the client was closed")
+		}
+	}
+}
+
+// TestTailStream_OnlyAddressedFilter_DropsFYIMessages proves
+// --only-addressed's filter.
+func TestTailStream_OnlyAddressedFilter_DropsFYIMessages(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-be"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	streamDone := make(chan int, 1)
+	go func() {
+		streamDone <- tailStream(client, []string{"potato"}, "", true, "", true, false, false, home, 80, pw)
+	}()
+
+	delivered := make(chan Envelope, 1)
+	go decodeEnvelopesInto(pr, delivered)
+
+	// The FYI send below must never surface on delivered; a retried
+	// addressed send is the only thing the filter should let through —
+	// polled so a filtered FYI cannot be mistaken for "nothing published
+	// yet".
+	dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-be", Text: "fyi, ignore"})
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(time.Second)
+	var env Envelope
+	for {
+		select {
+		case env = <-delivered:
+		case <-ticker.C:
+			dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-be", To: []string{"frontend"}, Text: "addressed"})
+			continue
+		case <-timeout:
+			t.Fatal("no addressed envelope delivered within the deadline")
+		}
+		break
+	}
+	if env.Text != "addressed" || len(env.To) == 0 {
+		t.Fatalf("delivered envelope = %+v, want the addressed message, not the FYI one (--only-addressed must filter the FYI send)", env)
+	}
+
+	client.Close()
+	<-streamDone
+}
+
+// TestTailStream_FromFilter_KeepsOnlyMatchingSender proves --from's filter.
+func TestTailStream_FromFilter_KeepsOnlyMatchingSender(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-be"}); !resp.OK {
+		t.Fatalf("seed join backend: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-fe"}); !resp.OK {
+		t.Fatalf("seed join frontend: %s", resp.Error)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	streamDone := make(chan int, 1)
+	go func() {
+		streamDone <- tailStream(client, []string{"potato"}, "", false, "frontend", true, false, false, home, 80, pw)
+	}()
+
+	delivered := make(chan Envelope, 1)
+	go decodeEnvelopesInto(pr, delivered)
+
+	dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-be", Text: "from backend, must be filtered"})
+	env := publishUntilDelivered(t, addr, "potato", "sess-fe", "from frontend", delivered, time.Second)
+	if env.From != "frontend" || env.Text != "from frontend" {
+		t.Fatalf("delivered envelope = %+v, want only frontend's message", env)
+	}
+
+	client.Close()
+	<-streamDone
+}
+
+// TestTailStream_JSONOutput_EmitsJSONL proves --json's shape.
+func TestTailStream_JSONOutput_EmitsJSONL(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-be"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	streamDone := make(chan int, 1)
+	go func() {
+		streamDone <- tailStream(client, []string{"potato"}, "", false, "", true, false, false, home, 80, pw)
+	}()
+
+	delivered := make(chan Envelope, 1)
+	go decodeEnvelopesInto(pr, delivered)
+
+	env := publishUntilDelivered(t, addr, "potato", "sess-be", "hello", delivered, time.Second)
+	if env.Text != "hello" {
+		t.Fatalf("Text = %q, want %q", env.Text, "hello")
+	}
+
+	client.Close()
+	<-streamDone
+}
+
+// TestTailStream_PlainOutput_NoColour_NoANSIEscapes is the byte-level
+// success criterion: "Piping tail to a non-tty emits no ANSI escapes —
+// assert on the bytes."
+func TestTailStream_PlainOutput_NoColour_NoANSIEscapes(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-be"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+
+	// io.Pipe, not a bare bytes.Buffer shared across goroutines: a
+	// *bytes.Buffer is not safe for the concurrent write (tailStream's
+	// goroutine) + read (this goroutine) this test needs — io.Pipe
+	// synchronizes the handoff instead of racing on shared memory.
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	streamDone := make(chan int, 1)
+	// colour=false here matches what tailAction computes for any
+	// non-terminal destination (isTerminalWriter's own *os.File check).
+	go func() {
+		streamDone <- tailStream(client, []string{"potato"}, "", false, "", false, false, false, home, 80, pw)
+	}()
+
+	captured := make(chan []byte, 1)
+	go func() {
+		buf := make([]byte, 4096)
+		n, _ := pr.Read(buf)
+		captured <- buf[:n]
+	}()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-be", Text: "hello"}); !resp.OK {
+		t.Fatalf("send: %s", resp.Error)
+	}
+
+	var got []byte
+	select {
+	case got = <-captured:
+	case <-time.After(wireTimeout):
+		t.Fatal("no output captured within the deadline")
+	}
+
+	client.Close()
+	select {
+	case <-streamDone:
+	case <-time.After(wireTimeout):
+		t.Fatal("tailStream did not exit after the client was closed")
+	}
+
+	if len(got) == 0 {
+		t.Fatal("no output captured")
+	}
+	if bytes.ContainsRune(got, '\x1b') {
+		t.Fatalf("output = %q, contains an ANSI escape byte with colour disabled", got)
+	}
+}
+
+// --- who: kind visible in table and --json (docs/spec/atomic-bus.md CP5) ---
+
+func TestWhoAction_TableOutput_ShowsKind(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	if code := whoAction([]string{"potato"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+	if !strings.Contains(out.String(), KindAgent) {
+		t.Fatalf("table output = %q, want it to contain kind %q", out.String(), KindAgent)
+	}
+}
+
+func TestWhoAction_JSONOutput_ShowsKind(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	if code := whoAction([]string{"potato", "--json"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+	var members []Member
+	if err := json.Unmarshal(out.Bytes(), &members); err != nil {
+		t.Fatalf("output is not parseable JSON: %v\n%s", err, out.String())
+	}
+	if len(members) != 1 || members[0].Kind != KindAgent {
+		t.Fatalf("members = %+v, want one member with Kind %q", members, KindAgent)
+	}
+}
+
+// --- isTerminalWriter / terminalWidth ---
+
+func TestIsTerminalWriter_NonFileWriter_ReturnsFalse(t *testing.T) {
+	var buf bytes.Buffer
+	if isTerminalWriter(&buf) {
+		t.Fatal("expected a *bytes.Buffer to never be reported as a terminal")
+	}
+}
+
+func TestTerminalWidth_NonFileWriter_ReturnsDefault(t *testing.T) {
+	var buf bytes.Buffer
+	if got := terminalWidth(&buf); got != defaultLineWidth {
+		t.Fatalf("terminalWidth = %d, want %d (defaultLineWidth)", got, defaultLineWidth)
 	}
 }

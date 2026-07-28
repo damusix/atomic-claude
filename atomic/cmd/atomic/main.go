@@ -741,15 +741,14 @@ func buildConfigCmd() *cobra.Command {
 	return parent
 }
 
-// buildBusCmd builds the "bus" parent + join|leave|send|recv|who|rooms|status|serve
+// buildBusCmd builds the "bus" parent + join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume
 // children. Dispatch is runBus (→ bus.BusAction from internal/bus/action.go).
-// tail, say, halt, resume, and chat are not wired here — checkpoints 5 and 6
-// (docs/spec/atomic-bus.md).
+// chat is not wired here — checkpoint 6 (docs/spec/atomic-bus.md).
 func buildBusCmd() *cobra.Command {
 	dispatch := func(args []string) { runBus(args) }
 	parent := &cobra.Command{
 		Use:   "bus",
-		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve)",
+		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -798,6 +797,20 @@ func buildBusCmd() *cobra.Command {
 		c.Flags().Int("idle-shutdown-minutes", 10, "idle-shutdown window in minutes (0 disables)")
 		c.Flags().Bool("stop", false, "stop a running daemon and exit")
 	})
+	addSub("tail", "Watch a room's traffic without joining; never appears in who", "[<room>]", func(c *cobra.Command) {
+		c.Flags().Bool("all-rooms", false, "interleave every room, prefixed per line")
+		c.Flags().Bool("json", false, "emit JSONL instead of rendered lines")
+		c.Flags().String("since", "", "replay envelopes after this message id")
+		c.Flags().Bool("only-addressed", false, "show only messages with an explicit addressee")
+		c.Flags().String("from", "", "show only messages from this sender")
+	})
+	addSub("say", "Send a one-shot human message without joining; always passes, even halted", "<room> <text>", func(c *cobra.Command) {
+		c.Flags().String("to", "", "comma-separated addressee names (omit for FYI)")
+	})
+	addSub("halt", "Stop a room: agent send fails with exit 7 until resume", "<room>", func(c *cobra.Command) {
+		c.Flags().String("text", "", "reason broadcast with the halt")
+	})
+	addSub("resume", "Clear a room's halt flag; restores agent send", "<room>", nil)
 	return parent
 }
 

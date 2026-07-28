@@ -559,6 +559,75 @@ func TestServe_Halt_BlocksAgentSend_HumanSendStillSucceeds_ResumeRestores(t *tes
 	}
 }
 
+// --- say over the wire ---
+
+// TestServe_Say_PublishesAsHumanWithoutJoining proves say's daemon-side
+// contract directly: no join precedes it, yet the published envelope's
+// FromKind is human and `who` gains no roster member for it.
+func TestServe_Say_PublishesAsHumanWithoutJoining(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub, 0)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: "agent", Session: "sess-agent"}); !resp.OK {
+		t.Fatalf("join: %s", resp.Error)
+	}
+
+	sayResp := dialAndDo(t, addr, Request{Op: OpSay, Room: "potato", Name: "human", Kind: "human", Text: "operator speaking"})
+	if !sayResp.OK {
+		t.Fatalf("say failed: %s", sayResp.Error)
+	}
+	var payload struct {
+		Envelope Envelope `json:"envelope"`
+	}
+	if err := json.Unmarshal(sayResp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal say response: %v", err)
+	}
+	if payload.Envelope.FromKind != KindHuman {
+		t.Errorf("FromKind = %q, want %q", payload.Envelope.FromKind, KindHuman)
+	}
+
+	whoResp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
+	var whoPayload struct {
+		Members []Member `json:"members"`
+	}
+	if err := json.Unmarshal(whoResp.Payload, &whoPayload); err != nil {
+		t.Fatalf("unmarshal who: %v", err)
+	}
+	if len(whoPayload.Members) != 1 {
+		t.Fatalf("expected say to not add a roster member, got %d: %+v", len(whoPayload.Members), whoPayload.Members)
+	}
+}
+
+// TestServe_Say_BypassesHalt is the wire-level half of the say/halt
+// asymmetry: OpSay must succeed into a halted room exactly like a joined
+// human's OpSend already does (TestServe_Halt_...ResumeRestores above),
+// but without ever joining.
+func TestServe_Say_BypassesHalt(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub, 0)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: "agent", Session: "sess-agent"}); !resp.OK {
+		t.Fatalf("join: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr, Request{Op: OpHalt, Room: "potato", Text: "stop"}); !resp.OK {
+		t.Fatalf("halt: %s", resp.Error)
+	}
+
+	agentSend := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-agent", Text: "still going"})
+	if agentSend.OK {
+		t.Fatal("expected agent send into a halted room to fail")
+	}
+
+	sayResp := dialAndDo(t, addr, Request{Op: OpSay, Room: "potato", Name: "human", Kind: "human", Text: "stop right there"})
+	if !sayResp.OK {
+		t.Fatalf("expected say to bypass halt, got: %s", sayResp.Error)
+	}
+}
+
 // --- misc dispatch ---
 
 func TestServe_UnknownOp_ReturnsUsageError(t *testing.T) {
@@ -750,5 +819,56 @@ func TestServe_IdleWindowZero_DisablesIdleShutdown(t *testing.T) {
 		t.Fatalf("Serve shut down with idleWindow=0, which must disable idle shutdown (err=%v)", err)
 	case <-time.After(100 * time.Millisecond):
 		// expected: still running
+	}
+}
+
+// TestServe_Say_IgnoresClientSuppliedIdentity is the wire-level regression test
+// for the impersonation hole a reviewer proved by speaking the socket directly.
+//
+// The daemon used to forward req.Name and req.Kind to the publish path, so a
+// raw OpSay claiming an existing agent's name with kind "agent" published under
+// that identity — and, because the operator path does not consult the halt
+// flag, did so into a halted room. Pinning the identity in the CLI wrapper was
+// no defense: the socket is the trust boundary, and any local process can
+// speak it.
+//
+// This asserts the daemon overrides a hostile claim rather than merely that the
+// honest client works.
+func TestServe_Say_IgnoresClientSuppliedIdentity(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub, 0)
+	addr := ln.Addr().String()
+
+	joinResp := dialAndDo(t, addr, Request{
+		Op: OpJoin, Room: "potato", Name: "backend", Mode: "participate",
+		Kind: KindAgent, Session: "sess-agent",
+	})
+	if !joinResp.OK {
+		t.Fatalf("join: %s", joinResp.Error)
+	}
+	if haltResp := dialAndDo(t, addr, Request{Op: OpHalt, Room: "potato", Text: "stop"}); !haltResp.OK {
+		t.Fatalf("halt: %s", haltResp.Error)
+	}
+
+	// A hostile request: claim to be the joined agent, in a halted room.
+	resp := dialAndDo(t, addr, Request{
+		Op: OpSay, Room: "potato", Name: "backend", Kind: KindAgent, Text: "forged",
+	})
+	if !resp.OK {
+		t.Fatalf("say: %s", resp.Error)
+	}
+
+	var payload struct {
+		Envelope Envelope `json:"envelope"`
+	}
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		t.Fatalf("decode say payload: %v", err)
+	}
+	if payload.Envelope.From != operatorName {
+		t.Errorf("From = %q, want %q: the daemon honored a client-supplied name", payload.Envelope.From, operatorName)
+	}
+	if payload.Envelope.FromKind != KindHuman {
+		t.Errorf("FromKind = %q, want %q: the daemon honored a client-supplied kind", payload.Envelope.FromKind, KindHuman)
 	}
 }

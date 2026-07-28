@@ -174,6 +174,8 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 		respond(enc, d.handleLeave(req))
 	case OpSend:
 		respond(enc, d.handleSend(req))
+	case OpSay:
+		respond(enc, d.handleSay(req))
 	case OpWho:
 		respond(enc, d.handleWho(req))
 	case OpRooms:
@@ -397,6 +399,29 @@ func (d *daemon) handleLeave(req Request) Response {
 // member is in the room").
 func (d *daemon) handleSend(req Request) Response {
 	env, err := d.hub.Publish(req.Room, req.Session, req.To, req.ReplyTo, req.Text)
+	if err != nil {
+		return errorResponse(err)
+	}
+	payload, _ := json.Marshal(struct {
+		Envelope  Envelope `json:"envelope"`
+		UnknownTo []string `json:"unknown_to,omitempty"`
+	}{Envelope: env, UnknownTo: d.hub.UnknownAddressees(req.Room, req.To)})
+	return Response{OK: true, Payload: payload}
+}
+
+// handleSay is `say`'s daemon-side handler: publishes as the human operator
+// via Hub.PublishAsOperator, which — unlike handleSend's Hub.Publish — needs no
+// prior roster membership. UnknownTo mirrors handleSend's own
+// warning-not-withholding contract (docs/spec/atomic-bus.md: "send --to <name>
+// warns on stderr when no such member is in the room").
+//
+// req.Name and req.Kind are deliberately ignored. Pinning the sender in the CLI
+// wrapper is not enough: the socket is the trust boundary, and any local
+// process can speak the protocol directly. An earlier version forwarded both
+// fields, which let a raw OpSay claim an existing agent's name with kind
+// "agent" and publish into a halted room.
+func (d *daemon) handleSay(req Request) Response {
+	env, err := d.hub.PublishAsOperator(req.Room, req.To, req.ReplyTo, req.Text)
 	if err != nil {
 		return errorResponse(err)
 	}

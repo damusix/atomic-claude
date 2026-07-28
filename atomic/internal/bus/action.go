@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	charmterm "github.com/charmbracelet/x/term"
 )
 
 // BusAction is the exported entry point for `atomic bus`, mirroring
@@ -24,12 +26,11 @@ import (
 // for signature parity with WikiAction; nothing in bus needs it today (no
 // --root-style flag), so it is unused.
 //
-// tail, say, halt, resume, and chat are not wired here — checkpoints 5 and 6
-// (docs/spec/atomic-bus.md) — so those verbs fall through to the unknown-verb
-// case below like any other typo.
+// chat is not wired here — checkpoint 6 (docs/spec/atomic-bus.md) — so that
+// verb falls through to the unknown-verb case below like any other typo.
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|tail|say|halt|resume> [flags]")
 		return int(ExitUsage)
 	}
 
@@ -51,6 +52,14 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 		return statusAction(rest, home, out)
 	case "serve":
 		return serveAction(rest, home, out)
+	case "tail":
+		return tailAction(rest, home, out)
+	case "say":
+		return sayAction(rest, home, out)
+	case "halt":
+		return haltAction(rest, home, out)
+	case "resume":
+		return resumeAction(rest, home, out)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic bus: unknown verb %q\n", verb)
 		return int(ExitUsage)
@@ -893,4 +902,309 @@ func serveStop(home string, out io.Writer) int {
 	}
 	fmt.Fprintln(out, "daemon stopped")
 	return int(ExitOK)
+}
+
+// --- halt / resume ---
+
+// haltAction implements `atomic bus halt <room> [--text <reason>]`. Halt is
+// enforced server-side (room.go's Hub.Publish) — this only sends the wire
+// op; needs no session identity, since an operator can halt a room whether
+// or not they are currently in it (room.go's Hub.Halt doc).
+func haltAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus halt <room> [--text <reason>]\n"
+
+	fs := flag.NewFlagSet("bus-halt", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var text string
+	fs.StringVar(&text, "text", "", "reason broadcast with the halt")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
+		return int(ExitUsage)
+	}
+	if len(positional) != 1 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+	room := positional[0]
+
+	client, err := dialDaemonRecovered(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus halt: %v\n", err)
+		return exitFromErr(err)
+	}
+	defer client.Close()
+
+	if _, err := client.Do(Request{Op: OpHalt, Room: room, Text: text}); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus halt: %v\n", err)
+		return exitFromErr(err)
+	}
+
+	fmt.Fprintf(out, "halted %s\n", room)
+	return int(ExitOK)
+}
+
+// resumeAction implements `atomic bus resume <room>`.
+func resumeAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus resume <room>\n"
+
+	fs := flag.NewFlagSet("bus-resume", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return int(ExitUsage)
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+	room := fs.Arg(0)
+
+	client, err := dialDaemonRecovered(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus resume: %v\n", err)
+		return exitFromErr(err)
+	}
+	defer client.Close()
+
+	if _, err := client.Do(Request{Op: OpResume, Room: room}); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus resume: %v\n", err)
+		return exitFromErr(err)
+	}
+
+	fmt.Fprintf(out, "resumed %s\n", room)
+	return int(ExitOK)
+}
+
+// --- say ---
+
+// sayAction implements `atomic bus say <room> <text> [--to <name>,...]`.
+// Publishes via OpSay (Hub.PublishAsOperator), which needs no prior join and always
+// passes, even into a halted room — the asymmetry that makes halt useful
+// for an operator (docs/spec/atomic-bus.md: "say is a human send and
+// always passes, even into a halted room").
+func sayAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus say <room> <text> [--to <name>,...]\n"
+
+	fs := flag.NewFlagSet("bus-say", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var to string
+	fs.StringVar(&to, "to", "", "comma-separated addressee names (omitted means FYI to the whole room)")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
+		return int(ExitUsage)
+	}
+	if len(positional) != 2 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+	room, textArg := positional[0], positional[1]
+
+	text, err := readText(textArg, os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus say: %v\n", err)
+		return int(ExitHard)
+	}
+
+	client, err := dialDaemonRecovered(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus say: %v\n", err)
+		return exitFromErr(err)
+	}
+	defer client.Close()
+
+	// No Name or Kind: the daemon pins the operator identity itself and ignores
+	// both fields on OpSay. Sending them would imply the client gets a say in
+	// who it publishes as, which is exactly the trust the daemon must not extend.
+	resp, err := client.Do(Request{Op: OpSay, Room: room, To: parseTo(to), Text: text})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus say: %v\n", err)
+		return exitFromErr(err)
+	}
+
+	var payload struct {
+		Envelope  Envelope `json:"envelope"`
+		UnknownTo []string `json:"unknown_to,omitempty"`
+	}
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus say: parse response: %v\n", err)
+		return int(ExitHard)
+	}
+
+	// Mirrors sendAction's own warning-not-withholding contract
+	// (docs/spec/atomic-bus.md: "send --to <name> warns on stderr when no
+	// such member is in the room").
+	if len(payload.UnknownTo) > 0 {
+		fmt.Fprintf(os.Stderr, "atomic bus say: warning: not currently in room %s: %s\n", room, strings.Join(payload.UnknownTo, ", "))
+	}
+
+	fmt.Fprintf(out, "said to %s (id %s)\n", room, payload.Envelope.ID)
+	return int(ExitOK)
+}
+
+// --- tail ---
+
+// isTerminalWriter reports whether out is a live terminal — TailLine's
+// colour switch (docs/spec/atomic-bus.md CP5: "detect no-tty and drop
+// colour"). Anything that isn't a *os.File (a bytes.Buffer in tests, or a
+// pipe wrapped by something other than os.File) is treated as non-tty,
+// which is also the correct answer for a redirected or piped os.Stdout.
+func isTerminalWriter(out io.Writer) bool {
+	f, ok := out.(*os.File)
+	if !ok {
+		return false
+	}
+	return charmterm.IsTerminal(f.Fd())
+}
+
+// terminalWidth reports out's terminal column width, or defaultLineWidth
+// (render.go) when out is not a live terminal or its size can't be read.
+func terminalWidth(out io.Writer) int {
+	f, ok := out.(*os.File)
+	if !ok {
+		return defaultLineWidth
+	}
+	w, _, err := charmterm.GetSize(f.Fd())
+	if err != nil || w <= 0 {
+		return defaultLineWidth
+	}
+	return w
+}
+
+// resolveTailRooms decides which rooms tail subscribes to, and whether
+// each rendered line needs a room prefix. An explicit room subscribes to
+// exactly that room, unprefixed. Otherwise every room the daemon currently
+// knows about is queried via `rooms`: docs/spec/atomic-bus.md CP5, quoted
+// verbatim, "[--all-rooms] ... is the default when no room argument is
+// given and exactly one room exists" — so a bare `tail` with exactly one
+// known room, or --all-rooms given explicitly, subscribes to every room
+// found (with a room prefix). Any other room count with neither an
+// explicit room nor --all-rooms is ambiguous and is refused rather than
+// silently guessed.
+func resolveTailRooms(home, explicit string, allRoomsFlag bool) (rooms []string, roomPrefix bool, err error) {
+	if explicit != "" {
+		return []string{explicit}, false, nil
+	}
+
+	client, err := dialDaemonRecovered(home)
+	if err != nil {
+		return nil, false, err
+	}
+	defer client.Close()
+
+	resp, err := client.Do(Request{Op: OpRooms})
+	if err != nil {
+		return nil, false, err
+	}
+	var payload struct {
+		Rooms []RoomInfo `json:"rooms"`
+	}
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		return nil, false, fmt.Errorf("bus: parse rooms response: %w", err)
+	}
+	names := make([]string, len(payload.Rooms))
+	for i, r := range payload.Rooms {
+		names[i] = r.Name
+	}
+
+	if !allRoomsFlag && len(names) != 1 {
+		return nil, false, &Error{Code: ExitUsage, Msg: "bus: tail needs a room, or --all-rooms to watch every room"}
+	}
+	return names, true, nil
+}
+
+// tailAction implements `atomic bus tail [<room>] [--all-rooms] [--json]
+// [--since <id>] [--only-addressed] [--from <name>]`. tail never joins
+// (resolveTailRooms and daemon.go's OpTail dispatch both operate purely
+// through Hub.Subscribe) — it does not occupy a name and does not appear
+// in `who`, so any number of operators can watch the same room at once.
+func tailAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus tail [<room>] [--all-rooms] [--json] [--since <id>] [--only-addressed] [--from <name>]\n"
+
+	fs := flag.NewFlagSet("bus-tail", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var allRoomsFlag, jsonOut, onlyAddressed bool
+	var since, from string
+	fs.BoolVar(&allRoomsFlag, "all-rooms", false, "interleave every room, prefixed per line")
+	fs.BoolVar(&jsonOut, "json", false, "emit JSONL instead of rendered lines")
+	fs.StringVar(&since, "since", "", "replay envelopes after this message id")
+	fs.BoolVar(&onlyAddressed, "only-addressed", false, "show only messages with an explicit addressee")
+	fs.StringVar(&from, "from", "", "show only messages from this sender")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
+		return int(ExitUsage)
+	}
+	if len(positional) > 1 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+	var explicitRoom string
+	if len(positional) == 1 {
+		explicitRoom = positional[0]
+	}
+	if explicitRoom != "" && allRoomsFlag {
+		fmt.Fprintln(os.Stderr, "atomic bus tail: --all-rooms cannot be combined with an explicit room")
+		return int(ExitUsage)
+	}
+
+	rooms, roomPrefix, err := resolveTailRooms(home, explicitRoom, allRoomsFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+		return exitFromErr(err)
+	}
+
+	client, err := dialDaemonRecovered(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+		return exitFromErr(err)
+	}
+
+	colour := isTerminalWriter(out)
+	width := terminalWidth(out)
+	return tailStream(client, rooms, since, onlyAddressed, from, jsonOut, colour, roomPrefix, home, width, out)
+}
+
+// tailStream is tailAction's subscription loop, factored out so tests can
+// drive it against an already-connected *Client — mirrors recvFollow's own
+// factoring above, for the identical reason: closing the client is the
+// only clean way to end a subscription loop deterministically in a test.
+// Filtering (--only-addressed, --from) happens here, client-side: the
+// daemon's OpTail dispatch (daemon.go) delivers every envelope on the
+// subscribed rooms unfiltered by design, so two operators tailing the same
+// room with different filters never affect each other.
+func tailStream(client *Client, rooms []string, since string, onlyAddressed bool, from string, jsonOut, colour, roomPrefix bool, home string, width int, out io.Writer) int {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	ch, err := client.Subscribe(Request{Op: OpTail, Rooms: rooms, Since: since})
+	if err != nil {
+		client.Close()
+		fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+		return exitFromErr(err)
+	}
+	defer client.Close()
+
+	enc := json.NewEncoder(out)
+	for {
+		select {
+		case env, ok := <-ch:
+			if !ok {
+				return int(ExitOK)
+			}
+			if onlyAddressed && len(env.To) == 0 {
+				continue
+			}
+			if from != "" && env.From != from {
+				continue
+			}
+			if jsonOut {
+				if err := enc.Encode(env); err != nil {
+					fmt.Fprintf(os.Stderr, "atomic bus tail: %v\n", err)
+					return int(ExitHard)
+				}
+				continue
+			}
+			fmt.Fprintln(out, TailLine(env, home, width, colour, roomPrefix))
+		case <-ctx.Done():
+			return int(ExitOK)
+		}
+	}
 }

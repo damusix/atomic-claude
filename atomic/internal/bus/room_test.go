@@ -1405,3 +1405,111 @@ func TestRoomLogPath_MatchesHubHome(t *testing.T) {
 		t.Fatalf("RoomLogPath = %q, want %q", got, want)
 	}
 }
+
+// --- PublishAsOperator: say's path, publishing without a roster entry ---
+//
+// docs/spec/atomic-bus.md CP5: "say — one-shot send without joining."
+//
+// The sender identity is not a parameter. An earlier signature took name and
+// kind from the caller and was reachable from the wire via OpSay, which let a
+// raw request claim an existing agent's name with kind "agent" and publish into
+// a halted room. These tests pin the properties that fix relies on.
+
+// TestHub_PublishAsOperator_SucceedsWithoutPriorJoin_NoRosterMemberAdded proves
+// the defining property: an envelope lands and the roster is untouched — say
+// never occupies a name (mirroring tail's own no-roster-footprint guarantee in
+// TestHub_Subscribe_TailNeverJoinsRoster above).
+func TestHub_PublishAsOperator_SucceedsWithoutPriorJoin_NoRosterMemberAdded(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	env, err := h.PublishAsOperator("potato", nil, "", "operator speaking")
+	if err != nil {
+		t.Fatalf("PublishAsOperator: %v", err)
+	}
+	if env.From != operatorName || env.FromKind != KindHuman {
+		t.Fatalf("From/FromKind = %q/%q, want %q/%q", env.From, env.FromKind, operatorName, KindHuman)
+	}
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 || members[0].Name != "backend" {
+		t.Fatalf("members = %+v, want only backend (say must not add a roster entry)", members)
+	}
+}
+
+// TestHub_PublishAsOperator_BypassesHalt is the Hub-level half of the say/halt
+// asymmetry (docs/design/atomic-bus.md decision #4). Skipping the halt check is
+// safe here only because the identity is pinned: halt binds agents, and a human
+// is the one who lifts it.
+func TestHub_PublishAsOperator_BypassesHalt(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := h.Halt("potato", "stop"); err != nil {
+		t.Fatalf("Halt: %v", err)
+	}
+
+	if _, err := h.Publish("potato", "sess-agent", nil, "", "still going"); err == nil {
+		t.Fatal("expected agent Publish into a halted room to fail")
+	}
+	if _, err := h.PublishAsOperator("potato", nil, "", "hold on"); err != nil {
+		t.Fatalf("expected operator publish to bypass halt, got: %v", err)
+	}
+}
+
+func TestHub_PublishAsOperator_UnknownRoomReturnsExitNoRoom(t *testing.T) {
+	h := NewHub(t.TempDir())
+	_, err := h.PublishAsOperator("nonexistent", nil, "", "hello")
+	mustError(t, err, ExitNoRoom)
+}
+
+// TestHub_PublishAsOperator_IdentityIsAlwaysTheOperator is the regression test
+// for the impersonation hole: whatever the caller does, every envelope this
+// path produces carries the operator identity. There is no argument that can
+// change it, which is the whole reason the parameters were removed.
+func TestHub_PublishAsOperator_IdentityIsAlwaysTheOperator(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	for _, text := range []string{"one", "two", "three"} {
+		env, err := h.PublishAsOperator("potato", []string{"backend"}, "", text)
+		if err != nil {
+			t.Fatalf("PublishAsOperator(%q): %v", text, err)
+		}
+		if env.From != operatorName {
+			t.Errorf("From = %q, want %q", env.From, operatorName)
+		}
+		if env.FromKind != KindHuman {
+			t.Errorf("FromKind = %q, want %q", env.FromKind, KindHuman)
+		}
+	}
+}
+
+// TestHub_PublishAsOperator_OversizedTextRejected proves this path shares
+// Publish's validation limits via publishValidated rather than re-implementing
+// — or forgetting — them.
+func TestHub_PublishAsOperator_OversizedTextRejected(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	oversized := strings.Repeat("a", MaxTextBytes+1)
+	_, err := h.PublishAsOperator("potato", nil, "", oversized)
+	mustError(t, err, ExitUsage)
+}
+
+// TestHub_Join_ReservedOperatorNameRejected closes the name-squatting half of
+// the same hole: without it an agent could join as "human" and its sends would
+// render identically to operator input in a tail transcript.
+func TestHub_Join_ReservedOperatorNameRejected(t *testing.T) {
+	h := NewHub(t.TempDir())
+	_, err := h.Join("potato", operatorName, "normal", "agent", "sess-agent")
+	mustError(t, err, ExitUsage)
+}
