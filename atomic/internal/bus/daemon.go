@@ -385,14 +385,25 @@ func (d *daemon) handleLeave(req Request) Response {
 	return Response{OK: true}
 }
 
+// handleSend's payload carries the full published Envelope, not merely its
+// id — see docs/spec/atomic-bus.md's "send prints a bare message id, under-
+// structured for an agent" fix: --json needs the whole envelope (to capture
+// the id for --reply-to without a second round trip), and the plain-text
+// path derives its short confirmation from the same payload. UnknownTo
+// names any req.To entry that is not currently a room member (Hub.
+// UnknownAddressees) — Publish above still delivers unconditionally; this
+// is only the signal the client uses to warn the sender on stderr
+// (docs/spec/atomic-bus.md: "send --to <name> warns on stderr when no such
+// member is in the room").
 func (d *daemon) handleSend(req Request) Response {
 	env, err := d.hub.Publish(req.Room, req.Session, req.To, req.ReplyTo, req.Text)
 	if err != nil {
 		return errorResponse(err)
 	}
 	payload, _ := json.Marshal(struct {
-		ID string `json:"id"`
-	}{ID: env.ID})
+		Envelope  Envelope `json:"envelope"`
+		UnknownTo []string `json:"unknown_to,omitempty"`
+	}{Envelope: env, UnknownTo: d.hub.UnknownAddressees(req.Room, req.To)})
 	return Response{OK: true, Payload: payload}
 }
 
@@ -420,7 +431,7 @@ func (d *daemon) handleWho(req Request) Response {
 
 func (d *daemon) handleRooms() Response {
 	payload, _ := json.Marshal(struct {
-		Rooms []string `json:"rooms"`
+		Rooms []RoomInfo `json:"rooms"`
 	}{Rooms: d.hub.Rooms()})
 	return Response{OK: true, Payload: payload}
 }

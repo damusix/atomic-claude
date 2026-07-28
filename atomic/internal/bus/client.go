@@ -7,6 +7,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -418,6 +420,19 @@ func spawnServe(home string) error {
 	if err != nil {
 		return fmt.Errorf("bus: locate atomic binary: %w", err)
 	}
+	// Under `go test`, os.Executable is the compiled <pkg>.test binary. It does
+	// not understand "bus serve" — it ignores the arguments and re-runs the whole
+	// test suite, whose tests call EnsureDaemon and spawn again. Each generation
+	// multiplies, and the machine runs out of memory in seconds.
+	//
+	// This guard is deliberately in the production path rather than only in the
+	// tests: Ensurer.Spawn is an injectable seam, and a single call site that
+	// forgets to inject it is enough to fork-bomb the developer's machine. The
+	// blast radius justifies defense in depth over trusting every future caller.
+	if isTestBinary(exe) {
+		return fmt.Errorf("bus: refusing to spawn a daemon from test binary %s "+
+			"(inject Ensurer.Spawn in tests)", filepath.Base(exe))
+	}
 	cmd := exec.Command(exe, "bus", "serve")
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	// Setsid starts the daemon in its own session, detached from this
@@ -426,6 +441,25 @@ func spawnServe(home string) error {
 	// and survives after this CLI invocation exits.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd.Start()
+}
+
+// isTestBinary reports whether this process is a compiled Go test binary.
+// Both signals it checks are unambiguous and cannot occur for a real `atomic`
+// invocation: `go test` names the binary <pkg>.test, and the testing package
+// registers -test.* flags on the command line it runs with.
+func isTestBinary(exe string) bool {
+	if strings.HasSuffix(filepath.Base(exe), ".test") {
+		return true
+	}
+	if len(os.Args) > 0 && strings.HasSuffix(filepath.Base(os.Args[0]), ".test") {
+		return true
+	}
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "-test.") {
+			return true
+		}
+	}
+	return false
 }
 
 // flockFile is a held exclusive lock on a file, released by unlock.

@@ -34,7 +34,13 @@ func testBusHome(t *testing.T) string {
 // committed Serve loop against it in the background, for the life of the
 // test. Matches daemon_test.go's startServe (cancel + bounded wait on
 // cleanup) but binds the fixed production socket path instead of an
-// arbitrary one, since EnsureDaemon dials exactly SocketPath(home).
+// arbitrary one, since EnsureDaemon dials exactly SocketPath(home). Also
+// mirrors serveAction's own rehydrate-before-serve step (action.go), so a
+// test that uses this as its Ensurer.Spawn (client_test.go's countingSpawn)
+// exercises the same "whole roster comes back on respawn" behavior a real
+// `atomic bus serve` gives production callers — a bare NewHub(home) here
+// would silently drop that and reintroduce the per-session recovery gap
+// this replaced.
 func startTestDaemon(t *testing.T, home string) error {
 	t.Helper()
 
@@ -42,7 +48,11 @@ func startTestDaemon(t *testing.T, home string) error {
 	if err != nil {
 		return err
 	}
-	startServe(t, ln, NewHub(home), 0)
+	hub := NewHub(home)
+	if st, err := Load(home); err == nil {
+		hub.Rehydrate(st)
+	}
+	startServe(t, ln, hub, 0)
 	return nil
 }
 

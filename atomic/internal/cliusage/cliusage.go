@@ -35,6 +35,54 @@ type Command struct {
 // the Cobra tree must be kept in sync: the golden test enforces this.
 var commands = []Command{
 	{
+		Path:        []string{"bus", "join"},
+		Args:        "<room>",
+		Flags:       []string{"--as", "--mode", "--session"},
+		Description: "Join a room under a name; auto-spawns the daemon",
+	},
+	{
+		Path:        []string{"bus", "leave"},
+		Args:        "[<room>]",
+		Flags:       nil,
+		Description: "Leave a room (default: the session's last-joined room)",
+	},
+	{
+		Path:        []string{"bus", "send"},
+		Args:        "<room> <text>",
+		Flags:       []string{"--to", "--reply-to", "--json"},
+		Description: "Send a message; text \"-\" reads stdin",
+	},
+	{
+		Path:        []string{"bus", "recv"},
+		Args:        "<room>",
+		Flags:       []string{"--follow", "--since", "--json"},
+		Description: "Receive messages; --follow streams JSONL until SIGTERM",
+	},
+	{
+		Path:        []string{"bus", "who"},
+		Args:        "[<room>]",
+		Flags:       []string{"--json"},
+		Description: "List a room's members (default: the session's last-joined room)",
+	},
+	{
+		Path:        []string{"bus", "rooms"},
+		Args:        "",
+		Flags:       []string{"--json"},
+		Description: "List every room the daemon knows about",
+	},
+	{
+		Path:        []string{"bus", "status"},
+		Args:        "",
+		Flags:       []string{"--json"},
+		Description: "Report this session's joined rooms and the daemon's state",
+	},
+	{
+		Path:        []string{"bus", "serve"},
+		Args:        "",
+		Flags:       []string{"--idle-shutdown-minutes", "--stop"},
+		Description: "Run the daemon in the foreground; --stop retires a running one",
+	},
+	{
 		Path:        []string{"claude", "install"},
 		Args:        "",
 		Flags:       []string{"--dry-run", "--target", "--no-hooks"},

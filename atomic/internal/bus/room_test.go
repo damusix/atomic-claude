@@ -328,6 +328,165 @@ func TestHub_Join_OverLongNameRejected(t *testing.T) {
 	}
 }
 
+// --- Rehydrate: restoring the roster from bus.json at daemon startup ---
+//
+// docs/spec/atomic-bus.md: "a restarted daemon rehydrates the whole roster
+// ... not one session at a time" and "mode and kind survive a daemon
+// restart".
+
+func TestHub_Rehydrate_RestoresWholeRosterAcrossMultipleRoomsAndSessions(t *testing.T) {
+	h := NewHub(t.TempDir())
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-fe": {Rooms: map[string]roomMembership{
+			"potato": {Name: "frontend", Mode: "participate", Kind: KindAgent, Joined: time.Now()},
+		}},
+		"sess-be": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: time.Now()},
+		}},
+		// judge never runs another command after the restart — rehydration
+		// must not depend on that, unlike the per-session re-registration
+		// this replaced.
+		"sess-jd": {Rooms: map[string]roomMembership{
+			"potato": {Name: "judge", Mode: "observe", Kind: KindAgent, Joined: time.Now()},
+		}},
+		"sess-op": {Rooms: map[string]roomMembership{
+			"carrot": {Name: "operator", Mode: "participate", Kind: KindHuman, Joined: time.Now()},
+		}},
+	}}
+
+	h.Rehydrate(st)
+
+	potato, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who(potato): %v", err)
+	}
+	if len(potato) != 3 {
+		t.Fatalf("potato members = %+v, want 3 (a member idle across the restart must still be present and addressable)", potato)
+	}
+	byName := map[string]Member{}
+	for _, m := range potato {
+		byName[m.Name] = m
+	}
+	if _, ok := byName["judge"]; !ok {
+		t.Fatal("judge is missing from the rehydrated roster")
+	}
+	if got := byName["judge"].Mode; got != "observe" {
+		t.Fatalf("judge.Mode = %q, want %q — an observe member must not silently come back as participate", got, "observe")
+	}
+
+	carrot, err := h.Who("carrot")
+	if err != nil {
+		t.Fatalf("Who(carrot): %v", err)
+	}
+	if len(carrot) != 1 || carrot[0].Name != "operator" || carrot[0].Kind != KindHuman {
+		t.Fatalf("carrot members = %+v, want one human named operator", carrot)
+	}
+}
+
+// TestHub_Rehydrate_DefaultsEmptyModeAndKindForPreExistingEntries covers a
+// bus.json written before Mode/Kind existed on roomMembership: Rehydrate
+// must default exactly as a fresh Join would (room.go's Hub.Join defaults),
+// not leave the zero value on the roster.
+func TestHub_Rehydrate_DefaultsEmptyModeAndKindForPreExistingEntries(t *testing.T) {
+	h := NewHub(t.TempDir())
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Joined: time.Now()},
+		}},
+	}}
+
+	h.Rehydrate(st)
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 {
+		t.Fatalf("members = %+v, want 1", members)
+	}
+	if members[0].Mode != "participate" {
+		t.Fatalf("Mode = %q, want %q (Join's own default)", members[0].Mode, "participate")
+	}
+	if members[0].Kind != KindAgent {
+		t.Fatalf("Kind = %q, want %q (Join's own default)", members[0].Kind, KindAgent)
+	}
+}
+
+// TestHub_Rehydrate_PreservesSuffixedNamesWithoutRenaming proves Rehydrate
+// bypasses Join's numeric-suffix collision retry entirely: two sessions
+// that originally collided on "backend" (the second became "backend-2")
+// must come back under those exact names, never renamed again — a fresh
+// Join replaying the same claims in map-iteration order would have no way
+// to know "backend-2" was ever legitimately held by someone else.
+func TestHub_Rehydrate_PreservesSuffixedNamesWithoutRenaming(t *testing.T) {
+	h := NewHub(t.TempDir())
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: time.Now()},
+		}},
+		"sess-2": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend-2", Mode: "participate", Kind: KindAgent, Joined: time.Now()},
+		}},
+	}}
+
+	h.Rehydrate(st)
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	got := map[string]bool{}
+	for _, m := range members {
+		got[m.Name] = true
+	}
+	if !got["backend"] || !got["backend-2"] {
+		t.Fatalf("members = %+v, want backend and backend-2 both preserved verbatim", members)
+	}
+}
+
+func TestHub_Rehydrate_EmptyStateLeavesHubWithNoRooms(t *testing.T) {
+	h := NewHub(t.TempDir())
+	h.Rehydrate(&State{Sessions: map[string]*sessionState{}})
+
+	if rooms := h.Rooms(); len(rooms) != 0 {
+		t.Fatalf("Rooms() = %+v, want none", rooms)
+	}
+}
+
+// --- UnknownAddressees ---
+
+func TestHub_UnknownAddressees_NamesEveryToEntryNotInTheRoom(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	unknown := h.UnknownAddressees("potato", []string{"backend", "nobody-here"})
+	if len(unknown) != 1 || unknown[0] != "nobody-here" {
+		t.Fatalf("UnknownAddressees = %v, want [nobody-here]", unknown)
+	}
+}
+
+func TestHub_UnknownAddressees_AllKnownReturnsEmpty(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	if unknown := h.UnknownAddressees("potato", []string{"backend"}); len(unknown) != 0 {
+		t.Fatalf("UnknownAddressees = %v, want none", unknown)
+	}
+}
+
+func TestHub_UnknownAddressees_UnknownRoomReturnsEveryNameUnknown(t *testing.T) {
+	h := NewHub(t.TempDir())
+
+	unknown := h.UnknownAddressees("potato", []string{"backend"})
+	if len(unknown) != 1 || unknown[0] != "backend" {
+		t.Fatalf("UnknownAddressees = %v, want [backend] (a room that doesn't exist yet has no members)", unknown)
+	}
+}
+
 // --- Leave / Who / Rooms ---
 
 func TestHub_Leave_RemovesMemberFromRoster(t *testing.T) {
@@ -370,6 +529,10 @@ func TestHub_Who_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 	mustError(t, err, ExitNoRoom)
 }
 
+// TestHub_Rooms_ListsEveryKnownRoomSorted is also finding 4's regression:
+// rooms must report a member count per room, not merely its name — potato
+// and carrot are given different member counts specifically to catch a
+// fix that reports a count but always the same (wrong) one.
 func TestHub_Rooms_ListsEveryKnownRoomSorted(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
@@ -378,16 +541,38 @@ func TestHub_Rooms_ListsEveryKnownRoomSorted(t *testing.T) {
 	if _, err := h.Join("carrot", "backend", "normal", "agent", "sess-2"); err != nil {
 		t.Fatalf("Join carrot: %v", err)
 	}
+	if _, err := h.Join("carrot", "frontend", "normal", "agent", "sess-3"); err != nil {
+		t.Fatalf("Join carrot (second member): %v", err)
+	}
 
 	got := h.Rooms()
-	want := []string{"carrot", "potato"}
+	want := []RoomInfo{{Name: "carrot", Members: 2}, {Name: "potato", Members: 1}}
 	if len(got) != len(want) {
-		t.Fatalf("Rooms = %v, want %v", got, want)
+		t.Fatalf("Rooms = %+v, want %+v", got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("Rooms = %v, want %v", got, want)
+			t.Fatalf("Rooms = %+v, want %+v", got, want)
 		}
+	}
+}
+
+// TestHub_Rooms_ReportsZeroMembersAfterEveryoneLeaves proves a room that
+// has emptied is still listed (rooms persist after everyone leaves — see
+// the daemon-level equivalent in daemon_test.go), now with an explicit
+// Members == 0 rather than merely a bare name.
+func TestHub_Rooms_ReportsZeroMembersAfterEveryoneLeaves(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := h.Leave("potato", "sess-1"); err != nil {
+		t.Fatalf("Leave: %v", err)
+	}
+
+	got := h.Rooms()
+	if len(got) != 1 || got[0] != (RoomInfo{Name: "potato", Members: 0}) {
+		t.Fatalf("Rooms = %+v, want [{potato 0}]", got)
 	}
 }
 
@@ -419,6 +604,92 @@ func TestHub_Publish_AssignsIDStampsTsAndFromKind(t *testing.T) {
 	}
 	if env.Text != "status update" {
 		t.Errorf("Text = %q, want %q", env.Text, "status update")
+	}
+}
+
+// TestHub_Publish_ID_IsShortOpaqueString_NotSequential proves finding 2's
+// documented wire shape ("id": "k2m9" — a short opaque string) rather than
+// the sequential base36 counter this used to be. A sequential counter's
+// first-ever id is always "1" regardless of format; this asserts the id is
+// neither "1" nor purely numeric, so a regression back to a counter fails
+// this test even if someone reformats the counter's base.
+func TestHub_Publish_ID_IsShortOpaqueString_NotSequential(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	env, err := h.Publish("potato", "sess-1", nil, "", "hello")
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	if env.ID == "1" {
+		t.Fatalf("ID = %q, want an opaque id, not the first sequential counter value", env.ID)
+	}
+	if !strings.HasPrefix(env.ID, messageIDPrefix+"-") {
+		t.Fatalf("ID = %q, want it to start with %q", env.ID, messageIDPrefix+"-")
+	}
+	if _, convErr := strconv.ParseUint(env.ID, 10, 64); convErr == nil {
+		t.Fatalf("ID = %q parses as a plain integer; want an opaque string", env.ID)
+	}
+}
+
+// TestHub_Publish_IDsUniqueAcrossDaemonRestart is finding 2's core
+// regression: a per-process sequential counter reset to zero on every
+// daemon restart, so the first message published by a fresh Hub always got
+// id "1" — indistinguishable from the first message published by the
+// previous daemon's Hub, in the same durable room log. Two separate Hub
+// instances (simulating two daemon lifetimes) publishing into the same
+// room must never produce the same id.
+func TestHub_Publish_IDsUniqueAcrossDaemonRestart(t *testing.T) {
+	home := t.TempDir()
+
+	h1 := NewHub(home)
+	if _, err := h1.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join (daemon 1): %v", err)
+	}
+	env1, err := h1.Publish("potato", "sess-1", nil, "", "before restart")
+	if err != nil {
+		t.Fatalf("Publish (daemon 1): %v", err)
+	}
+
+	// A fresh Hub against the same home, exactly what a respawned daemon
+	// constructs — its roster and id bookkeeping start over from nothing.
+	h2 := NewHub(home)
+	if _, err := h2.Join("potato", "frontend", "normal", "agent", "sess-2"); err != nil {
+		t.Fatalf("Join (daemon 2): %v", err)
+	}
+	env2, err := h2.Publish("potato", "sess-2", nil, "", "after restart")
+	if err != nil {
+		t.Fatalf("Publish (daemon 2): %v", err)
+	}
+
+	if env1.ID == env2.ID {
+		t.Fatalf("both daemon lifetimes assigned id %q to different messages in the same room log", env1.ID)
+	}
+}
+
+// TestHub_Publish_ManyMessagesAllGetUniqueIDs is the collision-adequacy
+// check the finding calls for: nextEnvelopeID's own usedIDs guard must
+// hold under real volume, not merely for a couple of calls.
+func TestHub_Publish_ManyMessagesAllGetUniqueIDs(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	const n = 2000
+	seen := make(map[string]bool, n)
+	for i := 0; i < n; i++ {
+		env, err := h.Publish("potato", "sess-1", nil, "", "msg")
+		if err != nil {
+			t.Fatalf("Publish[%d]: %v", i, err)
+		}
+		if seen[env.ID] {
+			t.Fatalf("id %q assigned twice within %d publishes", env.ID, n)
+		}
+		seen[env.ID] = true
 	}
 }
 

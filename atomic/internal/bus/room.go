@@ -3,9 +3,11 @@ package bus
 import (
 	"fmt"
 	"sort"
-	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/ids"
 )
 
 // ringCapacity bounds each room's in-memory replay buffer. It is the
@@ -63,7 +65,13 @@ type Room struct {
 	ring    []Envelope // fixed-length circular buffer, len == ringCapacity
 	ringPos int        // next write index
 	ringLen int        // number of valid entries currently in ring
-	nextID  uint64
+
+	// usedIDs records every envelope id this Room has assigned during this
+	// daemon's lifetime — nextEnvelopeID's collision guard. See that
+	// method's doc for why a per-process sequential counter (the prior
+	// design) was replaced: it made ids unique only within one daemon's
+	// lifetime, and the room log they land in outlives the daemon.
+	usedIDs map[string]struct{}
 
 	subs   map[int]*subscriber
 	subSeq int
@@ -87,6 +95,7 @@ func (h *Hub) getOrCreateRoom(name string) *Room {
 			members:   map[string]Member{},
 			bySession: map[string]string{},
 			ring:      make([]Envelope, ringCapacity),
+			usedIDs:   map[string]struct{}{},
 			subs:      map[int]*subscriber{},
 		}
 		h.rooms[name] = r
@@ -214,6 +223,69 @@ func (r *Room) nameAvailableTo(candidate, session string) bool {
 	return !taken || m.Session == session
 }
 
+// Rehydrate restores every room and member recorded in st into the Hub —
+// the startup step that rebuilds the whole roster from ~/.atomic/bus.json
+// (docs/spec/atomic-bus.md: "a restarted daemon rehydrates the whole
+// roster ... not one session at a time as each happens to run a command").
+// bus.json already holds every session on the machine, not just whichever
+// one's next command happens to notice the daemon is gone, so this one
+// pass at Serve startup (daemon.go) is what makes a member who stays idle
+// across the restart still present and addressable — the per-client
+// re-registration this replaced could only ever restore a session that ran
+// a command.
+//
+// Rehydrate bypasses Join's name-collision retry entirely: a restored
+// member owns its name by right — it is the authoritative record of who
+// already held that name before the daemon went away — not a new claim
+// racing whatever else is in the (freshly empty) roster. Kind and Mode
+// default to KindAgent and "participate" — Join's own defaults — for a
+// membership persisted before those fields existed, so an old bus.json
+// entry rehydrates exactly as a fresh join would have assigned it.
+func (h *Hub) Rehydrate(st *State) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for session, ss := range st.Sessions {
+		for room, m := range ss.Rooms {
+			kind := m.Kind
+			if kind == "" {
+				kind = KindAgent
+			}
+			mode := m.Mode
+			if mode == "" {
+				mode = "participate"
+			}
+			r := h.getOrCreateRoom(room)
+			r.members[m.Name] = Member{Name: m.Name, Kind: kind, Mode: mode, Session: session, Joined: m.Joined}
+			r.bySession[session] = m.Name
+		}
+	}
+}
+
+// UnknownAddressees reports which entries of to are not currently members
+// of room — send --to <name> uses this to warn on an addressed message
+// that reaches nobody (docs/spec/atomic-bus.md: "send --to <name> warns on
+// stderr when no such member is in the room"). This never blocks or alters
+// delivery: a named member may legitimately be about to join, so Publish
+// still sends unconditionally (see docs/spec/atomic-bus.md's Finding 3
+// change-log entry) — this is only the signal a caller uses to warn.
+func (h *Hub) UnknownAddressees(room string, to []string) []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	r, ok := h.getRoom(room)
+	if !ok {
+		return to
+	}
+	var unknown []string
+	for _, name := range to {
+		if _, present := r.members[name]; !present {
+			unknown = append(unknown, name)
+		}
+	}
+	return unknown
+}
+
 // Leave removes session's membership from room.
 func (h *Hub) Leave(room, session string) error {
 	h.mu.Lock()
@@ -249,17 +321,20 @@ func (h *Hub) Who(room string) ([]Member, error) {
 	return out, nil
 }
 
-// Rooms returns the names of every room the Hub currently knows about
-// (created by a join or a subscribe), sorted.
-func (h *Hub) Rooms() []string {
+// Rooms returns a summary of every room the Hub currently knows about
+// (created by a join or a subscribe): name plus current member count,
+// sorted by name. A room that has emptied because every joined member left
+// is still reported, with Members == 0 — see room_test.go's
+// TestHub_Rooms_ListsEveryKnownRoomSorted for the leave-then-list case.
+func (h *Hub) Rooms() []RoomInfo {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	out := make([]string, 0, len(h.rooms))
-	for name := range h.rooms {
-		out = append(out, name)
+	out := make([]RoomInfo, 0, len(h.rooms))
+	for name, r := range h.rooms {
+		out = append(out, RoomInfo{Name: name, Members: len(r.members)})
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
@@ -331,8 +406,12 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 		}
 	}
 
+	id, err := r.nextEnvelopeID()
+	if err != nil {
+		return Envelope{}, err
+	}
 	env := Envelope{
-		ID:       r.nextEnvelopeID(),
+		ID:       id,
 		Room:     room,
 		From:     name,
 		FromKind: member.Kind,
@@ -380,8 +459,12 @@ func (h *Hub) setHalted(room string, halted bool, text string) error {
 		return noRoomError(room)
 	}
 
+	id, err := r.nextEnvelopeID()
+	if err != nil {
+		return err
+	}
 	env := Envelope{
-		ID:       r.nextEnvelopeID(),
+		ID:       id,
 		Room:     room,
 		From:     systemName,
 		FromKind: KindHuman,
@@ -450,9 +533,61 @@ func (h *Hub) Subscribe(room string, ch chan<- Envelope) func() {
 
 // --- Room internals. All of the following assume h.mu is already held. ---
 
-func (r *Room) nextEnvelopeID() string {
-	r.nextID++
-	return strconv.FormatUint(r.nextID, 36)
+// messageIDPrefix names every opaque envelope id nextEnvelopeID assigns
+// (e.g. "m-3f2ab71c") — short and opaque per docs/spec/atomic-bus.md's
+// envelope-shape success criterion.
+const messageIDPrefix = "m"
+
+// maxIDGenAttempts bounds nextEnvelopeID's collision-retry loop — the same
+// "generate, check, retry a few times" shape internal/reminder's Add uses
+// for its own ids.ShortID-derived filenames.
+const maxIDGenAttempts = 5
+
+// nextEnvelopeID assigns a short opaque id, replacing the sequential
+// per-process counter this used to be. A counter reset to zero on every
+// daemon restart while the room log it writes into is durable and outlives
+// the daemon: two different messages, from two different daemon lifetimes,
+// would both be assigned id "1" — exactly the ambiguity
+// docs/spec/atomic-bus.md's "ids stay unique across a daemon restart"
+// criterion exists to close.
+//
+// ids.ShortID draws 2 random bytes (65536 values) per call — not adequate
+// on its own for a room log that persists indefinitely and can accumulate
+// thousands of messages over its lifetime; the birthday bound puts a 50%
+// collision chance at only a few hundred ids. Two draws concatenated widen
+// the space to 32 bits (~4.3 billion), while still reusing ids.ShortID
+// rather than a second random generator. usedIDs is this Room's own
+// collision guard on top of that: a duplicate draw (astronomically
+// unlikely, but cheap to rule out) is retried rather than silently
+// producing two envelopes that share an id within one daemon's lifetime.
+func (r *Room) nextEnvelopeID() (string, error) {
+	for attempt := 0; attempt < maxIDGenAttempts; attempt++ {
+		a, err := randomIDHalf(messageIDPrefix)
+		if err != nil {
+			return "", fmt.Errorf("bus: generate envelope id: %w", err)
+		}
+		b, err := randomIDHalf(messageIDPrefix)
+		if err != nil {
+			return "", fmt.Errorf("bus: generate envelope id: %w", err)
+		}
+		id := messageIDPrefix + "-" + a + b
+		if _, seen := r.usedIDs[id]; !seen {
+			r.usedIDs[id] = struct{}{}
+			return id, nil
+		}
+	}
+	return "", &Error{Code: ExitHard, Msg: "bus: could not generate a unique envelope id after retrying"}
+}
+
+// randomIDHalf draws 4 lowercase hex characters via ids.ShortID, discarding
+// the "<prefix>-" ShortID always adds — nextEnvelopeID composes two draws
+// into one wider id rather than trusting a single draw's 65536-value space.
+func randomIDHalf(prefix string) (string, error) {
+	id, err := ids.ShortID(prefix)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimPrefix(id, prefix+"-"), nil
 }
 
 func (r *Room) pushRing(env Envelope) {
@@ -520,10 +655,18 @@ func (r *Room) fanOut(env Envelope, home string) {
 // ahead of the next real one once a subscriber has missed messages. It is
 // never appended to the room log or ring — it exists only on the one
 // subscriber's live stream that actually missed something, and other
-// subscribers of the same room may never see one at all.
+// subscribers of the same room may never see one at all. A ShortID failure
+// here (rand exhausted — not realistically reachable) falls back to an
+// empty id rather than dropping the marker itself: this envelope is never
+// looked up by id (never logged, never replayed via Since), so an empty id
+// costs nothing.
 func (r *Room) dropMarkerEnvelope(room, home string, n int) Envelope {
+	id, err := r.nextEnvelopeID()
+	if err != nil {
+		id = ""
+	}
 	return Envelope{
-		ID:       r.nextEnvelopeID(),
+		ID:       id,
 		Room:     room,
 		From:     systemName,
 		FromKind: kindSystem,

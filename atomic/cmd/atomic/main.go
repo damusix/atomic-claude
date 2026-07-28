@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/bus"
 	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
@@ -146,7 +147,7 @@ func main() {
 	}
 }
 
-// buildRootCmd constructs the Cobra root command with all 19 top-level verb
+// buildRootCmd constructs the Cobra root command with all 21 top-level verb
 // stubs. Each stub delegates to the existing runXxx handler with the post-verb
 // args, preserving all existing dispatch behavior unchanged. The nested
 // sub-switches inside handlers (code, wiki, signals, etc.) stay intact and are
@@ -219,7 +220,9 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	rootCmd.PersistentFlags().Bool("no-update-check", false, "suppress background update check")
 	rootCmd.PersistentFlags().BoolP("version", "v", false, "print version and exit")
 
-	// --- 19 top-level verb stubs -----------------------------------------
+	// --- 21 top-level verb stubs -----------------------------------------
+
+	rootCmd.AddCommand(buildBusCmd())
 
 	rootCmd.AddCommand(buildSignalsCmd(repoOverride))
 
@@ -734,6 +737,66 @@ func buildConfigCmd() *cobra.Command {
 	addSub("resolve", "Resolve Pi agent configuration", "", func(c *cobra.Command) {
 		c.Flags().String("repo", "", "repository root")
 		c.Flags().Bool("json", false, "print as JSON object")
+	})
+	return parent
+}
+
+// buildBusCmd builds the "bus" parent + join|leave|send|recv|who|rooms|status|serve
+// children. Dispatch is runBus (→ bus.BusAction from internal/bus/action.go).
+// tail, say, halt, resume, and chat are not wired here — checkpoints 5 and 6
+// (docs/spec/atomic-bus.md).
+func buildBusCmd() *cobra.Command {
+	dispatch := func(args []string) { runBus(args) }
+	parent := &cobra.Command{
+		Use:   "bus",
+		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve)",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
+	}
+	addSub := func(verb, short, argsHint string, flagFn func(*cobra.Command)) {
+		c := &cobra.Command{
+			Use:                verb,
+			Short:              short,
+			Annotations:        map[string]string{"args_hint": argsHint},
+			DisableFlagParsing: true,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				dispatch(append([]string{verb}, args...))
+				return nil
+			},
+		}
+		if flagFn != nil {
+			flagFn(c)
+		}
+		parent.AddCommand(c)
+	}
+	addSub("join", "Join a room under a name; auto-spawns the daemon", "<room>", func(c *cobra.Command) {
+		c.Flags().String("as", "", "member name to claim (required)")
+		c.Flags().String("mode", "participate", "participate or observe")
+		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")
+	})
+	addSub("leave", "Leave a room (default: the session's last-joined room)", "[<room>]", nil)
+	addSub("send", "Send a message; text \"-\" reads stdin", "<room> <text>", func(c *cobra.Command) {
+		c.Flags().String("to", "", "comma-separated addressee names (omit for FYI)")
+		c.Flags().String("reply-to", "", "id of the message being replied to")
+		c.Flags().Bool("json", false, "emit the full envelope as JSON (captures the id for --reply-to)")
+	})
+	addSub("recv", "Receive messages; --follow streams JSONL until SIGTERM", "<room>", func(c *cobra.Command) {
+		c.Flags().Bool("follow", false, "stream live JSONL until SIGTERM")
+		c.Flags().String("since", "", "replay envelopes after this message id")
+		c.Flags().Bool("json", false, "emit JSONL for a one-shot recv")
+	})
+	addSub("who", "List a room's members (default: the session's last-joined room)", "[<room>]", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "emit JSON")
+	})
+	addSub("rooms", "List every room the daemon knows about", "", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "emit JSON")
+	})
+	addSub("status", "Report this session's joined rooms and the daemon's state", "", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "emit JSON")
+	})
+	addSub("serve", "Run the daemon in the foreground; --stop retires a running one", "", func(c *cobra.Command) {
+		c.Flags().Int("idle-shutdown-minutes", 10, "idle-shutdown window in minutes (0 disables)")
+		c.Flags().Bool("stop", false, "stop a running daemon and exit")
 	})
 	return parent
 }
@@ -2127,6 +2190,22 @@ func runCode(args []string, repoOverride string) {
 	}
 	claudeMDPath := filepath.Join(home, ".claude", "CLAUDE.md")
 	os.Exit(codecli.RunCodeWithRealm(args, absRepo, claudeMDPath, os.Stdout, os.Stderr, os.Stdin))
+}
+
+func runBus(args []string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus: resolve home dir: %v\n", err)
+		os.Exit(2)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus: resolve cwd: %v\n", err)
+		os.Exit(2)
+	}
+
+	os.Exit(bus.BusAction(args, home, cwd, os.Stdout))
 }
 
 func runWiki(args []string) {

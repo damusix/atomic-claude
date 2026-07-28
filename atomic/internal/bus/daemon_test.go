@@ -300,13 +300,14 @@ func TestServe_JoinThenWho_RoundTrip(t *testing.T) {
 		t.Fatalf("rooms failed: %s", roomsResp.Error)
 	}
 	var roomsPayload struct {
-		Rooms []string `json:"rooms"`
+		Rooms []RoomInfo `json:"rooms"`
 	}
 	if err := json.Unmarshal(roomsResp.Payload, &roomsPayload); err != nil {
 		t.Fatalf("unmarshal rooms payload: %v", err)
 	}
-	if len(roomsPayload.Rooms) != 1 || roomsPayload.Rooms[0] != "potato" {
-		t.Fatalf("rooms = %v, want [potato] (room persists after everyone leaves)", roomsPayload.Rooms)
+	want := RoomInfo{Name: "potato", Members: 0}
+	if len(roomsPayload.Rooms) != 1 || roomsPayload.Rooms[0] != want {
+		t.Fatalf("rooms = %+v, want [%+v] (room persists after everyone leaves, with a member count)", roomsPayload.Rooms, want)
 	}
 }
 

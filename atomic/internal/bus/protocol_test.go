@@ -83,6 +83,62 @@ func TestEnvelope_ToRoundTripPreservesFYISemantics(t *testing.T) {
 	}
 }
 
+// TestEnvelope_Ts_MarshalsAsUnixSeconds is finding 3's regression: the
+// documented wire contract (docs/design/atomic-bus.md) is "ts": 1753900000
+// — a Unix-seconds integer — not Go's default RFC3339Nano string
+// ("2026-07-28T04:39:59.609364-04:00"), which is what the daemon actually
+// emitted before this fix.
+func TestEnvelope_Ts_MarshalsAsUnixSeconds(t *testing.T) {
+	when := time.Date(2026, 7, 28, 4, 39, 59, 0, time.UTC)
+	env := Envelope{ID: "m-1234abcd", Room: "potato", From: "frontend", FromKind: "agent", Ts: when, Text: "hi"}
+
+	b, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	tsRaw, ok := m["ts"]
+	if !ok {
+		t.Fatalf("missing \"ts\" field in %s", b)
+	}
+	if strings.Contains(string(tsRaw), `"`) {
+		t.Fatalf(`"ts" = %s, want a bare integer (Unix seconds), not a quoted string`, tsRaw)
+	}
+	var gotSeconds int64
+	if err := json.Unmarshal(tsRaw, &gotSeconds); err != nil {
+		t.Fatalf("\"ts\" = %s does not parse as an integer: %v", tsRaw, err)
+	}
+	if gotSeconds != when.Unix() {
+		t.Fatalf("\"ts\" = %d, want %d (Unix seconds)", gotSeconds, when.Unix())
+	}
+}
+
+// TestEnvelope_Ts_RoundTripsThroughUnixSeconds proves the client side of
+// finding 3's fix: an envelope decoded off the wire (room log, subscription
+// frame, response payload) recovers the same instant to the second — the
+// precision the wire format actually carries — not a decode error from
+// trying to unmarshal an integer into a time.Time.
+func TestEnvelope_Ts_RoundTripsThroughUnixSeconds(t *testing.T) {
+	when := time.Date(2026, 7, 28, 4, 39, 59, 0, time.UTC)
+	sent := Envelope{ID: "m-1234abcd", Room: "potato", From: "frontend", FromKind: "agent", Ts: when, Text: "hi"}
+
+	b, err := json.Marshal(sent)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	var received Envelope
+	if err := json.Unmarshal(b, &received); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if !received.Ts.Equal(when) {
+		t.Fatalf("round-tripped Ts = %v, want %v", received.Ts, when)
+	}
+}
+
 func TestEnvelope_JSONFieldNamesMatchWireContract(t *testing.T) {
 	env := Envelope{
 		ID: "k4", Room: "potato", From: "frontend", FromKind: "agent",

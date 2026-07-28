@@ -82,7 +82,7 @@ func TestState_SaveLoadRoundTrip_RealFileOnDisk(t *testing.T) {
 	home := t.TempDir()
 
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend")
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
 
 	if err := st.Save(home); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -110,8 +110,8 @@ func TestState_SaveLoadRoundTrip_RealFileOnDisk(t *testing.T) {
 
 func TestState_LastRoom_ReturnsMostRecentJoin(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend")
-	st.Join("sess-1", "carrot", "frontend")
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
+	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent)
 
 	room, ok := st.LastRoom("sess-1")
 	if !ok {
@@ -136,8 +136,8 @@ func TestState_LastRoom_UnjoinedSessionReturnsFalse(t *testing.T) {
 // still has a sensible default after leaving one of several rooms.
 func TestState_Leave_RecomputesLastRoomFromRemaining(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend")
-	st.Join("sess-1", "carrot", "frontend") // becomes LastRoom
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
+	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent) // becomes LastRoom
 
 	st.Leave("sess-1", "carrot")
 
@@ -152,7 +152,7 @@ func TestState_Leave_RecomputesLastRoomFromRemaining(t *testing.T) {
 
 func TestState_Leave_LastRoomUnsetWhenNoRoomsRemain(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend")
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
 
 	st.Leave("sess-1", "potato")
 
@@ -163,7 +163,7 @@ func TestState_Leave_LastRoomUnsetWhenNoRoomsRemain(t *testing.T) {
 
 func TestState_ResolveRoom(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend")
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
 
 	t.Run("explicit room wins over last joined", func(t *testing.T) {
 		room, err := st.ResolveRoom("sess-1", "carrot")

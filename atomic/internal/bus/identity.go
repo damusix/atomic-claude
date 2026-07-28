@@ -36,9 +36,16 @@ func SessionID(override string) (string, error) {
 
 // roomMembership is one session's record of a joined room: the name it
 // ended up with there (a join may be renamed by the daemon's numeric-suffix
-// retry — see docs/design/atomic-bus.md's join flow, step 6) and when.
+// retry — see docs/design/atomic-bus.md's join flow, step 6), its kind and
+// mode, and when. Mode and Kind exist so a restarted daemon can rehydrate a
+// member exactly as it joined (room.go's Hub.Rehydrate) — before this they
+// were held only in the daemon's memory, so an idle-shutdown restart
+// silently reset every observer back to participate (docs/spec/
+// atomic-bus.md: "mode and kind survive a daemon restart").
 type roomMembership struct {
 	Name   string    `json:"name"`
+	Mode   string    `json:"mode,omitempty"`
+	Kind   string    `json:"kind,omitempty"`
 	Joined time.Time `json:"joined"`
 }
 
@@ -119,9 +126,9 @@ func (s *State) Save(home string) error {
 	return nil
 }
 
-// Join records that session has joined room under name, and marks room as
-// the session's most recent join.
-func (s *State) Join(session, room, name string) {
+// Join records that session has joined room under name with the given mode
+// and kind, and marks room as the session's most recent join.
+func (s *State) Join(session, room, name, mode, kind string) {
 	if s.Sessions == nil {
 		s.Sessions = map[string]*sessionState{}
 	}
@@ -133,7 +140,7 @@ func (s *State) Join(session, room, name string) {
 	if ss.Rooms == nil {
 		ss.Rooms = map[string]roomMembership{}
 	}
-	ss.Rooms[room] = roomMembership{Name: name, Joined: time.Now()}
+	ss.Rooms[room] = roomMembership{Name: name, Mode: mode, Kind: kind, Joined: time.Now()}
 	ss.LastRoom = room
 }
 

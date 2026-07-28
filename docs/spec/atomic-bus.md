@@ -46,6 +46,20 @@ can stop the exchange with `atomic bus halt`.
       still succeeds; `resume` restores sends.
 - [ ] Every room's traffic appends to `~/.atomic/rooms/<room>.log` whether or not anyone is watching.
 - [ ] `who`, `rooms`, `recv`, and `status` all accept `--json`.
+- [ ] The envelope on the wire matches the documented shape exactly: `ts` is Unix seconds, `id` is
+      a short opaque string, `to` is always present.
+- [ ] Message ids stay unique across a daemon restart, so `--since <id>` is never ambiguous against
+      a room log that outlives the daemon.
+- [ ] `rooms` reports a member count per room, in both table and `--json` form.
+- [ ] Idle shutdown is invisible to a joined session: a client that finds the daemon gone respawns
+      it and retries once before surfacing exit 6.
+- [ ] A restarted daemon rehydrates the **whole** roster from `~/.atomic/bus.json` at startup, not
+      one session at a time as each happens to run a command. A member who has been idle across
+      the restart is still present in `who` and still addressable.
+- [ ] `mode` and `kind` survive a daemon restart — an `observe` member does not silently come back
+      as `participate`.
+- [ ] `send --to <name>` warns on stderr when no such member is in the room. An addressed message
+      to nobody is the failure the addressed-vs-FYI distinction exists to prevent.
 - [ ] `go test ./...`, `go vet ./...`, `gofmt -l .` clean; `make render` and `make bundle` leave no
       diff; `atomic validate` passes.
 
@@ -244,12 +258,42 @@ Flow: idle shutdown
 | Test suite leaves stray daemons or sockets behind | high | Every test overrides `HOME` to `t.TempDir()`, so socket, lock, and state land in the temp dir; `t.Cleanup` shuts the daemon down. No test touches the real `~/.atomic`. |
 | `recv --follow` tests hang forever on a missed message | med | Every subscription assertion is bounded by a `select` on a timeout channel and fails with a clear message rather than blocking the suite. |
 | Notification cap silently truncates a long message | med | Envelopes over the threshold carry `truncated` and `log`; the full body is always in the room log, and the skill documents how to fetch it. |
+| Daemon spawn fork-bombs the developer's machine under `go test` | **occurred** | `spawnServe` locates the binary with `os.Executable`, which under `go test` is `<pkg>.test` — it ignores the `bus serve` arguments, re-runs the whole suite, and each generation spawns more. Triggered once by a single call site using the package-level `EnsureDaemon` instead of the `recoveryEnsurer` seam. `spawnServe` now refuses to spawn from a test binary (`.test` suffix or `-test.*` in argv), pinned by `spawn_guard_test.go`. The seam remains the mechanism; the guard exists because forgetting it costs a machine, not a test. |
 | `chat` TUI scope creeps into a terminal-emulator rewrite | med | CP6 is last and deliberately minimal — line-oriented redraw, not a full-screen widget tree. Slipping it does not block CP1-5 or the skill. |
 | Session id absent outside Claude Code breaks scripted use | low | `--session` override on `join`, exercised by tests. |
 | Unix-only build breaks a release target | none | `.goreleaser.yaml` builds `linux` and `darwin` only — there is no Windows target to break. `syscall.Flock` and `SysProcAttr.Setsid` are used unguarded, matching the existing precedent in `atomic/internal/codeintel/mcp/proxy.go:66,113`. No build tag and no platform stub. |
 
 
 ## Change log
+
+### 2026-07-28 — the daemon rehydrates the roster; client-side re-registration was the wrong seam
+
+Also found by exercising the binary. The previous entry's fix had each client re-register *its own*
+rooms on discovering a dead daemon. Testing three sessions showed why that seam is wrong: only
+sessions that happen to run a command come back, so a member idle across the restart silently
+vanishes from `who` — and a peer's `--to <that member>` then addresses nobody and still exits 0.
+`bus.json` already holds every session on the machine, so the daemon can restore the full roster
+itself at startup. That collapses the per-client re-registration logic to a plain respawn-and-retry
+and fixes the vanishing-member and lost-`mode` bugs at their source rather than per call site.
+
+`mode` and `kind` are now persisted alongside the member name, and `send` warns when an addressee
+is not in the room.
+
+### 2026-07-28 — idle shutdown must be invisible; envelope shape pinned
+
+Found by exercising the built binary rather than the test suite. Four criteria added:
+
+- **Idle shutdown silently evicted every member.** The roster is in memory, so when the daemon
+  idled out after the default 10 minutes, every later `send` / `who` / `rooms` failed with exit 6
+  and no guidance — from a session that had joined correctly and done nothing wrong. A normal,
+  expected event was producing an unrecoverable state. Clients now respawn and re-register from
+  the persisted `bus.json` before surfacing exit 6.
+- **Sequential per-daemon-lifetime message ids restart at 1.** Room logs outlive the daemon, so
+  after a restart `--since <id>` matched the wrong messages. Ids are now short opaque strings,
+  as the envelope contract always specified.
+- **`ts` was RFC3339, not Unix seconds**, and `id` was an integer — both diverging from the
+  documented envelope that agents parse.
+- **`rooms` reported no member counts**, which the command contract requires.
 
 ### 2026-07-28 — correction: there is no Windows release target
 

@@ -121,9 +121,16 @@ type Envelope struct {
 	// "field absent" on the wire. See MarshalJSON below.
 	To []string `json:"to"`
 
-	ReplyTo string    `json:"reply_to,omitempty"`
-	Ts      time.Time `json:"ts"`
-	Text    string    `json:"text"`
+	ReplyTo string `json:"reply_to,omitempty"`
+	// Ts is the envelope's timestamp. Wire representation is Unix seconds
+	// (an integer, e.g. "ts":1753900000), not Go's default RFC3339Nano —
+	// see docs/design/atomic-bus.md's wire protocol table and MarshalJSON/
+	// UnmarshalJSON below, which carry the conversion. Sub-second precision
+	// does not survive a marshal/unmarshal round trip; nothing in the
+	// protocol needs it (see docs/spec/atomic-bus.md's envelope-shape
+	// success criterion).
+	Ts   time.Time `json:"ts"`
+	Text string    `json:"text"`
 
 	// Truncated is nonzero only when Text was cut for the notification
 	// cap; it holds the number of bytes cut. Log then points at the room
@@ -133,23 +140,42 @@ type Envelope struct {
 	Log       string `json:"log,omitempty"`
 }
 
-// MarshalJSON enforces the To invariant documented on the field above: an
-// empty or nil To always serializes as "to":[], never "to":null. Overriding
-// here (instead of requiring every constructor to remember to initialize
-// To) makes the invariant hold regardless of how an Envelope was built.
+// MarshalJSON enforces the To invariant documented on the field above (an
+// empty or nil To always serializes as "to":[], never "to":null) and the Ts
+// invariant documented on that field (Unix seconds, not RFC3339Nano).
+// Overriding here — instead of requiring every constructor to remember —
+// makes both invariants hold regardless of how an Envelope was built.
 func (e Envelope) MarshalJSON() ([]byte, error) {
 	type alias Envelope
 	to := e.To
 	if to == nil {
 		to = []string{}
 	}
-	// The outer To field shadows the one promoted from alias (same JSON
-	// name, shallower struct depth) — the standard way to override one
+	// The outer To/Ts fields shadow the ones promoted from alias (same JSON
+	// name, shallower struct depth) — the standard way to override a
 	// field's encoding without hand-rolling every other field.
 	return json.Marshal(struct {
 		alias
 		To []string `json:"to"`
-	}{alias: alias(e), To: to})
+		Ts int64    `json:"ts"`
+	}{alias: alias(e), To: to, Ts: e.Ts.Unix()})
+}
+
+// UnmarshalJSON is MarshalJSON's inverse for Ts: it decodes the wire's Unix
+// seconds integer back into a time.Time, so every Envelope consumer (room
+// log round trips, subscription frames, response payloads) sees the same
+// Go type regardless of which side of the wire it's on.
+func (e *Envelope) UnmarshalJSON(data []byte) error {
+	type alias Envelope
+	aux := struct {
+		*alias
+		Ts int64 `json:"ts"`
+	}{alias: (*alias)(e)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	e.Ts = time.Unix(aux.Ts, 0)
+	return nil
 }
 
 // KindAgent and KindHuman are the only two values Member.Kind (and a join
@@ -171,6 +197,14 @@ type Member struct {
 	Mode    string    `json:"mode,omitempty"`
 	Session string    `json:"session"`
 	Joined  time.Time `json:"joined"`
+}
+
+// RoomInfo is one room's summary, as reported by `rooms`: its name and how
+// many members currently hold it (docs/spec/atomic-bus.md: "rooms reports a
+// member count per room, in both table and --json form").
+type RoomInfo struct {
+	Name    string `json:"name"`
+	Members int    `json:"members"`
 }
 
 // ExitCode is a process exit status the bus CLI terminates with. Values are
