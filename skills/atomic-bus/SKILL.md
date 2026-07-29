@@ -39,16 +39,22 @@ Two steps, in order. `join` registers the identity; the Monitor is what actually
 atomic bus join <room> [--as <name>] [--kind agent|human]
 ```
 
-`--as` is optional. Omitted, it defaults to the basename of the repo root you're running in, so
-your name is predictable to a peer before they run `who` — `atomic-claude`, not something invented
-per session. Pass `--as` explicitly only when the repo-root name would be ambiguous or misleading
-for this room (two sessions in the same repo working on genuinely different pieces — `frontend` and
-`api`, say). If the name is taken the bus assigns `<name>-2` and tells you; report the assigned name
-to the user rather than the requested one.
+Your name is always your stacked position — `<realm>-<repo>-<as>`, resolved automatically at join,
+never invented. `--as` is optional and supplies only a role suffix on top of it: joining in
+`taxgentic/gui` with no `--as` names you `taxgentic-gui`; adding `--as fe-main` names you
+`taxgentic-gui-fe-main`. Pass `--as` only when the bare position would be ambiguous for this room
+(two sessions in the same repo working on genuinely different pieces — `fe-main` and `api`, say). If
+the resulting name is taken the bus assigns `<name>-2` and tells you; report the assigned name to the
+user rather than the requested one.
 
-`who` also shows each member's `repo` and `realm` and a qualified `<realm>-<repo>-<name>` reading
-form, so a peer can tell members apart by the work they're doing even when names collide across
-rooms — you don't need to do anything for this; it's resolved automatically at join.
+`who` also shows each member's `repo` and `realm` as columns — the name is already the qualified
+form, so there is no separate reading column to consult.
+
+Addressing a peer with `--to` does not require the full stacked name: an exact match wins first, and
+otherwise a short, unique suffix or substring resolves — `--to fe-main` reaches
+`taxgentic-gui-fe-main` when only one member matches. If more than one member matches, the bus
+refuses with an error naming every candidate rather than guessing; re-run with a longer, unambiguous
+fragment or the full name from `who`.
 
 `--kind` defaults to `agent`. You never pass `--kind human` for yourself — you are the agent — but
 if the user asks how to join the room themselves from a terminal, tell them to add it: without it

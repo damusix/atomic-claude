@@ -68,14 +68,17 @@ func TestBusAction_Chat_MissingRoom_ExitUsage(t *testing.T) {
 func TestJoinAction_Success_AssignsRequestedName(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
+	cwd := testCwd(t)
+	wantName := filepath.Base(cwd) + "-backend"
 
 	var out bytes.Buffer
-	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, testCwd(t), &out)
+	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, cwd, &out)
 	if code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
-	if got := out.String(); got != "joined potato as backend\n" {
-		t.Fatalf("output = %q, want %q", got, "joined potato as backend\n")
+	wantOut := fmt.Sprintf("joined potato as %s\n", wantName)
+	if got := out.String(); got != wantOut {
+		t.Fatalf("output = %q, want %q", got, wantOut)
 	}
 
 	st, err := Load(home)
@@ -90,22 +93,26 @@ func TestJoinAction_Success_AssignsRequestedName(t *testing.T) {
 
 // TestJoinAction_NameCollision_RetrySuffixReported proves the CLI reports
 // the daemon-assigned name (room.go's Hub.Join owns the numeric-suffix
-// retry itself) rather than the one requested.
+// retry itself) rather than the one requested. Both joins share one cwd —
+// a name collision requires two sessions to land on the exact same stacked
+// name, which only happens when they resolve the same position.
 func TestJoinAction_NameCollision_RetrySuffixReported(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
+	cwd := testCwd(t)
+	requested := filepath.Base(cwd) + "-backend"
 
 	var out1 bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, testCwd(t), &out1); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, cwd, &out1); code != int(ExitOK) {
 		t.Fatalf("first join exit code = %d", code)
 	}
 
 	var out2 bytes.Buffer
-	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-2"}, home, testCwd(t), &out2)
+	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-2"}, home, cwd, &out2)
 	if code != int(ExitOK) {
 		t.Fatalf("second join exit code = %d, want %d", code, ExitOK)
 	}
-	want := "joined potato as backend-2 (requested backend was taken)\n"
+	want := fmt.Sprintf("joined potato as %s-2 (requested %s was taken)\n", requested, requested)
 	if got := out2.String(); got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
@@ -114,28 +121,29 @@ func TestJoinAction_NameCollision_RetrySuffixReported(t *testing.T) {
 func TestJoinAction_NameTaken_ThirdAttemptExitsNameTaken(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
+	cwd := testCwd(t) // shared: a collision needs all three joins to land on the same stacked name
 
 	var discard bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, testCwd(t), &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, cwd, &discard); code != int(ExitOK) {
 		t.Fatalf("first join exit code = %d", code)
 	}
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-2"}, home, testCwd(t), &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-2"}, home, cwd, &discard); code != int(ExitOK) {
 		t.Fatalf("second join exit code = %d", code)
 	}
 
-	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-3"}, home, testCwd(t), &discard)
+	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-3"}, home, cwd, &discard)
 	if code != int(ExitNameTaken) {
 		t.Fatalf("third join exit code = %d, want %d (ExitNameTaken)", code, ExitNameTaken)
 	}
 }
 
 // TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename is the regression test
-// for the position-derived naming entry (docs/spec/atomic-bus.md, 2026-07-29):
-// --as used to be required; omitting it now names the member after
-// resolvePosition's repo-root basename rather than failing with ExitUsage.
-// cwd here is a plain t.TempDir() outside any git repository or scope
-// marker (repoctx.ResolveFrom's ScopeSourceCwd fallback), proving the
-// default still produces a usable name even outside a repo.
+// for the "the name is the position" entry (docs/spec/atomic-bus.md,
+// 2026-07-29): omitting --as still names the member, this time after
+// pos.name("") — which, with no realm and no role suffix, collapses to the
+// bare repo-root basename. cwd here is a plain t.TempDir() outside any git
+// repository or scope marker (where.Resolve's cwd fallback), proving the
+// name is still usable even outside a repo.
 func TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
@@ -153,20 +161,23 @@ func TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename(t *testing.T) {
 	}
 }
 
-// TestJoinAction_ExplicitAsFlag_OverridesDefault proves an explicit --as
-// always wins over the position-derived default, even when it differs from
-// cwd's own basename.
+// TestJoinAction_ExplicitAsFlag_OverridesDefault proves an explicit --as is
+// always appended as the role suffix on top of the derived position, rather
+// than being dropped or replacing it.
 func TestJoinAction_ExplicitAsFlag_OverridesDefault(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
+	cwd := testCwd(t)
+	wantName := filepath.Base(cwd) + "-backend"
 
 	var out bytes.Buffer
-	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, testCwd(t), &out)
+	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, cwd, &out)
 	if code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
-	if got := out.String(); got != "joined potato as backend\n" {
-		t.Fatalf("output = %q, want %q", got, "joined potato as backend\n")
+	wantOut := fmt.Sprintf("joined potato as %s\n", wantName)
+	if got := out.String(); got != wantOut {
+		t.Fatalf("output = %q, want %q", got, wantOut)
 	}
 }
 
@@ -672,14 +683,17 @@ func TestSendAction_DaemonGoneAfterJoin_RecoversAndRetries(t *testing.T) {
 func TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
+	cwd := testCwd(t)
+	wantAlice := filepath.Base(cwd) + "-alice"
+	wantBob := filepath.Base(cwd) + "-bob"
 
 	var discard bytes.Buffer
 	t.Setenv(sessionEnvVar, "sess-a")
-	if code := joinAction([]string{"potato", "--as", "alice"}, home, testCwd(t), &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "alice"}, home, cwd, &discard); code != int(ExitOK) {
 		t.Fatalf("join sess-a exit code = %d", code)
 	}
 	t.Setenv(sessionEnvVar, "sess-b")
-	if code := joinAction([]string{"potato", "--as", "bob"}, home, testCwd(t), &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "bob"}, home, cwd, &discard); code != int(ExitOK) {
 		t.Fatalf("join sess-b exit code = %d", code)
 	}
 
@@ -709,8 +723,8 @@ func TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn
 	for _, m := range members {
 		names[m.Name] = true
 	}
-	if !names["alice"] || !names["bob"] {
-		t.Fatalf("members after one respawn = %+v, want both alice and bob (whole-roster rehydration)", members)
+	if !names[wantAlice] || !names[wantBob] {
+		t.Fatalf("members after one respawn = %+v, want both %q and %q (whole-roster rehydration)", members, wantAlice, wantBob)
 	}
 
 	// Session B's send must succeed with no additional spawn — the daemon
@@ -776,14 +790,16 @@ func TestDialDaemonRecovered_RecoveryFailsPersistently_NoLoop(t *testing.T) {
 func TestServeAction_Restart_RehydratesNamesIncludingSuffixed(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
+	cwd := testCwd(t)
+	wantName := filepath.Base(cwd) + "-backend"
 
 	var discard bytes.Buffer
 	t.Setenv(sessionEnvVar, "sess-1")
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, cwd, &discard); code != int(ExitOK) {
 		t.Fatalf("join sess-1 exit code = %d", code)
 	}
 	t.Setenv(sessionEnvVar, "sess-2")
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, cwd, &discard); code != int(ExitOK) {
 		t.Fatalf("join sess-2 exit code = %d", code)
 	}
 
@@ -808,8 +824,8 @@ func TestServeAction_Restart_RehydratesNamesIncludingSuffixed(t *testing.T) {
 	for _, m := range members {
 		names[m.Name] = true
 	}
-	if !names["backend"] || !names["backend-2"] {
-		t.Fatalf("members after restart = %+v, want backend and backend-2 preserved (no further rename)", members)
+	if !names[wantName] || !names[wantName+"-2"] {
+		t.Fatalf("members after restart = %+v, want %q and %q preserved (no further rename)", members, wantName, wantName+"-2")
 	}
 }
 
@@ -1164,11 +1180,16 @@ func TestWhoAction_TableOutput_ShowsStaleness(t *testing.T) {
 	if code := whoAction([]string{"potato"}, home, &out); code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
+	// TrimRight on "\n" only, not TrimSpace: repo/realm are empty for both
+	// seeded members here, so the last row's trailing tab-separated empty
+	// fields are themselves whitespace — a plain TrimSpace on the whole
+	// buffer would eat them off the last line and produce a false field-count
+	// mismatch that has nothing to do with the liveness column under test.
 	liveness := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
 		fields := strings.Split(line, "\t")
-		if len(fields) != 7 {
-			t.Fatalf("line %q has %d tab-separated fields, want 7 (name, kind, mode, liveness, repo, realm, qualified)", line, len(fields))
+		if len(fields) != 6 {
+			t.Fatalf("line %q has %d tab-separated fields, want 6 (name, kind, mode, liveness, repo, realm)", line, len(fields))
 		}
 		liveness[fields[0]] = fields[3]
 	}
@@ -1390,9 +1411,11 @@ func TestStatusAction_DaemonRunning_ReportsJoinedRoom(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
 	t.Setenv(sessionEnvVar, "sess-1")
+	cwd := testCwd(t)
+	wantName := filepath.Base(cwd) + "-backend"
 
 	var discard bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, cwd, &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
 
@@ -1411,8 +1434,8 @@ func TestStatusAction_DaemonRunning_ReportsJoinedRoom(t *testing.T) {
 	if status.Version != ProtocolVersion {
 		t.Fatalf("Version = %d, want %d", status.Version, ProtocolVersion)
 	}
-	if len(status.Rooms) != 1 || status.Rooms[0].Room != "potato" || status.Rooms[0].Name != "backend" {
-		t.Fatalf("Rooms = %+v, want one entry {potato backend}", status.Rooms)
+	if len(status.Rooms) != 1 || status.Rooms[0].Room != "potato" || status.Rooms[0].Name != wantName {
+		t.Fatalf("Rooms = %+v, want one entry {potato %s}", status.Rooms, wantName)
 	}
 }
 
@@ -2724,16 +2747,17 @@ func TestWhoAction_JSONOutput_ShowsKind(t *testing.T) {
 	}
 }
 
-// --- who: repo/realm and the qualified display form
-// (docs/spec/atomic-bus.md's 2026-07-29 "position-derived member naming"
-// entry) ---
+// --- who: repo/realm columns, no separate qualified display form
+// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
+// the role" entry — the name is already qualified, so who has no seventh
+// column repeating it) ---
 
-func TestWhoAction_TableOutput_ShowsRepoRealmAndQualifiedName(t *testing.T) {
+func TestWhoAction_TableOutput_ShowsRepoAndRealm_NoQualifiedColumn(t *testing.T) {
 	home := testBusHome(t)
 	mustStartTestDaemon(t, home)
 	addr := SocketPath(home)
 	if resp := dialAndDo(t, addr, Request{
-		Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1",
+		Op: OpJoin, Room: "potato", Name: "myrealm-atomic-claude-backend", Kind: KindAgent, Session: "sess-1",
 		Repo: "atomic-claude", Realm: "myrealm",
 	}); !resp.OK {
 		t.Fatalf("seed join: %s", resp.Error)
@@ -2744,80 +2768,14 @@ func TestWhoAction_TableOutput_ShowsRepoRealmAndQualifiedName(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d", code, ExitOK)
 	}
 	fields := strings.Split(strings.TrimSpace(out.String()), "\t")
-	if len(fields) != 7 {
-		t.Fatalf("line %q has %d tab-separated fields, want 7", out.String(), len(fields))
+	if len(fields) != 6 {
+		t.Fatalf("line %q has %d tab-separated fields, want 6 (name, kind, mode, liveness, repo, realm — no qualified column)", out.String(), len(fields))
 	}
 	if fields[4] != "atomic-claude" {
 		t.Errorf("repo column = %q, want %q", fields[4], "atomic-claude")
 	}
 	if fields[5] != "myrealm" {
 		t.Errorf("realm column = %q, want %q", fields[5], "myrealm")
-	}
-	want := "myrealm-atomic-claude-backend"
-	if fields[6] != want {
-		t.Errorf("qualified column = %q, want %q", fields[6], want)
-	}
-}
-
-// TestWhoAction_TableOutput_QualifiedNameCollapsesWhenEmpty proves the
-// collapse rule spelled out in the spec: "<repo>-<name>" when realm is
-// empty, and the bare name when both are.
-func TestWhoAction_TableOutput_QualifiedNameCollapsesWhenEmpty(t *testing.T) {
-	home := testBusHome(t)
-	mustStartTestDaemon(t, home)
-	addr := SocketPath(home)
-	if resp := dialAndDo(t, addr, Request{
-		Op: OpJoin, Room: "potato", Name: "repo-only", Kind: KindAgent, Session: "sess-1",
-		Repo: "atomic-claude",
-	}); !resp.OK {
-		t.Fatalf("seed join repo-only: %s", resp.Error)
-	}
-	if resp := dialAndDo(t, addr, Request{
-		Op: OpJoin, Room: "potato", Name: "bare", Kind: KindAgent, Session: "sess-2",
-	}); !resp.OK {
-		t.Fatalf("seed join bare: %s", resp.Error)
-	}
-
-	var out bytes.Buffer
-	if code := whoAction([]string{"potato"}, home, &out); code != int(ExitOK) {
-		t.Fatalf("exit code = %d, want %d", code, ExitOK)
-	}
-	qualified := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
-		fields := strings.Split(line, "\t")
-		qualified[fields[0]] = fields[6]
-	}
-	if got := qualified["repo-only"]; got != "atomic-claude-repo-only" {
-		t.Errorf("repo-only qualified = %q, want %q (realm empty collapses)", got, "atomic-claude-repo-only")
-	}
-	if got := qualified["bare"]; got != "bare" {
-		t.Errorf("bare qualified = %q, want %q (both empty collapses to the bare name)", got, "bare")
-	}
-}
-
-// TestQualifiedName_CollapsesDuplicateAdjacentSegments covers the full
-// collapse matrix directly against qualifiedName: not just empty segments,
-// but a segment repeating the one before it — the common case once --as
-// defaults to the repo-root basename, where Repo and Name are equal.
-func TestQualifiedName_CollapsesDuplicateAdjacentSegments(t *testing.T) {
-	cases := []struct {
-		name string
-		m    Member
-		want string
-	}{
-		{"realm empty collapses", Member{Repo: "atomic-claude", Name: "repo-only"}, "atomic-claude-repo-only"},
-		{"both empty collapses to bare name", Member{Name: "bare"}, "bare"},
-		{"name equals repo collapses", Member{Repo: "repo-alpha", Name: "repo-alpha"}, "repo-alpha"},
-		{"realm equals repo collapses", Member{Realm: "repo-alpha", Repo: "repo-alpha", Name: "agent"}, "repo-alpha-agent"},
-		{"all three equal collapses to one segment", Member{Realm: "x", Repo: "x", Name: "x"}, "x"},
-		{"all distinct keeps all three", Member{Realm: "myrealm", Repo: "atomic-claude", Name: "backend"}, "myrealm-atomic-claude-backend"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := qualifiedName(tc.m); got != tc.want {
-				t.Errorf("qualifiedName(%+v) = %q, want %q", tc.m, got, tc.want)
-			}
-		})
 	}
 }
 

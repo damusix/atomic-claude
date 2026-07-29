@@ -12,13 +12,17 @@ A room is a named channel scoped to one piece of work. Sessions join a room unde
 Membership is per-room, not global: a session can hold different names in different rooms, and a room's roster only lists who has joined that specific room. `who <room>` lists the roster; `rooms` lists every room the daemon currently knows about, each with a member count.
 
 
-## Position: naming from where a session runs
+## Position: the name is where a session runs
 
-`join`'s `--as <name>` is optional. Omitted, a member's name defaults to the basename of its repo root, resolved from cwd the same way `atomic where` reports it — deterministic and predictable to a peer before they ever run `who`, rather than a name each session invents for itself. An explicit `--as` always overrides the default; outside any repo, the default still falls back to cwd's own basename, so it's never left blank.
+A member's name is its position stacked with an optional role: `<realm>-<repo>-<as>`, resolved from cwd the same way `atomic where` reports it. `--as` is optional and supplies only the role suffix — never the whole name. Joining `taxgentic/gui` with no `--as` names you `taxgentic-gui`; adding `--as fe-main` names you `taxgentic-gui-fe-main`; a realm registered above the repo prepends its own basename too. Empty segments are omitted, and a segment equal to the one immediately before it is collapsed — a repo named `alpha` with no `--as` is `alpha`, not `alpha-alpha`. Outside any repo, `repo` falls back to cwd's own basename, so the name is never left blank. As before, a collision on the resulting name gets `<name>-2`.
 
-Every member also carries `repo` and `realm` — the repo-root basename, and (when the session sits inside a registered wiki realm) the realm-root basename, resolved once at join. `who` renders both as columns and, in its human-readable table, a qualified `<realm>-<repo>-<name>` form for reading — collapsing to `<repo>-<name>` when there's no realm and to the bare name when neither applies. `--to` still takes the bare name; the qualified form is for telling members apart at a glance, not for typing.
+Every member also carries `repo` and `realm` — the repo-root basename, and (when the session sits inside a registered wiki realm) the realm-root basename, resolved once at join. `who` renders both as columns. There is no separate qualified display form: the name is already the stacked, qualified form.
 
 Both fields are reported by the joining client — the daemon has no cwd of its own to resolve them from — but every envelope's `from_repo`/`from_realm` are stamped from the roster entry at send time, the same server-side assignment `from`/`from_kind` already get (see Security below). A send request cannot claim a different position than the one it joined with.
+
+### Addressing by a short fragment
+
+A fully stacked name is long to type exactly, so `--to` on `send` and `say` resolves in two passes: an exact name match wins first — always, even when a `-2` collision sibling would otherwise also match as a substring — and failing that, a unique suffix or substring against the room's current members resolves to that member's full name. `--to fe-main` reaches `taxgentic-gui-fe-main` when it's the only member containing that fragment. A fragment matching more than one member is refused with an error naming every candidate, never a silent delivery to one of them; a fragment matching no member passes through unresolved, which is what the unknown-addressee warning below still catches.
 
 
 ## Addressed vs FYI
@@ -29,7 +33,7 @@ A message with a nonempty `to` is addressed: the named recipient is expected to 
 
 Without this distinction, agents in the same room answer each other's status updates forever — each reply is itself a status update, so nothing converges. `to` closes that loop by making "should I act on this" a field lookup instead of a judgment call: `to` contains me → act, `to` is empty or names someone else → note it, move on. The reaction policy that reads this field lives in `skills/atomic-bus/SKILL.md`, not in the daemon — the daemon delivers every message to every subscriber regardless of addressing; the discipline is entirely on the receiving side.
 
-`send --to <name>` warns on stderr, but still delivers, when no member by that name is currently in the room — an addressed message with nobody to receive it is the exact failure the distinction exists to prevent, so the daemon flags it instead of failing silently.
+`send --to <name>` warns on stderr, but still delivers, when no member by that name is currently in the room — an addressed message with nobody to receive it is the exact failure the distinction exists to prevent, so the daemon flags it instead of failing silently. A `--to` fragment matching more than one member is a different, harder failure and gets a different response: an error, not a warning — see Position above.
 
 
 ## The envelope

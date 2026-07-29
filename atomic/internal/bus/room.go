@@ -515,7 +515,11 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 	member.LastSeen = now
 	r.members[name] = member
 
-	return r.publishValidated(h.home, room, name, member.Kind, member.Repo, member.Realm, to, replyTo, text, session, now)
+	resolvedTo, err := r.resolveAddressees(to)
+	if err != nil {
+		return Envelope{}, err
+	}
+	return r.publishValidated(h.home, room, name, member.Kind, member.Repo, member.Realm, resolvedTo, replyTo, text, session, now)
 }
 
 // PublishAs publishes on behalf of name/kind directly, without requiring
@@ -547,13 +551,87 @@ func (h *Hub) PublishAsOperator(room string, to []string, replyTo, text string) 
 	if !ok {
 		return Envelope{}, noRoomError(room)
 	}
+	resolvedTo, err := r.resolveAddressees(to)
+	if err != nil {
+		return Envelope{}, err
+	}
 	// "" for publisherSession: an operator publish is never tied to a
 	// joined session's subscription, so it can never match (and therefore
 	// never wrongly self-skip) any subscriber's skipSelf check in fanOut —
 	// see that method's doc. "", "" for repo/realm: the operator is not a
 	// roster member with a resolved position — say never joins, so there is
 	// no Member to read one from.
-	return r.publishValidated(h.home, room, operatorName, KindHuman, "", "", to, replyTo, text, "", h.now())
+	return r.publishValidated(h.home, room, operatorName, KindHuman, "", "", resolvedTo, replyTo, text, "", h.now())
+}
+
+// resolveAddressees resolves every entry of to against r's current
+// membership: an entry naming an existing member verbatim passes through
+// unchanged (see resolveOneAddressee), a suffix/substring match resolving
+// to more than one member aborts the whole send (never a partial publish
+// under a half-resolved to list), and any other entry passes through
+// untouched for Hub.UnknownAddressees's own "not currently in room"
+// warning to catch. Caller must hold h.mu (resolveOneAddressee reads
+// r.members).
+func (r *Room) resolveAddressees(to []string) ([]string, error) {
+	if len(to) == 0 {
+		return to, nil
+	}
+	resolved := make([]string, len(to))
+	for i, name := range to {
+		match, err := r.resolveOneAddressee(name)
+		if err != nil {
+			return nil, err
+		}
+		resolved[i] = match
+	}
+	return resolved, nil
+}
+
+// resolveOneAddressee resolves one --to entry against r's roster
+// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
+// the role" entry: "--to resolves an exact name first, then a unique
+// suffix or substring"). A fully stacked name is long to type correctly by
+// hand, so this is what lets "--to fe-main" reach
+// "taxgentic-gui-fe-main" without the sender typing the whole thing.
+//
+// Exact match wins outright, before any scan — the case that matters once
+// a "-2" collision sibling exists: "--to taxgentic-gui-fe-main" must reach
+// exactly that member, never a longer name that happens to contain it as a
+// substring too. Short of an exact hit, strings.Contains covers both
+// "suffix" and "substring" in one pass (a suffix is a substring that
+// happens to end the string) — a unique match resolves to that member's
+// name; more than one match is an ambiguous --to, and the failure this
+// whole resolution scheme exists to avoid is a silent pick among them, so
+// this returns an error naming every candidate instead. Zero matches is
+// deliberately not an error here: it passes name through unresolved, the
+// same as before this resolution step existed, so Hub.UnknownAddressees's
+// existing "not currently in room" warning — a softer failure that still
+// delivers — covers a genuine typo or a peer about to join, and this
+// stricter ambiguity error is reserved for the case where the sender's
+// intent is genuinely unclear rather than simply wrong. Caller must hold
+// h.mu.
+func (r *Room) resolveOneAddressee(name string) (string, error) {
+	if _, ok := r.members[name]; ok {
+		return name, nil
+	}
+	var candidates []string
+	for member := range r.members {
+		if strings.Contains(member, name) {
+			candidates = append(candidates, member)
+		}
+	}
+	switch len(candidates) {
+	case 0:
+		return name, nil
+	case 1:
+		return candidates[0], nil
+	default:
+		sort.Strings(candidates)
+		return "", &Error{
+			Code: ExitUsage,
+			Msg:  fmt.Sprintf("bus: --to %q is ambiguous among %s", name, strings.Join(candidates, ", ")),
+		}
+	}
 }
 
 // publishValidated is the shared tail end of Publish and PublishAs: once

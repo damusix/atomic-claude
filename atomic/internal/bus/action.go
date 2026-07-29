@@ -248,7 +248,7 @@ func doWithRecovery(home string, req Request) (Response, error) {
 	return client.Do(req)
 }
 
-// joinAction implements `atomic bus join <room> [--as <name>] [--mode
+// joinAction implements `atomic bus join <room> [--as <role>] [--mode
 // participate|observe] [--kind agent|human] [--session <id>]`. The
 // numeric-suffix retry on a name collision is Hub.Join's job (room.go) —
 // this only reports the assigned name, which may differ from the one
@@ -259,20 +259,21 @@ func doWithRecovery(home string, req Request) (Response, error) {
 // KindHuman on its own OpJoin call below — it has no reason to ever join as
 // an agent.
 //
-// --as is optional: omitted, it defaults to resolvePosition's repo-root
-// basename (docs/spec/atomic-bus.md's 2026-07-29 "position-derived member
-// naming" entry), so a name is deterministic and predictable to a peer
-// rather than invented. An explicit --as always wins over the default.
-// Position is resolved unconditionally (not only when --as is empty) since
-// Member.Repo/Realm are recorded on every join regardless of how the name
-// was chosen.
+// A member's name is always its resolved position stacked with an optional
+// role suffix (docs/spec/atomic-bus.md's 2026-07-29 "the name is the
+// position; --as is the role" entry): position.name(as) computes
+// "<realm>-<repo>-<as>" via stackedName's collapse rule, so --as never has
+// to be supplied to get a usable, deterministic name — omitting it yields
+// "<realm>-<repo>" (or just "<repo>" with no realm), never a required flag.
+// Position is resolved unconditionally since Member.Repo/Realm are recorded
+// on every join regardless of what --as supplies.
 func joinAction(args []string, home, cwd string, out io.Writer) int {
-	const usage = "Usage: atomic bus join <room> [--as <name>] [--mode participate|observe] [--kind agent|human] [--session <id>]\n"
+	const usage = "Usage: atomic bus join <room> [--as <role>] [--mode participate|observe] [--kind agent|human] [--session <id>]\n"
 
 	fs := flag.NewFlagSet("bus-join", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var as, mode, kind, session string
-	fs.StringVar(&as, "as", "", "member name to claim in the room (default: repo-root basename)")
+	fs.StringVar(&as, "as", "", "role suffix on the derived position name (optional)")
 	fs.StringVar(&mode, "mode", "participate", "participate or observe")
 	fs.StringVar(&kind, "kind", KindAgent, "agent or human")
 	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
@@ -306,9 +307,7 @@ func joinAction(args []string, home, cwd string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return int(ExitHard)
 	}
-	if as == "" {
-		as = pos.defaultName
-	}
+	name := pos.name(as)
 
 	// Through the recoveryEnsurer seam, not the package-level EnsureDaemon:
 	// the bare call bypasses the injection point, so tests exercising join
@@ -321,7 +320,7 @@ func joinAction(args []string, home, cwd string, out io.Writer) int {
 	}
 	defer client.Close()
 
-	resp, err := client.Do(Request{Op: OpJoin, Room: room, Name: as, Mode: mode, Kind: kind, Session: sessionID, Repo: pos.repo, Realm: pos.realm})
+	resp, err := client.Do(Request{Op: OpJoin, Room: room, Name: name, Mode: mode, Kind: kind, Session: sessionID, Repo: pos.repo, Realm: pos.realm})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return exitFromErr(err)
@@ -346,8 +345,8 @@ func joinAction(args []string, home, cwd string, out io.Writer) int {
 		return int(ExitHard)
 	}
 
-	if payload.Name != as {
-		fmt.Fprintf(out, "joined %s as %s (requested %s was taken)\n", room, payload.Name, as)
+	if payload.Name != name {
+		fmt.Fprintf(out, "joined %s as %s (requested %s was taken)\n", room, payload.Name, name)
 	} else {
 		fmt.Fprintf(out, "joined %s as %s\n", room, payload.Name)
 	}
@@ -661,7 +660,7 @@ func whoAction(args []string, home string, out io.Writer) int {
 		return emitJSON(out, payload.Members)
 	}
 	for _, m := range payload.Members {
-		fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", m.Name, m.Kind, m.Mode, livenessLabel(m.Stale), m.Repo, m.Realm, qualifiedName(m))
+		fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\t%s\n", m.Name, m.Kind, m.Mode, livenessLabel(m.Stale), m.Repo, m.Realm)
 	}
 	return int(ExitOK)
 }
@@ -674,30 +673,6 @@ func livenessLabel(stale bool) string {
 		return "stale"
 	}
 	return "live"
-}
-
-// qualifiedName renders m's reading form for `who`'s human output:
-// "<realm>-<repo>-<name>", collapsing cleanly to "<repo>-<name>" when realm
-// is empty and to the bare name when both are (docs/spec/atomic-bus.md's
-// 2026-07-29 "position-derived member naming" entry). A segment that
-// repeats the one immediately before it is also dropped — since --as
-// defaults to the repo-root basename, Repo and Name are equal in the
-// common unqualified-join case, and duplicating it as "repo-repo" defeats
-// the readability this form exists for. `--to` continues to take the bare
-// Name — this is a display form only. Shared by whoAction and render.go's
-// MemberTable, same split as livenessLabel above.
-func qualifiedName(m Member) string {
-	var parts []string
-	appendSegment := func(s string) {
-		if s == "" || (len(parts) > 0 && parts[len(parts)-1] == s) {
-			return
-		}
-		parts = append(parts, s)
-	}
-	appendSegment(m.Realm)
-	appendSegment(m.Repo)
-	appendSegment(m.Name)
-	return strings.Join(parts, "-")
 }
 
 // resolveOptionalRoom returns explicit verbatim, or — only when explicit is

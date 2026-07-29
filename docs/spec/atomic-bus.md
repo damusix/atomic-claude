@@ -88,15 +88,17 @@ can stop the exchange with `atomic bus halt`.
 - [ ] `atomic bus prune [<room>]` removes stale members explicitly. Nothing reaps a member
       silently — a quiet session is not a dead one, and evicting a live member would break
       addressing with no diagnostic.
-- [ ] `--as` is optional. Omitted, it defaults to the repo-root basename from
-      `repoctx.ResolveFrom(cwd, "")`, so a name is deterministic rather than invented and a peer
-      can predict it before running `who`.
+- [ ] A member's name is its position stacked with an optional role: `<realm>-<repo>-<as>`.
+      `--as` supplies only the role suffix and is optional; position is always derived, never
+      invented. Empty segments are omitted and a segment equal to the one before it is collapsed,
+      so `alpha` in repo `alpha` is `alpha`, not `alpha-alpha`.
+- [ ] A collision on the full stacked name enumerates with a numeric suffix, as before.
 - [ ] `Member` carries `repo` and `realm`, resolved at join from `where.Resolve` — repo root
       basename, and realm root basename when the session is inside one. Both empty is valid.
-- [ ] `who` renders repo and realm, so a peer identifies members by the work they are doing
-      rather than by guessing what each named itself. Its human output also shows the qualified
-      form `<realm>-<repo>-<name>` for reading; `--to` continues to take the bare name, which is
-      what stays short enough to type correctly.
+- [ ] `who` renders repo and realm as columns. There is no separate qualified display form — the
+      name is already qualified.
+- [ ] `--to` resolves an exact name first, then a unique suffix or substring. An ambiguous match
+      is an error naming every candidate, never a silent delivery to one of them.
 - [ ] The envelope carries `from_repo` and `from_realm`, assigned server-side like `from` and
       `from_kind`, so the room log stays unambiguous when a name is released and reclaimed.
 - [ ] `go test ./...`, `go vet ./...`, `gofmt -l .` clean; `make render` and `make bundle` leave no
@@ -303,6 +305,26 @@ Flow: daemon lifecycle
 
 
 ## Change log
+
+### 2026-07-29 — the name is the position; --as is the role
+
+**What changed:** a member's name is `<realm>-<repo>-<as>`, with empty and duplicate-adjacent
+segments collapsed. `--as` supplies only an optional role suffix. The separate qualified display
+form is removed — the name is already qualified. `--to` resolves an exact name first, then a
+unique suffix or substring, erroring with the candidate list on ambiguity.
+
+**Why:** the repo basename alone is not unique across realms. Several products each holding a repo
+called `monorepo` produce one `monorepo` and one `monorepo-2`, with which is which decided by join
+order — a peer addressing `monorepo` in a cross-project room reaches whichever session happened to
+join first. Stacking the realm makes the name globally meaningful and removes the display/name
+split, since the two were the same string wearing different hats.
+
+The cost is length: a fully qualified name must be typed exactly by an agent reading a `who`
+listing, and a typo delivers to nobody. Suffix matching is what makes that comfortable — an
+ambiguous `--to` is an error naming candidates, which is a better failure than silence.
+
+**Superseded:** `--as` defaulting to the bare repo basename, with a qualified form rendered only
+for display.
 
 ### 2026-07-29 — position-derived member naming
 

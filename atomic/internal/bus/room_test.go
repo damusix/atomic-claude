@@ -561,6 +561,192 @@ func TestHub_UnknownAddressees_UnknownRoomReturnsEveryNameUnknown(t *testing.T) 
 	}
 }
 
+// --- --to resolution: exact match, then unique suffix/substring
+// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
+// the role" entry) ---
+
+func TestRoom_ResolveOneAddressee_ExactMatchWinsOverSuffixCollision(t *testing.T) {
+	r := &Room{members: map[string]Member{
+		"taxgentic-gui-fe-main":   {Name: "taxgentic-gui-fe-main"},
+		"taxgentic-gui-fe-main-2": {Name: "taxgentic-gui-fe-main-2"},
+	}}
+	got, err := r.resolveOneAddressee("taxgentic-gui-fe-main")
+	if err != nil {
+		t.Fatalf("resolveOneAddressee: %v", err)
+	}
+	if got != "taxgentic-gui-fe-main" {
+		t.Fatalf("got %q, want the exact member, never the -2 collision sibling", got)
+	}
+}
+
+func TestRoom_ResolveOneAddressee_UniqueSubstringResolves(t *testing.T) {
+	r := &Room{members: map[string]Member{
+		"taxgentic-gui-fe-main": {Name: "taxgentic-gui-fe-main"},
+		"noorm-monorepo-be":     {Name: "noorm-monorepo-be"},
+	}}
+	got, err := r.resolveOneAddressee("fe-main")
+	if err != nil {
+		t.Fatalf("resolveOneAddressee: %v", err)
+	}
+	if got != "taxgentic-gui-fe-main" {
+		t.Fatalf("got %q, want %q", got, "taxgentic-gui-fe-main")
+	}
+}
+
+// TestRoom_ResolveOneAddressee_UniqueSuffixResolves proves the suffix case
+// separately from the substring case above: a suffix is a substring that
+// happens to end the string, so a single strings.Contains scan already
+// covers both — this pins that a change narrowing the match to
+// strings.HasSuffix alone (which would still pass the substring test above,
+// since "fe-main" is also a suffix there) cannot silently ship, since a
+// pure mid-string match ("gui" below) would then stop resolving.
+func TestRoom_ResolveOneAddressee_UniqueSuffixResolves(t *testing.T) {
+	r := &Room{members: map[string]Member{
+		"taxgentic-gui-fe-main": {Name: "taxgentic-gui-fe-main"},
+	}}
+	got, err := r.resolveOneAddressee("main")
+	if err != nil {
+		t.Fatalf("resolveOneAddressee: %v", err)
+	}
+	if got != "taxgentic-gui-fe-main" {
+		t.Fatalf("got %q, want %q", got, "taxgentic-gui-fe-main")
+	}
+}
+
+func TestRoom_ResolveOneAddressee_MidStringSubstring_AlsoResolves(t *testing.T) {
+	r := &Room{members: map[string]Member{
+		"taxgentic-gui-fe-main": {Name: "taxgentic-gui-fe-main"},
+	}}
+	got, err := r.resolveOneAddressee("gui")
+	if err != nil {
+		t.Fatalf("resolveOneAddressee: %v", err)
+	}
+	if got != "taxgentic-gui-fe-main" {
+		t.Fatalf("got %q, want %q", got, "taxgentic-gui-fe-main")
+	}
+}
+
+// TestRoom_ResolveOneAddressee_AmbiguousMatch_ErrorsNamingEveryCandidate
+// proves ambiguity is an error, never a silent pick, and that the error is
+// distinguishable from Hub.UnknownAddressees's "not currently in room"
+// warning text — the two mean different things and must never be confused.
+func TestRoom_ResolveOneAddressee_AmbiguousMatch_ErrorsNamingEveryCandidate(t *testing.T) {
+	r := &Room{members: map[string]Member{
+		"taxgentic-gui-fe-main": {Name: "taxgentic-gui-fe-main"},
+		"taxgentic-api-fe-main": {Name: "taxgentic-api-fe-main"},
+	}}
+	_, err := r.resolveOneAddressee("fe-main")
+	busErr := mustError(t, err, ExitUsage)
+	if !strings.Contains(busErr.Msg, "taxgentic-gui-fe-main") || !strings.Contains(busErr.Msg, "taxgentic-api-fe-main") {
+		t.Fatalf("error message %q does not name every candidate", busErr.Msg)
+	}
+	if strings.Contains(busErr.Msg, "not currently in room") {
+		t.Fatalf("error message %q reuses the unrelated \"not currently in room\" warning text", busErr.Msg)
+	}
+}
+
+func TestRoom_ResolveOneAddressee_NoMatch_PassesThroughUnresolved(t *testing.T) {
+	r := &Room{members: map[string]Member{"backend": {Name: "backend"}}}
+	got, err := r.resolveOneAddressee("nobody-here")
+	if err != nil {
+		t.Fatalf("resolveOneAddressee: %v", err)
+	}
+	if got != "nobody-here" {
+		t.Fatalf("got %q, want the literal unresolved name — Hub.UnknownAddressees warns on this, it is not an ambiguity error", got)
+	}
+}
+
+func TestRoom_ResolveAddressees_EmptyToStaysNil(t *testing.T) {
+	r := &Room{members: map[string]Member{"backend": {Name: "backend"}}}
+	got, err := r.resolveAddressees(nil)
+	if err != nil {
+		t.Fatalf("resolveAddressees: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("resolveAddressees(nil) = %v, want empty (an FYI message must stay unaddressed)", got)
+	}
+}
+
+func TestHub_Publish_ToExactMatch_WinsOverSuffixCollision(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "taxgentic-gui-fe-main", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if _, err := h.Join("potato", "taxgentic-gui-fe-main", "normal", "agent", "sess-2", "", ""); err != nil {
+		t.Fatalf("Join (collision): %v", err)
+	}
+	if _, err := h.Join("potato", "sender", "normal", "agent", "sess-3", "", ""); err != nil {
+		t.Fatalf("Join sender: %v", err)
+	}
+
+	env, err := h.Publish("potato", "sess-3", []string{"taxgentic-gui-fe-main"}, "", "hi")
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if len(env.To) != 1 || env.To[0] != "taxgentic-gui-fe-main" {
+		t.Fatalf("To = %v, want exactly [taxgentic-gui-fe-main], never the -2 sibling", env.To)
+	}
+}
+
+func TestHub_Publish_ToResolvesUniqueSubstring_DeliveredUnderFullName(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "taxgentic-gui-fe-main", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if _, err := h.Join("potato", "sender", "normal", "agent", "sess-2", "", ""); err != nil {
+		t.Fatalf("Join sender: %v", err)
+	}
+
+	env, err := h.Publish("potato", "sess-2", []string{"fe-main"}, "", "hi")
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if len(env.To) != 1 || env.To[0] != "taxgentic-gui-fe-main" {
+		t.Fatalf("To = %v, want [taxgentic-gui-fe-main]", env.To)
+	}
+}
+
+// TestHub_Publish_ToAmbiguous_AbortsSend_NoEnvelopeAppended proves an
+// ambiguous --to aborts the whole send rather than delivering under a
+// half-resolved list: no envelope reaches the room log at all.
+func TestHub_Publish_ToAmbiguous_AbortsSend_NoEnvelopeAppended(t *testing.T) {
+	home := t.TempDir()
+	h := NewHub(home)
+	if _, err := h.Join("potato", "taxgentic-gui-fe-main", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if _, err := h.Join("potato", "taxgentic-api-fe-main", "normal", "agent", "sess-2", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if _, err := h.Join("potato", "sender", "normal", "agent", "sess-3", "", ""); err != nil {
+		t.Fatalf("Join sender: %v", err)
+	}
+
+	_, err := h.Publish("potato", "sess-3", []string{"fe-main"}, "", "hi")
+	busErr := mustError(t, err, ExitUsage)
+	if !strings.Contains(busErr.Msg, "taxgentic-gui-fe-main") || !strings.Contains(busErr.Msg, "taxgentic-api-fe-main") {
+		t.Fatalf("error %q does not name both candidates", busErr.Msg)
+	}
+	if _, statErr := os.Stat(RoomLogPath(home, "potato")); !os.IsNotExist(statErr) {
+		t.Fatalf("room log exists after an ambiguous --to aborted the send; want nothing appended")
+	}
+}
+
+func TestHub_PublishAsOperator_ToResolvesUniqueSubstring(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "taxgentic-gui-fe-main", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	env, err := h.PublishAsOperator("potato", []string{"fe-main"}, "", "hi")
+	if err != nil {
+		t.Fatalf("PublishAsOperator: %v", err)
+	}
+	if len(env.To) != 1 || env.To[0] != "taxgentic-gui-fe-main" {
+		t.Fatalf("To = %v, want [taxgentic-gui-fe-main]", env.To)
+	}
+}
+
 // --- Leave / Who / Rooms ---
 
 func TestHub_Leave_RemovesMemberFromRoster(t *testing.T) {

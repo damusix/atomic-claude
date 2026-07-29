@@ -275,11 +275,15 @@ func (d *daemon) handleLeave(req Request) Response {
 // structured for an agent" fix: --json needs the whole envelope (to capture
 // the id for --reply-to without a second round trip), and the plain-text
 // path derives its short confirmation from the same payload. UnknownTo
-// names any req.To entry that is not currently a room member (Hub.
+// names any env.To entry that is not currently a room member (Hub.
 // UnknownAddressees) — Publish above still delivers unconditionally; this
 // is only the signal the client uses to warn the sender on stderr
 // (docs/spec/atomic-bus.md: "send --to <name> warns on stderr when no such
-// member is in the room").
+// member is in the room"). Checked against env.To, not req.To: Hub.Publish
+// resolves a suffix/substring --to entry to its full member name before
+// returning env (room.go's resolveAddressees), so checking the caller's
+// original, shorter req.To here would wrongly warn about an addressee that
+// was in fact resolved and delivered.
 func (d *daemon) handleSend(req Request) Response {
 	env, err := d.hub.Publish(req.Room, req.Session, req.To, req.ReplyTo, req.Text)
 	if err != nil {
@@ -288,7 +292,7 @@ func (d *daemon) handleSend(req Request) Response {
 	payload, _ := json.Marshal(struct {
 		Envelope  Envelope `json:"envelope"`
 		UnknownTo []string `json:"unknown_to,omitempty"`
-	}{Envelope: env, UnknownTo: d.hub.UnknownAddressees(req.Room, req.To)})
+	}{Envelope: env, UnknownTo: d.hub.UnknownAddressees(req.Room, env.To)})
 	return Response{OK: true, Payload: payload}
 }
 
@@ -296,7 +300,8 @@ func (d *daemon) handleSend(req Request) Response {
 // via Hub.PublishAsOperator, which — unlike handleSend's Hub.Publish — needs no
 // prior roster membership. UnknownTo mirrors handleSend's own
 // warning-not-withholding contract (docs/spec/atomic-bus.md: "send --to <name>
-// warns on stderr when no such member is in the room").
+// warns on stderr when no such member is in the room"), checked against the
+// same resolved env.To for the same reason handleSend's own comment gives.
 //
 // req.Name and req.Kind are deliberately ignored. Pinning the sender in the CLI
 // wrapper is not enough: the socket is the trust boundary, and any local
@@ -311,7 +316,7 @@ func (d *daemon) handleSay(req Request) Response {
 	payload, _ := json.Marshal(struct {
 		Envelope  Envelope `json:"envelope"`
 		UnknownTo []string `json:"unknown_to,omitempty"`
-	}{Envelope: env, UnknownTo: d.hub.UnknownAddressees(req.Room, req.To)})
+	}{Envelope: env, UnknownTo: d.hub.UnknownAddressees(req.Room, env.To)})
 	return Response{OK: true, Payload: payload}
 }
 
