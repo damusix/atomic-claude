@@ -46,10 +46,12 @@ func managedHeader(harnessDirRel string) string {
 // git evaluates ignore patterns against the pathname alone.
 const probeFile = ".repoinit-probe"
 
-// Init runs the six layout guarantees against root, in order, and returns
+// Init runs the seven layout guarantees against root, in order, and returns
 // one Action per guarantee. It is safe to call repeatedly: a guarantee
 // already satisfied reports ActionOK and touches nothing. Returns an error
-// only on irrecoverable I/O failure (e.g. an unwritable directory).
+// only on irrecoverable I/O failure (e.g. an unwritable directory) or when
+// the repo config already declares a scope other than "repo" — a
+// conflicting marker is never rewritten (see config.EnsureScopeMarker).
 //
 // Every guarantee but the root tmp/ rule is nested under the resolved
 // harness.dir (default ".claude"; see config.ScratchpadDir et al.) — passing
@@ -57,7 +59,7 @@ const probeFile = ".repoinit-probe"
 // (e.g. ".claude/.scratchpad" or ".pi/.scratchpad"), reusing the same
 // resolver repo-local consumers thread through elsewhere.
 func Init(root string) ([]Action, error) {
-	actions := make([]Action, 0, 6)
+	actions := make([]Action, 0, 7)
 
 	scratchpadRel := config.ScratchpadDir("")
 	projectRel := config.ProjectDir("")
@@ -126,7 +128,37 @@ func Init(root string) ([]Action, error) {
 	}
 	actions = append(actions, a)
 
+	a, err = ensureScopeMarker(root)
+	if err != nil {
+		return nil, err
+	}
+	actions = append(actions, a)
+
 	return actions, nil
+}
+
+// ensureScopeMarker declares root's scope as "repo" via
+// config.EnsureScopeMarker, reporting the outcome as an Action in the same
+// shape (created / ok) the rest of Init uses — a created or added key both
+// report ActionCreated, mirroring ensureIgnored's "wrote something" ==
+// created convention. A conflicting marker (the file already declares a
+// different scope) is never rewritten and is surfaced as an error.
+func ensureScopeMarker(root string) (Action, error) {
+	name := filepath.ToSlash(config.RepoConfigPath("")) + ` scope="repo"`
+
+	outcome, err := config.EnsureScopeMarker(root, "repo")
+	if err != nil {
+		return Action{}, fmt.Errorf("repoinit: scope marker: %w", err)
+	}
+	if outcome == config.ScopeMarkerConflict {
+		return Action{}, fmt.Errorf("repoinit: %s already declares a different scope — refusing to overwrite it", filepath.ToSlash(config.RepoConfigPath("")))
+	}
+
+	kind := ActionOK
+	if outcome == config.ScopeMarkerCreated || outcome == config.ScopeMarkerAdded {
+		kind = ActionCreated
+	}
+	return Action{Name: name, Kind: kind}, nil
 }
 
 // dirName renders a root-relative path as the slash-form display name used

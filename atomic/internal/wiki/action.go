@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // WikiAction is the exported entry point for `atomic wiki` used by cmd/atomic/main.go.
@@ -239,6 +241,12 @@ func wikiLinkifyAction(args []string, cwd string) int {
 // are idempotent no-ops when the target file already exists. --scope is
 // required; a missing or unrecognized value exits 1 with a usage error and
 // writes nothing.
+//
+// It also declares absRoot's scope in .claude/atomic.toml via
+// config.EnsureScopeMarker, reporting it alongside the CLAUDE.md scaffold
+// line. A root whose marker already declares a different scope is never
+// rewritten — that is surfaced as an error and exits 1, leaving the marker
+// file untouched; the CLAUDE.md scaffold no-op behavior above is unchanged.
 func wikiInitAction(args []string, cwd string, out io.Writer) int {
 	fs := flag.NewFlagSet("wiki-init", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
@@ -263,6 +271,16 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
+	markerOutcome, err := config.EnsureScopeMarker(absRoot, scope)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic wiki init: scope marker: %v\n", err)
+		return 1
+	}
+	if markerOutcome == config.ScopeMarkerConflict {
+		fmt.Fprintf(os.Stderr, "atomic wiki init: %s already declares a different scope — refusing to overwrite it\n", config.RepoConfigPath(absRoot))
+		return 1
+	}
+
 	var path string
 	var created bool
 	switch scope {
@@ -278,6 +296,9 @@ func wikiInitAction(args []string, cwd string, out io.Writer) int {
 		return 1
 	}
 
+	if markerOutcome == config.ScopeMarkerCreated || markerOutcome == config.ScopeMarkerAdded {
+		fmt.Fprintf(out, "created %s\n", config.RepoConfigPath(absRoot))
+	}
 	if created {
 		fmt.Fprintf(out, "created %s\n", path)
 	}

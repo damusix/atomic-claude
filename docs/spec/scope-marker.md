@@ -95,10 +95,19 @@ non-zero.
 
 **Insertion position is load-bearing.** `scope` is a top-level key, so it must be
 written above the first `[table]` header. Appending at EOF would land it inside
-`[code]` and parse as `code.scope`. On an existing file, insert the line before
-the first line whose trimmed form starts with `[`, or at EOF when the file has
-no table header. Every other byte is preserved: no reordering, no reformatting,
-no comment loss.
+`[code]` and parse as `code.scope`. On an existing file, a line counts as a
+table header only when its trimmed form starts with `[` **and** it sits at
+top-level statement position — the accumulated bracket depth of every
+preceding line is zero. Depth is computed by counting `[` and `]` bytes
+outside quoted strings (TOML basic `"..."` and literal `'...'`, honoring `\`
+escaping inside basic strings only); this correctly skips an interior line of
+a multi-line array (e.g. `[1, 2],` inside a multi-line array-of-arrays) while
+still detecting an array-of-tables header (`[[name]]`). Insert the line
+immediately before the first such header, or at EOF when the file has none.
+The inserted line is terminated with the file's dominant existing line ending
+(CRLF if CRLF outnumbers bare LF, else LF; a file with no line ending at all
+gets LF). Every other byte is preserved: no reordering, no reformatting, no
+comment loss.
 
 Wiring:
 
@@ -222,3 +231,23 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
 
 
 - 2026-07-29 — initial spec from issue #172.
+
+- 2026-07-29 — table-header detector and line-ending correction
+
+  **What changed:** CP2's insertion-position rule now requires bracket depth
+  zero (counted outside quoted strings) in addition to the trimmed-`[`-prefix
+  check, so an interior line of a multi-line array is never mistaken for a
+  table header. The rule also now specifies that the inserted line is
+  terminated with the file's dominant existing line ending, not always LF.
+
+  **Why:** review of the CP1+CP2 implementation found the trimmed-`[`-prefix
+  check alone fires on an interior line of a multi-line array-of-arrays
+  (e.g. `matrix = [\n  [1, 2],\n]`), splicing the scope line mid-array and
+  producing unparseable TOML (`toml: incomplete number`). Not reachable
+  through today's schema, but the heuristic itself was wrong. A second,
+  cosmetic finding: the inserted line always used LF, so a CRLF-authored file
+  got one LF line spliced in.
+
+  **Superseded:** the prior body said to insert before "the first line whose
+  trimmed form starts with `[`, or at EOF when the file has no table header" —
+  no bracket-depth condition, no line-ending rule.

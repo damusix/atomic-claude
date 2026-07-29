@@ -27,8 +27,8 @@ func TestInit_ColdRepoScaffold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	if len(actions) != 6 {
-		t.Fatalf("expected 6 actions, got %d: %+v", len(actions), actions)
+	if len(actions) != 7 {
+		t.Fatalf("expected 7 actions, got %d: %+v", len(actions), actions)
 	}
 	for _, a := range actions {
 		if a.Kind != repoinit.ActionCreated {
@@ -63,6 +63,14 @@ func TestInit_ColdRepoScaffold(t *testing.T) {
 	if !strings.Contains(root, "tmp/") {
 		t.Errorf("root .gitignore missing managed rules:\n%s", root)
 	}
+
+	scopeMarker, err := os.ReadFile(filepath.Join(dir, ".claude", "atomic.toml"))
+	if err != nil {
+		t.Fatalf("read .claude/atomic.toml: %v", err)
+	}
+	if string(scopeMarker) != "scope = \"repo\"\n" {
+		t.Errorf(".claude/atomic.toml = %q, want %q", scopeMarker, "scope = \"repo\"\n")
+	}
 }
 
 // TestInit_ColdRepoScaffold_UnderNonDefaultHarnessDir verifies every
@@ -81,8 +89,8 @@ func TestInit_ColdRepoScaffold_UnderNonDefaultHarnessDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	if len(actions) != 6 {
-		t.Fatalf("expected 6 actions, got %d: %+v", len(actions), actions)
+	if len(actions) != 7 {
+		t.Fatalf("expected 7 actions, got %d: %+v", len(actions), actions)
 	}
 	for _, a := range actions {
 		if a.Kind != repoinit.ActionCreated {
@@ -120,6 +128,14 @@ func TestInit_ColdRepoScaffold_UnderNonDefaultHarnessDir(t *testing.T) {
 	}
 	if !strings.Contains(string(rootIgnore), "tmp/") {
 		t.Errorf("root .gitignore missing managed rules:\n%s", rootIgnore)
+	}
+
+	scopeMarker, err := os.ReadFile(filepath.Join(dir, ".pi", "atomic.toml"))
+	if err != nil {
+		t.Fatalf("read .pi/atomic.toml: %v", err)
+	}
+	if string(scopeMarker) != "scope = \"repo\"\n" {
+		t.Errorf(".pi/atomic.toml = %q, want %q", scopeMarker, "scope = \"repo\"\n")
 	}
 }
 
@@ -216,8 +232,8 @@ func TestInit_NoGitDegradation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Init: %v", err)
 	}
-	if len(actions) != 6 {
-		t.Fatalf("expected 6 actions, got %d: %+v", len(actions), actions)
+	if len(actions) != 7 {
+		t.Fatalf("expected 7 actions, got %d: %+v", len(actions), actions)
 	}
 	for _, a := range actions {
 		if a.Kind != repoinit.ActionCreated {
@@ -272,8 +288,8 @@ func TestInit_AppendPreservesExistingContent(t *testing.T) {
 	}
 }
 
-// TestInit_ActionOrderAndNames locks in the six guarantees' order and names
-// (the CLI output contract: one line per item).
+// TestInit_ActionOrderAndNames locks in the seven guarantees' order and
+// names (the CLI output contract: one line per item).
 func TestInit_ActionOrderAndNames(t *testing.T) {
 	dir := t.TempDir()
 	initGitRepo(t, dir)
@@ -289,6 +305,7 @@ func TestInit_ActionOrderAndNames(t *testing.T) {
 		".claude/.atomic-index/ ignored",
 		"tmp/ ignored",
 		".claude/worktrees/ ignored",
+		`.claude/atomic.toml scope="repo"`,
 	}
 	if len(actions) != len(wantNames) {
 		t.Fatalf("expected %d actions, got %d: %+v", len(wantNames), len(actions), actions)
@@ -315,5 +332,62 @@ func TestInit_MkdirErrorPropagates(t *testing.T) {
 
 	if _, err := repoinit.Init(root); err == nil {
 		t.Error("expected error creating .claude/.scratchpad under a read-only root, got nil")
+	}
+}
+
+// TestInit_ScopeMarkerConflictErrors: a root already declaring
+// scope = "realm" must never be silently rewritten to "repo" — Init errors
+// and the marker file is left untouched.
+func TestInit_ScopeMarkerConflictErrors(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	existing := "scope = \"realm\"\n"
+	markerPath := filepath.Join(dir, ".claude", "atomic.toml")
+	if err := os.WriteFile(markerPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := repoinit.Init(dir); err == nil {
+		t.Fatal("expected error when root already declares scope=\"realm\"")
+	}
+
+	got, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != existing {
+		t.Errorf("conflicting marker must be left untouched:\ngot:\n%s\nwant:\n%s", got, existing)
+	}
+}
+
+// TestInit_ScopeMarkerIdempotent: a second run reports the scope marker
+// action as ok and writes nothing further to the marker file.
+func TestInit_ScopeMarkerIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	if _, err := repoinit.Init(dir); err != nil {
+		t.Fatalf("first Init: %v", err)
+	}
+
+	actions, err := repoinit.Init(dir)
+	if err != nil {
+		t.Fatalf("second Init: %v", err)
+	}
+	last := actions[len(actions)-1]
+	if last.Kind != repoinit.ActionOK {
+		t.Errorf("scope marker action on second run: kind = %s, want ok", last.Kind)
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, ".claude", "atomic.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "scope = \"repo\"\n" {
+		t.Errorf(".claude/atomic.toml = %q, want %q", got, "scope = \"repo\"\n")
 	}
 }

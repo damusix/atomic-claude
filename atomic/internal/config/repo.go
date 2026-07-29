@@ -20,7 +20,8 @@ type codeSection struct {
 // RepoConfigPath(projectRoot) (see harness.go) — a small, separate schema
 // from the user-scoped Config above.
 type RepoConfig struct {
-	Code codeSection `toml:"code"`
+	Code  codeSection `toml:"code"`
+	Scope string      `toml:"scope"`
 }
 
 // repoKnownSections is the set of known top-level TOML table names in the
@@ -28,6 +29,14 @@ type RepoConfig struct {
 var repoKnownSections = map[string]bool{
 	"code": true,
 	"pi":   true,
+}
+
+// repoKnownTopLevelLeaves is the set of known top-level scalar keys in the
+// repo config schema — keys that name a value directly, not a table. Kept
+// separate from repoKnownSections (table names) and repoKnownLeaves (dotted
+// keys nested inside a known table).
+var repoKnownTopLevelLeaves = map[string]bool{
+	"scope": true,
 }
 
 // repoKnownLeaves is the set of known dotted leaf keys in the repo config schema.
@@ -77,6 +86,9 @@ func checkUnknownRepoKeys(m map[string]any, prefix string) []Warning {
 		}
 
 		if prefix == "" {
+			if repoKnownTopLevelLeaves[k] {
+				continue
+			}
 			if !repoKnownSections[k] {
 				warns = append(warns, Warning{
 					Message: fmt.Sprintf("config: unknown key %q (ignored)", dotted),
