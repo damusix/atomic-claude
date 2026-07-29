@@ -41,14 +41,14 @@ stop at a `.git` boundary, because a realm root sits above its member repos.
 ## Checkpoints
 
 
-| # | Deliverable | Done when |
-|---|---|---|
-| CP1 | `scope` in the repo-config schema; the by-kind upward walk | `RepoConfig.Scope` parses; `scope` is not reported as an unknown key; `FindScopeRoot` resolves both kinds under nesting |
-| CP2 | Both init verbs write the marker | `atomic repo init` writes `scope = "repo"`; `atomic wiki init --scope <s>` writes `scope = "<s>"`; both idempotent and byte-preserving |
-| CP3 | `repoctx` resolves repo root marker-first | Marker at or above cwd wins over git toplevel; provenance reported |
-| CP4 | `where` reports repo root, realm marker-first, and provenance | New repo-root axis; realm resolves from a marker with no `<wikis>` entry; human + JSON carry a source token |
-| CP5 | Doctor check 13 validates the marker | Invalid value WARNs; valid value appears in the PASS detail; marker/`<wikis>` contradiction WARNs |
-| CP6 | Docs and discoverability | Reference docs describe the key and discovery order; render + bundle parity green |
+| # | Checkpoint | Files/areas | Verifies |
+|---|---|---|---|
+| CP1 | `scope` in the repo-config schema; the by-kind upward walk | `atomic/internal/config/repo.go`, `scope.go` | `RepoConfig.Scope` parses; `scope` is not reported as an unknown key; `FindScopeRoot` resolves both kinds under nesting |
+| CP2 | Both init verbs write the marker | `atomic/internal/config/scope.go`, `internal/repoinit/repoinit.go`, `internal/wiki/action.go` | `atomic repo init` writes `scope = "repo"`; `atomic wiki init --scope <s>` writes `scope = "<s>"`; both idempotent and byte-preserving |
+| CP3 | `repoctx` resolves repo root marker-first | `atomic/internal/repoctx/repoctx.go` | Marker at or above cwd wins over git toplevel; provenance reported |
+| CP4 | `where` reports repo root, realm marker-first, and provenance | `atomic/internal/where/where.go`, `format.go` | New repo-root axis; realm resolves from a marker with no `<wikis>` entry; human + JSON carry a source token |
+| CP5 | Doctor check 13 validates the marker | `atomic/internal/doctor/checks_repo_config.go` | Invalid value WARNs; valid value appears in the PASS detail; marker/`<wikis>` contradiction WARNs |
+| CP6 | Docs and discoverability | `docs/reference/*.md`, `atomic/internal/cliusage/cliusage.go`, `templates/commands/atomic-help.md` | Reference docs describe the key and discovery order; render + bundle parity green |
 
 
 ### CP1 — schema and walk
