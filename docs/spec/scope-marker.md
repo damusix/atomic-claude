@@ -210,8 +210,11 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
 - `docs/reference/wiki-workflow.md` notes that `atomic wiki init --scope realm`
   now declares realm identity, not only the CLAUDE.md scaffold.
 - No new verb, flag, agent, skill, or command: `/atomic-help` needs no new row.
-  The `where` and `repo init` rows already exist and their one-line descriptions
-  stay accurate.
+  The `where` and `repo init` rows already exist. The existing `wiki init` row's
+  one-line description is updated in both `atomic/internal/cliusage/cliusage.go`
+  and `templates/commands/atomic-help.md` to name the scope marker alongside
+  the CLAUDE.md scaffold — CP2 changed what the verb does, so its description
+  must change too.
 - `cliusage` is unchanged — no flag or verb-path is added.
 - `make render` and `make -C atomic bundle` run and their outputs are committed
   if any bundled artifact changed.
@@ -368,3 +371,20 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
 
   **Why:** `rules/specs/spec-currency.md` requires all three on specs drafted
   after that rule shipped. This spec was drafted after it and omitted them.
+
+- 2026-07-29 — Correction: CP6's `wiki init` one-line description does not
+  stay accurate on its own
+
+  **What changed:** CP6 now says the `wiki init` one-line description in
+  `atomic/internal/cliusage/cliusage.go` and `templates/commands/atomic-help.md`
+  is updated to name the scope marker alongside the CLAUDE.md scaffold.
+
+  **Why:** CP5+CP6 review found both descriptions still described only the
+  CLAUDE.md scaffold after CP2 changed `wiki init` to also write the scope
+  marker, violating `CLAUDE.local.md`'s help-router contract ("changing what
+  an existing surface does, in a way that would alter its one-line
+  description" is a non-negotiable trigger).
+
+  **Superseded:** the prior CP6 body claimed the `where` and `repo init` rows
+  "already exist and their one-line descriptions stay accurate" without
+  naming that `wiki init`'s description needed a corresponding update.

@@ -350,7 +350,7 @@ var commands = []Command{
 		Path:        []string{"wiki", "init"},
 		Args:        "",
 		Flags:       []string{"--scope", "--root"},
-		Description: "Write the fixed-content CLAUDE.md scaffold for --scope repo|realm (idempotent)",
+		Description: "Write the fixed-content CLAUDE.md scaffold and the scope marker for --scope repo|realm (idempotent)",
 	},
 	{
 		Path:        []string{"wiki", "stamp"},
