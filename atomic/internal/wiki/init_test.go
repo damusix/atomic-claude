@@ -203,6 +203,18 @@ func TestWikiInitAction_RepoScope_ViaCLI(t *testing.T) {
 	if !strings.Contains(buf.String(), path) {
 		t.Errorf("expected stdout to mention created path %s, got:\n%s", path, buf.String())
 	}
+
+	markerPath := filepath.Join(root, ".claude", "atomic.toml")
+	got, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("expected %s to exist: %v", markerPath, err)
+	}
+	if string(got) != "scope = \"repo\"\n" {
+		t.Errorf("marker content = %q, want %q", got, "scope = \"repo\"\n")
+	}
+	if !strings.Contains(buf.String(), markerPath) {
+		t.Errorf("expected stdout to mention created marker %s, got:\n%s", markerPath, buf.String())
+	}
 }
 
 func TestWikiInitAction_RealmScope_ViaCLI(t *testing.T) {
@@ -221,6 +233,77 @@ func TestWikiInitAction_RealmScope_ViaCLI(t *testing.T) {
 	}
 	if string(got) != "@index.md\n" {
 		t.Errorf("content = %q, want %q", got, "@index.md\n")
+	}
+
+	markerPath := filepath.Join(root, ".claude", "atomic.toml")
+	markerGot, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("expected %s to exist: %v", markerPath, err)
+	}
+	if string(markerGot) != "scope = \"realm\"\n" {
+		t.Errorf("marker content = %q, want %q", markerGot, "scope = \"realm\"\n")
+	}
+}
+
+// TestWikiInitAction_ScopeConflict_ExitsError_LeavesMarkerUntouched: a root
+// whose marker already declares a different scope is never rewritten —
+// wiki init errors instead of flipping the user's committed declaration.
+func TestWikiInitAction_ScopeConflict_ExitsError_LeavesMarkerUntouched(t *testing.T) {
+	root := t.TempDir()
+	markerPath := filepath.Join(root, ".claude", "atomic.toml")
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := "scope = \"repo\"\n"
+	if err := os.WriteFile(markerPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	code := wikiInitAction([]string{"--scope=realm", "--root=" + root}, root, &buf)
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1, output:\n%s", code, buf.String())
+	}
+
+	got, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != existing {
+		t.Errorf("marker must be left untouched on conflict:\ngot:\n%s\nwant:\n%s", got, existing)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "wiki", "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Error("expected no CLAUDE.md scaffold written when scope marker conflicts")
+	}
+}
+
+// TestWikiInitAction_ScopeMarkerIdempotent: a second run with the same
+// --scope reports success and writes nothing further to the marker.
+func TestWikiInitAction_ScopeMarkerIdempotent(t *testing.T) {
+	root := t.TempDir()
+	var buf1 bytes.Buffer
+	if code := wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &buf1); code != 0 {
+		t.Fatalf("first run exit code = %d, output:\n%s", code, buf1.String())
+	}
+
+	markerPath := filepath.Join(root, ".claude", "atomic.toml")
+	before, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf2 bytes.Buffer
+	if code := wikiInitAction([]string{"--scope=repo", "--root=" + root}, root, &buf2); code != 0 {
+		t.Fatalf("second run exit code = %d, output:\n%s", code, buf2.String())
+	}
+
+	after, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Errorf("second run changed the marker file:\nbefore:\n%s\nafter:\n%s", before, after)
 	}
 }
 

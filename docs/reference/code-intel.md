@@ -98,6 +98,14 @@ A file that becomes newly ignored is pruned from an already-built index automati
 
 **Gitignore caveat.** Some repos gitignore `.claude/*` wholesale. If yours does, add a negation pair (e.g. `!.claude/atomic.toml`) so the config file itself stays committed — otherwise it never reaches git and the ignore rules never take effect for anyone who clones the repo.
 
+**Declaring root identity.** The same file also accepts a top-level `scope` key, independent of `[code]`:
+
+```toml
+scope = "repo"
+```
+
+`scope = "repo"` or `scope = "realm"` declares this directory's identity in the tree — `atomic repo init` writes `scope = "repo"`, and `atomic wiki init --scope <s>` writes whichever value you pass, both idempotently. The nearest such marker above a directory outranks each consumer's own root-discovery fallback — `git rev-parse --show-toplevel` in `repoctx`, a `.git` stat walk in `atomic where` — and the `<wikis>` registry for realm root discovery. Any other value, or a file that fails to parse, is not a marker of either kind: discovery falls through to the pre-existing mechanism. See [Concepts](/reference/concepts#wikis) for the full discovery order. `atomic doctor` validates `scope` the same way it validates `[code] ignore`: an invalid value WARNs naming the value and the two accepted ones, and a valid value is named in the PASS detail; it also WARNs when `scope = "repo"` sits on a directory already registered as a realm root in the `<wikis>` block.
+
 
 ## Wiki realm federation
 

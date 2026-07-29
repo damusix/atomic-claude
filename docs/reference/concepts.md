@@ -91,6 +91,8 @@ Signals map one repo; a wiki maps how a *realm* of repos relate — the shared l
 - `atomic wiki stale` — report membership drift and stale content.
 - `atomic serve` — browse the realm as a typed, navigable graph in the browser.
 
+A directory declares its own identity by writing `scope = "repo"` or `scope = "realm"` at the top of `.claude/atomic.toml` — `atomic repo init` writes the former, `atomic wiki init --scope <s>` writes whichever value you pass. Discovery prefers the nearest marker above your current directory over the pre-existing mechanism: a `scope = "repo"` marker outranks the repo-root fallback — `git rev-parse --show-toplevel` in `repoctx`, a `.git` stat walk in `atomic where` — and a `scope = "realm"` marker outranks the `<wikis>` block for the realm root. `<wikis>` still owns two jobs the marker does not touch — the session-start staleness nudge, and locating a realm's `wiki/index.md` for member data — so a marker-declared realm absent from `<wikis>` resolves correctly but gets no staleness nudge. `atomic where` reports which mechanism answered each axis.
+
 See the [knowledge base guide](/guides/knowledge-base) and [wiki workflow](/reference/wiki-workflow).
 
 

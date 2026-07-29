@@ -1,15 +1,23 @@
 // Package where implements the `atomic where` orientation verb: it reports a
-// cwd's position across three independent axes — repo-scope wiki presence
-// (docs/wiki/index.md found walking up to the nearest .git boundary),
-// realm-scope position (none/root/member/orphaned, relative to any
-// <wikis>-registered realm), and code-index scope (delegated unmodified to
-// codeintel/realm.Resolve). The three axes are genuinely orthogonal — a repo
-// can be a realm member AND carry its own repo-scope wiki — so Report exposes
-// them as independent top-level fields rather than collapsing into one enum.
+// cwd's position across four independent axes — repo root (the nearest
+// scope="repo" marker in .claude/atomic.toml, else the nearest ancestor
+// carrying a .git entry, else cwd), repo-scope wiki presence (docs/wiki/index.md
+// found walking up to the nearest .git boundary), realm-scope position
+// (none/root/member/orphaned, resolved from the nearest scope="realm" marker
+// first and the <wikis> block otherwise), and code-index scope (delegated
+// unmodified to codeintel/realm.Resolve). The axes are genuinely orthogonal —
+// a repo can be a realm member AND carry its own repo-scope wiki — so Report
+// exposes them as independent top-level fields rather than collapsing into
+// one enum.
 //
 // CONTRACT: zero git subprocess spawns. Every detector in this package uses
 // only os.Stat / os.ReadFile — no exec.Command — matching the zero-git-spawn
-// contract already established in wiki/staleness.go.
+// contract already established in wiki/staleness.go. Repo-root resolution
+// therefore diverges from repoctx.ResolveFrom, which runs
+// "git rev-parse --show-toplevel" and so understands submodules and GIT_DIR
+// overrides that a plain .git stat walk does not. The divergence disappears
+// wherever a scope="repo" marker exists — the marker wins in both packages,
+// so the .git-vs-git-subprocess difference never gets a chance to matter.
 package where
 
 import (
@@ -18,6 +26,7 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
@@ -51,6 +60,14 @@ func (p RealmPosition) String() string {
 	}
 }
 
+// RepoRootReport describes cwd's repo root and how it was decided.
+type RepoRootReport struct {
+	// Path is the absolute repo root.
+	Path string
+	// Source names the mechanism that decided Path: marker, git, or cwd.
+	Source config.ScopeSource
+}
+
 // RepoScopeReport describes repo-scope wiki detection.
 type RepoScopeReport struct {
 	// Found is true when docs/wiki/index.md was located walking upward from cwd.
@@ -60,17 +77,21 @@ type RepoScopeReport struct {
 	Path string
 }
 
-// RealmScopeReport describes cwd's position relative to any realm registered
-// in the <wikis> block.
+// RealmScopeReport describes cwd's position relative to a realm, resolved
+// either from a scope="realm" marker or from the <wikis> block.
 type RealmScopeReport struct {
 	Position RealmPosition
 	// RealmRoot is the absolute path to the matched realm root. Empty when
 	// Position == RealmNone.
 	RealmRoot string
+	// Source names the mechanism that decided Position/RealmRoot: marker,
+	// registry, or none.
+	Source config.ScopeSource
 }
 
-// Report composes all three orientation axes for one cwd.
+// Report composes all four orientation axes for one cwd.
 type Report struct {
+	RepoRoot   RepoRootReport
 	RepoScope  RepoScopeReport
 	RealmScope RealmScopeReport
 	// CodeIndex is codeintel/realm.Resolve's result, unmodified.
@@ -86,6 +107,7 @@ type Report struct {
 func Resolve(cwd, claudeMDPath string) (Report, error) {
 	cwd = filepath.Clean(cwd)
 
+	repoRoot := resolveRepoRoot(cwd)
 	repoScope := resolveRepoScope(cwd)
 
 	realmScope, err := resolveRealmScope(cwd, claudeMDPath)
@@ -99,10 +121,33 @@ func Resolve(cwd, claudeMDPath string) (Report, error) {
 	}
 
 	return Report{
+		RepoRoot:   repoRoot,
 		RepoScope:  repoScope,
 		RealmScope: realmScope,
 		CodeIndex:  codeIndex,
 	}, nil
+}
+
+// resolveRepoRoot decides cwd's repo root: the nearest scope="repo" marker
+// at or above cwd, else the nearest ancestor carrying a .git entry (a stat
+// walk, not a git subprocess — see the package doc), else cwd itself.
+func resolveRepoRoot(cwd string) RepoRootReport {
+	if root, found := config.FindScopeRoot(cwd, "repo"); found {
+		return RepoRootReport{Path: root, Source: config.ScopeSourceMarker}
+	}
+
+	dir := cwd
+	for {
+		if pathExists(filepath.Join(dir, ".git")) {
+			return RepoRootReport{Path: dir, Source: config.ScopeSourceGit}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break // filesystem root
+		}
+		dir = parent
+	}
+	return RepoRootReport{Path: cwd, Source: config.ScopeSourceCwd}
 }
 
 // resolveRepoScope walks upward from cwd checking for docs/wiki/index.md at
@@ -129,11 +174,43 @@ func resolveRepoScope(cwd string) RepoScopeReport {
 	return RepoScopeReport{}
 }
 
-// resolveRealmScope reuses wiki.ReadWikiIndexPaths for registered realm roots
-// and wiki.ReadScanMembers for each realm's registered member paths (the
-// wiki's own <wiki-scan> registry — distinct from codeintel/realm's separate
-// code.toml, which CodeIndex reads via realm.Resolve unmodified).
+// resolveRealmScope tries the nearest scope="realm" marker at or above cwd
+// first (source marker); on a miss it falls back to the pre-existing
+// <wikis>-registry path unchanged (source registry), and to RealmNone
+// (source none) when neither resolves anything.
 func resolveRealmScope(cwd, claudeMDPath string) (RealmScopeReport, error) {
+	if report, ok, err := resolveRealmScopeFromMarker(cwd); err != nil {
+		return RealmScopeReport{}, err
+	} else if ok {
+		return report, nil
+	}
+
+	return resolveRealmScopeFromRegistry(cwd, claudeMDPath)
+}
+
+// resolveRealmScopeFromMarker resolves realm scope from the nearest
+// scope="realm" marker at or above cwd. ok is false when no such marker
+// exists, in which case the caller falls through to the <wikis> registry.
+// Member/orphaned classification, once a marker root is found, proceeds
+// through classifyRealmPosition exactly as the registry path does.
+func resolveRealmScopeFromMarker(cwd string) (RealmScopeReport, bool, error) {
+	realmRoot, found := config.FindScopeRoot(cwd, "realm")
+	if !found {
+		return RealmScopeReport{}, false, nil
+	}
+
+	indexPath := filepath.Join(realmRoot, "wiki", "index.md")
+	report, err := classifyRealmPosition(cwd, realmRoot, indexPath, config.ScopeSourceMarker)
+	return report, true, err
+}
+
+// resolveRealmScopeFromRegistry is the pre-existing <wikis>-block-driven
+// resolution — unchanged except every result now carries Source and
+// classification is delegated to classifyRealmPosition. Reuses
+// wiki.ReadWikiIndexPaths for registered realm roots (the wiki's own
+// <wiki-scan> registry — distinct from codeintel/realm's separate code.toml,
+// which CodeIndex reads via realm.Resolve unmodified).
+func resolveRealmScopeFromRegistry(cwd, claudeMDPath string) (RealmScopeReport, error) {
 	indexPaths, err := wiki.ReadWikiIndexPaths(claudeMDPath)
 	if err != nil {
 		return RealmScopeReport{}, err
@@ -147,26 +224,38 @@ func resolveRealmScope(cwd, claudeMDPath string) (RealmScopeReport, error) {
 			continue
 		}
 
-		if cwd == realmRoot {
-			return RealmScopeReport{Position: RealmRoot, RealmRoot: realmRoot}, nil
-		}
-
-		members, err := wiki.ReadScanMembers(indexPath)
-		if err != nil {
-			return RealmScopeReport{}, err
-		}
-		for _, m := range members {
-			memberAbs := filepath.Clean(filepath.Join(realmRoot, m.Path))
-			if isUnder(cwd, memberAbs) {
-				return RealmScopeReport{Position: RealmMember, RealmRoot: realmRoot}, nil
-			}
-		}
-
-		// Under the realm root but not under any registered member path.
-		return RealmScopeReport{Position: RealmOrphaned, RealmRoot: realmRoot}, nil
+		return classifyRealmPosition(cwd, realmRoot, indexPath, config.ScopeSourceRegistry)
 	}
 
-	return RealmScopeReport{Position: RealmNone}, nil
+	return RealmScopeReport{Position: RealmNone, Source: config.ScopeSourceNone}, nil
+}
+
+// classifyRealmPosition is the single answer to "where does cwd sit relative
+// to this realm root" — shared by the marker and registry resolution paths so
+// the two mechanisms can never classify the same directory differently.
+// Root when cwd equals realmRoot; member when cwd falls under a path
+// registered in indexPath's <wiki-scan> block; orphaned otherwise. This
+// naturally covers a realm marked before its first /refresh-wiki: when
+// indexPath doesn't exist yet, wiki.ReadScanMembers reports no members rather
+// than an error, so an unscanned realm degrades to orphaned instead of
+// failing — no separate existence check is needed here.
+func classifyRealmPosition(cwd, realmRoot, indexPath string, source config.ScopeSource) (RealmScopeReport, error) {
+	if cwd == realmRoot {
+		return RealmScopeReport{Position: RealmRoot, RealmRoot: realmRoot, Source: source}, nil
+	}
+
+	members, err := wiki.ReadScanMembers(indexPath)
+	if err != nil {
+		return RealmScopeReport{}, err
+	}
+	for _, m := range members {
+		memberAbs := filepath.Clean(filepath.Join(realmRoot, m.Path))
+		if isUnder(cwd, memberAbs) {
+			return RealmScopeReport{Position: RealmMember, RealmRoot: realmRoot, Source: source}, nil
+		}
+	}
+
+	return RealmScopeReport{Position: RealmOrphaned, RealmRoot: realmRoot, Source: source}, nil
 }
 
 // isUnder reports whether child is equal to or under parent, using normalized
