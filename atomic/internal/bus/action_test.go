@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -68,7 +70,7 @@ func TestJoinAction_Success_AssignsRequestedName(t *testing.T) {
 	mustStartTestDaemon(t, home)
 
 	var out bytes.Buffer
-	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, &out)
+	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, testCwd(t), &out)
 	if code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
@@ -94,12 +96,12 @@ func TestJoinAction_NameCollision_RetrySuffixReported(t *testing.T) {
 	mustStartTestDaemon(t, home)
 
 	var out1 bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, &out1); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, testCwd(t), &out1); code != int(ExitOK) {
 		t.Fatalf("first join exit code = %d", code)
 	}
 
 	var out2 bytes.Buffer
-	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-2"}, home, &out2)
+	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-2"}, home, testCwd(t), &out2)
 	if code != int(ExitOK) {
 		t.Fatalf("second join exit code = %d, want %d", code, ExitOK)
 	}
@@ -114,32 +116,64 @@ func TestJoinAction_NameTaken_ThirdAttemptExitsNameTaken(t *testing.T) {
 	mustStartTestDaemon(t, home)
 
 	var discard bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("first join exit code = %d", code)
 	}
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-2"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-2"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("second join exit code = %d", code)
 	}
 
-	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-3"}, home, &discard)
+	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-3"}, home, testCwd(t), &discard)
 	if code != int(ExitNameTaken) {
 		t.Fatalf("third join exit code = %d, want %d (ExitNameTaken)", code, ExitNameTaken)
 	}
 }
 
-func TestJoinAction_MissingAsFlag_ExitUsage(t *testing.T) {
+// TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename is the regression test
+// for the position-derived naming entry (docs/spec/atomic-bus.md, 2026-07-29):
+// --as used to be required; omitting it now names the member after
+// resolvePosition's repo-root basename rather than failing with ExitUsage.
+// cwd here is a plain t.TempDir() outside any git repository or scope
+// marker (repoctx.ResolveFrom's ScopeSourceCwd fallback), proving the
+// default still produces a usable name even outside a repo.
+func TestJoinAction_NoAsFlag_DefaultsToRepoRootBasename(t *testing.T) {
 	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	cwd := testCwd(t)
+	want := filepath.Base(cwd)
+
 	var out bytes.Buffer
-	code := joinAction([]string{"potato"}, home, &out)
-	if code != int(ExitUsage) {
-		t.Fatalf("exit code = %d, want %d (ExitUsage)", code, ExitUsage)
+	code := joinAction([]string{"potato", "--session", "sess-1"}, home, cwd, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	wantOut := fmt.Sprintf("joined potato as %s\n", want)
+	if got := out.String(); got != wantOut {
+		t.Fatalf("output = %q, want %q", got, wantOut)
+	}
+}
+
+// TestJoinAction_ExplicitAsFlag_OverridesDefault proves an explicit --as
+// always wins over the position-derived default, even when it differs from
+// cwd's own basename.
+func TestJoinAction_ExplicitAsFlag_OverridesDefault(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+
+	var out bytes.Buffer
+	code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, testCwd(t), &out)
+	if code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	if got := out.String(); got != "joined potato as backend\n" {
+		t.Fatalf("output = %q, want %q", got, "joined potato as backend\n")
 	}
 }
 
 func TestJoinAction_InvalidMode_ExitUsage(t *testing.T) {
 	home := testBusHome(t)
 	var out bytes.Buffer
-	code := joinAction([]string{"potato", "--as", "backend", "--mode", "spectate"}, home, &out)
+	code := joinAction([]string{"potato", "--as", "backend", "--mode", "spectate"}, home, testCwd(t), &out)
 	if code != int(ExitUsage) {
 		t.Fatalf("exit code = %d, want %d (ExitUsage)", code, ExitUsage)
 	}
@@ -150,7 +184,7 @@ func TestJoinAction_NoSessionNoOverride_ExitHard(t *testing.T) {
 	t.Setenv(sessionEnvVar, "") // absent, per SessionID's treatment of ""
 
 	var out bytes.Buffer
-	code := joinAction([]string{"potato", "--as", "backend"}, home, &out)
+	code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &out)
 	if code != int(ExitHard) {
 		t.Fatalf("exit code = %d, want %d (ExitHard)", code, ExitHard)
 	}
@@ -163,7 +197,7 @@ func TestJoinAction_DefaultKind_IsAgent(t *testing.T) {
 	mustStartTestDaemon(t, home)
 
 	var out bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, &out); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, testCwd(t), &out); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
 
@@ -189,7 +223,7 @@ func TestJoinAction_KindHuman_RecordedAsHuman(t *testing.T) {
 	mustStartTestDaemon(t, home)
 
 	var out bytes.Buffer
-	code := joinAction([]string{"potato", "--as", "operator", "--kind", "human", "--session", "sess-1"}, home, &out)
+	code := joinAction([]string{"potato", "--as", "operator", "--kind", "human", "--session", "sess-1"}, home, testCwd(t), &out)
 	if code != int(ExitOK) {
 		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, out.String())
 	}
@@ -209,7 +243,7 @@ func TestJoinAction_KindHuman_RecordedAsHuman(t *testing.T) {
 func TestJoinAction_InvalidKind_ExitUsage(t *testing.T) {
 	home := testBusHome(t)
 	var out bytes.Buffer
-	code := joinAction([]string{"potato", "--as", "backend", "--kind", "robot"}, home, &out)
+	code := joinAction([]string{"potato", "--as", "backend", "--kind", "robot"}, home, testCwd(t), &out)
 	if code != int(ExitUsage) {
 		t.Fatalf("exit code = %d, want %d (ExitUsage)", code, ExitUsage)
 	}
@@ -234,7 +268,7 @@ func TestLeaveAction_DefaultsToLastJoinedRoom(t *testing.T) {
 	t.Setenv(sessionEnvVar, "sess-1")
 
 	var discard bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
 
@@ -279,7 +313,7 @@ func TestLeaveAction_SessionFlag_OverridesEnv(t *testing.T) {
 	t.Setenv(sessionEnvVar, "sess-env-should-not-be-used")
 
 	var joinOut bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-flag"}, home, &joinOut); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-flag"}, home, testCwd(t), &joinOut); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, joinOut.String())
 	}
 
@@ -322,7 +356,7 @@ func TestSendAction_SessionFlag_OverridesEnv(t *testing.T) {
 	t.Setenv(sessionEnvVar, "sess-env-should-not-be-used")
 
 	var joinOut bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-flag"}, home, &joinOut); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-flag"}, home, testCwd(t), &joinOut); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, joinOut.String())
 	}
 
@@ -573,7 +607,7 @@ func TestWhoAction_DaemonGoneAfterJoin_RecoversAndSucceeds(t *testing.T) {
 	t.Setenv(sessionEnvVar, "sess-1")
 
 	var discard bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
 	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
@@ -606,7 +640,7 @@ func TestSendAction_DaemonGoneAfterJoin_RecoversAndRetries(t *testing.T) {
 	t.Setenv(sessionEnvVar, "sess-1")
 
 	var discard bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
 	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
@@ -641,11 +675,11 @@ func TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn
 
 	var discard bytes.Buffer
 	t.Setenv(sessionEnvVar, "sess-a")
-	if code := joinAction([]string{"potato", "--as", "alice"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "alice"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join sess-a exit code = %d", code)
 	}
 	t.Setenv(sessionEnvVar, "sess-b")
-	if code := joinAction([]string{"potato", "--as", "bob"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "bob"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join sess-b exit code = %d", code)
 	}
 
@@ -703,7 +737,7 @@ func TestDialDaemonRecovered_RecoveryFailsPersistently_NoLoop(t *testing.T) {
 	t.Setenv(sessionEnvVar, "sess-1")
 
 	var discard bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
 	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
@@ -745,11 +779,11 @@ func TestServeAction_Restart_RehydratesNamesIncludingSuffixed(t *testing.T) {
 
 	var discard bytes.Buffer
 	t.Setenv(sessionEnvVar, "sess-1")
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join sess-1 exit code = %d", code)
 	}
 	t.Setenv(sessionEnvVar, "sess-2")
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join sess-2 exit code = %d", code)
 	}
 
@@ -1133,8 +1167,8 @@ func TestWhoAction_TableOutput_ShowsStaleness(t *testing.T) {
 	liveness := map[string]string{}
 	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
 		fields := strings.Split(line, "\t")
-		if len(fields) != 4 {
-			t.Fatalf("line %q has %d tab-separated fields, want 4 (name, kind, mode, liveness)", line, len(fields))
+		if len(fields) != 7 {
+			t.Fatalf("line %q has %d tab-separated fields, want 7 (name, kind, mode, liveness, repo, realm, qualified)", line, len(fields))
 		}
 		liveness[fields[0]] = fields[3]
 	}
@@ -1358,7 +1392,7 @@ func TestStatusAction_DaemonRunning_ReportsJoinedRoom(t *testing.T) {
 	t.Setenv(sessionEnvVar, "sess-1")
 
 	var discard bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
 
@@ -1391,7 +1425,7 @@ func TestStatusAction_SessionFlag_OverridesEnv(t *testing.T) {
 	t.Setenv(sessionEnvVar, "sess-env-should-not-be-used")
 
 	var joinOut bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-flag"}, home, &joinOut); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-flag"}, home, testCwd(t), &joinOut); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, joinOut.String())
 	}
 
@@ -1554,7 +1588,7 @@ func TestRestartAction_WorksWhenRunning_RosterSurvives(t *testing.T) {
 	t.Setenv(sessionEnvVar, "sess-1")
 
 	var discard bytes.Buffer
-	if code := joinAction([]string{"potato", "--as", "backend"}, home, &discard); code != int(ExitOK) {
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
 		t.Fatalf("join exit code = %d", code)
 	}
 
@@ -2690,6 +2724,127 @@ func TestWhoAction_JSONOutput_ShowsKind(t *testing.T) {
 	}
 }
 
+// --- who: repo/realm and the qualified display form
+// (docs/spec/atomic-bus.md's 2026-07-29 "position-derived member naming"
+// entry) ---
+
+func TestWhoAction_TableOutput_ShowsRepoRealmAndQualifiedName(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{
+		Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1",
+		Repo: "atomic-claude", Realm: "myrealm",
+	}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	if code := whoAction([]string{"potato"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+	fields := strings.Split(strings.TrimSpace(out.String()), "\t")
+	if len(fields) != 7 {
+		t.Fatalf("line %q has %d tab-separated fields, want 7", out.String(), len(fields))
+	}
+	if fields[4] != "atomic-claude" {
+		t.Errorf("repo column = %q, want %q", fields[4], "atomic-claude")
+	}
+	if fields[5] != "myrealm" {
+		t.Errorf("realm column = %q, want %q", fields[5], "myrealm")
+	}
+	want := "myrealm-atomic-claude-backend"
+	if fields[6] != want {
+		t.Errorf("qualified column = %q, want %q", fields[6], want)
+	}
+}
+
+// TestWhoAction_TableOutput_QualifiedNameCollapsesWhenEmpty proves the
+// collapse rule spelled out in the spec: "<repo>-<name>" when realm is
+// empty, and the bare name when both are.
+func TestWhoAction_TableOutput_QualifiedNameCollapsesWhenEmpty(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{
+		Op: OpJoin, Room: "potato", Name: "repo-only", Kind: KindAgent, Session: "sess-1",
+		Repo: "atomic-claude",
+	}); !resp.OK {
+		t.Fatalf("seed join repo-only: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr, Request{
+		Op: OpJoin, Room: "potato", Name: "bare", Kind: KindAgent, Session: "sess-2",
+	}); !resp.OK {
+		t.Fatalf("seed join bare: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	if code := whoAction([]string{"potato"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+	qualified := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		fields := strings.Split(line, "\t")
+		qualified[fields[0]] = fields[6]
+	}
+	if got := qualified["repo-only"]; got != "atomic-claude-repo-only" {
+		t.Errorf("repo-only qualified = %q, want %q (realm empty collapses)", got, "atomic-claude-repo-only")
+	}
+	if got := qualified["bare"]; got != "bare" {
+		t.Errorf("bare qualified = %q, want %q (both empty collapses to the bare name)", got, "bare")
+	}
+}
+
+// TestQualifiedName_CollapsesDuplicateAdjacentSegments covers the full
+// collapse matrix directly against qualifiedName: not just empty segments,
+// but a segment repeating the one before it — the common case once --as
+// defaults to the repo-root basename, where Repo and Name are equal.
+func TestQualifiedName_CollapsesDuplicateAdjacentSegments(t *testing.T) {
+	cases := []struct {
+		name string
+		m    Member
+		want string
+	}{
+		{"realm empty collapses", Member{Repo: "atomic-claude", Name: "repo-only"}, "atomic-claude-repo-only"},
+		{"both empty collapses to bare name", Member{Name: "bare"}, "bare"},
+		{"name equals repo collapses", Member{Repo: "repo-alpha", Name: "repo-alpha"}, "repo-alpha"},
+		{"realm equals repo collapses", Member{Realm: "repo-alpha", Repo: "repo-alpha", Name: "agent"}, "repo-alpha-agent"},
+		{"all three equal collapses to one segment", Member{Realm: "x", Repo: "x", Name: "x"}, "x"},
+		{"all distinct keeps all three", Member{Realm: "myrealm", Repo: "atomic-claude", Name: "backend"}, "myrealm-atomic-claude-backend"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := qualifiedName(tc.m); got != tc.want {
+				t.Errorf("qualifiedName(%+v) = %q, want %q", tc.m, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWhoAction_JSONOutput_ShowsRepoAndRealm(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{
+		Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1",
+		Repo: "atomic-claude", Realm: "myrealm",
+	}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	if code := whoAction([]string{"potato", "--json"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+	var members []Member
+	if err := json.Unmarshal(out.Bytes(), &members); err != nil {
+		t.Fatalf("output is not parseable JSON: %v\n%s", err, out.String())
+	}
+	if len(members) != 1 || members[0].Repo != "atomic-claude" || members[0].Realm != "myrealm" {
+		t.Fatalf("members = %+v, want one member with Repo %q and Realm %q", members, "atomic-claude", "myrealm")
+	}
+}
+
 // --- isTerminalWriter / terminalWidth ---
 
 func TestIsTerminalWriter_NonFileWriter_ReturnsFalse(t *testing.T) {
@@ -2749,7 +2904,7 @@ func TestChatAction_JoinsRunsQuit_EndToEnd(t *testing.T) {
 
 	out := &syncBuffer{}
 	codeCh := make(chan int, 1)
-	go func() { codeCh <- chatAction([]string{"potato", "--as", "operator"}, home, out) }()
+	go func() { codeCh <- chatAction([]string{"potato", "--as", "operator"}, home, testCwd(t), out) }()
 
 	waitForBufferContains(t, out, "joined potato as operator")
 

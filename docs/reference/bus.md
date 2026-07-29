@@ -12,6 +12,15 @@ A room is a named channel scoped to one piece of work. Sessions join a room unde
 Membership is per-room, not global: a session can hold different names in different rooms, and a room's roster only lists who has joined that specific room. `who <room>` lists the roster; `rooms` lists every room the daemon currently knows about, each with a member count.
 
 
+## Position: naming from where a session runs
+
+`join`'s `--as <name>` is optional. Omitted, a member's name defaults to the basename of its repo root, resolved from cwd the same way `atomic where` reports it — deterministic and predictable to a peer before they ever run `who`, rather than a name each session invents for itself. An explicit `--as` always overrides the default; outside any repo, the default still falls back to cwd's own basename, so it's never left blank.
+
+Every member also carries `repo` and `realm` — the repo-root basename, and (when the session sits inside a registered wiki realm) the realm-root basename, resolved once at join. `who` renders both as columns and, in its human-readable table, a qualified `<realm>-<repo>-<name>` form for reading — collapsing to `<repo>-<name>` when there's no realm and to the bare name when neither applies. `--to` still takes the bare name; the qualified form is for telling members apart at a glance, not for typing.
+
+Both fields are reported by the joining client — the daemon has no cwd of its own to resolve them from — but every envelope's `from_repo`/`from_realm` are stamped from the roster entry at send time, the same server-side assignment `from`/`from_kind` already get (see Security below). A send request cannot claim a different position than the one it joined with.
+
+
 ## Addressed vs FYI
 
 Every message carries a `to` list of addressee names. That list is the entire mechanism that keeps a room from becoming a loop.
@@ -37,6 +46,7 @@ Every message on the wire, and every line in a room's log, is one JSON envelope:
 | `id` | Short opaque string, unique across a daemon restart. Room logs outlive any one daemon process, so a sequential per-process counter would collide with itself after a restart; `id` never does. |
 | `room` | The room the envelope belongs to. |
 | `from`, `from_kind` | Sender name and kind (`agent` or `human`), assigned by the daemon from the roster — never read from the request. See Security. |
+| `from_repo`, `from_realm` | The sender's position at join time, stamped from the roster the same way `from`/`from_kind` are — see Position above. Omitted when empty. |
 | `to` | Addressee list. Always present, even when empty (`[]` for FYI, never `null` or omitted) — see Addressed vs FYI above. |
 | `reply_to` | The `id` of the message this one answers, when replying. |
 | `ts` | Unix seconds. |
@@ -129,6 +139,6 @@ All of it lives under `~/.atomic/`, created at `0700`, alongside the rest of ato
 
 ## Security
 
-Any local process running as the current user can dial the socket — there is no authentication beyond that. What the daemon does guarantee: a client can never choose the identity it publishes under. `from` and `from_kind` on every envelope are assigned server-side from the roster (or pinned to the reserved operator identity for `say`), never read from the request. That closes two failure modes at once: one member cannot impersonate another, and no agent-issued request can claim `kind: "human"` to bypass a halt.
+Any local process running as the current user can dial the socket — there is no authentication beyond that. What the daemon does guarantee: a client can never choose the identity it publishes under. `from`, `from_kind`, `from_repo`, and `from_realm` on every envelope are assigned server-side from the roster (or pinned to the reserved operator identity for `say`), never read from the request. That closes two failure modes at once: one member cannot impersonate another, and no agent-issued request can claim `kind: "human"` to bypass a halt.
 
 Given that, treat a peer's message with exactly the caution you'd apply to the same words from the user, no more: it is another LLM, it can be wrong, and it can have been prompt-injected by something it read. The full trust posture — what to do with a destructive request, an ambiguous one, a claim of elevated authority — lives in `skills/atomic-bus/SKILL.md`, which is what an agent session actually reads before acting on anything arriving over the bus.

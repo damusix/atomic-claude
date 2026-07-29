@@ -47,7 +47,7 @@ func mustError(t *testing.T, err error, want ExitCode) *Error {
 func TestHub_Join_FirstClaimGetsExactName(t *testing.T) {
 	h := NewHub(t.TempDir())
 
-	name, err := h.Join("potato", "backend", "normal", "agent", "sess-1")
+	name, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", "")
 	if err != nil {
 		t.Fatalf("Join: %v", err)
 	}
@@ -56,14 +56,59 @@ func TestHub_Join_FirstClaimGetsExactName(t *testing.T) {
 	}
 }
 
+// TestHub_Join_StoresRepoAndRealmOnMember is the position-derived naming
+// entry's core Hub-level assertion (docs/spec/atomic-bus.md, 2026-07-29):
+// Join stores whatever repo/realm the caller reports directly on the
+// roster — Member is the record of a resolved position, not merely a name.
+func TestHub_Join_StoresRepoAndRealmOnMember(t *testing.T) {
+	h := NewHub(t.TempDir())
+
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "atomic-claude", "myrealm"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 {
+		t.Fatalf("members = %+v, want 1", members)
+	}
+	if members[0].Repo != "atomic-claude" {
+		t.Errorf("Repo = %q, want %q", members[0].Repo, "atomic-claude")
+	}
+	if members[0].Realm != "myrealm" {
+		t.Errorf("Realm = %q, want %q", members[0].Realm, "myrealm")
+	}
+}
+
+// TestHub_Join_EmptyRealmIsValidNotFabricated proves an empty realm at
+// Join stays empty on the roster — never a placeholder — per the spec's
+// "both empty is valid" criterion.
+func TestHub_Join_EmptyRealmIsValidNotFabricated(t *testing.T) {
+	h := NewHub(t.TempDir())
+
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "atomic-claude", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 || members[0].Realm != "" {
+		t.Fatalf("members = %+v, want one member with empty Realm", members)
+	}
+}
+
 func TestHub_Join_SecondClaimOfSameNameGetsNumericSuffix(t *testing.T) {
 	h := NewHub(t.TempDir())
 
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("first Join: %v", err)
 	}
 
-	name, err := h.Join("potato", "backend", "normal", "agent", "sess-2")
+	name, err := h.Join("potato", "backend", "normal", "agent", "sess-2", "", "")
 	if err != nil {
 		t.Fatalf("second Join: %v", err)
 	}
@@ -75,25 +120,25 @@ func TestHub_Join_SecondClaimOfSameNameGetsNumericSuffix(t *testing.T) {
 func TestHub_Join_ThirdClaimOfSameNameFailsWithNameTaken(t *testing.T) {
 	h := NewHub(t.TempDir())
 
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("first Join: %v", err)
 	}
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-2"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-2", "", ""); err != nil {
 		t.Fatalf("second Join: %v", err)
 	}
 
-	_, err := h.Join("potato", "backend", "normal", "agent", "sess-3")
+	_, err := h.Join("potato", "backend", "normal", "agent", "sess-3", "", "")
 	mustError(t, err, ExitNameTaken)
 }
 
 func TestHub_Join_SameNameDifferentRoomsDoNotCollide(t *testing.T) {
 	h := NewHub(t.TempDir())
 
-	name1, err := h.Join("potato", "backend", "normal", "agent", "sess-1")
+	name1, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", "")
 	if err != nil {
 		t.Fatalf("Join room potato: %v", err)
 	}
-	name2, err := h.Join("carrot", "backend", "normal", "agent", "sess-2")
+	name2, err := h.Join("carrot", "backend", "normal", "agent", "sess-2", "", "")
 	if err != nil {
 		t.Fatalf("Join room carrot: %v", err)
 	}
@@ -109,10 +154,10 @@ func TestHub_Join_SameNameDifferentRoomsDoNotCollide(t *testing.T) {
 func TestHub_Join_RejoiningReleasesPriorName(t *testing.T) {
 	h := NewHub(t.TempDir())
 
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("first Join: %v", err)
 	}
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("second Join (same session): %v", err)
 	}
 
@@ -135,19 +180,19 @@ func TestHub_Join_RejoiningReleasesPriorName(t *testing.T) {
 func TestHub_Join_FailedRejoinLeavesRosterAndPublishIntact(t *testing.T) {
 	h := NewHub(t.TempDir())
 
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join backend: %v", err)
 	}
-	if _, err := h.Join("potato", "worker", "normal", "agent", "sess-2"); err != nil {
+	if _, err := h.Join("potato", "worker", "normal", "agent", "sess-2", "", ""); err != nil {
 		t.Fatalf("Join worker: %v", err)
 	}
-	if _, err := h.Join("potato", "worker", "normal", "agent", "sess-3"); err != nil {
+	if _, err := h.Join("potato", "worker", "normal", "agent", "sess-3", "", ""); err != nil {
 		t.Fatalf("Join worker-2: %v", err)
 	}
 
 	// sess-1 attempts to rejoin as "worker", which is taken in both its
 	// bare and "-2" forms by sess-2 and sess-3.
-	_, err := h.Join("potato", "worker", "normal", "agent", "sess-1")
+	_, err := h.Join("potato", "worker", "normal", "agent", "sess-1", "", "")
 	mustError(t, err, ExitNameTaken)
 
 	members, err := h.Who("potato")
@@ -205,7 +250,7 @@ func TestHub_Join_Concurrent_ExactlyOneKeepsExactNameOneGetsSuffixRestFail(t *te
 		go func(i int) {
 			defer wg.Done()
 			session := "sess-" + string(rune('a'+i))
-			name, err := h.Join("potato", "backend", "normal", "agent", session)
+			name, err := h.Join("potato", "backend", "normal", "agent", session, "", "")
 			results[i].name = name
 			results[i].err = err
 		}(i)
@@ -264,11 +309,11 @@ func TestHub_Join_Concurrent_ExactlyOneKeepsExactNameOneGetsSuffixRestFail(t *te
 // untouched.
 func TestHub_Join_ReservedSystemNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join backend: %v", err)
 	}
 
-	_, err := h.Join("potato", "system", "normal", "agent", "sess-2")
+	_, err := h.Join("potato", "system", "normal", "agent", "sess-2", "", "")
 	mustError(t, err, ExitUsage)
 
 	members, err := h.Who("potato")
@@ -289,7 +334,7 @@ func TestHub_Join_ReservedSystemNameRejected(t *testing.T) {
 // cleanly, never silently stores the bogus value.
 func TestHub_Join_InvalidKindRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
-	_, err := h.Join("potato", "backend", "normal", "hologram", "sess-1")
+	_, err := h.Join("potato", "backend", "normal", "hologram", "sess-1", "", "")
 	mustError(t, err, ExitUsage)
 
 	if rooms := h.Rooms(); len(rooms) != 0 {
@@ -305,7 +350,7 @@ func TestHub_Join_OverLongRoomNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	overlong := strings.Repeat("r", MaxIdentifierBytes+1)
 
-	_, err := h.Join(overlong, "backend", "normal", "agent", "sess-1")
+	_, err := h.Join(overlong, "backend", "normal", "agent", "sess-1", "", "")
 	busErr := mustError(t, err, ExitUsage)
 	if !strings.Contains(busErr.Msg, strconv.Itoa(MaxIdentifierBytes)) {
 		t.Errorf("error message %q does not name the %d-byte limit", busErr.Msg, MaxIdentifierBytes)
@@ -321,7 +366,7 @@ func TestHub_Join_OverLongNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	overlong := strings.Repeat("n", MaxIdentifierBytes+1)
 
-	_, err := h.Join("potato", overlong, "normal", "agent", "sess-1")
+	_, err := h.Join("potato", overlong, "normal", "agent", "sess-1", "", "")
 	busErr := mustError(t, err, ExitUsage)
 	if !strings.Contains(busErr.Msg, strconv.Itoa(MaxIdentifierBytes)) {
 		t.Errorf("error message %q does not name the %d-byte limit", busErr.Msg, MaxIdentifierBytes)
@@ -412,6 +457,35 @@ func TestHub_Rehydrate_DefaultsEmptyModeAndKindForPreExistingEntries(t *testing.
 	}
 }
 
+// TestHub_Rehydrate_RestoresRepoAndRealm proves repo/realm survive a
+// daemon restart via bus.json rehydration, exactly like mode/kind
+// (docs/spec/atomic-bus.md: "mode, kind, repo, and realm all survive a
+// daemon restart via bus.json rehydration").
+func TestHub_Rehydrate_RestoresRepoAndRealm(t *testing.T) {
+	h := NewHub(t.TempDir())
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: time.Now(), Repo: "atomic-claude", Realm: "myrealm"},
+		}},
+	}}
+
+	h.Rehydrate(st)
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 {
+		t.Fatalf("members = %+v, want 1", members)
+	}
+	if members[0].Repo != "atomic-claude" {
+		t.Errorf("Repo = %q, want %q", members[0].Repo, "atomic-claude")
+	}
+	if members[0].Realm != "myrealm" {
+		t.Errorf("Realm = %q, want %q", members[0].Realm, "myrealm")
+	}
+}
+
 // TestHub_Rehydrate_PreservesSuffixedNamesWithoutRenaming proves Rehydrate
 // bypasses Join's numeric-suffix collision retry entirely: two sessions
 // that originally collided on "backend" (the second became "backend-2")
@@ -457,7 +531,7 @@ func TestHub_Rehydrate_EmptyStateLeavesHubWithNoRooms(t *testing.T) {
 
 func TestHub_UnknownAddressees_NamesEveryToEntryNotInTheRoom(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -469,7 +543,7 @@ func TestHub_UnknownAddressees_NamesEveryToEntryNotInTheRoom(t *testing.T) {
 
 func TestHub_UnknownAddressees_AllKnownReturnsEmpty(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -491,7 +565,7 @@ func TestHub_UnknownAddressees_UnknownRoomReturnsEveryNameUnknown(t *testing.T) 
 
 func TestHub_Leave_RemovesMemberFromRoster(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -516,7 +590,7 @@ func TestHub_Leave_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 
 func TestHub_Leave_SessionNotMemberReturnsExitNotJoined(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	err := h.Leave("potato", "sess-stranger")
@@ -535,13 +609,13 @@ func TestHub_Who_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 // fix that reports a count but always the same (wrong) one.
 func TestHub_Rooms_ListsEveryKnownRoomSorted(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join potato: %v", err)
 	}
-	if _, err := h.Join("carrot", "backend", "normal", "agent", "sess-2"); err != nil {
+	if _, err := h.Join("carrot", "backend", "normal", "agent", "sess-2", "", ""); err != nil {
 		t.Fatalf("Join carrot: %v", err)
 	}
-	if _, err := h.Join("carrot", "frontend", "normal", "agent", "sess-3"); err != nil {
+	if _, err := h.Join("carrot", "frontend", "normal", "agent", "sess-3", "", ""); err != nil {
 		t.Fatalf("Join carrot (second member): %v", err)
 	}
 
@@ -563,7 +637,7 @@ func TestHub_Rooms_ListsEveryKnownRoomSorted(t *testing.T) {
 // Members == 0 rather than merely a bare name.
 func TestHub_Rooms_ReportsZeroMembersAfterEveryoneLeaves(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	if err := h.Leave("potato", "sess-1"); err != nil {
@@ -580,7 +654,7 @@ func TestHub_Rooms_ReportsZeroMembersAfterEveryoneLeaves(t *testing.T) {
 
 func TestHub_Publish_AssignsIDStampsTsAndFromKind(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -615,7 +689,7 @@ func TestHub_Publish_AssignsIDStampsTsAndFromKind(t *testing.T) {
 // this test even if someone reformats the counter's base.
 func TestHub_Publish_ID_IsShortOpaqueString_NotSequential(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -646,7 +720,7 @@ func TestHub_Publish_IDsUniqueAcrossDaemonRestart(t *testing.T) {
 	home := t.TempDir()
 
 	h1 := NewHub(home)
-	if _, err := h1.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h1.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join (daemon 1): %v", err)
 	}
 	env1, err := h1.Publish("potato", "sess-1", nil, "", "before restart")
@@ -657,7 +731,7 @@ func TestHub_Publish_IDsUniqueAcrossDaemonRestart(t *testing.T) {
 	// A fresh Hub against the same home, exactly what a respawned daemon
 	// constructs — its roster and id bookkeeping start over from nothing.
 	h2 := NewHub(home)
-	if _, err := h2.Join("potato", "frontend", "normal", "agent", "sess-2"); err != nil {
+	if _, err := h2.Join("potato", "frontend", "normal", "agent", "sess-2", "", ""); err != nil {
 		t.Fatalf("Join (daemon 2): %v", err)
 	}
 	env2, err := h2.Publish("potato", "sess-2", nil, "", "after restart")
@@ -675,7 +749,7 @@ func TestHub_Publish_IDsUniqueAcrossDaemonRestart(t *testing.T) {
 // hold under real volume, not merely for a couple of calls.
 func TestHub_Publish_ManyMessagesAllGetUniqueIDs(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -701,7 +775,7 @@ func TestHub_Publish_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 
 func TestHub_Publish_SessionNotMemberReturnsExitNotJoined(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	_, err := h.Publish("potato", "sess-stranger", nil, "", "hi")
@@ -714,7 +788,7 @@ func TestHub_Publish_SessionNotMemberReturnsExitNotJoined(t *testing.T) {
 func TestHub_Publish_EveryEnvelopeLandsInRoomLog_EvenWithNoSubscribers(t *testing.T) {
 	home := t.TempDir()
 	h := NewHub(home)
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -751,7 +825,7 @@ func TestHub_Publish_EveryEnvelopeLandsInRoomLog_EvenWithNoSubscribers(t *testin
 // send hangs this test instead of the whole suite.
 func TestHub_Publish_SlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -786,7 +860,7 @@ func TestHub_Publish_SlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 // log — a bound on how large a single room-log line can grow.
 func TestHub_Publish_OversizedTextRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -803,7 +877,7 @@ func TestHub_Publish_OversizedTextRejected(t *testing.T) {
 // a field MaxTextBytes never covered.
 func TestHub_Publish_OverLongReplyToRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -820,7 +894,7 @@ func TestHub_Publish_OverLongReplyToRejected(t *testing.T) {
 // comment on why both a count cap and a byte cap are needed.
 func TestHub_Publish_TooManyAddresseesRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -841,7 +915,7 @@ func TestHub_Publish_TooManyAddresseesRejected(t *testing.T) {
 // MaxAddresseesBytes must still be rejected.
 func TestHub_Publish_AddresseesTotalBytesOverLimitRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -858,7 +932,7 @@ func TestHub_Publish_AddresseesTotalBytesOverLimitRejected(t *testing.T) {
 
 func TestHub_Subscribe_ReceivesEnvelopePublishedAfterSubscribing(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -886,7 +960,7 @@ func TestHub_Subscribe_ReceivesEnvelopePublishedAfterSubscribing(t *testing.T) {
 // freshly arrived.
 func TestHub_Subscribe_PriorTrafficNotDelivered_OnlyFuturePublishesArrive(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -937,7 +1011,7 @@ func TestHub_Subscribe_TailNeverJoinsRoster(t *testing.T) {
 
 func TestHub_Subscribe_UnsubscribeStopsDelivery(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -965,7 +1039,7 @@ func TestHub_Subscribe_UnsubscribeStopsDelivery(t *testing.T) {
 func TestHub_FanOut_DropMarkerPrecedesNextDeliveryAfterOverflow(t *testing.T) {
 	home := t.TempDir()
 	h := NewHub(home)
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1022,10 +1096,10 @@ func TestHub_FanOut_DropMarkerPrecedesNextDeliveryAfterOverflow(t *testing.T) {
 // operator still speak into (and thereby direct) a room they've stopped.
 func TestHub_Halt_BlocksAgentPublish_ButNotHumanPublish(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join agent: %v", err)
 	}
-	if _, err := h.Join("potato", "operator", "normal", "human", "sess-human"); err != nil {
+	if _, err := h.Join("potato", "operator", "normal", "human", "sess-human", "", ""); err != nil {
 		t.Fatalf("Join human: %v", err)
 	}
 
@@ -1056,7 +1130,7 @@ func TestHub_Halt_BlocksAgentPublish_ButNotHumanPublish(t *testing.T) {
 // wears off" but actually flips the enforced flag back.
 func TestHub_Resume_RestoresAgentPublish(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1093,14 +1167,14 @@ func TestHub_Halt_AppendFailureDoesNotFlipHaltedFlag(t *testing.T) {
 		t.Skip("running as root bypasses permission checks")
 	}
 	home := t.TempDir()
-	atomicDir := filepath.Join(home, ".atomic")
+	atomicDir := filepath.Join(home, ".atomic", "", "")
 	if err := os.Mkdir(atomicDir, 0o555); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(atomicDir, 0o755) })
 
 	h := NewHub(home)
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1129,7 +1203,7 @@ func TestHub_Halt_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 // itself as a normal envelope.
 func TestHub_Halt_PublishesControlEnvelopeVisibleToSubscribers(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
@@ -1338,7 +1412,7 @@ func TestAppend_ConcurrentAppendsAllLandWithoutCorruption(t *testing.T) {
 func TestRoomLogPath_MatchesHubHome(t *testing.T) {
 	home := t.TempDir()
 	got := RoomLogPath(home, "potato")
-	want := filepath.Join(home, ".atomic", "rooms", "potato.log")
+	want := filepath.Join(home, ".atomic", "rooms", "potato.log", "", "")
 	if got != want {
 		t.Fatalf("RoomLogPath = %q, want %q", got, want)
 	}
@@ -1359,7 +1433,7 @@ func TestRoomLogPath_MatchesHubHome(t *testing.T) {
 // TestHub_Subscribe_TailNeverJoinsRoster above).
 func TestHub_PublishAsOperator_SucceedsWithoutPriorJoin_NoRosterMemberAdded(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1386,7 +1460,7 @@ func TestHub_PublishAsOperator_SucceedsWithoutPriorJoin_NoRosterMemberAdded(t *t
 // is the one who lifts it.
 func TestHub_PublishAsOperator_BypassesHalt(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	if err := h.Halt("potato", "stop"); err != nil {
@@ -1413,7 +1487,7 @@ func TestHub_PublishAsOperator_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 // change it, which is the whole reason the parameters were removed.
 func TestHub_PublishAsOperator_IdentityIsAlwaysTheOperator(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	for _, text := range []string{"one", "two", "three"} {
@@ -1435,7 +1509,7 @@ func TestHub_PublishAsOperator_IdentityIsAlwaysTheOperator(t *testing.T) {
 // — or forgetting — them.
 func TestHub_PublishAsOperator_OversizedTextRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	oversized := strings.Repeat("a", MaxTextBytes+1)
@@ -1448,7 +1522,7 @@ func TestHub_PublishAsOperator_OversizedTextRejected(t *testing.T) {
 // render identically to operator input in a tail transcript.
 func TestHub_Join_ReservedOperatorNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
-	_, err := h.Join("potato", operatorName, "normal", "agent", "sess-agent")
+	_, err := h.Join("potato", operatorName, "normal", "agent", "sess-agent", "", "")
 	mustError(t, err, ExitUsage)
 }
 
@@ -1461,10 +1535,10 @@ func TestHub_Join_ReservedOperatorNameRejected(t *testing.T) {
 // including its own sends.
 func TestHub_Subscribe_SkipSelf_DoesNotReceiveOwnPublish(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
-	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-2"); err != nil {
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-2", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1493,7 +1567,7 @@ func TestHub_Subscribe_SkipSelf_DoesNotReceiveOwnPublish(t *testing.T) {
 // the complete transcript including their own lines").
 func TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1517,7 +1591,7 @@ func TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish(t *testing.T) {
 // since a real session id assigned by Join is never empty.
 func TestHub_Subscribe_SkipSelf_OperatorPublishAlwaysDelivered(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1542,7 +1616,7 @@ func TestHub_Subscribe_SkipSelf_OperatorPublishAlwaysDelivered(t *testing.T) {
 // published Text == "" — a notification carrying nothing to act on.
 func TestHub_Resume_EmptyText_PublishesDefaultBody(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 2)
@@ -1567,7 +1641,7 @@ func TestHub_Resume_EmptyText_PublishesDefaultBody(t *testing.T) {
 // text is not overridden by the default.
 func TestHub_Resume_ExplicitText_Preserved(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 2)
@@ -1593,7 +1667,7 @@ func TestHub_Resume_ExplicitText_Preserved(t *testing.T) {
 // default the way resume's did.
 func TestHub_Halt_EmptyText_StaysEmpty(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
@@ -1639,7 +1713,7 @@ func TestHub_Who_FreshMember_NotStale(t *testing.T) {
 	clock := newTestClock(time.Now())
 	h.SetClock(clock.Now)
 
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1662,7 +1736,7 @@ func TestHub_Who_MemberStale_AfterThresholdWithNoActivityAndNoSubscription(t *te
 	clock := newTestClock(time.Now())
 	h.SetClock(clock.Now)
 
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1687,7 +1761,7 @@ func TestHub_Who_LiveSubscription_NeverStale_RegardlessOfThreshold(t *testing.T)
 	clock := newTestClock(time.Now())
 	h.SetClock(clock.Now)
 
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
@@ -1712,7 +1786,7 @@ func TestHub_Who_Publish_RefreshesLastSeen(t *testing.T) {
 	clock := newTestClock(time.Now())
 	h.SetClock(clock.Now)
 
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	clock.Advance(staleThreshold - time.Minute)
@@ -1738,14 +1812,14 @@ func TestHub_Who_Publish_RefreshesLastSeen(t *testing.T) {
 func TestHub_Rehydrate_MemberNotImmediatelyStale(t *testing.T) {
 	home := t.TempDir()
 	h1 := NewHub(home)
-	if _, err := h1.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h1.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	st, err := Load(home)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	st.Join("sess-1", "potato", "backend", "normal", "agent")
+	st.Join("sess-1", "potato", "backend", "normal", "agent", "", "")
 	if err := st.Save(home); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -1774,11 +1848,11 @@ func TestHub_Prune_RemovesOnlyStaleMembers(t *testing.T) {
 	clock := newTestClock(time.Now())
 	h.SetClock(clock.Now)
 
-	if _, err := h.Join("potato", "ghost", "normal", "agent", "sess-ghost"); err != nil {
+	if _, err := h.Join("potato", "ghost", "normal", "agent", "sess-ghost", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 	clock.Advance(staleThreshold + time.Second)
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-fresh"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-fresh", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 
@@ -1804,7 +1878,7 @@ func TestHub_Prune_RemovesOnlyStaleMembers(t *testing.T) {
 // flags (docs/spec/atomic-bus.md: "nothing reaps a member silently").
 func TestHub_Prune_NoStaleMembers_RemovesNothing(t *testing.T) {
 	h := NewHub(t.TempDir())
-	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
 

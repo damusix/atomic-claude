@@ -53,6 +53,17 @@ type Request struct {
 	ReplyTo string   `json:"reply_to,omitempty"`
 	Text    string   `json:"text,omitempty"`
 
+	// Repo and Realm are the joining client's own position, reported once
+	// at join like Mode and Kind — the daemon has no cwd of its own to
+	// resolve these against, so this is client-reported input (see
+	// position.go's resolvePosition). Hub.Join stores them on the roster.
+	// They carry no weight on any other op: a send/say request setting
+	// these has no effect — the envelope's from_repo/from_realm are always
+	// stamped from the roster entry, never from the wire (see room.go's
+	// Publish doc and the same invariant that already governs From/FromKind).
+	Repo  string `json:"repo,omitempty"`
+	Realm string `json:"realm,omitempty"`
+
 	// SkipSelf opts an OpRecv subscription out of receiving envelopes
 	// published by this same Session — the per-subscription flag `recv`
 	// sets and `tail`/`chat` do not (docs/spec/atomic-bus.md: "a subscriber
@@ -120,6 +131,17 @@ type Envelope struct {
 	Room     string `json:"room"`
 	From     string `json:"from"`
 	FromKind string `json:"from_kind"`
+
+	// FromRepo and FromRealm are the sender's position at join time
+	// (docs/spec/atomic-bus.md's 2026-07-29 "position-derived member
+	// naming" entry) — stamped server-side from the roster entry Hub.Join
+	// recorded, the same way From/FromKind are, and never read from a
+	// send/say request. Omitted when empty: a name can be released on
+	// leave and reclaimed by an unrelated session, so these keep a room
+	// log's history unambiguous about which position actually sent a
+	// given line.
+	FromRepo  string `json:"from_repo,omitempty"`
+	FromRealm string `json:"from_realm,omitempty"`
 
 	// To is the addressee list. An envelope with no addressees is an FYI
 	// message to the whole room, not an addressed one — that distinction
@@ -220,6 +242,15 @@ type Member struct {
 	// is itself a signal a --json caller should be able to rely on, exactly
 	// like Response.OK.
 	Stale bool `json:"stale"`
+
+	// Repo and Realm are the joining client's own position, resolved once
+	// at join and never revised afterward (docs/spec/atomic-bus.md's
+	// 2026-07-29 "position-derived member naming" entry). Repo is the
+	// repo-root basename; Realm is the realm-root basename, empty when the
+	// session was not inside a registered realm at join time — empty is
+	// valid and common, never fabricated.
+	Repo  string `json:"repo,omitempty"`
+	Realm string `json:"realm,omitempty"`
 }
 
 // RoomInfo is one room's summary, as reported by `rooms`: its name and how

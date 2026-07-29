@@ -88,6 +88,17 @@ can stop the exchange with `atomic bus halt`.
 - [ ] `atomic bus prune [<room>]` removes stale members explicitly. Nothing reaps a member
       silently — a quiet session is not a dead one, and evicting a live member would break
       addressing with no diagnostic.
+- [ ] `--as` is optional. Omitted, it defaults to the repo-root basename from
+      `repoctx.ResolveFrom(cwd, "")`, so a name is deterministic rather than invented and a peer
+      can predict it before running `who`.
+- [ ] `Member` carries `repo` and `realm`, resolved at join from `where.Resolve` — repo root
+      basename, and realm root basename when the session is inside one. Both empty is valid.
+- [ ] `who` renders repo and realm, so a peer identifies members by the work they are doing
+      rather than by guessing what each named itself. Its human output also shows the qualified
+      form `<realm>-<repo>-<name>` for reading; `--to` continues to take the bare name, which is
+      what stays short enough to type correctly.
+- [ ] The envelope carries `from_repo` and `from_realm`, assigned server-side like `from` and
+      `from_kind`, so the room log stays unambiguous when a name is released and reclaimed.
 - [ ] `go test ./...`, `go vet ./...`, `gofmt -l .` clean; `make render` and `make bundle` leave no
       diff; `atomic validate` passes.
 
@@ -292,6 +303,26 @@ Flow: daemon lifecycle
 
 
 ## Change log
+
+### 2026-07-29 — position-derived member naming
+
+**What changed:** `--as` becomes optional and defaults to the repo-root basename; `Member` gains
+`repo` and `realm`; `who` renders both and shows a qualified `<realm>-<repo>-<name>` form for
+reading; the envelope carries `from_repo` and `from_realm`.
+
+**Why:** a peer running `who` saw a list of self-invented names with no way to tell which session
+was the backend it needed. Addressing is exact-match on an arbitrary self-description, so
+discovery depended on guessing. Position is the signal that makes a room navigable, and
+`BusAction` already received `cwd` while explicitly not using it.
+
+Unblocked by #173, which made repo and realm roots authoritative and reportable
+(`repoctx.ResolveFrom`, `where.RepoRoot`, `where.RealmScope`). Deriving position before that would
+have meant a second definition of what a repo is.
+
+**Open:** the name stays short and the qualified form is display-only. A single compound name reads
+better in a bare log line, but costs exact-match typing on every `--to` and repeats the prefix on
+every member of a room that shares one. Carrying `from_repo`/`from_realm` on the envelope gets the
+log disambiguation without that cost. Revisit if the display form proves insufficient in use.
 
 ### 2026-07-29 — findings from two live sessions
 

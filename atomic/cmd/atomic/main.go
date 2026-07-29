@@ -769,7 +769,7 @@ func buildBusCmd() *cobra.Command {
 		parent.AddCommand(c)
 	}
 	addSub("join", "Join a room under a name; auto-spawns the daemon", "<room>", func(c *cobra.Command) {
-		c.Flags().String("as", "", "member name to claim (required)")
+		c.Flags().String("as", "", "member name to claim (default: repo-root basename)")
 		c.Flags().String("mode", "participate", "participate or observe")
 		c.Flags().String("kind", "agent", "agent or human")
 		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")

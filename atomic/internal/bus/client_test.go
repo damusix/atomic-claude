@@ -30,6 +30,18 @@ func testBusHome(t *testing.T) string {
 	return dir
 }
 
+// testCwd returns a directory outside any git repository or scope marker,
+// for joinAction/chatAction tests that resolve position (position.go's
+// resolvePosition) but don't care about the derived value — most such
+// tests supply --as explicitly and never touch the default name. t.TempDir()
+// (unlike testBusHome's /tmp-rooted dir) is fine here: nothing binds a
+// socket under it, so the sun_path length limit that motivates testBusHome
+// doesn't apply.
+func testCwd(t *testing.T) string {
+	t.Helper()
+	return t.TempDir()
+}
+
 // startTestDaemon binds a real listener at SocketPath(home) and runs the
 // committed Serve loop against it in the background, for the life of the
 // test. Matches daemon_test.go's startServe (cancel + bounded wait on

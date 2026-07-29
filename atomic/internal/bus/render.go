@@ -211,14 +211,15 @@ func wrapOneLine(line string, avail int) []string {
 }
 
 // MemberTable writes members as an aligned table (name, kind, mode,
-// live/stale) via text/tabwriter — one row per member, in the order given
-// (Hub.Who already sorts). livenessLabel (action.go) is the shared source
-// of the fourth column's two words, so `who` and chat's `/who` never drift
-// apart on how they describe the same Member.Stale value.
+// live/stale, repo, realm, qualified display name) via text/tabwriter —
+// one row per member, in the order given (Hub.Who already sorts).
+// livenessLabel and qualifiedName (action.go) are the shared source of the
+// liveness and qualified-name columns, so `who` and chat's `/who` never
+// drift apart on how they describe the same Member.
 func MemberTable(w io.Writer, members []Member) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	for _, m := range members {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", m.Name, m.Kind, m.Mode, livenessLabel(m.Stale))
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", m.Name, m.Kind, m.Mode, livenessLabel(m.Stale), m.Repo, m.Realm, qualifiedName(m))
 	}
 	return tw.Flush()
 }

@@ -48,7 +48,7 @@ func Manifest() []Artifact {
 		{Kind: "rule", Source: "bundle/rules/python/style.md", Target: "rules/python/style.md", SHA256: "79b5bc1f7b33e4f065e9645193eb6b3cb8227babb92c7e62ced0164673b0546b"},
 		{Kind: "rule", Source: "bundle/rules/specs/spec-currency.md", Target: "rules/specs/spec-currency.md", SHA256: "be29759d72debdf9589059ac7863746166a848aefc91412acb022107b557e218"},
 		{Kind: "rule", Source: "bundle/rules/typescript/style.md", Target: "rules/typescript/style.md", SHA256: "a520e9df348e06c5f0772d268a16ef03ea6fd2f77d6a2a192bf566b91db186d7"},
-		{Kind: "skill", Source: "bundle/skills/atomic-bus/SKILL.md", Target: "skills/atomic-bus/SKILL.md", SHA256: "9398780a63e9d62b1f71235411e437b72f3c944ffe61a079118d17c491c2ebfe"},
+		{Kind: "skill", Source: "bundle/skills/atomic-bus/SKILL.md", Target: "skills/atomic-bus/SKILL.md", SHA256: "5457418022123c5d4dc09252171e0f8b70862da36d2ef5486976c85ef69bb3aa"},
 		{Kind: "skill", Source: "bundle/skills/atomic-debug/SKILL.md", Target: "skills/atomic-debug/SKILL.md", SHA256: "becc4cd2545a1a2755f08cf4da5135d4b7b930484137696476cba5805fded3c8"},
 		{Kind: "skill", Source: "bundle/skills/atomic-documentation/SKILL.md", Target: "skills/atomic-documentation/SKILL.md", SHA256: "6cb61140dd771e0b1457e693e2350cfb9b9ab4647ff03758e80bf1f6925bbd69"},
 		{Kind: "skill", Source: "bundle/skills/atomic-git-discipline/SKILL.md", Target: "skills/atomic-git-discipline/SKILL.md", SHA256: "10dbccdb519ec8d1f10fa648dafd12639a91716ae43396c01dbd2adfbbea0e27"},

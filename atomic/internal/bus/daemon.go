@@ -253,7 +253,7 @@ func (d *daemon) handlePing() Response {
 }
 
 func (d *daemon) handleJoin(req Request) Response {
-	name, err := d.hub.Join(req.Room, req.Name, req.Mode, req.Kind, req.Session)
+	name, err := d.hub.Join(req.Room, req.Name, req.Mode, req.Kind, req.Session, req.Repo, req.Realm)
 	if err != nil {
 		return errorResponse(err)
 	}

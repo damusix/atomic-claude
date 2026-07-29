@@ -311,6 +311,51 @@ func TestServe_JoinThenWho_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestServe_Send_FromRepoRealmStampedFromRoster_NotFromRequest is the
+// anti-spoof regression the atomic-bus brief requires for the
+// position-derived naming entry: sender identity (from/from_kind, and now
+// from_repo/from_realm) is assigned server-side from the roster, never read
+// from the request — the same invariant a prior finding proved by speaking
+// a raw OpSay claiming an existing agent's name (docs/spec/atomic-bus.md's
+// 2026-07-28 "sender identity is assigned server-side" entry). This joins
+// with a real position, then sends an OpSend request whose own Repo/Realm
+// fields claim something else entirely, and asserts the published
+// envelope's FromRepo/FromRealm reflect the roster, not the request.
+func TestServe_Send_FromRepoRealmStampedFromRoster_NotFromRequest(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	joinResp := dialAndDo(t, addr, Request{
+		Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1",
+		Repo: "real-repo", Realm: "real-realm",
+	})
+	if !joinResp.OK {
+		t.Fatalf("join failed: %s", joinResp.Error)
+	}
+
+	sendResp := dialAndDo(t, addr, Request{
+		Op: OpSend, Room: "potato", Session: "sess-1", Text: "hello",
+		Repo: "evil-repo", Realm: "evil-realm",
+	})
+	if !sendResp.OK {
+		t.Fatalf("send failed: %s", sendResp.Error)
+	}
+	var payload struct {
+		Envelope Envelope `json:"envelope"`
+	}
+	if err := json.Unmarshal(sendResp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal send payload: %v", err)
+	}
+	if payload.Envelope.FromRepo != "real-repo" {
+		t.Errorf("FromRepo = %q, want %q (from the roster, not the request's claimed %q)", payload.Envelope.FromRepo, "real-repo", "evil-repo")
+	}
+	if payload.Envelope.FromRealm != "real-realm" {
+		t.Errorf("FromRealm = %q, want %q (from the roster, not the request's claimed %q)", payload.Envelope.FromRealm, "real-realm", "evil-realm")
+	}
+}
+
 // TestServe_DuplicateNameRejected drives the wire-level dispatch path for
 // the same atomic-claim guarantee room_test.go proves at the Hub level —
 // this catches a bug in handleJoin's request decoding/response encoding

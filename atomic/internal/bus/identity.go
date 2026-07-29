@@ -47,6 +47,14 @@ type roomMembership struct {
 	Mode   string    `json:"mode,omitempty"`
 	Kind   string    `json:"kind,omitempty"`
 	Joined time.Time `json:"joined"`
+
+	// Repo and Realm mirror Member.Repo/Member.Realm — persisted so a
+	// restarted daemon's Hub.Rehydrate restores position exactly as
+	// Hub.Join originally recorded it, the same reason Mode and Kind are
+	// here (docs/spec/atomic-bus.md: "mode, kind, repo, and realm all
+	// survive a daemon restart via bus.json rehydration").
+	Repo  string `json:"repo,omitempty"`
+	Realm string `json:"realm,omitempty"`
 }
 
 // sessionState is one session's bus.json entry.
@@ -126,9 +134,10 @@ func (s *State) Save(home string) error {
 	return nil
 }
 
-// Join records that session has joined room under name with the given mode
-// and kind, and marks room as the session's most recent join.
-func (s *State) Join(session, room, name, mode, kind string) {
+// Join records that session has joined room under name with the given mode,
+// kind, and resolved position (repo/realm), and marks room as the session's
+// most recent join.
+func (s *State) Join(session, room, name, mode, kind, repo, realm string) {
 	if s.Sessions == nil {
 		s.Sessions = map[string]*sessionState{}
 	}
@@ -140,7 +149,7 @@ func (s *State) Join(session, room, name, mode, kind string) {
 	if ss.Rooms == nil {
 		ss.Rooms = map[string]roomMembership{}
 	}
-	ss.Rooms[room] = roomMembership{Name: name, Mode: mode, Kind: kind, Joined: time.Now()}
+	ss.Rooms[room] = roomMembership{Name: name, Mode: mode, Kind: kind, Joined: time.Now(), Repo: repo, Realm: realm}
 	ss.LastRoom = room
 }
 

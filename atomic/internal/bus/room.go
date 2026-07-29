@@ -190,7 +190,14 @@ func validKind(kind string) bool {
 // name may not be systemName — closing off the two ways a member could
 // otherwise spoof a daemon control envelope (see systemName's doc
 // comment).
-func (h *Hub) Join(room, name, mode, kind, session string) (string, error) {
+//
+// repo and realm are the joining client's own reported position
+// (docs/spec/atomic-bus.md's 2026-07-29 "position-derived member naming"
+// entry) — stored on the roster verbatim, same trust level as mode: unlike
+// From/FromKind at publish time, there is no roster entry yet to check
+// these against, since this call is what creates one. Empty realm is valid
+// and common; never rewritten to a placeholder.
+func (h *Hub) Join(room, name, mode, kind, session, repo, realm string) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -237,7 +244,7 @@ func (h *Hub) Join(room, name, mode, kind, session string) (string, error) {
 	}
 
 	now := h.now()
-	r.members[assigned] = Member{Name: assigned, Kind: kind, Mode: mode, Session: session, Joined: now, LastSeen: now}
+	r.members[assigned] = Member{Name: assigned, Kind: kind, Mode: mode, Session: session, Joined: now, LastSeen: now, Repo: repo, Realm: realm}
 	r.bySession[session] = assigned
 	return assigned, nil
 }
@@ -290,7 +297,7 @@ func (h *Hub) Rehydrate(st *State) {
 				mode = "participate"
 			}
 			r := h.getOrCreateRoom(room)
-			r.members[m.Name] = Member{Name: m.Name, Kind: kind, Mode: mode, Session: session, Joined: m.Joined, LastSeen: now}
+			r.members[m.Name] = Member{Name: m.Name, Kind: kind, Mode: mode, Session: session, Joined: m.Joined, LastSeen: now, Repo: m.Repo, Realm: m.Realm}
 			r.bySession[session] = m.Name
 		}
 	}
@@ -459,9 +466,12 @@ func (h *Hub) Rooms() []RoomInfo {
 	return out
 }
 
-// Publish assigns an id and timestamp, stamps from/from_kind from the
-// sender's roster membership, appends unconditionally to the durable room
-// log, and fans out to live subscribers.
+// Publish assigns an id and timestamp, stamps from/from_kind/from_repo/
+// from_realm from the sender's roster membership — never from the request,
+// the same invariant that governs from/from_kind (docs/spec/atomic-bus.md's
+// 2026-07-29 "position-derived member naming" entry) — appends
+// unconditionally to the durable room log, and fans out to live
+// subscribers.
 //
 // Halt is enforced here, not merely advertised: a member whose kind is not
 // exactly KindHuman is rejected before any of that happens when the room
@@ -505,7 +515,7 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 	member.LastSeen = now
 	r.members[name] = member
 
-	return r.publishValidated(h.home, room, name, member.Kind, to, replyTo, text, session, now)
+	return r.publishValidated(h.home, room, name, member.Kind, member.Repo, member.Realm, to, replyTo, text, session, now)
 }
 
 // PublishAs publishes on behalf of name/kind directly, without requiring
@@ -540,22 +550,24 @@ func (h *Hub) PublishAsOperator(room string, to []string, replyTo, text string) 
 	// "" for publisherSession: an operator publish is never tied to a
 	// joined session's subscription, so it can never match (and therefore
 	// never wrongly self-skip) any subscriber's skipSelf check in fanOut —
-	// see that method's doc.
-	return r.publishValidated(h.home, room, operatorName, KindHuman, to, replyTo, text, "", h.now())
+	// see that method's doc. "", "" for repo/realm: the operator is not a
+	// roster member with a resolved position — say never joins, so there is
+	// no Member to read one from.
+	return r.publishValidated(h.home, room, operatorName, KindHuman, "", "", to, replyTo, text, "", h.now())
 }
 
 // publishValidated is the shared tail end of Publish and PublishAs: once
-// the caller has resolved from/fromKind (via a roster lookup, or supplied
-// directly) and cleared any halt check, this validates the wire-size
-// limits (MaxTextBytes, MaxIdentifierBytes for replyTo, MaxAddressees/
-// MaxAddresseesBytes for to), assigns an id, appends to the durable room
-// log, and fans out to subscribers. publisherSession is "" for
+// the caller has resolved from/fromKind/fromRepo/fromRealm (via a roster
+// lookup, or supplied directly) and cleared any halt check, this validates
+// the wire-size limits (MaxTextBytes, MaxIdentifierBytes for replyTo,
+// MaxAddressees/MaxAddresseesBytes for to), assigns an id, appends to the
+// durable room log, and fans out to subscribers. publisherSession is "" for
 // PublishAsOperator's operator sends (see that method's doc) and the
 // sending session id for Publish's member sends — fanOut's self-echo check
 // against it. now is the single timestamp this call stamps onto the
 // envelope and (via Publish) the sender's LastSeen, so both agree exactly.
 // Caller must hold h.mu (both Hub.Publish and Hub.PublishAsOperator do).
-func (r *Room) publishValidated(home, room, from, fromKind string, to []string, replyTo, text string, publisherSession string, now time.Time) (Envelope, error) {
+func (r *Room) publishValidated(home, room, from, fromKind, fromRepo, fromRealm string, to []string, replyTo, text string, publisherSession string, now time.Time) (Envelope, error) {
 	if len(text) > MaxTextBytes {
 		return Envelope{}, &Error{
 			Code: ExitUsage,
@@ -590,14 +602,16 @@ func (r *Room) publishValidated(home, room, from, fromKind string, to []string, 
 		return Envelope{}, err
 	}
 	env := Envelope{
-		ID:       id,
-		Room:     room,
-		From:     from,
-		FromKind: fromKind,
-		To:       to,
-		ReplyTo:  replyTo,
-		Ts:       now,
-		Text:     text,
+		ID:        id,
+		Room:      room,
+		From:      from,
+		FromKind:  fromKind,
+		FromRepo:  fromRepo,
+		FromRealm: fromRealm,
+		To:        to,
+		ReplyTo:   replyTo,
+		Ts:        now,
+		Text:      text,
 	}
 
 	if err := Append(home, room, env); err != nil {

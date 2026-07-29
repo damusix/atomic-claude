@@ -82,7 +82,7 @@ func TestState_SaveLoadRoundTrip_RealFileOnDisk(t *testing.T) {
 	home := t.TempDir()
 
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
 
 	if err := st.Save(home); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -108,10 +108,38 @@ func TestState_SaveLoadRoundTrip_RealFileOnDisk(t *testing.T) {
 	}
 }
 
+// TestState_Join_PersistsRepoAndRealmAcrossSaveLoad proves repo/realm
+// survive the Save/Load round trip a session's own process restart
+// (a fresh `atomic bus` invocation) depends on — the local half of
+// docs/spec/atomic-bus.md's "mode, kind, repo, and realm all survive a
+// daemon restart" criterion; TestHub_Rehydrate_RestoresRepoAndRealm covers
+// the daemon-side half.
+func TestState_Join_PersistsRepoAndRealmAcrossSaveLoad(t *testing.T) {
+	home := t.TempDir()
+
+	st := &State{Sessions: map[string]*sessionState{}}
+	st.Join("sess-1", "potato", "backend", "participate", KindAgent, "atomic-claude", "myrealm")
+	if err := st.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	m := reloaded.Sessions["sess-1"].Rooms["potato"]
+	if m.Repo != "atomic-claude" {
+		t.Errorf("Repo = %q, want %q", m.Repo, "atomic-claude")
+	}
+	if m.Realm != "myrealm" {
+		t.Errorf("Realm = %q, want %q", m.Realm, "myrealm")
+	}
+}
+
 func TestState_LastRoom_ReturnsMostRecentJoin(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
-	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent)
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "")
 
 	room, ok := st.LastRoom("sess-1")
 	if !ok {
@@ -136,8 +164,8 @@ func TestState_LastRoom_UnjoinedSessionReturnsFalse(t *testing.T) {
 // still has a sensible default after leaving one of several rooms.
 func TestState_Leave_RecomputesLastRoomFromRemaining(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
-	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent) // becomes LastRoom
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "") // becomes LastRoom
 
 	st.Leave("sess-1", "carrot")
 
@@ -152,7 +180,7 @@ func TestState_Leave_RecomputesLastRoomFromRemaining(t *testing.T) {
 
 func TestState_Leave_LastRoomUnsetWhenNoRoomsRemain(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
 
 	st.Leave("sess-1", "potato")
 
@@ -163,7 +191,7 @@ func TestState_Leave_LastRoomUnsetWhenNoRoomsRemain(t *testing.T) {
 
 func TestState_ResolveRoom(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
-	st.Join("sess-1", "potato", "frontend", "participate", KindAgent)
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
 
 	t.Run("explicit room wins over last joined", func(t *testing.T) {
 		room, err := st.ResolveRoom("sess-1", "carrot")

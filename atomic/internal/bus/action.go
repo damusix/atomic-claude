@@ -22,9 +22,10 @@ import (
 // internal/wiki's WikiAction (internal/wiki/action.go:17): home is injected
 // rather than resolved via os.UserHomeDir() internally, so
 // cmd/atomic/main.go's runBus owns the one os.UserHomeDir() call and every
-// path in this package stays testable against a temp dir. cwd is accepted
-// for signature parity with WikiAction; nothing in bus needs it today (no
-// --root-style flag), so it is unused.
+// path in this package stays testable against a temp dir. cwd flows to
+// join and chat, the two verbs that resolve a client's filesystem position
+// (position.go's resolvePosition) — docs/spec/atomic-bus.md's 2026-07-29
+// "position-derived member naming" entry.
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|chat> [flags]")
@@ -34,7 +35,7 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 	verb, rest := args[0], args[1:]
 	switch verb {
 	case "join":
-		return joinAction(rest, home, out)
+		return joinAction(rest, home, cwd, out)
 	case "leave":
 		return leaveAction(rest, home, out)
 	case "send":
@@ -66,7 +67,7 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 	case "prune":
 		return pruneAction(rest, home, out)
 	case "chat":
-		return chatAction(rest, home, out)
+		return chatAction(rest, home, cwd, out)
 	default:
 		fmt.Fprintf(os.Stderr, "atomic bus: unknown verb %q\n", verb)
 		return int(ExitUsage)
@@ -247,7 +248,7 @@ func doWithRecovery(home string, req Request) (Response, error) {
 	return client.Do(req)
 }
 
-// joinAction implements `atomic bus join <room> --as <name> [--mode
+// joinAction implements `atomic bus join <room> [--as <name>] [--mode
 // participate|observe] [--kind agent|human] [--session <id>]`. The
 // numeric-suffix retry on a name collision is Hub.Join's job (room.go) —
 // this only reports the assigned name, which may differ from the one
@@ -257,13 +258,21 @@ func doWithRecovery(home string, req Request) (Response, error) {
 // joining from a terminal be recorded as human"). chat still hardcodes
 // KindHuman on its own OpJoin call below — it has no reason to ever join as
 // an agent.
-func joinAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus join <room> --as <name> [--mode participate|observe] [--kind agent|human] [--session <id>]\n"
+//
+// --as is optional: omitted, it defaults to resolvePosition's repo-root
+// basename (docs/spec/atomic-bus.md's 2026-07-29 "position-derived member
+// naming" entry), so a name is deterministic and predictable to a peer
+// rather than invented. An explicit --as always wins over the default.
+// Position is resolved unconditionally (not only when --as is empty) since
+// Member.Repo/Realm are recorded on every join regardless of how the name
+// was chosen.
+func joinAction(args []string, home, cwd string, out io.Writer) int {
+	const usage = "Usage: atomic bus join <room> [--as <name>] [--mode participate|observe] [--kind agent|human] [--session <id>]\n"
 
 	fs := flag.NewFlagSet("bus-join", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var as, mode, kind, session string
-	fs.StringVar(&as, "as", "", "member name to claim in the room (required)")
+	fs.StringVar(&as, "as", "", "member name to claim in the room (default: repo-root basename)")
 	fs.StringVar(&mode, "mode", "participate", "participate or observe")
 	fs.StringVar(&kind, "kind", KindAgent, "agent or human")
 	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
@@ -271,7 +280,7 @@ func joinAction(args []string, home string, out io.Writer) int {
 	if err != nil {
 		return int(ExitUsage)
 	}
-	if len(positional) != 1 || as == "" {
+	if len(positional) != 1 {
 		fmt.Fprint(os.Stderr, usage)
 		return int(ExitUsage)
 	}
@@ -292,6 +301,15 @@ func joinAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
+	pos, err := resolvePosition(home, cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
+		return int(ExitHard)
+	}
+	if as == "" {
+		as = pos.defaultName
+	}
+
 	// Through the recoveryEnsurer seam, not the package-level EnsureDaemon:
 	// the bare call bypasses the injection point, so tests exercising join
 	// reach the real spawnServe. Under `go test` that re-execs the test
@@ -303,7 +321,7 @@ func joinAction(args []string, home string, out io.Writer) int {
 	}
 	defer client.Close()
 
-	resp, err := client.Do(Request{Op: OpJoin, Room: room, Name: as, Mode: mode, Kind: kind, Session: sessionID})
+	resp, err := client.Do(Request{Op: OpJoin, Room: room, Name: as, Mode: mode, Kind: kind, Session: sessionID, Repo: pos.repo, Realm: pos.realm})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return exitFromErr(err)
@@ -322,7 +340,7 @@ func joinAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return int(ExitHard)
 	}
-	st.Join(sessionID, room, payload.Name, mode, kind)
+	st.Join(sessionID, room, payload.Name, mode, kind, pos.repo, pos.realm)
 	if err := st.Save(home); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return int(ExitHard)
@@ -643,7 +661,7 @@ func whoAction(args []string, home string, out io.Writer) int {
 		return emitJSON(out, payload.Members)
 	}
 	for _, m := range payload.Members {
-		fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", m.Name, m.Kind, m.Mode, livenessLabel(m.Stale))
+		fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n", m.Name, m.Kind, m.Mode, livenessLabel(m.Stale), m.Repo, m.Realm, qualifiedName(m))
 	}
 	return int(ExitOK)
 }
@@ -656,6 +674,30 @@ func livenessLabel(stale bool) string {
 		return "stale"
 	}
 	return "live"
+}
+
+// qualifiedName renders m's reading form for `who`'s human output:
+// "<realm>-<repo>-<name>", collapsing cleanly to "<repo>-<name>" when realm
+// is empty and to the bare name when both are (docs/spec/atomic-bus.md's
+// 2026-07-29 "position-derived member naming" entry). A segment that
+// repeats the one immediately before it is also dropped — since --as
+// defaults to the repo-root basename, Repo and Name are equal in the
+// common unqualified-join case, and duplicating it as "repo-repo" defeats
+// the readability this form exists for. `--to` continues to take the bare
+// Name — this is a display form only. Shared by whoAction and render.go's
+// MemberTable, same split as livenessLabel above.
+func qualifiedName(m Member) string {
+	var parts []string
+	appendSegment := func(s string) {
+		if s == "" || (len(parts) > 0 && parts[len(parts)-1] == s) {
+			return
+		}
+		parts = append(parts, s)
+	}
+	appendSegment(m.Realm)
+	appendSegment(m.Repo)
+	appendSegment(m.Name)
+	return strings.Join(parts, "-")
 }
 
 // resolveOptionalRoom returns explicit verbatim, or — only when explicit is
@@ -1415,11 +1457,14 @@ func tailStream(client *Client, rooms []string, onlyAddressed bool, from string,
 // <id>]`: an interactive client that joins room as a kind: "human" member
 // (docs/spec/atomic-bus.md checkpoint 6) and then hands off to Chat's core
 // loop (chat.go) against a real raw-mode stdin and the daemon's live
-// subscription stream. --as defaults to $USER; identity is resolved
-// exactly like join (SessionID, --session override) — chat calls Hub.Join
-// too, and docs/design/atomic-bus.md's Identity section makes no exception
-// for it.
-func chatAction(args []string, home string, out io.Writer) int {
+// subscription stream. --as defaults to $USER (unchanged by the
+// position-derived naming entry, which only retargets join's own default —
+// chat's default identity is the operator's own username, not the repo it
+// happens to be run from); identity is resolved exactly like join
+// (SessionID, --session override) — chat calls Hub.Join too, and
+// docs/design/atomic-bus.md's Identity section makes no exception for it.
+// Position (repo/realm) is still resolved and recorded, same as join.
+func chatAction(args []string, home, cwd string, out io.Writer) int {
 	const usage = "Usage: atomic bus chat <room> [--as <name>] [--session <id>]\n"
 
 	fs := flag.NewFlagSet("bus-chat", flag.ContinueOnError)
@@ -1451,6 +1496,12 @@ func chatAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
+	pos, err := resolvePosition(home, cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
+		return int(ExitHard)
+	}
+
 	// Through the recoveryEnsurer seam, not the package-level EnsureDaemon —
 	// see joinAction's identical comment; the two call sites share the same
 	// fork-bomb hazard under `go test`.
@@ -1459,7 +1510,7 @@ func chatAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
 		return exitFromErr(err)
 	}
-	resp, err := joinClient.Do(Request{Op: OpJoin, Room: room, Name: as, Mode: "participate", Kind: KindHuman, Session: sessionID})
+	resp, err := joinClient.Do(Request{Op: OpJoin, Room: room, Name: as, Mode: "participate", Kind: KindHuman, Session: sessionID, Repo: pos.repo, Realm: pos.realm})
 	joinClient.Close()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
@@ -1479,7 +1530,7 @@ func chatAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
 		return int(ExitHard)
 	}
-	st.Join(sessionID, room, name, "participate", KindHuman)
+	st.Join(sessionID, room, name, "participate", KindHuman, pos.repo, pos.realm)
 	if err := st.Save(home); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
 		return int(ExitHard)
