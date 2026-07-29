@@ -339,6 +339,50 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
 - Automatic backfill via `atomic migrate` (design decision 3).
 
 
+## Implementation log
+
+
+### shipped — 2026-07-29
+
+
+Built across three iterations of the `/autopilot` implement→review loop, on
+branch `scope-marker` off `origin/next`. Commits, chronological:
+
+- `398dbb1` — design + spec
+- `3fd14db` — CP1 + CP2: `scope` in the schema, the by-kind walk,
+  `EnsureScopeMarker`, both init verbs
+- `b12a3a7` — CP3 + CP4: `repoctx.ResolveFrom`, `where`'s repo-root axis and
+  marker-first realm resolution, provenance in human and JSON output
+- `4bee4dd` — CP5 + CP6: doctor category 13 validation, reference docs,
+  `wiki init` description
+- `d0c4698` — spec table columns corrected to satisfy `atomic validate spec` S5
+- `bb76e05` — signals refresh
+
+Three defects were found by review and fixed before their checkpoint was
+committed, all in code that a green test suite had already passed:
+
+- **The `<wikis>` contradiction check never fired under a symlinked path.**
+  `git rev-parse --show-toplevel` resolves symlinks and a `<wikis>` entry does
+  not, so on macOS — where `/tmp` and `t.TempDir()` both sit behind symlinks —
+  the two sides never compared equal. Every test built both paths from the same
+  `t.TempDir()` string, so the suite could not tell a correct comparison from a
+  broken one. Fixed by canonicalizing both sides through `filepath.EvalSymlinks`,
+  with a test that diverges the two the way production does.
+- **The table-header detector matched inside multi-line array values.** A line
+  starting with `[` inside a multi-line array-of-arrays was read as a table
+  header, splicing the scope line mid-array and producing unparseable TOML. Not
+  reachable through today's schema, but the rule was wrong. Fixed with a
+  bracket-depth condition.
+- **The realm member-classification block was written twice**, once per
+  discovery mechanism, differing only in the source constant — the exact drift
+  risk this feature exists to remove. Factored into one helper.
+
+`atomic wiki init`'s one-line description in `cliusage.go`, `main.go`, and the
+`/atomic-help` cli topic was stale the moment CP2 gave the verb a second job.
+Caught by review and corrected in CP6; the spec's own CP6 text had asserted the
+opposite and was corrected with it.
+
+
 ## Change log
 
 
