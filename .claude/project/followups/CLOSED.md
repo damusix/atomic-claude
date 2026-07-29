@@ -54,3 +54,4 @@
 - 2026-07-26 dev-install-version-fails-doctor — "Dev-build install writes install.version='dev', which fails doctor config check" — *(closed 2026-07-26)*
 - 2026-07-26 scratchpad-deleted-by-test — "A go test deletes .claude/.scratchpad/<today>-* against the real repo" — *(closed 2026-07-26)*
 - 2026-07-26 install-output-style-f-2 — "huh PointerAccessor read-timing risk on huh upgrade" — *(closed 2026-07-26)*
+- 2026-07-29 bus-member-naming-convention — "Bus member naming: position-derived names once scope markers land" — *(closed 2026-07-29)*
