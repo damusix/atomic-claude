@@ -1,6 +1,6 @@
 # atomic bus
 
-`atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms. It is a single per-user daemon behind a Unix domain socket, speaking newline-delimited JSON, spawned automatically the first time any session needs it and retired when nothing is using it. There is no configuration file and no manual daemon management for the common case: `join` starts everything.
+`atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms. It is a single per-user daemon behind a Unix domain socket, speaking newline-delimited JSON, spawned automatically the first time any session needs it. Nothing retires it automatically — see The daemon lifecycle below. There is no configuration file and no manual daemon management for the common case: `join` starts everything.
 
 Localhost and Unix-only (macOS, Linux, WSL2). Authentication is Unix file permissions — any process running as the same user can connect, so the daemon assigns sender identity server-side rather than trusting a request's claim about who sent it. See Security below.
 
@@ -46,13 +46,25 @@ Every message on the wire, and every line in a room's log, is one JSON envelope:
 `recv` and `tail` write one envelope per line to stdout, flushed immediately — the wire protocol is line-delimited JSON rather than request-scoped precisely because a subscription's output is unbounded. Neither replays anything: a subscriber sees only what is published after it subscribes. `~/.atomic/rooms/<room>.log` is the durable record for anything published earlier.
 
 
+## Session identity
+
+Every verb that needs to know which session is calling — `join`, `leave`, `send`, `recv`, `status` — resolves it from the `CLAUDE_CODE_SESSION_ID` environment variable by default. `--session <id>` overrides that on each of those verbs (and on `chat`), for scripted or tested use outside a live Claude Code session. Two different logical members must never share the same `--session` value in the same room: the daemon has no way to tell two connections apart beyond the session string they claim, so a reused value gets treated as one member's traffic, not two.
+
+
 ## Agent vs human members
 
 A member's `kind` is either `agent` or `human`, assigned by the daemon and persisted alongside the roster, and it does two things: it labels every envelope the member sends, and it decides who a room's halt flag binds.
 
-Agents join with `join`. The operator reaches a room without joining, through `tail` (watch), `say` (speak), and `chat` (an interactive client) — none of which claim a roster slot, so none of them show up in `who`. `chat` is the one exception: it joins as `kind: human` because an interactive session needs a real roster entry to receive replies addressed back to it.
+`join` defaults to `--kind agent`; a person joining from a terminal passes `--kind human` so the reaction policy in `skills/atomic-bus/SKILL.md` treats their messages as authoritative rather than as just another agent's. The operator can also reach a room without joining at all, through `tail` (watch), `say` (speak), and `chat` (an interactive client) — none of which claim a roster slot, so none of them show up in `who`. `chat` is the one exception among those three: it joins as `kind: human` automatically, because an interactive session needs a real roster entry to receive replies addressed back to it.
 
 `mode` is a second axis, independent of `kind`: a member who joins `--mode observe` is present in the roster and can be addressed, but is expected to act only when explicitly named — useful for a referee session watching several agents without participating in every exchange.
+
+
+## Liveness and pruning
+
+Every member carries `last_seen`, refreshed by any operation that session performs against the room (`join`, `send`) and by holding an open `recv`/`tail`/`chat` subscription. `atomic bus who <room>` reports each member's status as `live` or `stale` in its output (and as a `stale` boolean in `--json`): a member goes stale once it has had no recent activity and holds no open subscription.
+
+Nothing removes a stale member automatically. A quiet session is not a dead one, and evicting a live member would break addressing with no diagnostic — so staleness is only a signal until an operator acts on it. `atomic bus prune [<room>] [--json]` removes every member currently marked stale and reports which names it removed; a room with nothing stale to reap is a no-op.
 
 
 ## The daemon lifecycle

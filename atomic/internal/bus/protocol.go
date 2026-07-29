@@ -32,6 +32,7 @@ const (
 	OpHalt     = "halt"
 	OpResume   = "resume"
 	OpShutdown = "shutdown"
+	OpPrune    = "prune"
 )
 
 // Request is a single client-to-daemon frame: an op plus whichever operand
@@ -51,6 +52,16 @@ type Request struct {
 	To      []string `json:"to,omitempty"`
 	ReplyTo string   `json:"reply_to,omitempty"`
 	Text    string   `json:"text,omitempty"`
+
+	// SkipSelf opts an OpRecv subscription out of receiving envelopes
+	// published by this same Session — the per-subscription flag `recv`
+	// sets and `tail`/`chat` do not (docs/spec/atomic-bus.md: "a subscriber
+	// does not receive its own published messages... tail and chat still
+	// see the complete transcript including their own lines"). Meaningless
+	// without Session also being set (there is nothing to compare
+	// against), and ignored entirely for OpTail, which never carries an
+	// identity to skip.
+	SkipSelf bool `json:"skip_self,omitempty"`
 
 	// Filters narrows a tail subscription (e.g. "only_addressed", "from").
 	// Kept as a generic map rather than a named type so the render/action
@@ -194,6 +205,21 @@ type Member struct {
 	Mode    string    `json:"mode,omitempty"`
 	Session string    `json:"session"`
 	Joined  time.Time `json:"joined"`
+
+	// LastSeen is refreshed on any operation this Session performs against
+	// the room (Join, Publish) — the "recent activity" half of staleness
+	// (docs/spec/atomic-bus.md: "Member carries last_seen, refreshed on any
+	// operation from that session and on an open subscription").
+	LastSeen time.Time `json:"last_seen"`
+
+	// Stale is computed only by Hub.Who (Room.isStale) — never stored, never
+	// meaningful on a Member returned by Join or read from Rehydrate's
+	// source state. True means neither LastSeen nor a live subscription
+	// proves this member is still around; `who` surfaces it, `prune`
+	// removes only members for which it holds. Not omitempty: "stale":false
+	// is itself a signal a --json caller should be able to rely on, exactly
+	// like Response.OK.
+	Stale bool `json:"stale"`
 }
 
 // RoomInfo is one room's summary, as reported by `rooms`: its name and how

@@ -37,25 +37,25 @@ var commands = []Command{
 	{
 		Path:        []string{"bus", "join"},
 		Args:        "<room>",
-		Flags:       []string{"--as", "--mode", "--session"},
+		Flags:       []string{"--as", "--mode", "--kind", "--session"},
 		Description: "Join a room under a name; auto-spawns the daemon",
 	},
 	{
 		Path:        []string{"bus", "leave"},
 		Args:        "[<room>]",
-		Flags:       nil,
+		Flags:       []string{"--session"},
 		Description: "Leave a room (default: the session's last-joined room)",
 	},
 	{
 		Path:        []string{"bus", "send"},
 		Args:        "<room> <text>",
-		Flags:       []string{"--to", "--reply-to", "--json"},
+		Flags:       []string{"--to", "--reply-to", "--session", "--json"},
 		Description: "Send a message; text \"-\" reads stdin",
 	},
 	{
 		Path:        []string{"bus", "recv"},
 		Args:        "<room>",
-		Flags:       []string{"--json"},
+		Flags:       []string{"--json", "--session"},
 		Description: "Receive messages; streams JSON envelopes until SIGTERM",
 	},
 	{
@@ -73,7 +73,7 @@ var commands = []Command{
 	{
 		Path:        []string{"bus", "status"},
 		Args:        "",
-		Flags:       []string{"--json"},
+		Flags:       []string{"--json", "--session"},
 		Description: "Report this session's joined rooms and the daemon's state",
 	},
 	{
@@ -123,6 +123,12 @@ var commands = []Command{
 		Args:        "<room>",
 		Flags:       nil,
 		Description: "Clear a room's halt flag; restores agent send",
+	},
+	{
+		Path:        []string{"bus", "prune"},
+		Args:        "[<room>]",
+		Flags:       []string{"--json"},
+		Description: "Remove stale members (no live subscription, no recent activity) from a room",
 	},
 	{
 		Path:        []string{"bus", "chat"},

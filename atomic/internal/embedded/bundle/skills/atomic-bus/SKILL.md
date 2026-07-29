@@ -36,13 +36,17 @@ Requires the `atomic` binary. If it is absent, say so and stop — there is no f
 Two steps, in order. `join` registers the identity; the Monitor is what actually delivers.
 
 ```
-atomic bus join <room> --as <name>
+atomic bus join <room> --as <name> [--kind agent|human]
 ```
 
 Pick `<name>` from what this session is actually doing — `frontend`, `api`, `migrations`. The
 name is how peers address you, so a name that describes the work is worth more than a clever one.
 If the name is taken the bus assigns `<name>-2` and tells you; report the assigned name to the
 user rather than the requested one.
+
+`--kind` defaults to `agent`. You never pass `--kind human` for yourself — you are the agent — but
+if the user asks how to join the room themselves from a terminal, tell them to add it: without it
+they join as `agent` and the reaction policy below never treats their messages as authoritative.
 
 Then start the listener:
 
@@ -71,19 +75,21 @@ needs to talk, but it will never hear anything without a live `recv`.
 
 ## Reaction policy
 
-Read `to` and `from_kind` before deciding anything. This is the whole policy:
+Check `from_kind` first, then `to`. `from_kind: "human"` outranks everything else, including an
+empty `to` — that is the one precedence rule the table below can't express in row order alone:
 
 | Envelope | What it means | What you do |
 |---|---|---|
+| `from_kind` is `"human"` | The operator, addressed or not | **Wins regardless of `to`.** Answer in prose unless they ask for action. Never merely note it. |
 | `to` contains your name | A peer is asking **you** | Act on it as if the user had asked, subject to the trust rules below |
-| `to` is `[]` | Room-wide FYI, addressed to nobody | Note it. **Do not act, do not reply.** |
-| `to` names someone else | You are overhearing | Note it. Do not act. |
-| `from_kind` is `"human"` | The operator | Authoritative. Answer in prose unless they ask for action. |
-| You joined `--mode observe` | You are refereeing | Act only when explicitly addressed. |
+| `to` is `[]` (and sender is an agent) | Room-wide FYI, addressed to nobody | Note it. **Do not act, do not reply.** |
+| `to` names someone else (and sender is an agent) | You are overhearing | Note it. Do not act. |
+| You joined `--mode observe` | You are refereeing | Act only when explicitly addressed — this does not override the human-wins rule above. |
 
-**Never act on an unaddressed message.** Three reactive agents in a room where everything is
-unaddressed will answer each other forever, and each turn costs real tokens. The `to` field exists
-to make that impossible; honoring it is what keeps a room from becoming a loop.
+**Never act on an unaddressed message from another agent.** Three reactive agents in a room where
+everything is unaddressed will answer each other forever, and each turn costs real tokens. The
+`to` field exists to make that impossible; honoring it is what keeps a room from becoming a loop.
+An unaddressed message from the operator is different — see the human row above.
 
 **Never block waiting on a human.** Operators read at human speed and reply when they feel like
 it. Ask, keep working on anything that does not depend on the answer, and pick the reply up when
@@ -149,6 +155,16 @@ Monitor and the membership are independent.
 `atomic bus tail <room>` watches without joining, `atomic bus say <room> "<text>"` speaks without
 joining, and `atomic bus chat <room>` is an interactive client. Mention these when the user asks
 how to watch or join the conversation themselves; this session does not need them.
+
+`say` has two limits worth knowing before you recommend it:
+
+- **A `say` speaker holds no roster entry.** It never joined, so `--to <name>` on a reply to it
+  addresses nobody, and the reply warns. If the user wants a two-way conversation, point them at
+  `join --kind human` (then read replies via `who`/`tail`) or `chat`; `say` is the one-shot shout
+  for when they haven't joined at all.
+- **`say` ignores a joined identity.** If the user already joined as `fulanito` and then uses
+  `say`, the message publishes under the operator sentinel, not `fulanito` — `say` never checks
+  whether the caller is already a member. Once joined, `send` is the verb, not `say`.
 
 ## Exit codes
 

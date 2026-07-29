@@ -156,6 +156,65 @@ func TestJoinAction_NoSessionNoOverride_ExitHard(t *testing.T) {
 	}
 }
 
+// TestJoinAction_DefaultKind_IsAgent locks in the pre-existing default:
+// joinAction with no --kind must still record Kind agent.
+func TestJoinAction_DefaultKind_IsAgent(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+
+	var out bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-1"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+
+	whoResp := dialAndDo(t, SocketPath(home), Request{Op: OpWho, Room: "potato"})
+	var payload struct {
+		Members []Member `json:"members"`
+	}
+	if err := json.Unmarshal(whoResp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal who: %v", err)
+	}
+	if len(payload.Members) != 1 || payload.Members[0].Kind != KindAgent {
+		t.Fatalf("members = %+v, want one member with default Kind %q", payload.Members, KindAgent)
+	}
+}
+
+// TestJoinAction_KindHuman_RecordedAsHuman is the regression test for
+// finding 1: joinAction used to hardcode Kind: KindAgent on every OpJoin
+// request, so a person joining from a terminal was recorded as an agent and
+// every reaction-policy rule keyed on from_kind silently failed to fire for
+// them.
+func TestJoinAction_KindHuman_RecordedAsHuman(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+
+	var out bytes.Buffer
+	code := joinAction([]string{"potato", "--as", "operator", "--kind", "human", "--session", "sess-1"}, home, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+
+	whoResp := dialAndDo(t, SocketPath(home), Request{Op: OpWho, Room: "potato"})
+	var payload struct {
+		Members []Member `json:"members"`
+	}
+	if err := json.Unmarshal(whoResp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal who: %v", err)
+	}
+	if len(payload.Members) != 1 || payload.Members[0].Kind != KindHuman {
+		t.Fatalf("members = %+v, want one member with Kind %q", payload.Members, KindHuman)
+	}
+}
+
+func TestJoinAction_InvalidKind_ExitUsage(t *testing.T) {
+	home := testBusHome(t)
+	var out bytes.Buffer
+	code := joinAction([]string{"potato", "--as", "backend", "--kind", "robot"}, home, &out)
+	if code != int(ExitUsage) {
+		t.Fatalf("exit code = %d, want %d (ExitUsage)", code, ExitUsage)
+	}
+}
+
 // --- leave ---
 
 func TestLeaveAction_NotJoined_ExitNotJoined(t *testing.T) {
@@ -209,6 +268,28 @@ func TestLeaveAction_ExplicitRoomNotExists_ExitNoRoom(t *testing.T) {
 	}
 }
 
+// TestLeaveAction_SessionFlag_OverridesEnv is the regression test for
+// finding 5's leave case: --session was accepted by join and chat only, so
+// a scripted peer that joined with --session had no way to also leave under
+// that same identity — CLAUDE_CODE_SESSION_ID pointing somewhere else (or
+// nowhere) here proves --session, not the env var, resolves the session.
+func TestLeaveAction_SessionFlag_OverridesEnv(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	t.Setenv(sessionEnvVar, "sess-env-should-not-be-used")
+
+	var joinOut bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-flag"}, home, &joinOut); code != int(ExitOK) {
+		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, joinOut.String())
+	}
+
+	var out bytes.Buffer
+	code := leaveAction([]string{"potato", "--session", "sess-flag"}, home, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("leave exit code = %d, want %d (ExitOK — leave under --session's identity, which is joined; the env session never joined anything); output: %s", code, ExitOK, out.String())
+	}
+}
+
 // --- send ---
 
 func TestSendAction_MissingArgs_ExitUsage(t *testing.T) {
@@ -229,6 +310,26 @@ func TestSendAction_RoomDoesNotExist_ExitNoRoom(t *testing.T) {
 	code := sendAction([]string{"nonexistent", "hello"}, home, &out)
 	if code != int(ExitNoRoom) {
 		t.Fatalf("exit code = %d, want %d (ExitNoRoom)", code, ExitNoRoom)
+	}
+}
+
+// TestSendAction_SessionFlag_OverridesEnv is finding 5's send case: --session
+// must resolve the sending identity even when CLAUDE_CODE_SESSION_ID points
+// at a session that never joined — proving the flag, not the env var, wins.
+func TestSendAction_SessionFlag_OverridesEnv(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	t.Setenv(sessionEnvVar, "sess-env-should-not-be-used")
+
+	var joinOut bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-flag"}, home, &joinOut); code != int(ExitOK) {
+		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, joinOut.String())
+	}
+
+	var out bytes.Buffer
+	code := sendAction([]string{"potato", "hello", "--session", "sess-flag"}, home, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("send exit code = %d, want %d (ExitOK — sending as --session's joined identity); output: %s", code, ExitOK, out.String())
 	}
 }
 
@@ -738,8 +839,12 @@ func TestRecvAction_DeliversPublishedMessageUnderOneSecond(t *testing.T) {
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
+	// recvStream's session is deliberately "sess-receiver", distinct from
+	// the seed join's "sess-sender": recvStream now always subscribes with
+	// SkipSelf, so a same-session publish here would be suppressed and this
+	// test would never see the envelope it's asserting on.
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvStream(client, "potato", pw) }()
+	go func() { recvDone <- recvStream(client, "potato", "sess-receiver", pw) }()
 
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
@@ -791,8 +896,12 @@ func TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine(t *testing.T) {
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
+	// recvStream's session is deliberately "sess-receiver", distinct from
+	// the seed join's "sess-sender": recvStream now always subscribes with
+	// SkipSelf, so a same-session publish here would be suppressed and this
+	// test would never see the envelope it's asserting on.
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvStream(client, "potato", pw) }()
+	go func() { recvDone <- recvStream(client, "potato", "sess-receiver", pw) }()
 
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
@@ -840,8 +949,12 @@ func TestRecvAction_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
+	// recvStream's session is deliberately "sess-receiver", distinct from
+	// the seed join's "sess-sender": recvStream now always subscribes with
+	// SkipSelf, so a same-session publish here would be suppressed and this
+	// test would never see the envelope it's asserting on.
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvStream(client, "potato", pw) }()
+	go func() { recvDone <- recvStream(client, "potato", "sess-receiver", pw) }()
 
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
@@ -854,6 +967,74 @@ func TestRecvAction_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	client.Close()
 	select {
 	case <-recvDone:
+	case <-time.After(wireTimeout):
+		t.Fatal("recvStream did not exit after the client was closed")
+	}
+}
+
+// TestRecvAction_NoSessionNoOverride_ExitHard is finding 5's recv case: recv
+// now resolves a session (needed for SkipSelf's own-session comparison) and
+// must fail exactly like send/leave/join do when neither
+// CLAUDE_CODE_SESSION_ID nor --session is available, rather than silently
+// subscribing with no identity to compare against.
+func TestRecvAction_NoSessionNoOverride_ExitHard(t *testing.T) {
+	home := testBusHome(t)
+	t.Setenv(sessionEnvVar, "")
+
+	var out bytes.Buffer
+	code := recvAction([]string{"potato"}, home, &out)
+	if code != int(ExitHard) {
+		t.Fatalf("exit code = %d, want %d (ExitHard)", code, ExitHard)
+	}
+}
+
+// TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers is the
+// action-layer regression test for finding 2: recvStream always subscribes
+// with SkipSelf, so a message this same session publishes must never come
+// back on its own recv, while a different session's publish still arrives
+// normally.
+func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-me"}); !resp.OK {
+		t.Fatalf("seed join backend: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-other"}); !resp.OK {
+		t.Fatalf("seed join frontend: %s", resp.Error)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	recvDone := make(chan int, 1)
+	go func() { recvDone <- recvStream(client, "potato", "sess-me", pw) }()
+
+	delivered := make(chan Envelope, 4)
+	go decodeEnvelopesInto(pr, delivered)
+
+	// Sent first, before any retry loop starts: if self-echo suppression
+	// were broken, this would already be the first thing publishUntilDelivered
+	// reads back below.
+	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-me", Text: "my own — must not arrive"}); !resp.OK {
+		t.Fatalf("self send: %s", resp.Error)
+	}
+	env := publishUntilDelivered(t, addr, "potato", "sess-other", "from someone else", delivered, wireTimeout)
+	if env.Text != "from someone else" {
+		t.Fatalf("first delivered Text = %q, want %q — the same-session send should have been skipped entirely, not merely arrived first", env.Text, "from someone else")
+	}
+
+	client.Close()
+	select {
+	case code := <-recvDone:
+		if code != int(ExitOK) {
+			t.Fatalf("recvStream exit code = %d, want %d", code, ExitOK)
+		}
 	case <-time.After(wireTimeout):
 		t.Fatal("recvStream did not exit after the client was closed")
 	}
@@ -902,6 +1083,173 @@ func TestWhoAction_NoRoomNoSession_ExitHard(t *testing.T) {
 	code := whoAction(nil, home, &out)
 	if code != int(ExitHard) {
 		t.Fatalf("exit code = %d, want %d (ExitHard)", code, ExitHard)
+	}
+}
+
+// mustStartTestDaemonWithClock mirrors mustStartTestDaemon (which wraps
+// client_test.go's startTestDaemon) but injects a controllable clock —
+// finding 3's staleness tests need to advance "now" without a real sleep,
+// something startTestDaemon's fixed NewHub(home) has no seam for.
+func mustStartTestDaemonWithClock(t *testing.T, home string, now func() time.Time) {
+	t.Helper()
+	if err := EnsureDirs(home); err != nil {
+		t.Fatalf("EnsureDirs: %v", err)
+	}
+	ln, err := net.Listen("unix", SocketPath(home))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	hub := NewHub(home)
+	hub.SetClock(now)
+	if st, err := Load(home); err == nil {
+		hub.Rehydrate(st)
+	}
+	startServe(t, ln, hub)
+}
+
+// TestWhoAction_TableOutput_ShowsStaleness and its JSON sibling below are
+// finding 3's action-layer regression: before the fix, who's plain-text
+// output had no liveness column and Member itself carried no Stale field —
+// a roster from live testing showed five dead sessions rendered
+// indistinguishably from live ones.
+func TestWhoAction_TableOutput_ShowsStaleness(t *testing.T) {
+	home := testBusHome(t)
+	clock := newTestClock(time.Now())
+	mustStartTestDaemonWithClock(t, home, clock.Now)
+	addr := SocketPath(home)
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "ghost", Kind: KindAgent, Session: "sess-ghost"}); !resp.OK {
+		t.Fatalf("seed join ghost: %s", resp.Error)
+	}
+	clock.Advance(staleThreshold + time.Second)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-fresh"}); !resp.OK {
+		t.Fatalf("seed join backend: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	if code := whoAction([]string{"potato"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	liveness := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		fields := strings.Split(line, "\t")
+		if len(fields) != 4 {
+			t.Fatalf("line %q has %d tab-separated fields, want 4 (name, kind, mode, liveness)", line, len(fields))
+		}
+		liveness[fields[0]] = fields[3]
+	}
+	if liveness["ghost"] != "stale" {
+		t.Errorf("ghost liveness column = %q, want %q", liveness["ghost"], "stale")
+	}
+	if liveness["backend"] != "live" {
+		t.Errorf("backend liveness column = %q, want %q", liveness["backend"], "live")
+	}
+}
+
+func TestWhoAction_JSONOutput_ShowsStale(t *testing.T) {
+	home := testBusHome(t)
+	clock := newTestClock(time.Now())
+	mustStartTestDaemonWithClock(t, home, clock.Now)
+	addr := SocketPath(home)
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "ghost", Kind: KindAgent, Session: "sess-ghost"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+	clock.Advance(staleThreshold + time.Second)
+
+	var out bytes.Buffer
+	if code := whoAction([]string{"potato", "--json"}, home, &out); code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+	var members []Member
+	if err := json.Unmarshal(out.Bytes(), &members); err != nil {
+		t.Fatalf("output is not parseable JSON: %v\n%s", err, out.String())
+	}
+	if len(members) != 1 || !members[0].Stale {
+		t.Fatalf("members = %+v, want one member with Stale true", members)
+	}
+}
+
+// --- prune ---
+
+// TestPruneAction_RemovesOnlyStaleMember_ReportsWhichOne is the CLI-layer
+// regression test for the missing prune verb: it did not exist before this
+// fix, so a dead session's name stayed occupied and addressable forever.
+func TestPruneAction_RemovesOnlyStaleMember_ReportsWhichOne(t *testing.T) {
+	home := testBusHome(t)
+	clock := newTestClock(time.Now())
+	mustStartTestDaemonWithClock(t, home, clock.Now)
+	addr := SocketPath(home)
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "ghost", Kind: KindAgent, Session: "sess-ghost"}); !resp.OK {
+		t.Fatalf("seed join ghost: %s", resp.Error)
+	}
+	clock.Advance(staleThreshold + time.Second)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-fresh"}); !resp.OK {
+		t.Fatalf("seed join backend: %s", resp.Error)
+	}
+
+	var out bytes.Buffer
+	code := pruneAction([]string{"potato"}, home, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	if !strings.Contains(out.String(), "ghost") {
+		t.Fatalf("output = %q, want it to name the pruned member %q", out.String(), "ghost")
+	}
+	if strings.Contains(out.String(), "backend") {
+		t.Fatalf("output = %q, must not name the still-live member %q", out.String(), "backend")
+	}
+
+	whoResp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
+	var payload struct {
+		Members []Member `json:"members"`
+	}
+	if err := json.Unmarshal(whoResp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal who: %v", err)
+	}
+	if len(payload.Members) != 1 || payload.Members[0].Name != "backend" {
+		t.Fatalf("members after prune = %+v, want only backend to remain", payload.Members)
+	}
+}
+
+// TestPruneAction_JSONOutput_ListsRemoved proves the --json path carries the
+// same removed-names payload the plain-text path renders.
+func TestPruneAction_JSONOutput_ListsRemoved(t *testing.T) {
+	home := testBusHome(t)
+	clock := newTestClock(time.Now())
+	mustStartTestDaemonWithClock(t, home, clock.Now)
+	addr := SocketPath(home)
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "ghost", Kind: KindAgent, Session: "sess-ghost"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+	clock.Advance(staleThreshold + time.Second)
+
+	var out bytes.Buffer
+	code := pruneAction([]string{"potato", "--json"}, home, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+	var payload struct {
+		Removed []string `json:"removed"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &payload); err != nil {
+		t.Fatalf("output is not parseable JSON: %v\n%s", err, out.String())
+	}
+	if len(payload.Removed) != 1 || payload.Removed[0] != "ghost" {
+		t.Fatalf("removed = %v, want [ghost]", payload.Removed)
+	}
+}
+
+func TestPruneAction_RoomNotFound_ExitNoRoom(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+
+	var out bytes.Buffer
+	code := pruneAction([]string{"nonexistent"}, home, &out)
+	if code != int(ExitNoRoom) {
+		t.Fatalf("exit code = %d, want %d (ExitNoRoom)", code, ExitNoRoom)
 	}
 }
 
@@ -1031,6 +1379,33 @@ func TestStatusAction_DaemonRunning_ReportsJoinedRoom(t *testing.T) {
 	}
 	if len(status.Rooms) != 1 || status.Rooms[0].Room != "potato" || status.Rooms[0].Name != "backend" {
 		t.Fatalf("Rooms = %+v, want one entry {potato backend}", status.Rooms)
+	}
+}
+
+// TestStatusAction_SessionFlag_OverridesEnv is finding 5's status case:
+// --session must resolve the identity status reports on, not only
+// CLAUDE_CODE_SESSION_ID.
+func TestStatusAction_SessionFlag_OverridesEnv(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	t.Setenv(sessionEnvVar, "sess-env-should-not-be-used")
+
+	var joinOut bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "backend", "--session", "sess-flag"}, home, &joinOut); code != int(ExitOK) {
+		t.Fatalf("join exit code = %d, want %d; output: %s", code, ExitOK, joinOut.String())
+	}
+
+	var out bytes.Buffer
+	code := statusAction([]string{"--session", "sess-flag", "--json"}, home, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("exit code = %d, want %d", code, ExitOK)
+	}
+	var status busStatus
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("output is not parseable JSON: %v\n%s", err, out.String())
+	}
+	if len(status.Rooms) != 1 || status.Rooms[0].Room != "potato" {
+		t.Fatalf("Rooms = %+v, want the room joined under --session's identity (sess-flag), not $%s's (sess-env-should-not-be-used, which never joined anything)", status.Rooms, sessionEnvVar)
 	}
 }
 

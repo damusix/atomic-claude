@@ -75,6 +75,19 @@ can stop the exchange with `atomic bus halt`.
       as `participate`.
 - [ ] `send --to <name>` warns on stderr when no such member is in the room. An addressed message
       to nobody is the failure the addressed-vs-FYI distinction exists to prevent.
+- [ ] `join --kind agent|human` (default `agent`) lets a person joining from a terminal be
+      recorded as human. Without it the `kind` field is dead on every path except `chat`, and
+      every reaction-policy rule that keys on `from_kind` silently fails to fire for operators.
+- [ ] A subscriber does not receive its own published messages. `recv` opts out; `tail` and `chat`
+      still see the complete transcript including their own lines.
+- [ ] `resume` publishes an envelope with a body, not an empty string.
+- [ ] `--session` is accepted by every verb that resolves a session identity, not only `join` and
+      `chat`.
+- [ ] `Member` carries `last_seen`, refreshed on any operation from that session and on an open
+      subscription. `who` shows it and marks members with neither as stale.
+- [ ] `atomic bus prune [<room>]` removes stale members explicitly. Nothing reaps a member
+      silently — a quiet session is not a dead one, and evicting a live member would break
+      addressing with no diagnostic.
 - [ ] `go test ./...`, `go vet ./...`, `gofmt -l .` clean; `make render` and `make bundle` leave no
       diff; `atomic validate` passes.
 
@@ -279,6 +292,36 @@ Flow: daemon lifecycle
 
 
 ## Change log
+
+### 2026-07-29 — findings from two live sessions
+
+**What changed:** seven criteria added, from running the built binary with two real Claude Code
+sessions and a human in the room. None was caught by the suite, the reviewers, or single-session
+manual passes — each needed a person and an agent in a room together.
+
+- **`join` hardcoded `kind: agent`.** Only `chat` could join as human, so a person joining from a
+  terminal was recorded as an agent and every reaction-policy rule keyed on `from_kind` failed to
+  fire for them. The field existed; the common path defeated it. Now `--kind agent|human`.
+- **Self-echo.** A subscriber received its own sends back as notifications — for an agent, one
+  wasted prompt per message, scaling with room traffic, and nothing but the `to` convention
+  stopping it from acting on its own words. `recv` now opts out of self-delivery; `tail` and
+  `chat` keep it, because a transcript that omits your own line is wrong.
+- **Dead members were immortal.** Nothing reaped a session that exited, so names stayed occupied
+  and peers addressed sessions that no longer existed. `last_seen` plus an explicit `prune`; no
+  silent reaping, since a quiet session is not a dead one.
+- **`resume` published an empty-body envelope** — a notification carrying nothing to act on.
+- **`--session` existed only on `join` and `chat`**, so a scripted peer could join and then not
+  send. (The `CLAUDE_CODE_SESSION_ID` env var always worked, which is why this is a consistency
+  fix rather than a blocker.)
+- **The reaction policy contradicted itself** on an unaddressed message from a human: `to: []` said
+  ignore, `from_kind: human` said answer. Precedence is now stated — human wins, so an operator
+  always gets a reply while agent-to-agent FYI still never does.
+- **`say` speakers are unaddressable** (they hold no roster entry) and **`say` discards a joined
+  identity**. Both are documented rather than changed: `join --kind human` and `chat` are the
+  two-way surfaces, `say` is the one-shot shout for when you have not joined.
+
+**Why:** live use. The suite asserted the same assumptions the code made, so both were wrong
+together.
 
 ### 2026-07-28 — replay removed entirely; recv is stream-only
 

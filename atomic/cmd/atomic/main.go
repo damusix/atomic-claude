@@ -742,13 +742,13 @@ func buildConfigCmd() *cobra.Command {
 }
 
 // buildBusCmd builds the "bus" parent +
-// join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|chat
+// join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|chat
 // children. Dispatch is runBus (→ bus.BusAction from internal/bus/action.go).
 func buildBusCmd() *cobra.Command {
 	dispatch := func(args []string) { runBus(args) }
 	parent := &cobra.Command{
 		Use:   "bus",
-		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|chat)",
+		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|chat)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -771,16 +771,21 @@ func buildBusCmd() *cobra.Command {
 	addSub("join", "Join a room under a name; auto-spawns the daemon", "<room>", func(c *cobra.Command) {
 		c.Flags().String("as", "", "member name to claim (required)")
 		c.Flags().String("mode", "participate", "participate or observe")
+		c.Flags().String("kind", "agent", "agent or human")
 		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")
 	})
-	addSub("leave", "Leave a room (default: the session's last-joined room)", "[<room>]", nil)
+	addSub("leave", "Leave a room (default: the session's last-joined room)", "[<room>]", func(c *cobra.Command) {
+		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")
+	})
 	addSub("send", "Send a message; text \"-\" reads stdin", "<room> <text>", func(c *cobra.Command) {
 		c.Flags().String("to", "", "comma-separated addressee names (omit for FYI)")
 		c.Flags().String("reply-to", "", "id of the message being replied to")
+		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")
 		c.Flags().Bool("json", false, "emit the full envelope as JSON (captures the id for --reply-to)")
 	})
 	addSub("recv", "Receive messages; streams JSON envelopes until SIGTERM", "<room>", func(c *cobra.Command) {
 		c.Flags().Bool("json", false, "no-op: recv always streams one JSON envelope per line")
+		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")
 	})
 	addSub("who", "List a room's members (default: the session's last-joined room)", "[<room>]", func(c *cobra.Command) {
 		c.Flags().Bool("json", false, "emit JSON")
@@ -790,6 +795,7 @@ func buildBusCmd() *cobra.Command {
 	})
 	addSub("status", "Report this session's joined rooms and the daemon's state", "", func(c *cobra.Command) {
 		c.Flags().Bool("json", false, "emit JSON")
+		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")
 	})
 	addSub("serve", "Run the daemon in the foreground; stopped via bus stop", "", nil)
 	addSub("start", "Spawn the daemon if none is listening; idempotent", "", nil)
@@ -808,6 +814,9 @@ func buildBusCmd() *cobra.Command {
 		c.Flags().String("text", "", "reason broadcast with the halt")
 	})
 	addSub("resume", "Clear a room's halt flag; restores agent send", "<room>", nil)
+	addSub("prune", "Remove stale members (no live subscription, no recent activity) from a room", "[<room>]", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "emit JSON")
+	})
 	addSub("chat", "Interactive client: joins as a human member; @name, /who, /rooms, /halt, /resume, /quit", "<room>", func(c *cobra.Command) {
 		c.Flags().String("as", "", "member name to claim (default: $USER)")
 		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")

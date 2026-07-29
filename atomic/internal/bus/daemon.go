@@ -122,17 +122,35 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 		respond(enc, d.handleHalt(req))
 	case OpResume:
 		respond(enc, d.handleResume(req))
+	case OpPrune:
+		respond(enc, d.handlePrune(req))
 	case OpShutdown:
 		respond(enc, Response{OK: true})
 		d.triggerShutdown()
 	case OpRecv:
-		d.subscribe(ctx, conn, enc, []string{req.Room})
+		// req.Session is client-claimed, wire input — nothing upstream of
+		// this dispatch has verified the connection sending it actually is
+		// that session (see Hub.SessionIsMember's doc). Honoring it verbatim
+		// let a session that names nobody in this room — or nobody yet —
+		// keep sitting in r.subs, ready to attach itself to whichever member
+		// later joins under that name and permanently defeat that member's
+		// staleness check (docs/spec/atomic-bus.md's 2026-07-29 entry). A
+		// claim that matches nobody currently in the room is downgraded to
+		// "" — anonymous, exactly like tail's own subscriptions.
+		session := req.Session
+		if session != "" && !d.hub.SessionIsMember(req.Room, session) {
+			session = ""
+		}
+		d.subscribe(ctx, conn, enc, []string{req.Room}, session, req.SkipSelf)
 	case OpTail:
 		// Filter application (only_addressed / from, per protocol.go's
 		// Request.Filters doc) is an action-layer concern (render/action);
 		// this dispatch delivers every envelope on the subscribed rooms
-		// unfiltered.
-		d.subscribe(ctx, conn, enc, req.Rooms)
+		// unfiltered. tail never joins and holds no session of its own
+		// (docs/design/atomic-bus.md's decision #5), so it always
+		// subscribes with session "" and skipSelf false — it has nothing to
+		// self-skip, and must keep seeing its own says/sends regardless.
+		d.subscribe(ctx, conn, enc, req.Rooms, "", false)
 	default:
 		respond(enc, Response{OK: false, Code: ExitUsage, Error: fmt.Sprintf("bus: unknown op %q", req.Op)})
 	}
@@ -148,11 +166,11 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 // instructions to act on). This is also why the wire protocol is
 // line-delimited rather than request-scoped (docs/design/atomic-bus.md,
 // "Wire protocol"): a subscription's response is unbounded.
-func (d *daemon) subscribe(ctx context.Context, conn net.Conn, enc *json.Encoder, rooms []string) {
+func (d *daemon) subscribe(ctx context.Context, conn net.Conn, enc *json.Encoder, rooms []string, session string, skipSelf bool) {
 	ch := make(chan Envelope, subscriberBuffer)
 	unsubs := make([]func(), 0, len(rooms))
 	for _, room := range rooms {
-		unsubs = append(unsubs, d.hub.Subscribe(room, ch))
+		unsubs = append(unsubs, d.hub.Subscribe(room, ch, session, skipSelf))
 	}
 	defer func() {
 		for _, u := range unsubs {
@@ -327,4 +345,18 @@ func (d *daemon) handleResume(req Request) Response {
 		return errorResponse(err)
 	}
 	return Response{OK: true}
+}
+
+// handlePrune's payload names the members Hub.Prune actually removed, so
+// the CLI can report exactly what changed rather than a bare "ok" — an
+// empty Removed list on success means the room had nothing stale to reap.
+func (d *daemon) handlePrune(req Request) Response {
+	removed, err := d.hub.Prune(req.Room)
+	if err != nil {
+		return errorResponse(err)
+	}
+	payload, _ := json.Marshal(struct {
+		Removed []string `json:"removed"`
+	}{Removed: removed})
+	return Response{OK: true, Payload: payload}
 }

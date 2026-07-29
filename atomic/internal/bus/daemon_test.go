@@ -525,6 +525,173 @@ func TestServe_Tail_NeverJoinsAndSeesOthersMail(t *testing.T) {
 	}
 }
 
+// TestServe_Recv_SkipSelf_DoesNotReceiveOwnPublish_ButTailDoes is the
+// wire-dispatch counterpart to room_test.go's Hub-level self-echo proof: it
+// exercises daemon.go's handleConn threading req.Session/req.SkipSelf into
+// Hub.Subscribe, a bug a pure Hub-level test (calling h.Subscribe directly)
+// cannot see.
+func TestServe_Recv_SkipSelf_DoesNotReceiveOwnPublish_ButTailDoes(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: "agent", Session: "sess-1"}); !resp.OK {
+		t.Fatalf("join: %s", resp.Error)
+	}
+
+	recvConn, recvR := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato", Session: "sess-1", SkipSelf: true})
+	defer recvConn.Close()
+	tailConn, tailR := dialSubscribe(t, addr, Request{Op: OpTail, Rooms: []string{"potato"}})
+	defer tailConn.Close()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpSend, Room: "potato", Session: "sess-1", Text: "self-published"}); !resp.OK {
+		t.Fatalf("send: %s", resp.Error)
+	}
+
+	// tail must see it — proves the publish actually happened and tail's
+	// own subscription (session "", skipSelf false — daemon.go's OpTail
+	// dispatch hardcodes both) is unaffected by anyone else's SkipSelf.
+	tailEnv, ok := readEnvelopeBounded(t, tailR)
+	if !ok {
+		t.Fatal("tail did not receive the published envelope")
+	}
+	if tailEnv.Text != "self-published" {
+		t.Fatalf("tail Text = %q, want %q", tailEnv.Text, "self-published")
+	}
+
+	// recv (same session as the sender, SkipSelf set) must not see it: the
+	// read must time out, not decode anything.
+	if res := readLineBounded(t, recvR, 300*time.Millisecond); res.ok {
+		t.Fatalf("recv received its own publish (%q); expected it to be suppressed", res.data)
+	}
+}
+
+// TestServe_Recv_UnownedSessionClaim_DoesNotFakeFutureMemberLiveness is the
+// regression test for the OpRecv session-trust finding: before this fix,
+// daemon.go's OpRecv dispatch handed req.Session to Hub.Subscribe verbatim,
+// with nothing checking that the connection sending it actually owned it. A
+// subscription opened under a session that names nobody yet just sits in
+// r.subs; it cannot be told apart from a legitimate one once the real
+// member joins under that same session and hasLiveSubscription starts
+// matching it, permanently defeating that member's staleness check
+// regardless of its own LastSeen. This is the ordering that actually shows
+// the difference — claiming a session that already belongs to a room member
+// is unaffected by this fix (SessionIsMember honors it, same as before);
+// claiming one before the room has ever heard of it is exactly what gets
+// downgraded to anonymous.
+func TestServe_Recv_UnownedSessionClaim_DoesNotFakeFutureMemberLiveness(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	clock := newTestClock(time.Now())
+	hub.SetClock(clock.Now)
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	// A subscription claims "sess-victim" before anyone by that session has
+	// joined "potato" at all — an unowned claim, whether malicious or a
+	// stray script bug. The connection is left open for the rest of the
+	// test, never unsubscribed.
+	subConn, _ := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato", Session: "sess-victim"})
+	defer subConn.Close()
+
+	// "victim" now joins for real, legitimately claiming the same session
+	// string the stray subscription above already claimed.
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "victim", Kind: "agent", Session: "sess-victim"}); !resp.OK {
+		t.Fatalf("join: %s", resp.Error)
+	}
+
+	clock.Advance(staleThreshold + time.Second)
+
+	pruneResp := dialAndDo(t, addr, Request{Op: OpPrune, Room: "potato"})
+	if !pruneResp.OK {
+		t.Fatalf("prune failed: %s", pruneResp.Error)
+	}
+	var payload struct {
+		Removed []string `json:"removed"`
+	}
+	if err := json.Unmarshal(pruneResp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal prune payload: %v", err)
+	}
+	if len(payload.Removed) != 1 || payload.Removed[0] != "victim" {
+		t.Fatalf("removed = %v, want [victim] — the unowned-session subscription must not have kept it artificially live", payload.Removed)
+	}
+}
+
+// TestServe_Prune_RemovesStaleMember_ReportsRemovedInPayload is the
+// wire-dispatch counterpart to room_test.go's Hub.Prune proof: OpPrune must
+// decode, dispatch, and encode correctly, not merely exist as a Hub method.
+func TestServe_Prune_RemovesStaleMember_ReportsRemovedInPayload(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	clock := newTestClock(time.Now())
+	hub.SetClock(clock.Now)
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "ghost", Kind: "agent", Session: "sess-ghost"}); !resp.OK {
+		t.Fatalf("join ghost: %s", resp.Error)
+	}
+	clock.Advance(staleThreshold + time.Second)
+
+	pruneResp := dialAndDo(t, addr, Request{Op: OpPrune, Room: "potato"})
+	if !pruneResp.OK {
+		t.Fatalf("prune failed: %s", pruneResp.Error)
+	}
+	var payload struct {
+		Removed []string `json:"removed"`
+	}
+	if err := json.Unmarshal(pruneResp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal prune payload: %v", err)
+	}
+	if len(payload.Removed) != 1 || payload.Removed[0] != "ghost" {
+		t.Fatalf("removed = %v, want [ghost]", payload.Removed)
+	}
+
+	whoResp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
+	var whoPayload struct {
+		Members []Member `json:"members"`
+	}
+	if err := json.Unmarshal(whoResp.Payload, &whoPayload); err != nil {
+		t.Fatalf("unmarshal who: %v", err)
+	}
+	if len(whoPayload.Members) != 0 {
+		t.Fatalf("members after prune = %+v, want none", whoPayload.Members)
+	}
+}
+
+// TestServe_Resume_EmptyText_PublishesDefaultBody_OverTheWire is the
+// wire-level regression test for finding 4: resumeAction never sent a Text
+// field at all, so req.Text was always "" on the daemon side.
+func TestServe_Resume_EmptyText_PublishesDefaultBody_OverTheWire(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: "agent", Session: "sess-1"}); !resp.OK {
+		t.Fatalf("join: %s", resp.Error)
+	}
+	subConn, r := dialSubscribe(t, addr, Request{Op: OpTail, Rooms: []string{"potato"}})
+	defer subConn.Close()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpHalt, Room: "potato"}); !resp.OK {
+		t.Fatalf("halt: %s", resp.Error)
+	}
+	readEnvelopeBounded(t, r) // the halt control envelope
+
+	if resp := dialAndDo(t, addr, Request{Op: OpResume, Room: "potato"}); !resp.OK {
+		t.Fatalf("resume: %s", resp.Error)
+	}
+	env, ok := readEnvelopeBounded(t, r)
+	if !ok {
+		t.Fatal("timed out waiting for the resume control envelope")
+	}
+	if env.Text == "" {
+		t.Fatal("resume published an empty-body envelope over the wire")
+	}
+}
+
 // --- halt / resume over the wire ---
 
 func TestServe_Halt_BlocksAgentSend_HumanSendStillSucceeds_ResumeRestores(t *testing.T) {

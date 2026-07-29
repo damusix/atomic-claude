@@ -27,7 +27,7 @@ import (
 // --root-style flag), so it is unused.
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|chat> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|chat> [flags]")
 		return int(ExitUsage)
 	}
 
@@ -63,6 +63,8 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 		return haltAction(rest, home, out)
 	case "resume":
 		return resumeAction(rest, home, out)
+	case "prune":
+		return pruneAction(rest, home, out)
 	case "chat":
 		return chatAction(rest, home, out)
 	default:
@@ -246,17 +248,24 @@ func doWithRecovery(home string, req Request) (Response, error) {
 }
 
 // joinAction implements `atomic bus join <room> --as <name> [--mode
-// participate|observe] [--session <id>]`. The numeric-suffix retry on a name
-// collision is Hub.Join's job (room.go) — this only reports the assigned
-// name, which may differ from the one requested.
+// participate|observe] [--kind agent|human] [--session <id>]`. The
+// numeric-suffix retry on a name collision is Hub.Join's job (room.go) —
+// this only reports the assigned name, which may differ from the one
+// requested. --kind defaults to agent; a person joining from a terminal
+// passes --kind human so from_kind-keyed reaction-policy rules fire for
+// them (docs/spec/atomic-bus.md: "join --kind agent|human ... lets a person
+// joining from a terminal be recorded as human"). chat still hardcodes
+// KindHuman on its own OpJoin call below — it has no reason to ever join as
+// an agent.
 func joinAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus join <room> --as <name> [--mode participate|observe] [--session <id>]\n"
+	const usage = "Usage: atomic bus join <room> --as <name> [--mode participate|observe] [--kind agent|human] [--session <id>]\n"
 
 	fs := flag.NewFlagSet("bus-join", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	var as, mode, session string
+	var as, mode, kind, session string
 	fs.StringVar(&as, "as", "", "member name to claim in the room (required)")
 	fs.StringVar(&mode, "mode", "participate", "participate or observe")
+	fs.StringVar(&kind, "kind", KindAgent, "agent or human")
 	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
@@ -270,6 +279,10 @@ func joinAction(args []string, home string, out io.Writer) int {
 
 	if mode != "participate" && mode != "observe" {
 		fmt.Fprintf(os.Stderr, "atomic bus join: --mode must be participate or observe, got %q\n", mode)
+		return int(ExitUsage)
+	}
+	if !validKind(kind) {
+		fmt.Fprintf(os.Stderr, "atomic bus join: --kind must be %q or %q, got %q\n", KindAgent, KindHuman, kind)
 		return int(ExitUsage)
 	}
 
@@ -290,7 +303,7 @@ func joinAction(args []string, home string, out io.Writer) int {
 	}
 	defer client.Close()
 
-	resp, err := client.Do(Request{Op: OpJoin, Room: room, Name: as, Mode: mode, Kind: KindAgent, Session: sessionID})
+	resp, err := client.Do(Request{Op: OpJoin, Room: room, Name: as, Mode: mode, Kind: kind, Session: sessionID})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return exitFromErr(err)
@@ -309,7 +322,7 @@ func joinAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return int(ExitHard)
 	}
-	st.Join(sessionID, room, payload.Name, mode, KindAgent)
+	st.Join(sessionID, room, payload.Name, mode, kind)
 	if err := st.Save(home); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus join: %v\n", err)
 		return int(ExitHard)
@@ -323,18 +336,21 @@ func joinAction(args []string, home string, out io.Writer) int {
 	return int(ExitOK)
 }
 
-// leaveAction implements `atomic bus leave [<room>]`. A missing room
-// defaults to the session's last-joined room via State.ResolveRoom;
-// leaving clears local state for that room only, per the brief.
+// leaveAction implements `atomic bus leave [<room>] [--session <id>]`. A
+// missing room defaults to the session's last-joined room via
+// State.ResolveRoom; leaving clears local state for that room only, per the
+// brief.
 func leaveAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus leave [<room>]\n"
+	const usage = "Usage: atomic bus leave [<room>] [--session <id>]\n"
 
 	fs := flag.NewFlagSet("bus-leave", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	if err := fs.Parse(args); err != nil {
+	var session string
+	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
 		return int(ExitUsage)
 	}
-	positional := fs.Args()
 	if len(positional) > 1 {
 		fmt.Fprint(os.Stderr, usage)
 		return int(ExitUsage)
@@ -344,7 +360,7 @@ func leaveAction(args []string, home string, out io.Writer) int {
 		explicit = positional[0]
 	}
 
-	sessionID, err := SessionID("")
+	sessionID, err := SessionID(session)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus leave: %v\n", err)
 		return exitFromErr(err)
@@ -378,16 +394,17 @@ func leaveAction(args []string, home string, out io.Writer) int {
 }
 
 // sendAction implements `atomic bus send <room> <text> [--to
-// <name>,...] [--reply-to <msg-id>]`.
+// <name>,...] [--reply-to <msg-id>] [--session <id>]`.
 func sendAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus send <room> <text> [--to <name>,...] [--reply-to <msg-id>] [--json]\n"
+	const usage = "Usage: atomic bus send <room> <text> [--to <name>,...] [--reply-to <msg-id>] [--session <id>] [--json]\n"
 
 	fs := flag.NewFlagSet("bus-send", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	var to, replyTo string
+	var to, replyTo, session string
 	var jsonOut bool
 	fs.StringVar(&to, "to", "", "comma-separated addressee names (omitted means FYI to the whole room)")
 	fs.StringVar(&replyTo, "reply-to", "", "id of the message being replied to")
+	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
 	fs.BoolVar(&jsonOut, "json", false, "emit the full envelope as JSON (captures the id for --reply-to)")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
@@ -405,7 +422,7 @@ func sendAction(args []string, home string, out io.Writer) int {
 		return int(ExitHard)
 	}
 
-	sessionID, err := SessionID("")
+	sessionID, err := SessionID(session)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus send: %v\n", err)
 		return exitFromErr(err)
@@ -479,20 +496,33 @@ func parseTo(to string) []string {
 	return out
 }
 
-// recvAction implements `atomic bus recv <room> [--json]`. recv always
-// streams: one JSON envelope per line, flushed per line, exiting 0 on
-// SIGTERM — there is no one-shot mode and no --follow flag to forget (a
-// `recv` that returned and exited would leave a Monitor silently hearing
-// nothing; see docs/spec/atomic-bus.md's "replay removed entirely" change-
-// log entry). --json is accepted for consistency with every other read verb
-// but is a no-op: the stream is already one JSON envelope per line.
+// recvAction implements `atomic bus recv <room> [--session <id>] [--json]`.
+// recv always streams: one JSON envelope per line, flushed per line,
+// exiting 0 on SIGTERM — there is no one-shot mode and no --follow flag to
+// forget (a `recv` that returned and exited would leave a Monitor silently
+// hearing nothing; see docs/spec/atomic-bus.md's "replay removed entirely"
+// change-log entry). --json is accepted for consistency with every other
+// read verb but is a no-op: the stream is already one JSON envelope per
+// line.
+//
+// recv now resolves its own session identity (previously it needed none) so
+// the daemon can suppress this subscriber's own publishes (SkipSelf on the
+// subscribe request) — self-echo would otherwise cost this agent one wasted
+// prompt per message it sends (docs/spec/atomic-bus.md: "a subscriber does
+// not receive its own published messages"). A recv with no resolvable
+// session (no CLAUDE_CODE_SESSION_ID, no --session) fails exactly like
+// send/leave/join do, rather than silently degrading self-echo suppression
+// — every real recv already runs inside a live Claude Code session, so this
+// is not a new practical restriction.
 func recvAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus recv <room> [--json]\n"
+	const usage = "Usage: atomic bus recv <room> [--session <id>] [--json]\n"
 
 	fs := flag.NewFlagSet("bus-recv", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var jsonOut bool
+	var session string
 	fs.BoolVar(&jsonOut, "json", false, "no-op: recv always streams one JSON envelope per line")
+	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
 	positional, err := parseFlags(fs, args)
 	if err != nil {
 		return int(ExitUsage)
@@ -503,12 +533,18 @@ func recvAction(args []string, home string, out io.Writer) int {
 	}
 	room := positional[0]
 
+	sessionID, err := SessionID(session)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
+		return exitFromErr(err)
+	}
+
 	client, err := dialDaemonRecovered(home)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
 		return exitFromErr(err)
 	}
-	return recvStream(client, room, out)
+	return recvStream(client, room, sessionID, out)
 }
 
 // recvStream is the Monitor path: one JSON envelope per line, flushed per
@@ -521,12 +557,14 @@ func recvAction(args []string, home string, out io.Writer) int {
 // whether to exit. A buffered or dropped line here is the entire recv
 // feature failing silently (docs/spec/atomic-bus.md). No backlog is
 // replayed: this subscribes and delivers only what is published after —
-// see daemon.go's subscribe doc.
-func recvStream(client *Client, room string, out io.Writer) int {
+// see daemon.go's subscribe doc. SkipSelf is always set: this session's own
+// sends are exactly what a recv subscriber should never see back
+// (self-echo — docs/spec/atomic-bus.md).
+func recvStream(client *Client, room, sessionID string, out io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	ch, err := client.Subscribe(Request{Op: OpRecv, Room: room})
+	ch, err := client.Subscribe(Request{Op: OpRecv, Room: room, Session: sessionID, SkipSelf: true})
 	if err != nil {
 		client.Close()
 		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
@@ -605,9 +643,19 @@ func whoAction(args []string, home string, out io.Writer) int {
 		return emitJSON(out, payload.Members)
 	}
 	for _, m := range payload.Members {
-		fmt.Fprintf(out, "%s\t%s\t%s\n", m.Name, m.Kind, m.Mode)
+		fmt.Fprintf(out, "%s\t%s\t%s\t%s\n", m.Name, m.Kind, m.Mode, livenessLabel(m.Stale))
 	}
 	return int(ExitOK)
+}
+
+// livenessLabel renders Member.Stale for plain-text output — shared by
+// whoAction and render.go's MemberTable so `who` and chat's `/who` agree on
+// the same two words.
+func livenessLabel(stale bool) string {
+	if stale {
+		return "stale"
+	}
+	return "live"
 }
 
 // resolveOptionalRoom returns explicit verbatim, or — only when explicit is
@@ -693,17 +741,20 @@ type joinedRoomStatus struct {
 	Name string `json:"name"`
 }
 
-// statusAction implements `atomic bus status [--json]`: this session's
-// joined rooms (from local state) plus the daemon's own reachability and
-// identity. Unlike join, status never spawns a daemon — an unreachable
-// daemon is exactly what status is for reporting, not a condition to fix.
+// statusAction implements `atomic bus status [--session <id>] [--json]`:
+// this session's joined rooms (from local state) plus the daemon's own
+// reachability and identity. Unlike join, status never spawns a daemon —
+// an unreachable daemon is exactly what status is for reporting, not a
+// condition to fix.
 func statusAction(args []string, home string, out io.Writer) int {
-	const usage = "Usage: atomic bus status [--json]\n"
+	const usage = "Usage: atomic bus status [--session <id>] [--json]\n"
 
 	fs := flag.NewFlagSet("bus-status", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	var jsonOut bool
+	var session string
 	fs.BoolVar(&jsonOut, "json", false, "emit JSON")
+	fs.StringVar(&session, "session", "", "override CLAUDE_CODE_SESSION_ID (scripted use, tests)")
 	if err := fs.Parse(args); err != nil {
 		return int(ExitUsage)
 	}
@@ -712,7 +763,7 @@ func statusAction(args []string, home string, out io.Writer) int {
 		return int(ExitUsage)
 	}
 
-	sessionID, err := SessionID("")
+	sessionID, err := SessionID(session)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus status: %v\n", err)
 		return exitFromErr(err)
@@ -1055,6 +1106,73 @@ func resumeAction(args []string, home string, out io.Writer) int {
 	return int(ExitOK)
 }
 
+// --- prune ---
+
+// pruneAction implements `atomic bus prune [<room>] [--json]`. Removes only
+// members Hub.Prune finds currently stale — never a live one, and never on
+// its own: this is the one explicit reap the package performs, run only
+// when an operator asks for it (docs/spec/atomic-bus.md: "nothing reaps a
+// member silently ... a quiet session is not a dead one, and evicting a
+// live member would break addressing with no diagnostic"). A missing room
+// defaults to the session's last-joined room via State.ResolveRoom, same as
+// who.
+func pruneAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus prune [<room>] [--json]\n"
+
+	fs := flag.NewFlagSet("bus-prune", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var jsonOut bool
+	fs.BoolVar(&jsonOut, "json", false, "emit JSON")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
+		return int(ExitUsage)
+	}
+	if len(positional) > 1 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+	var explicit string
+	if len(positional) == 1 {
+		explicit = positional[0]
+	}
+
+	room, err := resolveOptionalRoom(home, explicit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus prune: %v\n", err)
+		return exitFromErr(err)
+	}
+
+	client, err := dialDaemonRecovered(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus prune: %v\n", err)
+		return exitFromErr(err)
+	}
+	defer client.Close()
+
+	resp, err := client.Do(Request{Op: OpPrune, Room: room})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus prune: %v\n", err)
+		return exitFromErr(err)
+	}
+	var payload struct {
+		Removed []string `json:"removed"`
+	}
+	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus prune: parse response: %v\n", err)
+		return int(ExitHard)
+	}
+
+	if jsonOut {
+		return emitJSON(out, payload)
+	}
+	if len(payload.Removed) == 0 {
+		fmt.Fprintf(out, "nothing to prune in %s\n", room)
+	} else {
+		fmt.Fprintf(out, "pruned %s from %s\n", strings.Join(payload.Removed, ", "), room)
+	}
+	return int(ExitOK)
+}
+
 // --- say ---
 
 // sayAction implements `atomic bus say <room> <text> [--to <name>,...]`.
@@ -1377,7 +1495,15 @@ func chatAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)
 		return exitFromErr(err)
 	}
-	envelopes, err := subClient.Subscribe(Request{Op: OpRecv, Room: room})
+	// Session is set but SkipSelf is not: chat must keep seeing its own
+	// lines — chat renders the operator's own line from this same
+	// subscription's echo, so a self-skip would make chat go silent on the
+	// operator's own input (docs/spec/atomic-bus.md: "tail and chat still
+	// see the complete transcript including their own lines"). Setting
+	// Session anyway is what lets Hub.Who attribute this subscription to
+	// name's own liveness (hasLiveSubscription) — the same session
+	// association item 2's self-echo fix introduced.
+	envelopes, err := subClient.Subscribe(Request{Op: OpRecv, Room: room, Session: sessionID})
 	if err != nil {
 		subClient.Close()
 		fmt.Fprintf(os.Stderr, "atomic bus chat: %v\n", err)

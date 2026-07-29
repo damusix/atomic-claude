@@ -758,7 +758,7 @@ func TestHub_Publish_SlowSubscriberDoesNotBlockPublisher(t *testing.T) {
 	// A subscriber channel nobody ever reads from.
 	deadCh := make(chan Envelope) // unbuffered on purpose: any blocking
 	// send here would hang forever without the non-blocking fanOut.
-	unsub := h.Subscribe("potato", deadCh)
+	unsub := h.Subscribe("potato", deadCh, "", false)
 	defer unsub()
 
 	done := make(chan struct{})
@@ -863,7 +863,7 @@ func TestHub_Subscribe_ReceivesEnvelopePublishedAfterSubscribing(t *testing.T) {
 	}
 
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch)
+	unsub := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if _, err := h.Publish("potato", "sess-1", []string{"backend"}, "", "hello"); err != nil {
@@ -896,7 +896,7 @@ func TestHub_Subscribe_PriorTrafficNotDelivered_OnlyFuturePublishesArrive(t *tes
 	}
 
 	ch := make(chan Envelope, 4)
-	unsub := h.Subscribe("potato", ch)
+	unsub := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	select {
@@ -923,7 +923,7 @@ func TestHub_Subscribe_TailNeverJoinsRoster(t *testing.T) {
 	h := NewHub(t.TempDir())
 
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch)
+	unsub := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	members, err := h.Who("potato")
@@ -942,7 +942,7 @@ func TestHub_Subscribe_UnsubscribeStopsDelivery(t *testing.T) {
 	}
 
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch)
+	unsub := h.Subscribe("potato", ch, "", false)
 	unsub()
 
 	if _, err := h.Publish("potato", "sess-1", nil, "", "after unsubscribe"); err != nil {
@@ -971,7 +971,7 @@ func TestHub_FanOut_DropMarkerPrecedesNextDeliveryAfterOverflow(t *testing.T) {
 
 	// A tiny buffer makes the overflow arithmetic exact and the test fast.
 	ch := make(chan Envelope, 2)
-	unsub := h.Subscribe("potato", ch)
+	unsub := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if _, err := h.Publish("potato", "sess-1", nil, "", "one"); err != nil {
@@ -1133,7 +1133,7 @@ func TestHub_Halt_PublishesControlEnvelopeVisibleToSubscribers(t *testing.T) {
 		t.Fatalf("Join: %v", err)
 	}
 	ch := make(chan Envelope, 1)
-	unsub := h.Subscribe("potato", ch)
+	unsub := h.Subscribe("potato", ch, "", false)
 	defer unsub()
 
 	if err := h.Halt("potato", "stop, wrong approach"); err != nil {
@@ -1450,4 +1450,382 @@ func TestHub_Join_ReservedOperatorNameRejected(t *testing.T) {
 	h := NewHub(t.TempDir())
 	_, err := h.Join("potato", operatorName, "normal", "agent", "sess-agent")
 	mustError(t, err, ExitUsage)
+}
+
+// --- self-echo: fanOut skips a subscription's own session (finding 2 of
+// docs/spec/atomic-bus.md's 2026-07-29 change-log entry) ---
+
+// TestHub_Subscribe_SkipSelf_DoesNotReceiveOwnPublish is the regression test
+// for the self-echo finding: before this fix, Hub.Subscribe carried no
+// identity at all, so fanOut delivered every publish to every subscriber
+// including its own sends.
+func TestHub_Subscribe_SkipSelf_DoesNotReceiveOwnPublish(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-2"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	ch := make(chan Envelope, 4)
+	unsub := h.Subscribe("potato", ch, "sess-1", true)
+	defer unsub()
+
+	if _, err := h.Publish("potato", "sess-1", nil, "", "my own message"); err != nil {
+		t.Fatalf("Publish (self): %v", err)
+	}
+	if _, err := h.Publish("potato", "sess-2", nil, "", "someone else's message"); err != nil {
+		t.Fatalf("Publish (other): %v", err)
+	}
+
+	// The self-published message must never surface — the first (and only)
+	// envelope this subscription sees is the other session's.
+	env := recvEnvelope(t, ch)
+	if env.Text != "someone else's message" {
+		t.Fatalf("delivered = %q, want %q — the self-published message should have been skipped entirely, not merely reordered", env.Text, "someone else's message")
+	}
+}
+
+// TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish is tail/chat's
+// contract: a subscription that does not opt out must keep seeing its own
+// session's publishes (docs/spec/atomic-bus.md: "tail and chat still see
+// the complete transcript including their own lines").
+func TestHub_Subscribe_SkipSelfFalse_StillReceivesOwnPublish(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	ch := make(chan Envelope, 1)
+	unsub := h.Subscribe("potato", ch, "sess-1", false)
+	defer unsub()
+
+	if _, err := h.Publish("potato", "sess-1", nil, "", "my own message"); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	env := recvEnvelope(t, ch)
+	if env.Text != "my own message" {
+		t.Fatalf("Text = %q, want the subscriber's own message delivered back to it", env.Text)
+	}
+}
+
+// TestHub_Subscribe_SkipSelf_OperatorPublishAlwaysDelivered proves an empty
+// publisherSession (PublishAsOperator's say/halt/resume path) can never
+// match — and therefore never wrongly suppress — a skipSelf subscription,
+// since a real session id assigned by Join is never empty.
+func TestHub_Subscribe_SkipSelf_OperatorPublishAlwaysDelivered(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	ch := make(chan Envelope, 1)
+	unsub := h.Subscribe("potato", ch, "sess-1", true)
+	defer unsub()
+
+	if _, err := h.PublishAsOperator("potato", nil, "", "operator speaking"); err != nil {
+		t.Fatalf("PublishAsOperator: %v", err)
+	}
+
+	env := recvEnvelope(t, ch)
+	if env.From != operatorName {
+		t.Fatalf("From = %q, want %q — an operator publish must reach every subscriber regardless of skipSelf", env.From, operatorName)
+	}
+}
+
+// --- resume: envelope body (finding 4) ---
+
+// TestHub_Resume_EmptyText_PublishesDefaultBody is the regression test for
+// the resume finding: resumeAction never had a --text flag, so every resume
+// published Text == "" — a notification carrying nothing to act on.
+func TestHub_Resume_EmptyText_PublishesDefaultBody(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	ch := make(chan Envelope, 2)
+	unsub := h.Subscribe("potato", ch, "", false)
+	defer unsub()
+
+	if err := h.Halt("potato", "stop"); err != nil {
+		t.Fatalf("Halt: %v", err)
+	}
+	recvEnvelope(t, ch) // the halt control envelope
+
+	if err := h.Resume("potato", ""); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	env := recvEnvelope(t, ch)
+	if env.Text == "" {
+		t.Fatal("resume published an empty-body envelope")
+	}
+}
+
+// TestHub_Resume_ExplicitText_Preserved proves a caller that does supply
+// text is not overridden by the default.
+func TestHub_Resume_ExplicitText_Preserved(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	ch := make(chan Envelope, 2)
+	unsub := h.Subscribe("potato", ch, "", false)
+	defer unsub()
+
+	if err := h.Halt("potato", "stop"); err != nil {
+		t.Fatalf("Halt: %v", err)
+	}
+	recvEnvelope(t, ch)
+
+	if err := h.Resume("potato", "all clear, resuming"); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	env := recvEnvelope(t, ch)
+	if env.Text != "all clear, resuming" {
+		t.Fatalf("Text = %q, want the explicit text preserved verbatim", env.Text)
+	}
+}
+
+// TestHub_Halt_EmptyText_StaysEmpty pins the "do not change halt" half of
+// the brief: an operator's empty --text on halt must not gain a synthetic
+// default the way resume's did.
+func TestHub_Halt_EmptyText_StaysEmpty(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-agent"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	ch := make(chan Envelope, 1)
+	unsub := h.Subscribe("potato", ch, "", false)
+	defer unsub()
+
+	if err := h.Halt("potato", ""); err != nil {
+		t.Fatalf("Halt: %v", err)
+	}
+	env := recvEnvelope(t, ch)
+	if env.Text != "" {
+		t.Fatalf("Text = %q, want empty — halt's empty --text must be left as-is, unlike resume's", env.Text)
+	}
+}
+
+// --- last_seen, staleness, prune (finding 3) ---
+
+// testClock is a controllable time source for staleness tests, injected via
+// Hub.SetClock — advances deterministically, without a real sleep.
+type testClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func newTestClock(start time.Time) *testClock {
+	return &testClock{now: start}
+}
+
+func (c *testClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *testClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+func TestHub_Who_FreshMember_NotStale(t *testing.T) {
+	h := NewHub(t.TempDir())
+	clock := newTestClock(time.Now())
+	h.SetClock(clock.Now)
+
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if members[0].Stale {
+		t.Fatal("a freshly joined member must not be reported stale")
+	}
+}
+
+// TestHub_Who_MemberStale_AfterThresholdWithNoActivityAndNoSubscription is
+// the regression test for the "dead members were immortal" finding: nothing
+// distinguished a session that exited from one still around, so `who` had
+// no way to tell them apart — a roster from live testing showed five dead
+// sessions, still listed, indistinguishable from live ones.
+func TestHub_Who_MemberStale_AfterThresholdWithNoActivityAndNoSubscription(t *testing.T) {
+	h := NewHub(t.TempDir())
+	clock := newTestClock(time.Now())
+	h.SetClock(clock.Now)
+
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	clock.Advance(staleThreshold + time.Second)
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if !members[0].Stale {
+		t.Fatal("expected the member to be reported stale after staleThreshold with no activity and no subscription")
+	}
+}
+
+// TestHub_Who_LiveSubscription_NeverStale_RegardlessOfThreshold proves the
+// override: a member holding an open recv/chat subscription is not stale no
+// matter how long it has been since its last send — the subscription
+// itself is ongoing proof of life (docs/spec/atomic-bus.md: "refreshed ...
+// on an open subscription").
+func TestHub_Who_LiveSubscription_NeverStale_RegardlessOfThreshold(t *testing.T) {
+	h := NewHub(t.TempDir())
+	clock := newTestClock(time.Now())
+	h.SetClock(clock.Now)
+
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	ch := make(chan Envelope, 1)
+	unsub := h.Subscribe("potato", ch, "sess-1", true)
+	defer unsub()
+
+	clock.Advance(staleThreshold * 10)
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if members[0].Stale {
+		t.Fatal("a member with a live subscription must never be reported stale")
+	}
+}
+
+// TestHub_Who_Publish_RefreshesLastSeen proves the other half of "refreshed
+// on any operation from that session": a send resets the staleness clock.
+func TestHub_Who_Publish_RefreshesLastSeen(t *testing.T) {
+	h := NewHub(t.TempDir())
+	clock := newTestClock(time.Now())
+	h.SetClock(clock.Now)
+
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	clock.Advance(staleThreshold - time.Minute)
+	if _, err := h.Publish("potato", "sess-1", nil, "", "still here"); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	clock.Advance(staleThreshold - time.Minute)
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if members[0].Stale {
+		t.Fatal("a send should have refreshed LastSeen, keeping the member fresh past the original threshold")
+	}
+}
+
+// TestHub_Rehydrate_MemberNotImmediatelyStale proves a restarted daemon
+// does not report every idle-but-legitimate member as stale the instant it
+// comes back up — Rehydrate stamps LastSeen at rehydrate time, not the zero
+// value (docs/spec/atomic-bus.md: "a member who has been idle across the
+// restart is still ... addressable").
+func TestHub_Rehydrate_MemberNotImmediatelyStale(t *testing.T) {
+	home := t.TempDir()
+	h1 := NewHub(home)
+	if _, err := h1.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	st, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	st.Join("sess-1", "potato", "backend", "normal", "agent")
+	if err := st.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	stReloaded, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	h2 := NewHub(home)
+	h2.Rehydrate(stReloaded)
+
+	members, err := h2.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 || members[0].Stale {
+		t.Fatalf("members = %+v, want one fresh (non-stale) rehydrated member", members)
+	}
+}
+
+// TestHub_Prune_RemovesOnlyStaleMembers is the regression test for the
+// missing prune verb: a stale member must be removed, a fresh one left
+// alone, in the same room.
+func TestHub_Prune_RemovesOnlyStaleMembers(t *testing.T) {
+	h := NewHub(t.TempDir())
+	clock := newTestClock(time.Now())
+	h.SetClock(clock.Now)
+
+	if _, err := h.Join("potato", "ghost", "normal", "agent", "sess-ghost"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	clock.Advance(staleThreshold + time.Second)
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-fresh"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	removed, err := h.Prune("potato")
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != "ghost" {
+		t.Fatalf("removed = %v, want [ghost]", removed)
+	}
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 || members[0].Name != "backend" {
+		t.Fatalf("members after prune = %+v, want only backend to remain", members)
+	}
+}
+
+// TestHub_Prune_NoStaleMembers_RemovesNothing proves prune never touches a
+// live roster — nothing here is auto-reaped, only what isStale already
+// flags (docs/spec/atomic-bus.md: "nothing reaps a member silently").
+func TestHub_Prune_NoStaleMembers_RemovesNothing(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1"); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	removed, err := h.Prune("potato")
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if len(removed) != 0 {
+		t.Fatalf("removed = %v, want none", removed)
+	}
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 {
+		t.Fatalf("members = %+v, want the one still-live member untouched", members)
+	}
+}
+
+func TestHub_Prune_UnknownRoomReturnsExitNoRoom(t *testing.T) {
+	h := NewHub(t.TempDir())
+	_, err := h.Prune("nonexistent")
+	mustError(t, err, ExitNoRoom)
 }

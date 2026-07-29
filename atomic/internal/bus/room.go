@@ -31,15 +31,25 @@ const subscriberBuffer = 32
 // worth knowing before assuming Publish is cheap.
 type Hub struct {
 	home string
+	now  func() time.Time
 
 	mu    sync.Mutex
 	rooms map[string]*Room
 }
 
 // NewHub creates a Hub whose room logs are written under home (see
-// RoomLogPath in paths.go).
+// RoomLogPath in paths.go). Its clock defaults to time.Now; see SetClock.
 func NewHub(home string) *Hub {
-	return &Hub{home: home, rooms: map[string]*Room{}}
+	return &Hub{home: home, now: time.Now, rooms: map[string]*Room{}}
+}
+
+// SetClock overrides Hub's time source — the seam staleness tests use to
+// advance "now" without a real sleep. Production code (serveAction) never
+// calls this; NewHub's time.Now default is what every real daemon runs on.
+// Not safe to call once the Hub is serving concurrent requests — set it
+// once, immediately after NewHub, before any goroutine can observe h.mu.
+func (h *Hub) SetClock(now func() time.Time) {
+	h.now = now
 }
 
 // Room is one named room's authoritative state: who's in it, whether it's
@@ -68,11 +78,22 @@ type Room struct {
 }
 
 // subscriber pairs a live subscriber's delivery channel with its own drop
-// count. dropped is only ever touched from fanOut, which always runs under
-// the owning Hub's mutex (see Room's doc comment) — no separate lock needed.
+// count, the session it was opened for, and whether it opts out of
+// receiving that session's own publishes. dropped is only ever touched from
+// fanOut, which always runs under the owning Hub's mutex (see Room's doc
+// comment) — no separate lock needed.
+//
+// session and skipSelf are also Room.hasLiveSubscription's and fanOut's
+// only source of "is this session currently watching" — the plumbing item 2
+// (self-echo) and item 3 (liveness) share, per docs/spec/atomic-bus.md's
+// 2026-07-29 change-log entry: "Hub.Subscribe(room, ch) carries no
+// identity, and fanOut iterates every subscriber, so the daemon cannot
+// currently tell who published."
 type subscriber struct {
-	ch      chan<- Envelope
-	dropped int
+	ch       chan<- Envelope
+	dropped  int
+	session  string
+	skipSelf bool
 }
 
 // getOrCreateRoom returns the named room, creating it if this is the first
@@ -215,7 +236,8 @@ func (h *Hub) Join(room, name, mode, kind, session string) (string, error) {
 		delete(r.members, prior)
 	}
 
-	r.members[assigned] = Member{Name: assigned, Kind: kind, Mode: mode, Session: session, Joined: time.Now()}
+	now := h.now()
+	r.members[assigned] = Member{Name: assigned, Kind: kind, Mode: mode, Session: session, Joined: now, LastSeen: now}
 	r.bySession[session] = assigned
 	return assigned, nil
 }
@@ -250,6 +272,13 @@ func (h *Hub) Rehydrate(st *State) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	// A rehydrated member's LastSeen is stamped "now" (rehydrate time), not
+	// left zero: it has been idle across the restart by definition, and
+	// zero would make it read as staler than any member could actually be —
+	// immediately prunable the instant the daemon comes back up, which
+	// contradicts this method's whole point (docs/spec/atomic-bus.md: "a
+	// member who has been idle across the restart is still ... addressable").
+	now := h.now()
 	for session, ss := range st.Sessions {
 		for room, m := range ss.Rooms {
 			kind := m.Kind
@@ -261,7 +290,7 @@ func (h *Hub) Rehydrate(st *State) {
 				mode = "participate"
 			}
 			r := h.getOrCreateRoom(room)
-			r.members[m.Name] = Member{Name: m.Name, Kind: kind, Mode: mode, Session: session, Joined: m.Joined}
+			r.members[m.Name] = Member{Name: m.Name, Kind: kind, Mode: mode, Session: session, Joined: m.Joined, LastSeen: now}
 			r.bySession[session] = m.Name
 		}
 	}
@@ -309,7 +338,9 @@ func (h *Hub) Leave(room, session string) error {
 	return nil
 }
 
-// Who returns room's current roster, sorted by name for stable output.
+// Who returns room's current roster, sorted by name for stable output. Each
+// returned Member's Stale field is computed fresh against the current clock
+// (Room.isStale) — Stale is never persisted, only reported at query time.
 func (h *Hub) Who(room string) ([]Member, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -318,12 +349,97 @@ func (h *Hub) Who(room string) ([]Member, error) {
 	if !ok {
 		return nil, noRoomError(room)
 	}
+	now := h.now()
 	out := make([]Member, 0, len(r.members))
 	for _, m := range r.members {
+		m.Stale = r.isStale(m, now)
 		out = append(out, m)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+// staleThreshold is how long a member may go with neither fresh LastSeen
+// activity nor a live subscription before who/prune consider it stale.
+// Chosen to match the idle-shutdown default this package used to run on
+// before that mechanism was removed entirely (docs/spec/atomic-bus.md's
+// 2026-07-28 "idle shutdown removed" entry) — ten minutes already proved
+// itself a reasonable "this session is gone" bar for one Claude Code agent
+// turn (think, tool calls, reply) without being trigger-happy on an agent
+// mid-task. A member holding an open recv/chat subscription is never stale
+// regardless of this threshold — see isStale below — so staleThreshold only
+// bites a member that joined and then neither sent anything nor kept a
+// subscription open, e.g. a `join` with no following `Monitor(recv)`.
+//
+// Whatever value is picked here is a judgment call, not a derived
+// constant — there is no wire contract or external system dictating it,
+// only "long enough that a normal quiet spell never gets flagged, short
+// enough that `who` is still a useful signal". Named and isolated here so
+// it can be revisited without touching the staleness logic itself.
+const staleThreshold = 10 * time.Minute
+
+// isStale reports whether m should currently be treated as gone: no recent
+// activity (LastSeen within staleThreshold of now) and no live subscription
+// for its session (hasLiveSubscription). A live subscription overrides
+// LastSeen entirely — a member that's connected and just hasn't sent
+// anything is not stale no matter how long that's been, because the
+// subscription itself is ongoing proof of life (docs/spec/atomic-bus.md:
+// "refreshed on any operation from that session and on an open
+// subscription"). Caller must hold h.mu (reads r.subs via
+// hasLiveSubscription).
+func (r *Room) isStale(m Member, now time.Time) bool {
+	if now.Sub(m.LastSeen) <= staleThreshold {
+		return false
+	}
+	return !r.hasLiveSubscription(m.Session)
+}
+
+// hasLiveSubscription reports whether any currently-open subscription in
+// this room belongs to session. An empty session (operator publishes,
+// tail's subscriptions — see Subscribe's callers) never counts: it cannot
+// be any member's session, since Hub.Join always assigns one.
+func (r *Room) hasLiveSubscription(session string) bool {
+	if session == "" {
+		return false
+	}
+	for _, sub := range r.subs {
+		if sub.session == session {
+			return true
+		}
+	}
+	return false
+}
+
+// Prune removes every member of room currently marked stale (isStale) and
+// reports their names, sorted. This is the one place in the package that
+// removes a member without that session asking to leave — deliberately
+// explicit and operator-invoked, never automatic: docs/spec/atomic-bus.md
+// is direct about why — "nothing reaps a member silently ... a quiet
+// session is not a dead one, and evicting a live member would break
+// addressing with no diagnostic."
+func (h *Hub) Prune(room string) ([]string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	r, ok := h.getRoom(room)
+	if !ok {
+		return nil, noRoomError(room)
+	}
+
+	now := h.now()
+	var removed []string
+	for name, m := range r.members {
+		if r.isStale(m, now) {
+			removed = append(removed, name)
+		}
+	}
+	sort.Strings(removed)
+	for _, name := range removed {
+		m := r.members[name]
+		delete(r.members, name)
+		delete(r.bySession, m.Session)
+	}
+	return removed, nil
 }
 
 // Rooms returns a summary of every room the Hub currently knows about
@@ -381,7 +497,15 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 		}
 	}
 
-	return r.publishValidated(h.home, room, name, member.Kind, to, replyTo, text)
+	// A successful send is "an operation from that session" — refresh
+	// LastSeen before publishing (docs/spec/atomic-bus.md's last_seen
+	// criterion). member is a map value, not a pointer, so the touched copy
+	// must be written back.
+	now := h.now()
+	member.LastSeen = now
+	r.members[name] = member
+
+	return r.publishValidated(h.home, room, name, member.Kind, to, replyTo, text, session, now)
 }
 
 // PublishAs publishes on behalf of name/kind directly, without requiring
@@ -413,7 +537,11 @@ func (h *Hub) PublishAsOperator(room string, to []string, replyTo, text string) 
 	if !ok {
 		return Envelope{}, noRoomError(room)
 	}
-	return r.publishValidated(h.home, room, operatorName, KindHuman, to, replyTo, text)
+	// "" for publisherSession: an operator publish is never tied to a
+	// joined session's subscription, so it can never match (and therefore
+	// never wrongly self-skip) any subscriber's skipSelf check in fanOut —
+	// see that method's doc.
+	return r.publishValidated(h.home, room, operatorName, KindHuman, to, replyTo, text, "", h.now())
 }
 
 // publishValidated is the shared tail end of Publish and PublishAs: once
@@ -421,9 +549,13 @@ func (h *Hub) PublishAsOperator(room string, to []string, replyTo, text string) 
 // directly) and cleared any halt check, this validates the wire-size
 // limits (MaxTextBytes, MaxIdentifierBytes for replyTo, MaxAddressees/
 // MaxAddresseesBytes for to), assigns an id, appends to the durable room
-// log, and fans out to subscribers. Caller must hold h.mu (both Hub.Publish
-// and Hub.PublishAs do).
-func (r *Room) publishValidated(home, room, from, fromKind string, to []string, replyTo, text string) (Envelope, error) {
+// log, and fans out to subscribers. publisherSession is "" for
+// PublishAsOperator's operator sends (see that method's doc) and the
+// sending session id for Publish's member sends — fanOut's self-echo check
+// against it. now is the single timestamp this call stamps onto the
+// envelope and (via Publish) the sender's LastSeen, so both agree exactly.
+// Caller must hold h.mu (both Hub.Publish and Hub.PublishAsOperator do).
+func (r *Room) publishValidated(home, room, from, fromKind string, to []string, replyTo, text string, publisherSession string, now time.Time) (Envelope, error) {
 	if len(text) > MaxTextBytes {
 		return Envelope{}, &Error{
 			Code: ExitUsage,
@@ -464,7 +596,7 @@ func (r *Room) publishValidated(home, room, from, fromKind string, to []string, 
 		FromKind: fromKind,
 		To:       to,
 		ReplyTo:  replyTo,
-		Ts:       time.Now(),
+		Ts:       now,
 		Text:     text,
 	}
 
@@ -472,7 +604,7 @@ func (r *Room) publishValidated(home, room, from, fromKind string, to []string, 
 		return Envelope{}, fmt.Errorf("bus: append room log: %w", err)
 	}
 
-	r.fanOut(env, home)
+	r.fanOut(env, home, publisherSession)
 	return env, nil
 }
 
@@ -485,10 +617,21 @@ func (h *Hub) Halt(room, text string) error {
 	return h.setHalted(room, true, text)
 }
 
-// Resume clears room's halt flag and publishes the clearing envelope.
+// Resume clears room's halt flag and publishes the clearing envelope. An
+// empty text is replaced with defaultResumeText — see that constant's doc.
 func (h *Hub) Resume(room, text string) error {
 	return h.setHalted(room, false, text)
 }
+
+// defaultResumeText is the envelope body setHalted publishes when Resume is
+// called with no explicit text — a resume notification must never carry an
+// empty body (docs/spec/atomic-bus.md: "resume publishes an envelope with a
+// body, not an empty string"). Halt is unaffected: an operator's empty
+// --text on halt is left exactly as given, unchanged by this fix — an
+// agent reading a halt with no reason still learns the one fact that
+// matters (the room is halted), where an empty resume notification carries
+// nothing to act on at all.
+const defaultResumeText = "room resumed"
 
 // setHalted only flips r.halted once the control envelope announcing it is
 // durably appended — an Append failure returns an error to the operator,
@@ -509,20 +652,27 @@ func (h *Hub) setHalted(room string, halted bool, text string) error {
 	if err != nil {
 		return err
 	}
+	body := text
+	if !halted && body == "" {
+		body = defaultResumeText
+	}
 	env := Envelope{
 		ID:       id,
 		Room:     room,
 		From:     systemName,
 		FromKind: KindHuman,
-		Ts:       time.Now(),
-		Text:     text,
+		Ts:       h.now(),
+		Text:     body,
 	}
 	if err := Append(h.home, room, env); err != nil {
 		return fmt.Errorf("bus: append room log: %w", err)
 	}
 
 	r.halted = halted
-	r.fanOut(env, h.home)
+	// "" for publisherSession: a halt/resume control envelope is never a
+	// member's own send, so it can never wrongly trip a subscriber's
+	// skipSelf check — same reasoning as PublishAsOperator's own "" above.
+	r.fanOut(env, h.home, "")
 	return nil
 }
 
@@ -538,19 +688,56 @@ func (h *Hub) IsHalted(room string) (bool, error) {
 	return r.halted, nil
 }
 
+// SessionIsMember reports whether session currently holds a membership in
+// room — the check daemon.go's OpRecv dispatch uses to refuse a
+// client-claimed session it does not actually own before handing it to
+// Subscribe (see that dispatch's doc comment). There is no way to prove a
+// connection genuinely *is* the session it names — the socket has no
+// authentication beyond Unix file permissions — so this cannot close every
+// spoofing path; what it does close is a session that names nobody, or not
+// yet nobody: a subscription opened under a session before that session has
+// joined the room can no longer sit in r.subs waiting to attach itself to
+// whichever member happens to join under that name later and silently keep
+// them non-stale from that moment on. An empty session or an unknown room
+// both report false — there is nothing to validate against, and Subscribe's
+// own contract already treats "" as "no session of its own" (tail's case).
+func (h *Hub) SessionIsMember(room, session string) bool {
+	if session == "" {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	r, ok := h.getRoom(room)
+	if !ok {
+		return false
+	}
+	_, ok = r.bySession[session]
+	return ok
+}
+
 // Subscribe registers ch to receive every future Publish (including
 // Halt/Resume's control envelopes) on room, creating room if it doesn't
 // exist yet — tail may watch a room before anyone has joined it (see
 // docs/design/atomic-bus.md's decision #5: tail never joins and holds no
-// name). The returned func removes the subscription; callers must invoke
-// it exactly once, typically via defer, when the subscribing connection
-// ends.
-func (h *Hub) Subscribe(room string, ch chan<- Envelope) func() {
+// name). session identifies the subscribing session for fanOut's self-echo
+// check and hasLiveSubscription's liveness check — pass "" when the caller
+// has no session of its own (tail's subscriptions; a caller that never
+// sends and therefore has nothing to self-skip). Subscribe itself trusts
+// session verbatim — it is OpRecv's dispatch (daemon.go), via
+// SessionIsMember above, that is responsible for downgrading an unowned
+// claim to "" before it ever reaches here; OpTail always passes "" directly,
+// having no identity to skip in the first place. skipSelf, meaningful only
+// when session is non-empty, opts this subscription out of receiving
+// envelopes published by that same session (fanOut). The returned func
+// removes the subscription; callers must invoke it exactly once, typically
+// via defer, when the subscribing connection ends.
+func (h *Hub) Subscribe(room string, ch chan<- Envelope, session string, skipSelf bool) func() {
 	h.mu.Lock()
 	r := h.getOrCreateRoom(room)
 	id := r.subSeq
 	r.subSeq++
-	r.subs[id] = &subscriber{ch: ch}
+	r.subs[id] = &subscriber{ch: ch, session: session, skipSelf: skipSelf}
 	h.mu.Unlock()
 
 	return func() {
@@ -620,17 +807,30 @@ func randomIDHalf(prefix string) (string, error) {
 }
 
 // fanOut delivers env to every live subscriber without blocking the
-// publisher. Each subscriber's channel is buffered (subscriberBuffer); a
-// full channel means that subscriber is falling behind or its reader has
-// stopped, so the send is dropped rather than blocking — Publish must
-// never stall because one reader stopped reading. A drop is never silent
-// to the subscriber that missed it: each one tracks its own drop count,
-// and the next envelope that does fit in its buffer is preceded by a
-// synthetic control envelope (From systemName) naming how many were dropped
-// and the room log path where they remain durably recorded — so a
-// subscriber can always tell "nothing was sent" from "you missed N".
-func (r *Room) fanOut(env Envelope, home string) {
+// publisher, except a subscriber whose skipSelf is set and whose session
+// matches publisherSession — that subscriber is skipped entirely, silently
+// and without touching its drop count, because it was never meant to
+// receive this envelope in the first place (docs/spec/atomic-bus.md: "a
+// subscriber does not receive its own published messages"). An empty
+// publisherSession (operator publishes, halt/resume control envelopes)
+// never matches any subscriber's session, since a real session id is never
+// empty — see Subscribe's doc.
+//
+// For everyone else, each subscriber's channel is buffered
+// (subscriberBuffer); a full channel means that subscriber is falling
+// behind or its reader has stopped, so the send is dropped rather than
+// blocking — Publish must never stall because one reader stopped reading. A
+// drop is never silent to the subscriber that missed it: each one tracks
+// its own drop count, and the next envelope that does fit in its buffer is
+// preceded by a synthetic control envelope (From systemName) naming how
+// many were dropped and the room log path where they remain durably
+// recorded — so a subscriber can always tell "nothing was sent" from "you
+// missed N".
+func (r *Room) fanOut(env Envelope, home string, publisherSession string) {
 	for _, sub := range r.subs {
+		if sub.skipSelf && publisherSession != "" && sub.session == publisherSession {
+			continue
+		}
 		if sub.dropped > 0 {
 			marker := r.dropMarkerEnvelope(env.Room, home, sub.dropped)
 			if !trySend(sub.ch, marker) {
