@@ -217,6 +217,115 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
   if any bundled artifact changed.
 
 
+## Change tree
+
+
+    atomic/
+      internal/
+        config/
+          repo.go            M  RepoConfig.Scope; scope as a known top-level leaf
+          scope.go           A  ValidScope, FindScopeRoot, ScopeSource, EnsureScopeMarker
+          scope_test.go      A
+        repoinit/
+          repoinit.go        M  seventh guarantee: write scope = "repo"
+          repoinit_test.go   M
+        wiki/
+          action.go          M  wikiInitAction writes the --scope value
+          init_test.go       M
+        repoctx/
+          repoctx.go         M  ResolveFrom; Resolve delegates
+          repoctx_test.go    M
+        where/
+          where.go           M  RepoRoot axis; realm marker-first; Source fields
+          format.go          M  repo-root line, provenance tokens, JSON fields
+          where_test.go      M
+        doctor/
+          checks_repo_config.go       M  scope validation; <wikis> contradiction
+          checks_repo_config_test.go  M
+    docs/
+      reference/
+        code-intel.md        M  the scope key alongside [code] ignore
+        concepts.md          M  discovery order and precedence
+        wiki-workflow.md     M  wiki init --scope declares identity
+
+
+## Outline
+
+
+- `atomic/internal/config/scope.go`
+    - `ScopeSource` — how a root was decided
+        - `String` — lowercase output token
+    - `ScopeMarkerOutcome` — what `EnsureScopeMarker` did
+    - `ValidScope` — is a string one of the two accepted values
+    - `FindScopeRoot` — nearest marker of one kind at or above a directory
+    - `EnsureScopeMarker` — idempotent, byte-preserving marker write
+- `atomic/internal/config/repo.go`
+    - `RepoConfig` — gains `Scope`
+    - `checkUnknownRepoKeys` — top-level leaves are no longer assumed to be tables
+- `atomic/internal/repoinit/repoinit.go`
+    - `Init` — gains the seventh guarantee
+- `atomic/internal/wiki/action.go`
+    - `wikiInitAction` — writes the marker for its validated `--scope`
+- `atomic/internal/repoctx/repoctx.go`
+    - `ResolveFrom` — directory-parameterized resolution reporting provenance
+    - `Resolve` — delegates over the process cwd
+- `atomic/internal/where/where.go`
+    - `RepoRootReport` — path plus provenance
+    - `Report` — gains `RepoRoot`
+    - `RealmScopeReport` — gains `Source`
+    - `resolveRepoRoot` — marker, else `.git` stat walk, else cwd
+    - `resolveRealmScope` — marker first, `<wikis>` fallback
+- `atomic/internal/where/format.go`
+    - `FormatHuman` — repo-root line, provenance tokens, registry backfill hint
+    - `FormatJSON` — `repo_root` object, `realm_scope.source`
+- `atomic/internal/doctor/checks_repo_config.go`
+    - `RunCheckRepoConfigWith` — validates the value, reports it on PASS
+    - `checkRepoConfig` — `<wikis>` contradiction sub-check
+
+
+## Flows
+
+
+**Writing a marker (`atomic repo init`, `atomic wiki init --scope <s>`)**
+
+1. Verb resolves its root and calls `EnsureScopeMarker(root, scope)`.
+2. File absent → create it holding only the scope line. Outcome `created`.
+3. File present, key absent → find the first table header at bracket depth
+   zero; insert the line immediately above it, or at EOF when there is none.
+   Outcome `added`.
+4. File present, key equals `scope` → write nothing. Outcome `ok`.
+5. File present, key differs → write nothing. Outcome `conflict`; the caller
+   reports it and exits non-zero.
+
+**Resolving a root (`repoctx.ResolveFrom`, `where.Resolve`)**
+
+1. `repoctx` only: a non-empty `override` short-circuits everything.
+2. Walk upward from the start directory. At each level read
+   `RepoConfigPath(dir)`; a file that parses and whose `Scope` equals the kind
+   being asked for ends the walk at that directory, source `marker`.
+3. A missing file, a parse error, an invalid value, or the other kind
+   continues the walk. The walk ends at the filesystem root.
+4. No marker → the pre-existing mechanism: `git rev-parse --show-toplevel`
+   for `repoctx` (source `git`), a `.git` stat walk for `where`'s repo root
+   (source `git`), the `<wikis>` block for `where`'s realm (source `registry`).
+5. Nothing matched → cwd with source `cwd` for a repo root; `RealmNone` with
+   source `none` for a realm.
+
+**Reporting (`atomic where`)**
+
+1. Resolve all four axes: repo root, repo-scope wiki, realm scope, code index.
+2. Human output prints one line per axis, each carrying its provenance token.
+3. A realm resolved with source `registry` appends one hint line naming
+   `atomic wiki init --scope realm`. JSON carries no hint.
+
+**Checking (`atomic doctor`, category 13)**
+
+1. File absent → PASS, informational (unchanged).
+2. `Scope` invalid → WARN naming the value and the two accepted values.
+3. `Scope` valid → included in the PASS detail alongside the ignore-pattern count.
+4. `Scope` is `repo` while the root is a `<wikis>`-registered realm root → WARN.
+
+
 ## Out of scope
 
 
@@ -251,3 +360,11 @@ and a non-git tree marked as a repo, are both legitimate (design decision 2).
   **Superseded:** the prior body said to insert before "the first line whose
   trimmed form starts with `[`, or at EOF when the file has no table header" —
   no bracket-depth condition, no line-ending rule.
+
+- 2026-07-29 — add the required Change tree / Outline / Flows sections
+
+  **What changed:** the body gains `## Change tree`, `## Outline`, and
+  `## Flows`, describing the full six-checkpoint scope.
+
+  **Why:** `rules/specs/spec-currency.md` requires all three on specs drafted
+  after that rule shipped. This spec was drafted after it and omitted them.

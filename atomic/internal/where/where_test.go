@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/where"
 )
 
@@ -18,6 +19,18 @@ func mkGitMarker(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
 		t.Fatalf("mkdir .git marker: %v", err)
+	}
+}
+
+// mkGitFileMarker writes ".git" under dir as a regular file containing a
+// "gitdir: ..." pointer — the shape a git worktree uses (this very worktree
+// is one). The repo-root stat walk must treat this the same as a ".git"
+// directory.
+func mkGitFileMarker(t *testing.T, dir string) {
+	t.Helper()
+	content := "gitdir: /tmp/some-other-place/.git/worktrees/example\n"
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write .git file marker: %v", err)
 	}
 }
 
@@ -305,6 +318,425 @@ func TestFormatJSON_CarriesSameInformationAsHuman(t *testing.T) {
 	}
 	if !strings.Contains(jsonOut, `"code_index"`) {
 		t.Errorf("json output missing code_index field (must be unconditional, not flag-gated): %s", jsonOut)
+	}
+}
+
+// --- RepoRoot axis (CP4) ---
+
+// TestResolveRepoRoot_MarkerWinsOverGit: a scope="repo" marker nested inside
+// a git repository outranks the .git stat walk — the marker directory is
+// reported, not the (higher-up) git root.
+func TestResolveRepoRoot_MarkerWinsOverGit(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	gitRoot := t.TempDir()
+	mkGitMarker(t, gitRoot)
+	markerRoot := filepath.Join(gitRoot, "server")
+	if err := os.MkdirAll(markerRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.EnsureScopeMarker(markerRoot, "repo"); err != nil {
+		t.Fatalf("EnsureScopeMarker: %v", err)
+	}
+	nested := filepath.Join(markerRoot, "src")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := where.Resolve(nested, missingClaudeMD(t, gitRoot))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.RepoRoot.Path != markerRoot {
+		t.Errorf("RepoRoot.Path = %q, want marker root %q (not git root %q)", report.RepoRoot.Path, markerRoot, gitRoot)
+	}
+	if report.RepoRoot.Source != config.ScopeSourceMarker {
+		t.Errorf("RepoRoot.Source = %q, want %q", report.RepoRoot.Source, config.ScopeSourceMarker)
+	}
+}
+
+// TestResolveRepoRoot_GitFallback_NoMarker: no marker present — falls back
+// to the nearest ancestor carrying a .git entry, source git.
+func TestResolveRepoRoot_GitFallback_NoMarker(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	mkGitMarker(t, root)
+	nested := filepath.Join(root, "src")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := where.Resolve(nested, missingClaudeMD(t, root))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.RepoRoot.Path != root {
+		t.Errorf("RepoRoot.Path = %q, want git root %q", report.RepoRoot.Path, root)
+	}
+	if report.RepoRoot.Source != config.ScopeSourceGit {
+		t.Errorf("RepoRoot.Source = %q, want %q", report.RepoRoot.Source, config.ScopeSourceGit)
+	}
+}
+
+// TestResolveRepoRoot_CwdFallback_NoMarkerNoGit: neither a marker nor a .git
+// entry anywhere up to the filesystem root — falls back to cwd, source cwd.
+func TestResolveRepoRoot_CwdFallback_NoMarkerNoGit(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	dir := t.TempDir()
+
+	report, err := where.Resolve(dir, missingClaudeMD(t, dir))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.RepoRoot.Path != filepath.Clean(dir) {
+		t.Errorf("RepoRoot.Path = %q, want cwd %q", report.RepoRoot.Path, dir)
+	}
+	if report.RepoRoot.Source != config.ScopeSourceCwd {
+		t.Errorf("RepoRoot.Source = %q, want %q", report.RepoRoot.Source, config.ScopeSourceCwd)
+	}
+}
+
+// TestResolveRepoRoot_GitFileMarker_WorktreeStyle: ".git" as a file (a git
+// worktree, not a plain repo) must resolve the same as ".git" as a
+// directory — source git, path the directory holding the file.
+func TestResolveRepoRoot_GitFileMarker_WorktreeStyle(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	mkGitFileMarker(t, root)
+	nested := filepath.Join(root, "src")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := where.Resolve(nested, missingClaudeMD(t, root))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.RepoRoot.Path != root {
+		t.Errorf("RepoRoot.Path = %q, want %q (git-worktree .git file)", report.RepoRoot.Path, root)
+	}
+	if report.RepoRoot.Source != config.ScopeSourceGit {
+		t.Errorf("RepoRoot.Source = %q, want %q", report.RepoRoot.Source, config.ScopeSourceGit)
+	}
+}
+
+// --- RealmScope: marker-first (CP4) ---
+
+// TestResolveRealmScope_MarkerRoot_NoWikisEntry: a scope="realm" marker
+// resolves realm root even with no <wikis> registration at all — the core
+// claim of decision 1 in the design doc.
+func TestResolveRealmScope_MarkerRoot_NoWikisEntry(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	realmRoot := t.TempDir()
+	if _, err := config.EnsureScopeMarker(realmRoot, "realm"); err != nil {
+		t.Fatalf("EnsureScopeMarker: %v", err)
+	}
+
+	report, err := where.Resolve(realmRoot, missingClaudeMD(t, realmRoot))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.RealmScope.Position != where.RealmRoot {
+		t.Errorf("Position = %v, want RealmRoot", report.RealmScope.Position)
+	}
+	if report.RealmScope.RealmRoot != realmRoot {
+		t.Errorf("RealmRoot = %q, want %q", report.RealmScope.RealmRoot, realmRoot)
+	}
+	if report.RealmScope.Source != config.ScopeSourceMarker {
+		t.Errorf("Source = %q, want %q", report.RealmScope.Source, config.ScopeSourceMarker)
+	}
+}
+
+// TestResolveRealmScope_MarkerMember: member classification proceeds against
+// <realm>/wiki/index.md exactly as the registry path does, once the marker
+// has identified the realm root.
+func TestResolveRealmScope_MarkerMember(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	realmRoot := t.TempDir()
+	if _, err := config.EnsureScopeMarker(realmRoot, "realm"); err != nil {
+		t.Fatalf("EnsureScopeMarker: %v", err)
+	}
+	mkRealmWikiIndex(t, realmRoot, "repos/alpha")
+
+	memberDir := filepath.Join(realmRoot, "repos", "alpha")
+	if err := os.MkdirAll(memberDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := where.Resolve(memberDir, missingClaudeMD(t, realmRoot))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.RealmScope.Position != where.RealmMember {
+		t.Errorf("Position = %v, want RealmMember", report.RealmScope.Position)
+	}
+	if report.RealmScope.Source != config.ScopeSourceMarker {
+		t.Errorf("Source = %q, want %q", report.RealmScope.Source, config.ScopeSourceMarker)
+	}
+}
+
+// TestResolveRealmScope_MarkerOrphaned_NoWikiIndexYet: a realm marked before
+// its first /refresh-wiki has no wiki/index.md yet — degrades to orphaned
+// rather than erroring, per the spec.
+func TestResolveRealmScope_MarkerOrphaned_NoWikiIndexYet(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	realmRoot := t.TempDir()
+	if _, err := config.EnsureScopeMarker(realmRoot, "realm"); err != nil {
+		t.Fatalf("EnsureScopeMarker: %v", err)
+	}
+	sub := filepath.Join(realmRoot, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := where.Resolve(sub, missingClaudeMD(t, realmRoot))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.RealmScope.Position != where.RealmOrphaned {
+		t.Errorf("Position = %v, want RealmOrphaned", report.RealmScope.Position)
+	}
+	if report.RealmScope.RealmRoot != realmRoot {
+		t.Errorf("RealmRoot = %q, want %q", report.RealmScope.RealmRoot, realmRoot)
+	}
+	if report.RealmScope.Source != config.ScopeSourceMarker {
+		t.Errorf("Source = %q, want %q", report.RealmScope.Source, config.ScopeSourceMarker)
+	}
+}
+
+// TestResolveRealmScope_RegistryFallback_SourceRegistry: no marker present —
+// the pre-existing <wikis> path runs unchanged, now carrying Source registry.
+func TestResolveRealmScope_RegistryFallback_SourceRegistry(t *testing.T) {
+	realmRoot := t.TempDir()
+	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
+	claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
+	mkRealmClaudeMD(t, claudeMD, wikiIndexPath)
+
+	report, err := where.Resolve(realmRoot, claudeMD)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.RealmScope.Position != where.RealmRoot {
+		t.Errorf("Position = %v, want RealmRoot", report.RealmScope.Position)
+	}
+	if report.RealmScope.Source != config.ScopeSourceRegistry {
+		t.Errorf("Source = %q, want %q", report.RealmScope.Source, config.ScopeSourceRegistry)
+	}
+}
+
+// TestResolveRealmScope_NoRealm_SourceNone: no marker, no <wikis> match —
+// RealmNone carries source none.
+func TestResolveRealmScope_NoRealm_SourceNone(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	mkGitMarker(t, root)
+
+	report, err := where.Resolve(root, missingClaudeMD(t, root))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.RealmScope.Position != where.RealmNone {
+		t.Errorf("Position = %v, want RealmNone", report.RealmScope.Position)
+	}
+	if report.RealmScope.Source != config.ScopeSourceNone {
+		t.Errorf("Source = %q, want %q", report.RealmScope.Source, config.ScopeSourceNone)
+	}
+}
+
+// TestRealmPositionClassification_MarkerAndRegistry_Agree drives the exact
+// same directory layout through both realm-resolution mechanisms —
+// scope="realm" marker, then <wikis>-registry — and asserts identical
+// Position classification for root, member, and orphaned cwds. Marker and
+// registry resolution share one classification helper (classifyRealmPosition)
+// precisely so this can never diverge; this test fails if a future edit
+// special-cases one path without the other.
+func TestRealmPositionClassification_MarkerAndRegistry_Agree(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	realmRoot := t.TempDir()
+	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
+	memberDir := filepath.Join(realmRoot, "repos", "alpha")
+	if err := os.MkdirAll(memberDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	orphanDir := filepath.Join(realmRoot, "not-a-member")
+	if err := os.MkdirAll(orphanDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cwds := map[string]string{
+		"root":     realmRoot,
+		"member":   memberDir,
+		"orphaned": orphanDir,
+	}
+
+	// Round 1: resolve every cwd through the marker path — same directories,
+	// no <wikis> registration at all.
+	if _, err := config.EnsureScopeMarker(realmRoot, "realm"); err != nil {
+		t.Fatalf("EnsureScopeMarker: %v", err)
+	}
+	markerPositions := map[string]where.RealmPosition{}
+	for name, cwd := range cwds {
+		report, err := where.Resolve(cwd, missingClaudeMD(t, realmRoot))
+		if err != nil {
+			t.Fatalf("marker-path Resolve(%s): %v", name, err)
+		}
+		if report.RealmScope.Source != config.ScopeSourceMarker {
+			t.Fatalf("marker-path Resolve(%s) source = %q, want marker", name, report.RealmScope.Source)
+		}
+		markerPositions[name] = report.RealmScope.Position
+	}
+
+	// Round 2: remove the marker, register the same directories via <wikis>
+	// instead, and resolve the identical cwds through the registry path.
+	if err := os.Remove(config.RepoConfigPath(realmRoot)); err != nil {
+		t.Fatalf("remove marker: %v", err)
+	}
+	claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
+	mkRealmClaudeMD(t, claudeMD, wikiIndexPath)
+	registryPositions := map[string]where.RealmPosition{}
+	for name, cwd := range cwds {
+		report, err := where.Resolve(cwd, claudeMD)
+		if err != nil {
+			t.Fatalf("registry-path Resolve(%s): %v", name, err)
+		}
+		if report.RealmScope.Source != config.ScopeSourceRegistry {
+			t.Fatalf("registry-path Resolve(%s) source = %q, want registry", name, report.RealmScope.Source)
+		}
+		registryPositions[name] = report.RealmScope.Position
+	}
+
+	for name := range cwds {
+		if markerPositions[name] != registryPositions[name] {
+			t.Errorf("%s: marker path = %v, registry path = %v — mechanisms disagree on the same directory", name, markerPositions[name], registryPositions[name])
+		}
+	}
+}
+
+// --- Format: repo root + provenance (CP4) ---
+
+// TestFormatHuman_RepoRootLine locks the exact human-output shape from the
+// spec: "repo root:        <path> — <source>".
+func TestFormatHuman_RepoRootLine(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	if _, err := config.EnsureScopeMarker(root, "repo"); err != nil {
+		t.Fatalf("EnsureScopeMarker: %v", err)
+	}
+
+	report, err := where.Resolve(root, missingClaudeMD(t, root))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	human := where.FormatHuman(report)
+	want := "repo root:        " + root + " — marker\n"
+	if !strings.Contains(human, want) {
+		t.Errorf("human output missing repo-root line:\n%s\nwant substring:\n%s", human, want)
+	}
+}
+
+// TestFormatJSON_RepoRootFields: repo_root carries path and source.
+func TestFormatJSON_RepoRootFields(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	if _, err := config.EnsureScopeMarker(root, "repo"); err != nil {
+		t.Fatalf("EnsureScopeMarker: %v", err)
+	}
+
+	report, err := where.Resolve(root, missingClaudeMD(t, root))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	jsonOut, err := where.FormatJSON(report)
+	if err != nil {
+		t.Fatalf("FormatJSON error: %v", err)
+	}
+	if !strings.Contains(jsonOut, `"repo_root"`) {
+		t.Errorf("json output missing repo_root field: %s", jsonOut)
+	}
+	if !strings.Contains(jsonOut, `"source": "marker"`) {
+		t.Errorf("json output missing repo_root source: %s", jsonOut)
+	}
+}
+
+// TestFormatHuman_RegistryHint: a realm resolved through registry gets a
+// backfill hint naming `atomic wiki init --scope realm`; a marker-resolved
+// realm does not (nothing to backfill).
+func TestFormatHuman_RegistryHint(t *testing.T) {
+	realmRoot := t.TempDir()
+	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
+	claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
+	mkRealmClaudeMD(t, claudeMD, wikiIndexPath)
+
+	registryReport, err := where.Resolve(realmRoot, claudeMD)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	registryHuman := where.FormatHuman(registryReport)
+	if !strings.Contains(registryHuman, "atomic wiki init --scope realm") {
+		t.Errorf("expected registry-backfill hint naming `atomic wiki init --scope realm`, got:\n%s", registryHuman)
+	}
+
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+	markerRoot := t.TempDir()
+	if _, err := config.EnsureScopeMarker(markerRoot, "realm"); err != nil {
+		t.Fatalf("EnsureScopeMarker: %v", err)
+	}
+	markerReport, err := where.Resolve(markerRoot, missingClaudeMD(t, markerRoot))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	markerHuman := where.FormatHuman(markerReport)
+	if strings.Contains(markerHuman, "atomic wiki init --scope realm") {
+		t.Errorf("marker-resolved realm should carry no backfill hint, got:\n%s", markerHuman)
+	}
+}
+
+// TestFormatJSON_RealmScopeSourceField: realm_scope carries a source field;
+// the hint text is absent from JSON (the spec's stated JSON exclusion).
+func TestFormatJSON_RealmScopeSourceField(t *testing.T) {
+	realmRoot := t.TempDir()
+	wikiIndexPath := mkRealmWikiIndex(t, realmRoot, "repos/alpha")
+	claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
+	mkRealmClaudeMD(t, claudeMD, wikiIndexPath)
+
+	report, err := where.Resolve(realmRoot, claudeMD)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	jsonOut, err := where.FormatJSON(report)
+	if err != nil {
+		t.Fatalf("FormatJSON error: %v", err)
+	}
+	if !strings.Contains(jsonOut, `"source": "registry"`) {
+		t.Errorf("json output missing realm_scope source: %s", jsonOut)
+	}
+	if strings.Contains(jsonOut, "atomic wiki init") {
+		t.Errorf("json output must not carry the human-only backfill hint: %s", jsonOut)
 	}
 }
 

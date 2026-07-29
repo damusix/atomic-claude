@@ -169,6 +169,46 @@ func TestFindScopeRoot_NoMarker(t *testing.T) {
 	}
 }
 
+// TestFindScopeRoot_RelativeStartDir is a regression test: filepath.Dir on a
+// relative path short-circuits at "." (its own parent) instead of walking
+// upward, so a relative startDir used to never reach a marker at a real
+// ancestor. FindScopeRoot now absolutizes startDir before walking.
+func TestFindScopeRoot_RelativeStartDir(t *testing.T) {
+	restore := SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	writeAtomicToml(t, root, "scope = \"repo\"\n")
+
+	nested := filepath.Join(root, "src", "pkg")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
+	// filepath.Abs on a relative path resolves via os.Getwd(), which
+	// canonicalizes symlinks (e.g. macOS's /var -> /private/var) — resolve
+	// the expected root the same way so the comparison isn't a false
+	// negative on such platforms.
+	wantRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, ok := FindScopeRoot(filepath.Join("src", "pkg"), "repo")
+	if !ok || got != wantRoot {
+		t.Errorf("FindScopeRoot(relative) = (%q, %v), want (%q, true)", got, ok, wantRoot)
+	}
+}
+
 // writeAtomicToml writes content to <root>/.claude/atomic.toml (harness dir
 // fixed to ".claude" by the caller via SetHarnessDirForTest).
 func writeAtomicToml(t *testing.T, root, content string) {

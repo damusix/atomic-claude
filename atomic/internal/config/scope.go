@@ -32,17 +32,25 @@ func ValidScope(s string) bool {
 	return s == "repo" || s == "realm"
 }
 
-// FindScopeRoot walks from filepath.Clean(startDir) upward to the
-// filesystem root looking for the nearest repo config (RepoConfigPath, so
-// harness-dir aware) whose top-level scope key equals scope ("repo" or
-// "realm"). It takes the first marker of the requested kind and continues
-// past a missing file, a parse error, an invalid Scope value, or a Scope
-// naming the other kind — discovery degrades, it never fails, so the
-// return carries no error. The walk runs to the filesystem root; it does
-// not stop at a .git boundary, because a realm root sits above its member
-// repos.
+// FindScopeRoot walks from startDir, absolutized, upward to the filesystem
+// root looking for the nearest repo config (RepoConfigPath, so harness-dir
+// aware) whose top-level scope key equals scope ("repo" or "realm"). It
+// takes the first marker of the requested kind and continues past a missing
+// file, a parse error, an invalid Scope value, or a Scope naming the other
+// kind — discovery degrades, it never fails, so the return carries no error.
+// The walk runs to the filesystem root; it does not stop at a .git boundary,
+// because a realm root sits above its member repos.
+//
+// A relative startDir is made absolute before walking: filepath.Dir on a
+// relative path short-circuits at "." (its own parent), so a relative walk
+// would never reach real ancestors. When filepath.Abs itself fails, the walk
+// degrades to the cleaned relative path rather than erroring — consistent
+// with the rest of this function's never-fails contract.
 func FindScopeRoot(startDir, scope string) (root string, found bool) {
 	dir := filepath.Clean(startDir)
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
 	for {
 		cfg, _, err := LoadRepoConfig(RepoConfigPath(dir))
 		if err == nil && cfg.Scope == scope {
