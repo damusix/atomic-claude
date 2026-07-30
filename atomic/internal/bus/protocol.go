@@ -14,11 +14,19 @@ import (
 // differs from the running daemon's refuses to proceed (see docs/design/
 // atomic-bus.md, "Resolved open decisions" #2) rather than risk talking a
 // wire format the other side doesn't understand.
-const ProtocolVersion = 1
+//
+// Bumped to 2 for the 2026-07-30 "restart is a routine operation" change
+// (docs/spec/atomic-bus.md): OpClose was added to the op list. Six prior
+// wire-shape-changing commits landed against version 1 without ever bumping
+// it — TestProtocolWireShape_GoldenFieldsAndOps (protocol_test.go) is what
+// makes that mistake fail a test instead of silently shipping again.
+const ProtocolVersion = 2
 
 // Op names, the contract for what a Request.Op may be. Every op and its
 // request/reply shape is documented in docs/design/atomic-bus.md's wire
-// protocol table.
+// protocol table. AllOps is the same list as a slice — keep both in sync;
+// TestProtocolWireShape_GoldenFieldsAndOps pins AllOps against a golden
+// list, so adding an op here without adding it there fails that test.
 const (
 	OpPing     = "ping"
 	OpJoin     = "join"
@@ -33,7 +41,16 @@ const (
 	OpResume   = "resume"
 	OpShutdown = "shutdown"
 	OpPrune    = "prune"
+	OpClose    = "close"
 )
+
+// AllOps lists every Request.Op this daemon accepts. daemon.go's "unknown
+// op" error enumerates it, so the list is load-bearing production content,
+// not merely a test fixture.
+var AllOps = []string{
+	OpPing, OpJoin, OpLeave, OpSend, OpSay, OpRecv, OpTail, OpWho, OpRooms,
+	OpHalt, OpResume, OpShutdown, OpPrune, OpClose,
+}
 
 // Request is a single client-to-daemon frame: an op plus whichever operand
 // fields that op uses. Unused fields are left zero and omitted from the
@@ -168,6 +185,18 @@ type Envelope struct {
 	// atomic-bus.md, "Ambiguity resolved in the contract".
 	Truncated int    `json:"truncated,omitempty"`
 	Log       string `json:"log,omitempty"`
+
+	// Closing marks the terminal envelope Hub.Close publishes just before
+	// dropping a room — the signal recv's reconnect loop (action.go's
+	// recvDeliver) uses to end its stream cleanly instead of reconnecting
+	// to a room the operator explicitly closed, which would otherwise be
+	// indistinguishable from an ordinary dropped connection
+	// (docs/spec/atomic-bus.md's 2026-07-30 "close" entry: "Subscribers'
+	// streams end after they receive that envelope"). Never set on any
+	// other envelope, including Halt/Resume's control envelopes, which
+	// also publish From: systemName — Closing, not the sender identity, is
+	// what disambiguates "stop" from "reconnect".
+	Closing bool `json:"closing,omitempty"`
 }
 
 // MarshalJSON enforces the To invariant documented on the field above (an
@@ -253,12 +282,16 @@ type Member struct {
 	Realm string `json:"realm,omitempty"`
 }
 
-// RoomInfo is one room's summary, as reported by `rooms`: its name and how
-// many members currently hold it (docs/spec/atomic-bus.md: "rooms reports a
-// member count per room, in both table and --json form").
+// RoomInfo is one room's summary, as reported by `rooms`: its name, how many
+// members currently hold it (docs/spec/atomic-bus.md: "rooms reports a
+// member count per room, in both table and --json form"), and its halt
+// state (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
+// visible" entry — "rooms" is one of the three surfaces named there).
 type RoomInfo struct {
-	Name    string `json:"name"`
-	Members int    `json:"members"`
+	Name       string `json:"name"`
+	Members    int    `json:"members"`
+	Halted     bool   `json:"halted,omitempty"`
+	HaltReason string `json:"halt_reason,omitempty"`
 }
 
 // ExitCode is a process exit status the bus CLI terminates with. Values are

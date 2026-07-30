@@ -305,9 +305,143 @@ func TestServe_JoinThenWho_RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(roomsResp.Payload, &roomsPayload); err != nil {
 		t.Fatalf("unmarshal rooms payload: %v", err)
 	}
-	want := RoomInfo{Name: "potato", Members: 0}
-	if len(roomsPayload.Rooms) != 1 || roomsPayload.Rooms[0] != want {
-		t.Fatalf("rooms = %+v, want [%+v] (room persists after everyone leaves, with a member count)", roomsPayload.Rooms, want)
+	// A room with no members and no subscribers is dropped, not merely
+	// emptied (docs/spec/atomic-bus.md's 2026-07-30 "drop a room when its
+	// last member leaves" entry) — see room_test.go's
+	// TestHub_Leave_LastMemberDropsTheRoom for the Hub-level coverage this
+	// wire round trip confirms is actually connected.
+	if len(roomsPayload.Rooms) != 0 {
+		t.Fatalf("rooms = %+v, want none (potato had its last member leave and should have been dropped)", roomsPayload.Rooms)
+	}
+}
+
+// TestServe_Close_DropsRoomAndDaemonSideRoomsNoLongerListsIt is the wire
+// dispatch's proof that OpClose actually reaches Hub.Close, not merely a
+// direct-Hub-call proof (room_test.go already covers Hub.Close's own
+// behavior in isolation).
+func TestServe_Close_DropsRoomAndDaemonSideRoomsNoLongerListsIt(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	closeResp := dialAndDo(t, addr, Request{Op: OpClose, Room: "potato"})
+	if !closeResp.OK {
+		t.Fatalf("close failed: %s", closeResp.Error)
+	}
+
+	roomsResp := dialAndDo(t, addr, Request{Op: OpRooms})
+	if !roomsResp.OK {
+		t.Fatalf("rooms failed: %s", roomsResp.Error)
+	}
+	var roomsPayload struct {
+		Rooms []RoomInfo `json:"rooms"`
+	}
+	if err := json.Unmarshal(roomsResp.Payload, &roomsPayload); err != nil {
+		t.Fatalf("unmarshal rooms payload: %v", err)
+	}
+	if len(roomsPayload.Rooms) != 0 {
+		t.Fatalf("rooms after close = %+v, want none", roomsPayload.Rooms)
+	}
+
+	whoResp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
+	if whoResp.OK {
+		t.Fatal("expected who on a closed room to fail with ExitNoRoom")
+	}
+	if whoResp.Code != ExitNoRoom {
+		t.Fatalf("who Code = %d, want %d (ExitNoRoom)", whoResp.Code, ExitNoRoom)
+	}
+}
+
+// TestServe_Who_ReportsHaltedStateAndReason is the wire dispatch's proof
+// that OpWho's payload actually carries the room's halt state alongside its
+// members (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
+// visible" entry).
+func TestServe_Who_ReportsHaltedStateAndReason(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+	if resp := dialAndDo(t, addr, Request{Op: OpHalt, Room: "potato", Text: "investigating"}); !resp.OK {
+		t.Fatalf("halt: %s", resp.Error)
+	}
+
+	whoResp := dialAndDo(t, addr, Request{Op: OpWho, Room: "potato"})
+	if !whoResp.OK {
+		t.Fatalf("who failed: %s", whoResp.Error)
+	}
+	var payload whoJSON
+	if err := json.Unmarshal(whoResp.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal who payload: %v", err)
+	}
+	if !payload.Halted || payload.HaltReason != "investigating" {
+		t.Fatalf("who payload = %+v, want Halted=true HaltReason=%q", payload, "investigating")
+	}
+}
+
+// TestServe_Close_SubscriberConnectionEndsCleanly_NoBusySpin is the
+// wire-level regression test for a bug this exact change introduced and a
+// manual drive of the built binary caught: Hub.Close closes every live
+// subscriber's channel (room.go), but this dispatch's own receive loop did
+// not check the channel's ok value — a closed channel's receive always
+// succeeds immediately with the zero value, so the loop spun forever
+// writing empty envelope frames to the connection instead of ending it.
+// This proves the connection actually terminates (read returns EOF) shortly
+// after the closing envelope, and that no zero-value frame is ever written
+// in between.
+func TestServe_Close_SubscriberConnectionEndsCleanly_NoBusySpin(t *testing.T) {
+	ln := testListener(t)
+	hub := NewHub(t.TempDir())
+	startServe(t, ln, hub)
+	addr := ln.Addr().String()
+
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+
+	subConn, r := dialSubscribe(t, addr, Request{Op: OpRecv, Room: "potato", Session: "sess-1"})
+	defer subConn.Close()
+
+	closeResp := dialAndDo(t, addr, Request{Op: OpClose, Room: "potato"})
+	if !closeResp.OK {
+		t.Fatalf("close failed: %s", closeResp.Error)
+	}
+
+	env, ok := readEnvelopeBounded(t, r)
+	if !ok {
+		t.Fatal("timed out waiting for the closing envelope")
+	}
+	if env.Text != "room closed" {
+		t.Fatalf("closing envelope Text = %q, want %q", env.Text, "room closed")
+	}
+
+	// The connection must end (a clean read error, typically io.EOF) within
+	// a bounded window — not spin forever, and not deliver a second,
+	// zero-value frame first.
+	type readResult struct {
+		data []byte
+		err  error
+	}
+	done := make(chan readResult, 1)
+	go func() {
+		data, err := r.ReadBytes('\n')
+		done <- readResult{data: data, err: err}
+	}()
+	select {
+	case res := <-done:
+		if res.err == nil {
+			t.Fatalf("expected the connection to end after the closing envelope, got another frame: %s", res.data)
+		}
+	case <-time.After(wireTimeout):
+		t.Fatal("connection did not end within the bounded wait after the closing envelope — the busy-spin regression this test guards against")
 	}
 }
 

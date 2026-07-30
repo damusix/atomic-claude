@@ -28,7 +28,7 @@ import (
 // "position-derived member naming" entry.
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|chat> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|close|chat> [flags]")
 		return int(ExitUsage)
 	}
 
@@ -66,6 +66,8 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 		return resumeAction(rest, home, out)
 	case "prune":
 		return pruneAction(rest, home, out)
+	case "close":
+		return closeAction(rest, home, out)
 	case "chat":
 		return chatAction(rest, home, cwd, out)
 	default:
@@ -248,6 +250,25 @@ func doWithRecovery(home string, req Request) (Response, error) {
 	return client.Do(req)
 }
 
+// touchLastSeen best-effort persists that session was active in room at
+// now — the disk-side half of Hub.Publish's own in-memory LastSeen refresh
+// on a successful send (docs/spec/atomic-bus.md's 2026-07-30 "last_seen
+// must persist, not be restamped" entry). Called after send/say-family ops
+// that already succeeded against the daemon; a persistence failure here is
+// not surfaced as a command failure — the message was already delivered,
+// and losing this write only means the next restart's staleness read is a
+// beat behind, not that anything the caller asked for failed.
+func touchLastSeen(home, session, room string, now time.Time) {
+	st, err := Load(home)
+	if err != nil {
+		return
+	}
+	if !st.TouchLastSeen(session, room, now) {
+		return
+	}
+	_ = st.Save(home)
+}
+
 // joinAction implements `atomic bus join <room> [--as <role>] [--mode
 // participate|observe] [--kind agent|human] [--session <id>]`. The
 // numeric-suffix retry on a name collision is Hub.Join's job (room.go) —
@@ -395,12 +416,27 @@ func leaveAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
-	if _, err := doWithRecovery(home, Request{Op: OpLeave, Room: room, Session: sessionID}); err != nil {
+	resp, err := doWithRecovery(home, Request{Op: OpLeave, Room: room, Session: sessionID})
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus leave: %v\n", err)
 		return exitFromErr(err)
 	}
 
 	st.Leave(sessionID, room)
+
+	// If this leave emptied the room and the daemon dropped it
+	// (Hub.dropIfEmpty), clear any orphaned persisted halt state for it too
+	// — otherwise a later restart's Rehydrate would resurrect a room
+	// nobody occupies from a stale bus.json entry, halted for a reason
+	// nobody can act on anymore (docs/spec/atomic-bus.md's 2026-07-30 "drop
+	// a room when its last member leaves" entry).
+	var leavePayload struct {
+		RoomDropped bool `json:"room_dropped,omitempty"`
+	}
+	if json.Unmarshal(resp.Payload, &leavePayload) == nil && leavePayload.RoomDropped {
+		delete(st.Rooms, room)
+	}
+
 	if err := st.Save(home); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus leave: %v\n", err)
 		return int(ExitHard)
@@ -467,6 +503,8 @@ func sendAction(args []string, home string, out io.Writer) int {
 	if len(payload.UnknownTo) > 0 {
 		fmt.Fprintf(os.Stderr, "atomic bus send: warning: not currently in room %s: %s\n", room, strings.Join(payload.UnknownTo, ", "))
 	}
+
+	touchLastSeen(home, sessionID, room, time.Now())
 
 	if jsonOut {
 		return emitJSON(out, payload.Envelope)
@@ -561,7 +599,7 @@ func recvAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
 		return exitFromErr(err)
 	}
-	return recvStream(client, room, sessionID, out)
+	return recvStream(client, home, room, sessionID, out)
 }
 
 // recvStream is the Monitor path: one JSON envelope per line, flushed per
@@ -577,9 +615,26 @@ func recvAction(args []string, home string, out io.Writer) int {
 // see daemon.go's subscribe doc. SkipSelf is always set: this session's own
 // sends are exactly what a recv subscriber should never see back
 // (self-echo — docs/spec/atomic-bus.md).
-func recvStream(client *Client, room, sessionID string, out io.Writer) int {
+//
+// The subscription loop reconnects, rather than exiting, whenever the
+// channel closes for any reason other than ctx being cancelled or the room
+// having been explicitly closed (Envelope.Closing — see recvDeliver) — a
+// daemon restart looks identical, at this layer, to any other dropped
+// connection, and both used to make recv exit 0 while the Monitor reported
+// a clean end and the roster kept listing this member as live: a deaf
+// session peers keep addressing (docs/spec/atomic-bus.md's 2026-07-30 "recv
+// must survive a restart — the worst one" entry). Reconnecting goes through
+// the same dialDaemonRecovered → recoveryEnsurer → EnsureDaemon path send
+// already uses (respawn and retry once); if that genuinely fails, this
+// returns a non-zero exit code so a Monitor surfaces the fault instead of a
+// silent 0. Reconnecting never replays a backlog — a fresh Subscribe on the
+// new connection delivers only what's published after it, exactly like the
+// first one did.
+func recvStream(client *Client, home, room, sessionID string, out io.Writer) int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	enc := json.NewEncoder(out)
 
 	ch, err := client.Subscribe(Request{Op: OpRecv, Room: room, Session: sessionID, SkipSelf: true})
 	if err != nil {
@@ -587,21 +642,107 @@ func recvStream(client *Client, room, sessionID string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
 		return exitFromErr(err)
 	}
-	defer client.Close()
 
-	enc := json.NewEncoder(out)
+	for {
+		reconnect, code := recvDeliver(ctx, ch, enc)
+		client.Close()
+		if !reconnect {
+			return code
+		}
+
+		// A stop signal arriving while a just-ended subscription is about
+		// to reconnect must win immediately, not after one more full
+		// dial-and-subscribe attempt (which can itself take real wall
+		// time, spanning EnsureDaemon's own dial timeouts and spawn
+		// waits). recvDeliver's own select already covers ctx firing while
+		// a subscription is live; this covers it firing in the gap right
+		// after one ends.
+		select {
+		case <-ctx.Done():
+			return int(ExitOK)
+		default:
+		}
+
+		fmt.Fprintln(os.Stderr, "atomic bus recv: lost connection to the daemon, reconnecting...")
+		client, ch, err = dialAndSubscribeRecv(home, room, sessionID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus recv: could not reconnect: %v\n", err)
+			return exitFromErr(err)
+		}
+	}
+}
+
+// reconnectAttempts bounds dialAndSubscribeRecv's own retry — mirrors
+// EnsureDaemon's maxSpawnAttempts convention (retry once, then fail
+// clearly rather than loop forever).
+const reconnectAttempts = 2
+
+// reconnectRetryDelay is the pause between dialAndSubscribeRecv's attempts —
+// long enough for the previous daemon's in-flight shutdown to genuinely
+// finish, short enough not to matter to a listener waiting on the result.
+const reconnectRetryDelay = 50 * time.Millisecond
+
+// dialAndSubscribeRecv dials via dialDaemonRecovered and subscribes,
+// retrying the whole pair once more on any failure. This is not about
+// spawning a fresh daemon a second time — dialDaemonRecovered's own
+// EnsureDaemon already retries a stale-socket dial internally — it is
+// about a race dialDaemon's own plain, unverified connect cannot see: a
+// reconnect can land in the exact window where the previous daemon has
+// already accepted this new connection but is mid-shutdown, so it closes
+// the connection without ever answering the subscribe handshake. From the
+// client side that surfaces as an EOF or timeout on the subscribe response,
+// indistinguishable from a genuinely dead daemon on the first attempt —
+// which is why the whole pair, not just Subscribe, is retried: a stale
+// dial can hand back a connection to the same dying process twice in a
+// row.
+func dialAndSubscribeRecv(home, room, sessionID string) (*Client, <-chan Envelope, error) {
+	var lastErr error
+	for attempt := 0; attempt < reconnectAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(reconnectRetryDelay)
+		}
+		client, err := dialDaemonRecovered(home)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		ch, err := client.Subscribe(Request{Op: OpRecv, Room: room, Session: sessionID, SkipSelf: true})
+		if err != nil {
+			client.Close()
+			lastErr = err
+			continue
+		}
+		return client, ch, nil
+	}
+	return nil, nil, lastErr
+}
+
+// recvDeliver runs one subscription's delivery loop until it ends, and
+// reports whether recvStream should reconnect. reconnect is true exactly
+// when ch closed without ctx being cancelled first AND the last envelope
+// delivered was not Hub.Close's closing envelope — a genuine stop
+// (SIGTERM/SIGINT, or the room having been explicitly closed) always takes
+// priority and never triggers a reconnect attempt. Without the Closing
+// check, a close would be indistinguishable from a daemon restart at this
+// layer, and recv would silently reconnect to (and recreate) a room the
+// operator just closed instead of ending its stream as
+// docs/spec/atomic-bus.md's "close" entry requires: "Subscribers' streams
+// end after they receive that envelope".
+func recvDeliver(ctx context.Context, ch <-chan Envelope, enc *json.Encoder) (reconnect bool, code int) {
+	closing := false
 	for {
 		select {
 		case env, ok := <-ch:
 			if !ok {
-				return int(ExitOK)
+				return !closing, int(ExitOK)
 			}
+			closing = env.Closing
 			if err := enc.Encode(env); err != nil {
 				fmt.Fprintf(os.Stderr, "atomic bus recv: %v\n", err)
-				return int(ExitHard)
+				return false, int(ExitHard)
 			}
 		case <-ctx.Done():
-			return int(ExitOK)
+			return false, int(ExitOK)
 		}
 	}
 }
@@ -648,21 +789,31 @@ func whoAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintf(os.Stderr, "atomic bus who: %v\n", err)
 		return exitFromErr(err)
 	}
-	var payload struct {
-		Members []Member `json:"members"`
-	}
+	var payload whoJSON
 	if err := json.Unmarshal(resp.Payload, &payload); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus who: parse response: %v\n", err)
 		return int(ExitHard)
 	}
 
 	if jsonOut {
-		return emitJSON(out, payload.Members)
+		return emitJSON(out, payload)
+	}
+	if payload.Halted {
+		fmt.Fprintf(out, "room %s is HALTED%s\n", room, haltReasonNote(payload.HaltReason))
 	}
 	for _, m := range payload.Members {
 		fmt.Fprintf(out, "%s\t%s\t%s\t%s\t%s\t%s\n", m.Name, m.Kind, m.Mode, livenessLabel(m.Stale), m.Repo, m.Realm)
 	}
 	return int(ExitOK)
+}
+
+// haltReasonNote renders " (why)" for a non-empty halt reason, else "" —
+// shared by whoAction's plain-text preamble line.
+func haltReasonNote(reason string) string {
+	if reason == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (%s)", reason)
 }
 
 // livenessLabel renders Member.Stale for plain-text output — shared by
@@ -735,9 +886,25 @@ func roomsAction(args []string, home string, out io.Writer) int {
 		return emitJSON(out, payload.Rooms)
 	}
 	for _, r := range payload.Rooms {
-		fmt.Fprintf(out, "%s\t%d\n", r.Name, r.Members)
+		fmt.Fprintf(out, "%s\t%d%s\n", r.Name, r.Members, haltedSuffix(r.Halted, r.HaltReason))
 	}
 	return int(ExitOK)
+}
+
+// haltedSuffix renders a trailing " [HALTED: <reason>]" marker for
+// plain-text output when halted, else "" — shared by roomsAction and
+// statusAction so an operator who halts a room and walks away can tell it
+// is still halted from either verb's table output
+// (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be visible"
+// entry).
+func haltedSuffix(halted bool, reason string) string {
+	if !halted {
+		return ""
+	}
+	if reason == "" {
+		return " [HALTED]"
+	}
+	return fmt.Sprintf(" [HALTED: %s]", reason)
 }
 
 // busStatus is the JSON shape `atomic bus status --json` emits, and the
@@ -752,10 +919,14 @@ type busStatus struct {
 
 // joinedRoomStatus is one entry of busStatus.Rooms: the room and the name
 // this session holds in it (a join may have been renamed by the
-// numeric-suffix retry).
+// numeric-suffix retry), plus that room's current halt state — one of the
+// three surfaces docs/spec/atomic-bus.md's 2026-07-30 "halt must persist
+// and be visible" entry names.
 type joinedRoomStatus struct {
-	Room string `json:"room"`
-	Name string `json:"name"`
+	Room       string `json:"room"`
+	Name       string `json:"name"`
+	Halted     bool   `json:"halted,omitempty"`
+	HaltReason string `json:"halt_reason,omitempty"`
 }
 
 // statusAction implements `atomic bus status [--session <id>] [--json]`:
@@ -795,8 +966,9 @@ func statusAction(args []string, home string, out io.Writer) int {
 	status := busStatus{Session: sessionID, Daemon: "not running", Rooms: joinedRooms(st, sessionID)}
 
 	if client, derr := dialDaemon(home); derr == nil {
-		defer client.Close()
-		if resp, perr := client.Do(Request{Op: OpPing}); perr == nil {
+		resp, perr := client.Do(Request{Op: OpPing})
+		client.Close()
+		if perr == nil {
 			var payload struct {
 				Version int `json:"version"`
 				Pid     int `json:"pid"`
@@ -805,6 +977,7 @@ func statusAction(args []string, home string, out io.Writer) int {
 				status.Daemon = "running"
 				status.Version = payload.Version
 				status.Pid = payload.Pid
+				status.Rooms = annotateHalted(home, status.Rooms)
 			}
 		} else {
 			status.Daemon = "unreachable"
@@ -824,10 +997,48 @@ func statusAction(args []string, home string, out io.Writer) int {
 		fmt.Fprintln(out, "not joined any room")
 	} else {
 		for _, r := range status.Rooms {
-			fmt.Fprintf(out, "%s\t%s\n", r.Room, r.Name)
+			fmt.Fprintf(out, "%s\t%s%s\n", r.Room, r.Name, haltedSuffix(r.Halted, r.HaltReason))
 		}
 	}
 	return int(ExitOK)
+}
+
+// annotateHalted fills in Halted/HaltReason on each of rooms by fetching the
+// daemon's own `rooms` list and matching by name. A second round trip
+// rather than folding into the ping call above: Client.Do consumes its
+// connection (see client.go's Do doc), and Response.Payload for OpPing
+// carries no per-room data of its own. Best-effort: any failure here leaves
+// rooms exactly as passed in (Halted stays false) rather than failing
+// status entirely — status's primary job is reporting reachability, not
+// halt state.
+func annotateHalted(home string, rooms []joinedRoomStatus) []joinedRoomStatus {
+	client, err := dialDaemon(home)
+	if err != nil {
+		return rooms
+	}
+	defer client.Close()
+
+	resp, err := client.Do(Request{Op: OpRooms})
+	if err != nil {
+		return rooms
+	}
+	var payload struct {
+		Rooms []RoomInfo `json:"rooms"`
+	}
+	if json.Unmarshal(resp.Payload, &payload) != nil {
+		return rooms
+	}
+	byName := make(map[string]RoomInfo, len(payload.Rooms))
+	for _, r := range payload.Rooms {
+		byName[r.Name] = r
+	}
+	for i := range rooms {
+		if info, ok := byName[rooms[i].Room]; ok {
+			rooms[i].Halted = info.Halted
+			rooms[i].HaltReason = info.HaltReason
+		}
+	}
+	return rooms
 }
 
 // joinedRooms returns session's joined rooms sorted by room name — st's
@@ -1088,8 +1299,29 @@ func haltAction(args []string, home string, out io.Writer) int {
 		return exitFromErr(err)
 	}
 
+	if err := persistHalted(home, room, true, text); err != nil {
+		// The halt itself already succeeded against the daemon — the room
+		// is halted right now. Only durability across a future restart is
+		// at risk, so this is a warning, not a command failure
+		// (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
+		// visible" entry).
+		fmt.Fprintf(os.Stderr, "atomic bus halt: warning: halt succeeded but was not persisted (a daemon restart would lose it): %v\n", err)
+	}
+
 	fmt.Fprintf(out, "halted %s\n", room)
 	return int(ExitOK)
+}
+
+// persistHalted records room's halt flag and reason in bus.json — the
+// durable half of Hub.Halt/Hub.Resume, which only ever mutate the daemon's
+// in-memory Room.
+func persistHalted(home, room string, halted bool, text string) error {
+	st, err := Load(home)
+	if err != nil {
+		return err
+	}
+	st.SetHalted(room, halted, text)
+	return st.Save(home)
 }
 
 // resumeAction implements `atomic bus resume <room>`.
@@ -1117,6 +1349,10 @@ func resumeAction(args []string, home string, out io.Writer) int {
 	if _, err := client.Do(Request{Op: OpResume, Room: room}); err != nil {
 		fmt.Fprintf(os.Stderr, "atomic bus resume: %v\n", err)
 		return exitFromErr(err)
+	}
+
+	if err := persistHalted(home, room, false, ""); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus resume: warning: resume succeeded but the cleared halt state was not persisted: %v\n", err)
 	}
 
 	fmt.Fprintf(out, "resumed %s\n", room)
@@ -1187,6 +1423,57 @@ func pruneAction(args []string, home string, out io.Writer) int {
 	} else {
 		fmt.Fprintf(out, "pruned %s from %s\n", strings.Join(payload.Removed, ", "), room)
 	}
+	return int(ExitOK)
+}
+
+// --- close ---
+
+// closeAction implements `atomic bus close <room>`: an operator-level
+// teardown, like halt/say/tail — no session identity required
+// (docs/spec/atomic-bus.md: "close ... Operator-level, like halt/say/tail —
+// no session identity required"). Publishes the closing envelope, evicts
+// every member, and drops the room server-side (Hub.Close), then clears its
+// persisted memberships and any halt state from bus.json so a restart does
+// not rebuild it — the local half Hub.Close itself cannot do, since bus.json
+// is this package's client-side persistence file, not the daemon's.
+func closeAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus close <room>\n"
+
+	fs := flag.NewFlagSet("bus-close", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	if err := fs.Parse(args); err != nil {
+		return int(ExitUsage)
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+	room := fs.Arg(0)
+
+	client, err := dialDaemonRecovered(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus close: %v\n", err)
+		return exitFromErr(err)
+	}
+	defer client.Close()
+
+	if _, err := client.Do(Request{Op: OpClose, Room: room}); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus close: %v\n", err)
+		return exitFromErr(err)
+	}
+
+	st, err := Load(home)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus close: %v\n", err)
+		return int(ExitHard)
+	}
+	st.ClearRoom(room)
+	if err := st.Save(home); err != nil {
+		fmt.Fprintf(os.Stderr, "atomic bus close: %v\n", err)
+		return int(ExitHard)
+	}
+
+	fmt.Fprintf(out, "closed %s\n", room)
 	return int(ExitOK)
 }
 
@@ -1591,7 +1878,14 @@ func makeStdinRaw() func() {
 func chatSendFunc(home, room, sessionID string) func(text string, to []string) error {
 	return func(text string, to []string) error {
 		_, err := doWithRecovery(home, Request{Op: OpSend, Room: room, Session: sessionID, To: to, Text: text})
-		return err
+		if err != nil {
+			return err
+		}
+		// Same disk-side LastSeen refresh sendAction gives every send —
+		// chat sends through this closure, not sendAction, so it needs its
+		// own call (see touchLastSeen's doc).
+		touchLastSeen(home, sessionID, room, time.Now())
+		return nil
 	}
 }
 

@@ -76,6 +76,11 @@ line is one JSON envelope for a message published *after* this Monitor starts; n
 it started is ever replayed, so `join` alone (without this Monitor) is enough if this session only
 needs to talk, but it will never hear anything without a live `recv`.
 
+`recv` survives a daemon restart on its own — it reconnects automatically and keeps delivering, so
+you never need to notice a `bus restart` happened or re-arm the Monitor because of one. If the
+daemon is genuinely unreachable (not just mid-restart), the Monitor's command exits non-zero and you
+see that as a failed tool call — treat it like any other tool failure, not as "the room went quiet."
+
 ## The envelope
 
 ```json
@@ -83,7 +88,9 @@ needs to talk, but it will never hear anything without a live `recv`.
  "to":["frontend"],"reply_to":"m-3a91","ts":1785230277,"text":"..."}
 ```
 
-`to` is always present. `[]` means the message was addressed to nobody.
+`to` is always present. `[]` means the message was addressed to nobody. An envelope with
+`"closing":true` is the last one a room will ever deliver — an operator ran `atomic bus close`; your
+`recv` ends its stream right after, deliberately, not a fault.
 
 ## Reaction policy
 
@@ -165,8 +172,10 @@ Monitor and the membership are independent.
 ## For the operator, not for you
 
 `atomic bus tail <room>` watches without joining, `atomic bus say <room> "<text>"` speaks without
-joining, and `atomic bus chat <room>` is an interactive client. Mention these when the user asks
-how to watch or join the conversation themselves; this session does not need them.
+joining, `atomic bus chat <room>` is an interactive client, and `atomic bus close <room>` tears a
+room down entirely — publishes a final "room closed" message, evicts everyone, and drops it. Mention
+these when the user asks how to watch, join, or wind down the conversation themselves; this session
+does not need any of them.
 
 `say` has two limits worth knowing before you recommend it:
 

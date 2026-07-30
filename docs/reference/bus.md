@@ -11,6 +11,8 @@ A room is a named channel scoped to one piece of work. Sessions join a room unde
 
 Membership is per-room, not global: a session can hold different names in different rooms, and a room's roster only lists who has joined that specific room. `who <room>` lists the roster; `rooms` lists every room the daemon currently knows about, each with a member count.
 
+A room disappears on its own when its last member leaves — unless a `tail` or `recv` is still watching it, since dropping the room out from under a live subscriber would silently orphan it (a future publish would create a brand-new, empty room object no listener has ever attached to). A room created by a typo, or simply finished with, does not outlive the mistake. `atomic bus close <room>` is the explicit, operator-driven version of the same idea — see Closing below.
+
 
 ## Position: the name is where a session runs
 
@@ -56,6 +58,7 @@ Every message on the wire, and every line in a room's log, is one JSON envelope:
 | `ts` | Unix seconds. |
 | `text` | Message body. |
 | `truncated`, `log` | Present only when `text` was cut for the notification cap; `truncated` is the byte count cut, `log` points at the room log where the full body is recoverable. |
+| `closing` | Present and `true` only on the final envelope `atomic bus close` publishes before dropping a room — see Closing below. Absent on every other envelope. |
 
 `recv` and `tail` write one envelope per line to stdout, flushed immediately — the wire protocol is line-delimited JSON rather than request-scoped precisely because a subscription's output is unbounded. Neither replays anything: a subscriber sees only what is published after it subscribes. `~/.atomic/rooms/<room>.log` is the durable record for anything published earlier.
 
@@ -76,7 +79,7 @@ A member's `kind` is either `agent` or `human`, assigned by the daemon and persi
 
 ## Liveness and pruning
 
-Every member carries `last_seen`, refreshed by any operation that session performs against the room (`join`, `send`) and by holding an open `recv`/`tail`/`chat` subscription. `atomic bus who <room>` reports each member's status as `live` or `stale` in its output (and as a `stale` boolean in `--json`): a member goes stale once it has had no recent activity and holds no open subscription.
+Every member carries `last_seen`, refreshed by any operation that session performs against the room (`join`, `send`) and by holding an open `recv`/`tail`/`chat` subscription. `atomic bus who <room>` reports each member's status as `live` or `stale` in its output (and as a `stale` boolean in `--json`): a member goes stale once it has had no recent activity and holds no open subscription. `last_seen` is persisted, not merely held in the daemon's memory, so a member dead for hours reads as stale immediately after a restart rather than being resurrected as freshly live — the daemon has no way to know a member's activity actually stopped hours ago if all it remembers is "now, because the daemon just started."
 
 Nothing removes a stale member automatically. A quiet session is not a dead one, and evicting a live member would break addressing with no diagnostic — so staleness is only a signal until an operator acts on it. `atomic bus prune [<room>] [--json]` removes every member currently marked stale and reports which names it removed; a room with nothing stale to reap is a no-op.
 
@@ -93,7 +96,9 @@ Nothing removes a stale member automatically. A quiet session is not a dead one,
 
 A client that reaches for the daemon between commands and finds it gone (crashed, or stopped by another process) still respawns it and retries once before surfacing an error, so a session that joined correctly does not come back to a `daemon unreachable` failure the next time it sends.
 
-**Rehydration on restart.** The daemon has no memory of its own between processes; `~/.atomic/bus.json` does. At startup, before accepting any connection, the daemon reads that file and rebuilds the full roster — every room, every member, their `mode` and `kind` — in one pass. This runs once at startup rather than as each session happens to run its next command, because the alternative silently drops any member who was idle across the restart: a peer addressing them by name would otherwise reach an empty room and never know why.
+`recv` is the one exception to "between commands": it holds a single long-lived subscription, so a restart happening *during* that subscription looks nothing like the gap `send`/`who`/etc. tolerate — the connection just drops. `recv` reconnects through the same path on its own and keeps delivering, so a `bus restart` mid-session (the documented remedy for version skew) never silently deafens a listening agent; if reconnecting genuinely fails, `recv` exits non-zero instead of exiting 0 on a stream that quietly stopped.
+
+**Rehydration on restart.** The daemon has no memory of its own between processes; `~/.atomic/bus.json` does. At startup, before accepting any connection, the daemon reads that file and rebuilds the full roster — every room, every member, their `mode`, `kind`, and `last_seen` — plus any room's halt flag and reason, in one pass. This runs once at startup rather than as each session happens to run its next command, because the alternative silently drops any member who was idle across the restart: a peer addressing them by name would otherwise reach an empty room and never know why.
 
 
 ## Exit codes
@@ -123,8 +128,13 @@ These reach a room without holding a roster slot in it, for a human watching or 
 | `atomic bus chat <room> [--as <name>] [--session <id>]` | Interactive client: joins as a human member, pinned transcript above an input line. In-line commands: `@name` addresses a reply, `/who`, `/rooms`, `/halt`, `/resume`, `/quit`. |
 | `atomic bus halt <room> [--text "<why>"]` | Set a room's halt flag. |
 | `atomic bus resume <room>` | Clear it. |
+| `atomic bus close <room>` | Publish a "room closed" envelope, evict every member, and drop the room. See Closing below. |
 
 **Halting.** `halt` is a stop signal, not a room-wide mute. Once a room is halted, an agent's `send` into it fails with exit `7` until `resume` clears the flag; `say` bypasses the flag unconditionally, so the operator can still explain what went wrong or give a new instruction while every agent is blocked from sending. The daemon enforces this by checking `kind` on the publish path itself — `say`'s human identity is never a parameter a request can claim, so no client can manufacture a halt bypass by asserting `kind: "human"` on a `send`.
+
+Halt state survives a daemon restart and is visible without sending a probe message into the room: `atomic bus rooms`, `who <room>`, and `status` all report it, with the `--text` reason, so an operator who halts a room and walks away can still tell it is halted after the daemon comes back up.
+
+**Closing.** `atomic bus close <room>` is a room's teardown, not merely a bulk `leave`: it publishes one final envelope (`text: "room closed"`, `closing: true`) so every subscriber learns why its stream ended rather than just seeing it stop, evicts the whole roster, and drops the room — including its persisted memberships and halt state, so a restart does not silently rebuild it. `recv` recognizes the `closing` envelope and ends its own stream cleanly instead of reconnecting (which would otherwise recreate the room the moment it resubscribed). The room log on disk is never touched — it is the durable record, and closing is a roster operation, not a history-deleting one.
 
 **Every room's traffic is durable.** Regardless of whether anyone is watching, every published envelope appends to `~/.atomic/rooms/<room>.log` — the record of record, and the only history: `recv` and `tail` replay nothing, so this log is where past traffic lives.
 
@@ -135,7 +145,7 @@ These reach a room without holding a roster slot in it, for a human watching or 
 |---|---|
 | `~/.atomic/bus.sock` | The daemon's Unix domain socket. |
 | `~/.atomic/bus.lock` | The flock guarding daemon spawn. |
-| `~/.atomic/bus.json` | Per-session joined-room state: which rooms each `CLAUDE_CODE_SESSION_ID` has joined, under what name, `mode`, and `kind`. The daemon's rehydration source on restart. |
+| `~/.atomic/bus.json` | Per-session joined-room state (which rooms each `CLAUDE_CODE_SESSION_ID` has joined, under what name, `mode`, `kind`, and `last_seen`) plus per-room halt state (flag and reason). The daemon's rehydration source on restart. |
 | `~/.atomic/rooms/<room>.log` | One JSON line per envelope published to that room, ever. |
 
 All of it lives under `~/.atomic/`, created at `0700`, alongside the rest of atomic's per-user state.

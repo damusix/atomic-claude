@@ -1,7 +1,11 @@
 package bus
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -254,5 +258,150 @@ func TestBusError_ImplementsError(t *testing.T) {
 	var err error = &Error{Code: ExitNotJoined, Msg: "not joined"}
 	if err.Error() != "not joined" {
 		t.Fatalf("Error() = %q, want %q", err.Error(), "not joined")
+	}
+}
+
+// TestProtocolWireShape_GoldenFieldsAndOps pins the exact JSON field names on
+// Request, Response, Envelope, and Member, plus the exact Op set — the wire
+// shape ProtocolVersion gates — and, separately, ties that shape to
+// ProtocolVersion itself via protocolShapeHashes.
+//
+// The field/op assertions below derive the observed field set reflectively
+// from each struct's json tags (wireShapeFields), never from a marshalled
+// instance: marshalling silently drops a zero-value omitempty field from the
+// output, so a version of this test that populated a struct literal and
+// inspected the marshalled keys could add a new omitempty field, leave it
+// unset in the literal, and pass unmodified — exactly the drift this test
+// exists to catch. Reflection sees the tag regardless of whether any value
+// was ever assigned.
+//
+// The hash check below is what correlates a shape change with a version
+// bump: six prior wire-shape-changing commits landed against a version that
+// never moved off 1, because nothing tied "the golden lists changed" to
+// "ProtocolVersion must also change" (docs/spec/atomic-bus.md's 2026-07-30
+// "ProtocolVersion must bump when the wire changes" entry). Updating the
+// golden field/op lists above to match a new shape, while leaving
+// ProtocolVersion untouched, still fails here: protocolShapeHashes[2] is
+// frozen to the hash of the shape at version 2, so a real shape change makes
+// wireShapeHash() diverge from it regardless of whether the golden lists
+// above were kept in sync. The only way back to green is either revert the
+// shape, or bump ProtocolVersion and add a new protocolShapeHashes entry for
+// it — see protocol.go's ProtocolVersion doc.
+func TestProtocolWireShape_GoldenFieldsAndOps(t *testing.T) {
+	assertGoldenFields(t, "Request", reflect.TypeOf(Request{}), []string{
+		"op", "room", "rooms", "name", "mode", "kind", "session", "to",
+		"reply_to", "text", "repo", "realm", "skip_self", "filters",
+	})
+	assertGoldenFields(t, "Response", reflect.TypeOf(Response{}), []string{"ok", "error", "code", "payload"})
+	assertGoldenFields(t, "Envelope", reflect.TypeOf(Envelope{}), []string{
+		"id", "room", "from", "from_kind", "from_repo", "from_realm", "to",
+		"reply_to", "ts", "text", "truncated", "log", "closing",
+	})
+	assertGoldenFields(t, "Member", reflect.TypeOf(Member{}), []string{
+		"name", "kind", "mode", "session", "joined", "last_seen", "stale", "repo", "realm",
+	})
+
+	wantOps := []string{
+		OpPing, OpJoin, OpLeave, OpSend, OpSay, OpRecv, OpTail, OpWho, OpRooms,
+		OpHalt, OpResume, OpShutdown, OpPrune, OpClose,
+	}
+	gotOps := append([]string(nil), AllOps...)
+	sort.Strings(gotOps)
+	wantOpsSorted := append([]string(nil), wantOps...)
+	sort.Strings(wantOpsSorted)
+	if !reflect.DeepEqual(gotOps, wantOpsSorted) {
+		t.Fatalf("AllOps = %v, want %v", gotOps, wantOpsSorted)
+	}
+
+	gotHash := wireShapeHash()
+	wantHash, ok := protocolShapeHashes[ProtocolVersion]
+	if !ok {
+		t.Fatalf("no golden wire-shape hash recorded for ProtocolVersion %d (computed %s) — bumping ProtocolVersion requires adding a matching entry to protocolShapeHashes in this file, in the same change", ProtocolVersion, gotHash)
+	}
+	if gotHash != wantHash {
+		t.Fatalf("wire shape hash = %s, want %s for ProtocolVersion %d — Request/Response/Envelope/Member's json tags or AllOps changed; a wire change requires bumping ProtocolVersion in protocol.go AND recording the new hash (%s) as its protocolShapeHashes entry here, in the same change", gotHash, wantHash, ProtocolVersion, gotHash)
+	}
+}
+
+// protocolShapeHashes is the versioned golden record wireShapeHash's output
+// is checked against — one entry per ProtocolVersion that has ever shipped a
+// wire-shape-changing commit. This is what ties a shape change to a version
+// bump: the entry for the CURRENT ProtocolVersion is frozen to the shape
+// that version actually shipped, so changing the shape without bumping the
+// version leaves the lookup pointed at a now-stale hash (mismatch), and
+// bumping the version without adding an entry here leaves the lookup with
+// nothing to find (missing-key failure) — either way,
+// TestProtocolWireShape_GoldenFieldsAndOps only returns to green once both
+// move together.
+var protocolShapeHashes = map[int]string{
+	2: "f4bf0980c3ca8d8177280563a956e7fd9383a1c529123e2b5d6608f703b08144",
+}
+
+// wireShapeFields returns the JSON field names declared via struct tag on
+// typ's exported fields, in declaration order — derived from the type
+// itself via reflection, never from a marshalled instance (see this file's
+// TestProtocolWireShape_GoldenFieldsAndOps doc for why that distinction is
+// load-bearing: a marshalled zero-value omitempty field is indistinguishable
+// from a field that was never declared).
+func wireShapeFields(typ reflect.Type) []string {
+	fields := make([]string, 0, typ.NumField())
+	for i := 0; i < typ.NumField(); i++ {
+		f := typ.Field(i)
+		tag, ok := f.Tag.Lookup("json")
+		if !ok {
+			fields = append(fields, f.Name)
+			continue
+		}
+		name := strings.Split(tag, ",")[0]
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		fields = append(fields, name)
+	}
+	return fields
+}
+
+// wireShapeHash hashes the current wire shape — Request/Response/Envelope/
+// Member's json field names (wireShapeFields) plus AllOps — into one value,
+// each field/op set sorted first so declaration order is not part of what
+// gets pinned. Compared against protocolShapeHashes[ProtocolVersion] to
+// correlate a shape change with a version bump.
+func wireShapeHash() string {
+	var parts []string
+	for _, pair := range []struct {
+		label string
+		typ   reflect.Type
+	}{
+		{"Request", reflect.TypeOf(Request{})},
+		{"Response", reflect.TypeOf(Response{})},
+		{"Envelope", reflect.TypeOf(Envelope{})},
+		{"Member", reflect.TypeOf(Member{})},
+	} {
+		fields := wireShapeFields(pair.typ)
+		sort.Strings(fields)
+		parts = append(parts, pair.label+":"+strings.Join(fields, ","))
+	}
+	ops := append([]string(nil), AllOps...)
+	sort.Strings(ops)
+	parts = append(parts, "Ops:"+strings.Join(ops, ","))
+
+	sum := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	return hex.EncodeToString(sum[:])
+}
+
+// assertGoldenFields asserts typ's json-tagged field set (wireShapeFields,
+// reflected from struct tags — see that function's doc for why not a
+// marshalled instance) is exactly want, order ignored.
+func assertGoldenFields(t *testing.T, label string, typ reflect.Type, want []string) {
+	t.Helper()
+	got := wireShapeFields(typ)
+	sort.Strings(got)
+	wantSorted := append([]string(nil), want...)
+	sort.Strings(wantSorted)
+	if !reflect.DeepEqual(got, wantSorted) {
+		t.Fatalf("%s wire fields = %v, want %v — a field was added, removed, or renamed; update this golden list and correlate it with a ProtocolVersion bump (see protocolShapeHashes)", label, got, wantSorted)
 	}
 }

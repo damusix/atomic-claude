@@ -754,8 +754,14 @@ func TestHub_Leave_RemovesMemberFromRoster(t *testing.T) {
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
+	// A second member keeps the room non-empty after sess-1 leaves, so this
+	// test proves member removal specifically, independent of the
+	// auto-drop-when-empty behavior covered by its own tests below.
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-2", "", ""); err != nil {
+		t.Fatalf("Join second member: %v", err)
+	}
 
-	if err := h.Leave("potato", "sess-1"); err != nil {
+	if _, err := h.Leave("potato", "sess-1"); err != nil {
 		t.Fatalf("Leave: %v", err)
 	}
 
@@ -763,14 +769,14 @@ func TestHub_Leave_RemovesMemberFromRoster(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Who: %v", err)
 	}
-	if len(members) != 0 {
-		t.Fatalf("expected no members after Leave, got %d", len(members))
+	if len(members) != 1 || members[0].Name != "frontend" {
+		t.Fatalf("members after Leave = %+v, want only frontend remaining", members)
 	}
 }
 
 func TestHub_Leave_UnknownRoomReturnsExitNoRoom(t *testing.T) {
 	h := NewHub(t.TempDir())
-	err := h.Leave("nonexistent", "sess-1")
+	_, err := h.Leave("nonexistent", "sess-1")
 	mustError(t, err, ExitNoRoom)
 }
 
@@ -779,8 +785,88 @@ func TestHub_Leave_SessionNotMemberReturnsExitNotJoined(t *testing.T) {
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
-	err := h.Leave("potato", "sess-stranger")
+	_, err := h.Leave("potato", "sess-stranger")
 	mustError(t, err, ExitNotJoined)
+}
+
+// TestHub_Leave_LastMemberDropsTheRoom is the auto-drop half of
+// docs/spec/atomic-bus.md's 2026-07-30 "drop a room when its last member
+// leaves" entry: a room created by a typo (or simply finished with) does
+// not linger forever with zero members.
+func TestHub_Leave_LastMemberDropsTheRoom(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	dropped, err := h.Leave("potato", "sess-1")
+	if err != nil {
+		t.Fatalf("Leave: %v", err)
+	}
+	if !dropped {
+		t.Fatal("expected Leave to report the room as dropped")
+	}
+
+	if _, err := h.Who("potato"); err == nil {
+		t.Fatal("expected the room to no longer exist after its last member left")
+	} else {
+		mustError(t, err, ExitNoRoom)
+	}
+	if got := h.Rooms(); len(got) != 0 {
+		t.Fatalf("Rooms() = %+v, want no rooms (potato should have been dropped, not merely emptied)", got)
+	}
+}
+
+// TestHub_Leave_LastMemberWithLiveSubscriberDoesNotDropTheRoom is the
+// guard clause on the auto-drop above: a tail or recv holding an open
+// subscription on an otherwise-empty room must not be orphaned — dropping
+// the room would mean any future Publish creates a brand new Room object
+// with an empty subs map, and this subscriber would never hear anything
+// again with no error to explain why.
+func TestHub_Leave_LastMemberWithLiveSubscriberDoesNotDropTheRoom(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	ch := make(chan Envelope, 1)
+	unsub := h.Subscribe("potato", ch, "", false)
+	defer unsub()
+
+	dropped, err := h.Leave("potato", "sess-1")
+	if err != nil {
+		t.Fatalf("Leave: %v", err)
+	}
+	if dropped {
+		t.Fatal("expected Leave to report the room as NOT dropped while a subscriber is attached")
+	}
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v (the room should still exist)", err)
+	}
+	if len(members) != 0 {
+		t.Fatalf("members = %+v, want none (the last member did leave)", members)
+	}
+
+	env, err := h.Publish("potato", "", nil, "", "still listening")
+	// A memberless room has no member to publish as via Publish (session
+	// unmatched) — PublishAsOperator is the right path here, mirroring how
+	// `say` reaches a room with no roster entry of its own.
+	_ = env
+	if err == nil {
+		t.Fatal("Publish with no session should still fail with ExitNotJoined — using PublishAsOperator below to actually prove delivery")
+	}
+	if _, err := h.PublishAsOperator("potato", nil, "", "still listening"); err != nil {
+		t.Fatalf("PublishAsOperator: %v (the room must still exist to publish into)", err)
+	}
+	select {
+	case got := <-ch:
+		if got.Text != "still listening" {
+			t.Fatalf("delivered envelope text = %q, want %q", got.Text, "still listening")
+		}
+	default:
+		t.Fatal("subscriber received nothing — the room was orphaned instead of kept alive")
+	}
 }
 
 func TestHub_Who_UnknownRoomReturnsExitNoRoom(t *testing.T) {
@@ -817,16 +903,23 @@ func TestHub_Rooms_ListsEveryKnownRoomSorted(t *testing.T) {
 	}
 }
 
-// TestHub_Rooms_ReportsZeroMembersAfterEveryoneLeaves proves a room that
-// has emptied is still listed (rooms persist after everyone leaves — see
-// the daemon-level equivalent in daemon_test.go), now with an explicit
-// Members == 0 rather than merely a bare name.
-func TestHub_Rooms_ReportsZeroMembersAfterEveryoneLeaves(t *testing.T) {
+// TestHub_Rooms_EmptyRoomWithLiveSubscriberStillListedWithZeroMembers is the
+// surviving case of the old "rooms persist after everyone leaves" contract:
+// dropIfEmpty only drops a room with *neither* members *nor* subscribers, so
+// a room a tail is still watching keeps appearing in Rooms() with an honest
+// Members == 0 even though its last member has left
+// (docs/spec/atomic-bus.md's 2026-07-30 "drop a room when its last member
+// leaves — but not while a tail or recv is attached" clause).
+func TestHub_Rooms_EmptyRoomWithLiveSubscriberStillListedWithZeroMembers(t *testing.T) {
 	h := NewHub(t.TempDir())
 	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
-	if err := h.Leave("potato", "sess-1"); err != nil {
+	ch := make(chan Envelope, 1)
+	unsub := h.Subscribe("potato", ch, "", false)
+	defer unsub()
+
+	if _, err := h.Leave("potato", "sess-1"); err != nil {
 		t.Fatalf("Leave: %v", err)
 	}
 
@@ -1293,7 +1386,7 @@ func TestHub_Halt_BlocksAgentPublish_ButNotHumanPublish(t *testing.T) {
 		t.Fatalf("Halt: %v", err)
 	}
 
-	halted, err := h.IsHalted("potato")
+	halted, _, err := h.IsHalted("potato")
 	if err != nil {
 		t.Fatalf("IsHalted: %v", err)
 	}
@@ -1327,7 +1420,7 @@ func TestHub_Resume_RestoresAgentPublish(t *testing.T) {
 		t.Fatalf("Resume: %v", err)
 	}
 
-	halted, err := h.IsHalted("potato")
+	halted, _, err := h.IsHalted("potato")
 	if err != nil {
 		t.Fatalf("IsHalted: %v", err)
 	}
@@ -1368,7 +1461,7 @@ func TestHub_Halt_AppendFailureDoesNotFlipHaltedFlag(t *testing.T) {
 		t.Fatal("expected Halt to fail when the room log append fails")
 	}
 
-	halted, err := h.IsHalted("potato")
+	halted, _, err := h.IsHalted("potato")
 	if err != nil {
 		t.Fatalf("IsHalted: %v", err)
 	}
@@ -1991,10 +2084,13 @@ func TestHub_Who_Publish_RefreshesLastSeen(t *testing.T) {
 }
 
 // TestHub_Rehydrate_MemberNotImmediatelyStale proves a restarted daemon
-// does not report every idle-but-legitimate member as stale the instant it
-// comes back up — Rehydrate stamps LastSeen at rehydrate time, not the zero
-// value (docs/spec/atomic-bus.md: "a member who has been idle across the
-// restart is still ... addressable").
+// does not report a genuinely recent member as stale the instant it comes
+// back up — Rehydrate restores the persisted LastSeen (here, freshly
+// stamped by State.Join moments earlier) rather than discarding it
+// (docs/spec/atomic-bus.md: "a member who has been idle across the restart
+// is still ... addressable"). TestHub_Rehydrate_RestoresLastSeenNotRestamped
+// below covers the complementary case — a member persisted as genuinely
+// stale must read as stale immediately after rehydration, not fresh.
 func TestHub_Rehydrate_MemberNotImmediatelyStale(t *testing.T) {
 	home := t.TempDir()
 	h1 := NewHub(home)
@@ -2023,6 +2119,249 @@ func TestHub_Rehydrate_MemberNotImmediatelyStale(t *testing.T) {
 	}
 	if len(members) != 1 || members[0].Stale {
 		t.Fatalf("members = %+v, want one fresh (non-stale) rehydrated member", members)
+	}
+}
+
+// TestHub_Rehydrate_RestoresLastSeenNotRestamped is the regression test for
+// the "last_seen must persist, not be restamped" fix: a member persisted as
+// genuinely stale (LastSeen hours in the past) must read as stale
+// immediately after Rehydrate, not fresh — the old behavior stamped
+// LastSeen at rehydrate time unconditionally, resurrecting every idle
+// member as freshly live and putting it permanently out of Prune's reach
+// (docs/spec/atomic-bus.md's 2026-07-30 entry).
+func TestHub_Rehydrate_RestoresLastSeenNotRestamped(t *testing.T) {
+	longAgo := time.Now().Add(-3 * time.Hour)
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-ghost": {Rooms: map[string]roomMembership{
+			"potato": {Name: "ghost", Mode: "participate", Kind: KindAgent, Joined: longAgo, LastSeen: longAgo},
+		}},
+	}}
+
+	h := NewHub(t.TempDir())
+	clock := newTestClock(time.Now())
+	h.SetClock(clock.Now)
+	h.Rehydrate(st)
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 || !members[0].Stale {
+		t.Fatalf("members = %+v, want one member reported stale immediately (a ghost from hours ago is a usable identity if left non-stale)", members)
+	}
+}
+
+// TestHub_Rehydrate_ZeroLastSeenFallsBackToJoined covers a bus.json written
+// before LastSeen was persisted: Rehydrate must not leave the zero value in
+// place (which would read as maximally stale regardless of how recently the
+// member actually joined) — Joined is the best available signal for such an
+// entry, and Hub.Join never leaves it zero.
+func TestHub_Rehydrate_ZeroLastSeenFallsBackToJoined(t *testing.T) {
+	recentJoin := time.Now().Add(-time.Minute)
+	st := &State{Sessions: map[string]*sessionState{
+		"sess-1": {Rooms: map[string]roomMembership{
+			"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: recentJoin}, // LastSeen left zero
+		}},
+	}}
+
+	h := NewHub(t.TempDir())
+	h.Rehydrate(st)
+
+	members, err := h.Who("potato")
+	if err != nil {
+		t.Fatalf("Who: %v", err)
+	}
+	if len(members) != 1 {
+		t.Fatalf("members = %+v, want 1", members)
+	}
+	if members[0].Stale {
+		t.Fatal("expected a recent Joined fallback to read as fresh, not stale")
+	}
+}
+
+// TestHub_Rehydrate_RestoresHaltedFlagAndReason proves halt state comes
+// back after a restart even for a room with no current members — a member
+// row is not available to derive the halt flag from (docs/spec/atomic-bus.md's
+// 2026-07-30 "halt must persist and be visible" entry).
+func TestHub_Rehydrate_RestoresHaltedFlagAndReason(t *testing.T) {
+	st := &State{Rooms: map[string]*roomState{
+		"potato": {Halted: true, HaltText: "investigating a bad deploy"},
+	}}
+
+	h := NewHub(t.TempDir())
+	h.Rehydrate(st)
+
+	halted, reason, err := h.IsHalted("potato")
+	if err != nil {
+		t.Fatalf("IsHalted: %v", err)
+	}
+	if !halted {
+		t.Fatal("expected potato to come back halted")
+	}
+	if reason != "investigating a bad deploy" {
+		t.Fatalf("reason = %q, want %q", reason, "investigating a bad deploy")
+	}
+}
+
+// TestHub_Rehydrate_UnhaltedRoomEntryDoesNothing proves a resumed (or
+// never-halted) room's absence from st.Rooms — or a Halted:false entry, if
+// one somehow existed — never spuriously halts a room on rehydrate.
+func TestHub_Rehydrate_UnhaltedRoomEntryDoesNothing(t *testing.T) {
+	st := &State{
+		Sessions: map[string]*sessionState{
+			"sess-1": {Rooms: map[string]roomMembership{
+				"potato": {Name: "backend", Mode: "participate", Kind: KindAgent, Joined: time.Now(), LastSeen: time.Now()},
+			}},
+		},
+		Rooms: map[string]*roomState{"potato": {Halted: false}},
+	}
+
+	h := NewHub(t.TempDir())
+	h.Rehydrate(st)
+
+	halted, _, err := h.IsHalted("potato")
+	if err != nil {
+		t.Fatalf("IsHalted: %v", err)
+	}
+	if halted {
+		t.Fatal("expected potato to not be halted")
+	}
+}
+
+// TestHub_IsHalted_ReportsReason proves IsHalted's third return value
+// actually carries the text Halt was given, not just the flag —
+// handleWho/handleRooms depend on this to surface "why" alongside "halted".
+func TestHub_IsHalted_ReportsReason(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := h.Halt("potato", "stop, wrong approach"); err != nil {
+		t.Fatalf("Halt: %v", err)
+	}
+
+	halted, reason, err := h.IsHalted("potato")
+	if err != nil {
+		t.Fatalf("IsHalted: %v", err)
+	}
+	if !halted || reason != "stop, wrong approach" {
+		t.Fatalf("IsHalted = (%v, %q), want (true, %q)", halted, reason, "stop, wrong approach")
+	}
+
+	if err := h.Resume("potato", ""); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	halted, reason, err = h.IsHalted("potato")
+	if err != nil {
+		t.Fatalf("IsHalted: %v", err)
+	}
+	if halted || reason != "" {
+		t.Fatalf("IsHalted after Resume = (%v, %q), want (false, \"\") — the reason must clear too", halted, reason)
+	}
+}
+
+// --- close ---
+
+// TestHub_Close_PublishesEnvelopeEvictsMembersAndDropsRoom proves the three
+// observable effects of Close in one place: a "room closed" control
+// envelope lands in the room log, the roster is empty afterward (the room
+// itself is gone), and a subsequent operation against the same room name
+// sees ExitNoRoom rather than a leftover empty room.
+func TestHub_Close_PublishesEnvelopeEvictsMembersAndDropsRoom(t *testing.T) {
+	home := t.TempDir()
+	h := NewHub(home)
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if _, err := h.Join("potato", "frontend", "normal", "agent", "sess-2", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	if err := h.Close("potato"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if _, err := h.Who("potato"); err == nil {
+		t.Fatal("expected the room to no longer exist after Close")
+	} else {
+		mustError(t, err, ExitNoRoom)
+	}
+
+	entries := readRoomLog(t, home, "potato")
+	if len(entries) != 1 {
+		t.Fatalf("room log has %d entries, want 1", len(entries))
+	}
+	if entries[0].Text != "room closed" || entries[0].From != systemName {
+		t.Fatalf("closing envelope = %+v, want text %q from %q", entries[0], "room closed", systemName)
+	}
+	if !entries[0].Closing {
+		t.Fatal("closing envelope must carry Closing:true — recvDeliver's reconnect-vs-stop decision depends on it")
+	}
+}
+
+// TestHub_Close_UnknownRoomReturnsExitNoRoom mirrors Halt's own contract for
+// a room that was never joined or already dropped.
+func TestHub_Close_UnknownRoomReturnsExitNoRoom(t *testing.T) {
+	h := NewHub(t.TempDir())
+	err := h.Close("nonexistent")
+	mustError(t, err, ExitNoRoom)
+}
+
+// TestHub_Close_TerminatesLiveSubscribersStream proves "subscribers' streams
+// end after they receive that envelope": a live subscriber's channel
+// receives the closing envelope and is then closed, not merely left
+// dangling on a room that no longer exists.
+func TestHub_Close_TerminatesLiveSubscribersStream(t *testing.T) {
+	h := NewHub(t.TempDir())
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	ch := make(chan Envelope, 1)
+	unsub := h.Subscribe("potato", ch, "sess-1", false)
+	defer unsub()
+
+	if err := h.Close("potato"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	env := recvEnvelope(t, ch)
+	if env.Text != "room closed" {
+		t.Fatalf("subscriber's final envelope text = %q, want %q", env.Text, "room closed")
+	}
+
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Fatal("expected the subscriber's channel to be closed after the closing envelope, got another value")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("subscriber's channel was never closed after Close")
+	}
+}
+
+// TestHub_Close_DoesNotDeleteTheRoomLog proves the room log on disk survives
+// Close — it is the durable record, and a roster operation must not delete
+// it (docs/spec/atomic-bus.md: "the room log stays on disk").
+func TestHub_Close_DoesNotDeleteTheRoomLog(t *testing.T) {
+	home := t.TempDir()
+	h := NewHub(home)
+	if _, err := h.Join("potato", "backend", "normal", "agent", "sess-1", "", ""); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if _, err := h.Publish("potato", "sess-1", nil, "", "hello before close"); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	if err := h.Close("potato"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if _, err := os.Stat(RoomLogPath(home, "potato")); err != nil {
+		t.Fatalf("expected room log to still exist on disk after Close: %v", err)
+	}
+	entries := readRoomLog(t, home, "potato")
+	if len(entries) != 2 {
+		t.Fatalf("room log has %d entries, want 2 (the pre-close message plus the closing envelope)", len(entries))
 	}
 }
 

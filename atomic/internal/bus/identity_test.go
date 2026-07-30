@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSessionID_ReadsEnvVar(t *testing.T) {
@@ -249,6 +250,169 @@ func TestEnsureDirs_CreatesRoomsDirAtRestrictivePerms(t *testing.T) {
 	// private to this user.
 	if perm := info.Mode().Perm(); perm != 0o700 {
 		t.Fatalf("rooms dir perm = %o, want 0700", perm)
+	}
+}
+
+// TestState_Join_StampsLastSeenEqualToJoined proves a fresh join's LastSeen
+// starts as the join time, not the zero value — the fallback
+// Hub.Rehydrate relies on for a pre-existing bus.json entry treats a zero
+// LastSeen as "written before this field existed", so Join itself must
+// never leave it zero.
+func TestState_Join_StampsLastSeenEqualToJoined(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{}}
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+
+	m := st.Sessions["sess-1"].Rooms["potato"]
+	if m.LastSeen.IsZero() {
+		t.Fatal("LastSeen is zero right after Join")
+	}
+	if !m.LastSeen.Equal(m.Joined) {
+		t.Fatalf("LastSeen = %v, want equal to Joined %v", m.LastSeen, m.Joined)
+	}
+}
+
+// TestState_TouchLastSeen_UpdatesExistingMembership is the persisted
+// counterpart to Hub.Publish's in-memory LastSeen refresh: sendAction calls
+// this after a successful send so a later restart's Hub.Rehydrate has an
+// honest timestamp to restore, not "now" (docs/spec/atomic-bus.md's
+// 2026-07-30 "last_seen must persist, not be restamped" entry).
+func TestState_TouchLastSeen_UpdatesExistingMembership(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{}}
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+	joinedAt := st.Sessions["sess-1"].Rooms["potato"].LastSeen
+
+	later := joinedAt.Add(time.Hour)
+	if ok := st.TouchLastSeen("sess-1", "potato", later); !ok {
+		t.Fatal("TouchLastSeen returned false for an existing membership")
+	}
+
+	got := st.Sessions["sess-1"].Rooms["potato"].LastSeen
+	if !got.Equal(later) {
+		t.Fatalf("LastSeen = %v, want %v", got, later)
+	}
+}
+
+// TestState_TouchLastSeen_UnknownMembershipReturnsFalse covers the race a
+// send-then-leave (from a different process) can produce: nothing to touch,
+// and the caller must be able to tell so rather than silently no-op writing
+// a fresh entry.
+func TestState_TouchLastSeen_UnknownMembershipReturnsFalse(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{}}
+	if ok := st.TouchLastSeen("sess-never-joined", "potato", time.Now()); ok {
+		t.Fatal("expected false for a session with no membership in the room")
+	}
+
+	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "")
+	if ok := st.TouchLastSeen("sess-1", "potato", time.Now()); ok {
+		t.Fatal("expected false for a room this session never joined")
+	}
+}
+
+// TestState_LastSeen_SurvivesSaveLoadRoundTrip is the disk half of the
+// persistence fix — TestState_TouchLastSeen_* above only prove the in-memory
+// mutation; a restarted daemon reads this back off disk via Load.
+func TestState_LastSeen_SurvivesSaveLoadRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	st := &State{Sessions: map[string]*sessionState{}}
+	st.Join("sess-1", "potato", "backend", "participate", KindAgent, "", "")
+	staleTime := time.Now().Add(-3 * time.Hour).Truncate(time.Second)
+	st.TouchLastSeen("sess-1", "potato", staleTime)
+
+	if err := st.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	reloaded, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	got := reloaded.Sessions["sess-1"].Rooms["potato"].LastSeen
+	if !got.Equal(staleTime) {
+		t.Fatalf("LastSeen after reload = %v, want %v (not restamped to now)", got, staleTime)
+	}
+}
+
+// TestState_SetHalted_PersistsAndClears proves the round trip SetHalted
+// exists for: recording a halt with its reason, and a resume removing the
+// entry outright (an absent entry and Halted:false mean the same thing, so
+// there is no reason to keep one lying around).
+func TestState_SetHalted_PersistsAndClears(t *testing.T) {
+	st := &State{}
+	st.SetHalted("potato", true, "investigating a bad deploy")
+
+	rs, ok := st.Rooms["potato"]
+	if !ok || !rs.Halted || rs.HaltText != "investigating a bad deploy" {
+		t.Fatalf("Rooms[potato] = %+v, ok=%v, want Halted=true with the given text", rs, ok)
+	}
+
+	st.SetHalted("potato", false, "")
+	if _, ok := st.Rooms["potato"]; ok {
+		t.Fatal("expected the room entry to be removed on resume, not left as Halted:false")
+	}
+}
+
+// TestState_Halted_SurvivesSaveLoadRoundTrip is the disk half: an operator
+// who halts a room and walks away needs this to still be true after a
+// `bus restart` — not merely true in the process that called SetHalted.
+func TestState_Halted_SurvivesSaveLoadRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	st := &State{}
+	st.SetHalted("potato", true, "stop, wrong approach")
+	if err := st.Save(home); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	reloaded, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	rs, ok := reloaded.Rooms["potato"]
+	if !ok || !rs.Halted || rs.HaltText != "stop, wrong approach" {
+		t.Fatalf("reloaded Rooms[potato] = %+v, ok=%v, want the halt to survive intact", rs, ok)
+	}
+}
+
+// TestState_ClearRoom_RemovesEveryonesMembershipAndHaltState is the
+// bus.json-side half of Hub.Close: an operator closing a room may need to
+// clear other sessions' entries too, not just their own — unlike Leave,
+// which is scoped to the calling session.
+func TestState_ClearRoom_RemovesEveryonesMembershipAndHaltState(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{}}
+	st.Join("sess-fe", "potato", "frontend", "participate", KindAgent, "", "")
+	st.Join("sess-be", "potato", "backend", "participate", KindAgent, "", "")
+	st.Join("sess-fe", "carrot", "frontend", "participate", KindAgent, "", "") // becomes sess-fe's LastRoom
+	st.SetHalted("potato", true, "operator halted this room")
+
+	st.ClearRoom("potato")
+
+	if _, ok := st.Sessions["sess-fe"].Rooms["potato"]; ok {
+		t.Error("sess-fe's potato membership survived ClearRoom")
+	}
+	if _, ok := st.Sessions["sess-be"].Rooms["potato"]; ok {
+		t.Error("sess-be's potato membership survived ClearRoom")
+	}
+	if _, ok := st.Rooms["potato"]; ok {
+		t.Error("potato's persisted halt state survived ClearRoom")
+	}
+	// carrot is untouched — ClearRoom only ever targets the named room.
+	if _, ok := st.Sessions["sess-fe"].Rooms["carrot"]; !ok {
+		t.Error("ClearRoom(\"potato\") should not have touched sess-fe's carrot membership")
+	}
+}
+
+// TestState_ClearRoom_RecomputesLastRoomWhenCleared mirrors Leave's own
+// LastRoom-recompute behavior (TestState_Leave_RecomputesLastRoomFromRemaining)
+// — a session whose most recent room gets closed by someone else still needs
+// a sensible --room-less default afterward.
+func TestState_ClearRoom_RecomputesLastRoomWhenCleared(t *testing.T) {
+	st := &State{Sessions: map[string]*sessionState{}}
+	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
+	st.Join("sess-1", "carrot", "frontend", "participate", KindAgent, "", "") // becomes LastRoom
+
+	st.ClearRoom("carrot")
+
+	room, ok := st.LastRoom("sess-1")
+	if !ok || room != "potato" {
+		t.Fatalf("LastRoom after ClearRoom(carrot) = (%q, %v), want (%q, true)", room, ok, "potato")
 	}
 }
 

@@ -55,6 +55,26 @@ type roomMembership struct {
 	// survive a daemon restart via bus.json rehydration").
 	Repo  string `json:"repo,omitempty"`
 	Realm string `json:"realm,omitempty"`
+
+	// LastSeen is this session's last known activity in this room — the
+	// persisted counterpart to Hub.Publish's own in-memory refresh. Without
+	// this, Hub.Rehydrate had nothing but "now" to stamp on restart, which
+	// resurrected a member dead for hours as freshly live and put it
+	// permanently out of prune's reach (docs/spec/atomic-bus.md's 2026-07-30
+	// "last_seen must persist, not be restamped" entry). Zero on a bus.json
+	// written before this field existed; Hub.Rehydrate falls back to Joined
+	// for those.
+	LastSeen time.Time `json:"last_seen"`
+}
+
+// roomState is one room's operator-controlled state, persisted independently
+// of any single session's membership (a room can be halted with zero current
+// members). Halt lived only in the daemon's memory before this — a restart
+// silently released it (docs/spec/atomic-bus.md's 2026-07-30 "halt must
+// persist and be visible" entry).
+type roomState struct {
+	Halted   bool   `json:"halted,omitempty"`
+	HaltText string `json:"halt_text,omitempty"`
 }
 
 // sessionState is one session's bus.json entry.
@@ -73,6 +93,13 @@ type sessionState struct {
 // session has joined between invocations.
 type State struct {
 	Sessions map[string]*sessionState `json:"sessions"`
+
+	// Rooms holds room-level state that outlives any one session's
+	// membership — currently only halt. Keyed by room name, omitted from
+	// the wire entirely when nothing is halted, so an ordinary bus.json
+	// with no halted rooms stays exactly as small as before this field
+	// existed.
+	Rooms map[string]*roomState `json:"rooms,omitempty"`
 }
 
 // Load reads State from <home>/.atomic/bus.json. A missing file is not an
@@ -136,7 +163,8 @@ func (s *State) Save(home string) error {
 
 // Join records that session has joined room under name with the given mode,
 // kind, and resolved position (repo/realm), and marks room as the session's
-// most recent join.
+// most recent join. LastSeen starts equal to Joined — a just-joined member
+// is, by definition, not stale yet.
 func (s *State) Join(session, room, name, mode, kind, repo, realm string) {
 	if s.Sessions == nil {
 		s.Sessions = map[string]*sessionState{}
@@ -149,8 +177,68 @@ func (s *State) Join(session, room, name, mode, kind, repo, realm string) {
 	if ss.Rooms == nil {
 		ss.Rooms = map[string]roomMembership{}
 	}
-	ss.Rooms[room] = roomMembership{Name: name, Mode: mode, Kind: kind, Joined: time.Now(), Repo: repo, Realm: realm}
+	now := time.Now()
+	ss.Rooms[room] = roomMembership{Name: name, Mode: mode, Kind: kind, Joined: now, LastSeen: now, Repo: repo, Realm: realm}
 	ss.LastRoom = room
+}
+
+// TouchLastSeen records that session was active in room at now — the
+// persisted counterpart to Hub.Publish's own in-memory LastSeen refresh on
+// a successful send (docs/spec/atomic-bus.md: "last_seen persists in
+// bus.json and is restored, not restamped"). Reports whether session
+// actually holds room membership to touch; a caller racing a concurrent
+// leave has nothing to update.
+func (s *State) TouchLastSeen(session, room string, now time.Time) bool {
+	ss, ok := s.Sessions[session]
+	if !ok {
+		return false
+	}
+	m, ok := ss.Rooms[room]
+	if !ok {
+		return false
+	}
+	m.LastSeen = now
+	ss.Rooms[room] = m
+	return true
+}
+
+// SetHalted records room's halt flag and reason, or clears it — the
+// persisted counterpart to Hub.Halt/Hub.Resume, which only ever mutate the
+// daemon's in-memory Room (docs/spec/atomic-bus.md's 2026-07-30 "halt must
+// persist and be visible" entry). Resuming deletes the entry outright rather
+// than storing Halted:false — an absent entry and a resumed one mean the
+// same thing, and there is no reason to keep a growing history of every
+// room that was ever halted and resumed.
+func (s *State) SetHalted(room string, halted bool, text string) {
+	if !halted {
+		delete(s.Rooms, room)
+		return
+	}
+	if s.Rooms == nil {
+		s.Rooms = map[string]*roomState{}
+	}
+	s.Rooms[room] = &roomState{Halted: true, HaltText: text}
+}
+
+// ClearRoom removes room from every session's persisted membership and
+// clears any persisted halt state for it — the bus.json-side half of
+// Hub.Close (docs/spec/atomic-bus.md: "close ... clears its persisted
+// memberships from bus.json so a restart does not rebuild it"). Unlike
+// Leave, which only ever touches the calling session's own entry, this is
+// an operator-level operation that legitimately mutates every other
+// session's persisted state too — the same authority Hub.Close already has
+// to evict every member's live roster entry.
+func (s *State) ClearRoom(room string) {
+	for _, ss := range s.Sessions {
+		if _, ok := ss.Rooms[room]; !ok {
+			continue
+		}
+		delete(ss.Rooms, room)
+		if ss.LastRoom == room {
+			ss.LastRoom = mostRecentRoom(ss.Rooms)
+		}
+	}
+	delete(s.Rooms, room)
 }
 
 // Leave removes room from session's joined-room set. If room was the

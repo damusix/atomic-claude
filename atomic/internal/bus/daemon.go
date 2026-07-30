@@ -124,6 +124,8 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 		respond(enc, d.handleResume(req))
 	case OpPrune:
 		respond(enc, d.handlePrune(req))
+	case OpClose:
+		respond(enc, d.handleClose(req))
 	case OpShutdown:
 		respond(enc, Response{OK: true})
 		d.triggerShutdown()
@@ -152,7 +154,7 @@ func (d *daemon) handleConn(ctx context.Context, conn net.Conn) {
 		// self-skip, and must keep seeing its own says/sends regardless.
 		d.subscribe(ctx, conn, enc, req.Rooms, "", false)
 	default:
-		respond(enc, Response{OK: false, Code: ExitUsage, Error: fmt.Sprintf("bus: unknown op %q", req.Op)})
+		respond(enc, Response{OK: false, Code: ExitUsage, Error: fmt.Sprintf("bus: unknown op %q (want one of %v)", req.Op, AllOps)})
 	}
 }
 
@@ -202,7 +204,17 @@ func (d *daemon) subscribe(ctx context.Context, conn net.Conn, enc *json.Encoder
 			return
 		case <-closed:
 			return
-		case env := <-ch:
+		case env, ok := <-ch:
+			if !ok {
+				// Hub.Close closes every live subscriber's channel after
+				// delivering the closing envelope (room.go's Close doc) so
+				// the listener learns why it stopped, not merely that it
+				// did. A closed channel's receive always succeeds
+				// immediately with the zero value; without this check the
+				// loop above would spin forever writing empty frames
+				// instead of ending the connection.
+				return
+			}
 			if err := writeFrame(conn, env); err != nil {
 				return
 			}
@@ -263,8 +275,26 @@ func (d *daemon) handleJoin(req Request) Response {
 	return Response{OK: true, Payload: payload}
 }
 
+// handleLeave's payload reports whether Leave dropped the room entirely
+// (its last member, and no live subscriber — see Hub.Leave/dropIfEmpty) so
+// leaveAction can also clear any orphaned persisted halt state for a room
+// that no longer exists (docs/spec/atomic-bus.md's 2026-07-30 "drop a room
+// when its last member leaves" entry).
 func (d *daemon) handleLeave(req Request) Response {
-	if err := d.hub.Leave(req.Room, req.Session); err != nil {
+	dropped, err := d.hub.Leave(req.Room, req.Session)
+	if err != nil {
+		return errorResponse(err)
+	}
+	payload, _ := json.Marshal(struct {
+		RoomDropped bool `json:"room_dropped,omitempty"`
+	}{RoomDropped: dropped})
+	return Response{OK: true, Payload: payload}
+}
+
+// handleClose is `close`'s daemon-side handler: publishes the closing
+// envelope, evicts the roster, and drops the room via Hub.Close.
+func (d *daemon) handleClose(req Request) Response {
+	if err := d.hub.Close(req.Room); err != nil {
 		return errorResponse(err)
 	}
 	return Response{OK: true}
@@ -320,14 +350,32 @@ func (d *daemon) handleSay(req Request) Response {
 	return Response{OK: true, Payload: payload}
 }
 
+// whoJSON is the shape both handleWho's wire payload and whoAction's --json
+// CLI output use: the room's own halt state alongside its member list, so
+// an agent or script reading `who --json` learns "halted and why" the same
+// way `rooms`/`status` do, without a second round trip
+// (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be visible"
+// entry). Halted/HaltReason are room-level, not per-member — carried once
+// here rather than denormalized onto every Member row, which would silently
+// hide the flag for a halted room with zero current members (a `tail` or
+// `recv` can hold that room open with no member rows to read it from — see
+// Hub.dropIfEmpty's own subscriber guard).
+type whoJSON struct {
+	Halted     bool     `json:"halted"`
+	HaltReason string   `json:"halt_reason,omitempty"`
+	Members    []Member `json:"members"`
+}
+
 func (d *daemon) handleWho(req Request) Response {
 	members, err := d.hub.Who(req.Room)
 	if err != nil {
 		return errorResponse(err)
 	}
-	payload, _ := json.Marshal(struct {
-		Members []Member `json:"members"`
-	}{Members: members})
+	// Room already confirmed to exist by Who above; IsHalted's own error
+	// return is unreachable here in practice, ignored rather than
+	// re-derived into a second failure mode.
+	halted, reason, _ := d.hub.IsHalted(req.Room)
+	payload, _ := json.Marshal(whoJSON{Halted: halted, HaltReason: reason, Members: members})
 	return Response{OK: true, Payload: payload}
 }
 

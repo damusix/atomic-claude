@@ -101,6 +101,22 @@ can stop the exchange with `atomic bus halt`.
       is an error naming every candidate, never a silent delivery to one of them.
 - [ ] The envelope carries `from_repo` and `from_realm`, assigned server-side like `from` and
       `from_kind`, so the room log stays unambiguous when a name is released and reclaimed.
+- [ ] `atomic bus close <room>` publishes a final "room closed" envelope, evicts every member,
+      drops the room, and clears its persisted memberships so a restart does not rebuild it. The
+      room log stays on disk — it is the durable record and a roster operation must not delete it.
+- [ ] A room with no members and no subscribers is dropped automatically when its last member
+      leaves, so a room created by a typo does not outlive the mistake.
+- [ ] `recv` survives a daemon restart: it re-establishes the subscription through the same
+      recovery path `send` uses. If it cannot, it exits **non-zero** so a `Monitor` reports a
+      fault. A listener that ends cleanly while its session is still listed as a live member is
+      the worst failure this feature can produce — the session is deaf and nothing says so.
+- [ ] `halt` survives a daemon restart, and halt state is visible in `rooms`, `who`, and `status`
+      with the reason. An operator who halts a room and walks away can tell it is still halted.
+- [ ] `last_seen` persists in `bus.json` and is restored, not restamped. A member dead for hours
+      reads as stale immediately after a restart and `prune` can reach it.
+- [ ] `ProtocolVersion` is bumped whenever the wire shape changes, enforced by a golden test over
+      the request/response/envelope/member field names and the op list, so the skew handshake
+      cannot silently go inert.
 - [ ] `go test ./...`, `go vet ./...`, `gofmt -l .` clean; `make render` and `make bundle` leave no
       diff; `atomic validate` passes.
 
@@ -117,25 +133,26 @@ A single per-user daemon behind a Unix domain socket, speaking newline-delimited
 
 ```
 atomic/internal/bus/
-├── protocol.go ............ A  (Request, Response, Envelope, Member, ops, ProtocolVersion)
+├── protocol.go ............ A  (Request, Response, Envelope, Member, AllOps, ProtocolVersion,
+│                                 protocolShapeHashes-pinned wire shape)
 ├── protocol_test.go ....... A
 ├── paths.go ............... A  (SocketPath, LockPath, StatePath, RoomLogPath)
-├── identity.go ............ A  (SessionID, State load/save)
+├── identity.go ............ A  (SessionID, State load/save, TouchLastSeen, SetHalted, ClearRoom)
 ├── identity_test.go ....... A
 ├── client.go .............. A  (Dial, Do, EnsureDaemon, Subscribe)
 ├── client_test.go ......... A
-├── daemon.go .............. A  (Serve, connection loop, explicit shutdown)
+├── daemon.go .............. A  (Serve, connection loop, explicit shutdown, handleClose/handlePrune)
 ├── daemon_test.go ......... A
-├── room.go ................ A  (Room, Hub, roster, halt)
+├── room.go ................ A  (Room, Hub, roster, halt, Close, dropIfEmpty)
 ├── room_test.go ........... A
 ├── roomlog.go ............. A  (Append)
-├── action.go .............. A  (BusAction verb dispatch)
+├── action.go .............. A  (BusAction verb dispatch, closeAction, recv reconnect)
 ├── action_test.go ......... A
 ├── render.go .............. A  (tail line, tables, colour, wrap)
 ├── render_test.go ......... A
 ├── chat.go ................ A  (interactive client)
 └── chat_test.go ........... A
-atomic/cmd/atomic/main.go .. M  (buildBusCmd, runBus)
+atomic/cmd/atomic/main.go .. M  (buildBusCmd — 18 children, runBus)
 atomic/cmd/atomic/main_test.go  M  (dispatch + verb-count assertions)
 atomic/internal/cliusage/cliusage.go  M  (bus entries)
 skills/atomic-bus/SKILL.md . A  (connect + reaction policy)
@@ -155,11 +172,13 @@ docs/spec/atomic-bus.md .... A
 
 ```
 atomic/internal/bus/protocol.go
-  ProtocolVersion — constant gating the handshake
+  ProtocolVersion — constant gating the handshake; must bump with any wire-shape change
   Request  — op plus operand fields
   Response — ok, code, error, payload
-  Envelope — id, room, from, from_kind, to, reply_to, ts, text, truncated, log
-  Member   — name, kind, mode, session, joined
+  Envelope — id, room, from, from_kind, from_repo, from_realm, to, reply_to, ts, text,
+             truncated, log, closing
+  Member   — name, kind, mode, session, joined, last_seen, stale, repo, realm
+  AllOps   — every accepted Request.Op; daemon's "unknown op" error enumerates it
   ExitCode constants — Ok, Usage, Hard, NotJoined, NameTaken, NoRoom, Unreachable, Halted
 
 atomic/internal/bus/paths.go
@@ -170,6 +189,9 @@ atomic/internal/bus/identity.go
   SessionID — read CLAUDE_CODE_SESSION_ID, error when absent
   State     — per-session joined rooms, persisted at ~/.atomic/bus.json
     Load, Save, Join, Leave, LastRoom
+    TouchLastSeen — persist a room's LastSeen on a successful send/recv
+    SetHalted     — persist/clear a room's halt flag and reason
+    ClearRoom     — drop a closed room's persisted membership and halt state, every session
   ResolveRoom — explicit arg, else LastRoom, else not-joined error
 
 atomic/internal/bus/client.go
@@ -182,16 +204,21 @@ atomic/internal/bus/client.go
 
 atomic/internal/bus/daemon.go
   Serve — listen, accept, signal handling; runs until told to stop
-  conn  — per-connection state and op dispatch
-    handleJoin, handleLeave, handleSend, handleRecv, handleTail,
-    handleWho, handleRooms, handleHalt, handleResume, handlePing, handleShutdown
+  daemon — per-connection state; handleConn dispatches on Request.Op
+    handleJoin, handleLeave, handleClose, handleSend, handleSay,
+    handleWho (whoJSON: halted, halt_reason, members), handleRooms,
+    handleHalt, handleResume, handlePrune, handlePing, handleShutdown
+    OpRecv/OpTail — subscription setup, handled inline rather than via a handle* return
 
 atomic/internal/bus/room.go
   Hub — all rooms, guarded by one mutex
     Join    — atomic name claim with numeric-suffix retry
     Leave, Who, Rooms
-    Publish — assign id, append to log, fan out to live subscribers
+    Publish, PublishAsOperator — assign id, append to log, fan out to live subscribers
     Halt, Resume, IsHalted
+    Close       — publish the closing envelope, evict every member, drop the room
+    dropIfEmpty — remove a room with no members and no live subscribers (caller holds h.mu)
+    Subscribe — register a live channel for recv/tail/chat
     Rehydrate — restore the roster from persisted state at daemon startup
   Room — roster, halt flag, subscribers
 
@@ -201,8 +228,12 @@ atomic/internal/bus/roomlog.go
 atomic/internal/bus/action.go
   BusAction — exported entry; verb switch
     joinAction, leaveAction, sendAction, recvAction, whoAction, roomsAction,
-    serveAction, startAction, stopAction, restartAction,
+    serveAction, startAction, stopAction, restartAction, pruneAction, closeAction,
     tailAction, chatAction, sayAction, haltAction, resumeAction, statusAction
+  recvStream, recvDeliver, dialAndSubscribeRecv — recv's reconnect loop: survives a daemon
+    restart by redialing and resubscribing, ends cleanly on Envelope.Closing
+  haltReasonNote, livenessLabel, haltedSuffix — halt/staleness display shared by
+    who/rooms/status's plain-text output
   readText — positional text, or stdin when "-"
   parseTo  — comma-separated names to []string
 
@@ -220,7 +251,7 @@ atomic/internal/bus/chat.go
     backlog — buffer and count while scrolled up
 
 atomic/cmd/atomic/main.go
-  buildBusCmd — cobra parent plus 12 children
+  buildBusCmd — cobra parent plus 18 children
   runBus      — resolve home and cwd, delegate to bus.BusAction
 
 skills/atomic-bus/SKILL.md
@@ -305,6 +336,47 @@ Flow: daemon lifecycle
 
 
 ## Change log
+
+### 2026-07-30 — Outline and Change tree brought current for the restart-durability round
+
+**What changed:** `## Outline` and `## Change tree` amended to reflect the "restart is a routine
+operation" round below: `protocol.go`'s `Envelope`/`Member` entries now list every current field
+(including `closing`, `from_repo`/`from_realm`, `last_seen`/`stale`/`repo`/`realm`) and `AllOps`;
+`identity.go`'s `State` entry gains `TouchLastSeen`/`SetHalted`/`ClearRoom`; `daemon.go` gains
+`handleClose`/`handleSay`/`handlePrune` and the `whoJSON` payload shape; `room.go`'s `Hub` entry
+gains `Close`/`dropIfEmpty`/`Subscribe`; `action.go` gains `pruneAction`/`closeAction` and the
+`recvStream`/`recvDeliver`/`dialAndSubscribeRecv` reconnect loop plus the halt/staleness display
+helpers; `buildBusCmd`'s child count corrected from 12 to 18.
+
+**Why:** review finding — the round below added six success criteria and several exported pieces
+without amending these two sections, so a fresh subagent reading the body verbatim would miss
+`close`, `prune`, the reconnect loop, and the halt-persistence plumbing entirely.
+
+### 2026-07-30 — restart is a routine operation and nothing survived it
+
+**What changed:** `atomic bus close <room>`; automatic drop of a room whose last member leaves;
+`recv` reconnects across a daemon restart and exits non-zero when it cannot; `halt` state persists
+and is visible in `rooms`/`who`/`status`; `last_seen` persists rather than being restamped on
+rehydration; `ProtocolVersion` bumped with a golden test enforcing future bumps.
+
+**Why:** found by using the feature across a daemon restart, which is not an edge case — it is the
+documented remedy for version skew, so the docs actively tell people to do it. Every one of these
+is the same defect wearing a different hat: state that lives only in daemon memory, so it either
+cannot be observed or does not survive.
+
+- A restart silently ended every `recv`. The listener exited 0, the `Monitor` reported a clean
+  end, and the roster kept advertising the member as live — a deaf session that peers keep
+  addressing.
+- `Rehydrate` restamped `last_seen: now`, so a restart resurrected sessions dead for hours as
+  live members and `prune` could never reach them. A stale entry is a usable identity: a ghost
+  from a previous session published into a room during testing.
+- Halt state appeared in no output at all, and did not survive a restart — so the safety brake for
+  unattended loops could be silently released by the remedy for an unrelated problem.
+- Rooms were immortal. `leave` removed a member but nothing removed a room, so deleting one meant
+  evicting every member and bouncing the daemon for everyone on the machine, in that order, or it
+  silently did nothing.
+- `ProtocolVersion` had never been bumped since the first commit despite six wire-shape changes,
+  so the skew handshake passed between incompatible builds and fields were silently dropped.
 
 ### 2026-07-29 — the name is the position; --as is the role
 

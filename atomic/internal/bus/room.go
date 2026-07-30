@@ -65,6 +65,13 @@ type Room struct {
 	bySession map[string]string // session id -> assigned name
 
 	halted bool
+	// haltReason is the text a Halt call was given, cleared on Resume.
+	// Retained (not just broadcast at halt time) so rooms/who/status can
+	// report why a room is halted at any later point, including after a
+	// daemon restart rehydrates it from persisted state (see Rehydrate below;
+	// docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
+	// visible" entry).
+	haltReason string
 
 	// usedIDs records every envelope id this Room has assigned during this
 	// daemon's lifetime — nextEnvelopeID's collision guard. See that
@@ -279,13 +286,6 @@ func (h *Hub) Rehydrate(st *State) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	// A rehydrated member's LastSeen is stamped "now" (rehydrate time), not
-	// left zero: it has been idle across the restart by definition, and
-	// zero would make it read as staler than any member could actually be —
-	// immediately prunable the instant the daemon comes back up, which
-	// contradicts this method's whole point (docs/spec/atomic-bus.md: "a
-	// member who has been idle across the restart is still ... addressable").
-	now := h.now()
 	for session, ss := range st.Sessions {
 		for room, m := range ss.Rooms {
 			kind := m.Kind
@@ -296,10 +296,36 @@ func (h *Hub) Rehydrate(st *State) {
 			if mode == "" {
 				mode = "participate"
 			}
+			// A rehydrated member's LastSeen is restored from what was
+			// persisted, not restamped to "now" — restamping is exactly the
+			// bug this fixes: it resurrected a session dead for hours as
+			// freshly live and put it permanently out of Prune's reach
+			// (docs/spec/atomic-bus.md's 2026-07-30 "last_seen must persist,
+			// not be restamped" entry). A zero LastSeen means this entry was
+			// written before the field existed; Joined is the best available
+			// signal of that member's last known activity, and (unlike
+			// LastSeen on an old entry) is never zero.
+			lastSeen := m.LastSeen
+			if lastSeen.IsZero() {
+				lastSeen = m.Joined
+			}
 			r := h.getOrCreateRoom(room)
-			r.members[m.Name] = Member{Name: m.Name, Kind: kind, Mode: mode, Session: session, Joined: m.Joined, LastSeen: now, Repo: m.Repo, Realm: m.Realm}
+			r.members[m.Name] = Member{Name: m.Name, Kind: kind, Mode: mode, Session: session, Joined: m.Joined, LastSeen: lastSeen, Repo: m.Repo, Realm: m.Realm}
 			r.bySession[session] = m.Name
 		}
+	}
+
+	// Halt is room-level, not tied to any one session's membership — restore
+	// it independently so a room an operator halted comes back halted even
+	// if nobody currently occupies it (docs/spec/atomic-bus.md: "halt
+	// survives a daemon restart").
+	for room, rs := range st.Rooms {
+		if rs == nil || !rs.Halted {
+			continue
+		}
+		r := h.getOrCreateRoom(room)
+		r.halted = true
+		r.haltReason = rs.HaltText
 	}
 }
 
@@ -327,22 +353,45 @@ func (h *Hub) UnknownAddressees(room string, to []string) []string {
 	return unknown
 }
 
-// Leave removes session's membership from room.
-func (h *Hub) Leave(room, session string) error {
+// Leave removes session's membership from room, then drops the room
+// entirely when that was its last member and nothing is subscribed to it
+// (dropIfEmpty) — reported back as dropped so callers with room-scoped
+// persisted state (e.g. a halt flag) know to clear it too
+// (docs/spec/atomic-bus.md's 2026-07-30 "drop a room when its last member
+// leaves" entry).
+func (h *Hub) Leave(room, session string) (dropped bool, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	r, ok := h.getRoom(room)
 	if !ok {
-		return noRoomError(room)
+		return false, noRoomError(room)
 	}
 	name, ok := r.bySession[session]
 	if !ok {
-		return &Error{Code: ExitNotJoined, Msg: fmt.Sprintf("bus: session has not joined room %q", room)}
+		return false, &Error{Code: ExitNotJoined, Msg: fmt.Sprintf("bus: session has not joined room %q", room)}
 	}
 	delete(r.members, name)
 	delete(r.bySession, session)
-	return nil
+
+	return h.dropIfEmpty(room, r), nil
+}
+
+// dropIfEmpty removes room from the Hub when it has no members and no live
+// subscribers — a room created by a typo, or simply finished with, does not
+// outlive the mistake (docs/spec/atomic-bus.md: "a room disappears when its
+// last member leaves"). The subscriber check is what keeps this from
+// yanking a room out from under a live `tail` or `recv`: those hold no
+// roster membership, so a room with subscribers but zero members must stay
+// — dropping it here would orphan them, since any future Publish to this
+// room name would create a brand new Room object with an empty subs map,
+// never reaching them again. Caller must hold h.mu.
+func (h *Hub) dropIfEmpty(room string, r *Room) bool {
+	if len(r.members) > 0 || len(r.subs) > 0 {
+		return false
+	}
+	delete(h.rooms, room)
+	return true
 }
 
 // Who returns room's current roster, sorted by name for stable output. Each
@@ -460,7 +509,7 @@ func (h *Hub) Rooms() []RoomInfo {
 
 	out := make([]RoomInfo, 0, len(h.rooms))
 	for name, r := range h.rooms {
-		out = append(out, RoomInfo{Name: name, Members: len(r.members)})
+		out = append(out, RoomInfo{Name: name, Members: len(r.members), Halted: r.halted, HaltReason: r.haltReason})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
@@ -761,6 +810,11 @@ func (h *Hub) setHalted(room string, halted bool, text string) error {
 	}
 
 	r.halted = halted
+	if halted {
+		r.haltReason = text
+	} else {
+		r.haltReason = ""
+	}
 	// "" for publisherSession: a halt/resume control envelope is never a
 	// member's own send, so it can never wrongly trip a subscriber's
 	// skipSelf check — same reasoning as PublishAsOperator's own "" above.
@@ -768,16 +822,69 @@ func (h *Hub) setHalted(room string, halted bool, text string) error {
 	return nil
 }
 
-// IsHalted reports whether room currently has its halt flag set.
-func (h *Hub) IsHalted(room string) (bool, error) {
+// IsHalted reports whether room currently has its halt flag set, and the
+// reason given at halt time (empty when not halted, or when halted with no
+// --text) — the query handleWho/handleRooms use to surface halt state
+// alongside a room's own contents (docs/spec/atomic-bus.md's 2026-07-30
+// "halt must persist and be visible" entry).
+func (h *Hub) IsHalted(room string) (halted bool, reason string, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	r, ok := h.getRoom(room)
 	if !ok {
-		return false, noRoomError(room)
+		return false, "", noRoomError(room)
 	}
-	return r.halted, nil
+	return r.halted, r.haltReason, nil
+}
+
+// Close publishes a final "room closed" envelope, evicts every member,
+// ends every live subscriber's stream, and drops the room from the Hub
+// entirely — an operator-level operation like Halt, needing no prior
+// membership (docs/spec/atomic-bus.md: "close ... Operator-level, like
+// halt/say/tail — no session identity required"). The room log on disk is
+// never touched: it is the durable record, and a roster operation must not
+// delete it.
+//
+// Closing a subscriber's channel (rather than merely unregistering it, as
+// dropIfEmpty's guard exists to protect) is deliberate here: Close's whole
+// point is that a listener learns why it stopped, not merely that it did.
+// daemon.go's subscribe loop now checks the channel's ok value on every
+// receive so this terminates the connection cleanly instead of spinning on
+// a closed channel's zero-value reads.
+func (h *Hub) Close(room string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	r, ok := h.getRoom(room)
+	if !ok {
+		return noRoomError(room)
+	}
+
+	id, err := r.nextEnvelopeID()
+	if err != nil {
+		return err
+	}
+	env := Envelope{
+		ID:       id,
+		Room:     room,
+		From:     systemName,
+		FromKind: KindHuman,
+		Ts:       h.now(),
+		Text:     "room closed",
+		Closing:  true,
+	}
+	if err := Append(h.home, room, env); err != nil {
+		return fmt.Errorf("bus: append room log: %w", err)
+	}
+	r.fanOut(env, h.home, "")
+
+	for _, sub := range r.subs {
+		close(sub.ch)
+	}
+
+	delete(h.rooms, room)
+	return nil
 }
 
 // SessionIsMember reports whether session currently holds a membership in

@@ -742,13 +742,13 @@ func buildConfigCmd() *cobra.Command {
 }
 
 // buildBusCmd builds the "bus" parent +
-// join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|chat
+// join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|close|chat
 // children. Dispatch is runBus (→ bus.BusAction from internal/bus/action.go).
 func buildBusCmd() *cobra.Command {
 	dispatch := func(args []string) { runBus(args) }
 	parent := &cobra.Command{
 		Use:   "bus",
-		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|chat)",
+		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|close|chat)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -817,6 +817,7 @@ func buildBusCmd() *cobra.Command {
 	addSub("prune", "Remove stale members (no live subscription, no recent activity) from a room", "[<room>]", func(c *cobra.Command) {
 		c.Flags().Bool("json", false, "emit JSON")
 	})
+	addSub("close", "Publish a closing envelope, evict every member, and drop the room; owner-requested, no session required", "<room>", nil)
 	addSub("chat", "Interactive client: joins as a human member; @name, /who, /rooms, /halt, /resume, /quit", "<room>", func(c *cobra.Command) {
 		c.Flags().String("as", "", "member name to claim (default: $USER)")
 		c.Flags().String("session", "", "override CLAUDE_CODE_SESSION_ID")

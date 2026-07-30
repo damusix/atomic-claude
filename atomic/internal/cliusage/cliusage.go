@@ -131,6 +131,12 @@ var commands = []Command{
 		Description: "Remove stale members (no live subscription, no recent activity) from a room",
 	},
 	{
+		Path:        []string{"bus", "close"},
+		Args:        "<room>",
+		Flags:       nil,
+		Description: "Publish a closing envelope, evict every member, and drop the room; owner-requested, no session required",
+	},
+	{
 		Path:        []string{"bus", "chat"},
 		Args:        "<room>",
 		Flags:       []string{"--as", "--session"},

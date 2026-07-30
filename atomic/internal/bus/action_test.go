@@ -2,6 +2,7 @@ package bus
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
@@ -332,6 +334,53 @@ func TestLeaveAction_SessionFlag_OverridesEnv(t *testing.T) {
 	code := leaveAction([]string{"potato", "--session", "sess-flag"}, home, &out)
 	if code != int(ExitOK) {
 		t.Fatalf("leave exit code = %d, want %d (ExitOK — leave under --session's identity, which is joined; the env session never joined anything); output: %s", code, ExitOK, out.String())
+	}
+}
+
+// TestLeaveAction_RoomDropped_ClearsOrphanedHaltState is the action-layer
+// companion to room.go's Hub.Leave/dropIfEmpty and identity.go's
+// State.SetHalted: leaveAction's own inline composition — read OpLeave's
+// room_dropped payload, then delete the persisted halt entry for that room —
+// was previously verified only manually. Without it, a restarted daemon's
+// Rehydrate would resurrect a room nobody occupies, still halted for a
+// reason nobody can act on anymore (docs/spec/atomic-bus.md's 2026-07-30
+// "drop a room when its last member leaves" entry).
+func TestLeaveAction_RoomDropped_ClearsOrphanedHaltState(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	t.Setenv(sessionEnvVar, "sess-1")
+
+	var discard bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
+		t.Fatalf("join exit code = %d", code)
+	}
+	if code := haltAction([]string{"potato", "--text", "maintenance"}, home, &discard); code != int(ExitOK) {
+		t.Fatalf("halt exit code = %d", code)
+	}
+
+	st, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := st.Rooms["potato"]; !ok {
+		t.Fatal("halt state was not persisted before leave — test setup invalid")
+	}
+
+	// sess-1 is the room's only member: leaving it drops the room
+	// server-side (Hub.dropIfEmpty), which is what must trigger the
+	// orphaned halt-state cleanup below.
+	var out bytes.Buffer
+	code := leaveAction([]string{"potato"}, home, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("leave exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+
+	st, err = Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := st.Rooms["potato"]; ok {
+		t.Fatal("expected the orphaned halt state to be cleared once the room's last member left")
 	}
 }
 
@@ -715,10 +764,11 @@ func TestSendAction_SecondSessionAfterFirstSessionAlreadyRecovered_NoSecondSpawn
 	if got := atomic.LoadInt32(&spawnCount); got != 1 {
 		t.Fatalf("spawn invoked %d times after sess-a's recovery, want exactly 1", got)
 	}
-	var members []Member
-	if err := json.Unmarshal(whoOut.Bytes(), &members); err != nil {
+	var whoPayload whoJSON
+	if err := json.Unmarshal(whoOut.Bytes(), &whoPayload); err != nil {
 		t.Fatalf("unmarshal who: %v", err)
 	}
+	members := whoPayload.Members
 	names := map[string]bool{}
 	for _, m := range members {
 		names[m.Name] = true
@@ -816,10 +866,11 @@ func TestServeAction_Restart_RehydratesNamesIncludingSuffixed(t *testing.T) {
 	if code := whoAction([]string{"potato", "--json"}, home, &whoOut); code != int(ExitOK) {
 		t.Fatalf("who exit code = %d", code)
 	}
-	var members []Member
-	if err := json.Unmarshal(whoOut.Bytes(), &members); err != nil {
+	var whoPayload whoJSON
+	if err := json.Unmarshal(whoOut.Bytes(), &whoPayload); err != nil {
 		t.Fatalf("unmarshal who: %v", err)
 	}
+	members := whoPayload.Members
 	names := map[string]bool{}
 	for _, m := range members {
 		names[m.Name] = true
@@ -848,6 +899,33 @@ func publishUntilDelivered(t *testing.T, addr, room, session, text string, deliv
 			return env
 		case <-ticker.C:
 			dialAndDo(t, addr, Request{Op: OpSend, Room: room, Session: session, Text: text})
+		case <-timeout:
+			t.Fatalf("no envelope delivered within %s", deadline)
+			return Envelope{}
+		}
+	}
+}
+
+// publishUntilDeliveredTolerant mirrors publishUntilDelivered, but tolerates
+// a transient dial error on each publish attempt instead of failing the
+// test on the first one — dialAndDo's own t.Fatalf-on-error assumes the
+// daemon is already up and stays up for the test's whole run, which does
+// not hold for a test that deliberately restarts the daemon mid-run: the
+// daemon can be briefly absent while recv's own reconnect is still working
+// (docs/spec/atomic-bus.md's 2026-07-30 "recv must survive a restart"
+// entry).
+func publishUntilDeliveredTolerant(t *testing.T, addr, room, session, text string, delivered <-chan Envelope, deadline time.Duration) Envelope {
+	t.Helper()
+
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(deadline)
+	for {
+		select {
+		case env := <-delivered:
+			return env
+		case <-ticker.C:
+			_, _ = dialAndDoBounded(addr, Request{Op: OpSend, Room: room, Session: session, Text: text}, wireTimeout)
 		case <-timeout:
 			t.Fatalf("no envelope delivered within %s", deadline)
 			return Envelope{}
@@ -894,7 +972,7 @@ func TestRecvAction_DeliversPublishedMessageUnderOneSecond(t *testing.T) {
 	// SkipSelf, so a same-session publish here would be suppressed and this
 	// test would never see the envelope it's asserting on.
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvStream(client, "potato", "sess-receiver", pw) }()
+	go func() { recvDone <- recvStream(client, home, "potato", "sess-receiver", pw) }()
 
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
@@ -907,18 +985,26 @@ func TestRecvAction_DeliversPublishedMessageUnderOneSecond(t *testing.T) {
 		t.Fatalf("From = %q, want %q", env.From, "sender")
 	}
 
-	// Closing the client unblocks recvStream's subscription channel (it
-	// closes on connection close — client.go's Subscribe doc), giving this
-	// test a clean, bounded way to confirm recvStream actually returns
-	// rather than leaking the goroutine.
-	client.Close()
+	// Closing the client no longer unblocks recvStream for good — item 3's
+	// fix (docs/spec/atomic-bus.md's 2026-07-30 "recv must survive a
+	// restart" entry) makes a dropped connection reconnect rather than
+	// exit, and the real daemon started by mustStartTestDaemon is still
+	// live, so a bare client.Close() here would just be silently
+	// reconnected. SIGTERM is what actually stops recvStream now, exactly
+	// like TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine's own mechanism
+	// — safe to reuse here because Go tests in this package run
+	// sequentially, and each recvStream call registers and unregisters its
+	// own signal.NotifyContext.
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("send SIGTERM to self: %v", err)
+	}
 	select {
 	case code := <-recvDone:
 		if code != int(ExitOK) {
 			t.Fatalf("recvStream exit code = %d, want %d", code, ExitOK)
 		}
 	case <-time.After(wireTimeout):
-		t.Fatal("recvStream did not exit after the client was closed")
+		t.Fatal("recvStream did not exit after SIGTERM")
 	}
 }
 
@@ -951,7 +1037,7 @@ func TestRecvAction_ExitsZeroOnSIGTERM_NoPartialLine(t *testing.T) {
 	// SkipSelf, so a same-session publish here would be suppressed and this
 	// test would never see the envelope it's asserting on.
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvStream(client, "potato", "sess-receiver", pw) }()
+	go func() { recvDone <- recvStream(client, home, "potato", "sess-receiver", pw) }()
 
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
@@ -1004,7 +1090,7 @@ func TestRecvAction_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 	// SkipSelf, so a same-session publish here would be suppressed and this
 	// test would never see the envelope it's asserting on.
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvStream(client, "potato", "sess-receiver", pw) }()
+	go func() { recvDone <- recvStream(client, home, "potato", "sess-receiver", pw) }()
 
 	delivered := make(chan Envelope, 1)
 	go decodeEnvelopesInto(pr, delivered)
@@ -1014,11 +1100,17 @@ func TestRecvAction_NoBacklogDeliveredForPriorTraffic(t *testing.T) {
 		t.Fatalf("first delivered Text = %q, want %q (no backlog should have preceded it)", env.Text, "after subscribing")
 	}
 
-	client.Close()
+	// SIGTERM, not client.Close() — see
+	// TestRecvAction_DeliversPublishedMessageUnderOneSecond's comment: a
+	// dropped connection now reconnects instead of exiting, and the real
+	// daemon is still up.
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("send SIGTERM to self: %v", err)
+	}
 	select {
 	case <-recvDone:
 	case <-time.After(wireTimeout):
-		t.Fatal("recvStream did not exit after the client was closed")
+		t.Fatal("recvStream did not exit after SIGTERM")
 	}
 }
 
@@ -1063,7 +1155,7 @@ func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
 	t.Cleanup(func() { pr.Close(); pw.Close() })
 
 	recvDone := make(chan int, 1)
-	go func() { recvDone <- recvStream(client, "potato", "sess-me", pw) }()
+	go func() { recvDone <- recvStream(client, home, "potato", "sess-me", pw) }()
 
 	delivered := make(chan Envelope, 4)
 	go decodeEnvelopesInto(pr, delivered)
@@ -1079,14 +1171,328 @@ func TestRecvStream_SkipsOwnSessionPublish_ButDeliversOthers(t *testing.T) {
 		t.Fatalf("first delivered Text = %q, want %q — the same-session send should have been skipped entirely, not merely arrived first", env.Text, "from someone else")
 	}
 
-	client.Close()
+	// SIGTERM, not client.Close() — see
+	// TestRecvAction_DeliversPublishedMessageUnderOneSecond's comment.
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("send SIGTERM to self: %v", err)
+	}
 	select {
 	case code := <-recvDone:
 		if code != int(ExitOK) {
 			t.Fatalf("recvStream exit code = %d, want %d", code, ExitOK)
 		}
 	case <-time.After(wireTimeout):
-		t.Fatal("recvStream did not exit after the client was closed")
+		t.Fatal("recvStream did not exit after SIGTERM")
+	}
+}
+
+// --- recv reconnect (item 3: recv must survive a daemon restart) ---
+
+// TestRecvDeliver_ChannelClosesWithoutClosingEnvelope_Reconnects is the unit
+// proof of recvDeliver's core decision: an ordinary dropped connection
+// (channel closes, no Closing envelope ever delivered) must report
+// reconnect=true — this is what makes a daemon restart survivable
+// (docs/spec/atomic-bus.md's 2026-07-30 "recv must survive a restart"
+// entry).
+func TestRecvDeliver_ChannelClosesWithoutClosingEnvelope_Reconnects(t *testing.T) {
+	ch := make(chan Envelope, 1)
+	ch <- Envelope{Text: "ordinary message"}
+	close(ch)
+
+	var buf bytes.Buffer
+	reconnect, code := recvDeliver(context.Background(), ch, json.NewEncoder(&buf))
+	if !reconnect {
+		t.Fatal("expected reconnect=true for an ordinary dropped connection")
+	}
+	if code != int(ExitOK) {
+		t.Fatalf("code = %d, want %d", code, ExitOK)
+	}
+}
+
+// TestRecvDeliver_ClosingEnvelope_EndsStreamWithoutReconnecting is the unit
+// proof of the other half: when the last envelope delivered before the
+// channel closes is Hub.Close's own closing envelope, recvDeliver must
+// report reconnect=false — otherwise recv would silently resubscribe to (and
+// recreate) a room the operator just closed instead of ending its stream as
+// docs/spec/atomic-bus.md's "close" entry requires.
+func TestRecvDeliver_ClosingEnvelope_EndsStreamWithoutReconnecting(t *testing.T) {
+	ch := make(chan Envelope, 1)
+	ch <- Envelope{Text: "room closed", Closing: true}
+	close(ch)
+
+	var buf bytes.Buffer
+	reconnect, code := recvDeliver(context.Background(), ch, json.NewEncoder(&buf))
+	if reconnect {
+		t.Fatal("expected reconnect=false after a closing envelope")
+	}
+	if code != int(ExitOK) {
+		t.Fatalf("code = %d, want %d", code, ExitOK)
+	}
+	if !strings.Contains(buf.String(), "room closed") {
+		t.Fatalf("the closing envelope itself must still have been delivered to the caller before the stream ends, got: %s", buf.String())
+	}
+}
+
+// TestRecvDeliver_CtxCancelled_NeverReconnectsRegardlessOfLastEnvelope
+// proves a genuine stop (SIGTERM/SIGINT) always wins: even mid-stream, with
+// envelopes still arriving, ctx cancellation must never trigger a
+// reconnect attempt.
+func TestRecvDeliver_CtxCancelled_NeverReconnectsRegardlessOfLastEnvelope(t *testing.T) {
+	ch := make(chan Envelope)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	var buf bytes.Buffer
+	reconnect, code := recvDeliver(ctx, ch, json.NewEncoder(&buf))
+	if reconnect {
+		t.Fatal("expected reconnect=false when ctx is already cancelled")
+	}
+	if code != int(ExitOK) {
+		t.Fatalf("code = %d, want %d", code, ExitOK)
+	}
+}
+
+// TestRecvStream_DaemonRestart_ReconnectsAndKeepsDelivering is the
+// integration-level proof of item 3: recv survives an actual daemon
+// restart and keeps delivering afterward — the property a manual drive of
+// the built binary confirmed for real (`bus restart` mid-`recv`).
+//
+// This test stops the daemon and then leaves bringing it back up entirely
+// to recv's own reconnect through the swapped recoveryEnsurer — it does
+// not also call stopAction/startAction or bind a listener itself. An
+// earlier version of this test tried to drive both halves explicitly and
+// hit two different races against recv's own autonomous reconnect: a
+// direct listener bind bypasses EnsureDaemon's flock, so recv's concurrent
+// EnsureDaemon call could unlinkStaleSocket a legitimate daemon the test
+// had just stood up out-of-band; and even routing the test's own "start"
+// through startAction (the same flock-protected path) still raced recv's
+// own reconnect for who observed the daemon "gone" first, since recv can
+// bring a replacement up before the test's own poll ever sees the gap.
+// Neither race is reachable in production, where there is exactly one
+// actor bringing the daemon back — recv doing that itself is the actual
+// scenario item 3 exists for. spawnOnce keeps the swapped Spawn safe to
+// call more than once (startTestDaemon binds a real listener per call and
+// is not otherwise idempotent) without ever binding a second daemon
+// instance. publishUntilDeliveredTolerant (not publishUntilDelivered) is
+// used for the post-restart send because the daemon is genuinely,
+// legitimately absent for a brief window here — unlike every other recv
+// test, whose daemon stays up for the test's entire run.
+func TestRecvStream_DaemonRestart_ReconnectsAndKeepsDelivering(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	// Seeded via joinAction, not a raw OpJoin wire call: only joinAction
+	// persists the membership to bus.json (daemon.go's handleJoin is
+	// in-memory only), and this test needs sess-sender to still be a member
+	// after the daemon genuinely restarts below — Hub.Rehydrate reads
+	// bus.json, not the prior process's memory.
+	var discard bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "sender", "--session", "sess-sender"}, home, testCwd(t), &discard); code != int(ExitOK) {
+		t.Fatalf("seed join exit code = %d", code)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	recvDone := make(chan int, 1)
+	go func() { recvDone <- recvStream(client, home, "potato", "sess-receiver", pw) }()
+
+	delivered := make(chan Envelope, 1)
+	go decodeEnvelopesInto(pr, delivered)
+
+	env := publishUntilDelivered(t, addr, "potato", "sess-sender", "before restart", delivered, wireTimeout)
+	if env.Text != "before restart" {
+		t.Fatalf("Text = %q, want %q", env.Text, "before restart")
+	}
+
+	// Swapped before stopAction, not after: recvStream's own goroutine
+	// reacts to the connection dying asynchronously and may reconnect the
+	// instant the daemon stops, before this test's own next line runs.
+	var spawnOnce sync.Once
+	var spawnErr error
+	swapRecoveryEnsurer(t, func(home string) error {
+		spawnOnce.Do(func() { spawnErr = startTestDaemon(t, home) })
+		return spawnErr
+	})
+
+	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
+		t.Fatalf("stop exit code = %d", code)
+	}
+
+	// No wait-for-gone, no explicit start: recv's own reconnect brings the
+	// daemon back autonomously. publishUntilDeliveredTolerant rides out
+	// the transient gap while that happens; a more generous deadline than
+	// wireTimeout gives EnsureDaemon's own dial-timeout-and-spawn-wait
+	// cycle (which this reconnect can genuinely traverse more than once)
+	// comfortable room without the test racing its own bound.
+	env2 := publishUntilDeliveredTolerant(t, addr, "potato", "sess-sender", "after restart", delivered, 5*time.Second)
+	if env2.Text != "after restart" {
+		t.Fatalf("Text after restart = %q, want %q — recv did not survive the restart", env2.Text, "after restart")
+	}
+
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatalf("send SIGTERM to self: %v", err)
+	}
+	select {
+	case code := <-recvDone:
+		if code != int(ExitOK) {
+			t.Fatalf("recvStream exit code = %d, want %d", code, ExitOK)
+		}
+	case <-time.After(10 * time.Second):
+		// Generous on purpose: recvStream's own ctx.Done() checks (both
+		// inside recvDeliver and between outer-loop iterations) make this
+		// fast in the common case, but SIGTERM landing while
+		// dialAndSubscribeRecv is mid-attempt cannot interrupt that single
+		// blocking call, whose own worst case spans EnsureDaemon's dial
+		// timeout and spawn wait. A tighter bound here risks flagging that
+		// as a hang when it is not one — and leaving the goroutine to leak
+		// past this test's own return is worse: it keeps mutating the
+		// shared, unsynchronized recoveryEnsurer package var for whichever
+		// test happens to run next.
+		t.Fatal("recvStream did not exit after SIGTERM")
+	}
+}
+
+// TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero is the other half
+// of item 3's contract: when reconnecting truly cannot succeed — no daemon
+// ever comes back, mirroring TestDialDaemonRecovered_RecoveryFailsPersistentlyNoLoop's
+// own "Spawn never opens the socket" fixture — recvStream must exit non-zero
+// instead of the old exit-0-on-a-quietly-dead-stream behavior, so a Monitor
+// surfaces the fault (docs/spec/atomic-bus.md: "a genuinely unreachable
+// daemon makes it exit non-zero").
+func TestRecvStream_DaemonGenuinelyUnreachable_ExitsNonZero(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	var discard bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "sender", "--session", "sess-sender"}, home, testCwd(t), &discard); code != int(ExitOK) {
+		t.Fatalf("seed join exit code = %d", code)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	recvDone := make(chan int, 1)
+	go func() { recvDone <- recvStream(client, home, "potato", "sess-receiver", pw) }()
+
+	delivered := make(chan Envelope, 1)
+	go decodeEnvelopesInto(pr, delivered)
+
+	env := publishUntilDelivered(t, addr, "potato", "sess-sender", "hello", delivered, wireTimeout)
+	if env.Text != "hello" {
+		t.Fatalf("Text = %q, want %q", env.Text, "hello")
+	}
+
+	// A Spawn that never actually opens the socket — the daemon really is
+	// gone for good, not merely mid-restart. Short timeouts keep this
+	// bounded and deterministic (mirrors
+	// TestDialDaemonRecovered_RecoveryFailsPersistently_NoLoop's own
+	// fixture; swapRecoveryEnsurer's own hardcoded timeouts are too long
+	// for a fast, bounded test here).
+	orig := recoveryEnsurer
+	recoveryEnsurer = func() Ensurer {
+		return Ensurer{
+			Spawn:        func(string) error { return nil }, // never opens the socket
+			DialTimeout:  100 * time.Millisecond,
+			SpawnWait:    80 * time.Millisecond,
+			PollInterval: 10 * time.Millisecond,
+		}
+	}
+	t.Cleanup(func() { recoveryEnsurer = orig })
+
+	if code := stopAction(nil, home, &discard); code != int(ExitOK) {
+		t.Fatalf("stop exit code = %d", code)
+	}
+
+	select {
+	case code := <-recvDone:
+		if code == int(ExitOK) {
+			t.Fatal("recvStream exited 0 for a genuinely unreachable daemon — a Monitor would see this as a clean end, not a fault")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("recvStream did not exit within the bounded wait for a genuinely unreachable daemon")
+	}
+}
+
+// TestRecvStream_RoomClosed_DoesNotResurrectTheRoomByReconnecting is an
+// indirect but deterministic action-level proof that recv does not
+// reconnect after a close: Hub.Subscribe (which any reconnect attempt would
+// call) recreates a room via getOrCreateRoom, so a wrongly-reconnecting recv
+// would make "potato" reappear in `rooms` even though nothing is a member
+// of it — the exact resurrection docs/spec/atomic-bus.md's "close" entry
+// exists to prevent.
+func TestRecvStream_RoomClosed_DoesNotResurrectTheRoomByReconnecting(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	addr := SocketPath(home)
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "backend", Kind: KindAgent, Session: "sess-1"}); !resp.OK {
+		t.Fatalf("seed join: %s", resp.Error)
+	}
+	// recvStream always subscribes with SkipSelf, so a message this test
+	// wants delivered on recv must come from a different, also-joined
+	// session (docs/spec/atomic-bus.md: "a subscriber does not receive its
+	// own published messages").
+	if resp := dialAndDo(t, addr, Request{Op: OpJoin, Room: "potato", Name: "frontend", Kind: KindAgent, Session: "sess-other"}); !resp.OK {
+		t.Fatalf("seed join sess-other: %s", resp.Error)
+	}
+
+	client, err := dialDaemon(home)
+	if err != nil {
+		t.Fatalf("dialDaemon: %v", err)
+	}
+
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { pr.Close(); pw.Close() })
+
+	recvDone := make(chan int, 1)
+	go func() { recvDone <- recvStream(client, home, "potato", "sess-1", pw) }()
+
+	delivered := make(chan Envelope, 1)
+	go decodeEnvelopesInto(pr, delivered)
+
+	// Prove the subscription is live before closing, mirroring the other
+	// recv tests' own bounded-wait pattern.
+	env := publishUntilDelivered(t, addr, "potato", "sess-other", "hello", delivered, wireTimeout)
+	if env.Text != "hello" {
+		t.Fatalf("Text = %q, want %q", env.Text, "hello")
+	}
+
+	closeResp := dialAndDo(t, addr, Request{Op: OpClose, Room: "potato"})
+	if !closeResp.OK {
+		t.Fatalf("close failed: %s", closeResp.Error)
+	}
+
+	select {
+	case code := <-recvDone:
+		if code != int(ExitOK) {
+			t.Fatalf("recvStream exit code = %d, want %d", code, ExitOK)
+		}
+	case <-time.After(wireTimeout):
+		t.Fatal("recvStream did not exit after the room was closed — it should stop, not reconnect")
+	}
+
+	roomsResp := dialAndDo(t, addr, Request{Op: OpRooms})
+	if !roomsResp.OK {
+		t.Fatalf("rooms failed: %s", roomsResp.Error)
+	}
+	var roomsPayload struct {
+		Rooms []RoomInfo `json:"rooms"`
+	}
+	if err := json.Unmarshal(roomsResp.Payload, &roomsPayload); err != nil {
+		t.Fatalf("unmarshal rooms payload: %v", err)
+	}
+	if len(roomsPayload.Rooms) != 0 {
+		t.Fatalf("rooms after close = %+v, want none — a reconnect attempt would have resurrected potato via Hub.Subscribe's getOrCreateRoom", roomsPayload.Rooms)
 	}
 }
 
@@ -1105,10 +1511,11 @@ func TestWhoAction_JSONOutput(t *testing.T) {
 	if code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d", code, ExitOK)
 	}
-	var members []Member
-	if err := json.Unmarshal(out.Bytes(), &members); err != nil {
+	var whoPayload whoJSON
+	if err := json.Unmarshal(out.Bytes(), &whoPayload); err != nil {
 		t.Fatalf("output is not parseable JSON: %v\n%s", err, out.String())
 	}
+	members := whoPayload.Members
 	if len(members) != 1 || members[0].Name != "backend" {
 		t.Fatalf("members = %+v, want one member named backend", members)
 	}
@@ -1216,10 +1623,11 @@ func TestWhoAction_JSONOutput_ShowsStale(t *testing.T) {
 	if code := whoAction([]string{"potato", "--json"}, home, &out); code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d", code, ExitOK)
 	}
-	var members []Member
-	if err := json.Unmarshal(out.Bytes(), &members); err != nil {
+	var whoPayload whoJSON
+	if err := json.Unmarshal(out.Bytes(), &whoPayload); err != nil {
 		t.Fatalf("output is not parseable JSON: %v\n%s", err, out.String())
 	}
+	members := whoPayload.Members
 	if len(members) != 1 || !members[0].Stale {
 		t.Fatalf("members = %+v, want one member with Stale true", members)
 	}
@@ -1303,6 +1711,79 @@ func TestPruneAction_RoomNotFound_ExitNoRoom(t *testing.T) {
 
 	var out bytes.Buffer
 	code := pruneAction([]string{"nonexistent"}, home, &out)
+	if code != int(ExitNoRoom) {
+		t.Fatalf("exit code = %d, want %d (ExitNoRoom)", code, ExitNoRoom)
+	}
+}
+
+// --- close ---
+
+// TestCloseAction_Success_ClearsPersistedMembershipAndHaltState is the
+// action-layer companion to room_test.go's
+// TestHub_Close_PublishesEnvelopeEvictsMembersAndDropsRoom and
+// identity_test.go's TestState_ClearRoom_RemovesEveryonesMembershipAndHaltState:
+// closeAction's own composition — OpClose against the daemon, then
+// State.ClearRoom, then Save — was previously verified only manually.
+// Halting the room before closing it proves ClearRoom's halt-state half
+// runs too, not just the membership half.
+func TestCloseAction_Success_ClearsPersistedMembershipAndHaltState(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+	t.Setenv(sessionEnvVar, "sess-1")
+
+	var discard bytes.Buffer
+	if code := joinAction([]string{"potato", "--as", "backend"}, home, testCwd(t), &discard); code != int(ExitOK) {
+		t.Fatalf("join exit code = %d", code)
+	}
+	if code := haltAction([]string{"potato", "--text", "maintenance"}, home, &discard); code != int(ExitOK) {
+		t.Fatalf("halt exit code = %d", code)
+	}
+
+	st, err := Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := st.Rooms["potato"]; !ok {
+		t.Fatal("halt state was not persisted before close — test setup invalid")
+	}
+
+	var out bytes.Buffer
+	code := closeAction([]string{"potato"}, home, &out)
+	if code != int(ExitOK) {
+		t.Fatalf("close exit code = %d, want %d; output: %s", code, ExitOK, out.String())
+	}
+	if got := out.String(); got != "closed potato\n" {
+		t.Fatalf("output = %q, want %q", got, "closed potato\n")
+	}
+
+	st, err = Load(home)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if _, ok := st.LastRoom("sess-1"); ok {
+		t.Fatal("expected the joining session's persisted membership to be cleared after close")
+	}
+	if _, ok := st.Rooms["potato"]; ok {
+		t.Fatal("expected the persisted halt state to be cleared after close")
+	}
+
+	// Hub.Close also drops the room server-side — a query against it now
+	// must see "no such room", not a room that merely lost its members.
+	whoResp := dialAndDo(t, SocketPath(home), Request{Op: OpWho, Room: "potato"})
+	if whoResp.OK {
+		t.Fatal("expected who against a closed room to fail (room dropped server-side)")
+	}
+	if whoResp.Code != ExitNoRoom {
+		t.Fatalf("who Code = %d, want %d (ExitNoRoom)", whoResp.Code, ExitNoRoom)
+	}
+}
+
+func TestCloseAction_UnknownRoom_ExitNoRoom(t *testing.T) {
+	home := testBusHome(t)
+	mustStartTestDaemon(t, home)
+
+	var out bytes.Buffer
+	code := closeAction([]string{"nonexistent"}, home, &out)
 	if code != int(ExitNoRoom) {
 		t.Fatalf("exit code = %d, want %d (ExitNoRoom)", code, ExitNoRoom)
 	}
@@ -2738,10 +3219,11 @@ func TestWhoAction_JSONOutput_ShowsKind(t *testing.T) {
 	if code := whoAction([]string{"potato", "--json"}, home, &out); code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d", code, ExitOK)
 	}
-	var members []Member
-	if err := json.Unmarshal(out.Bytes(), &members); err != nil {
+	var whoPayload whoJSON
+	if err := json.Unmarshal(out.Bytes(), &whoPayload); err != nil {
 		t.Fatalf("output is not parseable JSON: %v\n%s", err, out.String())
 	}
+	members := whoPayload.Members
 	if len(members) != 1 || members[0].Kind != KindAgent {
 		t.Fatalf("members = %+v, want one member with Kind %q", members, KindAgent)
 	}
@@ -2794,10 +3276,11 @@ func TestWhoAction_JSONOutput_ShowsRepoAndRealm(t *testing.T) {
 	if code := whoAction([]string{"potato", "--json"}, home, &out); code != int(ExitOK) {
 		t.Fatalf("exit code = %d, want %d", code, ExitOK)
 	}
-	var members []Member
-	if err := json.Unmarshal(out.Bytes(), &members); err != nil {
+	var whoPayload whoJSON
+	if err := json.Unmarshal(out.Bytes(), &whoPayload); err != nil {
 		t.Fatalf("output is not parseable JSON: %v\n%s", err, out.String())
 	}
+	members := whoPayload.Members
 	if len(members) != 1 || members[0].Repo != "atomic-claude" || members[0].Realm != "myrealm" {
 		t.Fatalf("members = %+v, want one member with Repo %q and Realm %q", members, "atomic-claude", "myrealm")
 	}
