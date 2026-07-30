@@ -95,6 +95,30 @@ The `atomic wiki` subcommand manages the cross-repo wiki and capture buckets. Mo
 | `atomic wiki bucket promote <name>` | Advance the baseline after successful synthesis: recomputes the SHA-256 manifest, rotates `baseline→previous`, sets new manifest as `baseline`. After promote, `diff` exits `0`. |
 
 
+## Binary subcommands (`atomic bus`)
+
+`atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms, over a per-user daemon that auto-spawns on first use and is otherwise controlled explicitly via `start`/`stop`/`restart` — no idle shutdown. The `atomic-bus` skill wraps `join` + a `recv` Monitor and carries the addressed-vs-FYI reaction policy. Run `atomic bus --help` for full usage. See [bus reference](/reference/bus) for the room model, envelope shape, and daemon lifecycle.
+
+| Subcommand | What it does |
+|---------|-------------|
+| `atomic bus join <room> --as <name> [--mode participate\|observe] [--session <id>]` | Join a room under a name. Auto-spawns the daemon. A taken name retries once with a numeric suffix. |
+| `atomic bus leave [<room>]` | Leave a room; defaults to the session's last-joined room. |
+| `atomic bus send <room> <text> [--to <names>] [--reply-to <id>] [--json]` | Send a message. `--to` addresses it; omit for a room-wide FYI. Text `-` reads stdin. |
+| `atomic bus recv <room> [--json]` | Receive messages: always streams one JSON envelope per line until SIGTERM. No replay — only what is published after it subscribes. |
+| `atomic bus who [<room>] [--json]` | List a room's members; defaults to the session's last-joined room. |
+| `atomic bus rooms [--json]` | List every room the daemon knows about, with a member count per room. |
+| `atomic bus status [--json]` | Report this session's joined rooms and the daemon's state. |
+| `atomic bus serve` | Run the daemon in the foreground; this is what `start` spawns. Stopped via `bus stop`. |
+| `atomic bus start` | Spawn the daemon if none is listening. Idempotent. |
+| `atomic bus stop` | Stop a running daemon; exit 0 if none is running. |
+| `atomic bus restart` | Stop then start the daemon; the remedy for a protocol version mismatch. |
+| `atomic bus tail [<room>] [--all-rooms] [--only-addressed] [--from <name>] [--json]` | Watch a room's traffic without joining; never appears in `who`. No replay. |
+| `atomic bus say <room> <text> [--to <names>]` | Send a one-shot message as the operator, without joining. Always succeeds, even in a halted room. |
+| `atomic bus halt <room> [--text <why>]` | Stop a room: agent `send` fails with exit 7 until `resume`. |
+| `atomic bus resume <room>` | Clear a room's halt flag; restores agent `send`. |
+| `atomic bus chat <room> [--as <name>] [--session <id>]` | Interactive client. Joins as a human member; `@name`, `/who`, `/rooms`, `/halt`, `/resume`, `/quit`. |
+
+
 ## Binary subcommands (`atomic code`)
 
 The `atomic code` subcommand provides a code-intelligence index and query engine. When a project has been indexed, `atomic-investigator`, `atomic-reviewer`, and `atomic-wiki-inferrer` query the symbol graph automatically; every consumer falls back to `sg`/`grep` when the index is absent. `atomic doctor` check 11 reports index health. Run `atomic code --help` for full usage.
