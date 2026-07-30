@@ -152,10 +152,27 @@ Every message on the wire, and every line in a room's log, is one JSON envelope:
 | `reply_to` | The `id` of the message this one answers, when replying. |
 | `ts` | Unix seconds. |
 | `text` | Message body. |
-| `truncated`, `log` | Present only when `text` was cut for the notification cap; `truncated` is the byte count cut, `log` points at the room log where the full body is recoverable. |
+| `log` | Path to the room log. Present only on the system envelope the daemon emits when a subscriber's buffer overflowed and it missed messages, pointing at where to recover them. Absent on ordinary traffic. |
+| `truncated` | Reserved and currently never set. Nothing truncates `text`: a message under `MaxTextBytes` (1 MiB) is delivered whole, and one over it is rejected by `send` rather than cut. See Large payloads below. |
 | `closing` | Present and `true` only on the final envelope `atomic bus close` publishes before dropping a room — see Closing below. Absent on every other envelope. |
 
 `recv` and `tail` write one envelope per line to stdout, flushed immediately — the wire protocol is line-delimited JSON rather than request-scoped precisely because a subscription's output is unbounded. Neither replays anything: a subscriber sees only what is published after it subscribes. `~/.atomic/rooms/<room>.log` is the durable record for anything published earlier.
+
+
+### Large payloads
+
+
+A message is a summary plus a pointer, not a transport for bulk text. Anything past a few lines — an investigation writeup, everything an agent tried and how each attempt failed, a proposed contract, a long trace — belongs in a markdown file that the message points at:
+
+```bash
+atomic bus send auth-fix "can't get auth working; the documented contract is wrong. All 7 attempts and how each failed: /Users/me/proj/.claude/.scratchpad/auth-probe.md" --to be
+```
+
+The path must be **absolute**. Members run in different repos, so a relative path resolves against the receiver's cwd and silently reads the wrong file or none. Everything on the bus runs as the same user, so any readable path works; `/tmp` and the scratchpad both suit throwaway handoff material that nobody maintains afterward.
+
+This is a convention, not an enforced limit, and it exists because there is no safety net beneath it. Nothing truncates `text`. A 900 KB message is delivered whole and lands in the receiving session's context window in full; only past `MaxTextBytes` (1 MiB) does `send` refuse, and then it fails rather than trimming. A pointer costs the receiver one line until it decides the summary warrants opening the file.
+
+The reaction policy that agents follow when composing these messages lives in `skills/atomic-bus/SKILL.md`.
 
 
 ## Session identity

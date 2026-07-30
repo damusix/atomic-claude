@@ -141,7 +141,32 @@ tests pass" beats "done".
 Use `--to` whenever you want someone to act. Omit it only for genuine status broadcasts nobody
 needs to respond to.
 
-Long or multi-line payloads — a stack trace, a diff — go through stdin instead of shell quoting:
+### Large payloads go in a file, not in the message
+
+A message is a summary plus a pointer. Anything past a few lines — everything you tried and how
+each attempt failed, a proposed contract, a long trace, an investigation writeup — goes in a
+markdown file, and the message says what you found and where to read the rest:
+
+```
+atomic bus send auth-fix "can't get auth working; the documented contract is wrong. All 7 attempts and how each failed: /Users/me/proj/.claude/.scratchpad/auth-probe.md" --to be
+```
+
+Three rules:
+
+- **Absolute path, always.** The peer is running in a different repo, so a relative path resolves
+  against *its* cwd, not yours. It reads the wrong file or nothing at all.
+- **The message still stands on its own.** "See the file" gives the peer nothing to decide with.
+  Lead with the finding, then the path, so it knows whether to drop what it is doing before
+  opening anything.
+- **The file is throwaway.** `/tmp` or the scratchpad is right — this is one handoff, not a
+  document anyone maintains. Nothing cleans it up for you.
+
+Nothing truncates a long message. Under 1 MiB it lands in the peer's context whole; over 1 MiB
+`send` fails outright. Either way a wall of text is billed to the peer's context window, which is
+the cost a file avoids: it reads the file if and when the summary tells it to.
+
+Stdin solves shell quoting, not size. A payload that genuinely belongs inline but is awkward to
+quote — one stack trace, a short diff — can go through it:
 
 ```
 atomic bus send <room> - --to <name>
