@@ -82,7 +82,7 @@ Continue in place with the current working tree. Skip all steps below.
 
 ```
 Significant work ahead. Use an isolated worktree?
-- Yes, new branch → create .worktrees/<derived-name>/
+- Yes, new branch → create and enter .claude/worktrees/<derived-name>/
 - No, work in place
 ```
 
@@ -93,19 +93,6 @@ On `No`: continue in place. Skip all steps below.
 ## Resolve the branch name
 
 The branch name is passed by the caller (e.g. a topic slug derived from the spec or task). It must match `^[a-z0-9][a-z0-9/-]*$`. If no name is available, derive one: kebab-case slug of the first ~6 words of the task description.
-
-## Verify .worktrees/ is gitignored
-
-```bash
-git check-ignore -q .worktrees
-```
-
-If exit code is non-zero (not ignored):
-
-- Append `.worktrees/` to `.gitignore` (create at repo root if missing).
-- Invoke the `atomic-commit` skill.
-- Stage `.gitignore` explicitly by path.
-- Commit with message `chore: gitignore .worktrees/`.
 
 ## Carry forward an in-context spec or design (optional)
 
@@ -125,7 +112,7 @@ the branch carries it forward?
 
 Options: `commit now (recommended)` / `skip`. On `commit now`:
 
-- Invoke the `atomic-commit` skill for the message.
+- Invoke the `atomic-git-discipline` skill for the message.
 - Stage the file explicitly by path. Do not `git add -A`.
 - Commit on the current branch (typically `main`).
 
@@ -147,10 +134,14 @@ branch <name> already exists. pick a different name or checkout existing.
 
 Stop.
 
-## Create the worktree
+## Create and enter the worktree
+
+Run `atomic repo init` first (idempotent — guarantees the `.claude/` layout and its ignore rules).
+
+Then create the worktree explicitly — the explicit `git worktree add` pins the branch name and bases the branch on the current HEAD (so a just-committed spec is carried forward), which the `EnterWorktree` tool's own creation mode does not guarantee (it names the branch itself and bases it per the `worktree.baseRef` setting):
 
 ```bash
-git worktree add .worktrees/<branch> -b <branch>
+git worktree add .claude/worktrees/<branch> -b <branch>
 ```
 
 If this fails with a permission or sandbox error, print:
@@ -161,9 +152,11 @@ sandbox blocked worktree creation. working in place.
 
 Continue in place — do not run setup or tests.
 
+Then hand the session to Claude Code: call the `EnterWorktree` tool with `path: .claude/worktrees/<branch>`. The session's working directory is now the worktree — file edits and shell commands land in the isolation with no `cd` discipline needed. If the tool is unavailable in this session, run all subsequent commands from inside the worktree directory instead.
+
 ## Auto-detect and run setup
 
-Run all detection from inside `.worktrees/<branch>/`. Check files in this order:
+Run all detection in the worktree (your cwd after entering). Check files in this order:
 
 - `pnpm-lock.yaml` exists alongside `package.json` → `pnpm install`
 - `yarn.lock` exists alongside `package.json` → `yarn install`
@@ -179,7 +172,7 @@ If the setup command fails with a network or permission error, note `setup skipp
 
 ## Run baseline tests
 
-Detect the test command from inside `.worktrees/<branch>/`:
+Detect the test command in the same working directory:
 
 - `pnpm-lock.yaml` + `package.json` with `test` script → `pnpm test`
 - `yarn.lock` + `package.json` with `test` script → `yarn test`
@@ -194,7 +187,7 @@ If tests fail: in interactive mode, list each failure, then ask whether to proce
 ## Report
 
 ```
-Worktree: .worktrees/<branch>/
+Worktree: .claude/worktrees/<branch>/
 Branch:   <branch>
 Setup:    <command run> | skipped (no manifest) | skipped (sandboxed)
 Baseline: <N> tests pass | <N> failures | skipped
@@ -232,8 +225,8 @@ Once the suite is green, run a range-scoped signals refresh before the ship gate
 
 1. If `command -v atomic` returns nothing → skip.
 2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report + skip.
-3. Exit 1 → dispatch `atomic-signals-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort.
-4. Stage `.claude/project/deterministic-signals.md`, `.claude/project/signals.md`, and any files under `.claude/project/signals/`. Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
+3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort.
+4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`). Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
 
 The Phase 5 ship verb's `signals-gate` will then see a fresh stored file (`atomic signals stale` exit 0) and skip the inferrer dispatch — this no-op is intended, not a bug. The loop already refreshed.
 
@@ -253,7 +246,7 @@ Write the implementation log to the spec, then:
     - /commit pr           — open a PR
     ```
 
-Execute the chosen ship verb (it owns message format via `atomic-commit`, worktree cleanup, and signals refresh). On a worktree merge/squash, delete the worktree per the verb's prompt (auto-confirm — the user picked the merge).
+Execute the chosen ship verb (it owns message format via `atomic-git-discipline`, worktree cleanup, and signals refresh). On a worktree merge/squash, delete the worktree per the verb's prompt (auto-confirm — the user picked the merge).
 
 ## Phase 6 — Summary and cleanup
 

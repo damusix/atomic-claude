@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // writeFile writes content to path, creating parent dirs as needed.
@@ -157,6 +158,41 @@ func TestResolve_LocalIndexPresent(t *testing.T) {
 	}
 	if res.Scope != realm.ScopeRepo {
 		t.Errorf("expected ScopeRepo, got %v", res.Scope)
+	}
+}
+
+// TestResolve_LocalIndexPresent_UnderNonDefaultHarnessDir verifies the local
+// index short-circuit threads cwd through config.IndexDBPath — under a ".pi"
+// harness dir the local index lives at .pi/.atomic-index/atomic.db, not the
+// default .claude/.atomic-index/atomic.db.
+func TestResolve_LocalIndexPresent_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	dir := t.TempDir()
+	claudeMD := filepath.Join(dir, "CLAUDE.md")
+	writeFile(t, claudeMD, "# no wikis\n")
+
+	// A default-harness index db must NOT trigger ScopeRepo under a .pi harness.
+	writeFile(t, filepath.Join(dir, ".claude", ".atomic-index", "atomic.db"), "")
+
+	res, err := realm.Resolve(dir, claudeMD)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Scope == realm.ScopeRepo {
+		t.Fatalf("expected non-Repo scope for a .claude index under a .pi harness, got %v", res.Scope)
+	}
+
+	// The .pi-scoped index db must trigger ScopeRepo.
+	writeFile(t, filepath.Join(dir, ".pi", ".atomic-index", "atomic.db"), "")
+
+	res, err = realm.Resolve(dir, claudeMD)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Scope != realm.ScopeRepo {
+		t.Errorf("expected ScopeRepo for a .pi index under a .pi harness, got %v", res.Scope)
 	}
 }
 

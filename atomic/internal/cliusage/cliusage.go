@@ -1,15 +1,16 @@
 // Package cliusage defines the complete atomic command surface as structured
-// data. It serves two consumers: (1) main.go renders --help from it, and
-// (2) the validate artifacts rule (Checkpoint 2) checks artifact citations
-// against it. Define the surface once here; callers never hand-write usage
-// lines or maintain parallel flag lists.
+// data. It serves two consumers: (1) Cobra renders --help from the registered
+// command tree, and (2) the validate artifacts rule checks artifact citations
+// against it. The surface is derived by walking the Cobra tree via SetRoot;
+// the hardcoded slice below is the pre-migration golden fixture and the
+// fallback for tests that never call SetRoot.
 package cliusage
 
 import (
-	"fmt"
-	"io"
 	"strings"
-	"text/tabwriter"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // Command describes one entry in the atomic command surface.
@@ -27,13 +28,120 @@ type Command struct {
 	Description string
 }
 
-// commands is the ordered command surface. Flags reflect the actual
-// flag.NewFlagSet registrations in each verb handler — the source of truth
-// for the validate-artifacts check. Keep this in sync with the handler when
-// adding or removing flags; a mismatch causes CP2 to emit false-positives or
-// false-negatives. Edit this slice to change --help and the validate
-// artifacts rule simultaneously.
+// commands holds the current command surface. In production it is replaced by
+// SetRoot (called from main after building the Cobra tree). In tests that
+// never call SetRoot it retains the hardcoded slice below, which serves as
+// the golden fixture for TestDeriveCommandsGolden. The hardcoded slice and
+// the Cobra tree must be kept in sync: the golden test enforces this.
 var commands = []Command{
+	{
+		Path:        []string{"bus", "join"},
+		Args:        "<room>",
+		Flags:       []string{"--as", "--mode", "--kind", "--session"},
+		Description: "Join a room under a name; auto-spawns the daemon",
+	},
+	{
+		Path:        []string{"bus", "leave"},
+		Args:        "[<room>]",
+		Flags:       []string{"--session"},
+		Description: "Leave a room (default: the session's last-joined room)",
+	},
+	{
+		Path:        []string{"bus", "send"},
+		Args:        "<room> <text>",
+		Flags:       []string{"--to", "--reply-to", "--session", "--json"},
+		Description: "Send a message; text \"-\" reads stdin",
+	},
+	{
+		Path:        []string{"bus", "recv"},
+		Args:        "<room>",
+		Flags:       []string{"--json", "--session"},
+		Description: "Receive messages; streams JSON envelopes until SIGTERM",
+	},
+	{
+		Path:        []string{"bus", "who"},
+		Args:        "[<room>]",
+		Flags:       []string{"--json"},
+		Description: "List a room's members (default: the session's last-joined room)",
+	},
+	{
+		Path:        []string{"bus", "rooms"},
+		Args:        "",
+		Flags:       []string{"--json"},
+		Description: "List every room the daemon knows about",
+	},
+	{
+		Path:        []string{"bus", "status"},
+		Args:        "",
+		Flags:       []string{"--json", "--session"},
+		Description: "Report this session's joined rooms and the daemon's state",
+	},
+	{
+		Path:        []string{"bus", "serve"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Run the daemon in the foreground; stopped via bus stop",
+	},
+	{
+		Path:        []string{"bus", "start"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Spawn the daemon if none is listening; idempotent",
+	},
+	{
+		Path:        []string{"bus", "stop"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Stop a running daemon; exit 0 if none is running",
+	},
+	{
+		Path:        []string{"bus", "restart"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Stop then start the daemon; the version-skew remedy",
+	},
+	{
+		Path:        []string{"bus", "tail"},
+		Args:        "[<room>]",
+		Flags:       []string{"--all-rooms", "--json", "--only-addressed", "--from"},
+		Description: "Watch a room's traffic without joining; never appears in who",
+	},
+	{
+		Path:        []string{"bus", "say"},
+		Args:        "<room> <text>",
+		Flags:       []string{"--to"},
+		Description: "Send a one-shot human message without joining; always passes, even halted",
+	},
+	{
+		Path:        []string{"bus", "halt"},
+		Args:        "<room>",
+		Flags:       []string{"--text"},
+		Description: "Stop a room: agent send fails with exit 7 until resume",
+	},
+	{
+		Path:        []string{"bus", "resume"},
+		Args:        "<room>",
+		Flags:       nil,
+		Description: "Clear a room's halt flag; restores agent send",
+	},
+	{
+		Path:        []string{"bus", "prune"},
+		Args:        "[<room>]",
+		Flags:       []string{"--json"},
+		Description: "Remove stale members (no live subscription, no recent activity) from a room",
+	},
+	{
+		Path:        []string{"bus", "close"},
+		Args:        "<room>",
+		Flags:       nil,
+		Description: "Publish a closing envelope, evict every member, and drop the room; owner-requested, no session required",
+	},
+	{
+		Path:        []string{"bus", "chat"},
+		Args:        "<room>",
+		Flags:       []string{"--as", "--session"},
+		Description: "Interactive client: joins as a human member; @name, /who, /rooms, /halt, /resume, /quit",
+	},
 	{
 		Path:        []string{"claude", "install"},
 		Args:        "",
@@ -95,6 +203,18 @@ var commands = []Command{
 		Description: "Print path to config.toml",
 	},
 	{
+		Path:        []string{"config", "agents"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Set per-agent model tiers interactively",
+	},
+	{
+		Path:        []string{"config", "resolve"},
+		Args:        "",
+		Flags:       []string{"--repo", "--json"},
+		Description: "Resolve Pi agent configuration",
+	},
+	{
 		Path:        []string{"docker", "init"},
 		Args:        "",
 		Flags:       []string{"--target", "--force"},
@@ -105,6 +225,12 @@ var commands = []Command{
 		Args:        "",
 		Flags:       []string{"--fix", "--json", "--only", "--skip", "--stale-days", "--verbose"},
 		Description: "Integrity check",
+	},
+	{
+		Path:        []string{"where"},
+		Args:        "",
+		Flags:       []string{"--json"},
+		Description: "Report cwd's wiki/realm/code-index position",
 	},
 	{
 		Path:        []string{"hooks", "session-start"},
@@ -152,13 +278,13 @@ var commands = []Command{
 		Path:        []string{"signals", "scan"},
 		Args:        "",
 		Flags:       []string{"--out"},
-		Description: "Walk repo and write deterministic-signals.md",
+		Description: "Walk repo and write docs/wiki/scan.md",
 	},
 	{
 		Path:        []string{"signals", "show"},
 		Args:        "",
 		Flags:       nil,
-		Description: "Print deterministic-signals.md to stdout",
+		Description: "Print docs/wiki/scan.md to stdout",
 	},
 	{
 		Path:        []string{"signals", "stale"},
@@ -176,7 +302,7 @@ var commands = []Command{
 		Path:        []string{"signals", "linkify"},
 		Args:        "",
 		Flags:       nil,
-		Description: "Linkify path tokens in signals.md and signals/*.md",
+		Description: "Linkify path tokens in docs/wiki/index.md and docs/wiki/*.md",
 	},
 	{
 		Path:        []string{"update"},
@@ -329,6 +455,18 @@ var commands = []Command{
 		Description: "Linkify path tokens in wiki artifacts in-place",
 	},
 	{
+		Path:        []string{"wiki", "init"},
+		Args:        "",
+		Flags:       []string{"--scope", "--root"},
+		Description: "Write the fixed-content CLAUDE.md scaffold and the scope marker for --scope repo|realm (idempotent)",
+	},
+	{
+		Path:        []string{"wiki", "stamp"},
+		Args:        "<file>",
+		Flags:       []string{"--repo", "--root", "--cites", "--knowledge", "--sources"},
+		Description: "Write reflects_rev/reflects/sources fingerprint frontmatter (summary|concern|knowledge)",
+	},
+	{
 		Path:        []string{"wiki", "bucket", "add"},
 		Args:        "<name>",
 		Flags:       []string{"--root"},
@@ -353,6 +491,24 @@ var commands = []Command{
 		Description: "Snapshot bucket and rotate baseline→previous, current→baseline",
 	},
 	{
+		Path:        []string{"wiki", "bucket", "doc"},
+		Args:        "<bucket> <slug>",
+		Flags:       []string{"--root", "--router"},
+		Description: "Scaffold <bucket>/<slug>.md from the embedded doc template; --router also scaffolds the sibling subtree",
+	},
+	{
+		Path:        []string{"wiki", "bucket", "skill"},
+		Args:        "<bucket>",
+		Flags:       []string{"--root"},
+		Description: "Scaffold the realm per-bucket SKILL.md for <bucket> (no-op if present)",
+	},
+	{
+		Path:        []string{"wiki", "bucket", "index"},
+		Args:        "[<bucket>]",
+		Flags:       []string{"--root"},
+		Description: "Rebuild the <bucket-docs> region for one bucket (or all when omitted) plus the realm bucket list",
+	},
+	{
 		Path:        []string{"prompt", "git-cleanup"},
 		Args:        "",
 		Flags:       nil,
@@ -365,10 +521,70 @@ var commands = []Command{
 		Description: "Emit the CLAUDE.md merge cold-op brief",
 	},
 	{
+		Path:        []string{"template", "brief"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the brief document template",
+	},
+	{
+		Path:        []string{"template", "design-doc"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the design-doc document template",
+	},
+	{
+		Path:        []string{"template", "diagnose-context"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the diagnose-context document template",
+	},
+	{
+		Path:        []string{"template", "followups"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the followups document template",
+	},
+	{
+		Path:        []string{"template", "implementation-log"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the implementation-log document template",
+	},
+	{
+		Path:        []string{"template", "session-report"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the session-report document template",
+	},
+	{
+		Path:        []string{"template", "spec"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the spec document template",
+	},
+	{
+		Path:        []string{"template", "state"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the state document template",
+	},
+	{
 		Path:        []string{"serve"},
 		Args:        "[path]",
 		Flags:       []string{"--port", "--host", "--open"},
 		Description: "Start a local read-only HTTP server for exploring wiki + code-intel",
+	},
+	{
+		Path:        []string{"migrate"},
+		Args:        "",
+		Flags:       []string{"--repo", "--realm"},
+		Description: "Run versioned atomic migrations",
+	},
+	{
+		Path:        []string{"repo", "init"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Scaffold .claude/ layout: dirs + nested .claude/.gitignore + root ignore rules (idempotent)",
 	},
 }
 
@@ -380,36 +596,72 @@ func Commands() []Command {
 	return out
 }
 
-// RenderCommandsBlock writes the "Commands:" body — the lines between the
-// "Commands:" label and the "\nFlags:" section — to w. Each line is one
-// command: "  <verb-path> [args] [flags]  <description>". Columns are aligned
-// via text/tabwriter. The label "Commands:" and the "\nFlags:" section are
-// NOT written here; main.go owns those surrounding lines.
-func RenderCommandsBlock(w io.Writer) {
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	for _, c := range commands {
-		hint := buildHint(c)
-		if hint != "" {
-			fmt.Fprintf(tw, "  %s\t%s\t%s\n", strings.Join(c.Path, " "), hint, c.Description)
-		} else {
-			fmt.Fprintf(tw, "  %s\t\t%s\n", strings.Join(c.Path, " "), c.Description)
-		}
-	}
-	tw.Flush()
+// SetRoot derives the command surface by walking the Cobra tree rooted at root
+// and replaces the commands slice. main() calls this once after building the
+// Cobra tree so that Commands(), LookupByPath(), and TopLevelVerbs() all read
+// from the live Cobra tree rather than the static hardcoded table.
+func SetRoot(root *cobra.Command) {
+	commands = DeriveCommands(root)
 }
 
-// buildHint builds the args+flags hint string for a command, e.g.
-// "<query> [--json] [--limit N]". Returns "" when both Args and Flags are
-// empty. The rendered form matches the original main.go usage block style.
-func buildHint(c Command) string {
-	var parts []string
-	if c.Args != "" {
-		parts = append(parts, c.Args)
+// DeriveCommands walks the Cobra tree rooted at root and returns the leaf
+// commands (those with no visible subcommands) as cliusage entries. The root
+// itself is excluded from paths; only its children and their descendants
+// contribute. Each leaf's Path comes from the ancestor chain of command names,
+// Args from Annotations["args_hint"], Flags from cmd.Flags().VisitAll
+// (alphabetical, registered flags only — inherited persistent flags are not
+// included because the FlagSet is created before the parent is assigned), and
+// Description from cmd.Short.
+func DeriveCommands(root *cobra.Command) []Command {
+	var out []Command
+	for _, child := range root.Commands() {
+		if child.Hidden {
+			continue
+		}
+		walkLeaves(child, nil, &out)
 	}
-	for _, f := range c.Flags {
-		parts = append(parts, "["+f+"]")
+	return out
+}
+
+// walkLeaves recursively walks the Cobra command tree. Non-leaf commands
+// (those with visible subcommands) are recursed into; leaf commands are
+// mapped to a Command entry and appended to out. prefix is the path tokens
+// accumulated from ancestor commands (not including root).
+func walkLeaves(cmd *cobra.Command, prefix []string, out *[]Command) {
+	path := make([]string, len(prefix)+1)
+	copy(path, prefix)
+	path[len(prefix)] = cmd.Name()
+
+	// Collect visible subcommands; skip cobra-injected "help" and "completion"
+	// even when not explicitly hidden.
+	var subs []*cobra.Command
+	for _, s := range cmd.Commands() {
+		if s.Hidden || s.Name() == "help" || s.Name() == "completion" {
+			continue
+		}
+		subs = append(subs, s)
 	}
-	return strings.Join(parts, " ")
+
+	if len(subs) > 0 {
+		for _, s := range subs {
+			walkLeaves(s, path, out)
+		}
+		return
+	}
+
+	// Leaf: map to a cliusage.Command.
+	c := Command{
+		Path:        path,
+		Args:        cmd.Annotations["args_hint"],
+		Description: cmd.Short,
+	}
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		c.Flags = append(c.Flags, "--"+f.Name)
+	})
+	if len(c.Flags) == 0 {
+		c.Flags = nil
+	}
+	*out = append(*out, c)
 }
 
 // LookupByPath returns the Command whose Path matches path exactly, or nil

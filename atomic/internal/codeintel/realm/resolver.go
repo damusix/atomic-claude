@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
@@ -41,9 +42,6 @@ func (s Scope) String() string {
 		return "Unknown"
 	}
 }
-
-// localIndexDB is the conventional path of the local index db relative to a cwd.
-const localIndexDB = ".claude/.atomic-index/atomic.db"
 
 // Resolution is the output of Resolve.
 type Resolution struct {
@@ -87,7 +85,7 @@ func Resolve(cwd, claudeMDPath string) (Resolution, error) {
 	cwd = filepath.Clean(cwd)
 
 	// 1. Local index short-circuit.
-	dbPath := filepath.Join(cwd, localIndexDB)
+	dbPath := config.IndexDBPath(cwd)
 	if fileExists(dbPath) {
 		return Resolution{Scope: ScopeRepo}, nil
 	}

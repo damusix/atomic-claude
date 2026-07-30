@@ -25,6 +25,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	codemcp "github.com/damusix/atomic-claude/atomic/internal/codeintel/mcp"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // RunCode is the top-level dispatcher for `atomic code <verb>`. It resolves
@@ -115,7 +116,7 @@ func printCodeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  mcp       Run the MCP server over stdio")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "All query verbs accept --json for machine-readable output.")
-	fmt.Fprintln(w, "DB path: <project>/.claude/.atomic-index/atomic.db")
+	fmt.Fprintln(w, "DB path: "+config.IndexDBPath("<project>"))
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +162,13 @@ func runIndex(ctx context.Context, eng *engine.Engine, args []string, projectRoo
 	// surfacing the count keeps the skip visible instead of silent.
 	if skipped := eng.SkippedFiles(); skipped > 0 {
 		fmt.Fprintf(stderr, "atomic code index: skipped %d unreadable file(s)\n", skipped)
+	}
+
+	// A degraded .claude/atomic.toml (malformed TOML, an invalid glob pattern,
+	// or an unknown key) does not fail the index — it is surfaced as one
+	// combined warning line so the degradation is visible, not silent.
+	if warns := eng.IgnoreWarnings(); len(warns) > 0 {
+		fmt.Fprintf(stderr, "atomic code index: repo config: %s\n", strings.Join(warns, "; "))
 	}
 
 	// Emit extract profile line immediately (before resolve starts) so a killed
@@ -253,6 +261,9 @@ func runSync(ctx context.Context, eng *engine.Engine, args []string, stdout, std
 	if skipped := eng.SkippedFiles(); skipped > 0 {
 		fmt.Fprintf(stderr, "atomic code sync: skipped %d unreadable file(s)\n", skipped)
 	}
+	if warns := eng.IgnoreWarnings(); len(warns) > 0 {
+		fmt.Fprintf(stderr, "atomic code sync: repo config: %s\n", strings.Join(warns, "; "))
+	}
 	if _, err := eng.ExtractFrameworkNodes(ctx); err != nil {
 		fmt.Fprintf(stderr, "atomic code sync: extract framework nodes: %v\n", err)
 		return 1
@@ -290,6 +301,10 @@ type StatusJSON struct {
 	JournalMode    string         `json:"journalMode"`
 	NodesByKind    map[string]int `json:"nodesByKind"`
 	PendingChanges int            `json:"pendingChanges"`
+	// IgnorePatternCount/IgnoreConfigPath are omitted (zero value) when no
+	// .claude/atomic.toml ignore patterns are active.
+	IgnorePatternCount int    `json:"ignorePatternCount,omitempty"`
+	IgnoreConfigPath   string `json:"ignoreConfigPath,omitempty"`
 }
 
 func runStatus(ctx context.Context, eng *engine.Engine, args []string, projectRoot string, stdout, stderr io.Writer) int {
@@ -343,6 +358,11 @@ func runStatus(ctx context.Context, eng *engine.Engine, args []string, projectRo
 	// at <realm>/.atomic/<key>.db, not under projectRoot).
 	indexPath := eng.IndexPath()
 
+	// Ignore-pattern count is a cheap, pool-free config read (see
+	// Engine.IgnorePatternInfo) — status must not boot the indexer just to
+	// report this line.
+	ignoreCount, ignorePath := eng.IgnorePatternInfo()
+
 	if asJSON {
 		byKind := make(map[string]int, len(stats.NodesByKind))
 		for k, v := range stats.NodesByKind {
@@ -361,6 +381,10 @@ func runStatus(ctx context.Context, eng *engine.Engine, args []string, projectRo
 			NodesByKind:    byKind,
 			PendingChanges: pending,
 		}
+		if ignoreCount > 0 {
+			s.IgnorePatternCount = ignoreCount
+			s.IgnoreConfigPath = ignorePath
+		}
 		enc, err := json.MarshalIndent(s, "", "  ")
 		if err != nil {
 			fmt.Fprintf(stderr, "atomic code status: marshal: %v\n", err)
@@ -377,6 +401,9 @@ func runStatus(ctx context.Context, eng *engine.Engine, args []string, projectRo
 		fmt.Fprintf(stdout, "backend:         %s\n", eng.GetBackend())
 		fmt.Fprintf(stdout, "journal mode:    %s\n", eng.GetJournalMode())
 		fmt.Fprintf(stdout, "pending changes: %d\n", pending)
+		if ignoreCount > 0 {
+			fmt.Fprintf(stdout, "ignore patterns: %d (%s)\n", ignoreCount, ignorePath)
+		}
 	}
 	return 0
 }
@@ -937,12 +964,13 @@ func printSubgraph(sg types.Subgraph, asJSON bool, stdout, stderr io.Writer) int
 	return 0
 }
 
-// EnsureGitignore appends `.claude/.atomic-index/` to <projectRoot>/.gitignore
-// if the entry is not already present. The file is created if it does not exist.
-// This is idempotent: running it multiple times produces one entry.
+// EnsureGitignore appends `<harness.dir>/.atomic-index/` (e.g.
+// `.claude/.atomic-index/`) to <projectRoot>/.gitignore if the entry is not
+// already present. The file is created if it does not exist. This is
+// idempotent: running it multiple times produces one entry.
 func EnsureGitignore(projectRoot string) error {
 	gitignorePath := filepath.Join(projectRoot, ".gitignore")
-	const entry = ".claude/.atomic-index/"
+	entry := filepath.ToSlash(config.IndexDir("")) + "/"
 
 	// Read existing content.
 	var existing string

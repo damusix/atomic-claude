@@ -43,7 +43,7 @@ These two stay auto-loaded every session (project-specific, compact):
 
 ### Project signals (auto-loaded)
 
-@.claude/project/signals.md
+@docs/wiki/index.md
 
 
 ### Project follow-ups (auto-loaded)
@@ -80,7 +80,7 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 | 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit` requires editing the command to call it AND the skill to declare itself as called from there. |
 | 7 | **`/atomic-help` topic table + tour** ⚠ | **Always** — every artifact a user might type, install, or run. Non-negotiable. | Edit `templates/commands/atomic-help.md`. Add / remove / rename the row in the right category sub-table (Lifecycle / Ship matrix / State & context / Maintenance & utilities / Reference). Material lifecycle or maintenance change → also update the matching tour stage (Stage 2 lifecycle / Stage 3 state files / Stage 4 maintenance). **Read the full contract in `<help_router_contract>` below before skipping any sub-rule.** |
 | 8 | Bundle inclusion (`atomic/internal/bundlemirror/mirror.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the inclusion rule. Existing kinds (`agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`) auto-include matching files. |
-| 9 | Signals refresh | After adding the file | Run `/refresh-signals` (or let ship verbs dispatch `atomic-signals-inferrer` in silent mode) so `.claude/project/deterministic-signals.md` and `signals.md` reflect the new file. |
+| 9 | Signals refresh | After adding the file | Run `/refresh-signals` (or let ship verbs dispatch `atomic-signals-inferrer` in silent mode) so `docs/wiki/scan.md` and `docs/wiki/index.md` reflect the new file. |
 
 </mandatory_checklist>
 
@@ -139,7 +139,7 @@ These rules exist because this repo is meant to be installed into *user reposito
 
 - **The implementation phase owns signals refresh; ship verbs are the ad-hoc fallback.** The primary refresh point is the end of an implementation phase: `/subagent-implementation` (Phase 3 finalize) and `/autopilot` (Phase 4) dispatch `atomic-signals-inferrer` once over the loop's SHA range (`changed_range: <loop-base>..HEAD`), committed as `chore(signals)`. The ship verbs (`/commit` and its merge/squash flows, via the `signals-gate` partial) refresh only when the user is **ad-hoc committing a real code change**: the gate skips docs-only commits (every staged path under `docs/` or a top-level `README*`/`CHANGELOG*`/`LICENSE*`-class file) and relies on the content-based `atomic signals stale` exit code as the coordinator — a fresh stored file (because the implementation phase already refreshed) returns exit 0, so the gate is a no-op, avoiding a redundant dispatch. If neither path refreshes, the user's project signals go stale — invisible drift. Contract: `docs/spec/signals-refresh-timing.md` (child of `docs/spec/signals-workflow.md`).
 - **Ship verbs must remind the user to run `/documentation` after significant changes.** "Significant" = new file, removed file, public-API change, dependency change. Surface a one-line prompt at the end of the verb. The skill is interactive and user-driven (axiom 3: destructive ops explicit confirm; doc rewrites are close enough).
-- **Symmetry within a command family.** The commit/squash/merge family must agree on shared concerns: message format (all delegate to `atomic-commit` skill), worktree detection (all detect on merge/squash and prompt to delete), signals refresh trigger (above). If you change one verb's behavior on a shared concern, change all of them.
+- **Symmetry within a command family.** The commit/squash/merge family must agree on shared concerns: message format (all delegate to `atomic-git-discipline` skill), worktree detection (all detect on merge/squash and prompt to delete), signals refresh trigger (above). If you change one verb's behavior on a shared concern, change all of them.
 - **Skills that are invoked by commands must declare it.** A skill's description should mention "invoked by /foo, /bar" so the trigger surface is inspectable. Reverse holds: a command that invokes a skill must name it in the command file. No silent dependencies.
 - **Agents dispatched by commands must name the `subagent_type` in the command file**, and the agent's own `description` must carry an accurate when-to-use (that's what the harness surfaces in the session roster — there is no CLAUDE.md agent registry). Dispatch is a public contract.
 - **When in doubt, write the spec first.** `docs/spec/<topic>.md` is the canonical source for any cross-artifact contract. If two artifacts reference the same flow and the spec doesn't exist, write it before adding the second reference.
@@ -197,13 +197,13 @@ Zero `MISSING:` lines = pass. Any output = blocker.
 ## Signals `@-ref` must stay wired (in this repo: `claude.local.md`)
 
 
-Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. The inferrer reads it on demand; sessions do not need it. `signals-steering.md` is also NOT `@-ref`'d — the skill reads it at dispatch time and passes it to the inferrer.
+Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. The inferrer reads it on demand; sessions do not need it. `docs/wiki/CLAUDE.md` (steering) is also NOT `@-ref`'d — it lazy-loads as nested memory whenever Claude reads a file under `docs/wiki/`, which is exactly when the inferrer operates.
 
 
 **In this repo specifically**, the ref lives in `claude.local.md` (this file) — not in `CLAUDE.md`. Reason: `CLAUDE.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for the project-scoped `@`-ref.
 
 
-- The `atomic-signals-inferrer` agent checks for `@.claude/project/signals.md` in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md`. If present in ANY of them, it skips wiring. The agent's search order is the contract.
+- The `atomic-signals-inferrer` agent checks for `@docs/wiki/index.md` in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md`. If present in ANY of them, it skips wiring. The agent's search order is the contract.
 - For most repos, the ref ends up in `CLAUDE.md` (one file, no separation). For this repo and any other config-source repos, it lives in `claude.local.md`. Both are valid.
 - If you fork the layout (e.g. moving refs into a separate `@`-included file), update the agent's search order in lockstep.
 
@@ -212,20 +212,27 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 
 | Path | Covers | Voice |
 |------|--------|-------|
-| `README.md` | project overview, install, commands, agents, skills | atomic-prose |
-| `docs/guides/install.md` | installation, updating, uninstalling | atomic-prose |
-| `docs/guides/getting-started.md` | first-session quickstart, output style, repo setup, first task, updating | atomic-prose |
-| `docs/guides/knowledge-base.md` | karpathy realm, capture surfaces (research/raw/tickets), fingerprint synthesis to wiki/knowledge | atomic-prose |
-| `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-prose |
-| `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-prose |
-| `docs/guides/code-intel-mcp.md` | code-intel MCP server setup, .mcp.json, tools | atomic-prose |
-| `docs/reference/workflow.md` | plan, implement, diagnose, ship lifecycle | atomic-prose |
-| `docs/reference/commands.md` | command reference table | atomic-prose |
-| `docs/reference/agents.md` | agent reference table | atomic-prose |
-| `docs/reference/skills.md` | skills reference table | atomic-prose |
-| `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-prose |
-| `docs/reference/code-intel.md` | code-intel engine: verbs, index, lifecycle, workflow integration | atomic-prose |
-| `docs/reference/output-style.md` | atomic output style reference | atomic-prose |
+| `README.md` | project overview, install, commands, agents, skills | atomic-writing |
+| `docs/guides/install.md` | installation, updating, uninstalling | atomic-writing |
+| `docs/guides/getting-started.md` | first-session quickstart, output style, repo setup, first task, updating | atomic-writing |
+| `docs/guides/knowledge-base.md` | karpathy realm, capture surfaces (research/raw/tickets), fingerprint synthesis to wiki/knowledge | atomic-writing |
+| `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-writing |
+| `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-writing |
+| `docs/guides/code-intel-mcp.md` | code-intel MCP server setup, .mcp.json, tools | atomic-writing |
+| `docs/reference/workflow.md` | plan, implement, diagnose, ship lifecycle | atomic-writing |
+| `docs/reference/commands.md` | command reference table | atomic-writing |
+| `docs/reference/agents.md` | agent reference table | atomic-writing |
+| `docs/reference/skills.md` | skills reference table | atomic-writing |
+| `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-writing |
+| `docs/reference/code-intel.md` | code-intel engine: verbs, index, lifecycle, workflow integration | atomic-writing |
+| `docs/reference/output-style.md` | atomic output style reference | atomic-writing |
+| `docs/reference/concepts.md` | how atomic-claude fits together, the atomic binary, code intelligence flow | atomic-writing |
+| `docs/reference/conventions.md` | atomic style scope, CLAUDE.md hygiene, commit bylines, scratchpad/tmp rules, worktree auto-detect | atomic-writing |
+| `docs/reference/serve.md` | `atomic serve` usage, scope resolution, browsing wiki + code graph locally | atomic-writing |
+| `docs/reference/wiki-workflow.md` | wiki setup, repo/realm scope, wiki verbs (scan/stale/linkify/bucket) | atomic-writing |
+| `docs/reference/bus.md` | `atomic bus` room model, addressed vs FYI, envelope, daemon lifecycle, exit codes, operator verbs | atomic-writing |
+| `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
+| `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
 | `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
 
 
@@ -325,10 +332,10 @@ These live under `.claude/commands/`, load as project-scoped slash commands for 
 
 ## Naming
 
-- All custom artifacts use the `atomic-` prefix (`atomic-implementer`, `atomic-tdd`, `atomic-commit`, etc.) so they're easy to spot among third-party installs.
+- All custom artifacts use the `atomic-` prefix (`atomic-implementer`, `atomic-tdd`, `atomic-git-discipline`, etc.) so they're easy to spot among third-party installs.
 - Slash commands are imperative verbs (`/commit`, `/undo-commit`, `/atomic-plan`).
 
 
 ## Install (for this repo's artifacts)
 
-No install script yet. Manual: copy each top-level directory into `~/.claude/`, restart Claude Code. A future `/install` or Makefile target is on the table.
+Install like any user: `curl -fsSL https://raw.githubusercontent.com/damusix/atomic-claude/main/install.sh | bash` fetches the binary, then `atomic claude install` writes the artifact bundle into `~/.claude/`. To test local artifact changes, build the dev binary (`make -C atomic build`, outputs `bin/atomic`) and run `bin/atomic claude install`. Decision record: `docs/research/install-sh-decision.md` (issue #127 — install.sh stays; the old manual-copy guidance is retired).

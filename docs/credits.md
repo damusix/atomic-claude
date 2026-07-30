@@ -36,14 +36,21 @@ Why this repo exists alongside it: superpowers leans hard on auto-firing skills 
 
 ## stop-slop
 
-**[stop-slop](https://github.com/hardikpandya/stop-slop)** by Hardik Pandya (MIT). The rule set behind `atomic-prose`. A focused skill for removing predictable AI patterns from prose — throat-clearing, em dashes, marketing jargon, false agency. Atomic-claude adapted those rules for developer documentation: kept the anti-marketing core and active-voice requirement, dropped essay-targeted guidance, and added boundaries so doc prose does not collapse into telegraphic fragments. If you write blog posts or essays as well as docs, run stop-slop for the broader rule set.
+**[stop-slop](https://github.com/hardikpandya/stop-slop)** by Hardik Pandya (MIT). The rule set behind `atomic-writing`. A focused skill for removing predictable AI patterns from prose — throat-clearing, em dashes, marketing jargon, false agency. Atomic-claude adapted those rules for developer documentation: kept the anti-marketing core and active-voice requirement, dropped essay-targeted guidance, and added boundaries so doc prose does not collapse into telegraphic fragments. If you write blog posts or essays as well as docs, run stop-slop for the broader rule set.
 
 
 ## claude-improve
 
-**[claude-improve](https://github.com/TerenceBristol/claude-improve)** by Terence Bristol. The retrospective-audit pattern behind `/atomic-improve`. claude-improve introduced the idea of treating a Claude session as a corpus to be mined — scanning `.jsonl` session history for corrections/praise/friction, cross-referencing against installed artifacts, and proposing targeted improvements one at a time with Accept/Reject/Modify. The enforcement-gap-to-hook conversion (turn a repeatedly-violated advisory rule into a deterministic `PreToolUse` gate) and the prior-run audit (verify whether past accepts actually landed) are both lifted directly from it.
+**[claude-improve](https://github.com/TerenceBristol/claude-improve)** by Terence Bristol. The retrospective-audit pattern behind `/retrospective-learning`. claude-improve introduced the idea of treating a Claude session as a corpus to be mined — scanning `.jsonl` session history for corrections/praise/friction, cross-referencing against installed artifacts, and proposing targeted improvements one at a time with Accept/Reject/Modify. The enforcement-gap-to-hook conversion (turn a repeatedly-violated advisory rule into a deterministic `PreToolUse` gate) and the prior-run audit (verify whether past accepts actually landed) are both lifted directly from it.
 
-Why this repo's version exists alongside it: claude-improve is a standalone skill targeted at any Claude Code setup. `/atomic-improve` adapts the same pipeline to atomic-claude's primitives — reusing `atomic-investigator`, Haiku-backed `general-purpose` runners, and `atomic-strategist` for the parallel scans, storing run logs in `~/.claude/.atomic/improve-runs/` instead of a flat learnings file, and following the indexed-selection axiom for finding presentation instead of paginated `AskUserQuestion`.
+Why this repo's version exists alongside it: claude-improve is a standalone skill targeted at any Claude Code setup. `/retrospective-learning` adapts the same pipeline to atomic-claude's primitives — reusing `atomic-investigator`, Haiku-backed `general-purpose` runners, and `atomic-strategist` for the parallel scans, storing run logs in `~/.atomic/retro-runs/` instead of a flat learnings file, and following the indexed-selection axiom for finding presentation instead of paginated `AskUserQuestion`.
+
+
+## STORM
+
+**[STORM](https://github.com/stanford-oval/storm)** by Stanford OVAL ([paper](https://arxiv.org/abs/2402.14207), Shao et al.) — Synthesis of Topic Outlines through Retrieval and Multi-perspective Question Asking. STORM writes grounded, Wikipedia-like articles by simulating perspective-diverse research conversations before any writing happens: agents with genuinely different viewpoints interrogate a topic independently, and the synthesis is built from what they surface. The insight is that independent perspectives find what any single pass misses, and that the perspective definition carries enough specialization for smaller models to do the work well.
+
+`/challenge-swarm` transplants that mechanism from article research to design review. Isolated expert lenses (security, performance, ops, tester, and so on) attack a written design in parallel, grounded in the codebase instead of the web, and the synthesis maps their disagreements — the contradiction map — rather than their consensus.
 
 
 ## Comparison

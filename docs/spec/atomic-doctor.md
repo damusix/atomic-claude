@@ -71,9 +71,11 @@ Indexed. Numbers are stable; **never renumber**. New checks append.
 | 6 | `followups`      | If `.claude/project/followups.md` exists, every `### F-<id>` entry has an `Origin:` line and a severity bucket. | WARN |
 | 7 | `memory`         | `~/.claude/projects/<project>/memory/MEMORY.md` link targets all resolve (file exists in same dir). | WARN |
 | 8 | `binary`         | `atomic update --check` succeeds without performing update. | WARN |
-| 9 | `config`         | `~/.claude/.atomic/config.toml` parses + validates; `~/.claude/.atomic/config.resolved.md` matches render of TOML (byte-stable). Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN; drifted/missing resolved.md → WARN. | WARN by default; FAIL for parse error or invalid value |
-| 10 | `profile`       | `~/.claude/.atomic/profile.md` exists; `@~/.claude/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`); `<deterministic lastcheck=YYYY-MM-DD>` attribute is present and within the last 30 days. Missing file → WARN; missing @-ref → WARN; missing or stale lastcheck → WARN. | WARN |
+| 9 | `config`         | `~/.atomic/config.toml` parses + validates; `~/.atomic/config.resolved.md` matches render of TOML (byte-stable). Parse error → FAIL; invalid enum value → FAIL; unknown keys → WARN; drifted/missing resolved.md → WARN. | WARN by default; FAIL for parse error or invalid value |
+| 10 | `profile`       | `~/.atomic/profile.md` exists; `@~/.atomic/profile.md` is referenced in one of the installed CLAUDE.md candidate files (same search order as `refs`: `CLAUDE.md` / `claude.local.md` / `CLAUDE.local.md` / `claude.md`); `<deterministic lastcheck=YYYY-MM-DD>` attribute is present and within the last 30 days. Missing file → WARN; missing @-ref → WARN; missing or stale lastcheck → WARN; a candidate file still carrying the legacy `@~/.claude/.atomic/profile.md` ref → WARN naming `atomic claude install`. | WARN |
 | 11 | `code-index`    | `<projectRoot>/.claude/.atomic-index/atomic.db` freshness check. **Absence is normal — the index is opt-in — and reports PASS (informational).** DB present + mtime older than `--stale-days` (default 7) → WARN with `run 'atomic code sync'`. DB present + fresh → PASS with age detail. **Never FAIL.** | WARN |
+| 12 | `migrate`       | Combines two conditions into one Result (combined-detail style, as `config` does): (a) version drift — `[install].version` in `~/.atomic/config.toml` older than the running binary → WARN naming the pending migration, `Remediation: atomic migrate`; (b) legacy state dir — `~/.claude/.atomic` still a real directory (not the compat symlink left by a completed migration) → WARN naming the path and that migration runs automatically on any `atomic` verb invocation. Severity is the worst of the two; detail concatenates whichever condition(s) fired. Neither firing → PASS. | WARN |
+| 13 | `repo-config`   | `<projectRoot>/.claude/atomic.toml` validation via `config.LoadRepoConfig` + `config.NewIgnoreMatcher`. **Absence is normal — the file is optional — and reports PASS (informational).** Parse errors, unknown keys, invalid `[code] ignore` glob patterns, and an invalid top-level `scope` value each report WARN with detail. A valid file reports PASS naming the active ignore-pattern count and, when present, the declared `scope` (e.g. `scope=repo`). The dispatcher additionally WARNs when `scope = "repo"` while the root is also registered as a realm root in the `<wikis>` block — two mechanisms making incompatible claims about one directory; an empty/uninjected CLAUDE.md path skips this sub-check. **Never FAIL** — a malformed or invalid repo config only degrades code-intel indexing/discovery to unfiltered or fallback, it never blocks the repo. | WARN |
 
 
 Category short-names are stable: editing/removing one is a spec amendment (`Removed:` log entry).
@@ -189,7 +191,7 @@ Per-item confirm (axiom 3). Each repair idempotent. Print every shell command be
 |---|----------|---------------|
 | 1 | `install`   | `atomic claude install --merge` (re-uses existing merge-required guard for `CLAUDE.md`). |
 | 2 | `hooks`     | `atomic hooks install`. |
-| 3 | `signals`   | **Cannot auto-fix.** Print: `run /refresh-signals from Claude Code to refresh signals.` |
+| 3 | `signals`   | **Cannot auto-fix.** Print: `run /refresh-wiki from Claude Code to refresh signals.` |
 | 4 | `refs`      | Ask user which file to patch (numbered list per axiom 4 if >1 candidate); append `@`-ref block. |
 | 5 | `manifest`  | `make -C atomic bundle` (regenerates); refuses outside the atomic-claude repo. |
 | 6 | `followups` | **Cannot auto-fix.** Print malformed entries with line numbers; refuse to edit (content authorship is human). |
@@ -375,3 +377,29 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Superseded:** Prior contract always registered and ran category 5, emitting a `SKIP` result line outside the atomic-claude repo.
 
 **Squashed to 84aeb5d — 2026-06-08.** Per-iteration SHAs above are historical (unreachable from any branch).
+
+### 2026-07-08 — add `repo-config` check (category 13)
+
+**What changed:** Added category 13 `repo-config` (severity WARN) validating `<projectRoot>/.claude/atomic.toml` — the repo-scoped config introduced by the graphignore feature — via `config.LoadRepoConfig` + `config.NewIgnoreMatcher`. Absence reports PASS informational (the file is optional; code-intel indexing proceeds unfiltered without it), mirroring the category 11 (`code-index`) opt-in-absence contract. Parse errors, unknown keys, and invalid `[code] ignore` glob patterns each report WARN naming the offending detail. A valid file reports PASS naming the active ignore-pattern count. The check never produces FAIL: a malformed or invalid repo config only degrades indexing to unfiltered at index time, it never blocks the repo.
+
+**Why:** Checkpoint 3 of the graphignore feature (`docs/spec/graphignore.md`). The loader and matcher built in checkpoints 1–2 are silently lenient by design (indexing degrades rather than errors), so a doctor check is the only surface that tells a user their `.claude/atomic.toml` has a problem. (Pure addition — no prior contract superseded. Unrelated pre-existing gap noted while amending: category 12 `migrate` has no row in the Check categories table; tracked as follow-up `doctor-spec-missing-migrate-row`.)
+
+### 2026-07-16 — add missing category 12 (`migrate`) row; legacy-state-dir condition
+
+**What changed:** The Check categories table gains the row for category 12 (`migrate`), previously missing (tracked as follow-up `doctor-spec-missing-migrate-row`). The check itself gains a second condition: a real (not compat-symlinked) `~/.claude/.atomic` directory means issue #150's user-state relocation to `~/.atomic` hasn't completed on this machine → WARN naming the path and that migration runs automatically on the next `atomic` verb invocation. Combined into the existing version-drift Result using the same combined-detail style as the `config` check (category 9): severity is the worst of the two conditions, detail concatenates whichever fired.
+
+**Why:** Checkpoint 5 of `docs/spec/configurable-state-paths.md` (issue #150). Doctor needs a surface for a half-migrated or migration-failed machine — `config.MigrateUserState` degrades to a stderr warning on failure rather than crashing the invoking verb, so a persistent real legacy dir would otherwise be silent.
+
+### 2026-07-16 — user-state dir rename swept to `~/.atomic`
+
+**What changed:** Every body mention of `~/.claude/.atomic/...` (categories 9 `config` and 10 `profile`) now reads `~/.atomic/...`. Category 10 (`profile`)'s description also gains its fourth condition (already shipped in an earlier checkpoint of this feature, undocumented here until now): a candidate file still carrying the legacy `@~/.claude/.atomic/profile.md` ref → WARN naming `atomic claude install`.
+
+**Why:** `docs/spec/atomic-state-and-config.md` relocates the state root per issue #150; this spec's body must track the current path. **Superseded:** prior body named `~/.claude/.atomic/config.toml`, `~/.claude/.atomic/config.resolved.md`, and `~/.claude/.atomic/profile.md` as current truth.
+
+### 2026-07-29 — category 13 validates the scope marker
+
+**What changed:** Category 13 (`repo-config`) gains scope-marker validation, per CP5 of `docs/spec/scope-marker.md`. A present-but-invalid `scope` value (not `"repo"`/`"realm"`) reports WARN naming the value and the two accepted values. A valid `scope` is included in the PASS detail alongside the ignore-pattern count. The `checkRepoConfig` dispatcher additionally WARNs when `scope = "repo"` while the root is registered as a realm root in `opts.ClaudeMDPath`'s `<wikis>` block — two mechanisms making incompatible claims about one directory; an empty `ClaudeMDPath` skips this sub-check. `RunCheckRepoConfigWith` stays root-only (unchanged, no `<wikis>` awareness) for its existing callers and tests; the contradiction sub-check is reachable only through the new exported `RunCheckRepoConfig(opts)` dispatcher entry point. Severity ceiling is unchanged — PASS or WARN, never FAIL.
+
+**Why:** Checkpoint 5 of `docs/spec/scope-marker.md` (issue #172). The loader already parses `scope` (CP1) and both init verbs already write it (CP2), but nothing validated it or caught the contradiction case where a marker and the `<wikis>` registry disagree about a directory's identity.
+
+**Superseded:** Prior body described only ignore-pattern validation (parse errors, unknown keys, invalid glob patterns) with no mention of `scope`.

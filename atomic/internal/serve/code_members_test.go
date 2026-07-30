@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 func touchIndex(t *testing.T, repoRoot string) string {
@@ -83,6 +84,31 @@ func TestDiscoverCodeMembers_RepoScope(t *testing.T) {
 	}
 	if members[0].Prefix != "" {
 		t.Errorf("repo scope Prefix = %q, want empty", members[0].Prefix)
+	}
+}
+
+// TestDiscoverCodeMembers_RepoScope_UnderNonDefaultHarnessDir verifies the
+// ScopeRepo default-case DBPath (and localDBPath) thread realmRoot through
+// config.IndexDBPath — under a ".pi" harness dir the local index lives at
+// .pi/.atomic-index/atomic.db, not the default .claude/.atomic-index/atomic.db.
+func TestDiscoverCodeMembers_RepoScope_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := t.TempDir()
+	res := realm.Resolution{Scope: realm.ScopeRepo}
+	members := discoverCodeMembers(res, root, "")
+	if len(members) != 1 {
+		t.Fatalf("want 1 member, got %d", len(members))
+	}
+	want := config.IndexDBPath(root)
+	if members[0].DBPath != want {
+		t.Errorf("DBPath = %q, want %q", members[0].DBPath, want)
+	}
+
+	mr := memberResolver{realmRoot: root}
+	if got := mr.localDBPath(); got != want {
+		t.Errorf("localDBPath() = %q, want %q", got, want)
 	}
 }
 

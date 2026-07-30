@@ -10,6 +10,7 @@
     "devDependencies": {
         "@fortawesome/fontawesome-free": "^7.2.0",
         "animejs": "^4.5.0",
+        "playwright": "1.61.1",
         "vitepress": "2.0.0-alpha.17",
         "vue": "^3.5.27"
     }

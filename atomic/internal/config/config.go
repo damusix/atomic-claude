@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -16,20 +17,63 @@ const runDoctorDefault = true
 // signalsMaxDepthDefault is the built-in default for output.signals.max_depth.
 const signalsMaxDepthDefault = 3
 
-// knownKeys is the exhaustive list of v1 dotted keys.
+// harnessDirDefault is the built-in default for harness.dir — the repo-local
+// state directory name every repo-local path helper (see harness.go) joins
+// onto a project root.
+const harnessDirDefault = ".claude"
+
+// knownKeys is the list of user-settable leaf keys exposed via Get/Set/Unset/Resolved.
+// Machine-written sections (e.g. [install]) are NOT included here — they are not
+// user-settable via `atomic config set` and do not appear in `atomic config list`.
 var knownKeys = []string{
 	"output.signals.max_depth",
 	"update.run_doctor",
+	"harness.dir",
+}
+
+// knownSchemaKeys is the exhaustive set of recognized dotted keys across all
+// schema versions. It is a superset of knownKeys: machine-written sections like
+// [install] (written by atomic claude install, C3+) are valid TOML but are NOT
+// user-settable. knownSchemaKeys is used only by checkUnknownKeys to avoid
+// producing false-positive unknown-key warnings for these fields.
+var knownSchemaKeys = func() []string {
+	extra := []string{
+		"install.version",
+		"install.artifacts.agents",
+		"install.artifacts.commands",
+		"install.artifacts.skills",
+		"install.artifacts.output-styles",
+		"install.artifacts.rules",
+	}
+	// Safe append: knownKeys[:len:len] prevents mutation of the backing array.
+	return append(knownKeys[:len(knownKeys):len(knownKeys)], extra...)
+}()
+
+// opaqueSections is the set of top-level TOML table names whose child keys are
+// structurally arbitrary (any string key is valid). checkUnknownKeys accepts
+// any child key of an opaque section without producing a structural warning;
+// semantic validation (value allowlist, known-key check) is left to Validate /
+// AgentWarnings.
+var opaqueSections = map[string]bool{
+	"claude": true,
+	"pi":     true,
 }
 
 // knownSections is the set of known top-level TOML table names.
-// Derived once from knownKeys rather than rebuilt on every checkUnknownKeys call.
+// Derived once from knownSchemaKeys (full schema, not just settable keys) so that
+// machine-written sections like [install] don't trigger unknown-section warnings.
+// opaqueSections are also included so their top-level table names are recognized.
 var knownSections = func() map[string]bool {
 	m := map[string]bool{}
-	for _, k := range knownKeys {
+	for _, k := range knownSchemaKeys {
 		if dot := strings.IndexByte(k, '.'); dot > 0 {
 			m[k[:dot]] = true
 		}
+	}
+	// Opaque sections have arbitrary child keys; add them explicitly so
+	// checkUnknownKeys recognizes the top-level table name without warning.
+	for k := range opaqueSections {
+		m[k] = true
 	}
 	return m
 }()
@@ -56,11 +100,68 @@ type updateSection struct {
 	RunDoctor bool `toml:"run_doctor"`
 }
 
+// harnessSection is the [harness] TOML table.
+type harnessSection struct {
+	Dir string `toml:"dir"`
+}
+
+// installArtifactsSection is the [install.artifacts] TOML sub-table.
+// Each field is the list of artifact file names (relative to their kind directory)
+// that were copied by the last `atomic claude install` invocation.
+type installArtifactsSection struct {
+	Agents       []string `toml:"agents"`
+	Commands     []string `toml:"commands"`
+	Skills       []string `toml:"skills"`
+	OutputStyles []string `toml:"output-styles"`
+	Rules        []string `toml:"rules"`
+}
+
+// installSection is the [install] TOML table (schema v2).
+// It is written by atomic claude install (C3) and read by the migration
+// runner (C4) and the prune logic (C3). A missing [install] table means the
+// config was written before the migration framework existed (pre-framework
+// install) — this is valid and treated as version "0.0.0".
+type installSection struct {
+	Version   string                  `toml:"version"`
+	Artifacts installArtifactsSection `toml:"artifacts"`
+}
+
+// knownAtomicAgents is the static set of bundled atomic agent filenames (no .md suffix).
+// Used as the fallback known-agent set when [install.artifacts].agents is absent.
+// Must stay in sync with the agent files shipped under agents/ in the repo.
+var knownAtomicAgents = map[string]bool{
+	"atomic-implementer":   true,
+	"atomic-investigator":  true,
+	"atomic-reviewer":      true,
+	"atomic-strategist":    true,
+	"atomic-wiki-inferrer": true,
+}
+
+// claudeSection is the [claude] TOML table, namespaced to mirror pi's
+// [pi.agents]: both harnesses read [<harness>.agents.<name>].
+type claudeSection struct {
+	// Agents maps bundled agent filenames (no .md suffix) to their model/effort
+	// override, read from [claude.agents.<name>] tables. Machine-written by
+	// `atomic config agents`; re-applied at install time. Omitted from TOML
+	// when empty. NOT in knownKeys — not user-settable via `atomic config set`.
+	// Nested-table decode only — no scalar form, no migration.
+	Agents map[string]AgentOverride `toml:"agents,omitempty"`
+}
+
 // Config is the parsed + defaulted configuration.
 // Fields track explicit set values; zero values mean "use built-in default".
 type Config struct {
-	Output outputSection `toml:"output"`
-	Update updateSection `toml:"update"`
+	Output  outputSection  `toml:"output"`
+	Update  updateSection  `toml:"update"`
+	Harness harnessSection `toml:"harness"`
+	// Pi preserves the opaque [pi] tree so unrelated config writes do not discard
+	// Pi agent overrides. ResolvePiAgents performs semantic validation.
+	Pi map[string]any `toml:"pi,omitempty"`
+	// Install is omitted from TOML when zero-valued (no install manifest yet).
+	Install installSection `toml:"install,omitempty"`
+	// Claude carries the Claude Code harness's per-agent overrides. Omitted
+	// from TOML when zero-valued.
+	Claude claudeSection `toml:"claude,omitempty"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -69,7 +170,8 @@ func Default() *Config {
 		Output: outputSection{
 			Signals: signalsSubSection{MaxDepth: signalsMaxDepthDefault},
 		},
-		Update: updateSection{RunDoctor: runDoctorDefault},
+		Update:  updateSection{RunDoctor: runDoctorDefault},
+		Harness: harnessSection{Dir: harnessDirDefault},
 	}
 }
 
@@ -141,28 +243,36 @@ func Load(path string) (*Config, []Warning, error) {
 	if !signalsMaxDepthExplicit {
 		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
 	}
+	// harness.dir: unlike run_doctor/max_depth, an explicit empty string is
+	// never a valid value (Set/Validate reject it), so there's no collision
+	// between "absent" and "explicitly set to the zero value" — backfill
+	// unconditionally whenever the decoded value is empty.
+	if cfg.Harness.Dir == "" {
+		cfg.Harness.Dir = harnessDirDefault
+	}
 
 	return cfg, warns, nil
 }
 
-// knownLeaves is the set of known dotted leaf keys, computed once.
+// knownLeaves is the set of known dotted leaf keys, computed once from the full
+// schema (knownSchemaKeys) so that [install] leaf keys don't produce warnings.
 var knownLeaves = func() map[string]bool {
 	m := map[string]bool{}
-	for _, k := range knownKeys {
+	for _, k := range knownSchemaKeys {
 		m[k] = true
 	}
 	return m
 }()
 
 // knownPrefixes is the set of known intermediate dotted paths (non-leaf sections),
-// computed once. Example: "output.signals" is a prefix of "output.signals.max_depth".
+// computed once from the full schema. Example: "output.signals" is a prefix of
+// "output.signals.max_depth"; "install.artifacts" is a prefix of "install.artifacts.agents".
 var knownPrefixes = func() map[string]bool {
 	m := map[string]bool{}
-	for _, k := range knownKeys {
+	for _, k := range knownSchemaKeys {
 		for i := 0; i < len(k); i++ {
 			if k[i] == '.' {
 				prefix := k[:i]
-				// Deduplicate: skip if this prefix was already added.
 				if !m[prefix] {
 					m[prefix] = true
 				}
@@ -188,6 +298,12 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 				warns = append(warns, Warning{
 					Message: fmt.Sprintf("config: unknown key %q (ignored)", dotted),
 				})
+				continue
+			}
+			// Opaque sections (e.g. [claude]) accept arbitrary child keys.
+			// Do not recurse — structural checking is skipped for their children.
+			// Semantic validation (value allowlist, known-key check) is in Validate / AgentWarnings.
+			if opaqueSections[k] {
 				continue
 			}
 		} else {
@@ -216,7 +332,62 @@ func Validate(cfg *Config) error {
 	if cfg.Output.Signals.MaxDepth <= 0 {
 		return fmt.Errorf("config: output.signals.max_depth must be a positive integer, got %d", cfg.Output.Signals.MaxDepth)
 	}
+	if err := validateHarnessDir(cfg.Harness.Dir); err != nil {
+		return err
+	}
+	// install.version must be a parseable semver when present.
+	// An empty string is valid — it means no [install] table yet (pre-framework install).
+	if cfg.Install.Version != "" && !selfupdate.IsValidSemver(cfg.Install.Version) {
+		return fmt.Errorf("config: install.version %q is not a valid semver string (e.g. \"1.2.0\")", cfg.Install.Version)
+	}
+	// [claude.agents]: effort is strict — any non-empty value outside the enum
+	// is a hard validation failure. model is lenient and never blocks loading
+	// (see AgentWarnings for the non-fatal malformed-model check). A key that
+	// is not a known agent name is also a non-fatal warning (see AgentWarnings).
+	for agentName, ov := range cfg.Claude.Agents {
+		if ov.Effort != "" && !validEfforts[ov.Effort] {
+			return fmt.Errorf("config: claude.agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
+		}
+	}
 	return nil
+}
+
+// AgentWarnings returns non-fatal warnings for [claude.agents] keys that are
+// not in the known bundled-agent set. An unknown key does not prevent loading
+// or rendering — the user may have a custom agent or may have removed a
+// bundled one.
+//
+// The known-agent set is derived from cfg.Install.Artifacts.Agents (the install
+// manifest, filenames including .md suffix) when available; otherwise falls back
+// to knownAtomicAgents (the static set of the 5 shipped atomic-* agents).
+func AgentWarnings(cfg *Config) []Warning {
+	if len(cfg.Claude.Agents) == 0 {
+		return nil
+	}
+
+	// Derive the known-agent set: prefer the install manifest, fall back to static.
+	known := knownAtomicAgents
+	if len(cfg.Install.Artifacts.Agents) > 0 {
+		known = make(map[string]bool, len(cfg.Install.Artifacts.Agents))
+		for _, fname := range cfg.Install.Artifacts.Agents {
+			known[strings.TrimSuffix(fname, ".md")] = true
+		}
+	}
+
+	var warns []Warning
+	for agentName, ov := range cfg.Claude.Agents {
+		if !known[agentName] {
+			warns = append(warns, Warning{
+				Message: fmt.Sprintf("config: claude.agents.%s: unknown agent (not in installed set); override stored but agent must exist at apply time", agentName),
+			})
+		}
+		if ov.Model != "" && !validModelFormat(ov.Model) {
+			warns = append(warns, Warning{
+				Message: fmt.Sprintf("config: claude.agents.%s.model: questionable value %q; passed through as-is", agentName, ov.Model),
+			})
+		}
+	}
+	return warns
 }
 
 // Get returns the resolved value for a dotted key.
@@ -263,6 +434,20 @@ func Set(cfg *Config, dottedKey, value string) error {
 		default:
 			return fmt.Errorf("config: update.run_doctor %q is not one of: false, true", value)
 		}
+	case "harness.dir":
+		if err := validateHarnessDir(value); err != nil {
+			return err
+		}
+		cfg.Harness.Dir = value
+	}
+	return nil
+}
+
+// validateHarnessDir enforces the harness.dir value shape: a single
+// non-empty path segment that is never "." or ".." and never contains "/".
+func validateHarnessDir(value string) error {
+	if value == "" || value == "." || value == ".." || strings.Contains(value, "/") {
+		return fmt.Errorf("config: harness.dir must be a single non-empty path segment (not \".\", \"..\", and not containing \"/\"), got %q", value)
 	}
 	return nil
 }
@@ -283,6 +468,8 @@ func Unset(cfg *Config, dottedKey string) error {
 		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
 	case "update.run_doctor":
 		cfg.Update.RunDoctor = runDoctorDefault
+	case "harness.dir":
+		cfg.Harness.Dir = harnessDirDefault
 	}
 	return nil
 }

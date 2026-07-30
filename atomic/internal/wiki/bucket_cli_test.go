@@ -44,6 +44,73 @@ func writeBucketCLIFile(t *testing.T, path, content string) {
 	}
 }
 
+// TestBucketAdd_HelpProbeLeavesAllFourMutationSitesUntouched reproduces issue
+// #164 (`bucket add -h` silently created a bucket named "-h") and asserts,
+// explicitly and individually, that a help probe leaves every one of the
+// four places `wikiBucketAddAction` writes on a real add untouched: the
+// realm-root bucket dir, the wiki/.buckets manifest dir, the <wiki-buckets>
+// entry in wiki/index.md, and the ## Capture surfaces bullet in the realm
+// CLAUDE.md.
+func TestBucketAdd_HelpProbeLeavesAllFourMutationSitesUntouched(t *testing.T) {
+	root, _, wikiDir := setupBucketCLIRoot(t)
+	claudeHome := t.TempDir()
+
+	indexPath := filepath.Join(wikiDir, "index.md")
+	writeBucketCLIFile(t, indexPath, "# Wiki index\n\nSome content.\n")
+	claudeMDPath := filepath.Join(root, "CLAUDE.md")
+	writeBucketCLIFile(t, claudeMDPath, "# CLAUDE.md\n\nSome content.\n")
+
+	indexBefore, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claudeMDBefore, err := os.ReadFile(claudeMDPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	code := wikiAction([]string{"bucket", "add", "--root=" + root, "-h"}, claudeHome, root, &out)
+	if code != 0 {
+		t.Fatalf("expected exit 0 for -h, got %d; output: %q", code, out.String())
+	}
+
+	// Site 1: no realm-root <name>/ directory.
+	if _, statErr := os.Lstat(filepath.Join(root, "-h")); statErr == nil {
+		t.Error("realm-root -h/ directory was created")
+	}
+
+	// Site 2: no wiki/.buckets/<name>/ manifest dir.
+	if _, statErr := os.Lstat(filepath.Join(wikiDir, ".buckets", "-h")); statErr == nil {
+		t.Error("wiki/.buckets/-h manifest dir was created")
+	}
+
+	// Site 3: no <bucket> entry in wiki/index.md; file is byte-identical.
+	indexAfter, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(indexBefore, indexAfter) {
+		t.Errorf("wiki/index.md was modified by a help probe: before %q, after %q", indexBefore, indexAfter)
+	}
+	if strings.Contains(string(indexAfter), `name="-h"`) {
+		t.Error("wiki/index.md gained a <bucket name=\"-h\"> entry")
+	}
+
+	// Site 4: no ## Capture surfaces bullet in the realm CLAUDE.md; file is
+	// byte-identical.
+	claudeMDAfter, err := os.ReadFile(claudeMDPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(claudeMDBefore, claudeMDAfter) {
+		t.Errorf("realm CLAUDE.md was modified by a help probe: before %q, after %q", claudeMDBefore, claudeMDAfter)
+	}
+	if strings.Contains(string(claudeMDAfter), "## Capture surfaces") {
+		t.Error("realm CLAUDE.md gained a ## Capture surfaces section")
+	}
+}
+
 // ---- <wiki-buckets> block splice tests ----
 
 // TestWriteWikiBucketsBlock_AppendsWhenAbsent verifies that when wiki/index.md
@@ -308,6 +375,81 @@ func TestBucketIndexStub_CreatesStub(t *testing.T) {
 	}
 	if !strings.Contains(content, "research") {
 		t.Error("expected bucket name in stub")
+	}
+}
+
+// TestBucketIndexStub_CarriesOKFFrontmatterAndEmptyRegion verifies the
+// reshaped stub carries OKF frontmatter (title, type: Bucket, description
+// placeholder) plus a well-formed, empty <bucket-docs> region.
+func TestBucketIndexStub_CarriesOKFFrontmatterAndEmptyRegion(t *testing.T) {
+	dir := t.TempDir()
+	bucketDir := filepath.Join(dir, "research")
+	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := createBucketIndexStub(bucketDir, "research"); err != nil {
+		t.Fatalf("createBucketIndexStub: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(bucketDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if !strings.HasPrefix(content, "---\n") {
+		t.Fatalf("expected frontmatter block, got:\n%s", content)
+	}
+	if !strings.Contains(content, "title: research") {
+		t.Errorf("expected title: research in frontmatter, got:\n%s", content)
+	}
+	if !strings.Contains(content, "type: Bucket") {
+		t.Errorf("expected type: Bucket in frontmatter, got:\n%s", content)
+	}
+	if !strings.Contains(content, "description:") {
+		t.Errorf("expected description placeholder in frontmatter, got:\n%s", content)
+	}
+
+	state, _ := findRegion(content, "bucket-docs")
+	if state != regionWellFormed {
+		t.Fatalf("expected a well-formed <bucket-docs> region, got state %v; content:\n%s", state, content)
+	}
+}
+
+// TestBucketIndexStub_ThenRebuildFillsRegion verifies that a subsequent
+// RebuildBucketIndex call fills the stub's empty <bucket-docs> region in
+// place (well-formed replace) rather than appending a second region.
+func TestBucketIndexStub_ThenRebuildFillsRegion(t *testing.T) {
+	dir := t.TempDir()
+	bucketDir := filepath.Join(dir, "research")
+	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := createBucketIndexStub(bucketDir, "research"); err != nil {
+		t.Fatalf("createBucketIndexStub: %v", err)
+	}
+	writeTopicFile(t, filepath.Join(bucketDir, "seo.md"), "---\ntitle: SEO\ndescription: Technical SEO checklist.\n---\n\nBody.\n")
+
+	if err := RebuildBucketIndex(bucketDir); err != nil {
+		t.Fatalf("RebuildBucketIndex: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(bucketDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+
+	if strings.Count(content, "<bucket-docs>") != 1 {
+		t.Fatalf("expected exactly one <bucket-docs> open tag, got:\n%s", content)
+	}
+	if !strings.Contains(content, "[SEO](seo.md) - Technical SEO checklist.") {
+		t.Errorf("expected topic listing spliced into the region, got:\n%s", content)
+	}
+	// Prose outside the region (## Conventions, the H1) must survive.
+	if !strings.Contains(content, "## Conventions") {
+		t.Errorf("expected ## Conventions to survive the rebuild, got:\n%s", content)
 	}
 }
 

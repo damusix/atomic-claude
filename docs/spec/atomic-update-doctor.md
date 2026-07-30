@@ -17,7 +17,7 @@ After a successful binary swap by `atomic update`: first, refresh the `~/.claude
 - [ ] WARN and SKIP results are suppressed in default mode; only FAIL is printed.
 - [ ] All-PASS post-update is silent (no extra output beyond the existing "updated to vX.Y.Z" line).
 - [ ] `atomic update --no-doctor` flag fully disables the post-update doctor run.
-- [ ] `update.run_doctor = false` in `~/.claude/.atomic/config.toml` disables the post-update doctor run.
+- [ ] `update.run_doctor = false` in `~/.atomic/config.toml` disables the post-update doctor run.
 - [ ] CLI flag overrides config (`--no-doctor` wins even if config says `true`).
 - [ ] Doctor failures (FAIL findings or doctor-itself errors) never change the update's exit code — update success is preserved.
 - [ ] Doctor's own internal error (exit 2 / panic) prints a single line "doctor self-check failed: <err>" and the update still exits 0.
@@ -37,7 +37,7 @@ After a successful binary swap by `atomic update`: first, refresh the `~/.claude
 | 7 | Doctor error + panic handling | adapter file from CP3 | `doctor.Run` returning non-nil error → print one line "doctor self-check failed: <err>". Panic recovery requires wrapping the `doctor.Run` call in an **inner helper function with a deferred recover()** (Go's `recover` only catches panics in its own goroutine, inside a deferred function — recover at `runUpdate` top level would also unwind unrelated post-`Apply` cleanup). Helper shape: `func safeRunDoctor(run runDoctorFn) (results []doctor.Result, err error) { defer func() { if r := recover(); r != nil { err = fmt.Errorf("panic: %v", r) } }(); return run(doctor.Opts{Skip: []int{3, 8}}) }`. Both error and panic paths exit 0 |
 | 8 | Document new behavior in install guide | `docs/guides/install.md` | Add a "Self-update" subsection documenting `atomic update [--check] [--channel] [--no-doctor]` and the `update.run_doctor` config key; explain that silent post-update output means healthy (no FAILs); explain when users might see FAIL lines. README is not edited — it has no existing CLI table; install guide is the canonical reference surface for binary flags |
 | 9 | Append change-log entries to both affected specs | `docs/spec/atomic-doctor.md`, `docs/spec/atomic-state-and-config.md` | atomic-doctor: notes new auto-fire surface from update path; atomic-state-and-config: schema entry for `update.run_doctor` per the append-mostly rule |
-| 10 | Signals refresh; confirm no bundle regen needed | `/refresh-signals` | Signals reflect new flag + config key; spec does not touch `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or root `CLAUDE.md` — bundle parity unchanged |
+| 10 | Signals refresh; confirm no bundle regen needed | `/refresh-wiki` | Signals reflect new flag + config key; spec does not touch `agents/`, `commands/`, `skills/`, `output-styles/`, `rules/`, or root `CLAUDE.md` — bundle parity unchanged |
 
 ## Architecture
 
@@ -177,6 +177,14 @@ For testability, `runUpdate` accepts a function-typed dependency `runDoctor func
 | `update.run_doctor` bool zero-value (false) indistinguishable from "absent" | medium | Use raw-map presence check at decode time (existing pattern at `config.go:79`) — explicit-false vs absent both have different semantics; `Default()` sets `RunDoctor: true` |
 
 ## Change log
+
+### 2026-07-16 — User state root relocated to ~/.atomic
+
+**What changed:** The `update.run_doctor = false` success criterion now reads `~/.atomic/config.toml` in place of `~/.claude/.atomic/config.toml`.
+
+**Why:** `docs/spec/configurable-state-paths.md` (issue #150) relocates the user state root.
+
+**Superseded:** Prior body named `~/.claude/.atomic/config.toml` as the config path.
 
 ### 2026-06-10 — Auto-refresh ~/.claude artifacts before doctor
 

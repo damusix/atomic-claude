@@ -128,14 +128,39 @@ func manifestDir(wikiDir, name string) string {
 	return filepath.Join(wikiDir, ".buckets", name)
 }
 
+// validateBucketName rejects names that are not safe single path segments.
+// A bucket name becomes a directory component in three places (the
+// realm-root folder, the wiki/.buckets manifest dir, and the <bucket> index
+// entry), so this is the register-time backstop behind the CLI arg
+// scanner's own dash-token rejection (issue #164) — it also covers callers
+// that reach RegisterBucket programmatically, bypassing the CLI entirely.
+func validateBucketName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("bucket: name must not be empty")
+	}
+	if strings.HasPrefix(name, "-") {
+		return fmt.Errorf("bucket: name %q must not begin with %q", name, "-")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("bucket: name %q must not contain a path separator", name)
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("bucket: name %q is not a valid path segment", name)
+	}
+	if name == "wiki" {
+		return fmt.Errorf("bucket: name %q is reserved", name)
+	}
+	return nil
+}
+
 // RegisterBucket creates the manifest directory wiki/.buckets/<name>/ and
 // validates the registration constraints:
 //
-//   - name "wiki" is refused (reserved).
+//   - name must be a safe single path segment (see validateBucketName).
 //   - Re-registering an already-registered bucket is refused.
 func RegisterBucket(wikiDir, name string) error {
-	if name == "wiki" {
-		return fmt.Errorf("bucket: name %q is reserved", name)
+	if err := validateBucketName(name); err != nil {
+		return err
 	}
 
 	mdir := manifestDir(wikiDir, name)

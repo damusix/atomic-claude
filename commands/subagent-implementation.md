@@ -59,7 +59,7 @@ Continue in place with the current working tree. Skip all steps below.
 
 ```
 Significant work ahead. Use an isolated worktree?
-- Yes, new branch → create .worktrees/<derived-name>/
+- Yes, new branch → create and enter .claude/worktrees/<derived-name>/
 - No, work in place
 ```
 
@@ -70,19 +70,6 @@ On `No`: continue in place. Skip all steps below.
 ## Resolve the branch name
 
 The branch name is passed by the caller (e.g. a topic slug derived from the spec or task). It must match `^[a-z0-9][a-z0-9/-]*$`. If no name is available, derive one: kebab-case slug of the first ~6 words of the task description.
-
-## Verify .worktrees/ is gitignored
-
-```bash
-git check-ignore -q .worktrees
-```
-
-If exit code is non-zero (not ignored):
-
-- Append `.worktrees/` to `.gitignore` (create at repo root if missing).
-- Invoke the `atomic-commit` skill.
-- Stage `.gitignore` explicitly by path.
-- Commit with message `chore: gitignore .worktrees/`.
 
 ## Carry forward an in-context spec or design (optional)
 
@@ -102,7 +89,7 @@ the branch carries it forward?
 
 Options: `commit now (recommended)` / `skip`. On `commit now`:
 
-- Invoke the `atomic-commit` skill for the message.
+- Invoke the `atomic-git-discipline` skill for the message.
 - Stage the file explicitly by path. Do not `git add -A`.
 - Commit on the current branch (typically `main`).
 
@@ -124,10 +111,14 @@ branch <name> already exists. pick a different name or checkout existing.
 
 Stop.
 
-## Create the worktree
+## Create and enter the worktree
+
+Run `atomic repo init` first (idempotent — guarantees the `.claude/` layout and its ignore rules).
+
+Then create the worktree explicitly — the explicit `git worktree add` pins the branch name and bases the branch on the current HEAD (so a just-committed spec is carried forward), which the `EnterWorktree` tool's own creation mode does not guarantee (it names the branch itself and bases it per the `worktree.baseRef` setting):
 
 ```bash
-git worktree add .worktrees/<branch> -b <branch>
+git worktree add .claude/worktrees/<branch> -b <branch>
 ```
 
 If this fails with a permission or sandbox error, print:
@@ -138,9 +129,11 @@ sandbox blocked worktree creation. working in place.
 
 Continue in place — do not run setup or tests.
 
+Then hand the session to Claude Code: call the `EnterWorktree` tool with `path: .claude/worktrees/<branch>`. The session's working directory is now the worktree — file edits and shell commands land in the isolation with no `cd` discipline needed. If the tool is unavailable in this session, run all subsequent commands from inside the worktree directory instead.
+
 ## Auto-detect and run setup
 
-Run all detection from inside `.worktrees/<branch>/`. Check files in this order:
+Run all detection in the worktree (your cwd after entering). Check files in this order:
 
 - `pnpm-lock.yaml` exists alongside `package.json` → `pnpm install`
 - `yarn.lock` exists alongside `package.json` → `yarn install`
@@ -156,7 +149,7 @@ If the setup command fails with a network or permission error, note `setup skipp
 
 ## Run baseline tests
 
-Detect the test command from inside `.worktrees/<branch>/`:
+Detect the test command in the same working directory:
 
 - `pnpm-lock.yaml` + `package.json` with `test` script → `pnpm test`
 - `yarn.lock` + `package.json` with `test` script → `yarn test`
@@ -171,7 +164,7 @@ If tests fail: in interactive mode, list each failure, then ask whether to proce
 ## Report
 
 ```
-Worktree: .worktrees/<branch>/
+Worktree: .claude/worktrees/<branch>/
 Branch:   <branch>
 Setup:    <command run> | skipped (no manifest) | skipped (sandboxed)
 Baseline: <N> tests pass | <N> failures | skipped
@@ -202,83 +195,30 @@ The index lifecycle is orchestrator-owned. Subagents never trigger indexing. A m
 Pick the working dir: `.claude/.scratchpad/<YYYY-MM-DD>-<topic>/`. Use today's date.
 
 ```bash
+command -v atomic >/dev/null 2>&1 && atomic repo init >/dev/null
 SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-<topic>"
 mkdir -p "$SCRATCH"
 ```
 
-`.claude/.scratchpad/` must be gitignored — verify, add if missing.
+Run `atomic repo init` first if the `atomic` binary is present — it guarantees the `.claude/` layout and ignore rules (scratchpad + project dirs, nested `.claude/.gitignore`); skip silently otherwise.
 
 Write two files inside `$SCRATCH`:
 
 ### `$SCRATCH/BRIEF.md`
 
-Thin orchestrator-curated brief. Contents:
-
-```markdown
-# Brief: <topic>
-
-**Spec:** `docs/spec/<topic>.md` (canonical source — read this first)
-
-**Iteration scope (this turn):** <which checkpoint from the spec>
-
-**Reviewer feedback to address:** <findings from prior iteration, or "N/A — first iteration">
-
-**Success criteria for this iteration:**
-- <criterion>
-- <criterion>
-
-**Base SHA for diff:** <git rev-parse HEAD>
-```
+Thin orchestrator-curated brief. Seed from the embedded template — `atomic template brief > "$SCRATCH/BRIEF.md"` — then fill every `<angle-bracket>` placeholder and delete the guidance comment.
 
 Refreshed each iteration — overwrite, don't append.
 
 ### `$SCRATCH/STATE.md`
 
-Append-only iteration log. Before writing the first entry, capture `git rev-parse HEAD` and record it as the loop base SHA — the from-sha for the range-scoped signals refresh at finalize.
-
-```markdown
-# State: <topic>
-
-Loop base SHA: <git rev-parse HEAD>
-
-## Iteration 1 — <date>
-- Implementer: <one-line summary>
-- Reviewer: <verdict + key findings>
-- Decisions: <anything load-bearing>
-- Commit: <sha or "deferred">
-
-## Iteration 2 — <date>
-...
-```
+Append-only iteration log. Seed from `atomic template state`. Before writing the first entry, capture `git rev-parse HEAD` and record it as the loop base SHA — the from-sha for the range-scoped signals refresh at finalize. Append one `## Iteration N` entry per cycle; never rewrite prior entries.
 
 ### `$SCRATCH/FOLLOWUPS.md`
 
 Ledger of non-blocking reviewer findings (🟡 risk / 🔵 nit / ❓ question) — anything that didn't block the iteration's PASS but is worth a deliberate decision before final ship. Append after every reviewer pass that returns findings; do NOT discard them just because the verdict was PASS.
 
-Initialize on first iteration with this structure:
-
-```markdown
-# Follow-ups: <topic>
-
-Non-blocking findings carried across iterations. At finalization (Phase 3): review with the user, decide what to fix in a polish pass, what to defer to a tracked issue, what to drop.
-
----
-
-## 🟡 risks
-
-### F-1 — <one-line title>
-
-`<path:line>`
-
-<problem + suggested fix in 1-3 sentences>
-
-Origin: iteration <N> reviewer.
-
-## 🔵 nits
-
-### F-N — <title>
-...
-```
+Initialize on first iteration from `atomic template followups`.
 
 Numbering is sequential across all severities (F-1, F-2, F-3...). When a follow-up gets closed in a later iteration, mark `*(closed iter N — <commit-sha>)*` next to its title and keep the entry for traceability — don't delete it.
 
@@ -373,7 +313,7 @@ After the stuck check (or if the signal changed and no escalation fires), loop b
 
 After each PASS, commit before the next iteration:
 
-1. Invoke `atomic-commit` skill for message format.
+1. Invoke `atomic-git-discipline` skill for message format.
 2. Stage only the files the implementer touched (explicit paths from the implementer's `## Did` section). No `-A`.
 3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
 4. Record the commit SHA in STATE.md under the iteration's `Commit:` line.
@@ -425,28 +365,7 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
         git add .claude/project/followups/<id>.md .claude/project/followups/INDEX.md
         git commit -m "docs(followups): defer <id>"
         ```
-3. **Write an implementation log to the spec.** Append (or create) an `## Implementation log` section at the END of `docs/spec/<topic>.md`. This is the durable record someone reads in 6 months when they ask "what did we ship?", "where did this come from?", or "what's still open?". Format:
-
-    ```markdown
-    ## Implementation log
-
-    ### <version-or-status> — <date>
-
-    Built across N iterations of /subagent-implementation. Commits (chronological):
-
-    - `<sha>` — CP-1 <one-line>
-    - `<sha>` — CP-2 <one-line>
-    - ...
-
-    **Out-of-scope work performed during this build:**
-    - <what + why it ended up in scope> (or "none")
-
-    **Unforeseens — surprises that emerged during implementation:**
-    - <surprise + how it was handled> (or "none")
-
-    **Deferred items still open:**
-    - <link to FOLLOWUPS triage decisions, tracked issues, or "none"> 
-    ```
+3. **Write an implementation log to the spec.** Append (or create) an `## Implementation log` section at the END of `docs/spec/<topic>.md`, using `atomic template implementation-log` as the structural contract — copy the emitted section skeleton, fill every `<angle-bracket>` placeholder, delete the guidance comment. This is the durable record someone reads in 6 months when they ask "what did we ship?", "where did this come from?", or "what's still open?".
 
     Pull commit SHAs from `STATE.md`. Pull out-of-scope and unforeseens from `STATE.md` decision lines and from any iteration where the implementer's report flagged scope drift or surprise. Pull deferred items from `FOLLOWUPS.md`'s Queued section and the user's disposition answers from step 2. Keep entries tight — one line each. The log is a navigation aid, not a narrative.
 
@@ -457,8 +376,8 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
 
    1. If `command -v atomic` returns nothing → skip.
    2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report the error and skip.
-   3. Exit 1 → dispatch `atomic-signals-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort after the inferrer returns.
-   4. Stage `.claude/project/deterministic-signals.md`, `.claude/project/signals.md`, and any files under `.claude/project/signals/`. Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
+   3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort after the wiki inferrer returns.
+   4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`). Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
 
 6. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.
 7. Report to the user: what shipped, which iterations + commit SHAs (including the signals refresh commit, if one was made), what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
@@ -484,6 +403,6 @@ Do NOT push, merge, or open a PR. The user picks how to ship (`/commit pr`, `/co
 - Reviewer and implementer are separate agents. Never the same one. Never combine roles.
 - If the same blocking signal repeats across two consecutive `CHANGES_REQUESTED` rounds, the stuck-fix escalation in Step C fires automatically — surface `/pressure-test` and `atomic-strategist` RCA options to the user. Do not silently loop again without surfacing this.
 - Subagent output is the tool result. Summarize it to the user in 1-3 lines per iteration; don't dump full transcripts.
-- Templates live in `commands/_templates/`. If they're missing, the loop can't start — surface that error rather than inlining prompts.
+- Subagent prompt templates live in `commands/_templates/` (`implementer-prompt.md`, `reviewer-prompt.md`); document skeletons come from the binary (`atomic template brief|state|followups|implementation-log`). If a prompt template is missing or the template verb fails, the loop can't start — surface that error rather than inlining prompts or improvising document structure.
 
 </constraints>

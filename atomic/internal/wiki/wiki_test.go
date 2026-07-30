@@ -1,6 +1,7 @@
 package wiki_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -623,8 +624,9 @@ func TestScan_IndexedMemberHasSignalsAttribute(t *testing.T) {
 
 // --- ## Members section tests ---
 
-// TestScan_MembersSectionPresent verifies that after a scan, wiki/index.md contains
-// a managed ## Members section with the correct HTML-comment boundary markers.
+// TestScan_MembersSectionPresent verifies that after a scan, wiki/index.md
+// contains a managed ## Members section wrapped in the wiki-member-list XML
+// region, with no legacy comment markers.
 func TestScan_MembersSectionPresent(t *testing.T) {
 	root := t.TempDir()
 	repoA := makeGitRepo(t, root, "repoA")
@@ -637,14 +639,17 @@ func TestScan_MembersSectionPresent(t *testing.T) {
 	}
 
 	content := readIndexMD(t, root)
-	if !strings.Contains(content, "<!-- wiki-members:start -->") {
-		t.Errorf("index.md missing <!-- wiki-members:start --> marker:\n%s", content)
+	if !strings.Contains(content, "<wiki-member-list>") {
+		t.Errorf("index.md missing <wiki-member-list> open tag:\n%s", content)
 	}
-	if !strings.Contains(content, "<!-- wiki-members:end -->") {
-		t.Errorf("index.md missing <!-- wiki-members:end --> marker:\n%s", content)
+	if !strings.Contains(content, "</wiki-member-list>") {
+		t.Errorf("index.md missing </wiki-member-list> close tag:\n%s", content)
 	}
 	if !strings.Contains(content, "## Members") {
 		t.Errorf("index.md missing ## Members heading:\n%s", content)
+	}
+	if strings.Contains(content, "<!-- wiki-members:start -->") || strings.Contains(content, "<!-- wiki-members:end -->") {
+		t.Errorf("index.md must not carry legacy comment markers on a fresh scan:\n%s", content)
 	}
 }
 
@@ -759,13 +764,13 @@ func TestScan_MembersSectionIdempotent(t *testing.T) {
 	if !strings.Contains(after2, narrative) {
 		t.Errorf("narrative lost after re-scan:\n%s", after2)
 	}
-	// Members section must still be present.
-	if !strings.Contains(after2, "<!-- wiki-members:start -->") {
-		t.Errorf("Members section missing after re-scan:\n%s", after2)
+	// Members region must still be present.
+	if !strings.Contains(after2, "<wiki-member-list>") {
+		t.Errorf("Members region missing after re-scan:\n%s", after2)
 	}
-	// Members section must appear exactly once.
-	if strings.Count(after2, "<!-- wiki-members:start -->") > 1 {
-		t.Errorf("Members section duplicated after re-scan:\n%s", after2)
+	// Members region must appear exactly once.
+	if strings.Count(after2, "<wiki-member-list>") > 1 {
+		t.Errorf("Members region duplicated after re-scan:\n%s", after2)
 	}
 }
 
@@ -1180,5 +1185,605 @@ func TestBuildMembersSection_OKFListingForm(t *testing.T) {
 	}
 	if strings.Contains(repoCLine, " - ") {
 		t.Errorf("repoC is pending (no summary) — should be link-only, got: %q", repoCLine)
+	}
+}
+
+// --- dual-layout indexed detection tests ---
+
+// writeWikiIndex creates the docs/wiki/index.md file in dir (new layout).
+func writeWikiIndex(t *testing.T, dir string) {
+	t.Helper()
+	p := filepath.Join(dir, "docs", "wiki", "index.md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("# wiki index\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestScan_IndexedByNewLayout verifies that a member repo with docs/wiki/index.md
+// (new layout) is classified "indexed" even without the old .claude/project/signals.md.
+func TestScan_IndexedByNewLayout(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeWikiIndex(t, repoA) // new layout only — no old signals.md
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `status="indexed"`) {
+		t.Errorf("repoA with docs/wiki/index.md should be indexed; content:\n%s", content)
+	}
+}
+
+// TestScan_IndexedByNewLayout_LinksToWikiIndex verifies that the Members section
+// for a new-layout indexed member links to docs/wiki/index.md.
+func TestScan_IndexedByNewLayout_LinksToWikiIndex(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeWikiIndex(t, repoA)
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	// Members section for an indexed new-layout member must link to docs/wiki/index.md.
+	if !strings.Contains(content, "docs/wiki/index.md") {
+		t.Errorf("new-layout indexed repoA should link to docs/wiki/index.md; content:\n%s", content)
+	}
+}
+
+// TestScan_IndexedByOldLayout_BackCompat verifies that a member repo with only
+// .claude/project/signals.md (old layout) is still classified "indexed" — backward compat.
+func TestScan_IndexedByOldLayout_BackCompat(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeSignals(t, repoA) // old layout only — no docs/wiki/index.md
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `status="indexed"`) {
+		t.Errorf("repoA with .claude/project/signals.md should still be indexed; content:\n%s", content)
+	}
+	// The Members section must still link to the old signals.md path.
+	if !strings.Contains(content, ".claude/project/signals.md") {
+		t.Errorf("old-layout indexed repoA should still link to .claude/project/signals.md; content:\n%s", content)
+	}
+}
+
+// TestScan_NewLayoutPreferredOverOld verifies that when a member has BOTH
+// docs/wiki/index.md and .claude/project/signals.md, the new layout wins
+// and the link points to docs/wiki/index.md.
+func TestScan_NewLayoutPreferredOverOld(t *testing.T) {
+	root := t.TempDir()
+	repoA := makeGitRepo(t, root, "repoA")
+	writeWikiIndex(t, repoA) // new layout
+	writeSignals(t, repoA)   // old layout also present
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+
+	content := readIndexMD(t, root)
+	if !strings.Contains(content, `status="indexed"`) {
+		t.Errorf("repoA should be indexed; content:\n%s", content)
+	}
+	// New layout must win: link to docs/wiki/index.md, not .claude/project/signals.md.
+	if !strings.Contains(content, "docs/wiki/index.md") {
+		t.Errorf("new-layout should be preferred; expected docs/wiki/index.md link; content:\n%s", content)
+	}
+}
+
+// --- ## Members legacy-marker migration (CP3) ---
+
+// TestScan_MigratesLegacyMemberMarkers verifies that a wiki/index.md carrying
+// the legacy HTML-comment Members section is rewritten to the
+// wiki-member-list XML region on the next Scan: no duplicate "## Members"
+// heading, no leftover comment markers, narrative outside the legacy region
+// preserved, and the migration is idempotent on a subsequent Scan.
+func TestScan_MigratesLegacyMemberMarkers(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	after1 := readIndexMD(t, root)
+	idx := strings.Index(after1, "<wiki-member-list>")
+	if idx == -1 {
+		t.Fatalf("expected <wiki-member-list> region after first scan:\n%s", after1)
+	}
+	// Everything before the region (the <wiki-scan> block + narrative) stands
+	// in for what a pre-migration realm looked like; splice in a legacy
+	// comment-delimited Members section plus trailing narrative in its place.
+	prefix := strings.TrimRight(after1[:idx], "\n")
+	legacyContent := prefix + "\n\n" +
+		"## Members\n\n" +
+		"<!-- wiki-members:start -->\n" +
+		"- [repoA](../repoA/)\n" +
+		"<!-- wiki-members:end -->\n\n" +
+		"## Trailer\n\nNarrative after the legacy section.\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(legacyContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("migration Scan: %v", err)
+	}
+
+	migrated := readIndexMD(t, root)
+	if strings.Contains(migrated, "<!-- wiki-members:start -->") || strings.Contains(migrated, "<!-- wiki-members:end -->") {
+		t.Errorf("legacy comment markers must be gone after migration:\n%s", migrated)
+	}
+	if !strings.Contains(migrated, "<wiki-member-list>") {
+		t.Errorf("migrated index.md missing <wiki-member-list> region:\n%s", migrated)
+	}
+	if got := strings.Count(migrated, "## Members"); got != 1 {
+		t.Errorf("migrated index.md must carry exactly one ## Members heading, got %d:\n%s", got, migrated)
+	}
+	if !strings.Contains(migrated, "Narrative after the legacy section.") {
+		t.Errorf("narrative outside the legacy region must be preserved:\n%s", migrated)
+	}
+
+	// Ordering: migration must relocate the region IN PLACE, not excise-then-
+	// append. The realm narrative that precedes the legacy block must stay
+	// before the migrated region, and the "## Trailer" narrative that
+	// followed the legacy block must stay after it — never reordered to
+	// precede the migrated region because spliceManagedRegion mistook it for
+	// absent and appended a fresh copy at EOF.
+	overviewIdx := strings.Index(migrated, "## Realm overview")
+	memberIdx := strings.Index(migrated, "<wiki-member-list>")
+	trailerIdx := strings.Index(migrated, "## Trailer")
+	if overviewIdx == -1 || memberIdx == -1 || trailerIdx == -1 {
+		t.Fatalf("expected all three markers present: overview=%d member=%d trailer=%d\n%s", overviewIdx, memberIdx, trailerIdx, migrated)
+	}
+	if overviewIdx > memberIdx {
+		t.Errorf("pre-region narrative must stay before the migrated region: overview at %d, region at %d:\n%s", overviewIdx, memberIdx, migrated)
+	}
+	if memberIdx > trailerIdx {
+		t.Errorf("migrated region must stay in place, before the post-region narrative — got reordered: region at %d, trailer at %d:\n%s", memberIdx, trailerIdx, migrated)
+	}
+
+	// Idempotent: a second Scan with no member-set change must not re-trigger
+	// the migration path (no legacy markers left to find) and must produce a
+	// byte-identical file.
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan: %v", err)
+	}
+	afterSecond := readIndexMD(t, root)
+	if afterSecond != migrated {
+		t.Errorf("migration must be idempotent — second Scan changed the file\nfirst:\n%s\nsecond:\n%s", migrated, afterSecond)
+	}
+}
+
+// TestScan_MigratesLegacyMemberMarkers_BlankLineBoundary asserts the exact
+// boundary bytes on both sides of the migrated <wiki-member-list> region —
+// not just index ordering. The legacy "## Members" heading follows the
+// preceding narrative with a SINGLE newline (no blank line) — the L2
+// leading-boundary sub-case: spliceRegionAt must pad it to a blank line, not
+// merely preserve whatever whitespace it finds. A missing blank line on the
+// trailing side lets "## Trailer" get absorbed into the preceding HTML block
+// under CommonMark, rendering as literal text instead of a heading; this
+// must never regress either.
+func TestScan_MigratesLegacyMemberMarkers_BlankLineBoundary(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	after1 := readIndexMD(t, root)
+	idx := strings.Index(after1, "<wiki-member-list>")
+	if idx == -1 {
+		t.Fatalf("expected <wiki-member-list> region after first scan:\n%s", after1)
+	}
+	// Single trailing newline — no blank line — before the heading.
+	prefix := strings.TrimRight(after1[:idx], "\n")
+	legacyContent := prefix + "\n" +
+		"## Members\n\n" +
+		"<!-- wiki-members:start -->\n" +
+		"- [repoA](../repoA/)\n" +
+		"<!-- wiki-members:end -->\n\n" +
+		"## Trailer\n\nNarrative after the legacy section.\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(legacyContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("migration Scan: %v", err)
+	}
+
+	migrated := readIndexMD(t, root)
+	if !strings.Contains(migrated, "\n\n<wiki-member-list>") {
+		t.Errorf("expected a padded blank-line boundary before <wiki-member-list> (single \\n input must become \\n\\n):\n%s", migrated)
+	}
+	if !strings.Contains(migrated, "</wiki-member-list>\n\n## Trailer") {
+		t.Errorf("expected a blank-line boundary after </wiki-member-list> — \"## Trailer\" would otherwise render as literal text, not a heading:\n%s", migrated)
+	}
+}
+
+// TestScan_MigratesLegacyMemberMarkers_NoHeadingLeadingBoundary covers the
+// same L2 leading-boundary padding when NO "## Members" heading precedes the
+// legacy comment markers (bare markers only) — the adjacency-bounded heading
+// lookup in migrateLegacyMemberMarkers must not be the only path that
+// exercises spliceRegionAt's LEAD padding.
+func TestScan_MigratesLegacyMemberMarkers_NoHeadingLeadingBoundary(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	after1 := readIndexMD(t, root)
+	idx := strings.Index(after1, "<wiki-member-list>")
+	if idx == -1 {
+		t.Fatalf("expected <wiki-member-list> region after first scan:\n%s", after1)
+	}
+	prefix := strings.TrimRight(after1[:idx], "\n")
+	legacyContent := prefix + "\n" +
+		"<!-- wiki-members:start -->\n" +
+		"- [repoA](../repoA/)\n" +
+		"<!-- wiki-members:end -->\n\n" +
+		"## Trailer\n\nNarrative after the legacy section.\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(legacyContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("migration Scan: %v", err)
+	}
+
+	migrated := readIndexMD(t, root)
+	if !strings.Contains(migrated, "\n\n<wiki-member-list>") {
+		t.Errorf("expected a padded blank-line boundary before <wiki-member-list> with no heading present:\n%s", migrated)
+	}
+	if got := strings.Count(migrated, "## Members"); got != 1 {
+		t.Errorf("migrated index.md must carry exactly one ## Members heading (the region's own), got %d:\n%s", got, migrated)
+	}
+}
+
+// TestScan_MigratesLegacyMemberMarkers_EOFBoundary verifies that when the
+// legacy Members section is the very last thing in the file, migration ends
+// the document with exactly one trailing newline — never no-newline-at-EOF,
+// never a trailing blank line.
+func TestScan_MigratesLegacyMemberMarkers_EOFBoundary(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	after1 := readIndexMD(t, root)
+	idx := strings.Index(after1, "<wiki-member-list>")
+	if idx == -1 {
+		t.Fatalf("expected <wiki-member-list> region after first scan:\n%s", after1)
+	}
+	prefix := strings.TrimRight(after1[:idx], "\n")
+	legacyContent := prefix + "\n\n" +
+		"## Members\n\n" +
+		"<!-- wiki-members:start -->\n" +
+		"- [repoA](../repoA/)\n" +
+		"<!-- wiki-members:end -->\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(legacyContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("migration Scan: %v", err)
+	}
+
+	migrated := readIndexMD(t, root)
+	if !strings.HasSuffix(migrated, "\n") {
+		t.Fatalf("expected file to end in a newline:\n%q", migrated)
+	}
+	if strings.HasSuffix(migrated, "\n\n") {
+		t.Errorf("expected exactly one trailing newline at EOF, not a trailing blank line:\n%q", migrated)
+	}
+	lastTagIdx := strings.LastIndex(migrated, "</wiki-member-list>")
+	if lastTagIdx == -1 {
+		t.Fatalf("missing </wiki-member-list> close tag:\n%s", migrated)
+	}
+	if got := migrated[lastTagIdx+len("</wiki-member-list>"):]; got != "\n" {
+		t.Errorf("expected exactly \"\\n\" after the close tag at EOF, got %q", got)
+	}
+}
+
+// TestScan_MigratesLegacyMemberMarkers_ProseBetweenHeadingAndMarkerSurvives
+// verifies the H2 adjacency guard: when a user typed prose between a
+// "## Members" heading and the legacy start marker (non-adjacent), that
+// prose — and the heading — must survive migration untouched. Absorbing a
+// non-adjacent heading into the relocated span would silently delete user
+// content; a transient duplicate "## Members" heading is the accepted
+// tradeoff instead.
+func TestScan_MigratesLegacyMemberMarkers_ProseBetweenHeadingAndMarkerSurvives(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	after1 := readIndexMD(t, root)
+	idx := strings.Index(after1, "<wiki-member-list>")
+	if idx == -1 {
+		t.Fatalf("expected <wiki-member-list> region after first scan:\n%s", after1)
+	}
+	prefix := strings.TrimRight(after1[:idx], "\n")
+	legacyContent := prefix + "\n\n" +
+		"## Members\n\n" +
+		"Some hand-written prose the user typed between the heading and the legacy markers.\n\n" +
+		"<!-- wiki-members:start -->\n" +
+		"- [repoA](../repoA/)\n" +
+		"<!-- wiki-members:end -->\n\n" +
+		"## Trailer\n\nNarrative after the legacy section.\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(legacyContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("migration Scan: %v", err)
+	}
+
+	migrated := readIndexMD(t, root)
+	if !strings.Contains(migrated, "Some hand-written prose the user typed between the heading and the legacy markers.") {
+		t.Errorf("prose between the heading and the legacy marker must survive migration:\n%s", migrated)
+	}
+	if !strings.Contains(migrated, "## Members\n\nSome hand-written prose") {
+		t.Errorf("the non-adjacent heading must stay in place, immediately followed by the user's prose:\n%s", migrated)
+	}
+}
+
+// TestScan_UnpairedLegacyStartMarkerSkipsMembersWrite verifies that a legacy
+// start marker with no matching end marker leaves the file byte-for-byte
+// untouched (no half-migration, no fresh region appended at EOF) and the
+// members write is skipped this scan.
+func TestScan_UnpairedLegacyStartMarkerSkipsMembersWrite(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	after1 := readIndexMD(t, root)
+	idx := strings.Index(after1, "<wiki-member-list>")
+	if idx == -1 {
+		t.Fatalf("expected <wiki-member-list> region after first scan:\n%s", after1)
+	}
+	prefix := strings.TrimRight(after1[:idx], "\n")
+	unpaired := prefix + "\n\n" +
+		"## Members\n\n" +
+		"<!-- wiki-members:start -->\n" +
+		"- [repoA](../repoA/)\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(unpaired), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan with unpaired legacy marker: %v", err)
+	}
+
+	afterScan := readIndexMD(t, root)
+	if afterScan != unpaired {
+		t.Errorf("file must be left byte-for-byte untouched when a stray unpaired legacy marker is present\ngot:  %q\nwant: %q", afterScan, unpaired)
+	}
+}
+
+// TestScan_UnpairedLegacyEndMarkerSkipsMembersWrite mirrors the P1 case for
+// the opposite unpaired shape: a legacy end marker with no matching start.
+func TestScan_UnpairedLegacyEndMarkerSkipsMembersWrite(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	after1 := readIndexMD(t, root)
+	idx := strings.Index(after1, "<wiki-member-list>")
+	if idx == -1 {
+		t.Fatalf("expected <wiki-member-list> region after first scan:\n%s", after1)
+	}
+	prefix := strings.TrimRight(after1[:idx], "\n")
+	unpaired := prefix + "\n\n" +
+		"## Members\n\n" +
+		"- [repoA](../repoA/)\n" +
+		"<!-- wiki-members:end -->\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(unpaired), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan with unpaired legacy marker: %v", err)
+	}
+
+	afterScan := readIndexMD(t, root)
+	if afterScan != unpaired {
+		t.Errorf("file must be left byte-for-byte untouched when a stray unpaired legacy marker is present\ngot:  %q\nwant: %q", afterScan, unpaired)
+	}
+}
+
+// TestScan_PreexistingRegionWithStrayLegacyMarkersNoDuplicate verifies the
+// P3 guard: a document that already has a well-formed <wiki-member-list>
+// region (migration already ran) plus stray leftover legacy comment markers
+// elsewhere must not gain a second region — migration is one-shot.
+func TestScan_PreexistingRegionWithStrayLegacyMarkersNoDuplicate(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	after1 := readIndexMD(t, root)
+	if !strings.Contains(after1, "<wiki-member-list>") {
+		t.Fatalf("expected <wiki-member-list> region after first scan:\n%s", after1)
+	}
+	// Simulate a user pasting stray, already-superseded legacy markers back
+	// in after a well-formed region already exists.
+	stray := after1 + "\n\n<!-- wiki-members:start -->\n- stray\n<!-- wiki-members:end -->\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(stray), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("Scan with pre-existing region + stray legacy markers: %v", err)
+	}
+
+	afterScan := readIndexMD(t, root)
+	if got := strings.Count(afterScan, "<wiki-member-list>"); got != 1 {
+		t.Errorf("expected exactly one <wiki-member-list> region, got %d:\n%s", got, afterScan)
+	}
+}
+
+// TestScan_MigratesLegacyMemberMarkers_StartOfFileNoLeadingArtifact verifies
+// the L0 start-of-file LEAD case: when the legacy span sits at the very
+// start of the document (nothing precedes it), migration must not introduce
+// a leading blank-line artifact.
+func TestScan_MigratesLegacyMemberMarkers_StartOfFileNoLeadingArtifact(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	opts := wiki.Options{Clock: fixedClock()}
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+	after1 := readIndexMD(t, root)
+	idx := strings.Index(after1, "<wiki-member-list>")
+	if idx == -1 {
+		t.Fatalf("expected <wiki-member-list> region after first scan:\n%s", after1)
+	}
+	// tail is the <wiki-scan> block + narrative WITHOUT any wiki-member-list
+	// region — using the full after1 here would trip the P3 guard (a
+	// well-formed region already present) before the LEAD case under test
+	// ever gets exercised.
+	tail := after1[:idx]
+
+	// Put the legacy markers as the very first bytes of the file, followed
+	// by the rest of the already-scanned content (including its own
+	// <wiki-scan> block) — so the next Scan's writeWikiScanBlock replaces
+	// that block in place rather than appending a second one, and the
+	// legacy span stays genuinely at start-of-file.
+	legacyContent := "<!-- wiki-members:start -->\n" +
+		"- [repoA](../repoA/)\n" +
+		"<!-- wiki-members:end -->\n\n" +
+		tail
+	if err := os.WriteFile(indexMDPath(root), []byte(legacyContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("migration Scan: %v", err)
+	}
+
+	migrated := readIndexMD(t, root)
+	if !strings.HasPrefix(migrated, "<wiki-member-list>") {
+		t.Errorf("region at start-of-file must have no leading blank-line artifact:\n%q", migrated)
+	}
+}
+
+// --- Scan wiring: bucket index rebuild (CP3) ---
+
+// TestScan_RebuildsBucketIndexesAndSurvivesBrokenBucket verifies that Scan
+// rebuilds both the realm <wiki-bucket-list> region and each registered
+// bucket's own <bucket-docs> region, and that an unpaired region in one
+// bucket does not fail the scan or block a sibling bucket's rebuild.
+func TestScan_RebuildsBucketIndexesAndSurvivesBrokenBucket(t *testing.T) {
+	root := t.TempDir()
+	makeGitRepo(t, root, "repoA")
+
+	researchDir := filepath.Join(root, "research")
+	if err := os.MkdirAll(researchDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(researchDir, "index.md"), []byte("---\ndescription: Research capture bucket\n---\n\n## Conventions\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(researchDir, "seo.md"), []byte("---\ntitle: SEO\n---\n\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	brokenDir := filepath.Join(root, "broken")
+	if err := os.MkdirAll(brokenDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	brokenOriginal := "# broken\n\n<bucket-docs>\n\nstray content, no close tag\n"
+	if err := os.WriteFile(filepath.Join(brokenDir, "index.md"), []byte(brokenOriginal), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := wiki.Options{Clock: fixedClock()}
+
+	// First scan scaffolds wiki/.
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("first Scan: %v", err)
+	}
+
+	// Register both buckets by hand via the same <wiki-buckets> block shape
+	// the registry writes — the external test package has no access to the
+	// unexported bucket-registry helpers.
+	content := readIndexMD(t, root)
+	content += "\n<wiki-buckets>\n" +
+		fmt.Sprintf("<bucket name=%q path=%q/>\n", "research", researchDir) +
+		fmt.Sprintf("<bucket name=%q path=%q/>\n", "broken", brokenDir) +
+		"</wiki-buckets>\n"
+	if err := os.WriteFile(indexMDPath(root), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second scan must rebuild both index levels; the broken bucket's
+	// unpaired region must not fail the scan.
+	if _, err := wiki.Scan(root, opts); err != nil {
+		t.Fatalf("second Scan must not fail on a broken bucket region: %v", err)
+	}
+
+	after := readIndexMD(t, root)
+	if !strings.Contains(after, "<wiki-member-list>") {
+		t.Errorf("wiki/index.md missing <wiki-member-list> region:\n%s", after)
+	}
+	if !strings.Contains(after, "<wiki-bucket-list>") {
+		t.Errorf("wiki/index.md missing <wiki-bucket-list> region:\n%s", after)
+	}
+	if !strings.Contains(after, "- [research](../research) - Research capture bucket") {
+		t.Errorf("realm bucket list missing research entry:\n%s", after)
+	}
+
+	researchIndex, err := os.ReadFile(filepath.Join(researchDir, "index.md"))
+	if err != nil {
+		t.Fatalf("read research index.md: %v", err)
+	}
+	if !strings.Contains(string(researchIndex), "<bucket-docs>") || !strings.Contains(string(researchIndex), "[SEO](seo.md)") {
+		t.Errorf("research bucket-docs region not rebuilt:\n%s", researchIndex)
+	}
+
+	brokenAfter, err := os.ReadFile(filepath.Join(brokenDir, "index.md"))
+	if err != nil {
+		t.Fatalf("read broken index.md: %v", err)
+	}
+	if string(brokenAfter) != brokenOriginal {
+		t.Errorf("broken bucket index.md must be left untouched by the unpaired region\ngot:  %q\nwant: %q", brokenAfter, brokenOriginal)
 	}
 }

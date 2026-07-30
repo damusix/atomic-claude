@@ -84,8 +84,8 @@ Once the suite is green, run a range-scoped signals refresh before the ship gate
 
 1. If `command -v atomic` returns nothing → skip.
 2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report + skip.
-3. Exit 1 → dispatch `atomic-signals-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort.
-4. Stage `.claude/project/deterministic-signals.md`, `.claude/project/signals.md`, and any files under `.claude/project/signals/`. Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
+3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort.
+4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`). Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
 
 The Phase 5 ship verb's `signals-gate` will then see a fresh stored file (`atomic signals stale` exit 0) and skip the inferrer dispatch — this no-op is intended, not a bug. The loop already refreshed.
 
@@ -105,7 +105,7 @@ Write the implementation log to the spec, then:
     - /commit pr           — open a PR
     ```
 
-Execute the chosen ship verb (it owns message format via `atomic-commit`, worktree cleanup, and signals refresh). On a worktree merge/squash, delete the worktree per the verb's prompt (auto-confirm — the user picked the merge).
+Execute the chosen ship verb (it owns message format via `atomic-git-discipline`, worktree cleanup, and signals refresh). On a worktree merge/squash, delete the worktree per the verb's prompt (auto-confirm — the user picked the merge).
 
 ## Phase 6 — Summary and cleanup
 

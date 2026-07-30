@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // matchesSignalsIgnore reports whether rel matches any of the provided globs.
@@ -48,13 +50,25 @@ var skipDirs = map[string]bool{
 	"vendor":       true,
 }
 
-// skipPrefixes are repo-relative path prefixes excluded in all enumeration modes.
-// .claude/.scratchpad/ is working memory — not interesting for signals.
-// .claude/project/ contains signals output — including it would make the scan
-// non-idempotent (the output file appears in subsequent scans).
-var skipPrefixes = []string{
-	".claude/.scratchpad/",
-	".claude/project/",
+// skippedPrefixes returns the repo-relative path prefixes excluded in all
+// enumeration modes. The scratchpad and project prefixes are harness-dir-aware
+// (config.ScratchpadDir / config.ProjectDir with an empty root yield the
+// harness-relative subpath alone, e.g. ".claude/.scratchpad" or
+// ".pi/.scratchpad") — the scratchpad prefix is working memory, not
+// interesting for signals; the project prefix contains legacy signals output
+// (pre-wiki-relocation layout). docs/wiki/ is the generated signals output
+// directory (router index.md, domain files, scan.md, steering CLAUDE.md) and
+// stays a fixed, harness-independent path: including any file from it in the
+// scan tree would make the scan self-referential (the inferrer writes a
+// <scan-sha> hash into docs/wiki/index.md, which changes index.md's blob SHA,
+// which changes the scan tree, which makes `atomic signals stale` return exit
+// 1 forever — circular staleness).
+func skippedPrefixes() []string {
+	return []string{
+		config.ScratchpadDir("") + "/",
+		config.ProjectDir("") + "/",
+		"docs/wiki/",
+	}
 }
 
 // enumerateFiles returns repo-relative file paths for all tracked (and
@@ -86,13 +100,14 @@ func enumGit(root string) ([]string, error) {
 		return nil, err
 	}
 
+	prefixes := skippedPrefixes()
 	seen := make(map[string]bool, len(tracked)+len(untracked))
 	all := make([]string, 0, len(tracked)+len(untracked))
 	for _, p := range append(tracked, untracked...) {
 		if p == "" || seen[p] {
 			continue
 		}
-		if isSkippedPrefix(p) {
+		if isSkippedPrefix(p, prefixes) {
 			continue
 		}
 		seen[p] = true
@@ -120,6 +135,7 @@ func gitLsFiles(root string, args []string) ([]string, error) {
 }
 
 func enumWalk(root string) ([]string, error) {
+	prefixes := skippedPrefixes()
 	var files []string
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -135,7 +151,7 @@ func enumWalk(root string) ([]string, error) {
 		if err != nil {
 			return nil
 		}
-		if isSkippedPrefix(rel) {
+		if isSkippedPrefix(rel, prefixes) {
 			return nil
 		}
 		files = append(files, rel)
@@ -148,8 +164,8 @@ func enumWalk(root string) ([]string, error) {
 	return files, nil
 }
 
-func isSkippedPrefix(rel string) bool {
-	for _, pfx := range skipPrefixes {
+func isSkippedPrefix(rel string, prefixes []string) bool {
+	for _, pfx := range prefixes {
 		if strings.HasPrefix(rel, pfx) {
 			return true
 		}

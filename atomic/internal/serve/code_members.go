@@ -23,11 +23,43 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/realm"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/wiki"
 )
 
-// localIndexRel is the per-repo index path, relative to a repo root.
-const localIndexRel = ".claude/.atomic-index/atomic.db"
+// memberResolver resolves the code members for a served scope and the local
+// single-repo db path. Embedded by every /code/* handler (codeExplorerHandler,
+// codeGraphHandler) so member resolution — federation ∪ self-index discovery,
+// the local-db fallback path — lives in exactly one place.
+type memberResolver struct {
+	// realmRoot is the root of the repository (or realm) being served.
+	realmRoot string
+	// claudeMDPath is used by realm.Resolve to discover federation members.
+	claudeMDPath string
+	// wikiIndexPath is the realm wiki/index.md, used to discover self-indexed
+	// members. Defaults to <realmRoot>/wiki/index.md when empty.
+	wikiIndexPath string
+}
+
+// members discovers the code members for the served scope (federation ∪
+// per-member self-indexes). Resolved per request — cheap (reads config + the
+// wiki scan).
+func (m memberResolver) members() []codeMember {
+	res, err := realm.Resolve(m.realmRoot, m.claudeMDPath)
+	if err != nil {
+		return nil
+	}
+	wikiIndexPath := m.wikiIndexPath
+	if wikiIndexPath == "" && res.RealmRoot != "" {
+		wikiIndexPath = filepath.Join(res.RealmRoot, "wiki", "index.md")
+	}
+	return discoverCodeMembers(res, m.realmRoot, wikiIndexPath)
+}
+
+// localDBPath returns the canonical local db path for the realm root.
+func (m memberResolver) localDBPath() string {
+	return config.IndexDBPath(m.realmRoot)
+}
 
 // codeMember is one code-queryable repo within the served scope.
 type codeMember struct {
@@ -81,7 +113,7 @@ func discoverCodeMembers(res realm.Resolution, realmRoot, wikiIndexPath string) 
 		// member is always returned (db existence is the engine's call: an absent
 		// db surfaces as a "not indexed" note, and the injected engine seam stays
 		// usable in tests that never create a real db file).
-		db := filepath.Join(realmRoot, localIndexRel)
+		db := config.IndexDBPath(realmRoot)
 		return []codeMember{{Key: "", Prefix: "", Path: realmRoot, DBPath: db}}
 	}
 }
@@ -139,7 +171,7 @@ func memberDB(realmRoot, memberRelPath, fedDB string) string {
 	if fedDB != "" && fileExists(fedDB) {
 		return fedDB
 	}
-	self := filepath.Join(realmRoot, memberRelPath, localIndexRel)
+	self := config.IndexDBPath(filepath.Join(realmRoot, memberRelPath))
 	if fileExists(self) {
 		return self
 	}

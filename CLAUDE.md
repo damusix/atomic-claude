@@ -2,13 +2,13 @@
 
 <atomic>
 
-@~/.claude/.atomic/config.resolved.md
+@~/.atomic/config.resolved.md
 
 ## User profile
 
-@~/.claude/.atomic/profile.md
+@~/.atomic/profile.md
 
-Personal facts about you — name, role, employer, active projects, interests, people you mention — are recorded in `~/.claude/.atomic/profile.md`. Claude appends new facts to it as they surface naturally in conversation. Facts that apply across all projects (identity, work, relationships) go here. Facts specific to one repo's conventions go to that project's auto memory instead. Rule of thumb: if the fact would still be true in a different repo, it belongs in profile.
+Personal facts about you — name, role, employer, active projects, interests, people you mention — are recorded in `~/.atomic/profile.md`. Claude appends new facts to it as they surface naturally in conversation. Facts that apply across all projects (identity, work, relationships) go here. Facts specific to one repo's conventions go to that project's auto memory instead. Rule of thumb: if the fact would still be true in a different repo, it belongs in profile.
 
 `profile.md`'s `## Environment` block is refreshed automatically by the session-start hook. If hooks are disabled in your environment and its `<deterministic lastcheck=...>` date is more than a day old, run `atomic profile refresh --if-stale 1d` once, silently, to update the detected tooling.
 
@@ -21,10 +21,10 @@ Personal facts about you — name, role, employer, active projects, interests, p
 
 - **Simplicity first (YAGNI).** Walk this ladder before writing anything; stop at the first hit:
   1. Does it need to exist at all? No → skip it.
-  2. Does the stdlib do it? → use the stdlib.
-  3. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
-  4. Does an already-installed dependency solve it? → use it; don't add a new dep when a few lines do.
-  5. Does something in the codebase already solve it? → reuse it; don't rewrite.
+  2. Does something in the codebase already solve it? → reuse it; don't rewrite.
+  3. Does an already-installed dependency solve it? → use it; don't add a new dep when a few lines do.
+  4. Does the stdlib do it? → use the stdlib.
+  5. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
   6. Can it be one line? → write the one line.
   7. Otherwise → write the **minimum** code that fully solves the problem.
 
@@ -34,6 +34,7 @@ Personal facts about you — name, role, employer, active projects, interests, p
 - Prefer code over the model for routing, retries, status-code handling, and deterministic transforms — if code can answer, code answers. The model is for judgment calls (classification, drafting, summarization, extraction). Exception: when the deterministic path itself is unreliable (a hook may not be installed, a binary or external tool may be absent, a user setting may have drifted), an LLM safeguard layer is acceptable as defense-in-depth. Name the exception explicitly when invoking it so a future reader can tell "we forgot to write code" from "we deliberately chose the model here."
 - Surface conflicts openly. Pick one (more recent / more tested), explain why, flag the other. Blending hides the decision. **Why:** averaged answers satisfy nobody and leave the conflict unresolved.
 - Read before you write. Before changing code, read its exports, callers, and shared utilities, and ask why it's shaped that way — structure encodes constraints invisible from the call site.
+- Comment discipline. A comment states what the code can't show — a constraint, an invariant, a non-obvious why, a gotcha — never narrates the next line, restates the diff, or addresses the reviewer ("fixed per review"). Match the file's existing comment density and idiom. Document new public APIs with the language's own docstring convention. **Why:** narration and reviewer-talk are stale the moment the PR merges, while the WHY a comment should carry is exactly what the code can never say for itself.
 
 </principles>
 
@@ -53,6 +54,12 @@ Personal facts about you — name, role, employer, active projects, interests, p
 - Fail loud. "Completed" means nothing was skipped. "Tests pass" means all tests ran. Surface uncertainty instead of hiding it. **Why:** hidden gaps compound — the next person trusts the claim.
 
 </quality_gates>
+
+
+## Commits & PRs
+
+
+Commit messages follow the `atomic-git-discipline` skill: Conventional Commits, terse subject, body only when the why isn't obvious. Any subagent briefed to create a commit reads `~/.claude/skills/atomic-git-discipline/SKILL.md` before committing — subagents can't auto-fire skills, so the read is the enforcement. PR titles and bodies follow the same skill: state only what the diff can't show, ~120 words max — no test plan, no enumerated file lists. Commits, PR titles, and PR bodies never carry an AI byline or attribution: no "Generated with Claude Code" footer, no `Co-Authored-By: Claude` trailer, no session links. **Why:** attribution footers are noise in `git blame` and release notes, and they misstate authorship — the human shipping the change owns it.
 
 
 ## Bash over Read+Write
@@ -96,9 +103,9 @@ Use regex when searching for literal strings, log messages, comments, config val
 | `.claude/project/followups/<id>.md` | Committed, auto-loaded follow-up entries (`kind: finding` / `kind: plan`). Managed via `atomic followups …`; `INDEX.md` is the `@-ref`. | Closed entries collapse to `CLOSED.md`. |
 | `docs/design/<topic>.md` | Conceptual workspace (feature shape, rules, approaches). Written by `/atomic-plan` for non-trivial work. | Committed, human-facing. |
 | `docs/spec/<topic>.md` | Implementation contract derived from the design; canonical source for `/subagent-implementation`. | Committed; see `rules/specs/`. |
-| `.worktrees/<branch>/` | Isolated branches created by the implement loop / autopilot via the worktree-setup partial; ship verbs detect provenance on merge/squash. Gitignored. | Prompt to delete on merge. |
+| `.claude/worktrees/<branch>/` | Isolated branches created by the implement loop / autopilot via the worktree-setup partial — Claude Code's native worktree home (`EnterWorktree`, `claude --worktree`); ship verbs detect provenance on merge/squash. Gitignored via nested `.claude/.gitignore`. | Prompt to delete on merge. |
 | `tmp/` | Ad-hoc experiments, scratch scripts, one-off tests. Gitignored. | Throwaway. |
-| `~/.claude/.atomic/` | Per-user state: `config.toml`, `config.resolved.md` (auto-loaded), `backups/`, `proposed/CLAUDE.md`. | Never committed. |
+| `~/.atomic/` | Per-user state: `config.toml`, `config.resolved.md` (auto-loaded), `backups/`, `proposed/CLAUDE.md`. | Never committed. |
 
 
 ## Specs
@@ -110,9 +117,9 @@ Use regex when searching for literal strings, log messages, comments, config val
 ## Workflow (canonical lifecycle)
 
 
-1. **Plan** — `/atomic-plan` gauges triviality (trivial → inline spec; non-trivial → design doc + spec via subagent loop). Pre-design gates: `/gather-evidence`, `/pressure-test`. When a design question is genuinely visual, `/atomic-plan` invokes the `atomic-visual-options` skill to render choices as a throwaway HTML artifact; the user picks by typing codes and the chosen option is recorded in the design doc. Human approves.
-2. **Implement** — `/subagent-implementation` reads the spec, runs the implement→review loop, commits per green iteration. (`/subagent-diagnose` for failure-driven work.)
-3. **Ship** — `/commit [push|pr|merge|squash|squash merge]` (ask-don't-enumerate: commits first, then prompts or routes by token). Delegates message format to the `atomic-commit` skill, detects worktree provenance on merge/squash, and refreshes signals for ad-hoc real-code commits (docs-only commits skipped; the implement loop / `/autopilot` is the primary refresh point, scoped to the task's SHA range). `/undo-commit` soft-undoes the last commit.
+1. **Plan** — `/atomic-plan` gauges triviality (trivial → inline spec; non-trivial → design doc + spec via subagent loop). Pre-design gates: `/gather-evidence`, `/pressure-test`. Post-design gate: `/challenge-swarm` — parallel isolated expert lenses attack the written design/spec and report a contradiction map before implementation. When a design question is genuinely visual, `/atomic-plan` invokes the `atomic-visual-options` skill to render choices as a throwaway HTML artifact; the user picks by typing codes and the chosen option is recorded in the design doc. Human approves.
+2. **Implement** — `/subagent-implementation` reads the spec, runs the implement→review loop, commits per green iteration. (`/subagent-diagnose` for failure-driven work.) `/quick-fix` skips the plan for a known-cause fix with one obvious approach — same loop, no spec.
+3. **Ship** — `/commit [push|pr|merge|squash|squash merge]` (ask-don't-enumerate: commits first, then prompts or routes by token). Delegates message format to the `atomic-git-discipline` skill, detects worktree provenance on merge/squash, and refreshes signals for ad-hoc real-code commits (docs-only commits skipped; the implement loop / `/autopilot` is the primary refresh point, scoped to the task's SHA range). `/undo-commit` soft-undoes the last commit.
 4. **Sync docs** — `/documentation` maintains human-facing surfaces (bootstrap indexes a `## Documentation surfaces` table; subsequent runs match diffs against it). Ship verbs run it in maintenance mode automatically.
 
 
@@ -121,11 +128,15 @@ Use regex when searching for literal strings, log messages, comments, config val
 
 **Discovery.** Every command self-describes in the slash listing the harness injects each session, and every skill via its trigger description. For "which verb for my situation?", invoke `/atomic-help [<topic> | <intent> | tour]` — the router. This file carries only the *lifecycle ordering and cross-artifact contracts*, not a per-command catalog.
 
-**Cross-repo wiki.** `/refresh-wiki [root]` maintains a project-wiki — a separate git repo summarizing the member repos under a root, with synthesized cross-cutting concerns and capture buckets (loose notes / research / tickets, registered via `atomic wiki bucket add`). The wiki index path lives in a CLI-managed `<wikis>` block in `~/.claude/CLAUDE.md` that sits *outside* `<atomic>` and is never `@-ref`'d. Drift is caught automatically (ship-time `mark-dirty` + session-start nudge). Mechanics live in `/refresh-wiki`, the `atomic-wiki` skill, and `atomic wiki --help`.
+**Cross-repo wiki.** `/refresh-wiki [root]` maintains a project-wiki — a separate git repo summarizing the member repos under a root, with synthesized cross-cutting concerns and capture buckets (loose notes / research / tickets, registered via `atomic wiki bucket add`). Bucket docs carry a six-key frontmatter contract (`title`, `type`, `description`, `tags`, `status`, `created`) that code indexes deterministically; `atomic wiki bucket doc|skill|index` scaffold a topic file, a per-bucket skill, and rebuild the bucket/realm listing regions. The wiki index path lives in a CLI-managed `<wikis>` block in `~/.claude/CLAUDE.md` that sits *outside* `<atomic>` and is never `@-ref`'d. Drift is caught automatically (ship-time `mark-dirty` + session-start nudge). Mechanics live in `/refresh-wiki`, the `atomic-wiki` skill, and `atomic wiki --help`.
+
+## Inter-session messaging
+
+`atomic bus` connects concurrent Claude Code sessions on one machine over named rooms: `join <room> --as <name>`, then a `Monitor` on `recv` delivers peer messages as prompts (always streams; no replay of past traffic). Every envelope carries a `to` list — addressed (`to` names you: act on it) vs FYI (`to` empty or names someone else: note it, never act) — the mechanism that keeps a room of agents from looping on each other's status updates. The per-user daemon auto-spawns on first use, rehydrates its roster from `~/.atomic/bus.json` on restart (so a member idle across a restart is still addressable), and is controlled explicitly via `bus start | stop | restart` — no idle shutdown. An operator reaches a room without joining via `tail`/`say`/`chat`, and can `halt`/`resume` it — a halted room fails agent `send` with exit 7 until resumed, while `say` still gets through. The `atomic-bus` skill carries the connect flow and reaction policy; full contract at `docs/reference/bus.md`.
 
 ## Code-intel engine
 
-If `atomic` is installed, indexing is automatic — run `atomic code index` (then `atomic code sync` to refresh); it's cheap and idempotent, so never prompt for permission to index. The symbol graph at `.claude/.atomic-index/atomic.db` grounds `atomic-investigator`, `atomic-signals-inferrer`, `atomic-reviewer`, and planning. Lead with `atomic code explore "<query>"` for orientation, then the targeted verbs (`search` / `callers` / `callees` / `impact`; `--json` for machine output). Every consumer degrades to `sg`/`grep` when the binary, index, or query is unavailable — never surface that as an error. `atomic code mcp` (or `atomic --repo <path> code mcp` from any cwd) serves the graph as MCP tools; subagents shell out directly. In a wiki realm (`<code-index>` block present), `atomic code` is position-sensing — fans out across members from the realm root, queries one member from inside its directory. Full surface: `atomic code --help`.
+If `atomic` is installed, indexing is automatic — run `atomic code index` (then `atomic code sync` to refresh); it's cheap and idempotent, so never prompt for permission to index. A committed `.claude/atomic.toml` with `[code] ignore = [...]` excludes matching files (globs, no negation) from the index. The symbol graph at `.claude/.atomic-index/atomic.db` grounds `atomic-investigator`, `atomic-wiki-inferrer`, `atomic-reviewer`, and planning. Lead with `atomic code explore "<query>"` for orientation, then the targeted verbs (`search` / `callers` / `callees` / `impact`; `--json` for machine output). Every consumer degrades to `sg`/`grep` when the binary, index, or query is unavailable — never surface that as an error. `atomic code mcp` (or `atomic --repo <path> code mcp` from any cwd) serves the graph as MCP tools; subagents shell out directly. In a wiki realm (`<code-index>` block present), `atomic code` is position-sensing — fans out across members from the realm root, queries one member from inside its directory. Full surface: `atomic code --help`.
 
 ## Atomic binary subcommands
 

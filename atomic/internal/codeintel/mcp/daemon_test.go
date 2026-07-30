@@ -23,6 +23,7 @@ import (
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/engine"
 	codemcp "github.com/damusix/atomic-claude/atomic/internal/codeintel/mcp"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 )
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,26 @@ func TestDaemonConstants(t *testing.T) {
 	// R6: SyncInterval must be exactly 10s.
 	if codemcp.SyncInterval != 10*time.Second {
 		t.Errorf("SyncInterval = %v, want 10s", codemcp.SyncInterval)
+	}
+}
+
+// TestSocketAndLockPath_UnderNonDefaultHarnessDir verifies the two db-path
+// joins in SocketPath/LockPath thread projectRoot through config.IndexDBPath
+// — under a ".pi" harness dir the socket/lock live next to
+// .pi/.atomic-index/atomic.db, not the default .claude/.atomic-index/atomic.db.
+func TestSocketAndLockPath_UnderNonDefaultHarnessDir(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".pi")
+	defer restore()
+
+	root := "/repo"
+	wantSock := filepath.Join(root, ".pi", ".atomic-index", "atomic.mcp.sock")
+	wantLock := filepath.Join(root, ".pi", ".atomic-index", "atomic.mcp.lock")
+
+	if got := codemcp.SocketPath(root); got != wantSock {
+		t.Errorf("SocketPath = %q, want %q", got, wantSock)
+	}
+	if got := codemcp.LockPath(root); got != wantLock {
+		t.Errorf("LockPath = %q, want %q", got, wantLock)
 	}
 }
 

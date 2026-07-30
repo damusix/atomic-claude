@@ -4,7 +4,7 @@
 The `atomic claude install` / `atomic claude update` binary commands handle file writes mechanically: copy embedded atomic-prefixed artifacts into `~/.claude/`, back up replaced files. For `~/.claude/CLAUDE.md` the binary is block-aware: when the on-disk file carries exactly one parseable `<atomic>...</atomic>` block, the binary compares and replaces only that block (backing up the whole file first) and treats user content outside the block as out of scope — no drift, no merge. See [`atomic-binary.md`](./atomic-binary.md) § CLAUDE.md handling for the deterministic path.
 
 
-Only when the on-disk `CLAUDE.md` has no parseable `<atomic>` block (pre-tag installs, unclosed or duplicate tags) does the binary fall back to writing the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and deferring the merge to a Claude Agent. This spec defines that merge surface: a slash command (`/atomic-claude-merge`), a subagent (`atomic-claude-merger`), and the conventions they follow.
+Only when the on-disk `CLAUDE.md` has no parseable `<atomic>` block (pre-tag installs, unclosed or duplicate tags) does the binary fall back to writing the new version to `~/.atomic/proposed/CLAUDE.md` and deferring the merge to a Claude Agent. This spec defines that merge surface: a slash command (`/atomic-claude-merge`), a subagent (`atomic-claude-merger`), and the conventions they follow.
 
 
 This spec depends on [`atomic-binary.md`](./atomic-binary.md) for the install/update orchestration and the proposed-file convention.
@@ -28,7 +28,7 @@ Both ship in the embedded bundle via `atomic claude install`. They live at `~/.c
 User-initiated, always. Two paths:
 
 
-1. **After install/update, migration only**. When the on-disk `~/.claude/CLAUDE.md` has no parseable `<atomic>` block, `atomic claude install` or `atomic claude update` writes `~/.claude/.atomic/proposed/CLAUDE.md` and prints `run /atomic-claude-merge inside any Claude Code session when ready`. The user runs the slash command when they decide it's the right time — minutes later, the next day, or never. (Files that already carry the block are updated deterministically by the binary; no proposed file is written.)
+1. **After install/update, migration only**. When the on-disk `~/.claude/CLAUDE.md` has no parseable `<atomic>` block, `atomic claude install` or `atomic claude update` writes `~/.atomic/proposed/CLAUDE.md` and prints `run /atomic-claude-merge inside any Claude Code session when ready`. The user runs the slash command when they decide it's the right time — minutes later, the next day, or never. (Files that already carry the block are updated deterministically by the binary; no proposed file is written.)
 2. **Ad-hoc**. User types `/atomic-claude-merge` directly in any Claude Code session. Covers re-runs after aborting a prior merge, or running merges out of band.
 
 
@@ -41,8 +41,8 @@ The binary never spawns Claude. The destructive-confirm guard (axiom 3) is insid
 ### Pre-flight
 
 
-1. Check `~/.claude/.atomic/proposed/CLAUDE.md` exists. If not, print `nothing to merge. ~/.claude/.atomic/proposed/CLAUDE.md not found.` and exit.
-2. Check `~/.claude/CLAUDE.md` exists. If not, this is a first-time install case the binary handled directly — print `~/.claude/CLAUDE.md is missing. moving proposed file into place.` Run `mv ~/.claude/.atomic/proposed/CLAUDE.md ~/.claude/CLAUDE.md` and exit.
+1. Check `~/.atomic/proposed/CLAUDE.md` exists. If not, print `nothing to merge. ~/.atomic/proposed/CLAUDE.md not found.` and exit.
+2. Check `~/.claude/CLAUDE.md` exists. If not, this is a first-time install case the binary handled directly — print `~/.claude/CLAUDE.md is missing. moving proposed file into place.` Run `mv ~/.atomic/proposed/CLAUDE.md ~/.claude/CLAUDE.md` and exit.
 
 
 ### Flow
@@ -50,19 +50,19 @@ The binary never spawns Claude. The destructive-confirm guard (axiom 3) is insid
 
 1. Dispatch the `atomic-claude-merger` agent with prompt:
 
-    > Read `~/.claude/CLAUDE.md` (the user's current global) and `~/.claude/.atomic/proposed/CLAUDE.md` (the new atomic-claude version). Produce a merged version that (a) preserves every user customization that does not directly conflict with the proposed atomic sections, (b) updates atomic-owned sections to match the proposed version, (c) adds new atomic sections from the proposed file. Write the merged result to `~/.claude/CLAUDE.md.atomic-merged`. Do not modify `~/.claude/CLAUDE.md` directly. Report which sections you preserved, replaced, added, and any conflicts you flagged.
+    > Read `~/.claude/CLAUDE.md` (the user's current global) and `~/.atomic/proposed/CLAUDE.md` (the new atomic-claude version). Produce a merged version that (a) preserves every user customization that does not directly conflict with the proposed atomic sections, (b) updates atomic-owned sections to match the proposed version, (c) adds new atomic sections from the proposed file. Write the merged result to `~/.claude/CLAUDE.md.atomic-merged`. Do not modify `~/.claude/CLAUDE.md` directly. Report which sections you preserved, replaced, added, and any conflicts you flagged.
 
 2. After the agent returns, present the user a side-by-side diff: `diff ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.atomic-merged`.
 3. Ask via `AskUserQuestion`:
 
     | Option | Effect |
     |--------|--------|
-    | Accept | `mv ~/.claude/CLAUDE.md.atomic-merged ~/.claude/CLAUDE.md`; `rm ~/.claude/.atomic/proposed/CLAUDE.md` |
+    | Accept | `mv ~/.claude/CLAUDE.md.atomic-merged ~/.claude/CLAUDE.md`; `rm ~/.atomic/proposed/CLAUDE.md` |
     | Show diff again | Re-print the diff, re-ask |
     | Open editor | `$EDITOR ~/.claude/CLAUDE.md.atomic-merged` then re-ask |
     | Abort | Leave all three files in place (`CLAUDE.md`, `.atomic/proposed/CLAUDE.md`, `.atomic-merged`). The user can sort it out manually. |
 
-4. On Accept, back up the prior `CLAUDE.md` to `~/.claude/.atomic/backups/<accept-timestamp>/CLAUDE.md` using a fresh ISO timestamp generated at accept time (not the binary's install-run timestamp — the install may have happened days ago, and we want the backup timestamp to reflect when the user actually authorized the overwrite). Create the `.atomic/backups/` dir if it does not exist.
+4. On Accept, back up the prior `CLAUDE.md` to `~/.atomic/backups/<accept-timestamp>/CLAUDE.md` using a fresh ISO timestamp generated at accept time (not the binary's install-run timestamp — the install may have happened days ago, and we want the backup timestamp to reflect when the user actually authorized the overwrite). Create the `.atomic/backups/` dir if it does not exist.
 5. Report final state.
 
 
@@ -81,7 +81,7 @@ The binary never spawns Claude. The destructive-confirm guard (axiom 3) is insid
 ```yaml
 ---
 name: atomic-claude-merger
-description: Merges the user's current ~/.claude/CLAUDE.md with the proposed ~/.claude/.atomic/proposed/CLAUDE.md produced by `atomic claude install/update`. Preserves user customizations, replaces atomic-owned sections, flags conflicts. Read/Write/Edit scoped to ~/.claude/.
+description: Merges the user's current ~/.claude/CLAUDE.md with the proposed ~/.atomic/proposed/CLAUDE.md produced by `atomic claude install/update`. Preserves user customizations, replaces atomic-owned sections, flags conflicts. Read/Write/Edit scoped to ~/.claude/.
 tools: Read, Write, Edit
 model: sonnet
 ---
@@ -92,7 +92,7 @@ model: sonnet
 
 
 - `~/.claude/CLAUDE.md` — the user's current global. May contain atomic sections from a prior install plus user additions.
-- `~/.claude/.atomic/proposed/CLAUDE.md` — the new atomic version, fresh from the embedded bundle.
+- `~/.atomic/proposed/CLAUDE.md` — the new atomic version, fresh from the embedded bundle.
 
 
 ### Output
@@ -214,6 +214,14 @@ Built across 3 implementer iterations plus a docs/bundle catch-up on branch `ins
 
 ## Change log
 
+
+### 2026-07-16 — User state root relocated to ~/.atomic
+
+**What changed:** Every body mention of `~/.claude/.atomic/proposed/CLAUDE.md` and `~/.claude/.atomic/backups/<ts>/` now reads `~/.atomic/proposed/CLAUDE.md` and `~/.atomic/backups/<ts>/`.
+
+**Why:** `docs/spec/configurable-state-paths.md` (issue #150) relocates the user state root.
+
+**Superseded:** Prior body named `~/.claude/.atomic/` as the proposed-merge and backup root throughout (itself a 2026-05-21 consolidation from the even older `.atomic-proposed`/`.atomic-backups` naming — see that entry below).
 
 ### 2026-05-17 — Conform to validator rules
 

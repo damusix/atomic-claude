@@ -202,7 +202,11 @@ func TestPortZeroPicksFreePort(t *testing.T) {
 // the Obsidian shell structure: top bar (breadcrumb + search + md|code toggle),
 // left nav, middle content with [page|system] toggle, and right rail with 3 slots.
 // The dead context-pane must be gone; #main-pane must NOT hx-get /health.
-func TestRootRouteRendersShell(t *testing.T) {
+// TestRootRouteServesSPAShell verifies that GET / serves the embedded React
+// shell's index.html (200, text/html) — the server no longer computes scope
+// or a landing URL server-side; React Router and the /api/* fetches resolve
+// the initial screen client-side.
+func TestRootRouteServesSPAShell(t *testing.T) {
 	dir := t.TempDir()
 
 	var stderr strings.Builder
@@ -227,65 +231,22 @@ func TestRootRouteRendersShell(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
-	// Must be HTML.
 	ct := resp.Header.Get("Content-Type")
 	if !strings.Contains(ct, "text/html") {
 		t.Errorf("expected Content-Type text/html, got %q", ct)
 	}
-
-	// Obsidian shell: nav-pane and main-pane must be present.
-	for _, marker := range []string{"nav-pane", "main-pane"} {
-		if !strings.Contains(html, marker) {
-			t.Errorf("HTML missing %q landmark", marker)
-		}
-	}
-
-	// Dead context-pane must be gone.
-	if strings.Contains(html, "context-pane") {
-		t.Error("HTML still contains dead 'context-pane' — must be replaced by right rail")
-	}
-
-	// Top bar: breadcrumb element.
-	if !strings.Contains(html, "breadcrumb") {
-		t.Error("HTML missing breadcrumb in top bar")
-	}
-
-	// Top bar: search box present.
-	if !strings.Contains(html, `type="search"`) && !strings.Contains(html, "search-box") && !strings.Contains(html, `id="search"`) {
-		t.Error("HTML missing search box in top bar")
-	}
-
-	// Top bar: md|code source toggle — assert by button IDs (removing the buttons
-	// would break this, unlike substring checks on "md"/"code" that appear elsewhere).
-	for _, id := range []string{"toggle-md", "toggle-code"} {
-		if !strings.Contains(html, `id="`+id+`"`) {
-			t.Errorf("HTML missing md|code toggle button with id=%q", id)
-		}
-	}
-
-	// Top-bar network/graph toggle — the [page|system] segmented control was
-	// replaced by a single icon button (#btn-graph) in the top bar.
-	if !strings.Contains(html, `id="btn-graph"`) {
-		t.Error("HTML missing top-bar network/graph toggle button with id=\"btn-graph\"")
-	}
-
-	// Right rail: three stacked slots.
-	for _, slot := range []string{"rail-graph", "rail-out", "rail-in"} {
-		if !strings.Contains(html, slot) {
-			t.Errorf("HTML missing right-rail slot %q", slot)
-		}
-	}
-
-	// #main-pane must NOT hx-get /health — landing is a page view, not the health dashboard.
-	if strings.Contains(html, `hx-get="/health"`) {
-		t.Error("#main-pane hx-get must not be /health — landing must be the page view")
+	if !strings.Contains(strings.ToLower(html), "<div id=\"root\">") && !strings.Contains(html, "main.js") {
+		t.Errorf("expected the React shell's mount point or bundled entry script; got:\n%s", html)
 	}
 }
 
-// TestMainPaneLandingURL verifies that #main-pane's hx-get is a /page/ URL
-// (the page view), not /health. For a bare repo with no wiki/README the server
-// must still produce a /page/ landing URL (even if it's a generated overview).
-func TestMainPaneLandingURL(t *testing.T) {
+// TestUnmatchedNonAPIGETServesSPAShell verifies the cutover contract: every
+// non-API, non-static, non-carried-JS-endpoint GET falls through to the SPA
+// shell — including deep links like /page/<relpath> and legacy routes like
+// /health — instead of 404. This is a documented accepted regression: React
+// Router resolves the deep link client-side; there is no server-side 404 for
+// these paths (only /api/* enforces its own 404s).
+func TestUnmatchedNonAPIGETServesSPAShell(t *testing.T) {
 	dir := t.TempDir()
 
 	var stderr strings.Builder
@@ -299,143 +260,22 @@ func TestMainPaneLandingURL(t *testing.T) {
 
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/")
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// main-pane must hx-get a /page/ URL, not /health.
-	if !strings.Contains(html, `hx-get="/page/`) {
-		t.Errorf("#main-pane must hx-get a /page/ URL; html snippet: %q",
-			extractMainPaneSnippet(html))
-	}
-}
-
-// TestMainPaneLandingURLRealmScope verifies that when the server is started with a
-// realm-scope target (cwd is realm root, <wikis> block points at wiki/index.md under
-// the realm root), #main-pane's hx-get is "/page/wiki/index.md" — not "/page/README.md".
-func TestMainPaneLandingURLRealmScope(t *testing.T) {
-	realmDir := t.TempDir()
-
-	// Build the wiki/index.md that realm resolution expects.
-	wikiIndex := filepath.Join(realmDir, "wiki", "index.md")
-	writeFile(t, wikiIndex, "# wiki\n")
-
-	// Write CLAUDE.md with a <wikis> block pointing at the wiki index.
-	claudeMD := filepath.Join(t.TempDir(), "CLAUDE.md")
-	buildClaudeMD(t, claudeMD, []string{wikiIndex})
-
-	// Write code.toml so realm.Resolve sees a real realm root.
-	buildCodeTOML(t, realmDir, []struct{ key, path string }{
-		{key: "repoA", path: "repos/repoA"},
-	})
-
-	var stderr strings.Builder
-	baseURL, shutdown := startTestServer(t, serve.Options{
-		Open:         false,
-		TargetDir:    realmDir,
-		ClaudeMDPath: claudeMD,
-		Stderr:       &stderr,
-	})
-	defer shutdown()
-
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	resp, err := http.Get(baseURL + "/")
-	if err != nil {
-		t.Fatalf("GET /: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// Realm scope: #main-pane must hx-get the wiki index, not README.md.
-	if !strings.Contains(html, `hx-get="/page/wiki/index.md"`) {
-		t.Errorf("realm-scope #main-pane must hx-get /page/wiki/index.md; snippet: %q",
-			extractMainPaneSnippet(html))
-	}
-}
-
-// extractMainPaneSnippet returns the first ~200 chars around main-pane for diagnostics.
-func extractMainPaneSnippet(html string) string {
-	idx := strings.Index(html, "main-pane")
-	if idx < 0 {
-		return "(main-pane not found)"
-	}
-	start := idx - 20
-	if start < 0 {
-		start = 0
-	}
-	end := idx + 200
-	if end > len(html) {
-		end = len(html)
-	}
-	return html[start:end]
-}
-
-// TestStatusRouteReturns200 verifies that GET /status returns the health
-// dashboard (200). The dashboard is demoted from landing to a reachable page.
-func TestStatusRouteReturns200(t *testing.T) {
-	dir := t.TempDir()
-
-	var stderr strings.Builder
-	baseURL, shutdown := startTestServer(t, serve.Options{
-		Open:         false,
-		TargetDir:    dir,
-		ClaudeMDPath: filepath.Join(t.TempDir(), "CLAUDE.md"),
-		Stderr:       &stderr,
-	})
-	defer shutdown()
-
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	resp, err := http.Get(baseURL + "/status")
-	if err != nil {
-		t.Fatalf("GET /status: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != 200 {
-		t.Errorf("expected 200 from /status, got %d", resp.StatusCode)
-	}
-	if len(body) == 0 {
-		t.Error("/status returned empty body")
-	}
-	// Must render the health dashboard (not a redirect, not 404).
-	if strings.Contains(string(body), "404") && !strings.Contains(string(body), "health") {
-		t.Error("/status appears to be returning 404 content instead of health dashboard")
-	}
-}
-
-// TestHealthRouteIsNoLongerTheLanding verifies that /health no longer serves
-// the dashboard at the old route. The route is removed; /status is the new home.
-func TestHealthRouteIsNoLongerTheLanding(t *testing.T) {
-	dir := t.TempDir()
-
-	var stderr strings.Builder
-	baseURL, shutdown := startTestServer(t, serve.Options{
-		Open:         false,
-		TargetDir:    dir,
-		ClaudeMDPath: filepath.Join(t.TempDir(), "CLAUDE.md"),
-		Stderr:       &stderr,
-	})
-	defer shutdown()
-
-	waitReady(t, baseURL+"/healthz", 3*time.Second)
-
-	resp, err := http.Get(baseURL + "/health")
-	if err != nil {
-		t.Fatalf("GET /health: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// /health must return 404 — no longer registered.
-	if resp.StatusCode != 404 {
-		t.Errorf("expected 404 from /health (route removed), got %d", resp.StatusCode)
+	for _, path := range []string{"/health", "/page/README.md", "/graph", "/search", "/status", "/some/deep/link"} {
+		resp, err := http.Get(baseURL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Errorf("GET %s: expected 200 (SPA fallback), got %d", path, resp.StatusCode)
+		}
+		if !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
+			t.Errorf("GET %s: expected text/html Content-Type, got %q", path, resp.Header.Get("Content-Type"))
+		}
+		if len(body) == 0 {
+			t.Errorf("GET %s: empty SPA shell body", path)
+		}
 	}
 }
 
@@ -584,7 +424,10 @@ func TestGracefulShutdownOnContextCancel(t *testing.T) {
 
 // TestStaticAssetsServedFromMemory verifies /static/vendor/htmx.min.js is
 // served from embedded memory (Content-Type application/javascript, non-empty).
-func TestStaticAssetsServedFromMemory(t *testing.T) {
+// TestCarriedAssetsServedFromEmbeddedDist verifies that the carried assets
+// copied into frontend/dist at build time (app.css, graph-core.js) are served
+// as real static files — not swallowed by the SPA index.html fallback.
+func TestCarriedAssetsServedFromEmbeddedDist(t *testing.T) {
 	dir := t.TempDir()
 
 	var stderr strings.Builder
@@ -598,9 +441,9 @@ func TestStaticAssetsServedFromMemory(t *testing.T) {
 
 	waitReady(t, baseURL+"/healthz", 3*time.Second)
 
-	resp, err := http.Get(baseURL + "/static/vendor/htmx.min.js")
+	resp, err := http.Get(baseURL + "/app.css")
 	if err != nil {
-		t.Fatalf("GET /static/vendor/htmx.min.js: %v", err)
+		t.Fatalf("GET /app.css: %v", err)
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
@@ -609,11 +452,11 @@ func TestStaticAssetsServedFromMemory(t *testing.T) {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
 	if len(body) == 0 {
-		t.Error("htmx.min.js body is empty")
+		t.Error("app.css body is empty")
 	}
 	ct := resp.Header.Get("Content-Type")
-	if !strings.Contains(ct, "javascript") {
-		t.Errorf("expected JS Content-Type, got %q", ct)
+	if !strings.Contains(ct, "css") {
+		t.Errorf("expected CSS Content-Type, got %q", ct)
 	}
 }
 

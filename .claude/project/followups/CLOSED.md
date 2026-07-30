@@ -41,3 +41,17 @@
 - 2026-06-24 install-output-style-f-5 — "`defaultRunConfirm` huh-abort mapping is test-dead" — *(closed 2026-06-24)*
 - 2026-06-24 install-output-style-f-1 — "`prompt.Confirm` default-value plumbing is untested" — *(closed 2026-06-24)*
 - 2026-06-25 tsql-lineage-gaps — "Close T-SQL lineage gaps in standalone SQL extractor" — *(closed 2026-06-25)*
+- 2026-07-16 doctor-spec-missing-migrate-row — "atomic-doctor spec: Check categories table missing category 12 (migrate) row" — *(closed 2026-07-16)*
+- 2026-07-16 atomic-setup-prerelocation-paths — "setup-wiki audit still checks pre-relocation signals paths" — *(closed 2026-07-16)*
+- 2026-07-25 elixir-language-support — "Add Elixir tree-sitter language support" — *(closed 2026-07-25)*
+- 2026-07-25 erlang-language-support — "Add Erlang tree-sitter language support" — *(closed 2026-07-25)*
+- 2026-07-25 phoenix-route-resolver — "Wire Phoenix route resolver (after Elixir support)" — *(closed 2026-07-25)*
+- 2026-07-25 page-realm-changed-linux-flake — "Page 'refetches on realm.changed (cap exceeded)' flakes 10-20% on Linux" — *(closed 2026-07-25)*
+- 2026-07-25 serve-pipe-escaping — "Serve domain one-liner has unescaped pipes (mis-renders table)" — *(closed 2026-07-25)*
+- 2026-07-25 signals-stale-repo-scope-gap — "atomic signals stale / wiki stale: no repo-scope docs/wiki/ staleness check" — *(closed 2026-07-25)*
+- 2026-07-25 doctor-config-test-reads-real-home — "TestRepairPlan_configWARN_fixable reads the real ~/.atomic config" — *(closed 2026-07-25)*
+- 2026-07-26 cli-repo-flag-never-parses — "Global --repo flag never parses on any verb (DisableFlagParsing)" — *(closed 2026-07-26)*
+- 2026-07-26 dev-install-version-fails-doctor — "Dev-build install writes install.version='dev', which fails doctor config check" — *(closed 2026-07-26)*
+- 2026-07-26 scratchpad-deleted-by-test — "A go test deletes .claude/.scratchpad/<today>-* against the real repo" — *(closed 2026-07-26)*
+- 2026-07-26 install-output-style-f-2 — "huh PointerAccessor read-timing risk on huh upgrade" — *(closed 2026-07-26)*
+- 2026-07-29 bus-member-naming-convention — "Bus member naming: position-derived names once scope markers land" — *(closed 2026-07-29)*

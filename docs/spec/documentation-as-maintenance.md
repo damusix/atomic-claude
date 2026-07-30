@@ -8,7 +8,7 @@ Replace the hardcoded artifact-index-updating behavior of `/documentation` and `
 
 ## Non-goals
 
-- Replacing `atomic-prose` (voice/tone for narrative docs stays there).
+- Replacing `atomic-writing` (voice/tone for narrative docs stays there).
 - Auto-committing documentation changes (edits are staged; user commits via ship verb).
 - Bootstrapping docs from zero for undocumented projects (that's `/atomic-plan` territory).
 - Non-markdown doc formats (Confluence, Notion, Google Docs).
@@ -176,16 +176,16 @@ Add to `claude.local.md`:
 
 | Path | Covers | Voice |
 |------|--------|-------|
-| `README.md` | project overview, install, commands, agents, skills | atomic-prose |
-| `docs/guides/install.md` | installation, updating, uninstalling | atomic-prose |
-| `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-prose |
-| `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-prose |
-| `docs/reference/workflow.md` | plan, implement, diagnose, ship lifecycle | atomic-prose |
-| `docs/reference/commands.md` | command reference table | atomic-prose |
-| `docs/reference/agents.md` | agent reference table | atomic-prose |
-| `docs/reference/skills.md` | skills reference table | atomic-prose |
-| `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-prose |
-| `docs/reference/output-style.md` | atomic output style reference | atomic-prose |
+| `README.md` | project overview, install, commands, agents, skills | atomic-writing |
+| `docs/guides/install.md` | installation, updating, uninstalling | atomic-writing |
+| `docs/guides/contributing.md` | contributing, build pipeline, testing | atomic-writing |
+| `docs/guides/evaluations.md` | Docker eval environment, testing setup | atomic-writing |
+| `docs/reference/workflow.md` | plan, implement, diagnose, ship lifecycle | atomic-writing |
+| `docs/reference/commands.md` | command reference table | atomic-writing |
+| `docs/reference/agents.md` | agent reference table | atomic-writing |
+| `docs/reference/skills.md` | skills reference table | atomic-writing |
+| `docs/reference/signals-workflow.md` | signals scan, infer, wire pipeline | atomic-writing |
+| `docs/reference/output-style.md` | atomic output style reference | atomic-writing |
 | `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
 ```
 
@@ -195,7 +195,7 @@ Add to `claude.local.md`:
 - `CLAUDE.md`: add `atomic docs scan` and `atomic docs stale` to "Atomic binary subcommands". Update `/documentation` description to mention bootstrap flow. Update "Two voices" to reference the surfaces table mechanism.
 - `README.md`: update `/documentation` row in commands table. Add note about bootstrap behavior.
 - `make render` + `make bundle`.
-- `/refresh-signals`.
+- `/refresh-wiki`.
 
 
 ## Risks

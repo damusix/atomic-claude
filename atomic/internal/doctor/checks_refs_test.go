@@ -8,7 +8,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-const signalsRef = "@.claude/project/signals.md"
+const signalsRef = "@docs/wiki/index.md"
 
 func refBlock() string {
 	return "\n## Project signals (auto-loaded)\n\n" + signalsRef + "\n"
@@ -118,5 +118,29 @@ func TestCheckRefs_PassDetailMentionsFilename(t *testing.T) {
 	want := "ref wired in CLAUDE.md"
 	if r.Detail != want {
 		t.Errorf("detail = %q, want %q", r.Detail, want)
+	}
+}
+
+// TestCheckRefs_NewWikiRef_Pass verifies PASS when the new wiki router ref
+// @docs/wiki/index.md is wired (CP2 new layout).
+func TestCheckRefs_NewWikiRef_Pass(t *testing.T) {
+	root := t.TempDir()
+	writeRefsFile(t, filepath.Join(root, "claude.local.md"), "@docs/wiki/index.md\n")
+
+	r := doctor.RunCheckRefsWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS (new wiki ref); detail: %q", r.Severity, r.Detail)
+	}
+}
+
+// TestCheckRefs_OldSignalsRef_Fail verifies FAIL when only the old
+// @.claude/project/signals.md ref is present — not accepted after CP2.
+func TestCheckRefs_OldSignalsRef_Fail(t *testing.T) {
+	root := t.TempDir()
+	writeRefsFile(t, filepath.Join(root, "claude.local.md"), "@.claude/project/signals.md\n")
+
+	r := doctor.RunCheckRefsWith(root)
+	if r.Severity != doctor.FAIL {
+		t.Errorf("severity = %q, want FAIL (old ref no longer satisfies new requirement); detail: %q", r.Severity, r.Detail)
 	}
 }

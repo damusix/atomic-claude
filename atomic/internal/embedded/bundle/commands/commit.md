@@ -1,5 +1,5 @@
 ---
-description: Stage, commit, and optionally ship further. Pass an escalation token (push, pr, merge, squash, squash merge) to skip the prompt. With no token, commits then asks how far to ship. Delegates message format to the atomic-commit skill.
+description: Stage, commit, and optionally ship further. Pass an escalation token (push, pr, merge, squash, squash merge) to skip the prompt. With no token, commits then asks how far to ship. Delegates message format to the atomic-git-discipline skill.
 ---
 
 ## Parse arguments
@@ -24,10 +24,10 @@ If the args contain none of the tokens above, run the commit step, then prompt (
 
 <commit-flow>
 
-Invoke the `atomic-commit` skill for message format.
+Invoke the `atomic-git-discipline` skill for message format.
 
 1. Read the current state: `git status`, `git diff`, `git log -n 10 --oneline` (parallel).
-2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir exists and has `*.md` files, read them chronologically and pass their content to `atomic-commit` as supplemental why-context.
+2. **Session reports** — check for `.claude/.scratchpad/session-reports/<branch>/`. If the dir exists and has `*.md` files, read them chronologically and pass their content to `atomic-git-discipline` as supplemental why-context.
 3. **Stage files** explicitly by path. Skip secrets, build artifacts, and large binaries. **Why:** secrets in git history are irrecoverable even after rewrite; binaries bloat the repo permanently. If the intent is ambiguous, ask.
 4. <doc-impact>
 Check whether the staged changes affect any indexed documentation surfaces.
@@ -97,15 +97,15 @@ Refresh project signals so Claude's map stays current for the next session.
    - **exit 0** (fresh) → skip the refresh.
    - **exit 1** (stale) → refresh is mandatory. Continue to step 3. Do NOT second-guess this with `atomic signals diff`, file counts, or a judgment that "the change was small" — exit 1 means a fresh scan would produce different deterministic content than the stored signals file, and the only correct response is to refresh. Skipping it accumulates drift. The command prints how much would change and the directive; follow it.
    - **exit 2** (error, e.g. signals file missing) → report the stderr message and skip; a refresh cannot run against a missing baseline.
-3. Dispatch the `atomic-signals-inferrer` agent in silent mode:
+3. Dispatch the `atomic-wiki-inferrer` agent in silent mode:
    ```
    mode: silent
    first_run: false
    ```
-   Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
+   Stage the router, domain files, and `docs/wiki/scan.md` after the agent completes: `git add docs/wiki/*.md`. `scan.md` is committed deliberately — it is the drift-scope diff baseline (`git diff HEAD -- docs/wiki/scan.md`) that `atomic signals stale` and the `<scan-sha>` tiebreaker depend on, and it is not `@-ref`'d, so committing it costs nothing in context.
 4. Run `atomic wiki mark-dirty` (best-effort, no-op when cwd is under no registered wiki root). This marks any registered wiki as having uncommitted changes since the last refresh, so the next session nudge fires. Skip silently if `atomic` is not on PATH.
 
-`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
+`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to `docs/wiki/scan.md`, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>
 6. **Commit** using a HEREDOC message.
 7. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. The reports were consumed by the commit message. If the commit failed, leave them for the next attempt.
@@ -174,7 +174,7 @@ Invoke the `atomic-review` skill for PR title and body tone.
     ```
     gh pr create --title "<imperative, ≤70 chars>" --body <HEREDOC>
     ```
-    Body sections: `## Summary` (1-3 bullets), `## What this solves` (1-2 sentences; skip if obvious). No test plan section. Never enumerate changed files or restate the diff — reviewers read the diff.
+    Body sections: `## Summary` (1-3 bullets), `## What this solves` (1-2 sentences; skip if obvious). No test plan section. Never enumerate changed files or restate the diff — reviewers read the diff. No AI bylines or attribution anywhere in title or body: no "Generated with Claude Code" footer, no `Co-Authored-By: Claude` trailer, no session links.
 7. Print the PR URL.
 
 If the working tree is dirty, stop and tell the user to commit first.
@@ -247,20 +247,20 @@ Refresh project signals so Claude's map stays current for the next session.
    - **exit 0** (fresh) → skip the refresh.
    - **exit 1** (stale) → refresh is mandatory. Continue to step 3. Do NOT second-guess this with `atomic signals diff`, file counts, or a judgment that "the change was small" — exit 1 means a fresh scan would produce different deterministic content than the stored signals file, and the only correct response is to refresh. Skipping it accumulates drift. The command prints how much would change and the directive; follow it.
    - **exit 2** (error, e.g. signals file missing) → report the stderr message and skip; a refresh cannot run against a missing baseline.
-3. Dispatch the `atomic-signals-inferrer` agent in silent mode:
+3. Dispatch the `atomic-wiki-inferrer` agent in silent mode:
    ```
    mode: silent
    first_run: false
    ```
-   Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
+   Stage the router, domain files, and `docs/wiki/scan.md` after the agent completes: `git add docs/wiki/*.md`. `scan.md` is committed deliberately — it is the drift-scope diff baseline (`git diff HEAD -- docs/wiki/scan.md`) that `atomic signals stale` and the `<scan-sha>` tiebreaker depend on, and it is not `@-ref`'d, so committing it costs nothing in context.
 4. Run `atomic wiki mark-dirty` (best-effort, no-op when cwd is under no registered wiki root). This marks any registered wiki as having uncommitted changes since the last refresh, so the next session nudge fires. Skip silently if `atomic` is not on PATH.
 
-`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
+`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to `docs/wiki/scan.md`, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>
     If signals regenerate, commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Push on remote path.
 
 6. **Delete local feature branch:** `git branch -d <feature>`.
-7. Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via `AskUserQuestion`:
+7. Worktree check: `git worktree list`. If the feature branch lived in a linked worktree (typically `.claude/worktrees/<feature>/`), ask via `AskUserQuestion`:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
    > - No, keep it
@@ -352,7 +352,7 @@ Wait for the user's response per surface before continuing to the next.
 
 Run doc-impact before signals refresh. **Why:** new or updated doc files appear in the signals scan only if they're staged before the scan runs.
 </doc-impact>
-5. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
+5. Invoke `atomic-git-discipline` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
 6. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. If the commit failed, leave them.
 7. **Update implementation logs.** Find spec files with an `## Implementation log` section in the squashed diff:
     ```bash
@@ -371,15 +371,15 @@ Refresh project signals so Claude's map stays current for the next session.
    - **exit 0** (fresh) → skip the refresh.
    - **exit 1** (stale) → refresh is mandatory. Continue to step 3. Do NOT second-guess this with `atomic signals diff`, file counts, or a judgment that "the change was small" — exit 1 means a fresh scan would produce different deterministic content than the stored signals file, and the only correct response is to refresh. Skipping it accumulates drift. The command prints how much would change and the directive; follow it.
    - **exit 2** (error, e.g. signals file missing) → report the stderr message and skip; a refresh cannot run against a missing baseline.
-3. Dispatch the `atomic-signals-inferrer` agent in silent mode:
+3. Dispatch the `atomic-wiki-inferrer` agent in silent mode:
    ```
    mode: silent
    first_run: false
    ```
-   Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
+   Stage the router, domain files, and `docs/wiki/scan.md` after the agent completes: `git add docs/wiki/*.md`. `scan.md` is committed deliberately — it is the drift-scope diff baseline (`git diff HEAD -- docs/wiki/scan.md`) that `atomic signals stale` and the `<scan-sha>` tiebreaker depend on, and it is not `@-ref`'d, so committing it costs nothing in context.
 4. Run `atomic wiki mark-dirty` (best-effort, no-op when cwd is under no registered wiki root). This marks any registered wiki as having uncommitted changes since the last refresh, so the next session nudge fires. Skip silently if `atomic` is not on PATH.
 
-`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
+`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to `docs/wiki/scan.md`, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>
     If signals regenerate, commit as a follow-up: `chore(signals): refresh after squash`.
 9. `git status` to confirm.
@@ -469,7 +469,7 @@ Wait for the user's response per surface before continuing to the next.
 
 Run doc-impact before signals refresh. **Why:** new or updated doc files appear in the signals scan only if they're staged before the scan runs.
 </doc-impact>
-5. Invoke `atomic-commit` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
+5. Invoke `atomic-git-discipline` skill. Pre-fill a Conventional Commits message synthesized from `SUBJECTS` (plus session reports if present). Present for review, then commit via HEREDOC.
 6. **Clean up session reports** — on successful commit, delete `.claude/.scratchpad/session-reports/<branch>/`. If the commit failed, leave them.
 7. **Update implementation logs.** Find spec files with an `## Implementation log` section in the squashed diff:
     ```bash
@@ -488,15 +488,15 @@ Refresh project signals so Claude's map stays current for the next session.
    - **exit 0** (fresh) → skip the refresh.
    - **exit 1** (stale) → refresh is mandatory. Continue to step 3. Do NOT second-guess this with `atomic signals diff`, file counts, or a judgment that "the change was small" — exit 1 means a fresh scan would produce different deterministic content than the stored signals file, and the only correct response is to refresh. Skipping it accumulates drift. The command prints how much would change and the directive; follow it.
    - **exit 2** (error, e.g. signals file missing) → report the stderr message and skip; a refresh cannot run against a missing baseline.
-3. Dispatch the `atomic-signals-inferrer` agent in silent mode:
+3. Dispatch the `atomic-wiki-inferrer` agent in silent mode:
    ```
    mode: silent
    first_run: false
    ```
-   Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
+   Stage the router, domain files, and `docs/wiki/scan.md` after the agent completes: `git add docs/wiki/*.md`. `scan.md` is committed deliberately — it is the drift-scope diff baseline (`git diff HEAD -- docs/wiki/scan.md`) that `atomic signals stale` and the `<scan-sha>` tiebreaker depend on, and it is not `@-ref`'d, so committing it costs nothing in context.
 4. Run `atomic wiki mark-dirty` (best-effort, no-op when cwd is under no registered wiki root). This marks any registered wiki as having uncommitted changes since the last refresh, so the next session nudge fires. Skip silently if `atomic` is not on PATH.
 
-`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
+`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to `docs/wiki/scan.md`, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>
     If signals regenerate, commit as a follow-up: `chore(signals): refresh after squash`.
 9. `git status` to confirm.
@@ -567,20 +567,20 @@ Refresh project signals so Claude's map stays current for the next session.
    - **exit 0** (fresh) → skip the refresh.
    - **exit 1** (stale) → refresh is mandatory. Continue to step 3. Do NOT second-guess this with `atomic signals diff`, file counts, or a judgment that "the change was small" — exit 1 means a fresh scan would produce different deterministic content than the stored signals file, and the only correct response is to refresh. Skipping it accumulates drift. The command prints how much would change and the directive; follow it.
    - **exit 2** (error, e.g. signals file missing) → report the stderr message and skip; a refresh cannot run against a missing baseline.
-3. Dispatch the `atomic-signals-inferrer` agent in silent mode:
+3. Dispatch the `atomic-wiki-inferrer` agent in silent mode:
    ```
    mode: silent
    first_run: false
    ```
-   Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
+   Stage the router, domain files, and `docs/wiki/scan.md` after the agent completes: `git add docs/wiki/*.md`. `scan.md` is committed deliberately — it is the drift-scope diff baseline (`git diff HEAD -- docs/wiki/scan.md`) that `atomic signals stale` and the `<scan-sha>` tiebreaker depend on, and it is not `@-ref`'d, so committing it costs nothing in context.
 4. Run `atomic wiki mark-dirty` (best-effort, no-op when cwd is under no registered wiki root). This marks any registered wiki as having uncommitted changes since the last refresh, so the next session nudge fires. Skip silently if `atomic` is not on PATH.
 
-`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
+`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to `docs/wiki/scan.md`, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>
     If signals regenerate, commit as a follow-up: `chore(signals): refresh after merge of <feature>`. Push on remote path.
 
 6. **Delete local feature branch:** `git branch -d <feature>`.
-7. Worktree check: `git worktree list`. If the feature branch lived in `.worktrees/<feature>/`, ask via `AskUserQuestion`:
+7. Worktree check: `git worktree list`. If the feature branch lived in a linked worktree (typically `.claude/worktrees/<feature>/`), ask via `AskUserQuestion`:
    > Branch was checked out in worktree at `<path>`. Delete it?
    > - Yes, remove worktree
    > - No, keep it

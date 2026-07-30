@@ -1,17 +1,382 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/bus"
+	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/docs"
+	"github.com/damusix/atomic-claude/atomic/internal/doctemplate"
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
+	"github.com/damusix/atomic-claude/atomic/internal/migrate"
+	"github.com/damusix/atomic-claude/atomic/internal/prompt"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
 )
+
+// cp2WantMeta is the ground truth for every CP2-ported subcommand: the exact
+// Short and args_hint values from cliusage.go. CP4's deriveCommands reads
+// cmd.Short for Description and Annotations["args_hint"] for Args; a byte-for-byte
+// mismatch here means the derived Commands() slice diverges from cliusage.go.
+var cp2WantMeta = []struct {
+	path     []string
+	argsHint string
+	short    string
+}{
+	{[]string{"signals", "scan"}, "", "Walk repo and write docs/wiki/scan.md"},
+	{[]string{"signals", "show"}, "", "Print docs/wiki/scan.md to stdout"},
+	{[]string{"signals", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error"},
+	{[]string{"signals", "diff"}, "", "Print unified diff of signals file"},
+	{[]string{"signals", "linkify"}, "", "Linkify path tokens in docs/wiki/index.md and docs/wiki/*.md"},
+	{[]string{"reminder", "add"}, "<text>", "Create a reminder file; prints assigned id"},
+	{[]string{"reminder", "list"}, "", "List all reminders"},
+	{[]string{"reminder", "show"}, "<id>", "Print body of a reminder"},
+	{[]string{"reminder", "rm"}, "<id>", "Delete a reminder"},
+	{[]string{"hooks", "session-start"}, "", "Print session-start hook payload"},
+	{[]string{"hooks", "install"}, "", "Install session-start hook"},
+	{[]string{"hooks", "uninstall"}, "", "Remove session-start hook"},
+	{[]string{"claude", "install"}, "", "Install artifact bundle"},
+	{[]string{"claude", "update"}, "", "Update artifact bundle"},
+	{[]string{"claude", "list"}, "", "List bundled artifacts"},
+	{[]string{"claude", "diff"}, "", "Diff bundle vs on-disk"},
+	{[]string{"claude", "uninstall"}, "", "Generate uninstall prompt"},
+	{[]string{"docker", "init"}, "", "Scaffold Docker eval environment"},
+	{[]string{"docs", "scan"}, "", "Scan docs and write doc-surfaces.md"},
+	{[]string{"docs", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error"},
+	{[]string{"profile", "refresh"}, "", "Refresh ## Environment in profile.md"},
+	{[]string{"prompt", "git-cleanup"}, "", "Emit the git-cleanup cold-op brief"},
+	{[]string{"prompt", "claude-merge"}, "", "Emit the CLAUDE.md merge cold-op brief"},
+}
+
+// TestCP2CobraMetadata walks the Cobra command tree for every CP2-ported
+// subcommand and asserts the exact Short and Annotations["args_hint"] values
+// match cliusage.go byte-for-byte. WHY: CP4's deriveCommands reads these fields
+// to reproduce the Commands() slice; a silent mismatch would cause the A1 linter
+// to false-positive or false-negative against artifact citations.
+func TestCP2CobraMetadata(t *testing.T) {
+	var repo string
+	root := buildRootCmd(&repo)
+
+	for _, w := range cp2WantMeta {
+		label := fmt.Sprintf("%v", w.path)
+		found, _, _ := root.Find(w.path)
+		if found == nil || found == root {
+			t.Errorf("%s: command not found in Cobra tree", label)
+			continue
+		}
+		if found.Short != w.short {
+			t.Errorf("%s Short:\n  got:  %q\n  want: %q", label, found.Short, w.short)
+		}
+		if got := found.Annotations["args_hint"]; got != w.argsHint {
+			t.Errorf("%s args_hint:\n  got:  %q\n  want: %q", label, got, w.argsHint)
+		}
+	}
+}
+
+// cp3WantMeta is the ground truth for every CP3-ported subcommand: the exact
+// Short and args_hint values from cliusage.go. Byte-for-byte match is required
+// so that CP4's deriveCommands reproduces the Commands() slice exactly.
+var cp3WantMeta = []struct {
+	path     []string
+	argsHint string
+	short    string
+}{
+	// code subcommands
+	{[]string{"code", "index"}, "", "Index all source files"},
+	{[]string{"code", "sync"}, "", "Incrementally re-index changed files"},
+	{[]string{"code", "status"}, "", "Show index status"},
+	{[]string{"code", "search"}, "<query>", "Search indexed nodes"},
+	{[]string{"code", "callers"}, "<symbol>", "Find callers of symbol"},
+	{[]string{"code", "callees"}, "<symbol>", "Find callees of symbol"},
+	{[]string{"code", "impact"}, "<symbol>", "Find impact radius of symbol"},
+	{[]string{"code", "node"}, "<symbol>", "Show node detail"},
+	{[]string{"code", "files"}, "[pattern]", "List indexed files"},
+	{[]string{"code", "affected"}, "", "Find affected test files"},
+	{[]string{"code", "explore"}, "<query>", "Gather context for a query"},
+	{[]string{"code", "mcp"}, "", "Run the MCP server over stdio (proxy + daemon; --no-watch disables sync poller)"},
+	// config subcommands
+	{[]string{"config", "get"}, "<key>", "Print resolved config value"},
+	{[]string{"config", "set"}, "<key> <val>", "Set config value; re-renders config.resolved.md"},
+	{[]string{"config", "unset"}, "<key>", "Revert key to built-in default"},
+	{[]string{"config", "list"}, "", "List all resolved key=value pairs"},
+	{[]string{"config", "path"}, "", "Print path to config.toml"},
+	{[]string{"config", "agents"}, "", "Set per-agent model tiers interactively"},
+	{[]string{"config", "resolve"}, "", "Resolve Pi agent configuration"},
+	// wiki subcommands
+	{[]string{"wiki", "scan"}, "", "Scaffold wiki/, scan repos, register in ~/.claude/CLAUDE.md"},
+	{[]string{"wiki", "stale"}, "", "Exit 0 fresh, 1 stale, 2 error (DRIFT/STALE lines on stdout)"},
+	{[]string{"wiki", "linkify"}, "", "Linkify path tokens in wiki artifacts in-place"},
+	{[]string{"wiki", "init"}, "", "Write the fixed-content CLAUDE.md scaffold and the scope marker for --scope repo|realm (idempotent)"},
+	{[]string{"wiki", "stamp"}, "<file>", "Write reflects_rev/reflects/sources fingerprint frontmatter (summary|concern|knowledge)"},
+	// wiki bucket (3-level)
+	{[]string{"wiki", "bucket", "add"}, "<name>", "Register a capture bucket; create index.md stub and manifest dir"},
+	{[]string{"wiki", "bucket", "list"}, "", "List registered buckets with baseline count and pending/fresh status"},
+	{[]string{"wiki", "bucket", "diff"}, "<name>", "Print new/changed/removed files vs baseline; exit 0 empty, 1 non-empty"},
+	{[]string{"wiki", "bucket", "promote"}, "<name>", "Snapshot bucket and rotate baseline→previous, current→baseline"},
+	{[]string{"wiki", "bucket", "doc"}, "<bucket> <slug>", "Scaffold <bucket>/<slug>.md from the embedded doc template; --router also scaffolds the sibling subtree"},
+	{[]string{"wiki", "bucket", "skill"}, "<bucket>", "Scaffold the realm per-bucket SKILL.md for <bucket> (no-op if present)"},
+	{[]string{"wiki", "bucket", "index"}, "[<bucket>]", "Rebuild the <bucket-docs> region for one bucket (or all when omitted) plus the realm bucket list"},
+	// followups subcommands
+	{[]string{"followups", "list"}, "", "List open follow-up entries"},
+	{[]string{"followups", "add"}, "", "Create entry"},
+	{[]string{"followups", "close"}, "<id>", "Close an entry"},
+	{[]string{"followups", "render"}, "", "Regenerate INDEX.md"},
+	{[]string{"followups", "path"}, "", "Print followups folder path"},
+}
+
+// TestCP3CobraMetadata walks the Cobra command tree for every CP3-ported
+// subcommand and asserts the exact Short and Annotations["args_hint"] values
+// match cliusage.go byte-for-byte. Covers the 3-level wiki bucket nesting.
+func TestCP3CobraMetadata(t *testing.T) {
+	var repo string
+	root := buildRootCmd(&repo)
+
+	for _, w := range cp3WantMeta {
+		label := fmt.Sprintf("%v", w.path)
+		found, _, _ := root.Find(w.path)
+		if found == nil || found == root {
+			t.Errorf("%s: command not found in Cobra tree", label)
+			continue
+		}
+		if found.Short != w.short {
+			t.Errorf("%s Short:\n  got:  %q\n  want: %q", label, found.Short, w.short)
+		}
+		if got := found.Annotations["args_hint"]; got != w.argsHint {
+			t.Errorf("%s args_hint:\n  got:  %q\n  want: %q", label, got, w.argsHint)
+		}
+	}
+}
+
+// TestDeriveCommandsGolden is the CP4 gate for the A1 linter. It captures the
+// hardcoded cliusage.Commands() slice as the golden fixture (SetRoot is never
+// called in tests, so Commands() returns the static table) and asserts that
+// cliusage.DeriveCommands(buildRootCmd(...)) reproduces the exact same surface.
+//
+// A failure here means the Cobra tree's metadata (Short, Annotations["args_hint"],
+// or registered Flags) diverges from the golden — fix the Cobra side in main.go,
+// not the golden.
+//
+// WHY set-for-set comparison: cobra's VisitAll visits flags alphabetically; the
+// hardcoded golden has flags in non-alphabetical order for some commands. Order
+// within the Flags slice is irrelevant for the A1 linter (which builds a map).
+func TestDeriveCommandsGolden(t *testing.T) {
+	// Golden: hardcoded pre-migration slice (SetRoot not called in tests).
+	golden := cliusage.Commands()
+
+	// Derived: walk the live Cobra tree.
+	var repo string
+	root := buildRootCmd(&repo)
+	derived := cliusage.DeriveCommands(root)
+
+	assertCommandSetsEqual(t, derived, golden)
+}
+
+// assertCommandSetsEqual verifies that derived and golden describe the same
+// command surface: same set of paths, and for each path the same Args,
+// Description, and flag set (flag ORDER within a command is ignored).
+func assertCommandSetsEqual(t *testing.T, derived, golden []cliusage.Command) {
+	t.Helper()
+
+	if len(derived) != len(golden) {
+		t.Errorf("command count: derived=%d, golden=%d", len(derived), len(golden))
+		derivedKeys := make(map[string]bool, len(derived))
+		for _, c := range derived {
+			derivedKeys[strings.Join(c.Path, "/")] = true
+		}
+		goldenKeys := make(map[string]bool, len(golden))
+		for _, c := range golden {
+			goldenKeys[strings.Join(c.Path, "/")] = true
+		}
+		for k := range goldenKeys {
+			if !derivedKeys[k] {
+				t.Errorf("  missing in derived: %s", k)
+			}
+		}
+		for k := range derivedKeys {
+			if !goldenKeys[k] {
+				t.Errorf("  extra in derived: %s", k)
+			}
+		}
+		return
+	}
+
+	// Index golden by path key.
+	byPath := make(map[string]cliusage.Command, len(golden))
+	for _, c := range golden {
+		byPath[strings.Join(c.Path, "/")] = c
+	}
+
+	for _, got := range derived {
+		key := strings.Join(got.Path, "/")
+		want, ok := byPath[key]
+		if !ok {
+			t.Errorf("derived has path not in golden: %v", got.Path)
+			continue
+		}
+		if got.Args != want.Args {
+			t.Errorf("%v: Args: derived=%q, golden=%q", got.Path, got.Args, want.Args)
+		}
+		if got.Description != want.Description {
+			t.Errorf("%v: Description: derived=%q, golden=%q", got.Path, got.Description, want.Description)
+		}
+		gotF := make(map[string]bool, len(got.Flags))
+		for _, f := range got.Flags {
+			gotF[f] = true
+		}
+		wantF := make(map[string]bool, len(want.Flags))
+		for _, f := range want.Flags {
+			wantF[f] = true
+		}
+		for f := range wantF {
+			if !gotF[f] {
+				t.Errorf("%v: flag %q in golden but missing from derived", got.Path, f)
+			}
+		}
+		for f := range gotF {
+			if !wantF[f] {
+				t.Errorf("%v: flag %q in derived but not in golden", got.Path, f)
+			}
+		}
+	}
+}
+
+// TestRootCmdExact21Verbs verifies the Cobra root command has exactly the 21
+// expected top-level verbs and no extra auto-generated commands (completion,
+// help) leaked into the visible command set.
+// WHY: DisableDefaultCmd and SetHelpCommand suppress Cobra's auto-adds;
+// this test is the gate that catches any regression where Cobra re-adds them
+// or a new verb is accidentally introduced.
+func TestRootCmdExact21Verbs(t *testing.T) {
+	var repoOverride string
+	root := buildRootCmd(&repoOverride)
+
+	want := []string{
+		"bus", "claude", "code", "config", "docker", "docs", "doctor",
+		"followups", "hooks", "migrate", "profile", "prompt", "reminder",
+		"repo", "serve", "signals", "template", "update", "validate", "where", "wiki",
+	}
+
+	// Collect visible (non-hidden) commands only.
+	var visible []string
+	for _, cmd := range root.Commands() {
+		if !cmd.Hidden {
+			visible = append(visible, cmd.Name())
+		}
+	}
+	sort.Strings(visible)
+
+	if len(visible) != len(want) {
+		t.Errorf("got %d top-level verbs, want %d\ngot:  %v\nwant: %v",
+			len(visible), len(want), visible, want)
+	}
+	for i, name := range visible {
+		if i >= len(want) {
+			break
+		}
+		if name != want[i] {
+			t.Errorf("verb[%d]: got %q, want %q", i, name, want[i])
+		}
+	}
+
+	// Confirm no completion or help leaked into visible commands.
+	for _, name := range visible {
+		if name == "completion" || name == "help" {
+			t.Errorf("unexpected command leaked into top-level: %q", name)
+		}
+	}
+}
+
+// testBusDispatchHome creates a short, /tmp-rooted (not t.TempDir()) home
+// directory for this test's real Unix domain socket, mirroring
+// internal/bus/client_test.go's testBusHome — t.TempDir() embeds the full
+// test name and can exceed the ~104-108 byte sun_path limit on macOS/Linux.
+func testBusDispatchHome(t *testing.T) string {
+	t.Helper()
+
+	dir, err := os.MkdirTemp("/tmp", "atomicbus-dispatch")
+	if err != nil {
+		return t.TempDir()
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+// TestRunBus_DispatchUsesRealHomeFromEnv is the mandatory dispatch-layer
+// real-filesystem test the checkpoint 4 brief requires: checkpoint 1's own
+// disk test (internal/bus/identity_test.go) injects home directly into
+// State.Load/Save, so it can never observe the os.UserHomeDir()-to-home
+// hand-off inside runBus — that hand-off is only reachable, and only
+// breakable, here.
+//
+// A real daemon is bound at bus.SocketPath(home) in this process, and a
+// member is seeded on it directly (bypassing the CLI entirely, via
+// bus.Dial). The subprocess then runs `atomic bus who dispatch-room --json`
+// with HOME redirected to that same home and nothing else — if runBus
+// resolved the wrong path (e.g. home+"/.claude", the scope-root class of
+// bug .claude/skills/atomic-cli-contrib/SKILL.md §3-4 warns about), the
+// subprocess would fail to dial the real socket and exit 6, not merely
+// return an empty roster. runBus calls os.Exit, so it is exercised in a
+// subprocess (the standard Go idiom for os.Exit-calling code), matching
+// TestRunProfile_UsesHomeNotClaudeHome's established pattern.
+func TestRunBus_DispatchUsesRealHomeFromEnv(t *testing.T) {
+	if os.Getenv("ATOMIC_TEST_RUN_BUS_HELPER") == "1" {
+		runBus([]string{"who", "dispatch-room", "--json"})
+		return
+	}
+
+	home := testBusDispatchHome(t)
+	if err := bus.EnsureDirs(home); err != nil {
+		t.Fatalf("EnsureDirs: %v", err)
+	}
+	ln, err := net.Listen("unix", bus.SocketPath(home))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	hub := bus.NewHub(home)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- bus.Serve(ctx, ln, hub, nil) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("daemon did not shut down within the bounded wait")
+		}
+	})
+
+	client, err := bus.Dial(home, 2*time.Second)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if _, err := client.Do(bus.Request{
+		Op: bus.OpJoin, Room: "dispatch-room", Name: "probe", Kind: bus.KindAgent, Session: "sess-probe",
+	}); err != nil {
+		t.Fatalf("seed join: %v", err)
+	}
+	client.Close()
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunBus_DispatchUsesRealHomeFromEnv")
+	cmd.Env = append(os.Environ(), "ATOMIC_TEST_RUN_BUS_HELPER=1", "HOME="+home)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("subprocess runBus failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), `"probe"`) {
+		t.Errorf("subprocess output does not contain the seeded member; got:\n%s", out)
+	}
+}
 
 // sha256HexString returns the hex-encoded SHA256 of data.
 func sha256HexString(data []byte) string {
@@ -108,6 +473,119 @@ func TestScanNoUpdateCheck(t *testing.T) {
 	}
 }
 
+// TestScanRepoOverride covers the pre-scan that makes the global --repo
+// override actually take effect (cli-repo-flag-never-parses): every leaf
+// command sets DisableFlagParsing:true, so Cobra's own persistent-flag
+// parsing of --repo is a no-op regardless of position — this scan is the
+// only place --repo is read.
+func TestScanRepoOverride(t *testing.T) {
+	cases := []struct {
+		name      string
+		argv      []string
+		wantValue string
+		wantArgs  []string
+		wantErr   bool
+	}{
+		{
+			name:      "before the verb",
+			argv:      []string{"atomic", "--repo", "/tmp/other", "signals", "show"},
+			wantValue: "/tmp/other",
+			wantArgs:  []string{"atomic", "signals", "show"},
+		},
+		{
+			name:      "after the verb",
+			argv:      []string{"atomic", "signals", "show", "--repo", "/tmp/other"},
+			wantValue: "/tmp/other",
+			wantArgs:  []string{"atomic", "signals", "show"},
+		},
+		{
+			name:      "equals form",
+			argv:      []string{"atomic", "signals", "show", "--repo=/tmp/other"},
+			wantValue: "/tmp/other",
+			wantArgs:  []string{"atomic", "signals", "show"},
+		},
+		{
+			name:      "own flags survive alongside --repo",
+			argv:      []string{"atomic", "wiki", "scan", "--root", "/tmp/x", "--repo", "/tmp/other"},
+			wantValue: "/tmp/other",
+			wantArgs:  []string{"atomic", "wiki", "scan", "--root", "/tmp/x"},
+		},
+		{
+			name:      "absent",
+			argv:      []string{"atomic", "signals", "show"},
+			wantValue: "",
+			wantArgs:  []string{"atomic", "signals", "show"},
+		},
+		{
+			name:    "missing value at end of argv",
+			argv:    []string{"atomic", "signals", "show", "--repo"},
+			wantErr: true,
+		},
+		{
+			name:    "missing value: next token is another flag",
+			argv:    []string{"atomic", "--repo", "--json", "signals", "show"},
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			value, cleaned, err := scanRepoOverride(tc.argv)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error, got value=%q cleaned=%v", value, cleaned)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if value != tc.wantValue {
+				t.Errorf("value = %q, want %q", value, tc.wantValue)
+			}
+			if len(cleaned) != len(tc.wantArgs) {
+				t.Fatalf("cleaned = %v, want %v", cleaned, tc.wantArgs)
+			}
+			for i, a := range cleaned {
+				if a != tc.wantArgs[i] {
+					t.Errorf("cleaned[%d] = %q, want %q", i, a, tc.wantArgs[i])
+				}
+			}
+		})
+	}
+}
+
+// TestRepoFlagExempt verifies that migrate, config resolve, and wiki stamp —
+// the three verbs whose own --repo flag already carries different,
+// established semantics — are detected as exempt from the global pre-scan,
+// while every other verb (including ones that also take their own flags, or
+// share a top-level name with an exempt verb's parent) is not.
+func TestRepoFlagExempt(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+		want bool
+	}{
+		{"migrate alone", []string{"migrate"}, true},
+		{"migrate with its own --repo", []string{"migrate", "--repo", "/x"}, true},
+		{"migrate with --realm", []string{"migrate", "--realm", "/x"}, true},
+		{"config resolve", []string{"config", "resolve", "--repo", "/x", "--json"}, true},
+		{"wiki stamp with positional file before flags", []string{"wiki", "stamp", "f.md", "--repo", "/x"}, true},
+		{"config get is not exempt", []string{"config", "get", "some.key"}, false},
+		{"wiki scan is not exempt", []string{"wiki", "scan", "--root", "/x"}, false},
+		{"signals is not exempt", []string{"signals", "show"}, false},
+		{"code is not exempt", []string{"code", "status", "--repo", "/x"}, false},
+		{"empty argv", []string{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := repoFlagExempt(tc.argv); got != tc.want {
+				t.Errorf("repoFlagExempt(%v) = %v, want %v", tc.argv, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestRunClaudeInstallWiresHooks proves that `atomic claude install` lays the
 // bundle AND registers the session-start hook in one shot. Encodes the WHY:
 // the previous flow required users to chain `atomic hooks install` separately,
@@ -116,7 +594,7 @@ func TestRunClaudeInstallWiresHooks(t *testing.T) {
 	scope := t.TempDir()
 	target := filepath.Join(scope, ".claude")
 
-	result, err := runClaudeInstall(target, "install", false, false)
+	result, err := runClaudeInstall(target, scope, "install", false, false)
 	if err != nil {
 		t.Fatalf("runClaudeInstall: %v", err)
 	}
@@ -148,7 +626,7 @@ func TestRunClaudeInstallNoHooksFlag(t *testing.T) {
 	scope := t.TempDir()
 	target := filepath.Join(scope, ".claude")
 
-	result, err := runClaudeInstall(target, "install", false, true)
+	result, err := runClaudeInstall(target, scope, "install", false, true)
 	if err != nil {
 		t.Fatalf("runClaudeInstall: %v", err)
 	}
@@ -168,7 +646,7 @@ func TestRunClaudeInstallDryRunSkipsHooks(t *testing.T) {
 	scope := t.TempDir()
 	target := filepath.Join(scope, ".claude")
 
-	result, err := runClaudeInstall(target, "install", true, false)
+	result, err := runClaudeInstall(target, scope, "install", true, false)
 	if err != nil {
 		t.Fatalf("runClaudeInstall: %v", err)
 	}
@@ -292,7 +770,7 @@ func TestRunClaudeUninstall_MissingManifest(t *testing.T) {
 	}
 	defer devNull.Close()
 
-	_, err = runClaudeUninstall(targetDir, devNull)
+	_, err = runClaudeUninstall(targetDir, targetDir, devNull)
 	if err == nil {
 		t.Fatal("expected error when no pre-install manifest, got nil")
 	}
@@ -347,7 +825,7 @@ func TestRunClaudeUninstall_NeedsMerge(t *testing.T) {
 	}
 	defer devNull.Close()
 
-	prompt, err := runClaudeUninstall(targetDir, devNull)
+	prompt, err := runClaudeUninstall(targetDir, targetDir, devNull)
 	if err != nil {
 		t.Fatalf("runClaudeUninstall: %v", err)
 	}
@@ -449,8 +927,8 @@ func TestRunDocsUnknownVerbDispatch(t *testing.T) {
 // returns exit code 2 (usage error). WHY: callers rely on exit 2 to distinguish
 // usage errors from runtime errors.
 func TestProfileAction_NoArgsUsageError(t *testing.T) {
-	claudeHome := t.TempDir()
-	code := profileAction([]string{}, claudeHome, "2026-05-28")
+	home := t.TempDir()
+	code := profileAction([]string{}, home, "2026-05-28")
 	if code != 2 {
 		t.Errorf("profileAction(no args): got exit code %d, want 2", code)
 	}
@@ -459,8 +937,8 @@ func TestProfileAction_NoArgsUsageError(t *testing.T) {
 // TestProfileAction_UnknownVerbUsageError verifies that an unknown sub-verb
 // returns exit code 2 and does not silently succeed.
 func TestProfileAction_UnknownVerbUsageError(t *testing.T) {
-	claudeHome := t.TempDir()
-	code := profileAction([]string{"bogus"}, claudeHome, "2026-05-28")
+	home := t.TempDir()
+	code := profileAction([]string{"bogus"}, home, "2026-05-28")
 	if code != 2 {
 		t.Errorf("profileAction(bogus): got exit code %d, want 2", code)
 	}
@@ -471,13 +949,13 @@ func TestProfileAction_UnknownVerbUsageError(t *testing.T) {
 // WHY: proves the main.go dispatch actually reaches Refresh; the profile-package
 // unit tests cover the core logic, but this test verifies the wiring.
 func TestProfileAction_RefreshWritesFile(t *testing.T) {
-	claudeHome := t.TempDir()
-	code := profileAction([]string{"refresh"}, claudeHome, "2026-05-28")
+	home := t.TempDir()
+	code := profileAction([]string{"refresh"}, home, "2026-05-28")
 	if code != 0 {
 		t.Fatalf("profileAction(refresh): got exit code %d, want 0", code)
 	}
 
-	profilePath := filepath.Join(claudeHome, ".atomic", "profile.md")
+	profilePath := filepath.Join(home, ".atomic", "profile.md")
 	content, err := os.ReadFile(profilePath)
 	if err != nil {
 		t.Fatalf("profile.md not written: %v", err)
@@ -491,8 +969,8 @@ func TestProfileAction_RefreshWritesFile(t *testing.T) {
 // duration returns exit code 1 (runtime error, not usage error). WHY: the spec
 // requires an explicit parse error with non-zero exit; exit 2 is for usage errors.
 func TestProfileAction_IfStaleBadDuration(t *testing.T) {
-	claudeHome := t.TempDir()
-	code := profileAction([]string{"refresh", "--if-stale", "7h"}, claudeHome, "2026-05-28")
+	home := t.TempDir()
+	code := profileAction([]string{"refresh", "--if-stale", "7h"}, home, "2026-05-28")
 	if code != 1 {
 		t.Errorf("profileAction(refresh --if-stale 7h): got exit code %d, want 1", code)
 	}
@@ -502,8 +980,8 @@ func TestProfileAction_IfStaleBadDuration(t *testing.T) {
 // lastcheck does not modify the file. WHY: the --if-stale gate exists precisely
 // to avoid spurious re-runs during session start.
 func TestProfileAction_IfStaleNoOpWhenFresh(t *testing.T) {
-	claudeHome := t.TempDir()
-	atomicDir := filepath.Join(claudeHome, ".atomic")
+	home := t.TempDir()
+	atomicDir := filepath.Join(home, ".atomic")
 	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -514,7 +992,7 @@ func TestProfileAction_IfStaleNoOpWhenFresh(t *testing.T) {
 	}
 	statBefore, _ := os.Stat(profilePath)
 
-	code := profileAction([]string{"refresh", "--if-stale", "7d"}, claudeHome, "2026-05-28")
+	code := profileAction([]string{"refresh", "--if-stale", "7d"}, home, "2026-05-28")
 	if code != 0 {
 		t.Fatalf("profileAction(refresh --if-stale 7d) fresh: got exit code %d, want 0", code)
 	}
@@ -522,6 +1000,42 @@ func TestProfileAction_IfStaleNoOpWhenFresh(t *testing.T) {
 	statAfter, _ := os.Stat(profilePath)
 	if !statBefore.ModTime().Equal(statAfter.ModTime()) {
 		t.Error("profileAction: file mtime changed even though lastcheck was fresh")
+	}
+}
+
+// TestRunProfile_UsesHomeNotClaudeHome is the regression guard for the
+// runProfile chain bug (docs/spec/configurable-state-paths.md issue #150):
+// runProfile must pass home directly to profileAction, not <home>/.claude —
+// config.ProfilePath resolves <home>/.atomic/profile.md, so an extra ".claude"
+// join wrote to the wrong path. profileAction's own tests above inject a
+// tempdir directly as home, which is exactly what let this bug in runProfile's
+// own home-resolution glue go unnoticed. runProfile calls os.Exit, so it is
+// exercised in a subprocess (the standard Go idiom for os.Exit-calling code)
+// with HOME redirected to a temp dir — the real ~/.claude and ~/.atomic are
+// never touched.
+func TestRunProfile_UsesHomeNotClaudeHome(t *testing.T) {
+	if os.Getenv("ATOMIC_TEST_RUN_PROFILE_HELPER") == "1" {
+		runProfile([]string{"refresh"})
+		return
+	}
+
+	home := t.TempDir()
+	cmd := exec.Command(os.Args[0], "-test.run=TestRunProfile_UsesHomeNotClaudeHome")
+	// PATH is stripped so the profile detectors find no real tools: the test
+	// guards home-path resolution only, and a real probe (e.g. bazel) writes
+	// its cache into the temp HOME and races t.TempDir cleanup on CI.
+	cmd.Env = append(os.Environ(), "ATOMIC_TEST_RUN_PROFILE_HELPER=1", "HOME="+home, "PATH=")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("subprocess runProfile failed: %v\n%s", err, out)
+	}
+
+	profilePath := filepath.Join(home, ".atomic", "profile.md")
+	if _, err := os.Stat(profilePath); err != nil {
+		t.Errorf("expected profile.md at %s (home, not home/.claude), stat err = %v", profilePath, err)
+	}
+	wrongPath := filepath.Join(home, ".claude", ".atomic", "profile.md")
+	if _, err := os.Stat(wrongPath); !os.IsNotExist(err) {
+		t.Errorf("profile.md incorrectly written under home/.claude/.atomic (%s); stat err = %v", wrongPath, err)
 	}
 }
 
@@ -554,7 +1068,7 @@ func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
 	}
 	defer devNull.Close()
 
-	prompt, err := runClaudeUninstall(targetDir, devNull)
+	prompt, err := runClaudeUninstall(targetDir, targetDir, devNull)
 	if err != nil {
 		t.Fatalf("runClaudeUninstall: %v", err)
 	}
@@ -569,6 +1083,30 @@ func TestRunClaudeUninstall_ProducesPrompt(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "CLAUDE.md") {
 		t.Errorf("prompt missing 'CLAUDE.md'")
+	}
+}
+
+// TestCP5FindAllPaths verifies that rootCmd.Find returns a non-nil, non-root
+// command for every path in cliusage.Commands(). WHY (SC3): every command path
+// registered in the golden cliusage surface must be reachable in the live Cobra
+// tree so that --help rendering and DeriveCommands produce complete output. A
+// missing path means a command is declared in the fixture but absent from the
+// tree — the A1 linter would pass while the actual command is unreachable.
+//
+// Paths are sourced from cliusage.Commands() so the assertion automatically
+// covers whatever the current command set is; no hardcoded count is used.
+func TestCP5FindAllPaths(t *testing.T) {
+	var repoOverride string
+	root := buildRootCmd(&repoOverride)
+
+	for _, cmd := range cliusage.Commands() {
+		path := cmd.Path
+		t.Run(strings.Join(path, "/"), func(t *testing.T) {
+			found, _, _ := root.Find(path)
+			if found == nil || found == root {
+				t.Errorf("Find(%v) returned nil or root — command not reachable in Cobra tree", path)
+			}
+		})
 	}
 }
 
@@ -645,5 +1183,381 @@ func TestPromptAction_NoArgs(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "Usage:") {
 		t.Errorf("no-args error message missing 'Usage:'; stderr: %q", errOut.String())
+	}
+}
+
+// --- atomic template dispatch ---
+
+// TestTemplateAction_KnownNames verifies that templateAction exits 0 and
+// writes non-empty text for each registered document-template name. Encodes
+// the WHY: command artifacts instruct Claude to seed workflow documents from
+// `atomic template <name>` — a broken embed path or missing template would
+// silently hand back an empty skeleton and the improvised-structure problem
+// the templates exist to prevent would return.
+func TestTemplateAction_KnownNames(t *testing.T) {
+	for _, name := range doctemplate.Names() {
+		t.Run(name, func(t *testing.T) {
+			var out strings.Builder
+			var errOut strings.Builder
+			code := templateAction([]string{name}, &out, &errOut)
+			if code != 0 {
+				t.Fatalf("templateAction(%q) returned exit code %d, want 0; stderr: %s", name, code, errOut.String())
+			}
+			if strings.TrimSpace(out.String()) == "" {
+				t.Errorf("templateAction(%q) wrote empty stdout", name)
+			}
+		})
+	}
+}
+
+// TestTemplateAction_UnknownName verifies that templateAction exits 1 and
+// writes to stderr for an unregistered template name — the fail-loud contract
+// command artifacts rely on to stop rather than improvise structure.
+func TestTemplateAction_UnknownName(t *testing.T) {
+	var out strings.Builder
+	var errOut strings.Builder
+	code := templateAction([]string{"no-such-template"}, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("templateAction(\"no-such-template\") returned exit code 0, want non-zero")
+	}
+	if strings.TrimSpace(errOut.String()) == "" {
+		t.Errorf("templateAction(\"no-such-template\") wrote nothing to stderr")
+	}
+	if out.String() != "" {
+		t.Errorf("templateAction(\"no-such-template\") wrote unexpected stdout: %q", out.String())
+	}
+}
+
+// TestTemplateAction_NoArgs verifies that templateAction exits 1 with a usage
+// message listing the valid names when called with no arguments.
+func TestTemplateAction_NoArgs(t *testing.T) {
+	var out strings.Builder
+	var errOut strings.Builder
+	code := templateAction([]string{}, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("templateAction with no args returned exit code 0, want non-zero")
+	}
+	if !strings.Contains(errOut.String(), "Usage:") {
+		t.Errorf("no-args error message missing 'Usage:'; stderr: %q", errOut.String())
+	}
+	if !strings.Contains(errOut.String(), "design-doc") {
+		t.Errorf("no-args error message missing valid names; stderr: %q", errOut.String())
+	}
+}
+
+// --- migrate helpers ---
+
+// makeOldSignalsLayout creates a minimal old signals layout in root:
+//
+//	.claude/project/signals.md     (router with an @-ref line)
+//	.claude/project/signals/dom.md (domain file)
+//	CLAUDE.md                      (contains @.claude/project/signals.md)
+func makeOldSignalsLayout(t *testing.T, root string) {
+	t.Helper()
+	mkfile := func(rel, content string) {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", rel, err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", rel, err)
+		}
+	}
+	mkfile(".claude/project/signals.md", "# signals router\n")
+	mkfile(".claude/project/signals/dom.md", "# dom\ndom content\n")
+	mkfile("CLAUDE.md", "@.claude/project/signals.md\n")
+}
+
+// TestMigrateSchemaToSemver covers the schemaToSemver conversion table.
+func TestMigrateSchemaToSemver(t *testing.T) {
+	cases := []struct {
+		n    int
+		want string
+	}{
+		{0, ""},
+		{1, "1.0.0"},
+		{2, "2.0.0"},
+	}
+	for _, tc := range cases {
+		if got := schemaToSemver(tc.n); got != tc.want {
+			t.Errorf("schemaToSemver(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}
+
+// TestMigrateSemverToSchema covers the reverse conversion.
+func TestMigrateSemverToSchema(t *testing.T) {
+	cases := []struct {
+		v    string
+		want int
+	}{
+		{"", 0},
+		{"0.0.0", 0},
+		{"1.0.0", 1},
+		{"2.3.4", 2},
+	}
+	for _, tc := range cases {
+		if got := semverToSchema(tc.v); got != tc.want {
+			t.Errorf("semverToSchema(%q) = %d, want %d", tc.v, got, tc.want)
+		}
+	}
+}
+
+// TestScopedMigrations returns only migrations matching the given scope.
+func TestScopedMigrations(t *testing.T) {
+	reg := []migrate.Migration{
+		{TargetVersion: "1.0.0", Scope: "install"},
+		{TargetVersion: "2.0.0", Scope: "repo"},
+		{TargetVersion: "3.0.0", Scope: "install"},
+	}
+	install := scopedMigrations("install", reg)
+	if len(install) != 2 {
+		t.Errorf("install scope: got %d, want 2", len(install))
+	}
+	repo := scopedMigrations("repo", reg)
+	if len(repo) != 1 {
+		t.Errorf("repo scope: got %d, want 1", len(repo))
+	}
+	none := scopedMigrations("other", reg)
+	if len(none) != 0 {
+		t.Errorf("unknown scope: got %d, want 0", len(none))
+	}
+}
+
+// TestMigrateRepoActionOldLayout is the end-to-end happy path for
+// `atomic migrate --repo <path>` on an old-layout temp repo.
+// After the call: docs/wiki/index.md exists, has <wiki-schema>1</wiki-schema>,
+// @-ref is rewired in CLAUDE.md.
+func TestMigrateRepoActionOldLayout(t *testing.T) {
+	root := t.TempDir()
+	makeOldSignalsLayout(t, root)
+
+	if err := migrateRepoAction(root); err != nil {
+		t.Fatalf("migrateRepoAction: %v", err)
+	}
+
+	// docs/wiki/index.md must exist.
+	indexPath := filepath.Join(root, "docs", "wiki", "index.md")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("read index.md: %v", err)
+	}
+	content := string(data)
+
+	// <wiki-schema>1</wiki-schema> must be present.
+	if !strings.Contains(content, "<wiki-schema>1</wiki-schema>") {
+		t.Errorf("index.md missing <wiki-schema>1</wiki-schema>:\n%s", content)
+	}
+
+	// Schema stamped by WriteWikiSchema on success.
+	if got := migrate.ReadWikiSchema(root); got != 1 {
+		t.Errorf("ReadWikiSchema after migration: got %d, want 1", got)
+	}
+
+	// @-ref rewired in CLAUDE.md.
+	claudeData, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	if strings.Contains(string(claudeData), "@.claude/project/signals.md") {
+		t.Errorf("CLAUDE.md still has old @-ref:\n%s", claudeData)
+	}
+	if !strings.Contains(string(claudeData), "@docs/wiki/index.md") {
+		t.Errorf("CLAUDE.md missing new @-ref:\n%s", claudeData)
+	}
+}
+
+// TestMigrateRepoActionIdempotent: calling migrateRepoAction twice on the same
+// repo is safe — second call is a no-op (schema already at 1).
+func TestMigrateRepoActionIdempotent(t *testing.T) {
+	root := t.TempDir()
+	makeOldSignalsLayout(t, root)
+
+	if err := migrateRepoAction(root); err != nil {
+		t.Fatalf("first migrateRepoAction: %v", err)
+	}
+
+	// Sentinel to detect re-writes.
+	indexPath := filepath.Join(root, "docs", "wiki", "index.md")
+	after1, _ := os.ReadFile(indexPath)
+
+	if err := migrateRepoAction(root); err != nil {
+		t.Fatalf("second migrateRepoAction: %v", err)
+	}
+	after2, _ := os.ReadFile(indexPath)
+	if string(after1) != string(after2) {
+		t.Errorf("index.md was modified on idempotent re-run")
+	}
+}
+
+// TestMigrateRepoActionNoSignals: a repo with no signals layout is a no-op.
+func TestMigrateRepoActionNoSignals(t *testing.T) {
+	root := t.TempDir()
+
+	if err := migrateRepoAction(root); err != nil {
+		t.Fatalf("migrateRepoAction on empty repo: %v", err)
+	}
+
+	// docs/wiki/index.md must NOT have been created.
+	if _, err := os.Stat(filepath.Join(root, "docs", "wiki", "index.md")); err == nil {
+		t.Error("docs/wiki/index.md should not exist for a no-signals repo")
+	}
+}
+
+// withRealmConfirmStub replaces realmConfirmFn for the duration of f, then
+// restores it. Allows tests to control what runMigrateRealm does when prompted.
+func withRealmConfirmStub(result bool, err error, f func()) {
+	orig := realmConfirmFn
+	realmConfirmFn = func(_, _ string, _ bool) (bool, error) { return result, err }
+	defer func() { realmConfirmFn = orig }()
+	f()
+}
+
+// makeRealmWithMember creates a realm directory containing one member sub-dir
+// with the given layout setup function applied.
+func makeRealmWithMember(t *testing.T, setup func(memberRoot string)) (realmRoot, memberPath string) {
+	t.Helper()
+	realm := t.TempDir()
+	member := filepath.Join(realm, "member-repo")
+	if err := os.MkdirAll(member, 0o755); err != nil {
+		t.Fatalf("mkdir member: %v", err)
+	}
+	if setup != nil {
+		setup(member)
+	}
+	return realm, member
+}
+
+// TestRunMigrateInstall_TwoRootSplit proves the two-root split (issue #150):
+// config.toml is read/written under <home>/.atomic (config helpers get home),
+// while migrate.Context.Root — the root install-scope steps operate on —
+// still receives <home>/.claude. A step that captured home instead of
+// <home>/.claude would silently corrupt install-scope migrations that touch
+// the Claude artifact tree (e.g. renaming a file under commands/).
+func TestRunMigrateInstall_TwoRootSplit(t *testing.T) {
+	home := t.TempDir()
+
+	// Seed a pre-framework config.toml under the NEW location so migrate.Run
+	// has a "0.0.0" floor to migrate up from.
+	cfgPath := config.TOMLPath(home)
+	if err := config.WritePersist(cfgPath, config.Default()); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+
+	// Inject a fake install-scope step and restore the real registry after.
+	origRegistry := migrate.Registry
+	defer func() { migrate.Registry = origRegistry }()
+
+	var capturedRoot string
+	migrate.Registry = append(append([]migrate.Migration{}, origRegistry...), migrate.Migration{
+		TargetVersion: "99.0.0",
+		Scope:         "install",
+		Up: func(ctx *migrate.Context) error {
+			capturedRoot = ctx.Root
+			return nil
+		},
+	})
+
+	if err := runMigrateInstall(home); err != nil {
+		t.Fatalf("runMigrateInstall: %v", err)
+	}
+
+	wantClaudeHome := filepath.Join(home, ".claude")
+	if capturedRoot != wantClaudeHome {
+		t.Errorf("migrate.Context.Root = %q, want %q", capturedRoot, wantClaudeHome)
+	}
+
+	// Config helpers must have operated on <home>/.atomic/config.toml, not
+	// <home>/.claude/.atomic/config.toml.
+	cfg, _, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load persisted config: %v", err)
+	}
+	if cfg.Install.Version != "99.0.0" {
+		t.Errorf("Install.Version = %q, want %q (config.toml under <home>/.atomic was not updated)", cfg.Install.Version, "99.0.0")
+	}
+
+	legacyCfgPath := config.TOMLPath(wantClaudeHome)
+	if _, err := os.Stat(legacyCfgPath); !os.IsNotExist(err) {
+		t.Errorf("expected no config.toml under <home>/.claude/.atomic, stat err = %v", err)
+	}
+}
+
+// TestRunMigrateRealmNonInteractiveSkipsAll verifies that when the confirm
+// prompt returns ErrNonInteractive, runMigrateRealm skips all members and
+// performs no migration — it must NOT auto-migrate in a non-TTY context.
+func TestRunMigrateRealmNonInteractiveSkipsAll(t *testing.T) {
+	realm, member := makeRealmWithMember(t, func(root string) {
+		makeOldSignalsLayout(t, root)
+	})
+
+	withRealmConfirmStub(false, prompt.ErrNonInteractive, func() {
+		if err := runMigrateRealm(realm); err != nil {
+			t.Fatalf("runMigrateRealm: %v", err)
+		}
+	})
+
+	// Migration must NOT have happened: old layout still present.
+	if _, err := os.Stat(filepath.Join(member, ".claude", "project", "signals.md")); err != nil {
+		t.Errorf("old signals.md should still exist (migration must have been skipped): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(member, "docs", "wiki", "index.md")); err == nil {
+		t.Error("docs/wiki/index.md must not exist (migration must have been skipped)")
+	}
+}
+
+// TestRunMigrateRealmSkipsAlreadyMigratedMember verifies that a member repo
+// whose wiki schema is already >= 1 is skipped without prompting.
+func TestRunMigrateRealmSkipsAlreadyMigratedMember(t *testing.T) {
+	realm, member := makeRealmWithMember(t, func(root string) {
+		// Write docs/wiki/index.md with <wiki-schema>1 to simulate a fully-migrated member.
+		p := filepath.Join(root, "docs", "wiki", "index.md")
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatalf("mkdir docs/wiki: %v", err)
+		}
+		content := "<wiki-type>repo</wiki-type>\n<wiki-schema>1</wiki-schema>\n# index\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatalf("write index.md: %v", err)
+		}
+	})
+	_ = member
+
+	prompted := false
+	withRealmConfirmStub(false, nil, func() {
+		// Override to detect if a prompt is issued.
+		orig := realmConfirmFn
+		realmConfirmFn = func(_, _ string, _ bool) (bool, error) {
+			prompted = true
+			return false, nil
+		}
+		defer func() { realmConfirmFn = orig }()
+
+		if err := runMigrateRealm(realm); err != nil {
+			t.Fatalf("runMigrateRealm: %v", err)
+		}
+	})
+
+	if prompted {
+		t.Error("already-migrated member must be skipped without prompting")
+	}
+}
+
+// TestRunMigrateRealmAbortedSkipsMemberNotRealm verifies that ErrAborted on
+// the confirm prompt skips that single member but does not abort the realm
+// loop as a whole (no error returned).
+func TestRunMigrateRealmAbortedSkipsMemberNotRealm(t *testing.T) {
+	realm, member := makeRealmWithMember(t, func(root string) {
+		makeOldSignalsLayout(t, root)
+	})
+
+	withRealmConfirmStub(false, prompt.ErrAborted, func() {
+		if err := runMigrateRealm(realm); err != nil {
+			t.Fatalf("runMigrateRealm returned error on ErrAborted: %v", err)
+		}
+	})
+
+	// Migration must NOT have happened.
+	if _, err := os.Stat(filepath.Join(member, ".claude", "project", "signals.md")); err != nil {
+		t.Errorf("old signals.md should still exist (member was skipped): %v", err)
 	}
 }

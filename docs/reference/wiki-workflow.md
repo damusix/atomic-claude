@@ -37,6 +37,7 @@ This draws the boundary. Atomic stays on the code side: it documents repos, keep
 Deterministic CLI verbs and one command do the work:
 
 - **`atomic wiki scan [--root=<path>]`** — scaffolds the wiki, scans the root for member repos, classifies each, and registers the wiki globally. Deterministic, no model.
+- **`atomic wiki init --scope repo|realm [--root=<path>]`** — writes the fixed-content `CLAUDE.md` scaffold for the given scope, and declares that root's identity: it writes `scope = "repo"` or `scope = "realm"` into `.claude/atomic.toml`, the same marker `atomic repo init` writes on the repo side. `atomic where` and `repoctx` prefer this marker over the `<wikis>` registry below. Idempotent; a root whose marker already names a different scope is left untouched and reported as a conflict.
 - **`atomic wiki stale [--root=<path>]`** — a read-only freshness verdict. Reports `DRIFT`/`STALE` lines for repos and concerns, plus `STALE bucket <name>` for capture folders with a non-empty diff. Exits `0` fresh, `1` stale, `2` error, mirroring `atomic signals stale`.
 - **`atomic wiki linkify --root=<path>`** — renders the path citations in summaries, concerns, knowledge pages, and the index into file-relative markdown links. Deterministic, idempotent, no model.
 - **`atomic wiki bucket add|list|diff|promote`** — manage capture buckets. `add` registers a folder and splices the `<wiki-buckets>` block; `list` shows status; `diff` gives a read-only change report; `promote` advances the baseline after successful synthesis. See [Capture buckets](#capture-buckets) below.
@@ -46,7 +47,7 @@ The split is the same one signals use. The CLI does the deterministic work — w
 
 | Deterministic CLI | called by | LLM command |
 |---|---|---|
-| `atomic signals scan` | → | `/refresh-signals` |
+| `atomic signals scan` | → | `/refresh-wiki` |
 | `atomic wiki scan` / `atomic wiki stale` | → | `/refresh-wiki` |
 
 
@@ -67,7 +68,7 @@ atomic wiki scan --root ~/work/acme   # scaffold <path>/wiki
 
 `--root` is a flag; the positional slot is reserved for the verb (`scan`, `stale`). With no flag, the root is the current directory.
 
-The scan is idempotent. Re-running regenerates only the managed `<wiki-scan>` block in `index.md` — every summary, concern doc, and the narrative you or the LLM wrote is left untouched. It is init and refresh in one command, exactly like `/refresh-signals`.
+The scan is idempotent. Re-running regenerates only the managed `<wiki-scan>` block in `index.md` — every summary, concern doc, and the narrative you or the LLM wrote is left untouched. It is init and refresh in one command, exactly like `/refresh-wiki`.
 
 
 ## What a wiki looks like
@@ -106,7 +107,7 @@ The wiki is a navigable markdown graph. The scan writes a managed `## Members` s
 
 ## Repo states
 
-`atomic wiki scan` classifies each member repo by whether it has `.claude/project/signals.md`, and records the result in the `<wiki-scan>` block:
+`atomic wiki scan` classifies each member repo by whether it has `docs/wiki/index.md`, and records the result in the `<wiki-scan>` block:
 
 | State | Meaning | Knowledge source |
 |-------|---------|------------------|
@@ -116,7 +117,7 @@ The wiki is a navigable markdown graph. The scan writes a managed `## Members` s
 
 "No signals" is a fork, not a defect. A repo you own can carry committed signals; an open-source dependency should not — the wiki summarizes it instead, never writing into it.
 
-When the refresh pass meets a `pending` repo, it presents the no-signals repos as a numbered list and asks which to run `/refresh-signals` on, promoting those to `indexed`. The rest are summarized into the wiki by `atomic-signals-inferrer` in its wiki-output mode: it scans the repo with the substrate redirected outside it (`atomic signals scan --out`), infers, and writes the summary only into the wiki. The source repo is never modified.
+When the refresh pass meets a `pending` repo, it presents the no-signals repos as a numbered list and asks which to run `/refresh-wiki` on, promoting those to `indexed`. The rest are summarized into the wiki by `atomic-wiki-inferrer` in its wiki-output mode: it scans the repo with the substrate redirected outside it (`atomic signals scan --out`), infers, and writes the summary only into the wiki. The source repo is never modified.
 
 
 ## The registry
@@ -165,9 +166,13 @@ atomic wiki bucket diff research   # see what changed since the last synthesis
 atomic wiki bucket promote research   # advance the baseline after synthesis
 ```
 
+**Bucket names.** `atomic wiki bucket add <name>` rejects an empty or whitespace-only name, a name that starts with `-`, a name containing `/` or `\`, the names `.` and `..`, and the reserved name `wiki`. Any other name registers: hyphenated, underscored, digits, and mixed case all work.
+
+**Help.** `-h`, `-help`, and `--help` work on every bucket sub-verb (`add`, `list`, `diff`, `promote`, `doc`, `skill`, `index`). Each prints usage and exits 0 without creating or modifying anything.
+
 **Two-phase contract.** `diff` is read-only: it computes a SHA-256 manifest of the current folder contents and compares against the stored baseline, reporting `new`, `changed`, and `removed` files. `promote` is a state change: it advances the baseline to the current manifest, marking the bucket in-sync. You run `promote` only after a successful synthesis so that a failed or aborted synthesis leaves the diff intact and `/refresh-wiki` retries.
 
-**What gets synthesized.** `/refresh-wiki` runs the bucket-synthesis phase after repo summaries. For each bucket with a non-empty diff, it dispatches `atomic-signals-inferrer` in bucket-synthesis mode (fresh context per bucket). The inferrer reads the bucket's `index.md` (where you describe the bucket's purpose and conventions) and the changed files, then writes or updates topic-keyed pages under `wiki/knowledge/`. Multiple buckets' content about the same topic merges into one page; provenance lives in each page's `sources:` frontmatter, written by `atomic wiki stamp --knowledge` — the model declares which source files contributed, the code writes every SHA-256 value.
+**What gets synthesized.** `/refresh-wiki` runs the bucket-synthesis phase after repo summaries. For each bucket with a non-empty diff, it dispatches `atomic-wiki-inferrer` in bucket-synthesis mode (fresh context per bucket). The inferrer reads the bucket's `index.md` (where you describe the bucket's purpose and conventions) and the changed files, then writes or updates topic-keyed pages under `wiki/knowledge/`. Multiple buckets' content about the same topic merges into one page; provenance lives in each page's `sources:` frontmatter, written by `atomic wiki stamp --knowledge` — the model declares which source files contributed, the code writes every SHA-256 value.
 
 **The manifest.** SHA-256 fingerprints live in `wiki/.buckets/<name>/` as three files: `current` (written on every diff, debugging artifact only), `baseline` (what the wiki has consumed), and `previous` (the prior baseline). Manifests are wiki state and belong in the wiki repo's git history — they make the wiki self-describing on clone.
 
@@ -176,6 +181,37 @@ atomic wiki bucket promote research   # advance the baseline after synthesis
 **Staleness.** `atomic wiki stale` reports `STALE bucket <name>` for any bucket whose diff is non-empty. These lines appear after the existing `DRIFT`/`STALE` repo and concern lines, and the same exit-code contract applies: exit `1` if any line is emitted.
 
 **Knowledge-page citations.** Concern docs can cite a knowledge page as `knowledge/<topic>.md@<sha256>`. `atomic wiki stale` resolves this as a content hash of the knowledge page file, the same fingerprint mechanism used for repo summaries. A knowledge page that has changed since the concern was authored triggers a `STALE concern <path> (knowledge/<topic>.md)` line.
+
+
+### Authoring bucket docs
+
+A bucket's own content is a set of topic files, one per file: `<bucket>/<slug>.md`. Each carries six recognized frontmatter keys, all optional at index time:
+
+| Key | Writer | Fallback if absent |
+|-----|--------|---------------------|
+| `title` | you | first H1 in the body, then the filename stem |
+| `type` | you | (none) |
+| `description` | you | first prose line of the body |
+| `tags` | you | (none rendered) |
+| `status` | you | (none) |
+| `created` | code, at scaffold time | (none) |
+
+A doc with no frontmatter at all still indexes, listed under an `### Unindexed` heading with a derived title and description rather than being rejected. Capture stays frictionless either way.
+
+Three verbs manage this layer:
+
+```
+atomic wiki bucket doc research seo             # scaffold research/seo.md
+atomic wiki bucket doc research seo --router     # also scaffold research/seo/ + a CLAUDE.md stub
+atomic wiki bucket skill research                # scaffold a per-bucket authoring skill
+atomic wiki bucket index [research]              # rebuild the listing regions (scan already does this)
+```
+
+`atomic wiki bucket doc <bucket> <slug>` writes `<bucket>/<slug>.md` from an embedded scaffold, `created` pre-stamped, and refuses if the target already exists. A topic that outgrows a single file becomes a **router**: pass `--router` (or rerun the command later) to add a sibling `<slug>/` subtree and a `CLAUDE.md` stub, while `<slug>.md` stays the one index entry and its summary.
+
+`atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line and the frontmatter contract above, so the bucket's own authoring conventions travel with it as a skill Claude can pick up automatically in that realm. It is a no-op if the file already exists.
+
+`atomic wiki bucket index [<bucket>]` rebuilds two managed regions from frontmatter: a `<bucket-docs>` region in the named bucket's `index.md` (or every registered bucket, when no name is given), and the `<wiki-bucket-list>` region in `wiki/index.md`. Both are code-generated and spliced idempotently; everything outside the region is preserved untouched. `atomic wiki scan` runs this rebuild as part of its own pass, so you rarely need to call `bucket index` directly.
 
 
 ## Relationship to signals

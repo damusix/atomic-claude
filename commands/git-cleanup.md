@@ -27,7 +27,7 @@ If during execution the user says something like "remember N days as my stalenes
 
 ## Step 2 — Determine scope
 
-If `$ARGUMENTS` is non-empty: target = `.worktrees/<$ARGUMENTS>/` (the specific worktree). Branch + worktree inspected together. Skip step 3 (single-target runs don't need the remote question).
+If `$ARGUMENTS` is non-empty: target = `.claude/worktrees/<$ARGUMENTS>/` (the specific worktree). Branch + worktree inspected together. Skip step 3 (single-target runs don't need the remote question).
 
 If `$ARGUMENTS` is empty: target = `all`. Continue to step 3.
 
@@ -38,7 +38,7 @@ Prompt via `AskUserQuestion`:
 ```
 Question: Include remote branches in the staleness scan?
 Options:
-  - Local only (recommended) — scan .worktrees/* and local branches
+  - Local only (recommended) — scan .claude/worktrees/* and local branches
   - Local + remote — also fetch and flag stale remote branches (no remote deletion)
 ```
 
@@ -54,7 +54,7 @@ Prompt the subagent with:
 Run `atomic prompt git-cleanup` and follow the brief it prints exactly.
 Scan params for this run:
   staleness_days: <N>
-  target: all | .worktrees/<name>/
+  target: all | .claude/worktrees/<name>/
   include_remote: true | false
   base_branch: <base>
   current_worktree_path: <absolute path>
@@ -158,16 +158,16 @@ Same as the corresponding `remove` / `delete` — use `-D` instead of `-d` for b
 
 ```
 Cleaned up:
-  ✓ [1] removed worktree .worktrees/feat-x/, deleted branch feat-x
-  ✓ [3] removed worktree .worktrees/feat-z/, deleted branch feat-z (forced — was unmerged)
-  ✓ [4] pruned stale registration .worktrees/old/
+  ✓ [1] removed worktree .claude/worktrees/feat-x/, deleted branch feat-x
+  ✓ [3] removed worktree .claude/worktrees/feat-z/, deleted branch feat-z (forced — was unmerged)
+  ✓ [4] pruned stale registration .claude/worktrees/old/
   ✓ [5] deleted branch bugfix-old
 
 Skipped (you said no):
   • [6] spike-thing (gone upstream, you kept it)
 
 Not selected:
-  • [2] .worktrees/feat-y/ (dirty)
+  • [2] .claude/worktrees/feat-y/ (dirty)
   • [7] experiment (flagged only)
 ```
 

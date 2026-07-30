@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>atomic serve</title>
+    <!-- Editorial fonts (parity with the pre-cutover shell): Newsreader
+         (serif display), Inter (UI sans), JetBrains Mono (code). Without
+         these, --serif falls back to Times and every display heading
+         degrades. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/app.css" />
+    <!-- Component-scoped CSS (src/components/**/style.css) bundled by
+         build.ts into a single deterministic asset alongside main.js. -->
+    <link rel="stylesheet" href="/assets/main.css" />
+    <script>
+      // Before-paint theme init: avoids a flash of the wrong theme while
+      // React boots. Mirrors the persisted-choice/OS-fallback contract that
+      // useTheme (CP5) owns at runtime.
+      (function () {
+        try {
+          var stored = localStorage.getItem("atomic-theme");
+          var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          document.documentElement.dataset.theme = stored || (prefersDark ? "dark" : "light");
+        } catch (e) {
+          // localStorage/matchMedia unavailable — fall through to CSS default.
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/assets/main.js"></script>
+  </body>
+</html>

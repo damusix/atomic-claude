@@ -33,7 +33,7 @@ Make signals and wiki markdown navigable as a graph in Obsidian, a generic markd
 ### Signals
 
 - [ ] `atomic signals linkify` linkifies `.claude/project/signals.md` and every file under `.claude/project/signals/`, with base = repo root. Idempotent; safe to re-run.
-- [ ] The `atomic-signals-inferrer` agent runs `atomic signals linkify` as the final action of **default mode** only, after all files are written/reviewed. The agent still writes plain repo-root-relative paths in backticks (facts); linkify renders them. (Wiki-output mode does NOT linkify — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
+- [ ] The `atomic-wiki-inferrer` agent runs `atomic signals linkify` as the final action of **default mode** only, after all files are written/reviewed. The agent still writes plain repo-root-relative paths in backticks (facts); linkify renders them. (Wiki-output mode does NOT linkify — `/refresh-wiki` runs `atomic wiki linkify` post-stamp instead.)
 - [ ] The router `## Domains` table Detail column and Repo-paths column, and every domain file's `## Artifacts` / `## CLI code` / `## Docs` / `## Coupling` path citation, are linkified when they resolve on disk.
 - [ ] Doctor's router check (`parseRouterDomains` in `checks_signals.go`) extracts the on-disk domain-file path from a linkified Detail cell and still validates existence + orphans. Existing doctor signals tests stay green.
 
@@ -73,7 +73,7 @@ Approach A. Relative-prefix computation is a deterministic transform — code's 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
 | 1 | **All code**: linkify core package; `atomic signals linkify` + `atomic wiki linkify` verbs; `atomic wiki scan` linked `## Members` section; doctor router-parser update for linkified Detail | `atomic/internal/` (new linkify pkg), `atomic/internal/wiki/wiki.go`, `atomic/internal/doctor/checks_signals.go`, `atomic/cmd/atomic/main.go`, `+ tests` | `go test ./...` green (linkify idempotent, fence-skip, disk-gate, correct `../` prefix from both file depths; wiki member-list splice idempotent; doctor parses linkified Detail); `go vet` + `gofmt` clean |
-| 2 | **All markdown**: inferrer runs linkify (both modes) + writes repo-root-relative backtick paths; `/refresh-signals` + `/refresh-wiki` call the verbs; specs `signals-router.md` + `wiki.md` change-logged; `/atomic-help` + `CLAUDE.md` list the verbs; render + bundle | `templates/agents/atomic-signals-inferrer.md`, `templates/commands/{refresh-signals,refresh-wiki,atomic-help}.md`, `docs/spec/{signals-router,wiki}.md`, `CLAUDE.md`, then `make render` + `make -C atomic bundle` | `make render && git diff --exit-code` clean; `make bundle && git diff --exit-code` clean; help-coverage no `MISSING:`; `npm run docs:build` clean |
+| 2 | **All markdown**: inferrer runs linkify (both modes) + writes repo-root-relative backtick paths; `/refresh-wiki` + `/refresh-wiki` call the verbs; specs `signals-router.md` + `wiki.md` change-logged; `/atomic-help` + `CLAUDE.md` list the verbs; render + bundle | `templates/agents/atomic-wiki-inferrer.md`, `templates/commands/{refresh-signals,refresh-wiki,atomic-help}.md`, `docs/spec/{signals-router,wiki}.md`, `CLAUDE.md`, then `make render` + `make -C atomic bundle` | `make render && git diff --exit-code` clean; `make bundle && git diff --exit-code` clean; help-coverage no `MISSING:`; `npm run docs:build` clean |
 
 
 ## Risks

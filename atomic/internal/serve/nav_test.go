@@ -1,21 +1,19 @@
 package serve_test
 
-// nav_test.go — CP3: nav tree tests (TDD, written before implementation).
-//
-// Covers:
-//  1. Realm scope: six group labels present; member/concern/knowledge entries
-//     carry /page/... hrefs; hx-get + hx-target="#main-pane" attributes set.
-//  2. Repo/member scope (no wiki): docs file tree rendered instead of six groups.
-//  3. Stale badge (seam): when staleness seam injects a stale member, badge appears.
-//  4. Stale badge + bucket-diff badge (production): real filesystem triggers the
-//     production computeStaleness path and proves badges render without seam injection.
+// nav_test.go — nav tree fixtures + behavior tests not already covered by the
+// /api/nav shape tests in api_handlers_test.go (which reuse buildMinimalWikiRealm
+// / buildRepoScope below). Shape coverage (group labels, member entries, folder
+// tree, stale badges) lives in api_handlers_test.go; this file keeps the two
+// behaviors that are otherwise untested by a shape assertion: the production
+// (non-seam-injected) computeStaleness path, and the SSE-triggered request's
+// staleness skip.
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/serve"
@@ -75,455 +73,150 @@ func buildRepoScope(t *testing.T) string {
 	return root
 }
 
-// TestNavTreeRealmScopeGroupLabels verifies that the nav tree for a realm scope
-// contains all six group labels: Realm, Repos, Concerns, Knowledge, Buckets, External.
-func TestNavTreeRealmScopeGroupLabels(t *testing.T) {
-	root := buildMinimalWikiRealm(t)
-
-	handler := serve.NewNavHandler(serve.NavOptions{
-		RealmRoot:     root,
-		IsRealmScope:  true,
-		WikiIndexPath: filepath.Join(root, "wiki", "index.md"),
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
+// buildSelfIndexedRealm builds a wiki realm with one self-indexed member and
+// returns (realmRoot, claudeMDPath). No code.toml — federation is absent,
+// exactly like a realm that was never set up for code federation. Shared by
+// codegraph_test.go's realm self-index coverage.
+func buildSelfIndexedRealm(t *testing.T, memberPath string) (string, string) {
+	t.Helper()
+	realmRoot := t.TempDir()
+	wikiIndex := filepath.Join(realmRoot, "wiki", "index.md")
+	writeFile(t, wikiIndex,
+		"# wiki\n\n<wiki-scan generated=\"2026-01-01\" root=\""+realmRoot+"\">\n"+
+			"<repo path=\""+memberPath+"\" status=\"summarized\" summary=\"wiki/repos/x.md\">\n"+
+			"</wiki-scan>\n")
+	claudeMDPath := filepath.Join(realmRoot, "CLAUDE.md")
+	buildClaudeMD(t, claudeMDPath, []string{wikiIndex})
+	// The member's own index (cd member; atomic code index).
+	db := filepath.Join(realmRoot, memberPath, ".claude", ".atomic-index", "atomic.db")
+	if err := os.MkdirAll(filepath.Dir(db), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
 	}
-
-	body := rr.Body.String()
-
-	// All six group labels must appear.
-	for _, label := range []string{"Realm", "Repos", "Concerns", "Knowledge", "Buckets", "External"} {
-		if !strings.Contains(body, label) {
-			t.Errorf("nav tree missing group label %q", label)
-		}
+	if err := os.WriteFile(db, []byte("x"), 0o644); err != nil {
+		t.Fatalf("write db: %v", err)
 	}
+	return realmRoot, claudeMDPath
 }
 
-// TestNavTreeRealmScopeMemberEntries verifies that member, concern, and knowledge
-// entries appear in the nav tree with correct /page/ hrefs.
-func TestNavTreeRealmScopeMemberEntries(t *testing.T) {
-	root := buildMinimalWikiRealm(t)
-
-	handler := serve.NewNavHandler(serve.NavOptions{
-		RealmRoot:     root,
-		IsRealmScope:  true,
-		WikiIndexPath: filepath.Join(root, "wiki", "index.md"),
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	body := rr.Body.String()
-
-	// Member entries: "alpha" and "beta" should appear.
-	if !strings.Contains(body, "alpha") {
-		t.Error("nav tree missing member 'alpha'")
-	}
-	if !strings.Contains(body, "beta") {
-		t.Error("nav tree missing member 'beta'")
-	}
-
-	// Concern entry: "foo" should appear.
-	if !strings.Contains(body, "foo") {
-		t.Error("nav tree missing concern 'foo'")
-	}
-
-	// Knowledge entry: "bar" should appear.
-	if !strings.Contains(body, "bar") {
-		t.Error("nav tree missing knowledge 'bar'")
-	}
-}
-
-// TestNavTreeLeafHtmxAttributes verifies that nav leaves carry the required
-// htmx attributes: hx-get="/page/..." and hx-target="#main-pane".
-func TestNavTreeLeafHtmxAttributes(t *testing.T) {
-	root := buildMinimalWikiRealm(t)
-
-	handler := serve.NewNavHandler(serve.NavOptions{
-		RealmRoot:     root,
-		IsRealmScope:  true,
-		WikiIndexPath: filepath.Join(root, "wiki", "index.md"),
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	body := rr.Body.String()
-
-	// Must contain hx-get="/page/ somewhere.
-	if !strings.Contains(body, `hx-get="/page/`) {
-		t.Error("nav leaf missing hx-get=\"/page/...\" attribute")
-	}
-
-	// Must contain hx-target="#main-pane".
-	if !strings.Contains(body, `hx-target="#main-pane"`) {
-		t.Error("nav leaf missing hx-target=\"#main-pane\" attribute")
-	}
-
-	// Must contain hx-push-url="true".
-	if !strings.Contains(body, `hx-push-url="true"`) {
-		t.Error("nav leaf missing hx-push-url=\"true\" attribute")
-	}
-}
-
-// TestNavTreeRealmIndexLink verifies that the Realm group links to wiki/index.md
-// via /page/.
-func TestNavTreeRealmIndexLink(t *testing.T) {
-	root := buildMinimalWikiRealm(t)
-
-	handler := serve.NewNavHandler(serve.NavOptions{
-		RealmRoot:     root,
-		IsRealmScope:  true,
-		WikiIndexPath: filepath.Join(root, "wiki", "index.md"),
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	body := rr.Body.String()
-
-	// The realm index link should point to wiki/index.md via /page/.
-	if !strings.Contains(body, `/page/wiki/index.md`) {
-		t.Errorf("nav tree missing realm index link /page/wiki/index.md; body excerpt:\n%s",
-			body[:min(len(body), 500)])
-	}
-}
-
-// TestNavTreeRepoScope verifies that a repo scope (no wiki) renders a docs
-// file tree instead of the six realm groups.
-func TestNavTreeRepoScope(t *testing.T) {
-	root := buildRepoScope(t)
-
-	handler := serve.NewNavHandler(serve.NavOptions{
-		RealmRoot:    root,
-		IsRealmScope: false,
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
-	}
-
-	body := rr.Body.String()
-
-	// Should NOT contain realm-specific group labels.
-	for _, label := range []string{"Concerns", "Knowledge", "Buckets", "External"} {
-		if strings.Contains(body, label) {
-			t.Errorf("repo-scope nav unexpectedly contains realm group %q", label)
-		}
-	}
-
-	// Should contain docs files: guide, api, README.
-	if !strings.Contains(body, "README") {
-		t.Error("repo-scope nav missing README.md")
-	}
-	if !strings.Contains(body, "guide") {
-		t.Error("repo-scope nav missing docs/guide.md")
-	}
-	if !strings.Contains(body, "api") {
-		t.Error("repo-scope nav missing docs/api.md")
-	}
-}
-
-// TestNavTreeStaleMemberBadge verifies that when a member is flagged stale via
-// the StalenessFn seam, a stale badge appears in the nav.
-func TestNavTreeStaleMemberBadge(t *testing.T) {
-	root := buildMinimalWikiRealm(t)
-
-	handler := serve.NewNavHandler(serve.NavOptions{
-		RealmRoot:     root,
-		IsRealmScope:  true,
-		WikiIndexPath: filepath.Join(root, "wiki", "index.md"),
-		// Staleness seam: inject "alpha" as stale via the injectable function.
-		StalenessFn: func(_, _ string) (map[string]bool, map[string]bool) {
-			return map[string]bool{"alpha": true}, map[string]bool{}
-		},
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	body := rr.Body.String()
-
-	// A stale badge must appear near "alpha".
-	if !strings.Contains(body, "stale") && !strings.Contains(body, "STALE") {
-		t.Error("expected stale badge in nav tree for member 'alpha'")
-	}
-}
-
-// TestNavTreeProductionStalenessPath verifies that the production path (no seam
-// injection) correctly computes staleness from the filesystem and renders both a
-// stale badge on a member and a diff badge on a bucket.
-//
-// Staleness is triggered without git by writing a <wiki-scan> block that lists
-// a member ("ghost") whose directory does not exist — wiki.Stale reports
-// "DRIFT removed ghost", which computeStaleness maps to staleMembers["ghost"]=true.
-//
-// The bucket diff is triggered by registering a bucket whose baseline manifest is
-// empty while the live bucket directory contains a file — all files appear as Added,
-// so wiki.Stale emits "STALE bucket research", causing bucketDiffs["research"]=true.
-func TestNavTreeProductionStalenessPath(t *testing.T) {
+// TestAPINav_ProductionStalenessPath proves that with no StalenessFn injected,
+// NewAPINavHandler's production computeStaleness path fires: a drifted member
+// (listed in <wiki-scan> but missing on disk) badges stale, and a bucket with a
+// non-empty diff badges too.
+func TestAPINav_ProductionStalenessPath(t *testing.T) {
 	root := t.TempDir()
 	wikiDir := filepath.Join(root, "wiki")
 
-	// Create required subdirectories.
 	for _, sub := range []string{"concerns", "knowledge", "repos", ".buckets/research"} {
 		if err := os.MkdirAll(filepath.Join(wikiDir, sub), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	// Create the bucket dir (sibling of wiki/) and put a file in it.
 	bucketDir := filepath.Join(root, "research")
 	if err := os.MkdirAll(bucketDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(bucketDir, "note.md"), "# Research note\n")
 
-	// Write an EMPTY baseline so all files in the bucket appear as Added.
-	// wiki.Stale calls bucketDiffReadOnly which reads this baseline.
+	// Empty baseline so every file in the bucket appears as Added (diff).
 	writeFile(t, filepath.Join(wikiDir, ".buckets", "research", "baseline"), "")
 
-	// wiki/index.md: list "ghost" as a member (but ghost/ dir does not exist
-	// → DRIFT removed ghost) and register "research" as a bucket.
-	researchAbsPath := bucketDir
+	// "ghost" is listed but its dir does not exist → DRIFT removed ghost.
 	indexContent := `<wiki-scan root="` + root + `" generated="2026-01-01">
 <repo path="ghost" status="pending"/>
 </wiki-scan>
 
 <wiki-buckets>
-<bucket name="research" path="` + researchAbsPath + `"/>
+<bucket name="research" path="` + bucketDir + `"/>
 </wiki-buckets>
 `
 	writeFile(t, filepath.Join(wikiDir, "index.md"), indexContent)
 
-	// Use the production handler with NO StalenessFn injection.
-	handler := serve.NewNavHandler(serve.NavOptions{
+	// No StalenessFn injected → production computeStaleness fires.
+	handler := serve.NewAPINavHandler(serve.NavOptions{
 		RealmRoot:     root,
 		IsRealmScope:  true,
 		WikiIndexPath: filepath.Join(wikiDir, "index.md"),
-		// StalenessFn is nil → production computeStaleness fires.
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/nav", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
+		t.Fatalf("expected 200, got %d; body=%s", rr.Code, rr.Body.String())
 	}
 
-	body := rr.Body.String()
-
-	// The stale badge must appear (triggered by DRIFT removed ghost).
-	if !strings.Contains(body, "stale") && !strings.Contains(body, "STALE") {
-		t.Error("production path: expected stale badge for drifted member 'ghost'")
+	var got struct {
+		Groups []struct {
+			Name  string `json:"name"`
+			Items []struct {
+				Label    string `json:"label"`
+				Stale    bool   `json:"stale"`
+				Children []struct {
+					Label string `json:"label"`
+					Stale bool   `json:"stale"`
+				} `json:"children"`
+			} `json:"items"`
+		} `json:"groups"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v; body=%s", err, rr.Body.String())
 	}
 
-	// The diff badge must appear (triggered by STALE bucket research).
-	if !strings.Contains(body, "diff") {
-		t.Error("production path: expected diff badge for bucket 'research'")
+	var ghostStale, bucketDiff bool
+	for _, g := range got.Groups {
+		if g.Name == "Repos" {
+			for _, it := range g.Items {
+				if it.Label == "ghost" && it.Stale {
+					ghostStale = true
+				}
+			}
+		}
+		if g.Name == "Buckets" {
+			for _, it := range g.Items {
+				if it.Label == "research" && it.Stale {
+					bucketDiff = true
+				}
+			}
+		}
 	}
-}
-
-// TestNavTreeFolderTreeDepth2 verifies that a docs layout with files at two
-// levels of subdirectory nesting (docs/a/b/c.md and docs/a/d.md) renders as a
-// true recursive tree: "b" nested under "a", "c" nested under "b", with the
-// leaf's hx-get pointing to the full path /page/docs/a/b/c.md.
-//
-// This is the contract that rules out the old flat-grouping implementation
-// which collapsed docs/a/b/c.md and docs/a/d/c.md into the same "a" folder
-// using only filepath.Base labels.
-func TestNavTreeFolderTreeDepth2(t *testing.T) {
-	root := t.TempDir()
-
-	// docs/a/b/c.md — depth 2 under docs/
-	// docs/a/d.md   — depth 1 under docs/a/
-	writeFile(t, filepath.Join(root, "docs", "a", "b", "c.md"), "# C\n")
-	writeFile(t, filepath.Join(root, "docs", "a", "d.md"), "# D\n")
-
-	handler := serve.NewNavHandler(serve.NavOptions{
-		RealmRoot:    root,
-		IsRealmScope: false,
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", rr.Code)
+	if !ghostStale {
+		t.Errorf("production path: expected stale=true for drifted member 'ghost'; groups=%+v", got.Groups)
 	}
-
-	body := rr.Body.String()
-
-	// The leaf for c.md must link to the FULL path, not just the base name.
-	if !strings.Contains(body, `/page/docs/a/b/c.md`) {
-		t.Errorf("nav tree missing full-path leaf for docs/a/b/c.md; body:\n%s", body)
-	}
-
-	// The "b" folder <details> must exist and contain the c.md leaf.
-	bIdx := strings.Index(body, `>b<`)
-	if bIdx == -1 {
-		// Try the summary element form with the exact text.
-		bIdx = strings.Index(body, ">b</summary>")
-	}
-	if bIdx == -1 {
-		t.Fatalf("nav tree missing folder summary for 'b'; body:\n%s", body)
-	}
-	cIdx := strings.Index(body, `/page/docs/a/b/c.md`)
-	if cIdx == -1 {
-		t.Fatalf("leaf /page/docs/a/b/c.md not found; body:\n%s", body)
-	}
-	// "b" summary must appear BEFORE the c.md leaf (it wraps it).
-	if bIdx >= cIdx {
-		t.Errorf("expected 'b' folder to appear before c.md leaf; b at %d, c at %d", bIdx, cIdx)
-	}
-
-	// The "a" folder <details> must also contain the "b" <details>.
-	aIdx := strings.Index(body, ">a</summary>")
-	if aIdx == -1 {
-		t.Fatalf("nav tree missing folder summary for 'a'; body:\n%s", body)
-	}
-	if aIdx >= bIdx {
-		t.Errorf("expected 'a' folder to appear before 'b' folder; a at %d, b at %d", aIdx, bIdx)
-	}
-
-	// d.md is a sibling of b/ inside a/ — must also appear with its full path.
-	if !strings.Contains(body, `/page/docs/a/d.md`) {
-		t.Errorf("nav tree missing full-path leaf for docs/a/d.md; body:\n%s", body)
+	if !bucketDiff {
+		t.Errorf("production path: expected stale=true (diff) for bucket 'research'; groups=%+v", got.Groups)
 	}
 }
 
-// TestNavTreeExternalLink verifies the External group contains a link to /external.
-func TestNavTreeExternalLink(t *testing.T) {
+// TestAPINav_SSETriggeredRequestSkipsStaleness proves that a live-reload-triggered
+// nav refetch (?live=1) skips the (git-subprocess-backed) StalenessFn, while an
+// ordinary request still calls it.
+func TestAPINav_SSETriggeredRequestSkipsStaleness(t *testing.T) {
 	root := buildMinimalWikiRealm(t)
 
-	handler := serve.NewNavHandler(serve.NavOptions{
+	var calls int
+	handler := serve.NewAPINavHandler(serve.NavOptions{
 		RealmRoot:     root,
 		IsRealmScope:  true,
 		WikiIndexPath: filepath.Join(root, "wiki", "index.md"),
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	body := rr.Body.String()
-
-	// External group must link to /external.
-	if !strings.Contains(body, "/external") {
-		t.Error("nav tree missing /external link in External group")
-	}
-}
-
-// TestNavTreeMemberLinksMirrorIndex verifies that nav member links match the
-// wiki index's classification: indexed → its signals page, pending → its
-// directory. It must NEVER emit a guessed wiki/repos/<name>.md link, which is
-// the bug that 404'd every repo in the left nav (summary files don't exist on
-// disk for indexed/pending members).
-func TestNavTreeMemberLinksMirrorIndex(t *testing.T) {
-	root := t.TempDir()
-	wikiDir := filepath.Join(root, "wiki")
-	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	indexedSignals := filepath.Join(root, "alpha", ".claude", "project", "signals.md")
-	indexContent := `<wiki-scan root="` + root + `" generated="2026-01-01">
-<repo path="alpha" status="indexed" signals="` + indexedSignals + `"/>
-<repo path="beta" status="pending"/>
-</wiki-scan>
-`
-	writeFile(t, filepath.Join(wikiDir, "index.md"), indexContent)
-
-	handler := serve.NewNavHandler(serve.NavOptions{
-		RealmRoot:     root,
-		IsRealmScope:  true,
-		WikiIndexPath: filepath.Join(wikiDir, "index.md"),
 		StalenessFn: func(_, _ string) (map[string]bool, map[string]bool) {
+			calls++
 			return map[string]bool{}, map[string]bool{}
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/nav?live=1", nil)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
-	body := rr.Body.String()
-
-	// indexed member → its signals page (realm-relative).
-	if !strings.Contains(body, "/page/alpha/.claude/project/signals.md") {
-		t.Errorf("indexed member must link to its signals page, got:\n%s", body)
-	}
-	// pending member → its directory (served as a folder index/listing).
-	if !strings.Contains(body, `/page/beta/"`) {
-		t.Errorf("pending member must link to its directory /page/beta/, got:\n%s", body)
-	}
-	// never the guessed, nonexistent wiki/repos path.
-	if strings.Contains(body, "wiki/repos/") {
-		t.Errorf("nav must not emit guessed wiki/repos/ links, got:\n%s", body)
-	}
-}
-
-// TestNavTreeBucketFolderIsBrowsable verifies that a registered capture bucket
-// renders its markdown files as clickable /page/<bucket>/<file> links (a
-// browsable folder) rather than a dead, non-clickable span.
-func TestNavTreeBucketFolderIsBrowsable(t *testing.T) {
-	root := t.TempDir()
-	wikiDir := filepath.Join(root, "wiki")
-	if err := os.MkdirAll(wikiDir, 0o755); err != nil {
-		t.Fatal(err)
+	if calls != 0 {
+		t.Errorf("SSE-triggered nav request must skip StalenessFn, got %d calls", calls)
 	}
 
-	// A capture bucket (realm-root sibling of wiki/) holding a markdown file.
-	ticketsDir := filepath.Join(root, "tickets")
-	if err := os.MkdirAll(ticketsDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	writeFile(t, filepath.Join(ticketsDir, "007-search-ui.md"), "# Ticket 007\n")
-
-	indexContent := `<wiki-scan root="` + root + `" generated="2026-01-01">
-</wiki-scan>
-
-<wiki-buckets>
-<bucket name="tickets" path="` + ticketsDir + `"/>
-</wiki-buckets>
-`
-	writeFile(t, filepath.Join(wikiDir, "index.md"), indexContent)
-
-	handler := serve.NewNavHandler(serve.NavOptions{
-		RealmRoot:     root,
-		IsRealmScope:  true,
-		WikiIndexPath: filepath.Join(wikiDir, "index.md"),
-		// No staleness I/O for this assertion.
-		StalenessFn: func(_, _ string) (map[string]bool, map[string]bool) {
-			return map[string]bool{}, map[string]bool{}
-		},
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/nav", nil)
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	body := rr.Body.String()
-
-	// The bucket's markdown file must be a clickable /page/ link.
-	if !strings.Contains(body, "/page/tickets/007-search-ui.md") {
-		t.Errorf("expected browsable bucket file link /page/tickets/007-search-ui.md in nav, got:\n%s", body)
-	}
-	// And it must not be a dead non-clickable span (old behavior).
-	if strings.Contains(body, `nav-leaf`) {
-		t.Errorf("bucket should no longer render a dead nav-leaf span, got:\n%s", body)
+	req2 := httptest.NewRequest(http.MethodGet, "/api/nav", nil)
+	rr2 := httptest.NewRecorder()
+	handler.ServeHTTP(rr2, req2)
+	if calls != 1 {
+		t.Errorf("ordinary nav request must still call StalenessFn, got %d calls", calls)
 	}
 }

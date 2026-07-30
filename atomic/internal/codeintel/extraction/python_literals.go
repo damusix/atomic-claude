@@ -49,6 +49,11 @@ type PythonLiteralSpan struct {
 	// in a module, class body, or function body — the three PEP 257 docstring
 	// positions. IsDocstring strings must be excluded from SQL gating.
 	IsDocstring bool
+	// CalleeExpr is the bare name of the nearest enclosing call's callee
+	// (e.g. "select" for db.select("x")) when the literal sits in that call's
+	// argument list. Empty when the literal is not inside a call. Used by
+	// sql-string-match (C1) confidence tiering.
+	CalleeExpr string
 }
 
 // HarvestPythonLiterals parses src as Python via inst (which must already have
@@ -83,7 +88,7 @@ func HarvestPythonLiterals(ctx context.Context, inst Instance, src string) ([]Py
 	var spans []PythonLiteralSpan
 	// Walk the module's direct named children. The recursive helper tracks the
 	// docstring-position contract per scope.
-	if err := pyWalkNode(ctx, root, src, lineOffsets, false /* isFirstInBody */, &spans); err != nil {
+	if err := pyWalkNode(ctx, root, src, lineOffsets, false /* isFirstInBody */, "", &spans); err != nil {
 		return nil, err
 	}
 
@@ -95,7 +100,10 @@ func HarvestPythonLiterals(ctx context.Context, inst Instance, src string) ([]Py
 // isFirstInBody is true when node is the first named child of a block that is
 // a function/class body, or the first named child of module — meaning a string
 // at this position is a docstring.
-func pyWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets []int, isFirstInBody bool, out *[]PythonLiteralSpan) error {
+//
+// calleeCtx is the bare callee name of the nearest enclosing call's callee
+// (sql-string-match C1 callee capture), or "" when node is not inside a call.
+func pyWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets []int, isFirstInBody bool, calleeCtx string, out *[]PythonLiteralSpan) error {
 	kind, err := node.Kind(ctx)
 	if err != nil {
 		return nil // best-effort: Kind() failed — skip this subtree entirely
@@ -108,6 +116,7 @@ func pyWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets [
 			return nil // best-effort: harvest failed or empty literal — skip this string node
 		}
 		span.IsDocstring = isFirstInBody
+		span.CalleeExpr = calleeCtx
 		*out = append(*out, *span)
 		return nil // do not recurse into string children
 
@@ -124,35 +133,45 @@ func pyWalkNode(ctx context.Context, node sitter.Node, src string, lineOffsets [
 			childKind, _ := child.Kind(ctx)
 			// Only the first child and only a string node gets the docstring flag.
 			childIsDocstring := isFirstInBody && i == 0 && childKind == "string"
-			if err := pyWalkNode(ctx, child, src, lineOffsets, childIsDocstring, out); err != nil {
+			if err := pyWalkNode(ctx, child, src, lineOffsets, childIsDocstring, calleeCtx, out); err != nil {
 				return err
 			}
 		}
 		return nil
 
+	case "call":
+		// Nearest enclosing call: recompute calleeCtx for this subtree, but
+		// scope it to the "arguments" field only — a literal in the callee/
+		// receiver position (e.g. "tbl".upper()) must not inherit the call's
+		// own callee. Children outside "arguments" keep the outer calleeCtx;
+		// deeper nested calls will overwrite it again for their own
+		// arguments subtree.
+		newCallee := pyCalleeBareName(ctx, node, src)
+		return pyWalkCallChildren(ctx, node, src, lineOffsets, calleeCtx, newCallee, out)
+
 	case "module":
 		// Module top-level: first named child at position 0 may be a docstring.
-		return pyWalkChildren(ctx, node, src, lineOffsets, true, out)
+		return pyWalkChildren(ctx, node, src, lineOffsets, true, calleeCtx, out)
 
 	case "block":
 		// block is the body of function_definition / class_definition.
 		// First named child at position 0 may be a docstring.
-		return pyWalkChildren(ctx, node, src, lineOffsets, true, out)
+		return pyWalkChildren(ctx, node, src, lineOffsets, true, calleeCtx, out)
 
 	case "function_definition", "class_definition":
 		// Descend but don't mark children here; the block child handles it.
-		return pyWalkChildren(ctx, node, src, lineOffsets, false, out)
+		return pyWalkChildren(ctx, node, src, lineOffsets, false, calleeCtx, out)
 
 	default:
 		// General descent — no docstring context.
-		return pyWalkChildren(ctx, node, src, lineOffsets, false, out)
+		return pyWalkChildren(ctx, node, src, lineOffsets, false, calleeCtx, out)
 	}
 }
 
 // pyWalkChildren visits all named children of node.
 // bodyDocstringEnabled: when true, the FIRST child is considered the potential
 // docstring position (pass isFirstInBody=true to child 0, false to the rest).
-func pyWalkChildren(ctx context.Context, node sitter.Node, src string, lineOffsets []int, bodyDocstringEnabled bool, out *[]PythonLiteralSpan) error {
+func pyWalkChildren(ctx context.Context, node sitter.Node, src string, lineOffsets []int, bodyDocstringEnabled bool, calleeCtx string, out *[]PythonLiteralSpan) error {
 	cnt, err := node.NamedChildCount(ctx)
 	if err != nil {
 		return nil
@@ -163,11 +182,88 @@ func pyWalkChildren(ctx context.Context, node sitter.Node, src string, lineOffse
 			continue
 		}
 		firstInBody := bodyDocstringEnabled && i == 0
-		if err := pyWalkNode(ctx, child, src, lineOffsets, firstInBody, out); err != nil {
+		if err := pyWalkNode(ctx, child, src, lineOffsets, firstInBody, calleeCtx, out); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// pyWalkCallChildren visits the named children of a "call" node, passing
+// argsCallee to the subtree rooted at the "arguments" field and outerCallee
+// to every other child (the "function" field).
+func pyWalkCallChildren(ctx context.Context, node sitter.Node, src string, lineOffsets []int, outerCallee, argsCallee string, out *[]PythonLiteralSpan) error {
+	argsNode, argsErr := node.ChildByFieldName(ctx, "arguments")
+	var argsStart, argsEnd uint64
+	haveArgs := argsErr == nil
+	if haveArgs {
+		argsStart, _ = argsNode.StartByte(ctx)
+		argsEnd, _ = argsNode.EndByte(ctx)
+	}
+
+	cnt, err := node.NamedChildCount(ctx)
+	if err != nil {
+		return nil
+	}
+	for i := uint64(0); i < cnt; i++ {
+		child, err := node.NamedChild(ctx, i)
+		if err != nil {
+			continue
+		}
+		calleeCtx := outerCallee
+		if haveArgs {
+			sb, _ := child.StartByte(ctx)
+			eb, _ := child.EndByte(ctx)
+			if sb == argsStart && eb == argsEnd {
+				calleeCtx = argsCallee
+			}
+		}
+		if err := pyWalkNode(ctx, child, src, lineOffsets, false, calleeCtx, out); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// pyCalleeBareName returns the bare invoked name of a "call" node's
+// "function" field: the identifier itself for a plain call ("select(...)"),
+// or the "attribute" field of an attribute node for a method call
+// ("db.select(...)" → "select"). Returns "" for any other callee shape —
+// best-effort, per the harvester's existing failure policy.
+func pyCalleeBareName(ctx context.Context, callNode sitter.Node, src string) string {
+	fn, err := callNode.ChildByFieldName(ctx, "function")
+	if err != nil {
+		return ""
+	}
+	kind, err := fn.Kind(ctx)
+	if err != nil {
+		return ""
+	}
+	switch kind {
+	case "identifier":
+		return pyNodeText(ctx, fn, src)
+	case "attribute":
+		attr, err := fn.ChildByFieldName(ctx, "attribute")
+		if err != nil {
+			return ""
+		}
+		return pyNodeText(ctx, attr, src)
+	default:
+		return ""
+	}
+}
+
+// pyNodeText returns the raw source text spanned by node, or "" on failure.
+func pyNodeText(ctx context.Context, node sitter.Node, src string) string {
+	sb, err := node.StartByte(ctx)
+	if err != nil {
+		return ""
+	}
+	eb, err := node.EndByte(ctx)
+	if err != nil || int(eb) > len(src) || sb >= eb {
+		return ""
+	}
+	return src[sb:eb]
 }
 
 // pyHarvestString extracts text and line numbers from a "string" node.

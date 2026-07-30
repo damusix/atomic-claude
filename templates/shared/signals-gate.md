@@ -7,13 +7,13 @@ Refresh project signals so Claude's map stays current for the next session.
    - **exit 0** (fresh) → skip the refresh.
    - **exit 1** (stale) → refresh is mandatory. Continue to step 3. Do NOT second-guess this with `atomic signals diff`, file counts, or a judgment that "the change was small" — exit 1 means a fresh scan would produce different deterministic content than the stored signals file, and the only correct response is to refresh. Skipping it accumulates drift. The command prints how much would change and the directive; follow it.
    - **exit 2** (error, e.g. signals file missing) → report the stderr message and skip; a refresh cannot run against a missing baseline.
-3. Dispatch the `atomic-signals-inferrer` agent in silent mode:
+3. Dispatch the `atomic-wiki-inferrer` agent in silent mode:
    ```
    mode: silent
    first_run: false
    ```
-   Stage `.claude/project/deterministic-signals.md` and `.claude/project/signals.md` after the agent completes.
+   Stage the router, domain files, and `docs/wiki/scan.md` after the agent completes: `git add docs/wiki/*.md`. `scan.md` is committed deliberately — it is the drift-scope diff baseline (`git diff HEAD -- docs/wiki/scan.md`) that `atomic signals stale` and the `<scan-sha>` tiebreaker depend on, and it is not `@-ref`'d, so committing it costs nothing in context.
 4. Run `atomic wiki mark-dirty` (best-effort, no-op when cwd is under no registered wiki root). This marks any registered wiki as having uncommitted changes since the last refresh, so the next session nudge fires. Skip silently if `atomic` is not on PATH.
 
-`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to the stored one, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
+`atomic signals stale` is content-based: it assembles the deterministic snapshot exactly as a scan would and compares it to `docs/wiki/scan.md`, returning exit 1 only when they actually differ. A no-op regeneration that merely bumps file mtimes stays fresh; a real shift in the project map goes stale. Treat exit 1 as an unconditional trigger, not a hint.
 </signals-refresh>{{- end}}

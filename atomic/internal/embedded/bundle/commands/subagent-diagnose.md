@@ -32,7 +32,7 @@ Stop. Do not proceed until mode is valid.
 |------|--------|
 | 0.1 | Resolve argument to a run ID. If no arg given: `gh run list --status failure --branch <current-branch> --limit 1 --json databaseId,name,headSha,createdAt`. Refuse if no failed run found: `no failed run found on branch <branch>. provide a run-id, pr#, or workflow.yml as argument.` |
 | 0.2 | Capture into `BRIEF.md` source-pointer section: branch, head SHA, base SHA (`git merge-base HEAD origin/main`), workflow name, failed step name (from `gh run view <id> --json jobs`), failure timestamp, provider URL. |
-| 0.3 | Topic: `<YYYY-MM-DD>-diagnose-ci-<run-id>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise `mkdir -p "$SCRATCH"`. Verify `.claude/.scratchpad/` is gitignored (add `**/.scratchpad/` to `.gitignore` if missing). |
+| 0.3 | Topic: `<YYYY-MM-DD>-diagnose-ci-<run-id>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise run `atomic repo init` if `command -v atomic` succeeds (guarantees the `.claude/` layout and ignore rules; skip silently otherwise), then `mkdir -p "$SCRATCH"`. |
 | 0.4 | Dispatch a `general-purpose` subagent (`model: haiku`, foreground, read-only) with this brief: `Fetch full logs for CI run <id>, failed step "<step-name>". Write to <SCRATCH>/CONTEXT.md. If logs exceed 64KB, truncate with footer: "[truncated, full log at <provider-url>]". Extract the primary failing assertion / panic / error line and append as a trailing YAML key: top_level_error: "<exact error string>"`. |
 | 0.5 | Read `CONTEXT.md`. Copy `top_level_error` value into `STATE.md` as `## Iteration 0 — baseline` entry: `top_level_error: <value>` + `normalized_hash: <sha256 of normalized string, first 12 chars>`. |
 
@@ -42,9 +42,9 @@ Stop. Do not proceed until mode is valid.
 
 | Step | Action |
 |------|--------|
-| 0.1 | Slug: kebab-case from first ~6 words of the symptom arg (e.g. `"user login fails with 500"` → `user-login-fails-with-500`). Topic: `<YYYY-MM-DD>-diagnose-bug-<slug>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise `mkdir -p "$SCRATCH"`. Verify `.claude/.scratchpad/` is gitignored. |
+| 0.1 | Slug: kebab-case from first ~6 words of the symptom arg (e.g. `"user login fails with 500"` → `user-login-fails-with-500`). Topic: `<YYYY-MM-DD>-diagnose-bug-<slug>`. Set `SCRATCH=".claude/.scratchpad/<topic>"`. **Concurrent-run guard:** if `$SCRATCH` already exists, refuse: `scratchpad <path> already exists; rm -rf it or pick a different topic suffix.` Stop. Per axiom 3, no silent overwrite. Otherwise run `atomic repo init` if `command -v atomic` succeeds (guarantees the `.claude/` layout and ignore rules; skip silently otherwise), then `mkdir -p "$SCRATCH"`. |
 | 0.2 | Single `AskUserQuestion` block. For each of the four context fields not already answered by the symptom: **repro steps**, **expected vs actual behavior**, **environment fingerprint** (OS, runtime versions, branch, dirty/clean working tree), **what's been tried**. Skip fields the symptom paragraph already answers. |
-| 0.3 | Write `CONTEXT.md` with four stable headings (`## Repro`, `## Expected vs actual`, `## Environment`, `## Already tried`). Append trailing YAML key `top_level_error:` — use a paste-able error string if the brief or answers contain one, else `<none — behavioral bug>`. |
+| 0.3 | Seed `CONTEXT.md` from `atomic template diagnose-context` and fill it — four stable headings (`## Repro`, `## Expected vs actual`, `## Environment`, `## Already tried`) plus the trailing YAML key `top_level_error:` — use a paste-able error string if the brief or answers contain one, else `<none — behavioral bug>`. |
 | 0.4 | Auto-capture: if suspected paths are inferable from the brief, run `git log --oneline -20 -- <paths>` and append output as `## Recent commits` to `CONTEXT.md`. Skip silently if no paths inferable. |
 | 0.5 | Write `BRIEF.md` source-pointer section pointing at `CONTEXT.md`. The brief is canonical — no external spec exists. |
 
@@ -60,6 +60,8 @@ Stop. Do not proceed until mode is valid.
 | `$SCRATCH/CONTEXT.md` | Phase 0 capture (logs for `ci`, repro + symptom map for `bug`) |
 
 `$SCRATCH` = `.claude/.scratchpad/<YYYY-MM-DD>-<mode-suffix>`.
+
+Seed `BRIEF.md`, `STATE.md`, and `FOLLOWUPS.md` from their embedded templates (`atomic template brief` / `state` / `followups`) — each template's guidance comment names the diagnose-mode variant (source-pointer brief section, iteration-0 baseline entry).
 
 ## Phase 1 — Investigator pass
 
@@ -101,7 +103,7 @@ TDD discipline applies: failing test that reproduces the bug must be written fir
 
 **Commit ownership: orchestrator commits, not the agent.** After PASS:
 
-1. Invoke `atomic-commit` skill for message format.
+1. Invoke `atomic-git-discipline` skill for message format.
 2. Stage only files from the implementer's `## Did` section — explicit paths, no `-A`.
 3. Commit via HEREDOC. Conventional Commits format. No AI bylines.
 4. Record commit SHA in `STATE.md` under the iteration's `Commit:` line.
@@ -231,6 +233,6 @@ Do NOT push, merge, or open a PR. User picks the ship verb when ready.
 - Never auto-relaunch on CI re-watch failure (ci-mode step 4.4). Hard rule — prevents infinite loops on flaky infra.
 - If the same normalized top-level error repeats across three consecutive iterations, the same-failure bail fires and surfaces the stuck-fix escalation block (see § Iteration cap + bail-out) — do not silently loop past the bail.
 - Subagent output is the tool result. Summarize to the user in 1-3 lines per iteration; don't dump full transcripts.
-- Templates live in `commands/_templates/`. If missing, stop: `implementer/reviewer prompt template not found at commands/_templates/<file>. cannot proceed.`
+- Prompt templates live in `commands/_templates/`. If missing, stop: `implementer/reviewer prompt template not found at commands/_templates/<file>. cannot proceed.` Document skeletons come from the binary (`atomic template brief|state|followups|diagnose-context`); if the verb fails, stop the same way rather than improvising structure.
 
 </constraints>

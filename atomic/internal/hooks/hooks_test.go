@@ -12,6 +12,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/hooks"
 	"github.com/damusix/atomic-claude/atomic/internal/profile"
 	"github.com/damusix/atomic-claude/atomic/internal/reminder"
+	"github.com/damusix/atomic-claude/atomic/internal/where"
 )
 
 // addReminderWithDate writes a reminder file whose created date is backdated by
@@ -72,8 +73,22 @@ func stubNoWikiStaleness(t *testing.T) {
 	t.Cleanup(func() { hooks.WikiCheckStaleness = orig })
 }
 
+// stubNoWherePosition overrides the WherePosition seam to return the plain
+// no-wiki/no-realm case, so tests that assert empty output are not
+// contaminated by the real ~/.claude/CLAUDE.md <wikis> registry or the test
+// process's actual cwd/ancestor tree.
+func stubNoWherePosition(t *testing.T) {
+	t.Helper()
+	orig := hooks.WherePosition
+	hooks.WherePosition = func(_, _ string) (where.Report, error) {
+		return where.Report{}, nil
+	}
+	t.Cleanup(func() { hooks.WherePosition = orig })
+}
+
 func TestSessionStart_EmptyReminders(t *testing.T) {
 	stubNoWikiStaleness(t)
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	out, err := hooks.SessionStart(root, now)
@@ -86,6 +101,7 @@ func TestSessionStart_EmptyReminders(t *testing.T) {
 }
 
 func TestSessionStart_OneFreshReminder_JSONEnvelope(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	addReminderWithDate(t, root, "fix the auth race in middleware", 0)
@@ -134,6 +150,7 @@ func TestSessionStart_OneFreshReminder_JSONEnvelope(t *testing.T) {
 }
 
 func TestSessionStart_TwelveReminders_CappedAtTen(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	for i := range 12 {
@@ -174,6 +191,7 @@ func TestSessionStart_TwelveReminders_CappedAtTen(t *testing.T) {
 }
 
 func TestSessionStart_OldReminder_SystemMessage(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	addReminderWithDate(t, root, "revisit error handling in ingest", 15)
@@ -201,6 +219,7 @@ func TestSessionStart_OldReminder_SystemMessage(t *testing.T) {
 }
 
 func TestSessionStart_FormatText(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	addReminderWithDate(t, root, "benchmark the new query plan", 2)
@@ -223,6 +242,7 @@ func TestSessionStart_FormatText(t *testing.T) {
 
 func TestSessionStart_FormatText_EmptyReminders(t *testing.T) {
 	stubNoWikiStaleness(t)
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	out, err := hooks.SessionStartText(root, now)
@@ -235,6 +255,7 @@ func TestSessionStart_FormatText_EmptyReminders(t *testing.T) {
 }
 
 func TestSessionStart_BodyTruncated(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	longBody := strings.Repeat("a", 100)
@@ -261,6 +282,7 @@ func TestSessionStart_BodyTruncated(t *testing.T) {
 
 // TestSessionStart_AgoBuckets tests the "N ago" relative time formatting.
 func TestSessionStart_AgoBuckets(t *testing.T) {
+	stubNoWherePosition(t)
 	cases := []struct {
 		days int
 		want string
@@ -348,6 +370,7 @@ func patchDueField(t *testing.T, root, id, dueValue string) {
 
 func TestSessionStart_FutureDue_Silent(t *testing.T) {
 	stubNoWikiStaleness(t)
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	// Reminder due 1 day in the future — must not appear.
@@ -363,6 +386,7 @@ func TestSessionStart_FutureDue_Silent(t *testing.T) {
 }
 
 func TestSessionStart_PastDue_InOutput(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	// Reminder due 1 day in the past — must appear with marker.
@@ -390,6 +414,7 @@ func TestSessionStart_PastDue_InOutput(t *testing.T) {
 }
 
 func TestSessionStart_LegacyNoDue_InOutput(t *testing.T) {
+	stubNoWherePosition(t)
 	// Legacy reminder with no due field must be treated as past-due.
 	root := t.TempDir()
 	now := time.Now().UTC()
@@ -421,6 +446,7 @@ func TestSessionStart_MalformedDue_InOutput(t *testing.T) {
 	// Use addReminderWithDue so the file actually has a due: field, then corrupt
 	// it — this exercises the parse-error branch in filterPastDue, not the
 	// legacy Due=="" branch.
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	id := addReminderWithDue(t, root, "malformed due reminder", -1)
@@ -453,6 +479,7 @@ func TestSessionStart_MalformedDue_InOutput(t *testing.T) {
 // total stored count. A user with 1 old past-due + 5 future reminders should
 // see "1 reminders pending", not "6 reminders pending".
 func TestSessionStart_OldReminder_SystemMessage_CountsOnlySurfaced(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	// One old past-due reminder (legacy, no due field) — old enough to trigger systemMessage.
@@ -486,6 +513,7 @@ func TestSessionStart_OldReminder_SystemMessage_CountsOnlySurfaced(t *testing.T)
 }
 
 func TestSessionStart_MixedDue_OnlyPastDue(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	// Past-due: should appear.
@@ -521,6 +549,7 @@ func TestSessionStart_MixedDue_OnlyPastDue(t *testing.T) {
 }
 
 func TestSessionStart_CapAppliedToPastDueSet(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	// 12 past-due reminders.
@@ -568,6 +597,7 @@ func TestSessionStart_CapAppliedToPastDueSet(t *testing.T) {
 }
 
 func TestSessionStartText_PastDueFilter(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	addReminderWithDue(t, root, "past due text check", -1)
@@ -595,6 +625,7 @@ func TestSessionStartText_PastDueFilter(t *testing.T) {
 // singular "reminder" when exactly one reminder is past-due and old enough to
 // trigger the systemMessage, and plural "reminders" for two or more.
 func TestSessionStart_SystemMessage_Pluralization(t *testing.T) {
+	stubNoWherePosition(t)
 	t.Run("singular", func(t *testing.T) {
 		root := t.TempDir()
 		now := time.Now().UTC()
@@ -1125,17 +1156,23 @@ func TestInstall_MigratesLegacyRegistration(t *testing.T) {
 // --- Profile refresh seam tests ---
 
 // TestSessionStart_ProfileRefreshCalled verifies that SessionStart invokes the
-// profileRefresh seam with days==7 and today==now.Format("2006-01-02").
+// profileRefresh seam with days==7, today==now.Format("2006-01-02"), and home
+// (not <home>/.claude — config.ProfilePath expects home directly per
+// docs/spec/configurable-state-paths.md).
 // WHY: the refresh is a ride-along; proving the seam fires with correct args
-// ensures the wiring is correct without real disk I/O.
+// ensures the wiring is correct without real disk I/O. Injects HOME via
+// t.Setenv so the assertion never depends on the real developer machine's home.
 func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
 
-	var gotClaudeHome, gotToday string
+	var gotHome, gotToday string
 	var gotDays int
-	hooks.ProfileRefresh = func(claudeHome, today string, days int) (bool, error) {
-		gotClaudeHome = claudeHome
+	hooks.ProfileRefresh = func(home, today string, days int) (bool, error) {
+		gotHome = home
 		gotToday = today
 		gotDays = days
 		return false, nil
@@ -1154,18 +1191,14 @@ func TestSessionStart_ProfileRefreshCalled(t *testing.T) {
 	if gotToday != wantToday {
 		t.Errorf("profileRefresh called with today=%q, want %q", gotToday, wantToday)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("os.UserHomeDir: %v", err)
-	}
-	wantClaudeHome := filepath.Join(home, ".claude")
-	if gotClaudeHome != wantClaudeHome {
-		t.Errorf("profileRefresh called with claudeHome=%q, want %q", gotClaudeHome, wantClaudeHome)
+	if gotHome != home {
+		t.Errorf("profileRefresh called with home=%q, want %q (not <home>/.claude)", gotHome, home)
 	}
 }
 
 // TestSessionStartText_ProfileRefreshCalled verifies SessionStartText also fires the seam.
 func TestSessionStartText_ProfileRefreshCalled(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
 
@@ -1190,6 +1223,7 @@ func TestSessionStartText_ProfileRefreshCalled(t *testing.T) {
 // reminder output (or empty string) with NO error.
 // WHY: the refresh is best-effort; a disk failure must not break reminder injection.
 func TestSessionStart_ProfileRefreshError_NeverBlocks(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	addReminderWithDate(t, root, "must still surface despite refresh error", 0)
@@ -1218,6 +1252,7 @@ func TestSessionStart_ProfileRefreshError_NeverBlocks(t *testing.T) {
 // WHY: the wiki nudge is a ride-along; proving the seam fires and its output
 // lands in the JSON payload ensures the wiring is correct without real disk I/O.
 func TestSessionStart_WikiNudgesInjected(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
@@ -1252,6 +1287,7 @@ func TestSessionStart_WikiNudgesInjected(t *testing.T) {
 // TestSessionStart_WikiNudgesOnly_NoReminders verifies that wiki nudges appear
 // even when there are no pending reminders — the hook returns non-empty output.
 func TestSessionStart_WikiNudgesOnly_NoReminders(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
@@ -1284,6 +1320,7 @@ func TestSessionStart_WikiNudgesOnly_NoReminders(t *testing.T) {
 // swallowed, no nudges emitted, session is not blocked).
 // WHY: wiki staleness is a ride-along; a file-read failure must not break the session.
 func TestSessionStart_WikiError_NeverBlocks(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 	addReminderWithDate(t, root, "must still surface despite wiki error", 0)
@@ -1308,6 +1345,7 @@ func TestSessionStart_WikiError_NeverBlocks(t *testing.T) {
 // TestSessionStart_WikiSeamReceivesThreshold30 verifies the seam is called with
 // thresholdDays == 30 (the spec-mandated deterministic floor).
 func TestSessionStart_WikiSeamReceivesThreshold30(t *testing.T) {
+	stubNoWherePosition(t)
 	root := t.TempDir()
 	now := time.Now().UTC()
 
@@ -1330,6 +1368,249 @@ func TestSessionStart_WikiSeamReceivesThreshold30(t *testing.T) {
 	}
 	if gotThreshold != 30 {
 		t.Errorf("WikiCheckStaleness called with thresholdDays=%d, want 30", gotThreshold)
+	}
+}
+
+// --- Orientation (where) seam tests ---
+
+// TestSessionStart_WhereSuppressed_PlainPosition verifies that when the
+// resolved position is the plain no-wiki/no-realm case, SessionStart emits
+// no orientation content — the hook stays silent-unless-relevant.
+func TestSessionStart_WhereSuppressed_PlainPosition(t *testing.T) {
+	stubNoWikiStaleness(t)
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	hooks.WherePosition = func(_, _ string) (where.Report, error) {
+		return where.Report{}, nil // plain: RepoScope.Found=false, RealmScope.Position=RealmNone
+	}
+	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out != "" {
+		t.Errorf("expected empty output for plain position, got %q", out)
+	}
+}
+
+// TestSessionStart_WhereSurfaced_RepoScopeFound verifies that a non-trivial
+// position (repo-scope wiki found) surfaces exactly one orientation nudge
+// line in additionalContext, even when there are no reminders or wiki nudges.
+func TestSessionStart_WhereSurfaced_RepoScopeFound(t *testing.T) {
+	stubNoWikiStaleness(t)
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	hooks.WherePosition = func(_, _ string) (where.Report, error) {
+		return where.Report{
+			RepoScope: where.RepoScopeReport{Found: true, Path: "/some/repo/docs/wiki/index.md"},
+		}, nil
+	}
+	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output when position is non-trivial")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+
+	if !strings.Contains(ctx, "/some/repo/docs/wiki/index.md") {
+		t.Errorf("orientation nudge missing repo-scope path: %q", ctx)
+	}
+	if !strings.Contains(ctx, "atomic where") {
+		t.Errorf("orientation nudge missing pointer to `atomic where`: %q", ctx)
+	}
+
+	// Exactly one nudge bullet under the Orientation section.
+	lines := strings.Split(ctx, "\n")
+	bulletCount := 0
+	for _, l := range lines {
+		if strings.HasPrefix(l, "- ") {
+			bulletCount++
+		}
+	}
+	if bulletCount != 1 {
+		t.Errorf("expected exactly 1 orientation bullet, got %d: %q", bulletCount, ctx)
+	}
+}
+
+// TestSessionStart_WhereSurfaced_RealmMember verifies that a non-trivial
+// realm-scope position (RealmMember, no repo-scope wiki) surfaces an
+// orientation nudge line naming the realm root. WHY: the only other
+// "surfaced" test exercises RepoScope.Found alone, so isPlainPosition's
+// RealmScope.Position != RealmNone clause and whereNudgeLine's realm-position
+// switch were otherwise never reached by any hook-integration-layer test.
+func TestSessionStart_WhereSurfaced_RealmMember(t *testing.T) {
+	stubNoWikiStaleness(t)
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	hooks.WherePosition = func(_, _ string) (where.Report, error) {
+		return where.Report{
+			RealmScope: where.RealmScopeReport{Position: where.RealmMember, RealmRoot: "/some/realm/root"},
+		}, nil
+	}
+	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output when realm position is non-trivial")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+
+	if !strings.Contains(ctx, "realm member of /some/realm/root") {
+		t.Errorf("orientation nudge missing realm-member content: %q", ctx)
+	}
+	if !strings.Contains(ctx, "atomic where") {
+		t.Errorf("orientation nudge missing pointer to `atomic where`: %q", ctx)
+	}
+}
+
+// TestSessionStart_WhereSurfaced_RealmRoot verifies that the RealmRoot
+// position surfaces an orientation nudge line naming the realm root. WHY:
+// whereNudgeLine's realm-position switch has a RealmRoot case (hooks.go)
+// that was otherwise never reached by any hook-integration-layer test.
+func TestSessionStart_WhereSurfaced_RealmRoot(t *testing.T) {
+	stubNoWikiStaleness(t)
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	hooks.WherePosition = func(_, _ string) (where.Report, error) {
+		return where.Report{
+			RealmScope: where.RealmScopeReport{Position: where.RealmRoot, RealmRoot: "/some/realm/root"},
+		}, nil
+	}
+	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output when realm position is non-trivial")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+
+	if !strings.Contains(ctx, "realm root (/some/realm/root)") {
+		t.Errorf("orientation nudge missing realm-root content: %q", ctx)
+	}
+	if !strings.Contains(ctx, "atomic where") {
+		t.Errorf("orientation nudge missing pointer to `atomic where`: %q", ctx)
+	}
+}
+
+// TestSessionStart_WhereSurfaced_RealmOrphaned verifies that the
+// RealmOrphaned position surfaces an orientation nudge line naming the
+// realm root. WHY: whereNudgeLine's realm-position switch has a
+// RealmOrphaned case (hooks.go) that was otherwise never reached by any
+// hook-integration-layer test.
+func TestSessionStart_WhereSurfaced_RealmOrphaned(t *testing.T) {
+	stubNoWikiStaleness(t)
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	hooks.WherePosition = func(_, _ string) (where.Report, error) {
+		return where.Report{
+			RealmScope: where.RealmScopeReport{Position: where.RealmOrphaned, RealmRoot: "/some/realm/root"},
+		}, nil
+	}
+	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected non-empty output when realm position is non-trivial")
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	hso := payload["hookSpecificOutput"].(map[string]any)
+	ctx := hso["additionalContext"].(string)
+
+	if !strings.Contains(ctx, "orphaned under realm root /some/realm/root (not a registered member)") {
+		t.Errorf("orientation nudge missing realm-orphaned content: %q", ctx)
+	}
+	if !strings.Contains(ctx, "atomic where") {
+		t.Errorf("orientation nudge missing pointer to `atomic where`: %q", ctx)
+	}
+}
+
+// TestSessionStart_WhereSeamReceivesRepoRoot verifies the WherePosition seam
+// is invoked with repoRoot as cwd (the position is relative to the caller's
+// project root, not the hook process's own cwd).
+func TestSessionStart_WhereSeamReceivesRepoRoot(t *testing.T) {
+	stubNoWikiStaleness(t)
+	root := t.TempDir()
+	now := time.Now().UTC()
+
+	var gotCwd string
+	hooks.WherePosition = func(cwd, _ string) (where.Report, error) {
+		gotCwd = cwd
+		return where.Report{}, nil
+	}
+	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
+
+	if _, err := hooks.SessionStart(root, now); err != nil {
+		t.Fatalf("SessionStart: %v", err)
+	}
+	if gotCwd != root {
+		t.Errorf("WherePosition called with cwd=%q, want repoRoot=%q", gotCwd, root)
+	}
+}
+
+// TestSessionStart_WhereError_NeverBlocks verifies that when the WherePosition
+// seam returns an error, SessionStart still succeeds (best-effort: errors are
+// swallowed, no orientation nudge emitted, session is not blocked).
+func TestSessionStart_WhereError_NeverBlocks(t *testing.T) {
+	stubNoWikiStaleness(t)
+	root := t.TempDir()
+	now := time.Now().UTC()
+	addReminderWithDate(t, root, "must still surface despite where error", 0)
+
+	hooks.WherePosition = func(_, _ string) (where.Report, error) {
+		return where.Report{}, fmt.Errorf("simulated where resolution failure")
+	}
+	t.Cleanup(func() { hooks.WherePosition = hooks.DefaultWherePosition })
+
+	out, err := hooks.SessionStart(root, now)
+	if err != nil {
+		t.Fatalf("SessionStart returned error despite best-effort where check: %v", err)
+	}
+	if out == "" {
+		t.Fatal("expected reminder output even when where resolution fails")
+	}
+	if !strings.Contains(out, "must still surface despite where error") {
+		t.Errorf("reminder text missing from output: %q", out)
 	}
 }
 

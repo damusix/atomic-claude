@@ -7,6 +7,132 @@ import (
 	"testing"
 )
 
+// TestInstallRoundTrip: config with [install] version + artifact lists survives WritePersist→Load.
+func TestInstallRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	cfg.Install.Version = "1.2.3"
+	cfg.Install.Artifacts.Agents = []string{"atomic-implementer.md", "atomic-reviewer.md"}
+	cfg.Install.Artifacts.Commands = []string{"commit.md", "autopilot.md"}
+	cfg.Install.Artifacts.Skills = []string{"atomic-tdd"}
+	cfg.Install.Artifacts.OutputStyles = []string{"atomic.md"}
+	cfg.Install.Artifacts.Rules = []string{"typescript/style.md"}
+
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+
+	if loaded.Install.Version != "1.2.3" {
+		t.Errorf("Install.Version = %q, want %q", loaded.Install.Version, "1.2.3")
+	}
+	if len(loaded.Install.Artifacts.Agents) != 2 || loaded.Install.Artifacts.Agents[0] != "atomic-implementer.md" {
+		t.Errorf("Install.Artifacts.Agents = %v, want [atomic-implementer.md atomic-reviewer.md]", loaded.Install.Artifacts.Agents)
+	}
+	if len(loaded.Install.Artifacts.Commands) != 2 || loaded.Install.Artifacts.Commands[0] != "commit.md" {
+		t.Errorf("Install.Artifacts.Commands = %v, want [commit.md autopilot.md]", loaded.Install.Artifacts.Commands)
+	}
+	if len(loaded.Install.Artifacts.Skills) != 1 || loaded.Install.Artifacts.Skills[0] != "atomic-tdd" {
+		t.Errorf("Install.Artifacts.Skills = %v, want [atomic-tdd]", loaded.Install.Artifacts.Skills)
+	}
+	if len(loaded.Install.Artifacts.OutputStyles) != 1 || loaded.Install.Artifacts.OutputStyles[0] != "atomic.md" {
+		t.Errorf("Install.Artifacts.OutputStyles = %v, want [atomic.md]", loaded.Install.Artifacts.OutputStyles)
+	}
+	if len(loaded.Install.Artifacts.Rules) != 1 || loaded.Install.Artifacts.Rules[0] != "typescript/style.md" {
+		t.Errorf("Install.Artifacts.Rules = %v, want [typescript/style.md]", loaded.Install.Artifacts.Rules)
+	}
+}
+
+// TestInstallVersionInvalid: Validate rejects a non-semver install.version.
+func TestInstallVersionInvalid(t *testing.T) {
+	cfg := Default()
+	cfg.Install.Version = "not-a-semver"
+	if err := Validate(cfg); err == nil {
+		t.Fatal("Validate should error on invalid install.version, got nil")
+	}
+}
+
+// TestInstallVersionValidVariants: empty version (pre-framework) and standard semver forms pass.
+func TestInstallVersionValidVariants(t *testing.T) {
+	cases := []string{
+		"", // pre-framework install — no [install] table
+		"1.0.0",
+		"v1.2.3",
+		"0.1.0-alpha",
+		"2.10.0+build.1",
+	}
+	for _, v := range cases {
+		cfg := Default()
+		cfg.Install.Version = v
+		if err := Validate(cfg); err != nil {
+			t.Errorf("Validate with install.version=%q: unexpected error: %v", v, err)
+		}
+	}
+}
+
+// TestInstallAbsent: Load of a TOML without [install] produces zero-value Install, no warnings, valid.
+func TestInstallAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[output.signals]\nmax_depth = 3\n[update]\nrun_doctor = true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings for config without [install]: %v", warns)
+	}
+	if cfg.Install.Version != "" {
+		t.Errorf("Install.Version = %q, want empty (absent)", cfg.Install.Version)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate on config without [install] should not error: %v", err)
+	}
+}
+
+// TestInstallNoUnknownKeyWarnings: [install] and [install.artifacts.*] do not produce unknown-key warnings.
+func TestInstallNoUnknownKeyWarnings(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := `[install]
+version = "1.0.0"
+[install.artifacts]
+agents = ["atomic-implementer.md"]
+commands = ["commit.md"]
+skills = ["atomic-tdd"]
+output-styles = ["atomic.md"]
+rules = ["typescript/style.md"]
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "install") {
+			t.Errorf("unexpected warning for [install] key: %q", w.Message)
+		}
+	}
+}
+
 // TestSetUnknownKey: Set returns error on unknown key and includes a suggestion for near-matches.
 func TestSetUnknownKey(t *testing.T) {
 	cfg := Default()
@@ -511,6 +637,494 @@ func TestSignalsMaxDepthRoundTrip(t *testing.T) {
 	}
 	if got != "10" {
 		t.Errorf("got %q, want \"10\"", got)
+	}
+}
+
+// --- [claude.agents] table tests (CP2/CP7) ---
+
+// TestAgentsRoundTrip: config with [claude.agents] (model overrides for all 5
+// known agents) survives WritePersist→Load without structural warnings or
+// Validate error.
+func TestAgentsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"atomic-implementer":   {Model: "sonnet"},
+		"atomic-investigator":  {Model: "haiku"},
+		"atomic-reviewer":      {Model: "sonnet"},
+		"atomic-strategist":    {Model: "opus"},
+		"atomic-wiki-inferrer": {Model: "sonnet"},
+	}
+
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected structural warnings: %v", warns)
+	}
+	if err := Validate(loaded); err != nil {
+		t.Errorf("Validate: unexpected error: %v", err)
+	}
+
+	if len(loaded.Claude.Agents) != 5 {
+		t.Errorf("Agents len = %d, want 5", len(loaded.Claude.Agents))
+	}
+	if loaded.Claude.Agents["atomic-implementer"].Model != "sonnet" {
+		t.Errorf("atomic-implementer = %q, want %q", loaded.Claude.Agents["atomic-implementer"].Model, "sonnet")
+	}
+	if loaded.Claude.Agents["atomic-investigator"].Model != "haiku" {
+		t.Errorf("atomic-investigator = %q, want %q", loaded.Claude.Agents["atomic-investigator"].Model, "haiku")
+	}
+	if loaded.Claude.Agents["atomic-strategist"].Model != "opus" {
+		t.Errorf("atomic-strategist = %q, want %q", loaded.Claude.Agents["atomic-strategist"].Model, "opus")
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "[claude.agents.atomic-implementer]") {
+		t.Errorf("expected nested [claude.agents.<name>] table header in written output, got:\n%s", raw)
+	}
+}
+
+// TestAgentsScalarUnderClaudeAgentsIsDecodeError: nested tables are the only
+// accepted shape — a scalar value under [claude.agents] is a plain decode
+// error (no silent accept, no back-compat seam).
+func TestAgentsScalarUnderClaudeAgentsIsDecodeError(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	scalar := "[claude.agents]\natomic-implementer = \"opus\"\n"
+	if err := os.WriteFile(path, []byte(scalar), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := Load(path); err == nil {
+		t.Fatal("Load should error on a scalar value under [claude.agents], got nil")
+	}
+}
+
+// TestAgentsStaleTopLevelBlockIsUnknownKeyWarning: a stale top-level [agents]
+// block (left by a pre-rename build) is no longer a recognized section — it
+// produces an unknown-key warning and is ignored, not loaded as an override.
+func TestAgentsStaleTopLevelBlockIsUnknownKeyWarning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	stale := "[agents.atomic-implementer]\nmodel = \"opus\"\n"
+	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Claude.Agents) != 0 {
+		t.Errorf("cfg.Claude.Agents should be empty for a stale top-level [agents] block, got %v", cfg.Claude.Agents)
+	}
+	found := false
+	for _, w := range warns {
+		if strings.Contains(w.Message, `unknown key "agents"`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an unknown-key warning for stale top-level [agents], got: %v", warns)
+	}
+}
+
+// TestAgentsInvalidEffort: Validate returns an error when an agents effort value
+// is outside the allowlist {low, medium, high, xhigh, max}.
+func TestAgentsInvalidEffort(t *testing.T) {
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Effort: "turbo"}, // invalid
+	}
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("Validate should error on invalid effort, got nil")
+	}
+	if !strings.Contains(err.Error(), "atomic-implementer") {
+		t.Errorf("error should mention agent name, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "turbo") {
+		t.Errorf("error should mention the invalid effort value, got: %v", err)
+	}
+}
+
+// TestAgentsValidEffort: Validate accepts every enum value with no error.
+func TestAgentsValidEffort(t *testing.T) {
+	for _, effort := range []string{"low", "medium", "high", "xhigh", "max"} {
+		cfg := Default()
+		cfg.Claude.Agents = map[string]AgentOverride{
+			"atomic-implementer": {Effort: effort},
+		}
+		if err := Validate(cfg); err != nil {
+			t.Errorf("Validate(effort=%q): unexpected error: %v", effort, err)
+		}
+	}
+}
+
+// TestAgentsArbitraryModelNoError: model validation is lenient — an arbitrary
+// well-formed model id never fails Validate or produces an AgentWarnings entry.
+func TestAgentsArbitraryModelNoError(t *testing.T) {
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Model: "claude-opus-4-6[1m]"},
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate: unexpected error for well-formed model: %v", err)
+	}
+	for _, w := range AgentWarnings(cfg) {
+		if strings.Contains(w.Message, "questionable value") {
+			t.Errorf("unexpected malformed-model warning for well-formed model: %v", w)
+		}
+	}
+}
+
+// TestAgentsMalformedModelWarns: a model with internal whitespace produces a
+// warning from AgentWarnings, not a Validate error.
+func TestAgentsMalformedModelWarns(t *testing.T) {
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Model: "claude opus"},
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate should not error on malformed model, got: %v", err)
+	}
+	warns := AgentWarnings(cfg)
+	found := false
+	for _, w := range warns {
+		if strings.Contains(w.Message, "questionable value") && strings.Contains(w.Message, "atomic-implementer") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a malformed-model warning, got: %v", warns)
+	}
+}
+
+// TestAgentsUnknownKeyIsWarn: an agent name not in the known-agent set produces a
+// Warning from AgentWarnings (non-fatal), not a Validate error (FAIL).
+func TestAgentsUnknownKeyIsWarn(t *testing.T) {
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"made-up-agent": {Model: "haiku"}, // unknown key, but well-formed model
+	}
+
+	// Validate must succeed (unknown key is a WARNING, not a FAIL).
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate should not error on unknown agent key, got: %v", err)
+	}
+
+	// AgentWarnings must return at least one warning mentioning the unknown key.
+	warns := AgentWarnings(cfg)
+	if len(warns) == 0 {
+		t.Fatal("AgentWarnings should return a warning for unknown agent key, got none")
+	}
+	found := false
+	for _, w := range warns {
+		if strings.Contains(w.Message, "made-up-agent") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("warning should mention 'made-up-agent', got: %v", warns)
+	}
+}
+
+// TestAgentsAbsent: no [claude.agents] table → no structural warnings, Validate returns nil,
+// AgentWarnings returns empty.
+func TestAgentsAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[output.signals]\nmax_depth = 3\n[update]\nrun_doctor = true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate on config without [claude.agents]: %v", err)
+	}
+	agentWarns := AgentWarnings(cfg)
+	if len(agentWarns) != 0 {
+		t.Errorf("AgentWarnings on config without [claude.agents] = %v, want empty", agentWarns)
+	}
+}
+
+// TestAgentsNoStructuralWarningsFromLoad: [claude.agents.<name>] with valid
+// known-agent keys does not produce structural unknown-key warnings from Load
+// — [claude] is opaque, so its children are never structurally checked.
+func TestAgentsNoStructuralWarningsFromLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := `[claude.agents.atomic-implementer]
+model = "sonnet"
+
+[claude.agents.atomic-investigator]
+model = "haiku"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "atomic-implementer") || strings.Contains(w.Message, "claude") {
+			t.Errorf("unexpected structural warning for [claude.agents] key: %q", w.Message)
+		}
+	}
+}
+
+// TestAgentsFableIsValid: an arbitrary forward-reserved model name like
+// "fable" passes Validate — model validation has no allowlist.
+func TestAgentsFableIsValid(t *testing.T) {
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"atomic-implementer": {Model: "fable"},
+	}
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate should accept 'fable' (lenient model validation), got: %v", err)
+	}
+}
+
+// TestAgentsKnownAgentNoWarnWithManifest: when install.artifacts.agents lists the agent,
+// AgentWarnings should not warn about it (manifest takes precedence over static set).
+func TestAgentsKnownAgentNoWarnWithManifest(t *testing.T) {
+	cfg := Default()
+	cfg.Install.Artifacts.Agents = []string{"custom-agent.md", "atomic-implementer.md"}
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"custom-agent":       {Model: "haiku"}, // in manifest → known
+		"atomic-implementer": {Model: "sonnet"},
+	}
+	warns := AgentWarnings(cfg)
+	if len(warns) != 0 {
+		t.Errorf("AgentWarnings with manifest: expected no warnings, got %v", warns)
+	}
+}
+
+// TestAgentsNotInConfigList: [claude.agents] keys do not appear in Resolved()
+// (machine-written section, not user-settable via `atomic config set`).
+func TestAgentsNotInConfigList(t *testing.T) {
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "haiku"}}
+	m := Resolved(cfg)
+	for k := range m {
+		if strings.HasPrefix(k, "claude.agents") {
+			t.Errorf("Resolved() contains claude.agents key %q — agents is machine-written, must not appear in config list", k)
+		}
+	}
+}
+
+// --- harness.dir (CP2: configurable-state-paths) ---
+
+// TestHarnessDirDefault: Default() sets harness.dir = ".claude".
+func TestHarnessDirDefault(t *testing.T) {
+	cfg := Default()
+	if cfg.Harness.Dir != ".claude" {
+		t.Errorf("Default() Harness.Dir = %q, want \".claude\"", cfg.Harness.Dir)
+	}
+}
+
+// TestHarnessDirAbsent: absent harness.dir in TOML → default ".claude".
+func TestHarnessDirAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[output.signals]\nmax_depth = 3\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Harness.Dir != ".claude" {
+		t.Errorf("absent harness.dir should default to \".claude\", got %q", cfg.Harness.Dir)
+	}
+}
+
+// TestHarnessDirExplicit: explicit harness.dir in TOML overrides the default.
+func TestHarnessDirExplicit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[harness]\ndir = \".pi\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Harness.Dir != ".pi" {
+		t.Errorf("Harness.Dir = %q, want \".pi\"", cfg.Harness.Dir)
+	}
+}
+
+// TestHarnessDirGetSet: Get and Set work for harness.dir.
+func TestHarnessDirGetSet(t *testing.T) {
+	cfg := Default()
+	v, err := Get(cfg, "harness.dir")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if v != ".claude" {
+		t.Errorf("default Get = %q, want \".claude\"", v)
+	}
+
+	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	v, err = Get(cfg, "harness.dir")
+	if err != nil {
+		t.Fatalf("Get after Set: %v", err)
+	}
+	if v != ".pi" {
+		t.Errorf("after Set .pi, Get = %q, want \".pi\"", v)
+	}
+}
+
+// TestHarnessDirSetValidVariants: legal values (.pi, pi, .claude) all pass Set.
+func TestHarnessDirSetValidVariants(t *testing.T) {
+	for _, v := range []string{".pi", "pi", ".claude"} {
+		cfg := Default()
+		if err := Set(cfg, "harness.dir", v); err != nil {
+			t.Errorf("Set(harness.dir, %q): unexpected error: %v", v, err)
+		}
+		if cfg.Harness.Dir != v {
+			t.Errorf("Harness.Dir after Set(%q) = %q, want %q", v, cfg.Harness.Dir, v)
+		}
+	}
+}
+
+// TestHarnessDirSetInvalidVariants: illegal values (foo/bar, ., .., empty) are rejected.
+func TestHarnessDirSetInvalidVariants(t *testing.T) {
+	for _, v := range []string{"foo/bar", ".", "..", ""} {
+		cfg := Default()
+		if err := Set(cfg, "harness.dir", v); err == nil {
+			t.Errorf("Set(harness.dir, %q): expected error, got nil", v)
+		}
+	}
+}
+
+// TestHarnessDirUnset: Unset reverts harness.dir to the built-in default.
+func TestHarnessDirUnset(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unset(cfg, "harness.dir"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Get(cfg, "harness.dir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != ".claude" {
+		t.Errorf("after Unset got %q, want default \".claude\"", got)
+	}
+}
+
+// TestHarnessDirRoundTrip: set → persist → load → get returns the set value.
+func TestHarnessDirRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	got, err := Get(loaded, "harness.dir")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != ".pi" {
+		t.Errorf("got %q, want \".pi\"", got)
+	}
+}
+
+// TestHarnessDirValidateRejectsBadValue: Validate rejects a hand-corrupted value.
+func TestHarnessDirValidateRejectsBadValue(t *testing.T) {
+	cfg := Default()
+	cfg.Harness.Dir = "foo/bar"
+	if err := Validate(cfg); err == nil {
+		t.Fatal("expected Validate to error on harness.dir containing '/'")
+	}
+}
+
+// TestHarnessDirNoUnknownKeyWarning: harness.dir in TOML does not produce a
+// structural unknown-key warning.
+func TestHarnessDirNoUnknownKeyWarning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[harness]\ndir = \".pi\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "harness") {
+			t.Errorf("unexpected warning for known key: %q", w.Message)
+		}
+	}
+}
+
+// TestHarnessDirUnknownKeyTypoSuggestion: Set typo on harness.dir suggests the correct key.
+func TestHarnessDirUnknownKeyTypoSuggestion(t *testing.T) {
+	cfg := Default()
+	err := Set(cfg, "harness.di", ".pi") // typo: harness.di
+	if err == nil {
+		t.Fatal("expected error for unknown key, got nil")
+	}
+	if !strings.Contains(err.Error(), "harness.dir") {
+		t.Errorf("expected suggestion 'harness.dir' in error %q", err.Error())
 	}
 }
 

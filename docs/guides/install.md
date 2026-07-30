@@ -47,7 +47,7 @@ The installer prints two manual steps it cannot automate:
 
     ![The output style picker with Atomic selected](/img/output-style-picker.png)
 
-2. **Scan your repos** — run `/refresh-signals` in each repo. It builds the signals files, Claude's standing map of that repo's framework, commands, and layout
+2. **Scan your repos** — run `/refresh-wiki` in each repo. It builds the signals files, Claude's standing map of that repo's framework, commands, and layout
 
 A few optional steps go further:
 
@@ -55,7 +55,7 @@ A few optional steps go further:
 - **Map related repos with a wiki.** If you work across a folder of services, libraries, or client projects, run `/refresh-wiki` to build a cross-repo wiki. It summarizes each member repo and writes up the concerns they share, so Claude can reason about a whole realm of projects rather than one repo at a time. See the [wiki workflow](/reference/wiki-workflow).
 - **Index a project's symbols.** Run `atomic code index` in a project to build a symbol graph of it. Once indexed, `atomic code explore "<question>"` returns a context digest of the relevant symbols and call edges in one query, and the implementation agents use the graph for blast-radius checks and domain clustering. Indexing is opt-in and degrades to plain search when absent; see the [code-intel reference](/reference/code-intel).
 
-On first install, the binary also creates `~/.claude/.atomic/profile.md` and prints a one-line nudge. The file starts with your git name, email, OS, architecture, and CPU count filled in from the environment. The remaining sections are empty; Claude fills them in as facts surface naturally in conversation. You do not need to edit the file by hand.
+On first install, the binary also creates `~/.atomic/profile.md` and prints a one-line nudge. The file starts with your git name, email, OS, architecture, and CPU count filled in from the environment. The remaining sections are empty; Claude fills them in as facts surface naturally in conversation. You do not need to edit the file by hand.
 
 `atomic claude uninstall` preserves `profile.md`. It is user data with no pre-install counterpart, so the uninstall plan never touches it. After uninstall, the file stays on disk; the `@`-ref that loads it into sessions is removed along with the rest of the atomic-owned block in `~/.claude/CLAUDE.md`.
 
@@ -92,6 +92,23 @@ atomic config set update.run_doctor false
 ```
 
 
+## Migrations
+
+`atomic update` auto-applies versioned migration steps after refreshing the artifact bundle. These steps handle breaking changes across releases — restructured directories, updated config keys, and similar one-time transforms — and are idempotent, so re-running them is always safe.
+
+To apply migrations manually (for example, after a manual binary swap or a fresh install on a machine that missed an update):
+
+```bash
+atomic migrate               # apply pending install-scope steps to ~/.claude/
+atomic migrate --repo <path> # run repo-scope migrations for one project
+atomic migrate --realm <path> # fan-out across all atomic'd member repos (prompts per-repo)
+```
+
+`atomic doctor` nudges you to run `atomic migrate` whenever the binary version is newer than the recorded install version. The nudge is suppressed for development builds (`dev` version string).
+
+One migration runs automatically on every invocation rather than through `atomic migrate`: v6 moved per-user state from `~/.claude/.atomic/` to `~/.atomic/`. The first run of any verb on a v6 binary renames the legacy directory and leaves a symlink at the old path, so a CLAUDE.md installed by v5 keeps resolving its `@`-references until `atomic claude install` rewrites them. `atomic doctor` warns while either the legacy directory or the old references remain.
+
+
 ## If you already have a CLAUDE.md
 
 How the installer treats your file depends on whether it already carries an `<atomic>...</atomic>` block.
@@ -101,11 +118,11 @@ How the installer treats your file depends on whether it already carries an `<at
 - The installer updates the block in place; everything outside it is left alone.
 - Your own sections are never touched.
 - A file whose block is current does not count as drift in `atomic claude diff` or `atomic doctor`.
-- The previous version is backed up to `~/.claude/.atomic/backups/` before any change.
+- The previous version is backed up to `~/.atomic/backups/` before any change.
 
 **Your file has no `<atomic>` block yet** (a pre-block install, or hand-edited tags):
 
-- The installer will not overwrite it. It writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md`.
+- The installer will not overwrite it. It writes the new version to `~/.atomic/proposed/CLAUDE.md`.
 - In any Claude Code session, run `atomic prompt claude-merge`. It prints a brief that Claude follows to merge the new `<atomic>` block into your file.
 - Claude writes the result to a staging file (`~/.claude/CLAUDE.md.atomic-merged`) and gives you the command to apply it; your live file is never overwritten automatically. Your own sections are preserved.
 - This one-time merge wraps the atomic content in `<atomic>` tags, so future updates apply on their own.
@@ -138,7 +155,7 @@ The CLI reads the snapshot taken during install, figures out what to restore and
 1. Merges back any changes you made to `settings.json` or `CLAUDE.md` after install
 2. Restores files that existed before install
 3. Removes files that atomic introduced
-4. Deletes `~/.claude/.atomic/`
+4. Deletes `~/.atomic/`
 5. Prints the `rm` command to remove the binary (it never auto-removes the binary)
 
 If you run the command in a plain terminal instead of a Claude session, it detects this and tells you how to proceed.

@@ -28,10 +28,26 @@ Every concept below plays a role in that flow. Signals gave Claude the project m
 
 - **Deterministic signals** — scans the filesystem (tree, manifests, languages, lockfiles) into a reproducible facts file that grounds everything Claude infers about your repo.
 - **Code intelligence** — builds and queries the symbol graph (below).
+- **Repo scaffolding** — `atomic repo init` creates the harness layout once, idempotently: the scratchpad and project directories plus the ignore rules that keep them out of git. Commands call it instead of hand-editing `.gitignore`. The directory name follows harness detection (below).
+- **Document templates** — `atomic template <name>` emits the fill-in skeleton for each document the workflow coordinates (design doc, spec, scratchpad brief/state/followups, session report, and more). Commands seed those files from it so structure is copied, never reconstructed from memory.
 - **Self-update and health** — `atomic update` swaps the binary against a verified checksum; `atomic doctor` and `atomic validate` check the install.
-- **Config and state** — `~/.claude/.atomic/config.toml`, follow-ups, install/uninstall, and the user profile.
+- **Config and state** — `~/.atomic/config.toml`, follow-ups, install/uninstall, and the user profile.
 
 Everything below is either produced by this binary or grounded by what it produces. Run `atomic --help` for the full surface.
+
+
+## Harness detection and state paths
+
+
+The binary is not tied to Claude Code. Per-user state (config, profile, backups) lives at `~/.atomic/`, a harness-neutral location. Repo-local state (scratchpad, project files, code index, worktrees) lives under one dot-directory per repo, and the binary picks that directory by asking which coding agent launched it:
+
+1. `ATOMIC_HARNESS=<name>` in the environment wins outright. `ATOMIC_HARNESS=pi` resolves every repo-local path under `.pi/`. Set it in an agent's launcher for a durable contract, and to break ties when one agent launches another.
+2. `PI_CODING_AGENT=true` (set by the pi agent for its shell commands) resolves to `.pi/`.
+3. `CLAUDECODE=1` (set by Claude Code) resolves to `.claude/`.
+4. `harness.dir` in `~/.atomic/config.toml` covers plain terminals and CI: `atomic config set harness.dir .pi`.
+5. With none of the above, the default is `.claude/`.
+
+Detection means a machine running both Claude Code and a pi agent needs no configuration: each agent's sessions read and write their own layout, and neither creates the other's directory. Harness names are generic; an unknown name in `ATOMIC_HARNESS` resolves to its dot-directory as long as it is a single safe path segment.
 
 
 ## Code intelligence
@@ -42,7 +58,7 @@ Everything below is either produced by this binary or grounded by what it produc
 - `atomic code explore "<question>"` — reach for this first: a bundled digest of the relevant symbols, files, and how they relate, in one shot.
 - `atomic code callers <symbol>` / `callees <symbol>` — what calls it, what it calls.
 - `atomic code impact <symbol>` — the blast radius of changing it.
-- `atomic code sync` — keep the index current (ship verbs and `/refresh-signals` do this when it is warm).
+- `atomic code sync` — keep the index current (ship verbs and `/refresh-wiki` do this when it is warm).
 - `atomic code mcp` — expose the graph to your interactive session as MCP tools.
 
 See the [code-intel reference](/reference/code-intel) for the full verb list and lifecycle, and the [MCP guide](/guides/code-intel-mcp).
@@ -53,7 +69,7 @@ See the [code-intel reference](/reference/code-intel) for the full verb list and
 
 Signals are context engineering — a wiki for one repo. The project's context is curated once and kept as an artifact, instead of re-derived from scratch every session.
 
-You could hand-maintain a `CLAUDE.md`, but the odds you keep it current are slim: you add a service, rename a package, swap Jest for Vitest, and forget. Signals are baked into the workflow instead. `/refresh-signals` scans the repo, the ship verbs refresh it on every commit, and the inference is grounded by the code-intel graph and the actual file diff, not guesswork. You front-load compressed context once — and again only when the repo changes — instead of paying for it on every request.
+You could hand-maintain a `CLAUDE.md`, but the odds you keep it current are slim: you add a service, rename a package, swap Jest for Vitest, and forget. Signals are baked into the workflow instead. `/refresh-wiki` scans the repo, the ship verbs refresh it on every commit, and the inference is grounded by the code-intel graph and the actual file diff, not guesswork. You front-load compressed context once — and again only when the repo changes — instead of paying for it on every request.
 
 Signals fix:
 
@@ -74,6 +90,8 @@ Signals map one repo; a wiki maps how a *realm* of repos relate — the shared l
 - `atomic wiki bucket add <dir>` — register loose material (research, raw dumps, ticket exports) as a capture bucket; refresh synthesizes it into `wiki/knowledge/` pages.
 - `atomic wiki stale` — report membership drift and stale content.
 - `atomic serve` — browse the realm as a typed, navigable graph in the browser.
+
+A directory declares its own identity by writing `scope = "repo"` or `scope = "realm"` at the top of `.claude/atomic.toml` — `atomic repo init` writes the former, `atomic wiki init --scope <s>` writes whichever value you pass. Discovery prefers the nearest marker above your current directory over the pre-existing mechanism: a `scope = "repo"` marker outranks the repo-root fallback — `git rev-parse --show-toplevel` in `repoctx`, a `.git` stat walk in `atomic where` — and a `scope = "realm"` marker outranks the `<wikis>` block for the realm root. `<wikis>` still owns two jobs the marker does not touch — the session-start staleness nudge, and locating a realm's `wiki/index.md` for member data — so a marker-declared realm absent from `<wikis>` resolves correctly but gets no staleness nudge. `atomic where` reports which mechanism answered each axis.
 
 See the [knowledge base guide](/guides/knowledge-base) and [wiki workflow](/reference/wiki-workflow).
 
@@ -123,7 +141,7 @@ A spec has two parts. The body states what is true *now* — a subagent reads it
 ### Worktrees
 
 
-A worktree is a second checkout of the same repo, on its own branch, in a different directory — git supports it natively. The implement loop and `/autopilot` create one at `.worktrees/<feature>/` automatically, run a baseline test, and build there, so your main checkout stays clean with no stashing or branch juggling. On merge or squash, `/commit` notices the branch came from a worktree and offers to clean it up.
+A worktree is a second checkout of the same repo, on its own branch, in a different directory — git supports it natively. The implement loop and `/autopilot` create one at `.claude/worktrees/<feature>/` — Claude Code's native worktree home — automatically, run a baseline test, and build there, so your main checkout stays clean with no stashing or branch juggling. On merge or squash, `/commit` notices the branch came from a worktree and offers to clean it up.
 
 
 ### Scratchpad
@@ -146,7 +164,7 @@ Atomic ships through one `/commit` verb: run it bare and it stages, commits, the
 - A run that produces a commit refreshes signals and checks for stale docs automatically.
 - A run that does not produce a commit checks staleness and asks before proceeding.
 - The merge tokens run verification and tests on the merged result first.
-- Every run writes the commit message from the diff via the `atomic-commit` skill.
+- Every run writes the commit message from the diff via the `atomic-git-discipline` skill.
 
 See [commands](/reference/commands) for the full token set.
 
@@ -166,7 +184,7 @@ Two ways to park something for later. **Reminders** are time-based: `/remind-me 
 ## Skills vs commands
 
 
-Both shape Claude's behavior; they trigger differently. **Skills** fire automatically on matching language — say "let's implement the auth module" and `atomic-tdd` activates without you asking. They are the *how*: always-on discipline. **Commands** fire only when you type the slash — `/atomic-plan`, `/subagent-implementation`, `/commit`. They are the *when*: workflows you start on purpose. A command can invoke a skill (every ship verb uses `atomic-commit`); a skill never invokes a command. See [skills](/reference/skills) and [commands](/reference/commands).
+Both shape Claude's behavior; they trigger differently. **Skills** fire automatically on matching language — say "let's implement the auth module" and `atomic-tdd` activates without you asking. They are the *how*: always-on discipline. **Commands** fire only when you type the slash — `/atomic-plan`, `/subagent-implementation`, `/commit`. They are the *when*: workflows you start on purpose. A command can invoke a skill (every ship verb uses `atomic-git-discipline`); a skill never invokes a command. See [skills](/reference/skills) and [commands](/reference/commands).
 
 
 ## Documentation
@@ -182,6 +200,6 @@ Code changes break docs silently — an endpoint renamed, a config field gone, a
 ## Your work profile
 
 
-Claude reads `~/.claude/.atomic/profile.md` at the start of every session — personal facts that hold across repos: name, role, employer, active projects, interests, and people you work with. Install seeds the `## Environment` section from your machine (git identity, OS, tooling versions); the rest fills in as facts surface in conversation. Volatility tags (`<stable>`, `<volatile>`, `<deterministic>`) tell Claude how eagerly to flag a contradiction, and `/atomic-improve` resolves drift with your sign-off.
+Claude reads `~/.atomic/profile.md` at the start of every session — personal facts that hold across repos: name, role, employer, active projects, interests, and people you work with. Install seeds the `## Environment` section from your machine (git identity, OS, tooling versions); the rest fills in as facts surface in conversation. Volatility tags (`<stable>`, `<volatile>`, `<deterministic>`) tell Claude how eagerly to flag a contradiction, and `/retrospective-learning` resolves drift with your sign-off.
 
 The routing rule: anything still true in a different repo belongs in the profile; repo-specific conventions go to that project's signals instead.

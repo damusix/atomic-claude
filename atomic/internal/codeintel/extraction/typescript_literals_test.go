@@ -183,3 +183,41 @@ func TestHarvestTypeScriptLiterals_TSXGrammarTemplateLiteral(t *testing.T) {
 		t.Fatalf("expected span containing 'CREATE TABLE sessions'; got %v", spans)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Callee scoping (sql-string-match C1 finding 2): calleeCtx must apply only
+// to the call's "arguments" subtree, not the callee/receiver position.
+// ---------------------------------------------------------------------------
+
+func TestHarvestTypeScriptLiterals_CalleeExprScopedToArguments(t *testing.T) {
+	// WHY: "tbl".toUpperCase() puts the literal in the receiver position of
+	// the toUpperCase() call — it must not inherit "toUpperCase" as its
+	// CalleeExpr.
+	pool := newTSPool(t)
+	src := `"tbl".toUpperCase();` + "\n"
+	spans := tsHarvest(t, pool, src, extraction.LangTypeScript)
+
+	sp := findTSSpan(spans, "tbl")
+	if sp == nil {
+		t.Fatalf("expected span containing 'tbl'; got %v", spans)
+	}
+	if sp.CalleeExpr != "" {
+		t.Errorf("CalleeExpr = %q, want empty (literal is in receiver position, not arguments)", sp.CalleeExpr)
+	}
+}
+
+func TestHarvestTypeScriptLiterals_CalleeExprSetForArgument(t *testing.T) {
+	// WHY: control case — a literal actually inside the arguments list still
+	// picks up the call's bare callee name.
+	pool := newTSPool(t)
+	src := `db.selectFrom("orders_view");` + "\n"
+	spans := tsHarvest(t, pool, src, extraction.LangTypeScript)
+
+	sp := findTSSpan(spans, "orders_view")
+	if sp == nil {
+		t.Fatalf("expected span containing 'orders_view'; got %v", spans)
+	}
+	if sp.CalleeExpr != "selectFrom" {
+		t.Errorf("CalleeExpr = %q, want %q", sp.CalleeExpr, "selectFrom")
+	}
+}

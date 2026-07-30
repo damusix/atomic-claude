@@ -24,8 +24,6 @@ package serve
 import (
 	"context"
 	"fmt"
-	"html/template"
-	"net/http"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -69,7 +67,7 @@ func DefaultMemberSearchFn() MemberSearchFn {
 	}
 }
 
-// CodeSearchOptions configures NewCodeSearchHandler.
+// CodeSearchOptions configures NewAPICodeSearchHandler.
 type CodeSearchOptions struct {
 	// RealmRoot is the root directory to resolve realm config from.
 	RealmRoot string
@@ -79,26 +77,6 @@ type CodeSearchOptions struct {
 	SearchFn MemberSearchFn
 }
 
-// codeSearchHandler implements http.Handler for /code/search.
-type codeSearchHandler struct {
-	realmRoot    string
-	claudeMDPath string
-	searchFn     MemberSearchFn
-}
-
-// NewCodeSearchHandler returns an http.Handler for GET /code/search?q=...
-func NewCodeSearchHandler(opts CodeSearchOptions) http.Handler {
-	fn := opts.SearchFn
-	if fn == nil {
-		fn = DefaultMemberSearchFn()
-	}
-	return &codeSearchHandler{
-		realmRoot:    opts.RealmRoot,
-		claudeMDPath: opts.ClaudeMDPath,
-		searchFn:     fn,
-	}
-}
-
 // memberResult is the result for one realm member (or the single-repo case).
 type memberResult struct {
 	Key        string // empty for single-repo scope (no [key] header)
@@ -106,28 +84,6 @@ type memberResult struct {
 	Results    []types.SearchResult
 	NotIndexed bool   // true when the member db was absent/unopenable
 	ErrMsg     string // descriptive note when NotIndexed == true
-}
-
-func (h *codeSearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	only := splitCommaParam(r.URL.Query().Get("only"))
-	excl := splitCommaParam(r.URL.Query().Get("exclude"))
-
-	ctx := r.Context()
-
-	// Resolve realm scope.
-	res, err := realm.Resolve(h.realmRoot, h.claudeMDPath)
-	if err != nil {
-		http.Error(w, "scope resolve: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var groups []memberResult
-
-	groups = codeSearchGroups(ctx, res, h.realmRoot, only, excl, query, h.searchFn, nil)
-
-	isHTMX := r.Header.Get("HX-Request") == "true"
-	h.render(w, query, groups, isHTMX)
 }
 
 // codeSearchGroups resolves the search targets for a realm.Resolution and runs
@@ -224,119 +180,6 @@ func searchMember(ctx context.Context, fn MemberSearchFn, m codeMember, query st
 	}
 	mr.Results = results
 	return mr
-}
-
-// render writes the HTML response.  isHTMX = true → fragment only (no shell).
-func (h *codeSearchHandler) render(w http.ResponseWriter, query string, groups []memberResult, isHTMX bool) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	var sb strings.Builder
-
-	if !isHTMX {
-		// Minimal full-page wrapper so the page is usable standalone.
-		sb.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8">`)
-		sb.WriteString(`<title>Code Search</title></head><body>`)
-	}
-
-	// Search box. No hx-push-url: /code/search renders a shell-less fragment, so
-	// pushing it would make a history restore replace <body> with this bare
-	// fragment. The canonical, history-safe search surface is /search.
-	sb.WriteString(`<div class="code-search-box">`)
-	sb.WriteString(`<form hx-get="/code/search" hx-target="#main-pane">`)
-	sb.WriteString(`<input name="q" type="search" placeholder="Search symbols…" value="`)
-	sb.WriteString(template.HTMLEscapeString(query))
-	sb.WriteString(`">`)
-	sb.WriteString(`<button type="submit">Search</button>`)
-	sb.WriteString(`</form></div>`)
-
-	if query == "" {
-		sb.WriteString(`<p class="code-search-hint">Enter a query to search the code index.</p>`)
-		if !isHTMX {
-			sb.WriteString(`</body></html>`)
-		}
-		fmt.Fprint(w, sb.String())
-		return
-	}
-
-	// Results section.
-	sb.WriteString(`<div class="code-search-results">`)
-
-	if len(groups) == 0 {
-		// No code members resolved at all (e.g. a wiki realm with no <code-index>
-		// federation, or a bare repo with no index). Say so — never render blank.
-		sb.WriteString(codeSearchNoIndexNote())
-	} else {
-		for _, g := range groups {
-			renderMemberGroup(&sb, g)
-		}
-	}
-
-	sb.WriteString(`</div>`)
-
-	if !isHTMX {
-		sb.WriteString(`</body></html>`)
-	}
-
-	fmt.Fprint(w, sb.String())
-}
-
-// codeSearchNoIndexNote is the message shown when no index is available to search.
-func codeSearchNoIndexNote() string {
-	return `<p class="code-search-not-indexed">No code index for this realm — run <code>atomic code index</code> to enable code search.</p>`
-}
-
-// renderMemberGroup writes one member's result group: an optional [key] header,
-// then a not-indexed note, a "no results" note, or the result list. Shared by
-// the synchronous handler and the streaming endpoint (one SSE event per group).
-func renderMemberGroup(sb *strings.Builder, g memberResult) {
-	if g.Key != "" {
-		sb.WriteString(`<h3 class="code-search-group-header">[`)
-		sb.WriteString(template.HTMLEscapeString(g.Key))
-		sb.WriteString(`]</h3>`)
-	}
-
-	if g.NotIndexed {
-		sb.WriteString(`<p class="code-search-not-indexed">`)
-		if g.Key != "" {
-			sb.WriteString(template.HTMLEscapeString(g.Key))
-			sb.WriteString(`: `)
-		}
-		sb.WriteString(`not indexed — run <code>atomic code index</code></p>`)
-		return
-	}
-
-	if len(g.Results) == 0 {
-		sb.WriteString(`<p class="code-search-empty">No results.</p>`)
-		return
-	}
-
-	sb.WriteString(`<ul class="code-search-result-list">`)
-	for _, r := range g.Results {
-		n := r.Node
-		sb.WriteString(`<li class="code-search-result">`)
-		// Link: /file/<member-prefix>/<FilePath>#L<StartLine>. The member db stores
-		// member-relative paths; prefix the member's realm-relative path so the
-		// /file/ route (which serves realm-relative paths) resolves correctly.
-		href := fmt.Sprintf("/file/%s#L%d", joinMemberPath(g.Prefix, n.FilePath), n.StartLine)
-		sb.WriteString(`<a href="`)
-		sb.WriteString(template.HTMLEscapeString(href))
-		sb.WriteString(`" class="code-search-link">`)
-		sb.WriteString(`<span class="code-search-name">`)
-		sb.WriteString(template.HTMLEscapeString(n.Name))
-		sb.WriteString(`</span>`)
-		sb.WriteString(`<span class="code-search-kind"> `)
-		sb.WriteString(template.HTMLEscapeString(string(n.Kind)))
-		sb.WriteString(`</span>`)
-		sb.WriteString(`<span class="code-search-loc"> — `)
-		sb.WriteString(template.HTMLEscapeString(n.FilePath))
-		if n.StartLine > 0 {
-			sb.WriteString(fmt.Sprintf(":%d", n.StartLine))
-		}
-		sb.WriteString(`</span>`)
-		sb.WriteString(`</a>`)
-		sb.WriteString(`</li>`)
-	}
-	sb.WriteString(`</ul>`)
 }
 
 // splitCommaParam splits a comma-separated query param value into trimmed keys.

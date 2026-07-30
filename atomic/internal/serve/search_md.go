@@ -1,6 +1,4 @@
-// search_md.go — FE5: markdown full-text search endpoint (/search/md).
-//
-// Route: GET /search/md?q=<query>
+// search_md.go — markdown full-text search (/api/search/md).
 //
 // Performs a literal, case-insensitive substring search across all *.md files
 // reachable from NavRoot (using shouldSkipDir for directory filtering).
@@ -9,23 +7,17 @@
 //
 //	file path (realm-root-relative)  ·  line number  ·  trimmed snippet
 //
-// Each item carries a /page/<file> navigation hook so the FE5 delegated
-// handler (or data-page attribute) can load the file into #main-pane.
-//
 // Design constraints:
 //   - Empty/whitespace query → empty fragment (200).
 //   - Results capped at 50; a truncation note is appended when the cap fires.
 //   - Query is treated as a literal substring to grep, not a file path;
 //     no filesystem access is performed on the query value itself.
 //   - Snippet is trimmed to ≤120 chars to stay usable in a narrow dropdown.
-//   - HX-Request: true → fragment only; otherwise a thin full-page wrapper.
 package serve
 
 import (
 	"fmt"
-	"html/template"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,21 +28,16 @@ const (
 	mdSearchSnippetMaxLen = 120
 )
 
-// MdSearchOptions configures NewMdSearchHandler.
+// MdSearchOptions configures the /api/search/md handler (NewAPIMdSearchHandler).
 type MdSearchOptions struct {
 	// NavRoot is the directory to walk for .md files.
 	// Subdirectories matching shouldSkipDir are excluded.
 	NavRoot string
 }
 
-// mdSearchHandler implements http.Handler for /search/md.
+// mdSearchHandler holds the search root for /api/search/md.
 type mdSearchHandler struct {
 	navRoot string
-}
-
-// NewMdSearchHandler returns an http.Handler for GET /search/md?q=...
-func NewMdSearchHandler(opts MdSearchOptions) http.Handler {
-	return &mdSearchHandler{navRoot: opts.NavRoot}
 }
 
 // mdMatch is one matching line inside a .md file.
@@ -61,37 +48,6 @@ type mdMatch struct {
 	Line int
 	// Snippet is a trimmed excerpt of the matching line.
 	Snippet string
-}
-
-func (h *mdSearchHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	isHTMX := r.Header.Get("HX-Request") == "true"
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-	var sb strings.Builder
-
-	if !isHTMX {
-		sb.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8">`)
-		sb.WriteString(`<title>MD Search</title></head><body>`)
-	}
-
-	if query == "" {
-		// Empty query → empty fragment, no items.
-		if !isHTMX {
-			sb.WriteString(`</body></html>`)
-		}
-		fmt.Fprint(w, sb.String())
-		return
-	}
-
-	matches, truncated := h.search(query)
-	renderMdResults(&sb, query, matches, truncated)
-
-	if !isHTMX {
-		sb.WriteString(`</body></html>`)
-	}
-	fmt.Fprint(w, sb.String())
 }
 
 // search walks navRoot and collects up to mdSearchResultCap matching lines.
@@ -154,48 +110,4 @@ func (h *mdSearchHandler) search(query string) ([]mdMatch, bool) {
 	})
 
 	return matches, truncated
-}
-
-// renderMdResults writes the result list HTML into sb.
-func renderMdResults(sb *strings.Builder, query string, matches []mdMatch, truncated bool) {
-	sb.WriteString(`<ul class="md-search-result-list">`)
-
-	for _, m := range matches {
-		// Each item: a link that loads /page/<relPath> into #main-pane.
-		// href="/page/<relPath>" — the FE5 delegated handler intercepts these
-		// (data-page attribute or href pattern) to use htmx.ajax.
-		href := "/page/" + m.RelPath
-		sb.WriteString(`<li class="md-search-result" data-page="`)
-		sb.WriteString(template.HTMLEscapeString(href))
-		sb.WriteString(`">`)
-		sb.WriteString(`<a class="md-search-link" href="`)
-		sb.WriteString(template.HTMLEscapeString(href))
-		sb.WriteString(`">`)
-
-		// file:line label
-		sb.WriteString(`<span class="md-search-loc">`)
-		sb.WriteString(template.HTMLEscapeString(m.RelPath))
-		sb.WriteString(fmt.Sprintf(`:%d`, m.Line))
-		sb.WriteString(`</span>`)
-
-		// snippet
-		sb.WriteString(` — <span class="md-search-snippet">`)
-		sb.WriteString(template.HTMLEscapeString(m.Snippet))
-		sb.WriteString(`</span>`)
-
-		sb.WriteString(`</a>`)
-		sb.WriteString(`</li>`)
-	}
-
-	sb.WriteString(`</ul>`)
-
-	if truncated {
-		sb.WriteString(`<p class="md-search-truncated">`)
-		sb.WriteString(fmt.Sprintf(`Showing first %d results — refine your query to narrow down.`, mdSearchResultCap))
-		sb.WriteString(`</p>`)
-	}
-
-	if len(matches) == 0 {
-		sb.WriteString(`<p class="md-search-empty">No results.</p>`)
-	}
 }

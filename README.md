@@ -68,10 +68,10 @@ Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subage
 
 ### Orient Claude in a new repo
 
-`/atomic-setup` audits conventions, `/refresh-signals` teaches Claude the repo's shape, deterministic facts plus inferred meaning:
+`/setup-wiki` audits conventions, `/refresh-wiki` teaches Claude the repo's shape, deterministic facts plus inferred meaning:
 
 ```text
-❯ /atomic-setup
+❯ /setup-wiki
 
 ⏺ Audit
 
@@ -79,7 +79,7 @@ Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subage
   │             Convention              │              Status                │
   ├─────────────────────────────────────┼────────────────────────────────────┤
   │ .gitignore has .claude/.scratchpad/ │ ✗                                  │
-  │ .gitignore has .worktrees/          │ ✗                                  │
+  │ .claude/worktrees/ ignored          │ ✗                                  │
   │ docs/spec/                          │ ✗                                  │
   │ docs/design/                        │ ✗                                  │
   │ Signals files                       │ ✗                                  │
@@ -88,23 +88,23 @@ Run it gated, stage by stage (`/gather-evidence` → `/atomic-plan` → `/subage
 
   Proposed actions
 
-  [1] Append .claude/.scratchpad/ and .worktrees/ to .gitignore
+  [1] Run atomic repo init (scaffolds .claude/ dirs + ignore rules)
   [2] Create docs/spec/.gitkeep + docs/design/.gitkeep
   [3] Append signals @-refs to CLAUDE.md
 
   Apply which actions? → All (1-3)
 
-  ✓ Applied. Next: /refresh-signals
+  ✓ Applied. Next: /refresh-wiki
 
-❯ /refresh-signals
+❯ /refresh-wiki
 
 ⏺ atomic signals scan
-  ⎿  Tree · Manifests · Languages → .claude/project/deterministic-signals.md
+  ⎿  Tree · Manifests · Languages → docs/wiki/scan.md
 
-⏺ atomic-signals-inferrer
+⏺ atomic-wiki-inferrer
   ⎿  Framework: NestJS · package manager: pnpm
   ⎿  Build: pnpm build · test: pnpm test · lint: pnpm lint
-  ⎿  → .claude/project/signals.md
+  ⎿  → docs/wiki/index.md
 
   signals initialized.
 ```
@@ -154,11 +154,15 @@ One decision is yours, how to merge. Everything else runs unattended. → [workf
 |---|---|---|
 | **Wiki realm browser** | `atomic serve [path] [--port N] [--open]` starts a local read-only HTTP server that renders the wiki realm (or a single repo) as a navigable, Obsidian-style graph: a page view with a live right rail (this-page graph, out/in links, frontmatter Properties with `resource:` as a link), a whole-system graph toggle with OKF node-type coloring and a type legend/filter, a code-file modal (highlighted source + code intelligence), an `md\|code` search box, and federated code search. Bundle-relative `/path.md` links resolve as in-shell navigable routes. localhost only, no auth, no write operations. | [serve](docs/reference/serve.md) |
 | **Cross-repo wikis** | `/refresh-wiki` maps a realm of repos and the concerns they share, summarizing the ones it doesn't own without touching them. Wiki pages are OKF-aligned: concern and knowledge pages carry `type:` + `description:` frontmatter; the realm `index.md` `## Members` section lists each member with a description. Capture buckets (`atomic wiki bucket add/list/diff/promote`) let you register loose material folders at the realm root; `/refresh-wiki` synthesizes them into topic-keyed `wiki/knowledge/` pages with SHA-256 provenance tracking. `atomic code index` at the realm root layers in a federated symbol graph — query verbs fan out across member repos, nothing written into members. | [wiki](docs/reference/wiki-workflow.md) · [code-intel](docs/reference/code-intel.md) |
-| **Self-sharpening config** | `/atomic-improve` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
+| **Bucket doc management** | Capture-bucket docs carry a six-key frontmatter contract (`title`, `type`, `description`, `tags`, `status`, `created`); `atomic wiki bucket doc <bucket> <slug>` scaffolds a topic file (`--router` for one that outgrows a single file), `atomic wiki bucket skill <bucket>` scaffolds a per-bucket authoring skill, and `atomic wiki bucket index` rebuilds the bucket and realm listing regions from that frontmatter, work `atomic wiki scan` already covers as part of its own pass. | [wiki](docs/reference/wiki-workflow.md) |
+| **Self-sharpening config** | `/retrospective-learning` mines your session history for repeated corrections and proposes one-at-a-time fixes to your own skills and rules. | [concepts](docs/reference/concepts.md) |
 | **Output style** | Multi-part answers shaped as tables, trees, and ASCII flows, filler cut. The most optional piece. | [output-style](docs/reference/output-style.md) |
-| **Discipline skills** | Nine that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing, visual-options. | [skills](docs/reference/skills.md) |
+| **Discipline skills** | Ten that auto-fire on natural language: TDD, verify, debug, commit, review, prose, doc-routing, wiki/bucket routing, visual-options, bus messaging. | [skills](docs/reference/skills.md) |
+| **Quick fixes** | `/quick-fix <task>` runs the implement-review loop without a spec, for a fix with a known cause and one obvious approach. | [workflow](docs/reference/workflow.md) |
+| **Inter-session messaging** | `atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms: `join` a room, address a peer by name or send a room-wide FYI, watch or halt a room as the operator. The daemon auto-spawns on first use; `bus start \| stop \| restart` control it explicitly, with no idle shutdown. | [bus](docs/reference/bus.md) |
 | **Git commands** | `/commit [push\|pr\|merge\|squash\|squash merge]` covers all ship paths from one verb; ask-don't-enumerate. Plus CI watch, branch cleanup, worktrees, reminders. | [commands](docs/reference/commands.md) |
-| **Persistent profile** | `~/.claude/.atomic/profile.md`: who you are plus auto-detected dev tooling, read every session, refreshed on a staleness check. | [concepts](docs/reference/concepts.md) |
+| **Persistent profile** | `~/.atomic/profile.md`: who you are plus auto-detected dev tooling, read every session, refreshed on a staleness check. | [concepts](docs/reference/concepts.md) |
+| **Multi-harness paths** | The binary detects which coding agent launched it and keeps repo-local state under that agent's directory: `.claude/` for Claude Code, `.pi/` for the pi agent, `ATOMIC_HARNESS=<name>` for anything else. Per-user state lives harness-neutral at `~/.atomic/`. | [concepts](docs/reference/concepts.md) |
 
 ### And the replies take the right shape
 
@@ -215,7 +219,7 @@ Lost? Run `/atomic-help` in any repo — it reads your git state and names one n
 | # | Adopt | Do this |
 |---|-------|---------|
 | 1 | Structured replies | Install, activate the output style via `/config`. Everything else is optional. |
-| 2 | A repo explorer | `/atomic-setup` + `/refresh-signals`. Claude stops hallucinating build commands. |
+| 2 | A repo explorer | `/setup-wiki` + `/refresh-wiki`. Claude stops hallucinating build commands. |
 | 3 | A symbol-aware assistant | `atomic code index`, then `atomic code explore "<question>"` returns a digest of symbols, files, and call edges in one query. |
 | 4 | The full loop, or autopilot | Read the [workflow reference](docs/reference/workflow.md). |
 
@@ -236,7 +240,7 @@ atomic claude install
 
 Activate the output style with `/config` → Output style → Atomic.
 
-Then get the most from it: run `/refresh-signals` in each repo so Claude learns its shape, and `/refresh-wiki` over a folder of related repos for a cross-repo map. If your organization allows Claude Code hooks, `atomic hooks install` wires up profile refresh, pending reminders, and staleness nudges.
+Then get the most from it: run `/refresh-wiki` in each repo so Claude learns its shape, and at a realm root to build a cross-repo knowledge map. If your organization allows Claude Code hooks, `atomic hooks install` wires up profile refresh, pending reminders, and staleness nudges.
 
 For prereqs, flags, existing `~/.claude/CLAUDE.md` handling, updates, Docker evaluation, and uninstall: [docs/guides/install.md](docs/guides/install.md).
 
@@ -257,6 +261,7 @@ Atomic Claude dogfoods itself: the root artifacts are both the live config and t
 | Output style | [docs/reference/output-style.md](docs/reference/output-style.md) |
 | Signals workflow | [docs/reference/signals-workflow.md](docs/reference/signals-workflow.md) |
 | Wiki workflow | [docs/reference/wiki-workflow.md](docs/reference/wiki-workflow.md) |
+| Bus (inter-session messaging) | [docs/reference/bus.md](docs/reference/bus.md) |
 | Code intelligence | [docs/reference/code-intel.md](docs/reference/code-intel.md) |
 | Code-intel MCP setup | [docs/guides/code-intel-mcp.md](docs/guides/code-intel-mcp.md) |
 | Concepts (how it flows) | [docs/reference/concepts.md](docs/reference/concepts.md) |

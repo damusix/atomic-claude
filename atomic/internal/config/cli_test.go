@@ -299,6 +299,52 @@ func TestRun_list_json_sorted_keys(t *testing.T) {
 	}
 }
 
+// --- harness.dir (CP2: configurable-state-paths) ---
+
+func TestRun_harness_dir_set_get_unset(t *testing.T) {
+	home := t.TempDir()
+	if code, _, _ := runCLI(t, home, "set", "harness.dir", ".pi"); code != 0 {
+		t.Fatal("set failed")
+	}
+	code, out, _ := runCLI(t, home, "get", "harness.dir")
+	if code != 0 || strings.TrimSpace(out) != ".pi" {
+		t.Fatalf("get after set: code=%d out=%q", code, out)
+	}
+	if code, _, _ := runCLI(t, home, "unset", "harness.dir"); code != 0 {
+		t.Fatal("unset failed")
+	}
+	code, out, _ = runCLI(t, home, "get", "harness.dir")
+	if code != 0 || strings.TrimSpace(out) != ".claude" {
+		t.Fatalf("get after unset: code=%d out=%q", code, out)
+	}
+}
+
+func TestRun_harness_dir_invalid_value(t *testing.T) {
+	home := t.TempDir()
+	code, _, stderr := runCLI(t, home, "set", "harness.dir", "foo/bar")
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
+	}
+	if !strings.Contains(stderr, "foo/bar") {
+		t.Fatalf("expected 'foo/bar' in stderr, got %q", stderr)
+	}
+}
+
+func TestRun_list_json_includes_harness_dir(t *testing.T) {
+	home := t.TempDir()
+	code, out, _ := runCLI(t, home, "list", "--json")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d", code)
+	}
+	var m map[string]string
+	if err := json.Unmarshal([]byte(out), &m); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if m["harness.dir"] != ".claude" {
+		t.Fatalf("expected harness.dir=.claude in JSON, got %q", m["harness.dir"])
+	}
+}
+
 // --- no args / unknown verb ---
 
 func TestRun_no_args(t *testing.T) {

@@ -52,10 +52,10 @@ Place suppression-pattern findings in the **Code quality** subsection.
 Walk this ladder before writing anything; stop at the first hit:
 
 1. Does it need to exist at all? No → skip it.
-2. Does the stdlib do it? → use the stdlib.
-3. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
-4. Does an already-installed dependency solve it? → use it; don't add a new dep when a few lines do.
-5. Does something in the codebase already solve it? → reuse it; don't rewrite.
+2. Does something in the codebase already solve it? → reuse it; don't rewrite.
+3. Does an already-installed dependency solve it? → use it; don't add a new dep when a few lines do.
+4. Does the stdlib do it? → use the stdlib.
+5. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
 6. Can it be one line? → write the one line.
 7. Otherwise → write the **minimum** code that fully solves the problem.
 
@@ -68,6 +68,23 @@ Flag code that violates the *Simplicity first (YAGNI)* ladder above — reinvent
 **Severity:** 🟡 risk when the duplication or dependency carries real cost; 🔵 nit for a pure shrink-it. Not a finding: a deliberate simplification the spec called for, or the single smoke-test / self-check the implementer left behind — that is the atomic minimum, never bloat.
 
 Place over-engineering findings in the **Code quality** subsection.
+
+## Comment discipline
+
+- A comment states what the code cannot show on its own: a constraint, an invariant, a non-obvious why, a gotcha (units, ordering requirements, external-system quirks). **Why:** the code already says what happens; a comment earns its place only by carrying information the code itself can't express.
+- Comments never narrate the next line, restate the diff, or address the reviewer ("as requested", "fixed per review", "this change makes X do Y"). **Why:** those are PR-conversation artifacts, not source content — they are stale the moment the PR merges, and a stale comment left behind misleads every future reader who trusts it over the code.
+- Comment density and idiom match the surrounding file — don't over-comment a sparse file or strip an idiomatically documented one. **Why:** matching the file's existing convention keeps the diff about the change itself, not a drive-by re-styling of commenting habits the file already settled.
+- Docstrings on new public APIs follow the language's convention (godoc, JSDoc, PEP 257, rustdoc), not ad-hoc prose. **Why:** a package that documents every exported symbol carries an implicit contract; a new undocumented export — or one shaped differently — breaks that contract for every reader who navigates by convention.
+
+## Comment-discipline findings
+
+Flag comments in the diff that violate the discipline above.
+
+**Severity:** 🔵 nit for a noise comment — narrates the line or restates the diff. Fix: delete it. 🟡 risk when a comment contradicts or misdescribes the code (future readers trust the wrong one), or a reviewer-addressed comment ("fixed per review", "as requested") shipped into source.
+
+This is a **judgment call, not a regex lint** — same framing as the suppression-pattern and over-engineering rules. Not a finding: legitimate section comments in an idiomatically commented file, license headers, directive comments (`//go:embed`, `// eslint-disable`), or the WHY comments rule 1 above asks for.
+
+Place comment-discipline findings in the **Code quality** subsection.
 
 ## Workflow — code-mode
 
@@ -83,8 +100,9 @@ Place over-engineering findings in the **Code quality** subsection.
     - `lint: ✓` — spot-check.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.`
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
-6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule and the over-engineering rule above: catching constructs that dodge rather than handle errors, and code that reinvents or duplicates what already exists.
-7. Issue findings under the two subsections. End with signals block, totals, and verdict.
+6. **Outline pass**: when the spec carries `## Outline`, walk the outlined pieces that belong to this iteration's checkpoint against the delivered diff. Each piece should exist — same name, or a rename/split the implementer's report accounts for (the outline is a sketch, not a contract; deviation is fine when success criteria hold, but it must be visible, not silent). Outlined piece absent with no explanation → `🟡 risk` finding under Spec compliance. Pieces delivered beyond the outline are not findings unless they break a success criterion or the over-engineering rule.
+7. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule, the over-engineering rule, and the comment-discipline rule above: catching constructs that dodge rather than handle errors, code that reinvents or duplicates what already exists, and comments that narrate rather than inform.
+8. Issue findings under the two subsections. End with signals block, totals, and verdict.
 
 </workflow>
 
@@ -97,10 +115,11 @@ Place over-engineering findings in the **Code quality** subsection.
 3. Read `docs/spec/<topic>.md` — the draft under review.
 4. **Design coverage pass**: walk the design's goals, business rules, and recommended approach. Every load-bearing decision should have a counterpart in the spec (success criterion, checkpoint, or Risks row). Missing coverage → finding.
 5. **Voice pass**: scan the spec for over-prescription. Forbidden: exact function signatures, specific variable names, step-by-step pseudocode, dictating which library function to call. Allowed: file/area pointers, behavior contracts, evidence references.
-6. **Checkpoint sizing pass**: each checkpoint should be one builder dispatch = one green iteration. Flag rows that look like whole features ("build the X system") or single-line edits that don't need a builder.
-7. **Success-criteria pass**: each criterion must be verifiable and falsifiable. Vague language ("works correctly", "fast enough", "good UX") → finding.
-8. **Contradiction pass**: anything the spec says that conflicts with the design → finding. Anything the spec assumes about the codebase that's wrong per signals → finding.
-9. Issue findings under two subsections: **Design coverage** and **Spec quality**. No signals block. End with totals + verdict.
+6. **Required-sections pass**: verify `## Change tree` exists — one line per node, A/M/D markers, covers the files named in the checkpoints, stays sketch-level (no signatures, no algorithms). Verify `## Outline` exists — per file, named pieces with a one-line responsibility each, members nesting at most one level under their parent piece (a type's methods, a section's subsections), hollow (no signatures, no bodies, no algorithms), or an explicit `None — <reason>` when the change has no nameable pieces. Verify `## Flows` exists — numbered actor → step sequences per behavior, or an explicit `None — <reason>` when the change ships no runtime behavior. Missing section, unmarked tree, signature-bearing, responsibility-free, or over-nested outline, or vague flows → finding.
+7. **Checkpoint sizing pass**: each checkpoint should be one builder dispatch = one green iteration. Flag rows that look like whole features ("build the X system") or single-line edits that don't need a builder.
+8. **Success-criteria pass**: each criterion must be verifiable and falsifiable. Vague language ("works correctly", "fast enough", "good UX") → finding.
+9. **Contradiction pass**: anything the spec says that conflicts with the design → finding. Anything the spec assumes about the codebase that's wrong per signals → finding.
+10. Issue findings under two subsections: **Design coverage** and **Spec quality**. No signals block. End with totals + verdict.
 
 </workflow>
 
@@ -189,9 +208,17 @@ Add `--json` to any query verb for machine-parseable output when processing resu
 
 **Why the index exists.** It reflects working-tree state at the last `atomic code sync`. It is authoritative for existing symbols at that point in time. The orchestrator (not the subagent) owns keeping the index fresh — the subagent only queries.
 
+**Repo-scoped ignore.** A committed `.claude/atomic.toml` with `[code]` `ignore = ["<glob>", ...]` excludes matching files from the index. When a user asks to hide vendored/minified/generated files from the graph, write or extend that file and re-run `atomic code index`.
+
 **Wiki realm fan-out.** If a `<code-index>` block is present in CLAUDE.md, the working directory is a wiki realm with N independently indexed member repos. `atomic code` queries fan out across all members at the realm root (results grouped under `[<key>]` headers; add `--json` for a `{ "<key>": … }` object); inside a member directory, only that member is queried. Use `--only <keys>` or `--exclude <keys>` to filter the fan-out set. Graceful degradation to `sg`/`grep` applies to realm queries as well.
 
 **Code-intel in review.** When verifying a diff, if `.claude/.atomic-index/atomic.db` exists, run `atomic code impact <changed-symbol>` to confirm the diff's blast radius matches what actually changed — this catches callers the diff missed. Query one symbol at a time; skip silently if the binary is absent or the DB is missing.
+
+## Position orientation
+
+Before wiki- or realm-scoped work — writing to `docs/wiki/`, deciding whether a change is repo-scope or realm-scope, reasoning about a `<wikis>`-registered member repo — run `atomic where` (`--json` for machine-parseable output) to check position across three axes in one call: repo-scope wiki presence, realm-scope position (root / member / orphaned / none), and code-index scope. It's read-only and cheap — a handful of stat calls, no git subprocess spawns.
+
+**Graceful degradation — non-negotiable.** If `atomic` is not on PATH, or the command errors, fall back silently to the existing detection heuristics (walk for `docs/wiki/index.md`, check for a `<wikis>` block in `CLAUDE.md`) — never surface the absence as an error or block on it. The verb is an orientation shortcut, not a dependency.
 
 ## Rules
 

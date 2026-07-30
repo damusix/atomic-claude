@@ -26,31 +26,7 @@ Opt-in only. Does not auto-fire.
     - `git status --porcelain` — list of touched files (staged + unstaged).
     - `git diff --stat` and `git diff --cached --stat` — magnitude per file.
     - Recent conversation context — what was tried, what was rejected, what the user clarified mid-flight.
-4. **Write the report** to the computed path with this structure:
-
-    ```markdown
-    ---
-    branch: <branch>
-    date: <YYYY-MM-DD HH:MM>
-    session_summary: <one line — what this session was about>
-    ---
-
-    ## What changed
-
-    - `<path>` — <short description of edit>
-    - `<path>` — <short description of edit>
-
-    ## Why
-
-    <Short paragraphs explaining the reasoning. What problem was being solved.
-    What alternatives were rejected and why. What the user clarified that shaped
-    the approach. Aim for a future-reader who needs enough context to write the
-    commit message — not exhaustive prose.>
-
-    ## Open threads (optional)
-
-    - <unresolved question or follow-up deferred to a later session>
-    ```
+4. **Write the report**: seed the computed path from the embedded template — `atomic template session-report > <path>` — then fill every `<angle-bracket>` placeholder (frontmatter + `## What changed` + `## Why` + optional `## Open threads`) and delete the guidance comment. If `atomic` is absent or the verb errors, stop: `document template unavailable (atomic template session-report failed) — install/update the atomic binary. cannot proceed.`
 
 5. **Report path** to the user: `wrote .claude/.scratchpad/session-reports/<branch>/<file>.md`.
 
@@ -60,7 +36,7 @@ Opt-in only. Does not auto-fire.
 
 ## Voice
 
-Working-memory voice — bullets + short paragraphs. Not atomic output style (that's Claude's replies). Not `atomic-prose` (that's narrative docs like README and guides). Internal context that the commit-message synthesis will read.
+Working-memory voice — bullets + short paragraphs. Not atomic output style (that's Claude's replies). Not `atomic-writing` (that's narrative docs like README and guides). Internal context that the commit-message synthesis will read.
 
 ## Lifecycle
 
@@ -70,7 +46,7 @@ If a branch is abandoned without a commit, the reports stay in `.claude/.scratch
 
 ## Cross-references
 
-- **`atomic-commit` skill** — receives the concatenated reports for the current branch as supplemental context when synthesizing the commit message.
+- **`atomic-git-discipline` skill** — receives the concatenated reports for the current branch as supplemental context when synthesizing the commit message.
 - **Ship verb that consumes reports:** `/commit` (all escalation paths). Reads all reports for the current branch before message synthesis and deletes the branch's reports dir after a successful commit.
 - **Exempt paths** (no commit-message generation): `/commit push` / `/commit pr` / `/commit merge` when run with commits already ahead of base and nothing to commit — these ship existing commits unchanged.
 - **Full spec:** `docs/spec/session-report.md`.

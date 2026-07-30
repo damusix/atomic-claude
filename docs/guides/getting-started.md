@@ -26,13 +26,13 @@ You can confirm it took by asking any question and watching the shape of the rep
 Open a repo you work in and run two commands.
 
 ```text
-/atomic-setup
-/refresh-signals
+/setup-wiki
+/refresh-wiki
 ```
 
-`/atomic-setup` audits the repo for the conventions atomic expects: the `.gitignore` entries for scratch and worktree directories, the `docs/` layout, and a `CLAUDE.md`. It proposes only what is missing and never overwrites. It makes no commits.
+`/setup-wiki` audits the repo for the conventions atomic expects: the `.claude/` layout and `.gitignore` rules for scratch and worktree directories (scaffolded by one idempotent `atomic repo init` call when the binary is present), the `docs/` layout, and a `CLAUDE.md`. It proposes only what is missing and never overwrites. It makes no commits.
 
-`/refresh-signals` is the step that stops the guessing. It walks the repo and writes a standing model of it to `.claude/project/signals.md`: the framework, the build and test and lint commands, the languages, and a map of which directories form which feature. Claude reads that model before it reads your code, so a new session knows your stack instead of inventing `npm` scripts that do not exist. Ship commands refresh the model as the repo changes, so you do not hand-maintain it.
+`/refresh-wiki` is the step that stops the guessing. It walks the repo and writes a standing model of it to `.claude/project/signals.md`: the framework, the build and test and lint commands, the languages, and a map of which directories form which feature. Claude reads that model before it reads your code, so a new session knows your stack instead of inventing `npm` scripts that do not exist. Ship commands refresh the model as the repo changes, so you do not hand-maintain it.
 
 After this step, ask Claude something about the project. It answers from the signals model rather than from a guess.
 
@@ -81,6 +81,14 @@ atomic code index
 Once the index exists, the investigator, reviewer, and signals agents query the graph instead of grepping, and you can query it yourself from the terminal with no Claude involved. Indexing is opt-in and everything degrades to plain search when it is absent. See the [code intelligence reference](/reference/code-intel), including how to use it as a standalone CLI.
 
 
+## Running under another harness
+
+
+The binary's project-scoped verbs (repo init, signals, followups, reminders, code intelligence, doc scanning) also work under coding agents other than Claude Code. The repo-local state directory follows the agent that launched the command: Claude Code sessions use `.claude/`, pi agent sessions use `.pi/`, detected automatically from each agent's environment fingerprint. To pin it explicitly, set `ATOMIC_HARNESS=pi` in the agent's launcher, or `atomic config set harness.dir .pi` for plain-terminal use. The first `atomic repo init` from a pi session scaffolds `.pi/` fresh; nothing crosses between the two layouts. See [concepts](../reference/concepts.md) for the full resolution order.
+
+The Claude-specific pieces (the `~/.claude` artifact bundle, output style, hooks) stay Claude-only; other harnesses get the binary's deterministic layer, not the prompt artifacts.
+
+
 ## Keeping atomic current
 
 
@@ -98,7 +106,7 @@ To refresh the bundle on its own, without touching the binary:
 atomic claude update
 ```
 
-If you have edited your own `~/.claude/CLAUDE.md`, the update writes the new version to `~/.claude/.atomic/proposed/CLAUDE.md` and tells you to run `atomic prompt claude-merge` inside a subagent, which stages a merged result and preserves your changes. The full set of update flags and the merge flow are in the [install guide](/guides/install#updating).
+If you have edited your own `~/.claude/CLAUDE.md`, the update writes the new version to `~/.atomic/proposed/CLAUDE.md` and tells you to run `atomic prompt claude-merge` inside a subagent, which stages a merged result and preserves your changes. The full set of update flags and the merge flow are in the [install guide](/guides/install#updating).
 
 
 ## Where to go next

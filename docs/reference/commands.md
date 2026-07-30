@@ -10,6 +10,7 @@ Commands are explicit actions you invoke with a slash. They never auto-fire — 
 | `/atomic-plan` | Produce a spec for the work ahead. Small tasks get an inline checkpoint table; larger work gets a design doc and a derived spec. Nothing is implemented until you approve. |
 | `/gather-evidence` | Chase a hunch through primary sources before sinking a planning session into it. Pulls evidence from context7, official docs, source code, ast-grep, and run-it experiments. Returns `SUPPORTED` / `UNSUPPORTED` / `MIXED` / `INCONCLUSIVE` with cited evidence trail. Hearsay (blog posts, forum opinions) cannot produce `SUPPORTED`. |
 | `/pressure-test` | Challenge a design decision before committing to it. Asks hard questions, surfaces contradictions, and forces fuzzy maybes into yes or no. Pairs well with `/atomic-plan` as a pre-approval gate. |
+| `/challenge-swarm` | Attack a written design or spec from 4-6 isolated expert lenses running in parallel — security, performance, future maintainer, API consumer, ops, tester, end user. Reports a contradiction map: where the lenses conflict, where they independently agree, and what they all assumed without checking. Post-design gate before implementation. |
 
 
 ## Implementation
@@ -18,12 +19,13 @@ Commands are explicit actions you invoke with a slash. They never auto-fire — 
 |---------|-------------|
 | `/autopilot` | Run the whole lifecycle hands-off: plan, the implement-then-review loop, and ship, from a task description or an issue number. Fixes every reviewer finding as it goes, dispatches a read-only strategist for root-cause analysis when stuck, and asks just one thing — how to merge. Pass a merge verb (e.g. `/autopilot 29 commit squash merge`) to skip even that. |
 | `/subagent-implementation` | Run the implement-then-review loop from an approved spec. Creates an isolated worktree on request (asks if unspecified). Builder writes code, reviewer checks it, passing checkpoints get committed. |
+| `/quick-fix` | Run the implement-then-review loop without a spec, worktree, or finalize ceremony. For a fix with a known cause and one obvious approach; escalates to `/subagent-diagnose`, `/atomic-plan`, or `/subagent-implementation` if the assumption breaks. |
 | `/subagent-diagnose` | Investigate and fix a failure. `ci` mode starts from a failed CI run; `bug` mode starts from a description. Same loop as implementation. |
 
 
 ## Shipping
 
-All ship commands delegate commit messages to the `atomic-commit` skill.
+All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 
 | Command | What it does |
 |---------|-------------|
@@ -43,9 +45,9 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 
 | Command | What it does |
 |---------|-------------|
-| `/atomic-setup` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
-| `/refresh-signals` | Scan the project and generate (or update) the signals files that teach Claude your repo's shape. Idempotent. |
-| `/refresh-wiki` | Maintain a cross-repo wiki. Runs `atomic wiki scan` to classify member repos, refreshes stale or pending artifacts, and synthesizes capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-signals-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and offers a commit when done. Run `atomic wiki scan` first to scaffold the wiki directory. |
+| `/setup-wiki` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
+| `/refresh-wiki` | Scan the project and generate (or update) the signals files that teach Claude your repo's shape. Idempotent. |
+| `/refresh-wiki` | Maintain a cross-repo wiki. Runs `atomic wiki scan` to classify member repos, refreshes stale or pending artifacts, and synthesizes capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-wiki-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and offers a commit when done. Run `atomic wiki scan` first to scaffold the wiki directory. |
 
 
 ## Maintenance
@@ -57,7 +59,7 @@ All ship commands delegate commit messages to the `atomic-commit` skill.
 | `/remind-me` | Schedule a reminder (e.g. `/remind-me 2h check deploy`). Creates a cron-fired follow-up. |
 | `/follow-up` | Review pending reminders. Also used to triage stale project follow-ups with `/follow-up review`. |
 | `/session-report` | Capture what changed and why during this session. Read by the next ship command for commit message context, then deleted. |
-| `/atomic-improve` | Session retrospective. Mines session history and the current conversation for friction signals, cross-references against installed artifacts, and walks proposed improvements one at a time. Persists a run log so later runs detect drift on past accepts. |
+| `/retrospective-learning` | Session retrospective. Mines session history and the current conversation for friction signals, cross-references against installed artifacts, and walks proposed improvements one at a time. Persists a run log so later runs detect drift on past accepts. |
 
 
 ## Utilities
@@ -93,9 +95,33 @@ The `atomic wiki` subcommand manages the cross-repo wiki and capture buckets. Mo
 | `atomic wiki bucket promote <name>` | Advance the baseline after successful synthesis: recomputes the SHA-256 manifest, rotates `baseline→previous`, sets new manifest as `baseline`. After promote, `diff` exits `0`. |
 
 
+## Binary subcommands (`atomic bus`)
+
+`atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms, over a per-user daemon that auto-spawns on first use and is otherwise controlled explicitly via `start`/`stop`/`restart` — no idle shutdown. The `atomic-bus` skill wraps `join` + a `recv` Monitor and carries the addressed-vs-FYI reaction policy. Run `atomic bus --help` for full usage. See [bus reference](/reference/bus) for the room model, envelope shape, and daemon lifecycle.
+
+| Subcommand | What it does |
+|---------|-------------|
+| `atomic bus join <room> --as <name> [--mode participate\|observe] [--session <id>]` | Join a room under a name. Auto-spawns the daemon. A taken name retries once with a numeric suffix. |
+| `atomic bus leave [<room>]` | Leave a room; defaults to the session's last-joined room. |
+| `atomic bus send <room> <text> [--to <names>] [--reply-to <id>] [--json]` | Send a message. `--to` addresses it; omit for a room-wide FYI. Text `-` reads stdin. |
+| `atomic bus recv <room> [--json]` | Receive messages: always streams one JSON envelope per line until SIGTERM. No replay — only what is published after it subscribes. |
+| `atomic bus who [<room>] [--json]` | List a room's members; defaults to the session's last-joined room. |
+| `atomic bus rooms [--json]` | List every room the daemon knows about, with a member count per room. |
+| `atomic bus status [--json]` | Report this session's joined rooms and the daemon's state. |
+| `atomic bus serve` | Run the daemon in the foreground; this is what `start` spawns. Stopped via `bus stop`. |
+| `atomic bus start` | Spawn the daemon if none is listening. Idempotent. |
+| `atomic bus stop` | Stop a running daemon; exit 0 if none is running. |
+| `atomic bus restart` | Stop then start the daemon; the remedy for a protocol version mismatch. |
+| `atomic bus tail [<room>] [--all-rooms] [--only-addressed] [--from <name>] [--json]` | Watch a room's traffic without joining; never appears in `who`. No replay. |
+| `atomic bus say <room> <text> [--to <names>]` | Send a one-shot message as the operator, without joining. Always succeeds, even in a halted room. |
+| `atomic bus halt <room> [--text <why>]` | Stop a room: agent `send` fails with exit 7 until `resume`. |
+| `atomic bus resume <room>` | Clear a room's halt flag; restores agent `send`. |
+| `atomic bus chat <room> [--as <name>] [--session <id>]` | Interactive client. Joins as a human member; `@name`, `/who`, `/rooms`, `/halt`, `/resume`, `/quit`. |
+
+
 ## Binary subcommands (`atomic code`)
 
-The `atomic code` subcommand provides a code-intelligence index and query engine. When a project has been indexed, `atomic-investigator`, `atomic-reviewer`, and `atomic-signals-inferrer` query the symbol graph automatically; every consumer falls back to `sg`/`grep` when the index is absent. `atomic doctor` check 11 reports index health. Run `atomic code --help` for full usage.
+The `atomic code` subcommand provides a code-intelligence index and query engine. When a project has been indexed, `atomic-investigator`, `atomic-reviewer`, and `atomic-wiki-inferrer` query the symbol graph automatically; every consumer falls back to `sg`/`grep` when the index is absent. `atomic doctor` check 11 reports index health. Run `atomic code --help` for full usage.
 
 | Subcommand | What it does |
 |---------|-------------|

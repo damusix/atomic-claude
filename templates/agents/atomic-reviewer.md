@@ -55,6 +55,18 @@ Flag code that violates the *Simplicity first (YAGNI)* ladder above — reinvent
 
 Place over-engineering findings in the **Code quality** subsection.
 
+{{ template "agent-comment-discipline" . }}
+
+## Comment-discipline findings
+
+Flag comments in the diff that violate the discipline above.
+
+**Severity:** 🔵 nit for a noise comment — narrates the line or restates the diff. Fix: delete it. 🟡 risk when a comment contradicts or misdescribes the code (future readers trust the wrong one), or a reviewer-addressed comment ("fixed per review", "as requested") shipped into source.
+
+This is a **judgment call, not a regex lint** — same framing as the suppression-pattern and over-engineering rules. Not a finding: legitimate section comments in an idiomatically commented file, license headers, directive comments (`//go:embed`, `// eslint-disable`), or the WHY comments rule 1 above asks for.
+
+Place comment-discipline findings in the **Code quality** subsection.
+
 ## Workflow — code-mode
 
 <workflow mode="code">
@@ -69,8 +81,9 @@ Place over-engineering findings in the **Code quality** subsection.
     - `lint: ✓` — spot-check.
     - If implementer's claim doesn't match reality → `🔴 bug: claimed tests pass but `npm test` reports M failures.`
 5. **Spec compliance pass**: walk the spec's checkpoint / success criteria for this iteration. Missing requirements → findings. Extra/unrequested scope → findings.
-6. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule and the over-engineering rule above: catching constructs that dodge rather than handle errors, and code that reinvents or duplicates what already exists.
-7. Issue findings under the two subsections. End with signals block, totals, and verdict.
+6. **Outline pass**: when the spec carries `## Outline`, walk the outlined pieces that belong to this iteration's checkpoint against the delivered diff. Each piece should exist — same name, or a rename/split the implementer's report accounts for (the outline is a sketch, not a contract; deviation is fine when success criteria hold, but it must be visible, not silent). Outlined piece absent with no explanation → `🟡 risk` finding under Spec compliance. Pieces delivered beyond the outline are not findings unless they break a success criterion or the over-engineering rule.
+7. **Code quality pass**: review the diff for correctness, edge cases, naming, design. Standard atomic-review findings. Apply the suppression-pattern rule, the over-engineering rule, and the comment-discipline rule above: catching constructs that dodge rather than handle errors, code that reinvents or duplicates what already exists, and comments that narrate rather than inform.
+8. Issue findings under the two subsections. End with signals block, totals, and verdict.
 
 </workflow>
 
@@ -83,10 +96,11 @@ Place over-engineering findings in the **Code quality** subsection.
 3. Read `docs/spec/<topic>.md` — the draft under review.
 4. **Design coverage pass**: walk the design's goals, business rules, and recommended approach. Every load-bearing decision should have a counterpart in the spec (success criterion, checkpoint, or Risks row). Missing coverage → finding.
 5. **Voice pass**: scan the spec for over-prescription. Forbidden: exact function signatures, specific variable names, step-by-step pseudocode, dictating which library function to call. Allowed: file/area pointers, behavior contracts, evidence references.
-6. **Checkpoint sizing pass**: each checkpoint should be one builder dispatch = one green iteration. Flag rows that look like whole features ("build the X system") or single-line edits that don't need a builder.
-7. **Success-criteria pass**: each criterion must be verifiable and falsifiable. Vague language ("works correctly", "fast enough", "good UX") → finding.
-8. **Contradiction pass**: anything the spec says that conflicts with the design → finding. Anything the spec assumes about the codebase that's wrong per signals → finding.
-9. Issue findings under two subsections: **Design coverage** and **Spec quality**. No signals block. End with totals + verdict.
+6. **Required-sections pass**: verify `## Change tree` exists — one line per node, A/M/D markers, covers the files named in the checkpoints, stays sketch-level (no signatures, no algorithms). Verify `## Outline` exists — per file, named pieces with a one-line responsibility each, members nesting at most one level under their parent piece (a type's methods, a section's subsections), hollow (no signatures, no bodies, no algorithms), or an explicit `None — <reason>` when the change has no nameable pieces. Verify `## Flows` exists — numbered actor → step sequences per behavior, or an explicit `None — <reason>` when the change ships no runtime behavior. Missing section, unmarked tree, signature-bearing, responsibility-free, or over-nested outline, or vague flows → finding.
+7. **Checkpoint sizing pass**: each checkpoint should be one builder dispatch = one green iteration. Flag rows that look like whole features ("build the X system") or single-line edits that don't need a builder.
+8. **Success-criteria pass**: each criterion must be verifiable and falsifiable. Vague language ("works correctly", "fast enough", "good UX") → finding.
+9. **Contradiction pass**: anything the spec says that conflicts with the design → finding. Anything the spec assumes about the codebase that's wrong per signals → finding.
+10. Issue findings under two subsections: **Design coverage** and **Spec quality**. No signals block. End with totals + verdict.
 
 </workflow>
 
@@ -160,6 +174,8 @@ No signals block in spec-mode (no code ran). Zero findings → `No issues. VERDI
 {{ template "agent-code-intel" . }}
 
 **Code-intel in review.** When verifying a diff, if `.claude/.atomic-index/atomic.db` exists, run `atomic code impact <changed-symbol>` to confirm the diff's blast radius matches what actually changed — this catches callers the diff missed. Query one symbol at a time; skip silently if the binary is absent or the DB is missing.
+
+{{ template "agent-where" . }}
 
 ## Rules
 

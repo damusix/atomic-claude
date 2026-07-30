@@ -7,14 +7,14 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 )
 
-// TestRegistryCount verifies exactly 11 entries with stable indices 1–11.
+// TestRegistryCount verifies exactly 13 entries with stable indices 1–13.
 func TestRegistryCount(t *testing.T) {
 	cats := doctor.Categories()
-	if len(cats) != 11 {
-		t.Fatalf("registry len = %d, want 11", len(cats))
+	if len(cats) != 13 {
+		t.Fatalf("registry len = %d, want 13", len(cats))
 	}
 
-	// Indices must be 1..11 with no gaps.
+	// Indices must be 1..13 with no gaps.
 	for i, c := range cats {
 		want := i + 1
 		if c.Index != want {
@@ -37,6 +37,8 @@ func TestRegistryCategoryNames(t *testing.T) {
 		"config",
 		"profile",
 		"code-index",
+		"migrate",
+		"repo-config",
 	}
 	cats := doctor.Categories()
 	for i, want := range wantNames {
@@ -61,6 +63,8 @@ func TestRegistryCategorySeverities(t *testing.T) {
 		doctor.WARN, // 9 config
 		doctor.WARN, // 10 profile
 		doctor.WARN, // 11 code-index
+		doctor.WARN, // 12 migrate
+		doctor.WARN, // 13 repo-config
 	}
 	cats := doctor.Categories()
 	for i, want := range wantSeverities {
@@ -88,17 +92,17 @@ func TestRunFiltersByOnly(t *testing.T) {
 	}
 }
 
-// TestRunFiltersBySkip verifies Run with Skip=[2,4,6,8] returns indices [1,3,5,7,9,10,11].
+// TestRunFiltersBySkip verifies Run with Skip=[2,4,6,8] returns indices [1,3,5,7,9,10,11,12,13].
 func TestRunFiltersBySkip(t *testing.T) {
 	opts := doctor.Opts{Skip: []int{2, 4, 6, 8}, StaleDays: 7}
 	results, err := doctor.Run(opts)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(results) != 7 {
-		t.Fatalf("Run returned %d results, want 7", len(results))
+	if len(results) != 9 {
+		t.Fatalf("Run returned %d results, want 9", len(results))
 	}
-	wantIndices := []int{1, 3, 5, 7, 9, 10, 11}
+	wantIndices := []int{1, 3, 5, 7, 9, 10, 11, 12, 13}
 	for i, want := range wantIndices {
 		if results[i].Index != want {
 			t.Errorf("results[%d].Index = %d, want %d", i, results[i].Index, want)
@@ -228,11 +232,11 @@ func TestFlagParsingRejectsUnknownCategory(t *testing.T) {
 	}
 }
 
-// TestFlagParsingRejectsOutOfRangeIndex verifies --only rejects index 0 and >11.
+// TestFlagParsingRejectsOutOfRangeIndex verifies --only rejects index 0 and >13.
 func TestFlagParsingRejectsOutOfRangeIndex(t *testing.T) {
-	_, err := doctor.ParseFlags([]string{"--only", "12"})
+	_, err := doctor.ParseFlags([]string{"--only", "14"})
 	if err == nil {
-		t.Fatal("expected error for out-of-range index 12, got nil")
+		t.Fatal("expected error for out-of-range index 14, got nil")
 	}
 
 	_, err = doctor.ParseFlags([]string{"--only", "0"})

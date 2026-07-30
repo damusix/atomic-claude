@@ -91,7 +91,7 @@ Prompt per item (axiom 3: destructive ops explicit confirm). Each repair is idem
 |-------|--------|
 | Install integrity drift | Re-run `atomic claude install --merge` |
 | Hooks missing | `atomic hooks install` |
-| Signals stale | **Cannot auto-fix** — CLI cannot dispatch the `atomic-signals-inferrer` agent. Print: `run /refresh-signals from Claude Code to refresh.` |
+| Signals stale | **Cannot auto-fix** — CLI cannot dispatch the `atomic-wiki-inferrer` agent. Print: `run /refresh-wiki from Claude Code to refresh.` |
 | `@-refs` missing | Append block to `CLAUDE.md` (or `claude.local.md` if user picks) |
 | Bundle manifest stale | `go generate ./...` — fail loud if not in atomic repo |
 | Followups schema | Print malformed entries with line numbers; refuse to auto-edit (content-level — human authorship) |

@@ -53,7 +53,7 @@ flowchart TD
         haiku["atomic-haiku"]
         builder["atomic-builder / surgeon"]
         rev["atomic-reviewer"]
-        sig["atomic-signals-inferrer"]
+        sig["atomic-wiki-inferrer"]
     end
     db[("code index<br/>.claude/.atomic-index/atomic.db")]
     grep["sg / grep / heuristics"]
@@ -103,7 +103,7 @@ Two candidate shapes for the agent-facing guidance:
 | A | Overload `agent-search-tooling` with the code-intel tier + graph verbs | one partial, already composed into investigator/builder/surgeon | muddies single-responsibility (search-tool-selection vs graph queries); graph verbs have no grep equivalent; reviewer/haiku/signals-inferrer don't carry search-tooling and don't need its full grep/sg paragraph |
 | B | New dedicated `agent-code-intel` partial; one-line bridge added to `agent-search-tooling` | single-responsibility per partial (matches repo philosophy); composed only where relevant; graph verbs + degradation live in one place | one more partial in the shared pool |
 
-**Recommendation: B.** Create `templates/shared/agent-code-intel.md` covering (1) when an index exists, `code search` outranks sg/grep for symbol location; (2) the graph verbs (`callers`/`callees`/`impact`) as novel capabilities; (3) bounded-query discipline (one symbol, never a full-graph dump); (4) the degradation contract. Compose it into `agent-implementer-workflow` (reaches builder + surgeon), `atomic-investigator`, `atomic-reviewer`, `atomic-haiku`, `atomic-signals-inferrer`. Add a one-line bridge to `agent-search-tooling` so its tiering points at code-intel as the top tier when an index is present, keeping the two partials coherent without duplication.
+**Recommendation: B.** Create `templates/shared/agent-code-intel.md` covering (1) when an index exists, `code search` outranks sg/grep for symbol location; (2) the graph verbs (`callers`/`callees`/`impact`) as novel capabilities; (3) bounded-query discipline (one symbol, never a full-graph dump); (4) the degradation contract. Compose it into `agent-implementer-workflow` (reaches builder + surgeon), `atomic-investigator`, `atomic-reviewer`, `atomic-haiku`, `atomic-wiki-inferrer`. Add a one-line bridge to `agent-search-tooling` so its tiering points at code-intel as the top tier when an index is present, keeping the two partials coherent without duplication.
 
 ## Doctor check scope
 
@@ -119,5 +119,5 @@ Never FAIL — the index is never a hard requirement.
 
 ## Open questions
 
-- Should `/refresh-signals` *offer* to run the cold-start `code index` (interactive prompt), or only use the index when already warm and otherwise stay on filename heuristics? Leaning: offer once, remember the decline per axiom 2 (memory), so a user who opts out is not re-asked every refresh. The spec checkpoints the offer; the memory-of-decline can be a follow-up if it complicates CP3.
+- Should `/refresh-wiki` *offer* to run the cold-start `code index` (interactive prompt), or only use the index when already warm and otherwise stay on filename heuristics? Leaning: offer once, remember the decline per axiom 2 (memory), so a user who opts out is not re-asked every refresh. The spec checkpoints the offer; the memory-of-decline can be a follow-up if it complicates CP3.
 - `/refresh-wiki` indexes each member repo — on a realm of many large repos this is a real time cost. Leaning: sync-if-warm, index-only-on-explicit-opt-in per repo, degrade to summary-without-graph otherwise. Spec treats cross-repo indexing as best-effort and degradable.

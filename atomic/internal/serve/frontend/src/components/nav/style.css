@@ -1,0 +1,102 @@
+/* nav/ — top bar (brand/breadcrumb/search/theme/connection) and the left nav
+   Ark TreeView. #app-header, .breadcrumb, .search-trigger, .theme-toggle,
+   .conn-indicator, #nav-pane, and .nav-item are already styled globally by
+   the carried public/app.css (same selectors the pre-cutover markup used) —
+   this file only adds what's new: the TreeView's own data-part hooks and the
+   stale badge, built from app.css's custom properties, never redefined here. */
+
+.nav-badge-stale {
+  margin-left: 6px;
+  font-size: 8px;
+  color: var(--c-knowledge-ink);
+}
+
+.nav-folder {
+  cursor: pointer;
+  user-select: none;
+}
+
+.nav-empty {
+  display: block;
+  padding: 4px 12px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+[data-scope="tree-view"][data-part="branch-control"] {
+  display: flex;
+  align-items: center;
+}
+
+[data-scope="tree-view"][data-part="branch-control"]::before {
+  content: "▸ ";
+  color: var(--ink-ghost);
+}
+
+[data-scope="tree-view"][data-part="branch-control"][data-state="open"]::before {
+  content: "▾ ";
+}
+
+/* VSCode-explorer-style nesting: children indent inside a hairline indent
+   guide; leaves carry a file icon that aligns with folder chevrons. */
+[data-scope="tree-view"][data-part="branch-content"] {
+  margin-left: 7px;
+  padding-left: 10px;
+  border-left: 1px solid var(--hairline);
+}
+
+.nav-leaf-icon {
+  flex-shrink: 0;
+  margin-right: 6px;
+  vertical-align: -2px;
+  color: var(--ink-ghost);
+}
+
+.nav-item {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Deeply nested labels stay on one line (min 120px of label room) and the
+   pane scrolls horizontally instead of wrapping entries into tall slivers. */
+#nav-pane {
+  overflow-x: auto;
+}
+
+#nav-pane .nav-item,
+#nav-pane [data-part="branch-text"] {
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+/* Group headers (Realm/Repos/Knowledge/...) are top-level TreeView branches —
+   same visual contract as the pre-cutover summary.nav-group, minus the
+   <details> element (the branch-control ::before above supplies the ▸/▾). */
+.nav-group-control {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-soft);
+  padding: 8px 8px 4px;
+  cursor: pointer;
+  user-select: none;
+  gap: 6px;
+  border-radius: 7px;
+  transition: background 0.12s;
+}
+
+.nav-group-control:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+/* Breathing room between top-level groups; their children indent less than
+   nested folders (the group chevron already provides the inset). */
+[data-scope="tree-view"][data-part="tree"] > [data-part="branch"] {
+  margin-top: 6px;
+}
+
+[data-scope="tree-view"][data-part="tree"] > [data-part="branch"] > [data-part="branch-content"] {
+  padding-left: 8px;
+}

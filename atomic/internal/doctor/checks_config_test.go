@@ -307,6 +307,10 @@ func TestRepairPlan_configWARN_fixable(t *testing.T) {
 
 	var repairCalled bool
 	rp := doctor.DefaultRepairer()
+	// HomeFn must be overridden too: applyConfigRepair resolves home itself
+	// before calling ConfigFn, so without this the test still hits the real
+	// $HOME regardless of what ConfigFn does with the home arg it receives.
+	rp.HomeFn = func() (string, error) { return root, nil }
 	rp.ConfigFn = func(home string) error {
 		repairCalled = true
 		// Actually do the repair so the summary says Applied=1.
@@ -321,6 +325,157 @@ func TestRepairPlan_configWARN_fixable(t *testing.T) {
 	}
 	if !repairCalled {
 		t.Error("repair function was not called for WARN severity — should be fixable")
+	}
+}
+
+// TestCheckConfig_noInstallTable: config.toml without [install] is valid (pre-framework state).
+func TestCheckConfig_noInstallTable(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[output.signals]\nmax_depth = 3\n")
+
+	cfg, _, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS (no [install] is valid pre-framework state); detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// TestCheckConfig_invalidInstallVersion: non-semver install.version → FAIL.
+func TestCheckConfig_invalidInstallVersion(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[install]\nversion = \"not-a-semver\"\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.FAIL {
+		t.Errorf("severity = %q, want FAIL for invalid install.version; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "install.version") {
+		t.Errorf("detail %q: want mention of 'install.version'", r.Detail)
+	}
+}
+
+// TestCheckConfig_validInstallVersion: parseable install.version + in-sync resolved → PASS.
+func TestCheckConfig_validInstallVersion(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, `[install]
+version = "1.2.3"
+[install.artifacts]
+agents = ["atomic-implementer.md"]
+commands = ["commit.md"]
+skills = []
+output-styles = []
+rules = []
+`)
+
+	cfg, warns, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("unexpected warnings: %v", warns)
+	}
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS for valid install.version; detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// --- [claude.agents] doctor tests (CP2) ---
+
+// TestCheckConfig_agents_invalidEffort: [claude.agents.<name>] with an invalid
+// effort value → FAIL. effort is validated against a strict enum; model is
+// lenient (see TestCheckConfig_agents_arbitraryModelNotFail).
+func TestCheckConfig_agents_invalidEffort(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[claude.agents.atomic-implementer]\neffort = \"turbo\"\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.FAIL {
+		t.Errorf("severity = %q, want FAIL for invalid agent effort; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "atomic-implementer") {
+		t.Errorf("detail %q: want mention of agent name 'atomic-implementer'", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "effort") {
+		t.Errorf("detail %q: want mention of 'effort'", r.Detail)
+	}
+}
+
+// TestCheckConfig_agents_arbitraryModelNotFail: [claude.agents] model value
+// is lenient — any well-formed string passes doctor's config check, since
+// Claude Code (not atomic) resolves the model name.
+func TestCheckConfig_agents_arbitraryModelNotFail(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[claude.agents.atomic-implementer]\nmodel = \"turbo\"\n")
+
+	// Pre-render resolved.md so drift doesn't confound the severity.
+	cfg, warns, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	_ = warns
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity == doctor.FAIL {
+		t.Errorf("severity = %q, want not-FAIL for arbitrary (lenient) model value; detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// TestCheckConfig_agents_unknownAgent: [claude.agents] with an unknown agent key → WARN, not FAIL.
+func TestCheckConfig_agents_unknownAgent(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[claude.agents.made-up-agent]\nmodel = \"haiku\"\n")
+
+	// Pre-render resolved.md so drift doesn't confound the severity.
+	cfg, warns, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	_ = warns
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %q, want WARN for unknown agent key; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "made-up-agent") {
+		t.Errorf("detail %q: want mention of 'made-up-agent'", r.Detail)
+	}
+}
+
+// TestCheckConfig_agents_valid: [claude.agents] with known agents + valid model/effort → PASS (when resolved synced).
+func TestCheckConfig_agents_valid(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, `[claude.agents.atomic-implementer]
+model = "sonnet"
+
+[claude.agents.atomic-investigator]
+model = "haiku"
+
+[claude.agents.atomic-strategist]
+model = "opus"
+`)
+
+	cfg, warns, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("unexpected structural warnings: %v", warns)
+	}
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS for valid [claude.agents]; detail: %s", r.Severity, r.Detail)
 	}
 }
 

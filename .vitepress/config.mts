@@ -114,7 +114,7 @@ export default defineConfig({
     srcDir: 'docs',
     base: '/',
     // Internal contract docs — kept in-repo for contributors, excluded from the public site.
-    srcExclude: ['spec/**', 'design/**'],
+    srcExclude: ['spec/**', 'design/**', 'wiki/**'],
     head: [
         ['link', { rel: 'icon', type: 'image/png', href: '/logo.png' }],
         ['meta', { property: 'og:image', content: '/share-image.png' }],
@@ -167,6 +167,7 @@ export default defineConfig({
                     { text: 'Wiki Workflow', link: '/reference/wiki-workflow' },
                     { text: 'Code Intelligence', link: '/reference/code-intel' },
                     { text: 'Serve', link: '/reference/serve' },
+                    { text: 'Inter-session Bus', link: '/reference/bus' },
                     { text: 'Conventions', link: '/reference/conventions' },
                 ],
             },

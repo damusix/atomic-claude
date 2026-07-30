@@ -37,11 +37,28 @@ var reSubagentType = regexp.MustCompile(`subagent_type:\s*["']([a-zA-Z][a-zA-Z0-
 //
 // Grammar: @([./a-zA-Z0-9_-]+\.[a-zA-Z]{2,4})
 //
-// C5: @-ref grammar. The pattern is intentionally simple — it matches the
-// actual @-ref syntax used by Claude Code (e.g. @.claude/project/signals.md)
-// without false-positives on email addresses (which contain @ but not
-// extension-terminated paths) or markdown links.
+// C5: @-ref grammar. The pattern matches the actual @-ref syntax used by
+// Claude Code (e.g. @.claude/project/signals.md). It is deliberately loose on
+// the right of the @; the email guard in runC5 (isEmailLocalChar) rejects any
+// match whose @ is preceded by an email local-part character, so `bob@host.com`
+// in prose is not mistaken for a file include (issue #159).
 var reAtRef = regexp.MustCompile(`@([./a-zA-Z0-9_-]+\.[a-zA-Z]{2,4})`)
+
+// isEmailLocalChar reports whether b can appear in an email address local part
+// (the text left of the @). A real @-ref sits at a word boundary — line start,
+// whitespace, or opening punctuation like ( or backtick — never immediately
+// after a local-part character. RE2 has no lookbehind, so the guard is applied
+// at match time in runC5 rather than in the regex itself.
+func isEmailLocalChar(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
+		return true
+	case b == '.', b == '_', b == '%', b == '+', b == '-':
+		return true
+	default:
+		return false
+	}
+}
 
 // RunConfigRules runs C3, C5, C7, C9 on the repo rooted at repoRoot.
 // Returns findings sorted by (Path, Line, Rule) and any filesystem error.
@@ -160,6 +177,11 @@ func runC5(repoRoot string) ([]Finding, error) {
 		for _, seg := range segments {
 			matches := reAtRef.FindAllStringSubmatchIndex(seg.Text, -1)
 			for _, loc := range matches {
+				// Skip email addresses: an @ preceded by a local-part char
+				// (bob@host.com) is not a file include (issue #159).
+				if loc[0] > 0 && isEmailLocalChar(seg.Text[loc[0]-1]) {
+					continue
+				}
 				refPath := seg.Text[loc[2]:loc[3]]
 				// Resolve relative to the repo root (not the file's directory).
 				target := filepath.Join(repoRoot, filepath.FromSlash(refPath))

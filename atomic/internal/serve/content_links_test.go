@@ -25,14 +25,13 @@ func TestRenderLinks_RelativeMdBecomesHtmxPageLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	// Resolved against the realm root, not the browser URL.
+	// Resolved against the realm root, not the browser URL — a plain href;
+	// React Router intercepts in-shell navigation client-side (no hx-get).
 	if !strings.Contains(html, `href="/page/wiki/concerns/x.md"`) {
 		t.Errorf("expected realm-resolved /page href; got:\n%s", html)
 	}
-	// htmx-navigated so the shell is preserved.
-	if !strings.Contains(html, `hx-get="/page/wiki/concerns/x.md"`) ||
-		!strings.Contains(html, `hx-target="#main-pane"`) {
-		t.Errorf("expected htmx navigation attributes; got:\n%s", html)
+	if strings.Contains(html, "hx-get") {
+		t.Errorf("renderer must not emit hx-get attributes; got:\n%s", html)
 	}
 	// The raw "../" form must not survive — that's what the browser mis-resolves.
 	if strings.Contains(html, "../concerns/x.md") {
@@ -112,8 +111,8 @@ func TestRenderLinks_UnresolvedWithinRealmStaysInShell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("render: %v", err)
 	}
-	if !strings.Contains(html, `hx-get="/page/missing.md"`) {
-		t.Errorf("unresolved in-realm link should still navigate in-shell; got:\n%s", html)
+	if !strings.Contains(html, `href="/page/missing.md"`) {
+		t.Errorf("unresolved in-realm link should still route through /page/; got:\n%s", html)
 	}
 }
 

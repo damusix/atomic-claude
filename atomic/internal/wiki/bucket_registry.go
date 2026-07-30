@@ -271,7 +271,13 @@ func writeCaptureSurfacesSection(claudeMDPath, name, absPath string) error {
 }
 
 // createBucketIndexStub writes <bucketDir>/index.md if absent.
-// The stub contains the bucket name as a heading and a ## Conventions placeholder.
+//
+// The stub carries OKF frontmatter (title, type: Bucket, description
+// placeholder), the bucket name as an H1, a purpose placeholder, a
+// ## Conventions section, and an empty `<bucket-docs>` region — so the
+// first RebuildBucketIndex fills an existing well-formed region rather than
+// appending a fresh one at EOF.
+//
 // If index.md already exists, this is a no-op.
 func createBucketIndexStub(bucketDir, name string) error {
 	indexPath := fmt.Sprintf("%s/index.md", bucketDir)
@@ -280,6 +286,18 @@ func createBucketIndexStub(bucketDir, name string) error {
 		return nil
 	}
 
-	content := fmt.Sprintf("# %s\n\n<!-- Describe what this bucket is for -->\n\n## Conventions\n\n<!-- Add conventions for files in this bucket -->\n", name)
-	return writeFileAtomic(indexPath, []byte(content))
+	var sb strings.Builder
+	sb.WriteString("---\n")
+	fmt.Fprintf(&sb, "title: %s\n", name)
+	sb.WriteString("type: Bucket\n")
+	sb.WriteString("description: <Describe what this bucket is for>\n")
+	sb.WriteString("---\n\n")
+	fmt.Fprintf(&sb, "# %s\n\n", name)
+	sb.WriteString("<!-- Describe what this bucket is for -->\n\n")
+	sb.WriteString("## Conventions\n\n")
+	sb.WriteString("<!-- Add conventions for files in this bucket -->\n\n")
+	sb.WriteString(renderManagedRegion(managedRegion{tag: "bucket-docs"}))
+	sb.WriteString("\n")
+
+	return writeFileAtomic(indexPath, []byte(sb.String()))
 }

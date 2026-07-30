@@ -9,8 +9,25 @@ import (
 // Render produces a deterministic markdown snapshot of resolved config values.
 // Keys are sorted. No timestamps. Byte-stable for same input.
 // An empty Config still renders a file with the header so the @-ref resolves.
+//
+// Unlike Resolved (the user-facing list), Render includes machine-written
+// sections such as [claude.agents] so the auto-loaded config.resolved.md
+// reflects the full active configuration including per-agent overrides.
 func Render(cfg *Config) string {
+	// Start from user-settable keys.
 	m := Resolved(cfg)
+	// Merge in [claude.agents] overrides. These are machine-written (not
+	// user-settable via `atomic config set`), but belong in the rendered file
+	// so sessions reading config.resolved.md can see which agents are pinned
+	// to which model and/or effort.
+	for agentName, ov := range cfg.Claude.Agents {
+		if ov.Model != "" {
+			m["claude.agents."+agentName+".model"] = ov.Model
+		}
+		if ov.Effort != "" {
+			m["claude.agents."+agentName+".effort"] = ov.Effort
+		}
+	}
 
 	// Sort keys for determinism.
 	keys := make([]string, 0, len(m))
@@ -73,8 +90,15 @@ func Resolved(cfg *Config) map[string]string {
 	if !runDoctor && zeroValueConfig {
 		runDoctor = runDoctorDefault
 	}
+	// harness.dir: an empty string is never a valid explicit value (see
+	// Load's backfill comment), so it unambiguously means "use default".
+	harnessDirVal := cfg.Harness.Dir
+	if harnessDirVal == "" {
+		harnessDirVal = harnessDirDefault
+	}
 	return map[string]string{
 		"output.signals.max_depth": fmt.Sprintf("%d", maxDepth),
 		"update.run_doctor":        fmt.Sprintf("%t", runDoctor),
+		"harness.dir":              harnessDirVal,
 	}
 }

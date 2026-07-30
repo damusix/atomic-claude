@@ -27,12 +27,18 @@ package indexer
 import (
 	"context"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/standalone"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
+
+// sqlStringIdentifierRE is the C1 identifier-shape filter for speculative
+// sql_string refs: min 3 chars before any dot, at most one dot, no other
+// punctuation or whitespace. Verbatim from docs/spec/sql-string-match.md C1.
+var sqlStringIdentifierRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{2,}(\.[A-Za-z_][A-Za-z0-9_]+)?$`)
 
 // embeddedSQLHostExts is the set of file extensions that receive the embedded
 // SQL post-pass. Only extensions wired with a harvester below will actually
@@ -188,9 +194,29 @@ func embeddedSQLPostPass(
 	// We need nodes with real line spans. The file node is the fallback.
 	fileNodeID := "file:" + relPath
 	ownerNodes := result.Nodes // includes file node + all extracted symbols
+	hostLang := extToLanguage[ext]
+
+	// sqlStringSeen dedupes (owner, literal) pairs emitted as speculative
+	// sql_string refs for this file — C1's dedupe requirement. sqlFragmentSeen
+	// mirrors it for sql_fragment tokens (C8) — kept separate so a fragment
+	// token and a same-text sql_string literal from the same owner (e.g.
+	// "name") never collide across kinds.
+	sqlStringSeen := make(map[string]bool)
+	sqlFragmentSeen := make(map[string]bool)
 
 	for _, span := range spans {
 		if !standalone.IsSQLLiteral(span.Text) {
+			// Gate failure: not embedded SQL. Still speculatively harvest it
+			// as a sql_string ref (C1) when it looks identifier-shaped —
+			// resolution passes A/B (C2/C3) decide later whether it names a
+			// real SQL object.
+			ownerID := findOwnerNode(ownerNodes, span.StartLine, fileNodeID)
+			if sqlStringIdentifierRE.MatchString(span.Text) {
+				emitSpeculativeSQLStringRef(relPath, ownerID, hostLang, span, sqlStringSeen, result)
+			} else {
+				// C1 identifier shape also failed: try the C8 fragment gate.
+				emitSpeculativeSQLFragmentRefs(relPath, ownerID, hostLang, span, sqlFragmentSeen, result)
+			}
 			continue
 		}
 
@@ -206,6 +232,45 @@ func embeddedSQLPostPass(
 		result.Edges = append(result.Edges, embedded.Edges...)
 		result.UnresolvedReferences = append(result.UnresolvedReferences, embedded.UnresolvedReferences...)
 	}
+}
+
+// emitSpeculativeSQLStringRef appends a speculative UnresolvedReference with
+// ReferenceKind sql_string to result when span.Text is identifier-shaped and
+// has not already been emitted for (ownerID, span.Text) in this file — C1.
+//
+// hostLang guards against ever running on a SQL host file: the postpass only
+// runs for tree-sitter-extracted host languages (embeddedSQLHostExts never
+// contains LanguageSQL — see the init() DANGER comment above), so this is a
+// belt-and-suspenders check, not a reachable branch today.
+func emitSpeculativeSQLStringRef(
+	relPath, ownerID string,
+	hostLang types.Language,
+	span standalone.StringLiteralSpan,
+	seen map[string]bool,
+	result *types.ExtractionResult,
+) {
+	if hostLang == types.LanguageSQL {
+		return
+	}
+	if !sqlStringIdentifierRE.MatchString(span.Text) {
+		return
+	}
+	dedupeKey := ownerID + "\x00" + span.Text
+	if seen[dedupeKey] {
+		return
+	}
+	seen[dedupeKey] = true
+
+	result.UnresolvedReferences = append(result.UnresolvedReferences, types.UnresolvedReference{
+		ID:            extraction.GenerateRefID(ownerID, span.Text, string(types.ReferenceKindSQLString), span.StartLine, 0),
+		FromNodeID:    ownerID,
+		ReferenceName: span.Text,
+		ReferenceKind: types.ReferenceKindSQLString,
+		Line:          span.StartLine,
+		FilePath:      relPath,
+		Language:      hostLang,
+		CalleeExpr:    span.CalleeExpr,
+	})
 }
 
 // findOwnerNode returns the ID of the narrowest node in nodes whose

@@ -10,15 +10,15 @@ That lifecycle is a loop in the loop-engineering sense: every stage ends at an o
 Before your first session in a new project, two commands teach Claude what it is looking at:
 
 ```
-/atomic-setup
-/refresh-signals
+/setup-wiki
+/refresh-wiki
 ```
 
-`/atomic-setup` audits your repo for missing conventions (`.gitignore` entries, `docs/` layout, starter `CLAUDE.md`) and proposes only what is missing. `/refresh-signals` scans the project and generates the [signals files](/reference/signals-workflow) that give Claude a map of your framework, build commands, and project structure.
+`/setup-wiki` audits your repo for missing conventions (`.gitignore` entries, `docs/` layout, starter `CLAUDE.md`) and proposes only what is missing. `/refresh-wiki` scans the project and generates the [signals files](/reference/signals-workflow) that give Claude a map of your framework, build commands, and project structure.
 
 You only need to do this once per repo. Signals refresh automatically after that — ship commands re-scan whenever source files change.
 
-For deeper structural queries, run `atomic code index` to build a symbol graph of the project. Once indexed, you can ask `atomic code explore "<question>"` for a one-shot context digest, and the implementation agents query the graph for callers and blast radius instead of grepping. This is also a one-time setup step. `atomic code sync` keeps the index current, and the ship commands and `/refresh-signals` run it for you. See the [code-intel reference](/reference/code-intel).
+For deeper structural queries, run `atomic code index` to build a symbol graph of the project. Once indexed, you can ask `atomic code explore "<question>"` for a one-shot context digest, and the implementation agents query the graph for callers and blast radius instead of grepping. This is also a one-time setup step. `atomic code sync` keeps the index current, and the ship commands and `/refresh-wiki` run it for you. See the [code-intel reference](/reference/code-intel).
 
 If you work across several repos in one realm — a folder of services, a set of libraries, your client projects — a wiki gives Claude a map of how they relate, one level up from per-repo signals. Set one up with `/refresh-wiki`; see [wiki workflow](/reference/wiki-workflow).
 
@@ -29,7 +29,7 @@ If you work across several repos in one realm — a folder of services, a set of
 /atomic-plan
 ```
 
-You and Claude produce a spec together. For small tasks, this is an inline checkpoint table in `docs/spec/`. For larger work, Claude writes a design doc first (`docs/design/`) and then derives the spec from it. Nothing gets implemented until you approve the plan.
+You and Claude produce a spec together. For small tasks, this is an inline checkpoint table in `docs/spec/`. For larger work, Claude writes a design doc first (`docs/design/`) and then derives the spec from it. Nothing gets implemented until you approve the plan. Every spec also carries a change tree of the files it will create, modify, or remove, a hollow outline of the named pieces inside those files, and the flows it implements, so you can inspect blast radius, shape, and behavior before you approve it — and the reviewer later walks the delivered work against the outline.
 
 If the plan rests on an unverified hunch, `/atomic-plan` will suggest `/gather-evidence` before continuing — you decide whether to gather first or proceed at risk.
 
@@ -45,6 +45,17 @@ When the work ahead rests on a factual hunch ("library X supports Y", "our codeb
 Returns one of `SUPPORTED`, `UNSUPPORTED`, `MIXED`, or `INCONCLUSIVE` with a clear recommendation: proceed to `/atomic-plan`, abandon, refine the hypothesis, or dig deeper. Skip this step when the work is grounded in code you've already read — but reach for it the moment you catch yourself assuming.
 
 
+### Challenge the written design (optional)
+
+```
+/challenge-swarm @docs/spec/<topic>.md
+```
+
+Once a design or spec exists, `/challenge-swarm` subjects it to independent expert scrutiny before any code gets written. It picks 4-6 lenses that fit the change — security, performance, future maintainer, API consumer, ops, tester, end user — and dispatches each as an isolated subagent that cannot see the others' findings. The results merge into a contradiction map: where the lenses pull in opposite directions, where they independently agree, and what they all assumed without checking. The disagreements are the point — they name the trade-off decisions the design still has to make explicit.
+
+The report lives in the conversation; fold accepted findings back through `/atomic-plan` or file them as follow-ups. Where `/pressure-test` is a dialogue in which you defend your thinking, `/challenge-swarm` is a parallel attack on the written artifact. Run either or both.
+
+
 ## 2. Implement
 
 ```
@@ -54,6 +65,15 @@ Returns one of `SUPPORTED`, `UNSUPPORTED`, `MIXED`, or `INCONCLUSIVE` with a cle
 Claude reads the approved spec and runs an autonomous implement-then-review loop — Anthropic's evaluator-optimizer pattern, applied per checkpoint. A builder agent writes code (failing test first), a reviewer agent checks it against an objective gate (the tests), and each passing checkpoint gets committed automatically. Non-blocking findings (risks, nits, questions) accumulate in a ledger that you review at the end — nothing gets silently dropped. When the loop gets stuck — the same failure surviving two rounds of fixes, or the reviewer flagging error-swallowing patches that dodge the bug instead of fixing it — it stops grinding and surfaces a root-cause path: a pressure-test prompt or a read-only strategist analysis you can run, rather than piling on more suppression.
 
 If the project is indexed, the loop uses the code-intel graph throughout. It indexes the project at the start of the task, the investigator leads with `atomic code explore` to scope each surface, the reviewer checks blast radius with `atomic code impact`, and the orchestrator runs `atomic code sync` after each committed checkpoint so the graph reflects the latest code. When no index is present the agents fall back to plain search, so the loop runs either way.
+
+
+### Skip planning: /quick-fix
+
+```
+/quick-fix <task description>
+```
+
+For a fix with a known cause and one obvious approach, `/quick-fix` skips the plan entirely. It runs the same implement-then-review loop as `/subagent-implementation`, minus the spec, the worktree, and the finalize ceremony, so a straightforward change lands faster. The moment the fix turns out less obvious than it looked, it stops and hands off to `/subagent-implementation` or `/atomic-plan` instead of grinding on a wrong assumption.
 
 
 ### Hands-off: /autopilot
@@ -107,15 +127,15 @@ Not everything gets resolved in the same session. Reminders are time-based nudge
 Both mechanisms exist because shipping is not the end. The things you deferred during implementation should not silently rot.
 
 
-## 6. Improve
+## 6. Retrospective
 
 ```
-/atomic-improve
+/retrospective-learning
 ```
 
-After a long session or a run of friction, `/atomic-improve` looks back. It mines your session history and the current conversation for corrections, repeated requests, and places where Claude misbehaved, then cross-references those signals against your installed artifacts (commands, skills, agents, CLAUDE.md). It walks proposed improvements one at a time; you accept, modify, or skip each. A run log persists to `~/.claude/.atomic/improve-runs/`, so a later run can tell whether a past accept actually landed or quietly drifted back.
+After a long session or a run of friction, `/retrospective-learning` looks back. It mines your session history and the current conversation for corrections, repeated requests, and places where Claude misbehaved, then cross-references those signals against your installed artifacts (commands, skills, agents, CLAUDE.md). It walks proposed improvements one at a time; you accept, modify, or skip each. A run log persists to `~/.atomic/retro-runs/`, so a later run can tell whether a past accept actually landed or quietly drifted back.
 
-This is the stage that closes the loop. Shipping a feature teaches you something about how you and Claude work together, and `/atomic-improve` is where that lesson becomes a durable config change instead of a frustration you re-hit next week.
+This is the stage that closes the loop. Shipping a feature teaches you something about how you and Claude work together, and `/retrospective-learning` is where that lesson becomes a durable config change instead of a frustration you re-hit next week.
 
 
 ## Lost? Start with the router
@@ -134,7 +154,7 @@ Claude Code already knows how to commit and push. The reason atomic-claude wraps
 
 - **Signals refresh** — when source files changed, the command re-scans the project so Claude's map stays current
 - **Doc-impact check** — checks whether your change affects documentation and prompts you to update the relevant surfaces
-- **Commit message discipline** — messages are generated by the `atomic-commit` skill in Conventional Commits format, drawn from the diff and any session reports
+- **Commit message discipline** — messages are generated by the `atomic-git-discipline` skill in Conventional Commits format, drawn from the diff and any session reports
 - **Verification gate** — merge commands run `atomic-verify` before touching the base branch, re-running tests on the merged tip
 
 Documentation is almost always an afterthought. These commands make it part of the flow rather than something you remember to do later.

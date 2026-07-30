@@ -51,6 +51,7 @@ func nopRepairer() doctor.Repairer {
 		ManifestFn:        func(io.Writer) error { return nil },
 		FollowupsRenderFn: func(io.Writer) error { return nil },
 		ConfigFn:          func(string) error { return nil },
+		HomeFn:            func() (string, error) { return os.TempDir(), nil },
 		IsRepoDevFn:       func() (bool, error) { return true, nil },
 		RepoRootFn:        func() string { return os.TempDir() },
 	}
@@ -410,7 +411,7 @@ func TestRepair_Refs_NoExistingCandidates_DefaultsToClaudeMD(t *testing.T) {
 		t.Fatalf("CLAUDE.md not created: %v", err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "@.claude/project/signals.md") {
+	if !strings.Contains(content, "@docs/wiki/index.md") {
 		t.Errorf("signals ref missing from CLAUDE.md")
 	}
 }
@@ -437,7 +438,7 @@ func TestRepair_Refs_OneCandidateExisting_SingleYesNo(t *testing.T) {
 		t.Errorf("Applied = %d, want 1\noutput:\n%s", summary.Applied, sb.String())
 	}
 	data, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
-	if !strings.Contains(string(data), "@.claude/project/signals.md") {
+	if !strings.Contains(string(data), "@docs/wiki/index.md") {
 		t.Errorf("signals ref not appended to existing CLAUDE.md")
 	}
 }
@@ -477,12 +478,12 @@ func TestRepair_Refs_MultipleCandidates_IndexedSelection(t *testing.T) {
 	localData, _ := os.ReadFile(filepath.Join(dir, "claude.local.md"))
 	globalData, _ := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
 
-	localHasRef := strings.Contains(string(localData), "@.claude/project/signals.md")
+	localHasRef := strings.Contains(string(localData), "@docs/wiki/index.md")
 	if localHasRef {
 		t.Errorf("claude.local.md should not have been patched (index 2 maps to CLAUDE.md); content:\n%s", string(localData))
 	}
 
-	refCount := strings.Count(string(globalData), "@.claude/project/signals.md")
+	refCount := strings.Count(string(globalData), "@docs/wiki/index.md")
 	if refCount != 1 {
 		t.Errorf("CLAUDE.md: signals ref count=%d (want 1)\ncontent:\n%s", refCount, string(globalData))
 	}
@@ -510,7 +511,7 @@ func TestRepair_Refs_Idempotent(t *testing.T) {
 		t.Fatalf("CLAUDE.md not found: %v", err)
 	}
 	content := string(data)
-	count := strings.Count(content, "@.claude/project/signals.md")
+	count := strings.Count(content, "@docs/wiki/index.md")
 	if count != 1 {
 		t.Errorf("signals ref appears %d times (want 1) — idempotency broken", count)
 	}
@@ -543,13 +544,42 @@ func TestRepair_Refs_ExistingContent_AppendsRef(t *testing.T) {
 	}
 	content := string(data)
 
-	refCount := strings.Count(content, "@.claude/project/signals.md")
+	refCount := strings.Count(content, "@docs/wiki/index.md")
 	if refCount != 1 {
 		t.Errorf("signals ref appears %d times (want 1)", refCount)
 	}
 
 	if !strings.Contains(content, "Some existing content.") {
 		t.Errorf("existing content was lost")
+	}
+}
+
+func TestRepair_Refs_HeadingIsProjectWiki(t *testing.T) {
+	// The refsBlock constant must use "## Project wiki (auto-loaded)" as the
+	// heading, not "## Project signals (auto-loaded)". This test pins the heading
+	// so a rename doesn't silently regress the user-visible section title.
+	dir := t.TempDir()
+
+	rp := nopRepairer()
+	rp.RepoRootFn = func() string { return dir }
+
+	results := []doctor.Result{
+		makeResult(4, "refs", doctor.FAIL, "refs not present"),
+	}
+	var sb strings.Builder
+	p := &fakePrompter{decisions: []doctor.Decision{doctor.DecisionYes}}
+	rp.Repair(results, doctor.Opts{Fix: true}, p, &sb)
+
+	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
+	if err != nil {
+		t.Fatalf("CLAUDE.md not created: %v", err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "## Project wiki (auto-loaded)") {
+		t.Errorf("refsBlock heading should be '## Project wiki (auto-loaded)'; content:\n%s", content)
+	}
+	if strings.Contains(content, "## Project signals") {
+		t.Errorf("refsBlock must not use old 'Project signals' heading; content:\n%s", content)
 	}
 }
 

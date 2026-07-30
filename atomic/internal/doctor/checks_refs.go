@@ -16,14 +16,14 @@ var candidateFiles = []string{
 	"claude.md",
 }
 
-const signalsRef = "@.claude/project/signals.md"
+const signalsRef = "@docs/wiki/index.md"
 
 // checkRefs implements category 4: @-refs wired.
 //
-// Searches for the signals.md @-ref in candidate files starting from the
-// git repo toplevel (falls back to cwd if not in a repo). Only signals.md
-// needs to be @-ref'd — deterministic-signals.md is too large for context
-// and is read on demand by the inferrer. Severity: FAIL.
+// Searches for the wiki router @-ref in candidate files starting from the
+// git repo toplevel (falls back to cwd if not in a repo). Only
+// docs/wiki/index.md needs to be @-ref'd — docs/wiki/scan.md is too large
+// for context and is read on demand by the inferrer. Severity: FAIL.
 func checkRefs(opts Opts) Result {
 	searchRoot := opts.RepoRoot
 	if searchRoot == "" {

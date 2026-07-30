@@ -56,7 +56,7 @@ Each axiom: what it is, why it exists, where it applies, what it forbids.
 
 
 - **Stay in memory** when the value is a conversational nudge ("use a shallower signals tree for this session"), a per-task override, or a soft preference that's fine to lose. Memory is conversational — the user says "remember 60 days" and the system updates. No schema, no migration.
-- **Graduate to config** (`~/.claude/.atomic/config.toml`) when the value must be shell-settable (CI scripts, `atomic config set`, dotfile-managed setup), or memory's per-user/per-conversation scope is too narrow. Memory cannot be written non-interactively. Example: `output.signals.max_depth = 5` (config, durable) vs "use depth 2 for this session" (memory, scoped).
+- **Graduate to config** (`~/.atomic/config.toml`) when the value must be shell-settable (CI scripts, `atomic config set`, dotfile-managed setup), or memory's per-user/per-conversation scope is too narrow. Memory cannot be written non-interactively. Example: `output.signals.max_depth = 5` (config, durable) vs "use depth 2 for this session" (memory, scoped).
 - **Graduate to code** when the value is a hard contract (test thresholds, security gates, version pins, CI exit codes), scope-bleeds badly across projects, or must be reviewable in a diff. Memory drift on a hard contract = silent regression. Memory's per-user scope corrupts other projects when recalled in the wrong context. Memory edits are invisible to git review.
 
 
@@ -87,7 +87,7 @@ When you promote a value out of memory, document the choice in the same place th
 **Why.** Destructive actions in version control are rarely truly recoverable in a session. "I'll just force-delete this branch" or "I'll prune all stale worktrees" cascades into lost work, lost context, lost trust. The cost of an extra prompt is one second; the cost of an undone destructive action can be unrecoverable.
 
 
-**Where it applies.** Any command that uses `git branch -D`, `git worktree remove`, `git reset --hard`, `git push --force`, `git rebase`, file deletion in tracked paths, or `rm -rf`. Currently realized in `/git-cleanup` (scout reports, orchestrator confirms each `ask` candidate individually) and `/atomic-setup` (never overwrites existing files).
+**Where it applies.** Any command that uses `git branch -D`, `git worktree remove`, `git reset --hard`, `git push --force`, `git rebase`, file deletion in tracked paths, or `rm -rf`. Currently realized in `/git-cleanup` (scout reports, orchestrator confirms each `ask` candidate individually) and `/setup-wiki` (never overwrites existing files).
 
 
 **What it forbids.** "Recommended" defaults toward destructive actions. Silent rollups ("I cleaned up 7 stale things for you"). Force-flags applied without explicit user opt-in per item. Auto-merging the "everything looks safe" bucket without a final user nod.
@@ -118,7 +118,7 @@ When you promote a value out of memory, document the choice in the same place th
 **Why.** `AskUserQuestion` caps at 4 options and surfaces them as a UI widget. For a list of cleanup candidates that might be 12 items, paginating across multiple questions is worse UX than one printed list with a typed input. The typed input is also faster, scriptable, and copy-pasteable.
 
 
-**Where it applies.** Selection-from-list flows. Currently realized in `/git-cleanup` (cleanup candidates) and `/atomic-setup` (proposed actions). Future commands that present "here's what I found, pick which to act on" should follow.
+**Where it applies.** Selection-from-list flows. Currently realized in `/git-cleanup` (cleanup candidates) and `/setup-wiki` (proposed actions). Future commands that present "here's what I found, pick which to act on" should follow.
 
 
 **What it forbids.** Using `AskUserQuestion` to paginate "show 4 of 12, then 4 more, then…". Reducing the user's choice space to fit the 4-option cap when more items deserve consideration.
@@ -151,7 +151,7 @@ When you promote a value out of memory, document the choice in the same place th
 **Why.** Skills auto-fire on description-trigger matching. Their value is that the user doesn't have to remember to invoke them. If a skill description has to say "does NOT auto-trigger" or "explicit invocation only", the design is fighting the mechanism. A command is the right primitive for explicit-only flows.
 
 
-**Where it applies.** Any new capability decision: skill or command? Use this heuristic. Currently realized: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit` are skills (they fire on natural language). `/atomic-plan`, `/subagent-implementation`, `/commit-only`, `/git-cleanup`, `/atomic-setup`, etc. are commands (they fire only when the user types the slash).
+**Where it applies.** Any new capability decision: skill or command? Use this heuristic. Currently realized: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-git-discipline` are skills (they fire on natural language). `/atomic-plan`, `/subagent-implementation`, `/commit-only`, `/git-cleanup`, `/setup-wiki`, etc. are commands (they fire only when the user types the slash).
 
 
 **What it forbids.** Skill descriptions with "Does NOT auto-trigger…", "Explicit invocation only…", or other negation language. If you find yourself writing that, convert the skill to a command.
@@ -160,7 +160,7 @@ When you promote a value out of memory, document the choice in the same place th
 **Corollary: skills should describe their triggers concretely.** A skill named `atomic-verify` with description "auto-triggers on 'done', 'fixed', 'passing', 'ready to merge'" makes its trigger surface inspectable. A vague description ("checks completion claims") is worse: less reliable firing, less reviewable.
 
 
-**Corollary: skills are the *how*; commands are the *when*.** A command may *invoke* a skill (e.g. all ship verbs invoke `atomic-commit` for message format). The command supplies the trigger ("user typed /commit-only"); the skill supplies the content rules. Don't duplicate.
+**Corollary: skills are the *how*; commands are the *when*.** A command may *invoke* a skill (e.g. all ship verbs invoke `atomic-git-discipline` for message format). The command supplies the trigger ("user typed /commit-only"); the skill supplies the content rules. Don't duplicate.
 
 
 ---

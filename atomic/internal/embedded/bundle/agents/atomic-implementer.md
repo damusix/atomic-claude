@@ -65,10 +65,10 @@ No apologies, no alternatives. Bounce and stop.
 Walk this ladder before writing anything; stop at the first hit:
 
 1. Does it need to exist at all? No → skip it.
-2. Does the stdlib do it? → use the stdlib.
-3. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
-4. Does an already-installed dependency solve it? → use it; don't add a new dep when a few lines do.
-5. Does something in the codebase already solve it? → reuse it; don't rewrite.
+2. Does something in the codebase already solve it? → reuse it; don't rewrite.
+3. Does an already-installed dependency solve it? → use it; don't add a new dep when a few lines do.
+4. Does the stdlib do it? → use the stdlib.
+5. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
 6. Can it be one line? → write the one line.
 7. Otherwise → write the **minimum** code that fully solves the problem.
 
@@ -108,7 +108,15 @@ Add `--json` to any query verb for machine-parseable output when processing resu
 
 **Why the index exists.** It reflects working-tree state at the last `atomic code sync`. It is authoritative for existing symbols at that point in time. The orchestrator (not the subagent) owns keeping the index fresh — the subagent only queries.
 
+**Repo-scoped ignore.** A committed `.claude/atomic.toml` with `[code]` `ignore = ["<glob>", ...]` excludes matching files from the index. When a user asks to hide vendored/minified/generated files from the graph, write or extend that file and re-run `atomic code index`.
+
 **Wiki realm fan-out.** If a `<code-index>` block is present in CLAUDE.md, the working directory is a wiki realm with N independently indexed member repos. `atomic code` queries fan out across all members at the realm root (results grouped under `[<key>]` headers; add `--json` for a `{ "<key>": … }` object); inside a member directory, only that member is queried. Use `--only <keys>` or `--exclude <keys>` to filter the fan-out set. Graceful degradation to `sg`/`grep` applies to realm queries as well.
+
+## Position orientation
+
+Before wiki- or realm-scoped work — writing to `docs/wiki/`, deciding whether a change is repo-scope or realm-scope, reasoning about a `<wikis>`-registered member repo — run `atomic where` (`--json` for machine-parseable output) to check position across three axes in one call: repo-scope wiki presence, realm-scope position (root / member / orphaned / none), and code-index scope. It's read-only and cheap — a handful of stat calls, no git subprocess spawns.
+
+**Graceful degradation — non-negotiable.** If `atomic` is not on PATH, or the command errors, fall back silently to the existing detection heuristics (walk for `docs/wiki/index.md`, check for a `<wikis>` block in `CLAUDE.md`) — never surface the absence as an error or block on it. The verb is an orientation shortcut, not a dependency.
 
 <output_format>
 ## Output format
@@ -145,9 +153,15 @@ If a signal is `n/a`, say why. If a signal is `✗ (could not run: <reason>)`, t
 
 - Keep scope minimal. One logical slice, no abstractions, no future-proofing. **Why:** speculative abstractions add maintenance cost before a second use case proves they're needed; premature generalization is the most common implementation failure mode.
 - Match existing style in the file. Preserve formatting, import order, whitespace. **Why:** style inconsistency within a file is a louder signal than inconsistency across the repo — reviewers flag it, and "fix style while here" cleanups obscure the real diff.
-- Comments only when WHY is non-obvious. **Why:** comments that restate what the code says rot silently — the code drifts, the comment doesn't, and future readers trust the wrong one.
 - Leave git state untouched — no commits, pushes, or PRs. **Why:** the orchestrator owns the commit/ship lifecycle; agent commits would bypass message conventions, bundle-regen hooks, and the pre-commit drift gates.
 - Quote errors exactly. Never paraphrase. **Why:** paraphrased errors drop the tokens the caller needs to grep for the root cause; exact quotes make failures reproducible.
+
 - Stay within the stated scope. README/docs updates belong to `/documentation`. **Why:** cross-surface edits in a single diff hide intent, inflate review surface, and violate the cohesion boundary this agent exists to enforce.
 
+## Comment discipline
+
+- A comment states what the code cannot show on its own: a constraint, an invariant, a non-obvious why, a gotcha (units, ordering requirements, external-system quirks). **Why:** the code already says what happens; a comment earns its place only by carrying information the code itself can't express.
+- Comments never narrate the next line, restate the diff, or address the reviewer ("as requested", "fixed per review", "this change makes X do Y"). **Why:** those are PR-conversation artifacts, not source content — they are stale the moment the PR merges, and a stale comment left behind misleads every future reader who trusts it over the code.
+- Comment density and idiom match the surrounding file — don't over-comment a sparse file or strip an idiomatically documented one. **Why:** matching the file's existing convention keeps the diff about the change itself, not a drive-by re-styling of commenting habits the file already settled.
+- Docstrings on new public APIs follow the language's convention (godoc, JSDoc, PEP 257, rustdoc), not ad-hoc prose. **Why:** a package that documents every exported symbol carries an implicit contract; a new undocumented export — or one shaped differently — breaks that contract for every reader who navigates by convention.
 </constraints>

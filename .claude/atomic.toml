@@ -1,0 +1,2 @@
+[code]
+ignore = ["atomic/internal/serve/assets/vendor/**"]

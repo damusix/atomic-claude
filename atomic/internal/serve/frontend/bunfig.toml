@@ -1,0 +1,19 @@
+# Bun-only toolchain config for the atomic serve frontend. See frontend/CLAUDE.md.
+
+[install]
+# Deterministic installs; no lockfile drift across contributor machines.
+exact = true
+
+[test]
+# bun:test root — keeps test discovery scoped to this workspace.
+root = "./src"
+# Registers a DOM (happy-dom) + jest-dom matchers before any test file runs —
+# CP5 needs a real document for theme/localStorage/matchMedia and Ark UI
+# component behavior, which renderToStaticMarkup alone can't exercise.
+preload = ["./src/test/setup.dom.ts", "./src/test/setup.testing.ts"]
+
+# Dev proxy target for `bun run dev` (dev.ts). Override with
+# ATOMIC_SERVE_URL=http://127.0.0.1:<port> to point at a running
+# `atomic serve` instance; defaults to 127.0.0.1:4000.
+[dev]
+proxyTarget = "http://127.0.0.1:4000"

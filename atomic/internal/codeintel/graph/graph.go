@@ -112,13 +112,24 @@ func NewManager(d *db.DB) *Manager {
 // ---------------------------------------------------------------------------
 
 // GetCallees returns all nodes reachable from startID via outgoing
-// calls|references|imports edges, up to maxDepth hops.
+// calls|references|imports edges, up to maxDepth hops, plus the start node
+// itself — every returned edge's Source or Target is startID at the first
+// hop, so the start node must resolve in Subgraph.Nodes too.
 // maxDepth=0 applies the default depth of 1.
 func (m *Manager) GetCallees(ctx context.Context, startID string, maxDepth int) (types.Subgraph, error) {
 	if maxDepth <= 0 {
 		maxDepth = 1
 	}
-	return m.bfsOutgoing(ctx, startID, maxDepth, callerCalleeKinds)
+	startNode, err := m.db.GetNode(ctx, startID)
+	if err != nil {
+		return types.Subgraph{Nodes: make(map[string]types.Node)}, err
+	}
+	sg, err := m.bfsOutgoing(ctx, startID, maxDepth, callerCalleeKinds)
+	if err != nil {
+		return sg, err
+	}
+	sg.Nodes[startID] = startNode
+	return sg, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -126,13 +137,24 @@ func (m *Manager) GetCallees(ctx context.Context, startID string, maxDepth int) 
 // ---------------------------------------------------------------------------
 
 // GetCallers returns all nodes that reach startID via incoming
-// calls|references|imports edges, up to maxDepth hops.
+// calls|references|imports edges, up to maxDepth hops, plus the start node
+// itself — every returned edge's Source or Target is startID at the first
+// hop, so the start node must resolve in Subgraph.Nodes too.
 // maxDepth=0 applies the default depth of 1.
 func (m *Manager) GetCallers(ctx context.Context, startID string, maxDepth int) (types.Subgraph, error) {
 	if maxDepth <= 0 {
 		maxDepth = 1
 	}
-	return m.bfsIncoming(ctx, startID, maxDepth, callerCalleeKinds)
+	startNode, err := m.db.GetNode(ctx, startID)
+	if err != nil {
+		return types.Subgraph{Nodes: make(map[string]types.Node)}, err
+	}
+	sg, err := m.bfsIncoming(ctx, startID, maxDepth, callerCalleeKinds)
+	if err != nil {
+		return sg, err
+	}
+	sg.Nodes[startID] = startNode
+	return sg, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +206,10 @@ func (m *Manager) GetImpactRadius(ctx context.Context, startID string, maxDepth 
 				if visited[cn.ID] {
 					continue
 				}
+				// cn is itself the start of its own impactBFS sub-traversal, so it
+				// is a first-level edge endpoint (see impactBFS) — hydrate it here
+				// since impactBFS only ever hydrates its neighbors, not itself.
+				sg.Nodes[cn.ID] = cn
 				childSG, err := m.impactBFS(ctx, cn.ID, maxDepth, visited)
 				if err != nil {
 					return sg, err
@@ -203,6 +229,9 @@ func (m *Manager) GetImpactRadius(ctx context.Context, startID string, maxDepth 
 	if err != nil {
 		return sg, err
 	}
+	// startNode is itself a first-level edge endpoint (see impactBFS) —
+	// impactBFS only hydrates its neighbors, never its own start node.
+	childSG.Nodes[startID] = startNode
 	return childSG, nil
 }
 

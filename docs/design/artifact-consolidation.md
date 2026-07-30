@@ -190,7 +190,7 @@ What moves where:
 | `/atomic-claude-merge` command | docs detail (first-time-only) |
 
 
-Surviving agents map cleanly to the slot rule: `atomic-implementer` (1 clean-room + 2), `atomic-reviewer` (1 adversarial), `atomic-investigator` (2 search dumps), `atomic-strategist` (1 independent reasoning), `atomic-signals-inferrer` (2 hot + verbose).
+Surviving agents map cleanly to the slot rule: `atomic-implementer` (1 clean-room + 2), `atomic-reviewer` (1 adversarial), `atomic-investigator` (2 search dumps), `atomic-strategist` (1 independent reasoning), `atomic-wiki-inferrer` (2 hot + verbose).
 
 
 Binary wiring grounded:

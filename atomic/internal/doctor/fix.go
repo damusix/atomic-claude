@@ -44,7 +44,8 @@ type Repairer struct {
 	HooksFn           func(io.Writer) error
 	ManifestFn        func(io.Writer) error
 	FollowupsRenderFn func(io.Writer) error
-	ConfigFn          func(claudeHome string) error
+	ConfigFn          func(home string) error
+	HomeFn            func() (string, error)
 	IsRepoDevFn       func() (bool, error)
 	RepoRootFn        func() string
 }
@@ -57,6 +58,7 @@ func DefaultRepairer() Repairer {
 		ManifestFn:        defaultManifestRepair,
 		FollowupsRenderFn: defaultFollowupsRenderRepair,
 		ConfigFn:          defaultConfigRepair,
+		HomeFn:            resolveHome,
 		IsRepoDevFn:       defaultIsRepoDev,
 		RepoRootFn:        defaultRepoRoot,
 	}
@@ -272,11 +274,11 @@ func (rp Repairer) applyFollowupsRepair(r Result, out io.Writer) error {
 // applyConfigRepair re-renders config.resolved.md from the current TOML.
 func (rp Repairer) applyConfigRepair(out io.Writer) error {
 	fmt.Fprintln(out, "$ re-rendering config.resolved.md")
-	claudeHome, err := resolveClaudeHome()
+	home, err := rp.HomeFn()
 	if err != nil {
-		return fmt.Errorf("resolve claude home: %w", err)
+		return fmt.Errorf("resolve home dir: %w", err)
 	}
-	return rp.ConfigFn(claudeHome)
+	return rp.ConfigFn(home)
 }
 
 // applyManifestRepairWithGuard checks repo-dev before delegating.
@@ -296,7 +298,7 @@ func (rp Repairer) applyManifestRepairWithGuard(out io.Writer) error {
 
 // -- refs repair --
 
-const refsBlock = "\n## Project signals (auto-loaded)\n\n@.claude/project/signals.md\n"
+const refsBlock = "\n## Project wiki (auto-loaded)\n\n@docs/wiki/index.md\n"
 
 // applyRefsRepair appends the @-ref block to the chosen candidate file.
 // Returns the chosen filename on success.

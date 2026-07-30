@@ -91,3 +91,107 @@ func TestRenderUpdateSectionFalse(t *testing.T) {
 		t.Errorf("expected 'false' in render after Set, got: %q", out)
 	}
 }
+
+// TestRenderHarnessDir: Render includes harness.dir with its default value.
+func TestRenderHarnessDir(t *testing.T) {
+	cfg := Default()
+	out := Render(cfg)
+	if !strings.Contains(out, "harness.dir") {
+		t.Errorf("expected 'harness.dir' in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, ".claude") {
+		t.Errorf("expected default '.claude' in render, got:\n%s", out)
+	}
+}
+
+// TestRenderHarnessDirSetValue: Render reflects a non-default harness.dir.
+func TestRenderHarnessDirSetValue(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "harness.dir", ".pi"); err != nil {
+		t.Fatal(err)
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, ".pi") {
+		t.Errorf("expected '.pi' in render after Set, got:\n%s", out)
+	}
+}
+
+// TestRenderAgentsSection: Render includes the [claude] section when overrides are set.
+func TestRenderAgentsSection(t *testing.T) {
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"atomic-implementer":  {Model: "sonnet"},
+		"atomic-investigator": {Model: "haiku"},
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, "## [claude]") {
+		t.Errorf("expected '## [claude]' section in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, "claude.agents.atomic-implementer.model") {
+		t.Errorf("expected 'claude.agents.atomic-implementer.model' in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, "sonnet") {
+		t.Errorf("expected 'sonnet' model in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, "claude.agents.atomic-investigator.model") {
+		t.Errorf("expected 'claude.agents.atomic-investigator.model' in render, got:\n%s", out)
+	}
+	if !strings.Contains(out, "haiku") {
+		t.Errorf("expected 'haiku' model in render, got:\n%s", out)
+	}
+}
+
+// TestRenderAgentsSectionEffort: Render emits the .effort dotted key alongside
+// (or independently of) .model, per agent.
+func TestRenderAgentsSectionEffort(t *testing.T) {
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{
+		"atomic-implementer":  {Model: "opus", Effort: "high"},
+		"atomic-investigator": {Effort: "low"}, // effort-only, no model
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, "claude.agents.atomic-implementer.model") || !strings.Contains(out, "claude.agents.atomic-implementer.effort") {
+		t.Errorf("expected both .model and .effort keys for atomic-implementer, got:\n%s", out)
+	}
+	if !strings.Contains(out, "claude.agents.atomic-investigator.effort") {
+		t.Errorf("expected '.effort' key for atomic-investigator, got:\n%s", out)
+	}
+	if strings.Contains(out, "claude.agents.atomic-investigator.model") {
+		t.Errorf("expected no '.model' key for effort-only atomic-investigator, got:\n%s", out)
+	}
+}
+
+// TestRenderAgentsSectionAbsent: Render omits the [claude] section when no overrides are set.
+func TestRenderAgentsSectionAbsent(t *testing.T) {
+	cfg := Default()
+	out := Render(cfg)
+	if strings.Contains(out, "## [claude]") {
+		t.Errorf("expected no '## [claude]' section when no overrides set, got:\n%s", out)
+	}
+}
+
+// TestRenderAgentsInRenderedFileOnly: claude.agents.* appear in Render output
+// (config.resolved.md) but NOT in Resolved (the user-settable list). Render
+// includes machine-written sections so sessions reading the file see the full
+// active configuration.
+func TestRenderAgentsInRenderedFileOnly(t *testing.T) {
+	cfg := Default()
+	cfg.Claude.Agents = map[string]AgentOverride{"atomic-implementer": {Model: "opus"}}
+
+	// Render (config.resolved.md) must include the agents entry.
+	rendered := Render(cfg)
+	if !strings.Contains(rendered, "claude.agents.atomic-implementer.model") {
+		t.Errorf("Render: expected 'claude.agents.atomic-implementer.model' in rendered output, got:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "opus") {
+		t.Errorf("Render: expected 'opus' model in rendered output, got:\n%s", rendered)
+	}
+
+	// Resolved (atomic config list) must NOT include agents — machine-written section.
+	m := Resolved(cfg)
+	for k := range m {
+		if strings.HasPrefix(k, "claude.agents") {
+			t.Errorf("Resolved: unexpected claude.agents key %q — agents is machine-written, must not appear in config list", k)
+		}
+	}
+}

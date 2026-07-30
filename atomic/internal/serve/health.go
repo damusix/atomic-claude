@@ -1,8 +1,5 @@
-// health.go — CP6: realm-health front page handler.
-//
-// NewHealthHandler returns an http.Handler for the /health route that renders
-// a realm-health dashboard as an HTML fragment. The fragment is intended to be
-// injected into #main-pane by the shell on load (htmx hx-trigger="load").
+// health.go — realm-health dashboard data for the /api/status JSON handler
+// (NewAPIStatusHandler below).
 //
 // The dashboard aggregates two existing engines — no new staleness computation:
 //
@@ -18,7 +15,6 @@ package serve
 
 import (
 	"fmt"
-	"html/template"
 	"net/http"
 	"strings"
 
@@ -191,63 +187,7 @@ func parseIndexResult(r doctor.Result) IndexHealthResult {
 	return res
 }
 
-// healthTmpl is the HTML template for the health dashboard fragment.
-var healthTmpl = template.Must(template.New("health").Parse(`
-<div class="health-dashboard">
-  <h2 class="health-title">Realm Health</h2>
-
-  {{if .IsRealmScope}}
-  <section class="health-section">
-    <h3>Wiki Staleness</h3>
-    {{if .AllFreshWiki}}
-    <p class="health-ok">All wiki artifacts are fresh.</p>
-    {{else}}
-    <ul class="health-list">
-      {{range .StaleResult.StaleRepos}}
-      <li><span class="badge badge-stale">stale repo</span> {{.}}</li>
-      {{end}}
-      {{range .StaleResult.StaleConcerns}}
-      <li><span class="badge badge-stale">stale concern</span> {{.}}</li>
-      {{end}}
-      {{range .StaleResult.BucketDiffKeys}}
-      <li><span class="badge badge-diff">bucket diff</span> {{.}}</li>
-      {{end}}
-    </ul>
-    {{end}}
-  </section>
-  {{else}}
-  <p class="health-info">No realm wiki — showing repo code-index health only.</p>
-  {{end}}
-
-  <section class="health-section">
-    <h3>Code Index</h3>
-    <p class="health-detail {{if eq .IndexResult.Severity "PASS"}}health-ok{{else}}health-warn{{end}}">
-      <span class="badge badge-severity-{{.IndexResult.Severity}}">{{.IndexResult.Severity}}</span>
-      {{.IndexResult.Detail}}
-    </p>
-    {{if .IndexResult.StaleMembers}}
-    <ul class="health-list">
-      {{range .IndexResult.StaleMembers}}
-      <li><span class="badge badge-stale">stale index</span> {{.}}</li>
-      {{end}}
-    </ul>
-    {{end}}
-    {{if .IndexResult.NotIndexed}}
-    <ul class="health-list">
-      {{range .IndexResult.NotIndexed}}
-      <li><span class="badge badge-missing">not indexed</span> {{.}}</li>
-      {{end}}
-    </ul>
-    {{end}}
-  </section>
-
-  {{if and .IsRealmScope .AllFreshWiki (eq .IndexResult.Severity "PASS")}}
-  <p class="health-ok health-all-fresh">All fresh — realm is healthy.</p>
-  {{end}}
-</div>
-`))
-
-// healthData is the template data struct for the health dashboard.
+// healthData is the computed data for the health dashboard.
 type healthData struct {
 	IsRealmScope bool
 	StaleResult  WikiStaleResult
@@ -256,11 +196,11 @@ type healthData struct {
 	AllFreshWiki bool
 }
 
-// NewHealthHandler returns an http.Handler for the /health route.
-// When HealthOptions seams are nil, the production defaults are wired.
-func NewHealthHandler(opts HealthOptions) http.Handler {
-	// Wire production defaults when seams are nil — required by spec.
-	// This ensures production is never left with an empty nil-seam.
+// resolveHealthSeams returns opts with nil seams replaced by the production
+// defaults — required by spec so production is never left with an empty
+// nil-seam. Shared by the HTML /status dashboard and the JSON /api/status
+// endpoint.
+func resolveHealthSeams(opts HealthOptions) HealthOptions {
 	if opts.IndexHealthSeam == nil {
 		if opts.IsRealmScope {
 			opts.IndexHealthSeam = productionIndexHealthRealm
@@ -271,35 +211,94 @@ func NewHealthHandler(opts HealthOptions) http.Handler {
 	if opts.WikiStalenessSeam == nil {
 		opts.WikiStalenessSeam = productionWikiStale
 	}
+	return opts
+}
+
+// healthDataFor computes the healthData for opts. Seams must already be
+// resolved (see resolveHealthSeams) — shared by the HTML /status dashboard
+// and the JSON /api/status endpoint so both surface identical severity/detail.
+func healthDataFor(opts HealthOptions) healthData {
+	// Collect wiki staleness (only for realm scope).
+	var staleResult WikiStaleResult
+	if opts.IsRealmScope {
+		staleResult = opts.WikiStalenessSeam(opts.RealmRoot)
+	}
+
+	// Collect code-index health (always).
+	indexResult := opts.IndexHealthSeam(opts.RealmRoot)
+
+	allFreshWiki := len(staleResult.StaleRepos) == 0 &&
+		len(staleResult.StaleConcerns) == 0 &&
+		len(staleResult.BucketDiffKeys) == 0
+
+	return healthData{
+		IsRealmScope: opts.IsRealmScope,
+		StaleResult:  staleResult,
+		IndexResult:  indexResult,
+		AllFreshWiki: allFreshWiki,
+	}
+}
+
+// ─── GET /api/status ─────────────────────────────────────────────────────────
+
+// apiWikiStatus is the /api/status "wiki" field — reshapes WikiStaleResult.
+type apiWikiStatus struct {
+	StaleRepos     []string `json:"staleRepos"`
+	StaleConcerns  []string `json:"staleConcerns"`
+	StaleBuckets   []string `json:"staleBuckets"`
+	BucketDiffKeys []string `json:"bucketDiffKeys"`
+	AllFresh       bool     `json:"allFresh"`
+}
+
+// apiIndexStatus is the /api/status "index" field — reshapes IndexHealthResult.
+type apiIndexStatus struct {
+	Severity     string   `json:"severity"`
+	Detail       string   `json:"detail"`
+	FreshCount   int      `json:"freshCount"`
+	StaleMembers []string `json:"staleMembers"`
+	NotIndexed   []string `json:"notIndexed"`
+}
+
+// apiStatusResponse is the /api/status success payload — reshapes healthData.
+type apiStatusResponse struct {
+	IsRealmScope bool           `json:"isRealmScope"`
+	Wiki         apiWikiStatus  `json:"wiki"`
+	Index        apiIndexStatus `json:"index"`
+}
+
+// nonNilStrings returns s, or a non-nil empty slice when s is nil, so these
+// array fields always encode as [] instead of null.
+func nonNilStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+// NewAPIStatusHandler returns an http.Handler for GET /api/status. Reuses the
+// same wiki-staleness and code-index seams NewHealthHandler's HTML dashboard
+// uses, reshaped as JSON instead of a rendered fragment.
+func NewAPIStatusHandler(opts HealthOptions) http.Handler {
+	opts = resolveHealthSeams(opts)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-
-		// Collect wiki staleness (only for realm scope).
-		var staleResult WikiStaleResult
-		if opts.IsRealmScope {
-			staleResult = opts.WikiStalenessSeam(opts.RealmRoot)
-		}
-
-		// Collect code-index health (always).
-		indexResult := opts.IndexHealthSeam(opts.RealmRoot)
-
-		allFreshWiki := len(staleResult.StaleRepos) == 0 &&
-			len(staleResult.StaleConcerns) == 0 &&
-			len(staleResult.BucketDiffKeys) == 0
-
-		data := healthData{
-			IsRealmScope: opts.IsRealmScope,
-			StaleResult:  staleResult,
-			IndexResult:  indexResult,
-			AllFreshWiki: allFreshWiki,
-		}
-
-		var sb strings.Builder
-		if err := healthTmpl.Execute(&sb, data); err != nil {
-			http.Error(w, "health template error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		fmt.Fprint(w, sb.String())
+		data := healthDataFor(opts)
+		writeAPIJSON(w, apiStatusResponse{
+			IsRealmScope: data.IsRealmScope,
+			Wiki: apiWikiStatus{
+				StaleRepos:     nonNilStrings(data.StaleResult.StaleRepos),
+				StaleConcerns:  nonNilStrings(data.StaleResult.StaleConcerns),
+				StaleBuckets:   nonNilStrings(data.StaleResult.StaleBuckets),
+				BucketDiffKeys: nonNilStrings(data.StaleResult.BucketDiffKeys),
+				AllFresh:       data.AllFreshWiki,
+			},
+			Index: apiIndexStatus{
+				Severity:     data.IndexResult.Severity,
+				Detail:       data.IndexResult.Detail,
+				FreshCount:   data.IndexResult.FreshCount,
+				StaleMembers: nonNilStrings(data.IndexResult.StaleMembers),
+				NotIndexed:   nonNilStrings(data.IndexResult.NotIndexed),
+			},
+		})
 	})
 }

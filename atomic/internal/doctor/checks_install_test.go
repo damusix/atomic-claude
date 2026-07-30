@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/claudeinstall"
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
@@ -19,7 +21,7 @@ func TestCheckInstall_pass(t *testing.T) {
 		installArtifact(t, target, a)
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS; detail: %s", r.Severity, r.Detail)
 	}
@@ -40,7 +42,7 @@ func TestCheckInstall_warn_drift(t *testing.T) {
 		}
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.WARN {
 		t.Errorf("severity = %q, want WARN; detail: %s", r.Severity, r.Detail)
 	}
@@ -62,7 +64,7 @@ func TestCheckInstall_fail_missing(t *testing.T) {
 		installArtifact(t, target, a)
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.FAIL {
 		t.Errorf("severity = %q, want FAIL; detail: %s", r.Severity, r.Detail)
 	}
@@ -72,7 +74,7 @@ func TestCheckInstall_fail_missing(t *testing.T) {
 func TestCheckInstall_skip_missing_dir(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "nonexistent")
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.SKIP {
 		t.Errorf("severity = %q, want SKIP; detail: %s", r.Severity, r.Detail)
 	}
@@ -101,7 +103,7 @@ func TestCheckInstall_atomic_subtree_not_flagged(t *testing.T) {
 		writeFile(t, f, []byte("# atomic-owned state"))
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS; detail: %s (atomic subtree must not be flagged)", r.Severity, r.Detail)
 	}
@@ -123,7 +125,7 @@ func TestCheckInstall_findings_drift(t *testing.T) {
 		}
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.WARN {
 		t.Fatalf("severity = %q, want WARN; detail: %s", r.Severity, r.Detail)
 	}
@@ -159,7 +161,7 @@ func TestCheckInstall_findings_missing(t *testing.T) {
 		installArtifact(t, target, a)
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.FAIL {
 		t.Fatalf("severity = %q, want FAIL; detail: %s", r.Severity, r.Detail)
 	}
@@ -188,7 +190,7 @@ func TestCheckInstall_pass_no_findings(t *testing.T) {
 		installArtifact(t, target, a)
 	}
 
-	r := doctor.RunCheckInstall(target)
+	r := doctor.RunCheckInstall(target, target)
 	if r.Severity != doctor.PASS {
 		t.Fatalf("severity = %q, want PASS; detail: %s", r.Severity, r.Detail)
 	}
@@ -200,7 +202,80 @@ func TestCheckInstall_pass_no_findings(t *testing.T) {
 	}
 }
 
+// TestCheckInstall_agentOverrideDrift_detectAndRepair: CP6 regression lock.
+// claudeinstall.Diff already compares an installed agent against
+// readPatchedEmbedded (bundle content patched with the configured model +
+// effort, CP2) — so the install-integrity check detects config <-> installed
+// drift with no dedicated agent-aware check. This proves that contract:
+// a config override added after a clean install shows up as WARN drift, and
+// the same Install call `atomic doctor --fix` runs repairs it back to PASS.
+func TestCheckInstall_agentOverrideDrift_detectAndRepair(t *testing.T) {
+	target := t.TempDir()
+	suppressClaudeinstallSeams(t)
+
+	// Clean install, no [claude.agents] overrides configured yet.
+	if _, err := claudeinstall.Install(target, target, false, claudeinstall.RealClock); err != nil {
+		t.Fatalf("initial Install: %v", err)
+	}
+	if r := doctor.RunCheckInstall(target, target); r.Severity != doctor.PASS {
+		t.Fatalf("severity after clean install = %q, want PASS; detail: %s", r.Severity, r.Detail)
+	}
+
+	// Configure an effort override for an already-installed agent. The
+	// on-disk file still carries the un-patched bundle frontmatter.
+	writeAgentOverride(t, target, "atomic-implementer", config.AgentOverride{Effort: "high"})
+
+	r := doctor.RunCheckInstall(target, target)
+	if r.Severity != doctor.WARN {
+		t.Fatalf("severity after config drift = %q, want WARN; detail: %s", r.Severity, r.Detail)
+	}
+	wantFinding := "drifted: agents/atomic-implementer.md"
+	found := false
+	for _, f := range r.Findings {
+		if f == wantFinding {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("Findings = %v; want entry %q", r.Findings, wantFinding)
+	}
+
+	// Repair: the same Install call `atomic doctor --fix` runs for this category.
+	if _, err := claudeinstall.Install(target, target, false, claudeinstall.RealClock); err != nil {
+		t.Fatalf("repair Install: %v", err)
+	}
+	if r := doctor.RunCheckInstall(target, target); r.Severity != doctor.PASS {
+		t.Fatalf("severity after repair = %q, want PASS; detail: %s", r.Severity, r.Detail)
+	}
+}
+
 // --- helpers ---
+
+// writeAgentOverride writes <home>/.atomic/config.toml with a single
+// [claude.agents.<agentName>] override entry. Uses config.WritePersist for
+// correctness, mirroring claudeinstall_test's writeOverrideConfig.
+func writeAgentOverride(t *testing.T, home, agentName string, ov config.AgentOverride) {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Claude.Agents = map[string]config.AgentOverride{agentName: ov}
+	if err := config.WritePersist(config.TOMLPath(home), cfg); err != nil {
+		t.Fatalf("write override config: %v", err)
+	}
+}
+
+// suppressClaudeinstallSeams replaces claudeinstall's TTY-gated seams with
+// no-ops so Install can run unattended in a non-interactive test binary,
+// restoring the production defaults on cleanup.
+func suppressClaudeinstallSeams(t *testing.T) {
+	t.Helper()
+	claudeinstall.ProfileRefresh = func(_, _ string, _ int) (bool, error) { return false, nil }
+	claudeinstall.PruneConfirm = func(_ []string) (bool, error) { return false, nil }
+	t.Cleanup(func() {
+		claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh
+		claudeinstall.PruneConfirm = claudeinstall.DefaultPruneConfirm
+	})
+}
 
 func installArtifact(t *testing.T, target string, a embedded.Artifact) {
 	t.Helper()

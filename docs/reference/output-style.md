@@ -20,6 +20,43 @@ It is also the most optional part of atomic-claude. The skills, commands, agents
 The first four layers carry the load. The output style shapes how Claude communicates the result.
 
 
+## Sentence rules
+
+Beyond the drop-list, five rules shape individual sentences. Each targets a redundancy that survives word-level cutting:
+
+- **Condition before instruction.** "If index stale, re-run indexer" scans in execution order. The trailing-condition form risks the reader acting before reading the guard.
+- **Say it once.** Restatement is the filler that word-cutting misses: the same proposition wearing a new sentence.
+- **Articles guard surprises.** Drop articles only where the noun is predictable. "Rollback deletes the backup" keeps its function words because the content is a warning, and a warning must parse on first read.
+- **Code can be the whole reply.** When code fully answers the question, prose around it adds nothing.
+- **Keep the user's terms.** Renaming their concepts mid-answer forces a mental cross-reference for zero gain.
+
+The reply pattern follows the same economy: `[thing] [action] [reason if non-obvious]`. A reason appears only when the reader cannot derive it.
+
+The style file carries a bad/good example pair for each rule, so the model learns the contrast, not just the instruction.
+
+
+## Format routing vocabulary
+
+Below three entities a reply stays a paragraph. Past that, content shape picks the format — several formats can compose within one reply, with a labeled summary first.
+
+Ten routes cover the shapes that come up in practice:
+
+| Route | Use when | Avoid when |
+|-------|----------|------------|
+| hierarchy | content nests (parent/child, containment) | items are flat and unrelated |
+| comparison | options or rows share the same attributes | two options, a sentence already covers it |
+| causality | one event leads to another | the chain is short and self-explanatory |
+| process | steps must happen in a fixed order | steps have no fixed order |
+| change | before/after or a code delta | there's no prior state to contrast |
+| lifecycle | an entity moves through named states | only two states — a sentence suffices |
+| data flow | data or control passes between stages | fewer than two hand-offs exist |
+| records | a single structured entity, named fields | the fields read fine inline as prose |
+| status rows | several items each report the same few fields | one item, one status |
+| data model | entities relate to each other | there's only one entity |
+
+Three caps keep the vocabulary from sprawling. Aligned columns must sit inside a fence — markdown collapses whitespace, so unfenced alignment breaks on render. A reply keeps to one symbol vocabulary: the system already uses 🔴🟡🔵 for findings, so `[OK]/[WARN]/[FAIL]` tags would duplicate that taxonomy. Box-drawing cards are cut outright — their borders break on wrap, they cost tokens, and a heading already does the job a bordered card would.
+
+
 ## How to activate it
 
 1. Run `/config` in any Claude Code session

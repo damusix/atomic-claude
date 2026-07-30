@@ -22,7 +22,7 @@ git rev-list --count "$BASE"..HEAD 2>/dev/null
 git worktree list 2>/dev/null
 ls docs/spec/ 2>/dev/null
 ls .claude/.scratchpad/ 2>/dev/null
-test -f .claude/project/signals.md && echo signals=yes || echo signals=no
+test -f docs/wiki/index.md && echo signals=yes || echo signals=no
 test -f CLAUDE.md && echo claudemd=yes || echo claudemd=no
 ```
 
@@ -33,10 +33,10 @@ Derive:
 - `on_base` — branch == BASE
 - `dirty` — any uncommitted changes
 - `ahead` — commits ahead of base (integer)
-- `in_worktree` — cwd path includes `.worktrees/`
+- `in_worktree` — cwd path includes `.claude/worktrees/`
 - `has_spec` — any files in `docs/spec/`
 - `has_scratchpad` — any active scratchpad dirs (implies in-flight `/subagent-implementation`)
-- `has_signals` — `.claude/project/signals.md` present
+- `has_signals` — `docs/wiki/index.md` present
 - `has_claudemd` — `CLAUDE.md` present at repo root
 - `fresh_repo` — `in_repo` AND NOT (`has_signals` OR `has_claudemd` OR `has_spec`) — signals the user has never run the atomic toolchain here
 
@@ -49,8 +49,8 @@ Pick **one** primary recommendation from this decision table. Show it first, the
 
 | State | Primary recommendation | Why |
 |-------|------------------------|-----|
-| not `in_repo` | `/atomic-setup` (after `git init`) | repo not initialized |
-| `in_repo` + `fresh_repo` | `/atomic-setup` then `/refresh-signals` | toolchain never run here |
+| not `in_repo` | `/setup-wiki` (after `git init`) | repo not initialized |
+| `in_repo` + `fresh_repo` | `/setup-wiki` then `/refresh-wiki` | toolchain never run here |
 | `in_repo` + on_base + clean | `/atomic-plan` then `/subagent-implementation` (worktree created at start of loop) | start fresh work in isolation |
 | on_base + dirty | commit or stash first, then `/subagent-implementation` (worktree created by the loop) | base should stay clean |
 | feature branch + dirty + no spec | `/atomic-plan` (write the contract first) | plan before code |
@@ -77,10 +77,12 @@ One-line pointer per topic. Group by category for scannability.
 |-------|--------|
 | `lifecycle` / `workflow` | Four stages: `/atomic-plan` → `/subagent-implementation` → ship verb → `/documentation`. Each stage uses fresh-context subagents. Or run all four hands-off with `/autopilot`. |
 | `autopilot` / `auto` | `/autopilot <task \| issue#> [merge-verb]` — the whole lifecycle, hands-off, with one decision: how to merge. Always uses the `/subagent-implementation` loop, fixes every reviewer finding in-iteration, auto-dispatches `atomic-strategist` (read-only) when stuck, keeps the spec currency-clean. For work you trust the system to drive. |
-| `plan` | `/atomic-plan` writes design (`docs/design/`) + spec (`docs/spec/`). Pair with `/gather-evidence` (chase the hunch) and `/pressure-test` (challenge the design) before approving. |
+| `plan` | `/atomic-plan` writes design (`docs/design/`) + spec (`docs/spec/`). Pair with `/gather-evidence` (chase the hunch) and `/pressure-test` (challenge the design) before approving; `/challenge-swarm` attacks the written result before implementation. |
 | `gather-evidence` / `evidence` | `/gather-evidence [<hypothesis> \| @<path>]` — pre-design hunch verification. Primary-source evidence with cited tier. Returns SUPPORTED / UNSUPPORTED / MIXED / INCONCLUSIVE. |
-| `pressure-test` | `/pressure-test [<topic> \| @<path>]` — Socratic challenger, no artifacts. Pre-approval gate. |
+| `pressure-test` | `/pressure-test [<topic> \| @<path>]` — Socratic challenger, no artifacts. Pre-approval gate. Complement: `/challenge-swarm` attacks the written design in parallel instead of dialogue. |
+| `challenge-swarm` / `swarm` | `/challenge-swarm [<path> \| @<path>]` — 4-6 isolated expert lenses (security, perf, maintainer, ops, tester, ...) review a design/spec in parallel; report is a contradiction map (conflicts / reinforced / unexamined assumptions). Post-design gate before `/subagent-implementation`. |
 | `implement` | `/subagent-implementation` reads spec, runs implement→review loop with `atomic-implementer`+`atomic-reviewer`, commits per green iteration. |
+| `quick-fix` | `/quick-fix <task>` — implement→review loop without the planning phase, spec gate, or finalize ceremony. For a known-cause fix with one obvious approach; escapes to `/subagent-diagnose`, `/atomic-plan`, or `/subagent-implementation` on uncertainty signals, never file count. |
 | `diagnose` | `/subagent-diagnose ci [run-id]` or `/subagent-diagnose bug "<symptom>"` — orchestrated failure investigation. Same loop as implementation. |
 | `review` | `/review-branch` one-shot pre-PR pass. `atomic-reviewer` also gates each iteration inside `/subagent-implementation`. |
 | `ship` | Pick by intent — see `ship` matrix below. |
@@ -96,10 +98,11 @@ One-line pointer per topic. Group by category for scannability.
 
 | Topic | Output |
 |-------|--------|
-| `setup` / `install` | First-run flow: `/atomic-setup` audits conventions, then `/refresh-signals` generates project context. |
-| `signals` | `/refresh-signals` — idempotent, initializes or refreshes. The implement loop / `/autopilot` refreshes at finalize (scoped to the task's SHA range); ship verbs are the ad-hoc fallback and skip docs-only commits. |
+| `setup` / `install` | First-run flow: `/setup-wiki` audits conventions, then `/refresh-wiki` generates project context. |
+| `signals` | `/refresh-wiki` — idempotent, initializes or refreshes. The implement loop / `/autopilot` refreshes at finalize (scoped to the task's SHA range); ship verbs are the ad-hoc fallback and skip docs-only commits. |
 | `wiki` | `/refresh-wiki [root]` — cross-repo wiki. Scans member repos, summarizes no-signals repos via the inferrer, synthesizes capture-bucket material into `wiki/knowledge/` pages, refreshes only stale artifacts, commits the wiki (its git history is the changelog). Run `atomic wiki scan` first to scaffold. Use `atomic wiki bucket add/list/diff/promote` to manage capture folders. `atomic-wiki` skill is the conversational entry point — fires on "I want a place for notes/tickets", "add a bucket", "what does my wiki know", "is my wiki stale". |
-| `worktree` | Worktree creation is built into the implement loop — `/subagent-implementation` and `/autopilot` both offer (or auto-create) `.worktrees/<branch>/` via the `worktree-setup` shared partial. Cleanup via `/git-cleanup`. |
+| `worktree` | Worktree creation is built into the implement loop — `/subagent-implementation` and `/autopilot` both offer (or auto-create) `.claude/worktrees/<branch>/` via the `worktree-setup` shared partial (Claude Code's native worktree home — `EnterWorktree` and `claude --worktree` manage the same directory). Cleanup via `/git-cleanup`. |
+| `bus` / `coordination` / `rooms` | `atomic bus` — peer messaging between concurrent Claude Code sessions over named rooms. `join <room> --as <name>` then a Monitor on `recv` delivers peer messages as prompts (always streams; no `--follow` flag, no replay of past traffic). `to` distinguishes addressed (act) from FYI (note only); `human`/`agent` kind and `--mode observe` shape who acts. Operator reaches a room without joining via `tail`/`say`/`chat`/`halt`/`resume`. Daemon auto-spawns on first use, rehydrates its roster on restart; `start`/`stop`/`restart` control it explicitly — no idle shutdown. The `atomic-bus` skill carries the connect flow and reaction policy. See `docs/reference/bus.md`. |
 | `session` | `/session-report [<slug>]` captures branch session. Read + deleted by next commit-message ship verb. |
 | `reminders` | `/remind-me <when> <text>` schedules. `/follow-up` reviews pending. `/follow-up review` triages stale entries. |
 
@@ -108,21 +111,21 @@ One-line pointer per topic. Group by category for scannability.
 | Topic | Output |
 |-------|--------|
 | `cleanup` | `/git-cleanup` (stale worktrees / branches — dispatches a read-only scan via `atomic prompt git-cleanup`, presents indexed report, you confirm). `/undo-commit` (soft-undo HEAD, refuses if pushed). |
-| `doctor` | `atomic doctor [--fix]` runs 11 integrity checks. `atomic validate` lints spec / config / bundle / artifacts. |
-| `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, then runs doctor (`--skip-claude-update` skips the refresh). When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge proposed `~/.claude/CLAUDE.md`. |
+| `doctor` | `atomic doctor [--fix]` runs integrity checks. `atomic validate` lints spec / config / bundle / artifacts. |
+| `update` | `atomic update [--check]` self-updates binary, auto-refreshes `~/.claude` artifacts, auto-runs install-scope migration steps, then runs doctor (`--skip-claude-update` skips the refresh). When no `<atomic>` block exists, run `atomic prompt claude-merge` inside a subagent to merge proposed `~/.claude/CLAUDE.md`. `atomic migrate` runs migration steps manually: bare = install scope (`~/.claude/`), `--repo <path>` = one project, `--realm <path>` = fan-out across all atomic'd member repos. |
 | `ci` / `watch` | `/watch-ci [<branch>\|<pr#>\|<run-id>\|<workflow.yml>]` spawns background Haiku to watch CI. |
 | `report` / `issue` | `/report-issue` opens issue against user's current repo. `/report-issue-with-atomic` opens against atomic-claude itself. |
-| `improve` / `retrospective` / `audit` | `/atomic-improve [<targeted feedback>]` — session retrospective. Mines `.jsonl` session history + current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |
+| `improve` / `retrospective` / `audit` | `/retrospective-learning [<targeted feedback>]` — session retrospective. Mines `.jsonl` session history + current conversation for corrections, friction, and atomic-meta misbehavior. Walks findings one at a time. Persists run log so later runs detect drift on past accepts. |
 
 **Reference**
 
 | Topic | Output |
 |-------|--------|
-| `agents` | 5 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, `atomic-strategist`, `atomic-signals-inferrer`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
-| `skills` | 9 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-commit`, `atomic-documentation`, `atomic-prose`, `atomic-wiki`, `atomic-visual-options`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
+| `agents` | 5 subagents: `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, `atomic-strategist`, `atomic-wiki-inferrer`. See `~/.claude/agents/` or `docs/reference/agents.md`. |
+| `skills` | 10 auto-firing skills: `atomic-tdd`, `atomic-verify`, `atomic-debug`, `atomic-review`, `atomic-git-discipline`, `atomic-documentation`, `atomic-writing`, `atomic-wiki`, `atomic-visual-options`, `atomic-bus`. See `~/.claude/skills/` or `docs/reference/skills.md`. |
 | `style` | atomic output style — clarity-first terse replies; multi-part answers use tables, trees, and ASCII flows. Activate via `/config` → Output style → Atomic. |
 | `commands` | Full catalog at `~/.claude/commands/`. Reference table at `docs/reference/commands.md`. |
-| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate (spec/config/bundle/artifacts)`, `followups`, `update`, `docker init`, `config`, `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`, `wiki bucket add <name>` (register a capture folder + splice `<wiki-buckets>` block), `wiki bucket list` (show registered buckets + pending/fresh status), `wiki bucket diff <name>` (read-only diff vs baseline: new/changed/removed), `wiki bucket promote <name>` (advance baseline after successful synthesis), `code index/sync` (build/refresh the symbol graph — at a wiki-realm root, fans out across all member repos; `--only`/`--exclude <keys>` filter which members), `code explore "<query>"` (one-shot context digest for a question — the verb to reach for first; in realm scope, results grouped under `[<key>]` headers), `code search/callers/callees/impact <symbol>` (targeted graph queries, `--json` for machine output; `--json` returns `{ "<key>": … }` object in realm scope), `code mcp` (expose the graph as MCP tools; daemon self-syncs every 10s — `--no-watch` disables, `--watch-interval` overrides; `atomic --repo <abs-path> code mcp` serves any repo cwd-independently with N entries in `.mcp.json`; realm members auto-resolve to their realm db). For setup, see `docs/guides/code-intel-mcp.md`. `serve [path] [--port N] [--open]` — start a local read-only HTTP server (default port 4500) that renders the wiki realm (or a single repo) as a navigable, Obsidian-style graph: a page view with a live right rail (this-page graph, out/in links, frontmatter Properties panel with `resource:` as a clickable link), a whole-system graph toggle with OKF node-type coloring + type legend/filter, a code-file modal (highlighted source + code intelligence), an `md|code` search box, and federated code search. Bundle-relative `/path.md` links resolve in-shell. localhost only; `--open` opens the browser. |
+| `binary` / `cli` | `atomic` subcommands: `claude install/update/uninstall`, `signals scan [--out <dir>]`, `signals linkify`, `hooks install`, `docs scan/stale`, `doctor`, `validate (spec/config/bundle/artifacts)`, `followups`, `update`, `migrate [--repo <path> | --realm <path>]` (versioned migrations: bare = install scope, --repo = one project, --realm = fan-out across all atomic'd repos), `docker init`, `repo init` (idempotently scaffold `.claude/` layout: `.scratchpad/`/`project/` dirs, nested `.claude/.gitignore` rules for `.scratchpad/`/`.atomic-index/`/`worktrees/`, root `tmp/` ignore rule — commands run it best-effort so this rarely needs a direct invocation), `config get/set/unset/list/path`, `config agents` (set per-agent model + reasoning effort interactively — model is a tier alias (`haiku`/`sonnet`/`opus`) or an exact model id; effort `low`/`medium`/`high`/`xhigh`/`max`; stored in `config.toml [claude.agents.<name>]`, applied on save (re-patches already-installed agent files under the default `~/.claude` root), re-applied on every `atomic claude install`/`update`), `profile refresh`, `wiki scan [--root]`, `wiki stale [--root]`, `wiki linkify --root`, `wiki init --scope repo|realm --root <path>` (writes the `CLAUDE.md` steering scaffold and the `.claude/atomic.toml` scope marker for the given scope; idempotent — no-ops if the CLAUDE.md scaffold exists; `wiki scan` remains the entry point for full realm setup), `wiki bucket add <name>` (register a capture folder + splice `<wiki-buckets>` block), `wiki bucket list` (show registered buckets + pending/fresh status), `wiki bucket diff <name>` (read-only diff vs baseline: new/changed/removed), `wiki bucket promote <name>` (advance baseline after successful synthesis), `wiki bucket doc <bucket> <slug> [--router]` (scaffold `<bucket>/<slug>.md` from the embedded doc template, `created` stamped; `--router` also scaffolds the sibling subtree), `wiki bucket skill <bucket>` (scaffold the realm per-bucket `SKILL.md`, no-op if present), `wiki bucket index [<bucket>]` (rebuild the `<bucket-docs>` region for one bucket or all, plus the realm `<wiki-bucket-list>` region — `wiki scan` already runs this), `code index/sync` (build/refresh the symbol graph — respects repo-scoped ignore globs committed at `.claude/atomic.toml` `[code] ignore`; at a wiki-realm root, fans out across all member repos; `--only`/`--exclude <keys>` filter which members), `code explore "<query>"` (one-shot context digest for a question — the verb to reach for first; in realm scope, results grouped under `[<key>]` headers), `code search/callers/callees/impact <symbol>` (targeted graph queries, `--json` for machine output; `--json` returns `{ "<key>": … }` object in realm scope), `code mcp` (expose the graph as MCP tools; daemon self-syncs every 10s — `--no-watch` disables, `--watch-interval` overrides; `atomic --repo <abs-path> code mcp` serves any repo cwd-independently with N entries in `.mcp.json`; realm members auto-resolve to their realm db). For setup, see `docs/guides/code-intel-mcp.md`. `serve [path] [--port N] [--open]` — start a local read-only HTTP server (default port 4500) that renders the wiki realm (or a single repo) as a navigable, Obsidian-style graph: a page view with a live right rail (this-page graph, out/in links, frontmatter Properties panel with `resource:` as a clickable link), a whole-system graph toggle with OKF node-type coloring + type legend/filter, a code-file modal (highlighted source + code intelligence), an `md|code` search box, and federated code search. Bundle-relative `/path.md` links resolve in-shell. localhost only; `--open` opens the browser. `where [--json]` — one-shot position report: repo-scope wiki presence, realm-scope position (root/member/orphaned/none), and code-index scope, side by side (not collapsed to one enum) — run it from any cwd to orient before wiki/realm-scoped work. |
 
 ### C. Freeform intent — classify and route
 
@@ -152,8 +155,8 @@ The tour is four stages. After each stage, prompt the user via `AskUserQuestion`
 atomic-claude — opinionated Claude Code config. Five surfaces compose:
 
   output style    terse TUI replies (atomic — drop filler, fragments OK)
-  skills          9 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing, visual options)
-  commands        ~22 explicit verbs (/autopilot, /atomic-plan, /commit, ...)
+  skills          10 auto-firing disciplines (TDD, verify, debug, commit, review, docs, prose, wiki/bucket routing, visual options, bus messaging)
+  commands        ~23 explicit verbs (/autopilot, /atomic-plan, /commit, ...)
   agents          5 dispatchable subagents (implementer, reviewer, investigator, ...)
   binary          atomic CLI — signals scan, doctor, validate, update, install
 
@@ -172,8 +175,11 @@ Prompt: continue to lifecycle / show me the surfaces in detail / exit tour.
 3. Ship         /commit [token]     — commit, then optionally push / pr / merge / squash
 4. Sync docs    /documentation      — README + CLAUDE.md + spec/design updated to match
 
-Branch isolation: /subagent-implementation and /autopilot create .worktrees/<branch>/ at loop start.
+Challenge gates:  /pressure-test (defend the idea in dialogue) and /challenge-swarm
+                  (isolated expert lenses attack the written design) sit between plan and implement.
+Branch isolation: /subagent-implementation and /autopilot create .claude/worktrees/<branch>/ at loop start.
 Diagnose failures: /subagent-diagnose ci|bug runs the same loop from a failure seed.
+Skip planning:    /quick-fix <task> runs the same loop without a spec — known cause, one obvious fix.
 Hands-off:        /autopilot <task|issue#> runs stages 1-3 autonomously; asks only how to merge.
 ```
 
@@ -184,13 +190,13 @@ If user picks "dive in", ask which stage (1–4), then dump that stage's verb de
 **Stage 3 — State files and where things live.**
 
 ```
-.claude/project/signals.md            project map — auto-loaded every session
-.claude/project/deterministic-signals.md   raw scan output — NOT @-ref'd (too big)
+docs/wiki/index.md                    project map — auto-loaded every session
+docs/wiki/scan.md                     raw scan output — NOT @-ref'd
 .claude/.atomic-index/atomic.db       code-intel symbol graph (gitignored; built with `atomic code index`)
 .claude/.scratchpad/<task>/           implement→review working memory (gitignored)
 .claude/.scratchpad/session-reports/  per-branch session notes (gitignored)
 .claude/project/followups/            committed follow-up entries with INDEX.md
-.worktrees/<branch>/                  isolated branches (gitignored)
+.claude/worktrees/<branch>/           isolated branches (gitignored)
 docs/design/<topic>.md                conceptual workspace (committed)
 docs/spec/<topic>.md                  implementation contract (committed; body kept current, changes logged)
 <wikis> block in ~/.claude/CLAUDE.md  registered wiki index paths (CLI-managed, outside <atomic>)
@@ -202,7 +208,7 @@ wiki layout:
   wiki/.buckets/<n>/  SHA-256 manifests for capture folder <n> (current/baseline/previous)
   <realm>/<bucket>/   capture folder (user-maintained; registered via `atomic wiki bucket add`)
 
-Refresh project map any time: /refresh-signals (syncs code-intel index when warm)
+Refresh project map any time: /refresh-wiki (syncs code-intel index when warm)
 Refresh cross-repo wiki: /refresh-wiki [root]
 ```
 
@@ -211,10 +217,13 @@ Prompt: continue to maintenance / explain one of these / exit tour.
 **Stage 4 — Maintenance and utilities.**
 
 ```
-atomic doctor [--fix]             11 integrity checks (install, hooks, signals, refs, ..., profile, code-index)
+atomic doctor [--fix]             integrity checks over install, hooks, signals, refs, ..., profile, code-index, migrate
 atomic validate                   lint spec / config / bundle / artifact-CLI-citation parity
-atomic update [--check]           self-update binary, runs doctor after
+atomic update [--check]           self-update binary, auto-runs install-scope migrations, runs doctor after
+atomic migrate [--repo|--realm]   run versioned migration steps: bare = ~/.claude/, --repo = one project, --realm = fan-out across all atomic'd repos
 atomic profile refresh            re-detect dev tooling + shell, rewrite ## Environment block
+atomic where [--json]             one-shot position report: repo-scope wiki, realm scope (root/member/orphaned/none), code-index scope — orient before wiki/realm-scoped work
+atomic bus join|send|recv|tail|chat  peer messaging between concurrent sessions over named rooms; daemon auto-spawns/rehydrates on restart, start|stop|restart control it explicitly; atomic-bus skill carries the reaction policy
 atomic code index/sync            build or refresh the symbol graph; at a wiki-realm root, fans out across member repos (--only/--exclude to filter)
 atomic code explore "<query>"     one-shot context digest for a question; search/callers/callees/impact drill into one symbol; realm output grouped under [key] headers
 atomic serve [path] [--port N]    local read-only HTTP server: Obsidian-style page view + right-rail graph/links, system-graph toggle, code-file modal, md|code search (default port 4500; --open opens browser)
@@ -222,6 +231,7 @@ atomic code mcp                   start MCP server exposing graph as tools; daem
 atomic wiki scan [--root=<path>]  scaffold + classify member repos; register wiki; write ## Members links
 atomic wiki stale [--root=<path>] read-only freshness verdict; reports STALE bucket lines alongside repo/concern drift
 atomic wiki bucket add|list|diff|promote  manage capture folders: register, inspect status, diff vs baseline, advance baseline
+atomic wiki bucket doc|skill|index  doc: scaffold a topic file (--router for a subtree); skill: scaffold the per-bucket SKILL.md; index: rebuild the bucket + realm listing regions
 atomic signals linkify          render signals path citations as navigable relative md links (inferrer runs it)
 atomic wiki linkify --root        same for wiki summaries/concerns/knowledge/index (/refresh-wiki runs it post-stamp)
 /refresh-wiki [root]              incremental wiki refresh — re-authors stale/pending repos + synthesizes capture buckets
@@ -231,7 +241,7 @@ atomic prompt claude-merge        emit claude-merge brief for use inside a subag
 /watch-ci [target]                background agent tails CI, notifies when terminal
 /report-issue                     file issue against current repo
 /report-issue-with-atomic         file issue against atomic-claude config itself
-/atomic-improve [<hint>]          session retrospective; surfaces friction and drift
+/retrospective-learning [<hint>]  session retrospective; surfaces friction and drift
 ```
 
 Prompt: end tour / get a specific topic recap / re-run tour.
@@ -277,7 +287,7 @@ For tour mode (D), use prose blocks + `AskUserQuestion` transitions, not the thr
 - One recommendation, not a menu. The point is to unblock, not enumerate. Exception: tour mode is the menu.
 - Never recite the full command catalog in routing modes — that is what `README.md`, `docs/reference/commands.md`, and the tour are for.
 - Do not invoke or execute any verb. Recommend only — the user types it. Tour mode is the same: describe, do not run.
-- If state probes fail (not a git repo, etc.), say so plainly and recommend `/atomic-setup` or `git init` as appropriate.
+- If state probes fail (not a git repo, etc.), say so plainly and recommend `/setup-wiki` or `git init` as appropriate.
 - Tour mode advances one stage at a time; never dump all four stages at once. Each stage waits for user input.
 - Atomic style applies to your output (terse, fragments, drop articles). Tour prose still terse — fragments and one-line descriptions, not paragraphs.
 

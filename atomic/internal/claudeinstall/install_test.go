@@ -54,7 +54,7 @@ func countKind(plan []claudeinstall.FileAction, kind claudeinstall.ActionKind) i
 func TestInstallIntoEmptyTarget(t *testing.T) {
 	target := t.TempDir()
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -94,11 +94,11 @@ func TestInstallIntoEmptyTarget(t *testing.T) {
 func TestInstallSecondRunAllUnchanged(t *testing.T) {
 	target := t.TempDir()
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("second Install: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestInstallSecondRunAllUnchanged(t *testing.T) {
 func TestInstallUpdatesChangedArtifact(t *testing.T) {
 	target := t.TempDir()
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
 
@@ -125,7 +125,7 @@ func TestInstallUpdatesChangedArtifact(t *testing.T) {
 		t.Fatalf("write tampered: %v", err)
 	}
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("second Install: %v", err)
 	}
@@ -174,7 +174,7 @@ func TestInstallCLAUDEmdDiffers(t *testing.T) {
 		t.Fatalf("write user CLAUDE.md: %v", err)
 	}
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestInstallCLAUDEmdIdentical(t *testing.T) {
 		t.Fatalf("write CLAUDE.md: %v", err)
 	}
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestInstallCLAUDEmdIdentical(t *testing.T) {
 func TestDryRunNoWrites(t *testing.T) {
 	target := t.TempDir()
 
-	plan, err := claudeinstall.Install(target, true /* dryRun */, fixedClock)
+	plan, err := claudeinstall.Install(target, target, true /* dryRun */, fixedClock)
 	if err != nil {
 		t.Fatalf("Install dry-run: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestListTabSeparated(t *testing.T) {
 func TestDiffAllAbsent(t *testing.T) {
 	target := t.TempDir()
 
-	rows, err := claudeinstall.Diff(target)
+	rows, err := claudeinstall.Diff(target, target)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -316,11 +316,11 @@ func TestDiffAllAbsent(t *testing.T) {
 func TestDiffAllMatch(t *testing.T) {
 	target := t.TempDir()
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
-	rows, err := claudeinstall.Diff(target)
+	rows, err := claudeinstall.Diff(target, target)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestDiffAllMatch(t *testing.T) {
 func TestDiffMixed(t *testing.T) {
 	target := t.TempDir()
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -352,7 +352,7 @@ func TestDiffMixed(t *testing.T) {
 	existing, _ := os.ReadFile(diffPath)
 	_ = os.WriteFile(diffPath, append(existing, []byte("\ntampered\n")...), 0o644)
 
-	rows, err := claudeinstall.Diff(target)
+	rows, err := claudeinstall.Diff(target, target)
 	if err != nil {
 		t.Fatalf("Diff: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestManifestSHAMatchesEmbedded(t *testing.T) {
 func TestUpdate_DelegatesToInstall(t *testing.T) {
 	target := t.TempDir()
 
-	plan, err := claudeinstall.Update(target, false, fixedClock)
+	plan, err := claudeinstall.Update(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
@@ -433,7 +433,7 @@ func TestUpdate_DelegatesToInstall(t *testing.T) {
 func TestBackupPathContainsTimestamp(t *testing.T) {
 	target := t.TempDir()
 
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
 
@@ -441,7 +441,7 @@ func TestBackupPathContainsTimestamp(t *testing.T) {
 	original, _ := os.ReadFile(editPath)
 	_ = os.WriteFile(editPath, append(original, []byte("\ntampered\n")...), 0o644)
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("second Install: %v", err)
 	}
@@ -464,11 +464,11 @@ func TestBackupPathContainsTimestamp(t *testing.T) {
 func TestApply_PreCreatesResolvedConfigStub(t *testing.T) {
 	target := t.TempDir()
 
-	plan, err := claudeinstall.Plan(target, embedded.Manifest())
+	plan, err := claudeinstall.Plan(target, target, embedded.Manifest())
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if err := claudeinstall.Apply(target, plan, false, fixedClock); err != nil {
+	if err := claudeinstall.Apply(target, target, plan, false, fixedClock); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
@@ -494,11 +494,11 @@ func TestApply_PreserveExistingResolvedConfig(t *testing.T) {
 		t.Fatalf("write existing: %v", err)
 	}
 
-	plan, err := claudeinstall.Plan(target, embedded.Manifest())
+	plan, err := claudeinstall.Plan(target, target, embedded.Manifest())
 	if err != nil {
 		t.Fatalf("Plan: %v", err)
 	}
-	if err := claudeinstall.Apply(target, plan, false, fixedClock); err != nil {
+	if err := claudeinstall.Apply(target, target, plan, false, fixedClock); err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
 
@@ -516,7 +516,7 @@ func TestApply_PreserveExistingResolvedConfig(t *testing.T) {
 func TestInstall_CreatesProfileStub(t *testing.T) {
 	target := t.TempDir()
 
-	if _, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &bytes.Buffer{}); err != nil {
+	if _, err := claudeinstall.InstallWithOutput(target, target, false, fixedClock, &bytes.Buffer{}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -558,7 +558,7 @@ func TestInstall_ProfileStubIdempotent(t *testing.T) {
 		t.Fatalf("write existing profile.md: %v", err)
 	}
 
-	if _, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &bytes.Buffer{}); err != nil {
+	if _, err := claudeinstall.InstallWithOutput(target, target, false, fixedClock, &bytes.Buffer{}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
 
@@ -578,7 +578,7 @@ func TestInstall_PrintsNudgeOnFirstCreate(t *testing.T) {
 	target := t.TempDir()
 
 	var buf bytes.Buffer
-	_, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &buf)
+	_, err := claudeinstall.InstallWithOutput(target, target, false, fixedClock, &buf)
 	if err != nil {
 		t.Fatalf("InstallWithOutput: %v", err)
 	}
@@ -609,7 +609,7 @@ func TestInstall_SuppressesNudgeWhenAlreadyExists(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	_, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &buf)
+	_, err := claudeinstall.InstallWithOutput(target, target, false, fixedClock, &buf)
 	if err != nil {
 		t.Fatalf("InstallWithOutput: %v", err)
 	}
@@ -641,7 +641,7 @@ func TestInstall_ProfileRefreshCalledAfterStub(t *testing.T) {
 	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
 
 	var buf bytes.Buffer
-	if _, err := claudeinstall.InstallWithOutput(target, false, clock, &buf); err != nil {
+	if _, err := claudeinstall.InstallWithOutput(target, target, false, clock, &buf); err != nil {
 		t.Fatalf("InstallWithOutput: %v", err)
 	}
 
@@ -669,7 +669,7 @@ func TestInstall_ProfileRefreshError_BestEffort(t *testing.T) {
 	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
 
 	var buf bytes.Buffer
-	_, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &buf)
+	_, err := claudeinstall.InstallWithOutput(target, target, false, fixedClock, &buf)
 	if err != nil {
 		t.Fatalf("Install returned error despite best-effort refresh: %v", err)
 	}
@@ -693,7 +693,7 @@ func TestInstall_ProfileRefreshPanic_BestEffort(t *testing.T) {
 	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
 
 	var buf bytes.Buffer
-	_, err := claudeinstall.InstallWithOutput(target, false, fixedClock, &buf)
+	_, err := claudeinstall.InstallWithOutput(target, target, false, fixedClock, &buf)
 	if err != nil {
 		t.Fatalf("Install returned error despite panic recovery: %v", err)
 	}
@@ -714,6 +714,18 @@ func TestInstall_NudgeNoLongerClaimsClaudeFillsIt(t *testing.T) {
 	}
 }
 
+// TestInstall_NudgePointsToRetrospectiveLearning verifies that ProfileNudge directs
+// users to /retrospective-learning, not the pre-rename /atomic-improve verb.
+// WHY: issue #124 renamed the command; a stale nudge would point users at a dead verb.
+func TestInstall_NudgePointsToRetrospectiveLearning(t *testing.T) {
+	if !strings.Contains(claudeinstall.ProfileNudge, "/retrospective-learning") {
+		t.Errorf("ProfileNudge does not mention /retrospective-learning: %q", claudeinstall.ProfileNudge)
+	}
+	if strings.Contains(claudeinstall.ProfileNudge, "/atomic-improve") {
+		t.Errorf("ProfileNudge still mentions stale /atomic-improve: %q", claudeinstall.ProfileNudge)
+	}
+}
+
 // TestBackupTimestampUsesRunStart: Apply uses the clock captured at the start of the
 // run, not the time of the first ActionUpdated. Both items in the plan that are
 // Updated must share the same timestamp directory, which must equal the fixed
@@ -722,7 +734,7 @@ func TestBackupTimestampUsesRunStart(t *testing.T) {
 	target := t.TempDir()
 
 	// Fresh install first.
-	if _, err := claudeinstall.Install(target, false, fixedClock); err != nil {
+	if _, err := claudeinstall.Install(target, target, false, fixedClock); err != nil {
 		t.Fatalf("first Install: %v", err)
 	}
 
@@ -736,7 +748,7 @@ func TestBackupTimestampUsesRunStart(t *testing.T) {
 		_ = os.WriteFile(p, append(orig, []byte("\ntampered\n")...), 0o644)
 	}
 
-	plan, err := claudeinstall.Install(target, false, fixedClock)
+	plan, err := claudeinstall.Install(target, target, false, fixedClock)
 	if err != nil {
 		t.Fatalf("second Install: %v", err)
 	}

@@ -1,9 +1,6 @@
 package serve_test
 
 import (
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,33 +139,6 @@ func containsPage(pages []string, relPath string) bool {
 // an htmx trigger to load /rail/<relpath> — the FE2 rail compositing wiring.
 // The dead #context-pane is no longer referenced; the right rail slots are the
 // new targets (#rail-out-content, #rail-in-content, #rail-graph-content).
-func TestContextHandler_PageViewTriggersRail(t *testing.T) {
-	root := buildGraphRealm(t)
-
-	g := serve.BuildLinkGraph(root)
-	pageHandler := serve.NewPageHandlerWithGraph(root, g)
-
-	srv := httptest.NewServer(pageHandler)
-	defer srv.Close()
-
-	resp, err := http.Get(srv.URL + "/page/b.md")
-	if err != nil {
-		t.Fatalf("GET /page/b.md: %v", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-
-	// The page view (full, non-htmx) must reference /rail/b.md to trigger the
-	// right-rail load. No reference to /context/ or context-pane must remain.
-	if !strings.Contains(html, "/rail/b.md") {
-		t.Errorf("page view should trigger /rail/b.md for right-rail load:\n%s", html)
-	}
-	if strings.Contains(html, "context-pane") {
-		t.Errorf("page view must NOT reference dead 'context-pane':\n%s", html)
-	}
-}
-
 // TestLinkGraph_WikilinkToC verifies that b.md's wikilink [[c]] resolves to c.md.
 func TestLinkGraph_WikilinkToC(t *testing.T) {
 	root := buildGraphRealm(t)
@@ -273,65 +243,6 @@ func TestLinkGraph_DirectoryLinkResolvesToIndex(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected an outbound edge with target 'member/'")
-	}
-}
-
-// TestPageHandler_FolderServesIndex verifies that loading a folder URL serves
-// the folder's index file (README.md) instead of 404, and keys the rail to that
-// resolved file. Fixes "there's no index when I load a folder".
-func TestPageHandler_FolderServesIndex(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "proj", "README.md"), "# Proj Readme\n\nWelcome.\n")
-	g := serve.BuildLinkGraph(root)
-	srv := httptest.NewServer(serve.NewPageHandlerWithGraph(root, g))
-	defer srv.Close()
-
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/page/proj/", nil)
-	req.Header.Set("HX-Request", "true")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /page/proj/: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("folder load expected 200, got %d", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-	if !strings.Contains(html, "Proj Readme") {
-		t.Errorf("folder load should serve README.md content, got:\n%s", html)
-	}
-	if !strings.Contains(html, "/rail/proj/README.md") {
-		t.Errorf("folder load should key the rail to the resolved index file, got:\n%s", html)
-	}
-}
-
-// TestPageHandler_FolderListingNoIndex verifies that a folder with no index file
-// renders a browsable listing of its markdown files instead of 404.
-func TestPageHandler_FolderListingNoIndex(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, filepath.Join(root, "notes", "alpha.md"), "# Alpha\n")
-	writeFile(t, filepath.Join(root, "notes", "beta.md"), "# Beta\n")
-	g := serve.BuildLinkGraph(root)
-	srv := httptest.NewServer(serve.NewPageHandlerWithGraph(root, g))
-	defer srv.Close()
-
-	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/page/notes/", nil)
-	req.Header.Set("HX-Request", "true")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /page/notes/: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("folder listing expected 200, got %d", resp.StatusCode)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	html := string(body)
-	for _, want := range []string{"/page/notes/alpha.md", "/page/notes/beta.md", "dir-listing"} {
-		if !strings.Contains(html, want) {
-			t.Errorf("folder listing should contain %q, got:\n%s", want, html)
-		}
 	}
 }
 
@@ -469,6 +380,52 @@ func TestNodeMeta_SnippetSkipsDashLine(t *testing.T) {
 				t.Errorf("Snippet: got %q, want %q", meta.Snippet, tc.wantSnippet)
 			}
 		})
+	}
+}
+
+// TestNodeType_IndexAndDomain verifies that frontmatter `type: Index` maps to
+// the "index" FE class and `type: Domain` maps to "domain", while the pre-existing
+// OKF types (knowledge, concern, repo, bucket) are unaffected.
+// This is the CP5 success criterion for the wiki-storage-relocation spec.
+func TestNodeType_IndexAndDomain(t *testing.T) {
+	root := t.TempDir()
+
+	// Write files with explicit OKF frontmatter type values.
+	writeFile(t, filepath.Join(root, "wiki-index.md"),
+		"---\ntype: Index\ndescription: Signals index\n---\n# Index\n")
+	writeFile(t, filepath.Join(root, "wiki-domain.md"),
+		"---\ntype: Domain\ndescription: A domain file\n---\n# Domain\n")
+	// Existing types — verify they are unaffected.
+	writeFile(t, filepath.Join(root, "k.md"),
+		"---\ntype: Knowledge\n---\n# K\n")
+	writeFile(t, filepath.Join(root, "c.md"),
+		"---\ntype: Concern\n---\n# C\n")
+	writeFile(t, filepath.Join(root, "r.md"),
+		"---\ntype: Repo\n---\n# R\n")
+	writeFile(t, filepath.Join(root, "b.md"),
+		"---\ntype: Bucket\n---\n# B\n")
+	// No-frontmatter page falls back to "page".
+	writeFile(t, filepath.Join(root, "plain.md"), "# Plain\n")
+
+	g := serve.BuildLinkGraph(root)
+
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"wiki-index.md", "index"},
+		{"wiki-domain.md", "domain"},
+		{"k.md", "knowledge"},
+		{"c.md", "concern"},
+		{"r.md", "repo"},
+		{"b.md", "bucket"},
+		{"plain.md", "page"},
+	}
+	for _, tc := range cases {
+		got := g.NodeType(tc.path)
+		if got != tc.want {
+			t.Errorf("NodeType(%q): got %q, want %q", tc.path, got, tc.want)
+		}
 	}
 }
 

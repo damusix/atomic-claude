@@ -81,6 +81,32 @@ The index is a single SQLite file at `<project>/.claude/.atomic-index/atomic.db`
 Because the indexer reads working-tree content, a `sync` after an edit makes the graph reflect uncommitted changes — which is why the implementation loop re-syncs after each change so a reviewer's `impact` query sees current code.
 
 
+## Excluding files from the index
+
+A committed `<project>/.claude/atomic.toml` with a `[code]` table excludes matching files from the index:
+
+```toml
+[code]
+ignore = ["vendor/**", "*.min.js"]
+```
+
+Patterns match doublestar-style against repo-relative, slash-separated paths. A pattern containing no `/` matches the basename at any depth (`*.min.js` excludes `a/b/lib.min.js`); a pattern containing `/` is a full-path match; a leading `./` is stripped before matching. A trailing-slash-only pattern (`vendor/`) matches nothing — exclude a directory with `vendor/**` instead. There is no negation syntax (`!pattern`) — v1 is exclude-only.
+
+A missing or empty file leaves discovery unfiltered, identical to no config at all. Malformed TOML or an invalid glob pattern also leaves indexing unfiltered, but `atomic code index`/`sync` prints one warning line to stderr; unknown keys in the file warn the same way. `atomic doctor` validates the file when present — parse errors, unknown keys, and invalid glob patterns each report WARN with detail; an absent file is not a finding.
+
+A file that becomes newly ignored is pruned from an already-built index automatically: the next `atomic code index` or `atomic code sync` removes its nodes, edges, and unresolved references — the same deleted-file pruning that already runs, since an ignored file simply drops out of the discovery list. No separate ignore-prune step exists.
+
+**Gitignore caveat.** Some repos gitignore `.claude/*` wholesale. If yours does, add a negation pair (e.g. `!.claude/atomic.toml`) so the config file itself stays committed — otherwise it never reaches git and the ignore rules never take effect for anyone who clones the repo.
+
+**Declaring root identity.** The same file also accepts a top-level `scope` key, independent of `[code]`:
+
+```toml
+scope = "repo"
+```
+
+`scope = "repo"` or `scope = "realm"` declares this directory's identity in the tree — `atomic repo init` writes `scope = "repo"`, and `atomic wiki init --scope <s>` writes whichever value you pass, both idempotently. The nearest such marker above a directory outranks each consumer's own root-discovery fallback — `git rev-parse --show-toplevel` in `repoctx`, a `.git` stat walk in `atomic where` — and the `<wikis>` registry for realm root discovery. Any other value, or a file that fails to parse, is not a marker of either kind: discovery falls through to the pre-existing mechanism. See [Concepts](/reference/concepts#wikis) for the full discovery order. `atomic doctor` validates `scope` the same way it validates `[code] ignore`: an invalid value WARNs naming the value and the two accepted ones, and a valid value is named in the PASS detail; it also WARNs when `scope = "repo"` sits on a directory already registered as a realm root in the `<wikis>` block.
+
+
 ## Wiki realm federation
 
 When you work from a wiki realm — a folder that contains multiple repositories managed by `/refresh-wiki` — `atomic code` can index and query all of them without writing into any member repo.
@@ -111,7 +137,7 @@ Indexing is owned by orchestrator commands, never by the agents they dispatch. A
 
 | State | What happens |
 |-------|--------------|
-| Cold — no database | The first `index` can take seconds to minutes. `/refresh-signals`, `/subagent-implementation`, and `/autopilot` all build it automatically without prompting — indexing is cheap and idempotent, so there is nothing to ask. Nothing auto-indexes at session start. |
+| Cold — no database | The first `index` can take seconds to minutes. `/refresh-wiki`, `/subagent-implementation`, and `/autopilot` all build it automatically without prompting — indexing is cheap and idempotent, so there is nothing to ask. Nothing auto-indexes at session start. |
 | Warm — database exists | Orchestrators run `atomic code sync` before dispatching work. Incremental and cheap. |
 | Per iteration | The implementation loop runs `sync` after each committed change so the next review queries current state. |
 
@@ -135,7 +161,7 @@ flowchart TD
         gp["general-purpose (model: haiku)"]
         impl["atomic-implementer"]
         rev["atomic-reviewer"]
-        sig["atomic-signals-inferrer"]
+        sig["atomic-wiki-inferrer"]
     end
     db[("index<br/>.claude/.atomic-index/atomic.db")]
     grep["sg / grep / heuristics"]
@@ -157,7 +183,7 @@ What each consumer does with the graph:
 | `atomic-investigator` | Answer "where is X / what calls Y / map this area" from real edges instead of grep. The keystone — parents that delegate exploration to it inherit code-intel for free. |
 | `atomic-implementer` | Run a bounded `impact`/`callers` on a symbol before editing it, so the change accounts for every call site. |
 | `atomic-reviewer` | Check that a diff's blast radius matches what actually changed — catch callers the diff missed. |
-| `atomic-signals-inferrer` | Cluster domains from actual dependency edges, not directory names. Used by `/refresh-signals` and per-repo in `/refresh-wiki`. |
+| `atomic-wiki-inferrer` | Cluster domains from actual dependency edges, not directory names. Used by `/refresh-wiki` and per-repo in `/refresh-wiki`. |
 | `/atomic-plan`, `/documentation` | Delegate structural exploration to a subagent — never query inline. |
 | `/gather-evidence` | Treat `atomic code callers`/`impact` as a Tier-1 (primary-source) answer to "X is called from N places" / "changing X affects Y". |
 

@@ -67,9 +67,10 @@ func convertTSSpans(spans []extraction.TSLiteralSpan) []standalone.StringLiteral
 	out := make([]standalone.StringLiteralSpan, len(spans))
 	for i, s := range spans {
 		out[i] = standalone.StringLiteralSpan{
-			Text:      s.Text,
-			StartLine: s.StartLine,
-			EndLine:   s.EndLine,
+			Text:       s.Text,
+			StartLine:  s.StartLine,
+			EndLine:    s.EndLine,
+			CalleeExpr: s.CalleeExpr,
 		}
 	}
 	return out

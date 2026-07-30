@@ -1,5 +1,6 @@
 // Package docs scans a repository's documentation directories and writes a
-// lightweight "doc surfaces" cache file at .claude/project/doc-surfaces.md.
+// lightweight "doc surfaces" cache file under the harness-scoped project dir
+// (config.ProjectDir), e.g. .claude/project/doc-surfaces.md by default.
 //
 // The cache lists each discovered .md file with its H1 title and up to the
 // first three H2 section headings. The file is used by the signals workflow to
@@ -18,10 +19,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
 
-const cacheFile = ".claude/project/doc-surfaces.md"
+// cacheFileName is the cache's basename under the harness-scoped project dir
+// (config.ProjectDir), e.g. .claude/project/doc-surfaces.md by default.
+const cacheFileName = "doc-surfaces.md"
 
 // docDirs is the ordered list of directories searched for .md files.
 var docDirs = []string{
@@ -55,7 +59,8 @@ func (o *Options) clock() time.Time {
 // ErrStale is returned by Stale when the cache is out of date.
 var ErrStale = fmt.Errorf("docs stale: doc files are newer than doc-surfaces cache")
 
-// Scan walks the repo at root and writes .claude/project/doc-surfaces.md.
+// Scan walks the repo at root and writes the doc-surfaces cache under the
+// harness-scoped project dir (e.g. .claude/project/doc-surfaces.md by default).
 func Scan(root string) error {
 	return ScanWithOptions(root, nil)
 }
@@ -192,7 +197,8 @@ func parseSurface(root, rel string) (surface, error) {
 	return s, nil
 }
 
-// writeCacheFile writes the doc-surfaces.md cache at .claude/project/doc-surfaces.md.
+// writeCacheFile writes the doc-surfaces.md cache under the harness-scoped
+// project dir (config.ProjectDir).
 func writeCacheFile(root string, surfaces []surface, now time.Time) error {
 	var sb strings.Builder
 	sb.WriteString("# Doc surfaces\n\n")
@@ -215,7 +221,7 @@ func writeCacheFile(root string, surfaces []surface, now time.Time) error {
 		sb.WriteString("\n")
 	}
 
-	outPath := filepath.Join(root, cacheFile)
+	outPath := filepath.Join(config.ProjectDir(root), cacheFileName)
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
 		return fmt.Errorf("create cache dir: %w", err)
 	}
@@ -231,7 +237,7 @@ func writeCacheFile(root string, surfaces []surface, now time.Time) error {
 //     the cache (covers deletes, which bump no surviving file's mtime, and adds
 //     for completeness).
 func Stale(root string) error {
-	cachePath := filepath.Join(root, cacheFile)
+	cachePath := filepath.Join(config.ProjectDir(root), cacheFileName)
 	fi, err := os.Stat(cachePath)
 	if err != nil {
 		if os.IsNotExist(err) {
