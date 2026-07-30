@@ -167,6 +167,7 @@ export default defineConfig({
                     { text: 'Wiki Workflow', link: '/reference/wiki-workflow' },
                     { text: 'Code Intelligence', link: '/reference/code-intel' },
                     { text: 'Serve', link: '/reference/serve' },
+                    { text: 'Inter-session Bus', link: '/reference/bus' },
                     { text: 'Conventions', link: '/reference/conventions' },
                 ],
             },

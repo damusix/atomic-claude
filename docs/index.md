@@ -25,11 +25,8 @@ features:
       title: See what Claude sees
       details: "`atomic serve` opens the maps Claude navigates (wiki concepts and the code graph) as a browsable site on localhost. The Open Knowledge Format in practice for your repo: pages with a live right rail, a whole-system view colored by concept type, federated code search, and a source viewer wired to the code graph. Read-only, no auth, nothing leaves your machine."
     - icon: "\uF0E8"
-      title: A queryable map of your code
-      details: "One command parses your repo into a symbol graph across 31 languages and 23 web frameworks, no compiler required: definitions, callers, call sites, and the blast radius of any change. Claude queries the graph instead of grepping, so it spends tokens on the change, not on rediscovering your repo every session."
-    - icon: "\uF1C0"
-      title: SQL nobody else graphs for free
-      details: "SQL is a first-class citizen of the graph. Snowflake lineage (task DAGs, streams, stages, and COPY INTO), the dbt ref/source DAG, and T-SQL stored-procedure lineage (temp tables, OUTPUT INTO, PIVOT/UNPIVOT, column-level), all static with no database connection. It even pulls SQL out of string literals inside your Go, Python, and TypeScript and graphs that too, across 20 host languages. The enterprise tools that come close cost six figures a year."
+      title: A code graph that speaks SQL
+      details: "One command parses your repo into a symbol graph across 31 languages and 23 web frameworks, no compiler required: definitions, callers, call sites, and the blast radius of any change. Claude queries the graph instead of grepping, so it spends tokens on the change, not on rediscovering your repo. SQL is a first-class citizen of that graph: Snowflake lineage (task DAGs, streams, stages, and COPY INTO), the dbt ref/source DAG, and T-SQL stored-procedure lineage down to the column, all static with no database connection. It even pulls SQL out of string literals in your Go, Python, and TypeScript, across 20 host languages. The enterprise tools that come close cost six figures a year."
     - icon: "\uF086"
       title: Channels for your agents
       details: "`atomic bus` gives concurrent Claude sessions named rooms to talk in. A session joins under its position (realm, repo, role) and receives its peers' messages as prompts. Every message carries an addressee list, which is what keeps a room of agents from answering each other's status updates forever: named means act, addressed to nobody means note it and move on. Watch, speak into, halt, or close any room from your own terminal."
