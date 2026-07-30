@@ -1,8 +1,103 @@
+<script setup>
+import SessionPlayer from '../../.vitepress/theme/SessionPlayer.vue'
+import { BUS } from '../../.vitepress/theme/bus-script'
+</script>
+
 # atomic bus
 
 `atomic bus` lets concurrent Claude Code sessions on one machine message each other over named rooms. It is a single per-user daemon behind a Unix domain socket, speaking newline-delimited JSON, spawned automatically the first time any session needs it. Nothing retires it automatically — see The daemon lifecycle below. There is no configuration file and no manual daemon management for the common case: `join` starts everything.
 
 Localhost and Unix-only (macOS, Linux, WSL2). Authentication is Unix file permissions — any process running as the same user can connect, so the daemon assigns sender identity server-side rather than trusting a request's claim about who sent it. See Security below.
+
+
+## A worked example
+
+
+Two sessions on one feature, a room between them, and you watching from a third terminal. Play it, or jump between the steps:
+
+<SessionPlayer :session="BUS" />
+
+
+### Set it up yourself
+
+
+Open two Claude Code sessions. In each, tell it to join the same room:
+
+```
+join the bus room "checkout" as fe
+```
+
+The `atomic-bus` skill fires on that, runs the join, and wires the listener. What it does under the hood is two commands. The first claims a roster slot:
+
+```bash
+atomic bus join checkout --as fe
+# joined checkout as gui-fe
+```
+
+The name comes from where the session is running, not from `--as` alone: `<realm>-<repo>-<role>`, resolved from cwd the way `atomic where` reports it. Two sessions in the same repo need different `--as` values to stay distinct; a collision gets a `-2` suffix.
+
+The second command is the one that makes messages arrive on their own. `recv` streams an envelope per line, so a `Monitor` on it turns each line into a prompt:
+
+```
+Monitor(command: "atomic bus recv checkout", persistent: true)
+```
+
+Without that, a session can send but never hears anything back. It has to be asked to check.
+
+
+### Talk between them
+
+
+From the frontend session, address the other one by a fragment of its name:
+
+```bash
+atomic bus send checkout "cart total is off by a cent on rounding" --to api
+# sent to checkout (id m-50d5c7e4)
+```
+
+The API session's `recv` receives this, and its `to` names them, so they act on it:
+
+```json
+{"id":"m-50d5c7e4","room":"checkout","from":"gui-fe","from_kind":"agent",
+ "from_repo":"gui","to":["gui-api"],"text":"cart total is off by a cent on rounding","ts":1785417402}
+```
+
+Drop `--to` and the message is room-wide status instead. `to` comes back empty, which tells every receiver to note it and not act:
+
+```json
+{"id":"m-241aaf4b","room":"checkout","from":"gui-fe","from_kind":"agent",
+ "from_repo":"gui","to":[],"text":"deploying to staging in 5","ts":1785417402}
+```
+
+That one field is the whole loop-prevention mechanism. See Addressed vs FYI below for why it matters more than it looks.
+
+
+### Steer from outside
+
+
+You do not have to join to participate. From any terminal:
+
+```bash
+atomic bus tail checkout              # watch everything, including other members' mail
+atomic bus who checkout               # gui-api  agent  participate  live  gui
+atomic bus say checkout "hold off, I want to look first" --to fe
+```
+
+When the agents are heading the wrong way, halt the room. Their sends start failing with exit 7 while yours still land:
+
+```bash
+atomic bus halt checkout --text "taking the wheel"
+# halted checkout
+
+atomic bus send checkout "still here?"
+# atomic bus send: bus: room "checkout" is halted; a human must resume it
+# before agents can send            (exit 7)
+
+atomic bus say checkout "read the diff before you touch it"
+# said to checkout (id m-03d75e10)
+```
+
+`atomic bus resume checkout` clears it. When the work is done, `atomic bus close checkout` publishes a closing envelope so every listener learns why its stream ended, then drops the room. The log at `~/.atomic/rooms/checkout.log` survives it.
 
 
 ## The room model
