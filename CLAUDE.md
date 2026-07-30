@@ -59,7 +59,7 @@ Personal facts about you — name, role, employer, active projects, interests, p
 ## Commits & PRs
 
 
-Commit messages follow the `atomic-git-discipline` skill: Conventional Commits, terse subject, body only when the why isn't obvious. Any subagent briefed to create a commit reads `~/.claude/skills/atomic-git-discipline/SKILL.md` before committing — subagents can't auto-fire skills, so the read is the enforcement. PR titles and bodies stay short: summary plus what it solves — no test plan, no enumerated file lists. Commits, PR titles, and PR bodies never carry an AI byline or attribution: no "Generated with Claude Code" footer, no `Co-Authored-By: Claude` trailer, no session links. **Why:** attribution footers are noise in `git blame` and release notes, and they misstate authorship — the human shipping the change owns it.
+Commit messages follow the `atomic-git-discipline` skill: Conventional Commits, terse subject, body only when the why isn't obvious. Any subagent briefed to create a commit reads `~/.claude/skills/atomic-git-discipline/SKILL.md` before committing — subagents can't auto-fire skills, so the read is the enforcement. PR titles and bodies follow the same skill: state only what the diff can't show, ~120 words max — no test plan, no enumerated file lists. Commits, PR titles, and PR bodies never carry an AI byline or attribution: no "Generated with Claude Code" footer, no `Co-Authored-By: Claude` trailer, no session links. **Why:** attribution footers are noise in `git blame` and release notes, and they misstate authorship — the human shipping the change owns it.
 
 
 ## Bash over Read+Write
