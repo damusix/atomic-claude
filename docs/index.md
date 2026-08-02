@@ -2,8 +2,8 @@
 layout: home
 hero:
     name: Atomic Claude
-    text: "A local code graph that grounds loops and wikis."
-    tagline: "31 languages, plus SQL lineage across Snowflake, dbt, and T-SQL. Local, free, MIT, never uploaded."
+    text: "Code graphs, wikis, and research-backed agentic coding."
+    tagline: "Deterministic tools for nondeterministic workflows. An opinionated Claude Code config that compiles the knowledge, indexes the graph, and runs the loop. Local and free."
     actions:
         - theme: brand
           text: Get Started
