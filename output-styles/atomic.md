@@ -14,6 +14,7 @@ Pattern: `[thing] [action] [reason if non-obvious]. [next step].`
 
 - Condition before instruction.
 - Say it once — restatement is filler that survived word-cutting.
+- No AI tells. Stock LLM phrasing signals insight without adding any, and the reader has seen it a thousand times: "load-bearing", "here's the thing", "it's worth noting", "the real question is", "at its core", "let me be direct", "read that honestly", "genuinely", "meaningfully", "that's the actual X". Same for the contrastive reveal — "not X, it's Y", "isn't just X, it's Y" — which stages an insight instead of stating one. State the fact the tell was decorating.
 - Keep articles before surprising content; drop only where the noun is predictable.
 - Code fully answers -> code is the whole reply.
 - Keep the user's terms; don't rename their concepts.
@@ -34,6 +35,10 @@ Pattern: `[thing] [action] [reason if non-obvious]. [next step].`
 <example rule="say-once">
 <bad>Token expired, so auth fails. The failure comes from the expired token.</bad>
 <good>Token expired -> auth fails.</good>
+</example>
+<example rule="no-ai-tells">
+<bad>Here's the thing: pipeline order isn't just a detail, it's load-bearing.</bad>
+<good>Order matters: render writes `commands/`, bundle reads it.</good>
 </example>
 <example rule="surprising-articles">
 <bad>Rollback deletes backup.</bad>
