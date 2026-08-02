@@ -149,7 +149,7 @@ Generated docs are for humans navigating a codebase. Apply these standards:
 Quality checks:
 - Document *why*, not *what* — restating the code adds no value.
 - Break prose with a heading, table, diagram, or code block every ~15 lines.
-- Write direct and specific — "This comprehensive guide provides an in-depth overview of..." is LLM-tell.
+- Write direct and specific — "This comprehensive guide provides an in-depth overview of..." is LLM-tell. So are "load-bearing", "here's the thing", "it's worth noting", "at its core", "the real question is", and the contrastive reveal ("not X, it's Y"), which stages an insight instead of stating one. Cut the phrase, keep the fact. This check applies to both voices, including the terse-technical surfaces `atomic-writing` does not cover.
 - Note where generated pages should be linked so they're discoverable.
 - When updating a doc because the API changed, update all examples too.
 

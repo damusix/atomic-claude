@@ -50,7 +50,7 @@ func Manifest() []Artifact {
 		{Kind: "rule", Source: "bundle/rules/typescript/style.md", Target: "rules/typescript/style.md", SHA256: "a520e9df348e06c5f0772d268a16ef03ea6fd2f77d6a2a192bf566b91db186d7"},
 		{Kind: "skill", Source: "bundle/skills/atomic-bus/SKILL.md", Target: "skills/atomic-bus/SKILL.md", SHA256: "4c86001346f3b0f4dce312365632a754edde5eb448ec15a9b4a5a1a821784437"},
 		{Kind: "skill", Source: "bundle/skills/atomic-debug/SKILL.md", Target: "skills/atomic-debug/SKILL.md", SHA256: "becc4cd2545a1a2755f08cf4da5135d4b7b930484137696476cba5805fded3c8"},
-		{Kind: "skill", Source: "bundle/skills/atomic-documentation/SKILL.md", Target: "skills/atomic-documentation/SKILL.md", SHA256: "6cb61140dd771e0b1457e693e2350cfb9b9ab4647ff03758e80bf1f6925bbd69"},
+		{Kind: "skill", Source: "bundle/skills/atomic-documentation/SKILL.md", Target: "skills/atomic-documentation/SKILL.md", SHA256: "ad48e5b96afdc27607d8b3fd6a89c03b4f4bb92405838fb79e072cd216b51375"},
 		{Kind: "skill", Source: "bundle/skills/atomic-git-discipline/SKILL.md", Target: "skills/atomic-git-discipline/SKILL.md", SHA256: "7a15ed26f4d5c52b1f921f18dff7a662502968cd81ae40bfa4ea8155e1098995"},
 		{Kind: "skill", Source: "bundle/skills/atomic-review/SKILL.md", Target: "skills/atomic-review/SKILL.md", SHA256: "5eab2efd6364adaa7b5d64687af819ffc658bf2295ec7e95739351bf7e4c3851"},
 		{Kind: "skill", Source: "bundle/skills/atomic-tdd/SKILL.md", Target: "skills/atomic-tdd/SKILL.md", SHA256: "8b5d6c0ef995a07d1b34f9fcee7647c446781e096894acb6713f53c610b452de"},
@@ -59,6 +59,6 @@ func Manifest() []Artifact {
 		{Kind: "skill", Source: "bundle/skills/atomic-wiki/SKILL.md", Target: "skills/atomic-wiki/SKILL.md", SHA256: "4ae2e4ca56d629736cc9c87b77ebcff64e2b93952cb9f592f347711b930bd2b5"},
 		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/realm.md", Target: "skills/atomic-wiki/references/realm.md", SHA256: "a5471720bb8c96b0da3746e6928594181aa702f638e5923441e3f2858f53b06d"},
 		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/repo.md", Target: "skills/atomic-wiki/references/repo.md", SHA256: "c85b50f7bdfedbe1ed3c2050064c399597f967cfc748362a66f368c43350fb5d"},
-		{Kind: "skill", Source: "bundle/skills/atomic-writing/SKILL.md", Target: "skills/atomic-writing/SKILL.md", SHA256: "9580cee4512874a74ea900647068eb4493d4806bfc1dbaa87351feaf732bc659"},
+		{Kind: "skill", Source: "bundle/skills/atomic-writing/SKILL.md", Target: "skills/atomic-writing/SKILL.md", SHA256: "9b117d1559944f34cfe024a82026a84c987dec6a9c90f523adc4b0ddae858288"},
 	}
 }
