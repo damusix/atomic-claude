@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
- <strong>An opinionated Claude Code configuration. Onboard Claude once: it maps your repo, ships features from issue to merged PR on autopilot, and sharpens its own setup from how you work.</strong>
+ <strong>Code graphs, wikis, and research-backed agentic coding. Deterministic tools for nondeterministic workflows, in one opinionated Claude Code config.</strong>
 </p>
 
 <p align="center">

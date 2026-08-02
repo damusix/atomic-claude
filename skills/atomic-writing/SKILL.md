@@ -53,7 +53,7 @@ Two voices. The atomic output style (`output-styles/atomic.md`) covers Claude's 
 
 4. **Show importance through content.** Delete "Full stop.", "Period.", "Let that sink in.", "Make no mistake.", "This matters because". Demonstrate why it matters, or let the reader judge.
 
-5. **Use plain words over business clichés.** Replace:
+5. **Use plain words over business clichés and stock AI phrasing.** The second group is harder to catch because every individual word earns its place; the phrase is what fails. Replace:
 
     | Avoid | Use |
     |---|---|
@@ -67,10 +67,15 @@ Two voices. The atomic output style (`output-styles/atomic.md`) covers Claude's 
     | moving forward | next, from now |
     | at its core | (delete) |
     | in today's X | (delete) |
+    | load-bearing | name what breaks without it |
+    | it's worth noting | (delete, then state the note) |
+    | the real question is | state the question |
+    | that's the actual X | state X |
+    | read that honestly / to be honest | (delete) |
 
 6. **Use commas, periods, or parentheses.** Em dashes are an AI tell, and the comma or period is almost always clearer.
 
-7. **Cut filler adverbs.** Remove `really`, `just`, `literally`, `genuinely`, `honestly`, `simply`, `actually`, `truly`, `deeply`, `fundamentally`, `inherently`, `inevitably`, `interestingly`, `importantly`, `crucially`. Keep `-ly` words only when they carry technical meaning (`asynchronously`, `recursively`).
+7. **Cut filler adverbs.** Remove `really`, `just`, `literally`, `genuinely`, `honestly`, `simply`, `actually`, `truly`, `deeply`, `fundamentally`, `inherently`, `inevitably`, `interestingly`, `importantly`, `crucially`, `meaningfully`. Keep `-ly` words only when they carry technical meaning (`asynchronously`, `recursively`).
 
 8. **State the answer directly.** Skip "Not because X. Because Y.", "X isn't the problem. Y is.", "The question isn't X. It's Y." State Y without the dramatic setup.
 
@@ -97,6 +102,7 @@ Two voices. The atomic output style (`output-styles/atomic.md`) covers Claude's 
 - Vague declarative ("the implications matter")? Name the implication or cut.
 - Three-item rhythm list (`speed, quality, cost`)? Drop to two, or break the rhythm.
 - Marketing word (game-changer, lean into, deep dive)? Replace.
+- Stock AI phrase (load-bearing, it's worth noting, the real question is)? Cut it and state the fact it was decorating.
 - Inanimate noun doing a human verb? Name the human.
 - Throat-clearing opener ("Here's the thing")? Cut.
 - Binary-contrast structure ("not X. Y.")? State Y.

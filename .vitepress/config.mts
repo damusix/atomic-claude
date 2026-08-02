@@ -110,7 +110,7 @@ export default defineConfig({
     },
     appearance: 'force-dark',
     title: 'Atomic Claude',
-    description: 'An opinionated Claude Code configuration — compressed replies, idea-to-PR workflow, clean skill/command split.',
+    description: 'Code graphs, wikis, and research-backed agentic coding. Deterministic tools for nondeterministic workflows, in one opinionated Claude Code config.',
     srcDir: 'docs',
     base: '/',
     // Internal contract docs — kept in-repo for contributors, excluded from the public site.
