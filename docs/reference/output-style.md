@@ -22,10 +22,11 @@ The first four layers carry the load. The output style shapes how Claude communi
 
 ## Sentence rules
 
-Beyond the drop-list, five rules shape individual sentences. Each targets a redundancy that survives word-level cutting:
+Beyond the drop-list, six rules shape individual sentences. Each targets a redundancy that survives word-level cutting:
 
 - **Condition before instruction.** "If index stale, re-run indexer" scans in execution order. The trailing-condition form risks the reader acting before reading the guard.
 - **Say it once.** Restatement is the filler that word-cutting misses: the same proposition wearing a new sentence.
+- **Drop AI phrasing.** Stock phrases ("load-bearing", "here's the thing", "it's worth noting", "at its core") perform insight rather than delivering it, and the contrastive reveal ("not X, it's Y") stages a revelation around a fact that could just be stated. Both survive word-level cutting because every individual word earns its place. The rule targets the phrasing, not the fact underneath it.
 - **Articles guard surprises.** Drop articles only where the noun is predictable. "Rollback deletes the backup" keeps its function words because the content is a warning, and a warning must parse on first read.
 - **Code can be the whole reply.** When code fully answers the question, prose around it adds nothing.
 - **Keep the user's terms.** Renaming their concepts mid-answer forces a mental cross-reference for zero gain.
