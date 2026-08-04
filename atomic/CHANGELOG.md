@@ -1,5 +1,12 @@
 # Changelog
 
+## [6.0.2](https://github.com/damusix/atomic-claude/compare/v6.0.1...v6.0.2) (2026-08-04)
+
+
+### Bug Fixes
+
+* point stale CLI hints at current verbs ([4948573](https://github.com/damusix/atomic-claude/commit/4948573c3cf13a70774e1fbeeaa753c1bd8002d2))
+
 ## [6.0.1](https://github.com/damusix/atomic-claude/compare/v6.0.0...v6.0.1) (2026-08-04)
 
 
