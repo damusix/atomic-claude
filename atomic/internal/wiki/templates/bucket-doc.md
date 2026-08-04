@@ -12,8 +12,8 @@ created: {{CREATED}}
 <!-- One-paragraph lede: what this topic is and why it exists. -->
 
 <!--
-  One topic per file. If this topic outgrows a single file, rerun this
-  command with --router to add a `{{TITLE}}/` subtree for subtopics — this
-  file becomes the router summary and stays the single index entry. Delete
-  this comment once the doc is filled in.
+  One topic per file. If this topic outgrows a single file, create a
+  `{{TITLE}}/` directory beside it for subtopics — this file becomes the
+  router summary and stays the single index entry. Delete this comment
+  once the doc is filled in.
 -->

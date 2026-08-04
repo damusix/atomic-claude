@@ -185,7 +185,7 @@ func repairPlan(r Result) (plan string, fixable bool) {
 	case "hooks":
 		return "run `atomic hooks install` to register session-start hook", true
 	case "signals":
-		return "cannot auto-fix — run /refresh-signals from Claude Code to refresh signals.", false
+		return "cannot auto-fix — run /refresh-wiki from Claude Code to refresh signals.", false
 	case "refs":
 		return "append @-ref block to a candidate file (axiom 4 selection)", true
 	case "manifest":

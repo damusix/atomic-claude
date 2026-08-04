@@ -1938,7 +1938,7 @@ func printPostInstallHint(verb string) {
 	fmt.Fprintln(os.Stderr, "next steps:")
 	fmt.Fprintln(os.Stderr, "  1. open claude code and run /config → output style → Atomic")
 	fmt.Fprintln(os.Stderr, "     (claude code requires explicit user opt-in for output styles)")
-	fmt.Fprintln(os.Stderr, "  2. in each repo where you want project signals, run /refresh-signals")
+	fmt.Fprintln(os.Stderr, "  2. in each repo where you want project signals, run /refresh-wiki")
 }
 
 func runClaude(args []string) {
