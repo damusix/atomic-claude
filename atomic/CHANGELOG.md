@@ -1,5 +1,12 @@
 # Changelog
 
+## [6.0.1](https://github.com/damusix/atomic-claude/compare/v6.0.0...v6.0.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* drop AI phrasing and align product messaging ([f3f981d](https://github.com/damusix/atomic-claude/commit/f3f981d7bab8e3c086de192b0c07172f4cc04bf0))
+
 ## [6.0.0](https://github.com/damusix/atomic-claude/compare/v5.9.0...v6.0.0) (2026-07-30)
 
 
