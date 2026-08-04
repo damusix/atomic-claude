@@ -116,8 +116,8 @@ func TestRepair_Signals_NonFixable(t *testing.T) {
 		t.Errorf("Applied = %d, want 0", summary.Applied)
 	}
 	output := out.String()
-	if !strings.Contains(output, "/refresh-signals") {
-		t.Errorf("expected /refresh-signals instruction in output, got:\n%s", output)
+	if !strings.Contains(output, "/refresh-wiki") {
+		t.Errorf("expected /refresh-wiki instruction in output, got:\n%s", output)
 	}
 	// No prompt should be shown (non-fixable).
 	if p.nextIdx != 0 {
