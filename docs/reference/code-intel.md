@@ -15,7 +15,7 @@ The engine runs without CGO. Tree-sitter grammars are compiled to WebAssembly an
 | Frameworks | 23 web route resolvers: gin, chi, echo, fiber, gorilla (Go); express, nestjs, koa, hapi, fastify, sails, adonisjs (Node); fastapi, flask, django (Python); laravel, symfony (PHP); rails (Ruby); actix, axum, rocket (Rust); spring (Java); phoenix (Elixir) |
 | SQL | Schema relationship graph — tables, views, columns, procedures, triggers, constraints, foreign-key edges, write edges, and RLS policies across Postgres, MySQL, SQLite, and T-SQL/MSSQL |
 
-The indexer enumerates files with `git ls-files` (tracked and untracked, respecting `.gitignore`) and reads working-tree content. The target must be a git repository.
+The indexer enumerates files with `git ls-files` (tracked and untracked, respecting `.gitignore`) and reads working-tree content. Outside a git repository, discovery falls back to a directory walk that skips common build/vendor directories but does not read `.gitignore` — a git repo is recommended for `.gitignore`-aware discovery.
 
 
 ## The verbs
@@ -51,9 +51,11 @@ Index once, then query directly:
 atomic code index                          # build the graph (once)
 atomic code search PaymentService          # where is this defined
 atomic code callers chargeCard             # who calls it, before you change it
-atomic code impact validateToken --depth 2 # what breaks if you change it
+atomic code impact --depth 2 validateToken # what breaks if you change it
 atomic code sync                           # refresh after edits
 ```
+
+Flags come before the positional argument — parsing stops at the first non-flag token, so trailing flags are read as part of the symbol.
 
 This is a structural alternative to `grep` for the questions grep answers badly. `grep chargeCard` matches the string in comments, strings, and unrelated names; `atomic code callers chargeCard` returns the actual call sites from the parsed graph. The `callers`, `callees`, and `impact` verbs have no grep equivalent at all, because they traverse edges rather than text.
 
@@ -61,14 +63,14 @@ Add `--json` to any query verb and the output pipes into scripts, `jq`, an edito
 
 ```bash
 # Lint rule: fail if anything still calls a deprecated function.
-test -z "$(atomic code callers legacyAuth --json | jq '.callers[]')" \
+test -z "$(atomic code callers --json legacyAuth | jq '.Edges[]')" \
   || { echo "legacyAuth still has callers"; exit 1; }
 ```
 
 `atomic code affected` is built for CI test selection: give it the files a change touched and it returns the test files transitively affected, so a pipeline runs the tests that matter instead of the whole suite.
 
 ```bash
-atomic code affected $(git diff --name-only main...HEAD) --json
+atomic code affected --json $(git diff --name-only main...HEAD)
 ```
 
 The MCP server below is the conversational front end to this same graph. The CLI is the scriptable one.
@@ -137,7 +139,7 @@ Indexing is owned by orchestrator commands, never by the agents they dispatch. A
 
 | State | What happens |
 |-------|--------------|
-| Cold — no database | The first `index` can take seconds to minutes. `/refresh-wiki`, `/subagent-implementation`, and `/autopilot` all build it automatically without prompting — indexing is cheap and idempotent, so there is nothing to ask. Nothing auto-indexes at session start. |
+| Cold — no database | The first `index` can take seconds to minutes. In repo scope, `/refresh-wiki`, `/subagent-implementation`, and `/autopilot` all build it automatically without prompting — indexing is cheap and idempotent, so there is nothing to ask. In a wiki realm, cold member indexes stay user-initiated (`atomic --repo <member> code index`); realm refresh never auto-indexes members. Nothing auto-indexes at session start. |
 | Warm — database exists | Orchestrators run `atomic code sync` before dispatching work. Incremental and cheap. |
 | Per iteration | The implementation loop runs `sync` after each committed change so the next review queries current state. |
 
@@ -241,11 +243,11 @@ Line numbers on embedded nodes and edges are file-absolute: each harvester maps 
 ## Getting started
 
 ```bash
-# from your project root (must be a git repo)
+# from your project root
 atomic code index            # build the index once
-atomic code search UserService --json
-atomic code callers handleLogin --json
-atomic code impact PaymentService --depth 2 --json
+atomic code search --json UserService
+atomic code callers --json handleLogin
+atomic code impact --depth 2 --json PaymentService
 atomic code sync             # refresh after edits
 ```
 

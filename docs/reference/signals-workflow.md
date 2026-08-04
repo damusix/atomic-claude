@@ -7,9 +7,9 @@ Run `/refresh-wiki` to generate (or update) them:
 - **`docs/wiki/scan.md`** — machine-generated facts: directory tree, manifests, languages, lockfile presence. Produced by `atomic signals scan`.
 - **`docs/wiki/index.md`** — inferred meaning: framework, build/test/lint commands, architectural style, domain index. Produced by the `atomic-wiki-inferrer` agent.
 
-Both files live in `docs/wiki/`, are committed, and auto-load into every Claude session via `@`-refs. The `atomic-wiki-inferrer` agent keeps them fresh. Three trigger points: `/refresh-wiki` on demand; the implementation loop (`/subagent-implementation`, `/autopilot`) at finalize, scoped to the task's SHA range (primary); and ship commands (`/commit` and related verbs) as an ad-hoc fallback for real-code commits — docs-only commits (README, CHANGELOG, `docs/` tree) are skipped, and a freshness check prevents double-dispatch after the loop already ran.
+Both files live in `docs/wiki/` and are committed, but only `index.md` auto-loads into sessions via an `@`-ref — `scan.md` can run to thousands of lines on a large repo, so the inferrer reads it on demand instead. The `atomic-wiki-inferrer` agent keeps them fresh. Three trigger points: `/refresh-wiki` on demand; the implementation loop (`/subagent-implementation`, `/autopilot`) at finalize, scoped to the task's SHA range (primary); and ship commands (`/commit` and related verbs) as an ad-hoc fallback for real-code commits — docs-only commits (README, CHANGELOG, `docs/` tree) are skipped, and a freshness check prevents double-dispatch after the loop already ran.
 
-Requires the `atomic` binary. Without it, a degraded tree-only fallback runs instead.
+Requires the `atomic` binary. Without it, `/refresh-wiki` stops and prints install instructions, and the ship-verb refresh skips silently.
 
 The signals files are a navigable markdown graph. The inferrer writes each path citation as a plain backtick path, then runs `atomic signals linkify` as its final step to render every one that resolves on disk into a relative link to the file it names. Open `docs/wiki/` in Obsidian or any markdown server and click through the router into its domain files and out to the source. The linkifier is deterministic and idempotent, and a rendered `[text](path)` link is a plain markdown link, not an `@`-reference, so it stays inert until something reads it.
 
@@ -80,9 +80,9 @@ The file is committed along with the rest of `docs/wiki/`.
 
 ## .signalsignore
 
-A separate mechanism from steering. `.signalsignore` (at repo root) controls which **tracked files** are excluded from the deterministic scan.
+A separate mechanism from steering. `.signalsignore` (at repo root) controls which files are excluded from the deterministic scan.
 
-The scan uses `git ls-files` as its source, so anything in `.gitignore` is already excluded. `.signalsignore` is for committed files you still want excluded or flagged.
+The scan's source is tracked files plus untracked files not covered by `.gitignore`, so anything gitignored is already excluded. `.signalsignore` is for files in the scan you still want excluded or flagged.
 
 Two modes per line:
 
@@ -91,17 +91,16 @@ Two modes per line:
 | _(none)_ | Fully excluded — path does not appear in tree | Vendored deps, checked-in fixtures, large data files |
 | `+` | Flagged as generated — appears in tree but inferrer skips it | Build output, protobuf generated code, lockfiles |
 
-One glob per line. Blank lines and `#` comments are ignored. Same syntax as `.gitignore`.
+One glob per line. Blank lines and `#` comments are ignored. Patterns are Go `filepath.Match` globs, not `.gitignore` syntax: each is tested against the full repo-relative path and against the base filename, so a bare name like `gen.go` matches at any depth. `*` does not cross `/` — there is no `**` recursion and no `!` negation, so excluding deeper nesting takes one pattern per level (`third_party/*`, `third_party/*/*`).
 
 ```
 # Committed but excluded from scan
 fixtures/large-dataset.json
-third_party/**
+third_party/*
 
 # In tree but inferrer skips for domain content
 +*.pb.go
-+generated/**
-+dist/**
++generated/*
 ```
 
 **Use `.signalsignore`** when tracked paths should be excluded from the scan or flagged as generated.

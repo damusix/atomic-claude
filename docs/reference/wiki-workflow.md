@@ -37,7 +37,7 @@ This draws the boundary. Atomic stays on the code side: it documents repos, keep
 Deterministic CLI verbs and one command do the work:
 
 - **`atomic wiki scan [--root=<path>]`** — scaffolds the wiki, scans the root for member repos, classifies each, and registers the wiki globally. Deterministic, no model.
-- **`atomic wiki init --scope repo|realm [--root=<path>]`** — writes the fixed-content `CLAUDE.md` scaffold for the given scope, and declares that root's identity: it writes `scope = "repo"` or `scope = "realm"` into `.claude/atomic.toml`, the same marker `atomic repo init` writes on the repo side. `atomic where` and `repoctx` prefer this marker over the `<wikis>` registry below. Idempotent; a root whose marker already names a different scope is left untouched and reported as a conflict.
+- **`atomic wiki init --scope repo|realm [--root=<path>]`** — writes the fixed-content `CLAUDE.md` scaffold for the given scope, and declares that root's identity: it writes `scope = "repo"` or `scope = "realm"` into `.claude/atomic.toml`, the same marker `atomic repo init` writes on the repo side. `atomic where`'s realm axis prefers this marker over the `<wikis>` registry below; `repoctx` prefers the repo marker over git detection. Idempotent; a root whose marker already names a different scope is left untouched and reported as a conflict.
 - **`atomic wiki stale [--root=<path>]`** — a read-only freshness verdict. Reports `DRIFT`/`STALE` lines for repos and concerns, plus `STALE bucket <name>` for capture folders with a non-empty diff. Exits `0` fresh, `1` stale, `2` error, mirroring `atomic signals stale`.
 - **`atomic wiki linkify --root=<path>`** — renders the path citations in summaries, concerns, knowledge pages, and the index into file-relative markdown links. Deterministic, idempotent, no model.
 - **`atomic wiki bucket add|list|diff|promote`** — manage capture buckets. `add` registers a folder and splices the `<wiki-buckets>` block; `list` shows status; `diff` gives a read-only change report; `promote` advances the baseline after successful synthesis. See [Capture buckets](#capture-buckets) below.
@@ -68,7 +68,7 @@ atomic wiki scan --root ~/work/acme   # scaffold <path>/wiki
 
 `--root` is a flag; the positional slot is reserved for the verb (`scan`, `stale`). With no flag, the root is the current directory.
 
-The scan is idempotent. Re-running regenerates only the managed `<wiki-scan>` block in `index.md` — every summary, concern doc, and the narrative you or the LLM wrote is left untouched. It is init and refresh in one command, exactly like `/refresh-wiki`.
+The scan is idempotent. Re-running regenerates only the managed regions — the `<wiki-scan>` block and `<wiki-member-list>` section in `index.md`, plus the bucket listing regions — every summary, concern doc, and the narrative you or the LLM wrote is left untouched. It is init and refresh in one command, exactly like `/refresh-wiki`.
 
 
 ## What a wiki looks like
@@ -170,7 +170,7 @@ atomic wiki bucket promote research   # advance the baseline after synthesis
 
 **Help.** `-h`, `-help`, and `--help` work on every bucket sub-verb (`add`, `list`, `diff`, `promote`, `doc`, `skill`, `index`). Each prints usage and exits 0 without creating or modifying anything.
 
-**Two-phase contract.** `diff` is read-only: it computes a SHA-256 manifest of the current folder contents and compares against the stored baseline, reporting `new`, `changed`, and `removed` files. `promote` is a state change: it advances the baseline to the current manifest, marking the bucket in-sync. You run `promote` only after a successful synthesis so that a failed or aborted synthesis leaves the diff intact and `/refresh-wiki` retries.
+**Two-phase contract.** `diff` never advances the baseline: it computes a SHA-256 manifest of the current folder contents (refreshing the `current` debugging manifest as a side effect) and compares against the stored baseline, reporting `new`, `changed`, and `removed` files. `promote` is a state change: it advances the baseline to the current manifest, marking the bucket in-sync. You run `promote` only after a successful synthesis so that a failed or aborted synthesis leaves the diff intact and `/refresh-wiki` retries.
 
 **What gets synthesized.** `/refresh-wiki` runs the bucket-synthesis phase after repo summaries. For each bucket with a non-empty diff, it dispatches `atomic-wiki-inferrer` in bucket-synthesis mode (fresh context per bucket). The inferrer reads the bucket's `index.md` (where you describe the bucket's purpose and conventions) and the changed files, then writes or updates topic-keyed pages under `wiki/knowledge/`. Multiple buckets' content about the same topic merges into one page; provenance lives in each page's `sources:` frontmatter, written by `atomic wiki stamp --knowledge` — the model declares which source files contributed, the code writes every SHA-256 value.
 
@@ -207,7 +207,7 @@ atomic wiki bucket skill research                # scaffold a per-bucket authori
 atomic wiki bucket index [research]              # rebuild the listing regions (scan already does this)
 ```
 
-`atomic wiki bucket doc <bucket> <slug>` writes `<bucket>/<slug>.md` from an embedded scaffold, `created` pre-stamped, and refuses if the target already exists. A topic that outgrows a single file becomes a **router**: pass `--router` (or rerun the command later) to add a sibling `<slug>/` subtree and a `CLAUDE.md` stub, while `<slug>.md` stays the one index entry and its summary.
+`atomic wiki bucket doc <bucket> <slug>` writes `<bucket>/<slug>.md` from an embedded scaffold, `created` pre-stamped, and refuses if the target already exists. A topic that outgrows a single file becomes a **router**: pass `--router` at creation time to add a sibling `<slug>/` subtree and a `CLAUDE.md` stub, while `<slug>.md` stays the one index entry and its summary. Rerunning the command on an existing doc refuses with a collision error, so upgrading later means creating the `<slug>/` directory by hand.
 
 `atomic wiki bucket skill <bucket>` writes `<realm-root>/.claude/skills/<bucket>-management/SKILL.md`, pre-filled with the bucket's purpose line and the frontmatter contract above, so the bucket's own authoring conventions travel with it as a skill Claude can pick up automatically in that realm. It is a no-op if the file already exists.
 

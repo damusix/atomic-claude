@@ -6,6 +6,15 @@ You have run `atomic claude install`. The binary is on your `PATH` and the bundl
 If you have not installed yet, start with the [install guide](/guides/install) and come back here.
 
 
+### TLDR
+
+Too lazy to read? Totally understand...
+
+```text
+/atomic-help Give me a tour of atomic. I have no idea what I'm doing. I'm new to this.
+```
+
+
 ## Step 1 — Turn on the output style
 
 
@@ -32,7 +41,7 @@ Open a repo you work in and run two commands.
 
 `/setup-wiki` audits the repo for the conventions atomic expects: the `.claude/` layout and `.gitignore` rules for scratch and worktree directories (scaffolded by one idempotent `atomic repo init` call when the binary is present), the `docs/` layout, and a `CLAUDE.md`. It proposes only what is missing and never overwrites. It makes no commits.
 
-`/refresh-wiki` is the step that stops the guessing. It walks the repo and writes a standing model of it to `.claude/project/signals.md`: the framework, the build and test and lint commands, the languages, and a map of which directories form which feature. Claude reads that model before it reads your code, so a new session knows your stack instead of inventing `npm` scripts that do not exist. Ship commands refresh the model as the repo changes, so you do not hand-maintain it.
+`/refresh-wiki` is the step that stops the guessing. It walks the repo and writes a standing model of it to `docs/wiki/index.md` (with the deterministic scan at `docs/wiki/scan.md` and per-domain files beside it): the framework, the build and test and lint commands, the languages, and a map of which directories form which feature. Claude reads that model before it reads your code, so a new session knows your stack instead of inventing `npm` scripts that do not exist. Ship commands refresh the model as the repo changes, so you do not hand-maintain it.
 
 After this step, ask Claude something about the project. It answers from the signals model rather than from a guess.
 
@@ -98,7 +107,7 @@ One command updates both the binary and the bundle:
 atomic update
 ```
 
-This fetches the latest release, verifies its checksum, replaces the binary, runs a health check, and then refreshes the bundle (CLAUDE.md, agents, commands, skills, output styles, rules in `~/.claude/`) automatically. Use `atomic update --check` to see whether an update exists without applying it, or `atomic update --skip-claude-update` to update only the binary.
+This fetches the latest release, verifies its checksum, replaces the binary, refreshes the bundle (CLAUDE.md, agents, commands, skills, output styles, rules in `~/.claude/`), applies migrations, and finishes with a health check. Use `atomic update --check` to see whether an update exists without applying it, or `atomic update --skip-claude-update` to update only the binary.
 
 To refresh the bundle on its own, without touching the binary:
 
