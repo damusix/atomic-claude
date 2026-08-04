@@ -18,7 +18,7 @@ This does two things:
 ## Day-to-day workflow
 
 1. Edit the source under `templates/commands/`, `templates/agents/`, `skills/<name>/`, `output-styles/`, or `rules/<lang>/`. Both `commands/` and `agents/` are rendered output, not source.
-2. Run `make link` if you added a new file (existing files stay linked through the directory symlink)
+2. Run `make link` if you added a new file (linking is per-file, so existing files keep their symlinks but a new file needs its own)
 3. Restart Claude Code to pick up the change
 4. Test in this repo's session — that is the dogfood loop
 
@@ -82,7 +82,7 @@ templates/agents/<name>.md    →  make render  →  agents/<name>.md
 templates/shared/<name>.md   (reusable partials composed via Go text/template)
 ```
 
-**Shared partials** contain the bodies that recur across files, in one pool both kinds draw from. Command partials cover the main flows (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`) and shared fragments within them (`doc-impact`, `doc-impact-why`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `git-safety`). Agent partials use an `agent-` prefix (`agent-tdd-signals`, `agent-signals-output`, `agent-shared-rules`, `agent-implementer-workflow`) and hold the blocks `atomic-implementer` consumes via the shared `agent-implementer-workflow` partial. Most agents are self-contained templates with no partial calls; they are rendered for a uniform edit path, not because they share content.
+**Shared partials** contain the bodies that recur across files, in one pool both kinds draw from. Command partials cover the main flows (`commit-flow`, `pr-flow`, `merge-flow`, `squash-flow`, `push-flow`) and shared fragments within them (`doc-impact`, `signals-gate`, `base-resolution`, `worktree-cleanup-prompt`, `worktree-setup`, `staleness-check`, `report-issue-privacy`, `git-safety`). Agent partials use an `agent-` prefix (`agent-atomic-voice`, `agent-code-intel`, `agent-comment-discipline`, `agent-implementer-workflow`, `agent-search-tooling`, `agent-shared-rules`, `agent-signals-output`, `agent-tdd-signals`, `agent-where`, `agent-yagni`). Every agent template composes at least one partial — `agent-atomic-voice` at minimum — with `atomic-implementer` pulling the largest set via `agent-implementer-workflow`.
 
 Two rules:
 

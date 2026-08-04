@@ -31,7 +31,7 @@ Every concept below plays a role in that flow. Signals gave Claude the project m
 - **Repo scaffolding** — `atomic repo init` creates the harness layout once, idempotently: the scratchpad and project directories plus the ignore rules that keep them out of git. Commands call it instead of hand-editing `.gitignore`. The directory name follows harness detection (below).
 - **Document templates** — `atomic template <name>` emits the fill-in skeleton for each document the workflow coordinates (design doc, spec, scratchpad brief/state/followups, session report, and more). Commands seed those files from it so structure is copied, never reconstructed from memory.
 - **Self-update and health** — `atomic update` swaps the binary against a verified checksum; `atomic doctor` and `atomic validate` check the install.
-- **Config and state** — `~/.atomic/config.toml`, follow-ups, install/uninstall, and the user profile.
+- **Config and state** — `~/.atomic/config.toml`, follow-ups, install/uninstall, per-agent model/effort overrides (`atomic config agents`, applied to installed agents immediately), and the user profile.
 
 Everything below is either produced by this binary or grounded by what it produces. Run `atomic --help` for the full surface.
 
@@ -87,7 +87,7 @@ A scan writes two files: **deterministic signals** (filesystem facts — tree, m
 Signals map one repo; a wiki maps how a *realm* of repos relate — the shared libraries, the contracts one repo owns and another consumes, the patterns duplicated across a folder of services. A wiki is a portable, git-initialized knowledge base at `<root>/wiki/` for one such realm (most people keep three to five, one per realm). `/refresh-wiki` scans the root, points at member repos that already have signals, summarizes the ones that should not carry signals — open-source dependencies — without writing into them, and synthesizes the realm's cross-cutting concerns with cited evidence. Registered wikis live in a `<wikis>` block in your user-level `~/.claude/CLAUDE.md`, so every Claude session, in any repo, knows they exist.
 
 - `/refresh-wiki` — scan the realm; refresh repo summaries and shared concerns.
-- `atomic wiki bucket add <dir>` — register loose material (research, raw dumps, ticket exports) as a capture bucket; refresh synthesizes it into `wiki/knowledge/` pages.
+- `atomic wiki bucket add <name>` — register a folder at the realm root holding loose material (research, raw dumps, ticket exports) as a capture bucket; refresh synthesizes it into `wiki/knowledge/` pages.
 - `atomic wiki stale` — report membership drift and stale content.
 - `atomic serve` — browse the realm as a typed, navigable graph in the browser.
 
@@ -141,7 +141,7 @@ A spec has two parts. The body states what is true *now* — a subagent reads it
 ### Worktrees
 
 
-A worktree is a second checkout of the same repo, on its own branch, in a different directory — git supports it natively. The implement loop and `/autopilot` create one at `.claude/worktrees/<feature>/` — Claude Code's native worktree home — automatically, run a baseline test, and build there, so your main checkout stays clean with no stashing or branch juggling. On merge or squash, `/commit` notices the branch came from a worktree and offers to clean it up.
+A worktree is a second checkout of the same repo, on its own branch, in a different directory — git supports it natively. The implement loop offers one at `.claude/worktrees/<feature>/` — Claude Code's native worktree home — and `/autopilot` creates it without asking; either way the loop runs a baseline test and builds there, so your main checkout stays clean with no stashing or branch juggling. On merge or squash, `/commit` notices the branch came from a worktree and offers to clean it up.
 
 
 ### Scratchpad

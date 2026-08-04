@@ -20,7 +20,7 @@ These handle the craft of committing, reviewing, and documenting.
 
 | Skill | Fires when you say... | What it does |
 |-------|----------------------|-------------|
-| `atomic-git-discipline` | "write a commit", "commit message", or automatically from ship commands | Generates a Conventional Commits message. Subject under 50 chars, body only when the "why" is not obvious. |
+| `atomic-git-discipline` | "write a commit", "commit message", "open a PR", "PR description", or automatically from ship commands | Generates a Conventional Commits message. Subject under 50 chars, body only when the "why" is not obvious. Also owns PR titles and bodies: only what the diff can't show, about 120 words max. |
 | `atomic-review` | "review this PR", "code review", "review the diff" | Produces compressed review comments. One line per finding: location, problem, fix. |
 | `atomic-visual-options` | "show me options", "mock up variants", "let me see this side by side", "compare these layouts" | Renders 2–4 visual variants per decision dimension as a throwaway self-contained HTML file; user picks by typing codes (e.g. `A2 B3`); chosen option recorded in the design doc. Invoked by `/atomic-plan` when a design question is visual. |
 

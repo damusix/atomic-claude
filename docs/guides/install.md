@@ -29,8 +29,9 @@ Install the artifact bundle (CLAUDE.md, agents, commands, skills, output styles,
 
 ```bash
 atomic claude install
-atomic hooks install  # optional: session-start hook (see "After installing")
 ```
+
+This also registers the session-start hook by default; pass `--no-hooks` to skip it (see "After installing").
 
 That is it. Verify the install with `atomic doctor`, which runs integrity checks and names anything missing. Then activate the output style with `/config` → **Output style** → **Atomic** in any Claude Code session.
 
@@ -51,13 +52,13 @@ The installer prints two manual steps it cannot automate:
 
 A few optional steps go further:
 
-- **Enable the session-start hook.** `atomic hooks install` registers a Claude Code session-start hook that refreshes your profile, injects pending reminders, and nudges you when signals or a wiki fall stale. Hooks are optional, and some managed or enterprise setups disable them, so skip this step if your organization does not allow Claude Code hooks. The scope defaults to your user config; pass `--scope project` to limit it to one repo.
+- **Check the session-start hook.** `atomic claude install` already registered a Claude Code session-start hook that refreshes your profile, injects pending reminders, and nudges you when signals or a wiki fall stale. Some managed or enterprise setups disable hooks; if yours does, remove it with `atomic hooks uninstall`, or install with `atomic claude install --no-hooks` next time. To add the hook later (or after removing it), run `atomic hooks install`; the scope defaults to your user config, and `--scope project` limits it to one repo.
 - **Map related repos with a wiki.** If you work across a folder of services, libraries, or client projects, run `/refresh-wiki` to build a cross-repo wiki. It summarizes each member repo and writes up the concerns they share, so Claude can reason about a whole realm of projects rather than one repo at a time. See the [wiki workflow](/reference/wiki-workflow).
 - **Index a project's symbols.** Run `atomic code index` in a project to build a symbol graph of it. Once indexed, `atomic code explore "<question>"` returns a context digest of the relevant symbols and call edges in one query, and the implementation agents use the graph for blast-radius checks and domain clustering. Indexing is opt-in and degrades to plain search when absent; see the [code-intel reference](/reference/code-intel).
 
 On first install, the binary also creates `~/.atomic/profile.md` and prints a one-line nudge. The file starts with your git name, email, OS, architecture, and CPU count filled in from the environment. The remaining sections are empty; Claude fills them in as facts surface naturally in conversation. You do not need to edit the file by hand.
 
-`atomic claude uninstall` preserves `profile.md`. It is user data with no pre-install counterpart, so the uninstall plan never touches it. After uninstall, the file stays on disk; the `@`-ref that loads it into sessions is removed along with the rest of the atomic-owned block in `~/.claude/CLAUDE.md`.
+`atomic claude uninstall` removes `~/.atomic/` in its final step, and `profile.md` lives there — copy it somewhere else first if you want to keep it. The `@`-ref that loads it into sessions is removed along with the rest of the atomic-owned block in `~/.claude/CLAUDE.md`.
 
 From here, you are ready to work. The [getting started guide](/guides/getting-started) walks the first session step by step; the [workflow reference](/reference/workflow) covers the full lifecycle.
 

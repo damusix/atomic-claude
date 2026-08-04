@@ -46,8 +46,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 | Command | What it does |
 |---------|-------------|
 | `/setup-wiki` | Bootstrap a repo for atomic conventions. Audits `.gitignore`, `docs/` layout, and `CLAUDE.md`. Proposes only what is missing — never overwrites. |
-| `/refresh-wiki` | Scan the project and generate (or update) the signals files that teach Claude your repo's shape. Idempotent. |
-| `/refresh-wiki` | Maintain a cross-repo wiki. Runs `atomic wiki scan` to classify member repos, refreshes stale or pending artifacts, and synthesizes capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-wiki-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and offers a commit when done. Run `atomic wiki scan` first to scaffold the wiki directory. |
+| `/refresh-wiki` | Refresh the project wiki; scope is auto-detected. Repo scope: generate (or update) the `docs/wiki/` signals files that teach Claude your repo's shape. Realm scope: run `atomic wiki scan` to classify member repos (scaffolding included), refresh stale or pending artifacts, and synthesize capture-bucket material into `wiki/knowledge/` pages. On first run in a realm with no `<wiki-buckets>` block, prompts to register capture folders; a blank response records the decline so the offer never re-fires. After repo summaries, dispatches `atomic-wiki-inferrer` in bucket-synthesis mode for each bucket with a non-empty diff; code stamps `sources:` frontmatter via `atomic wiki stamp --knowledge`. Prints a per-artifact disposition and commits the wiki automatically when done — its git history is the changelog. Idempotent. |
 
 
 ## Maintenance
@@ -56,7 +55,7 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 |---------|-------------|
 | `/git-cleanup` | Scan for stale worktrees, branches, and optionally remote tracking refs. Shows a report and asks before deleting anything. |
 | `/watch-ci` | Spawn a background agent to monitor CI for the current branch. Reports back when it finishes. |
-| `/remind-me` | Schedule a reminder (e.g. `/remind-me 2h check deploy`). Creates a cron-fired follow-up. |
+| `/remind-me` | Schedule a reminder (e.g. `/remind-me 2h check deploy`). Fires via cron for durations under an hour, via Routines for an hour or more; degrades to a file-only reminder surfaced at session start when neither is available. |
 | `/follow-up` | Review pending reminders. Also used to triage stale project follow-ups with `/follow-up review`. |
 | `/session-report` | Capture what changed and why during this session. Read by the next ship command for commit message context, then deleted. |
 | `/retrospective-learning` | Session retrospective. Mines session history and the current conversation for friction signals, cross-references against installed artifacts, and walks proposed improvements one at a time. Persists a run log so later runs detect drift on past accepts. |
@@ -73,11 +72,11 @@ All ship commands delegate commit messages to the `atomic-git-discipline` skill.
 
 ## Binary subcommands (`atomic serve`)
 
-`atomic serve` starts a local read-only HTTP server for exploring a wiki realm and code-intel index in the browser. No write operations; localhost only. Run `atomic serve --help` for full usage. See [serve reference](/reference/serve) for the full view and route list.
+`atomic serve` starts a local read-only HTTP server for exploring a wiki realm and code-intel index in the browser. No write operations; binds localhost by default (`--host 0.0.0.0` opts into read-only LAN exposure). Run `atomic serve --help` for full usage. See [serve reference](/reference/serve) for the full view and route list.
 
 | Subcommand | What it does |
 |---------|-------------|
-| `atomic serve [path] [--port N] [--open]` | Start the server. `path` defaults to `cwd`; scope (realm / member / repo) is resolved automatically. `--port 0` picks a free port. `--open` opens the browser. Shuts down cleanly on SIGINT. |
+| `atomic serve [path] [--port N] [--host addr] [--open]` | Start the server. `path` defaults to `cwd`; scope (realm / member / repo) is resolved automatically. `--port 0` picks a free port. `--open` opens the browser. Shuts down cleanly on SIGINT. |
 
 
 ## Binary subcommands (`atomic wiki`)
@@ -86,13 +85,18 @@ The `atomic wiki` subcommand manages the cross-repo wiki and capture buckets. Mo
 
 | Subcommand | What it does |
 |---------|-------------|
+| `atomic wiki init [--scope repo\|realm] [--root=<path>]` | Write the fixed-content `CLAUDE.md` scaffold and the `scope` marker in `.claude/atomic.toml`. Idempotent; refuses to overwrite a conflicting marker. |
 | `atomic wiki scan [--root=<path>]` | Scaffold the wiki directory, classify member repos, write the managed `<wiki-scan>` block in `index.md`, and register the wiki globally. Idempotent — re-running regenerates only the managed block. |
 | `atomic wiki stale [--root=<path>]` | Read-only freshness verdict. Reports `DRIFT`/`STALE` lines for repos and concerns, plus `STALE bucket <name>` for capture folders with a non-empty diff. Exits `0` fresh, `1` stale, `2` error. |
 | `atomic wiki linkify --root=<path>` | Render inline path citations across summaries, concerns, knowledge pages, and the index into file-relative markdown links. Deterministic, idempotent, no model. |
+| `atomic wiki stamp <file> [--repo\|--root] [--cites] [--knowledge --sources]` | Write `reflects_rev`/`reflects:` fingerprint frontmatter on a summary or concern, or `sources:` on a knowledge page. Code-only — the model never writes fingerprints. |
 | `atomic wiki bucket add <name>` | Register a capture folder at the realm root. Creates `<name>/index.md` (purpose stub), `wiki/.buckets/<name>/` (manifest dir), and splices a `<bucket>` entry into the `<wiki-buckets>` block in `wiki/index.md`. On first add in a realm, also writes a `## Capture surfaces` section to the realm `CLAUDE.md`. Refuses if `<name>` is `wiki` or the bucket is already registered. |
 | `atomic wiki bucket list` | Print one line per registered bucket: name, path, baseline file count, and `pending` or `fresh` status. Exits `0` even when no buckets are registered. |
 | `atomic wiki bucket diff <name>` | Read-only diff of the capture folder against its baseline. Prints `new <path>`, `changed <path>`, or `removed <path>` per changed file. Exits `0` when the diff is empty, `1` when any line is emitted. |
 | `atomic wiki bucket promote <name>` | Advance the baseline after successful synthesis: recomputes the SHA-256 manifest, rotates `baseline→previous`, sets new manifest as `baseline`. After promote, `diff` exits `0`. |
+| `atomic wiki bucket doc <bucket> <slug> [--router]` | Scaffold `<bucket>/<slug>.md` from the embedded doc template (six-key frontmatter). `--router` also scaffolds the sibling `<slug>/` subtree. Refuses on collision. |
+| `atomic wiki bucket skill <bucket>` | Scaffold the realm's per-bucket `SKILL.md`. Silent no-op if one already exists. |
+| `atomic wiki bucket index [<bucket>]` | Rebuild the `<bucket-docs>` listing region for one bucket — or all buckets when omitted — plus the realm bucket list. `atomic wiki scan` already runs this. |
 
 
 ## Binary subcommands (`atomic bus`)
@@ -116,6 +120,8 @@ The `atomic wiki` subcommand manages the cross-repo wiki and capture buckets. Mo
 | `atomic bus say <room> <text> [--to <names>]` | Send a one-shot message as the operator, without joining. Always succeeds, even in a halted room. |
 | `atomic bus halt <room> [--text <why>]` | Stop a room: agent `send` fails with exit 7 until `resume`. |
 | `atomic bus resume <room>` | Clear a room's halt flag; restores agent `send`. |
+| `atomic bus prune [<room>] [--json]` | Remove stale members — no live subscription, no recent activity — from a room. |
+| `atomic bus close <room>` | Publish a closing envelope, evict every member, and drop the room. Operator verb; no session required. |
 | `atomic bus chat <room> [--as <name>] [--session <id>]` | Interactive client. Joins as a human member; `@name`, `/who`, `/rooms`, `/halt`, `/resume`, `/quit`. |
 
 

@@ -98,12 +98,12 @@ On small repos (fewer than 500 indexed files), only `atomic_code_explore`, `atom
 Subagents do not use MCP. They shell out to `atomic code` directly:
 
 ```bash
-atomic code callers MyFunction --json
-atomic code impact MyFunction --depth 2 --json
-atomic code search "UserService" --json
+atomic code callers --json MyFunction
+atomic code impact --depth 2 --json MyFunction
+atomic code search --json "UserService"
 ```
 
-The `agent-code-intel` partial instructs each subagent when and how to use these verbs, with a degradation contract: binary absent, no DB, or failed query → fall back to `sg`/`grep`. Investigator, reviewer, and signals-inferrer compose it directly; the implementer (feature and surgical modes) receives it transitively through `agent-implementer-workflow`.
+The `agent-code-intel` partial instructs each subagent when and how to use these verbs, with a degradation contract: binary absent, no DB, or failed query → fall back to `sg`/`grep`. Investigator, reviewer, and wiki-inferrer compose it directly; the implementer (feature and surgical modes) receives it transitively through `agent-implementer-workflow`.
 
 
 ## Degradation

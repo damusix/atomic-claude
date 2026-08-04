@@ -18,7 +18,7 @@ Before your first session in a new project, two commands teach Claude what it is
 
 You only need to do this once per repo. Signals refresh automatically after that — ship commands re-scan whenever source files change.
 
-For deeper structural queries, run `atomic code index` to build a symbol graph of the project. Once indexed, you can ask `atomic code explore "<question>"` for a one-shot context digest, and the implementation agents query the graph for callers and blast radius instead of grepping. This is also a one-time setup step. `atomic code sync` keeps the index current, and the ship commands and `/refresh-wiki` run it for you. See the [code-intel reference](/reference/code-intel).
+For deeper structural queries, run `atomic code index` to build a symbol graph of the project. Once indexed, you can ask `atomic code explore "<question>"` for a one-shot context digest, and the implementation agents query the graph for callers and blast radius instead of grepping. This is also a one-time setup step. `atomic code sync` keeps the index current, and the implement loop (`/subagent-implementation`, `/autopilot`) and `/refresh-wiki` run it for you. See the [code-intel reference](/reference/code-intel).
 
 If you work across several repos in one realm — a folder of services, a set of libraries, your client projects — a wiki gives Claude a map of how they relate, one level up from per-repo signals. Set one up with `/refresh-wiki`; see [wiki workflow](/reference/wiki-workflow).
 
@@ -82,7 +82,7 @@ For a fix with a known cause and one obvious approach, `/quick-fix` skips the pl
 /autopilot <task | issue#> [merge-verb]
 ```
 
-When you trust the system to drive, `/autopilot` runs the whole lifecycle — plan, the implement-then-review loop, and ship — from a task description or a GitHub issue number, with one decision left to you: how to merge. It always uses the same subagent loop, but with three autonomous defaults. Every reviewer finding is fixed as it goes rather than deferred. When the loop gets stuck, it dispatches the read-only strategist for root-cause analysis on its own instead of waiting for you. And it keeps the spec current the whole way, so a fresh subagent never reads stale scope. The only decision is the merge method at the end — pass a merge token (`/autopilot 29 "squash merge"`) to skip even that. It also keeps experiments in a gitignored scratch folder rather than deleting them mid-run, so it never stops to ask permission for a stray `rm`; it clears that folder once when the run finishes. Reach for the interactive verbs above when you want approval gates; reach for this when you don't.
+When you trust the system to drive, `/autopilot` runs the whole lifecycle — plan, the implement-then-review loop, and ship — from a task description or a GitHub issue number, with one decision left to you: how to merge. It always uses the same subagent loop, but with three autonomous defaults. Every reviewer finding is fixed as it goes rather than deferred. When the loop gets stuck, it dispatches the read-only strategist for root-cause analysis on its own instead of waiting for you. And it keeps the spec current the whole way, so a fresh subagent never reads stale scope. The only decision is the merge method at the end — pass a merge verb (`/autopilot 29 commit squash merge`) to skip even that. It also keeps experiments in a gitignored scratch folder rather than deleting them mid-run, so it never stops to ask permission for a stray `rm`; it clears that folder once when the run finishes. Reach for the interactive verbs above when you want approval gates; reach for this when you don't.
 
 
 ### What the loop costs
@@ -112,7 +112,7 @@ One verb covers all ship paths:
 /commit squash merge      — commit + squash + merge to base
 ```
 
-With no pending changes and commits already ahead of base, `/commit` skips straight to the ship step — so `/commit merge` on a clean branch just merges. All paths run tests on the merged/squashed result and prompt to clean up the worktree if you used one.
+With no pending changes and commits already ahead of base, `/commit` skips straight to the ship step — so `/commit merge` on a clean branch just merges. The merge and squash-merge paths run tests on the merged result and prompt to clean up the worktree if you used one; squash alone rewrites the branch without re-running tests.
 
 
 ## 5. Track what's deferred
@@ -162,11 +162,11 @@ Documentation is almost always an afterthought. These commands make it part of t
 
 ### What runs automatically
 
-Every `/commit` invocation runs signals refresh and doc-impact checks as part of the commit flow — signals are regenerated, documentation surfaces are presented for review, and the commit message is synthesized from the diff. Escalation paths that touch the base branch (`merge`, `squash merge`) also run `atomic-verify` on the merged tip before finalizing.
+Every `/commit` invocation runs the signals staleness check and doc-impact checks as part of the commit flow — documentation surfaces are presented for review, and the commit message is synthesized from the diff. Signals are regenerated only when the check reports stale and the staged set isn't docs-only; a fresh index (say, because the implement loop already refreshed it) makes the step a no-op. Escalation paths that touch the base branch (`merge`, `squash merge`) also run `atomic-verify` on the merged tip before finalizing.
 
 | Path | Signals | Doc-impact | Commit msg | Verify |
 |------|:-------:|:----------:|:----------:|:------:|
-| commit (all paths) | ✓ | ✓ | ✓ | |
-| merge / squash merge | ✓ | ✓ | ✓ | ✓ |
+| commit (all paths) | ✓* | ✓ | ✓ | |
+| merge / squash merge | ✓* | ✓ | ✓ | ✓ |
 
-✓ = runs automatically.
+✓ = runs automatically. ✓* = staleness-gated; skipped for docs-only commits.

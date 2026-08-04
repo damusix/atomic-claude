@@ -31,7 +31,7 @@ Beyond the drop-list, six rules shape individual sentences. Each targets a redun
 - **Code can be the whole reply.** When code fully answers the question, prose around it adds nothing.
 - **Keep the user's terms.** Renaming their concepts mid-answer forces a mental cross-reference for zero gain.
 
-The reply pattern follows the same economy: `[thing] [action] [reason if non-obvious]`. A reason appears only when the reader cannot derive it.
+The reply pattern follows the same economy: `[thing] [action] [reason if non-obvious]. [next step].` A reason appears only when the reader cannot derive it.
 
 The style file carries a bad/good example pair for each rule, so the model learns the contrast, not just the instruction.
 
@@ -71,7 +71,12 @@ Restart Claude Code (or start a new session) for the change to take effect.
 
 ## Safety always wins
 
-Security warnings and irreversible-action confirmations always revert to full prose. Clarity is the point, and these are the cases where a terse fragment could be misread.
+Five Auto-Clarity triggers revert the style to full prose: security warnings, irreversible-action confirmations, multi-step sequences where fragment order could be misread, cases where the compression itself creates technical ambiguity, and the user asking to clarify or repeating a question. Clarity is the point, and these are the cases where a terse fragment could be misread. Atomic style resumes once the clear part is done.
+
+
+## Two voices
+
+Atomic style governs replies in the terminal, never file contents. When Claude writes or edits a file, the file follows its codebase's conventions: enduring narrative docs (README, guides) use the `atomic-writing` skill's voice, everything else (specs, designs, CLAUDE.md, signals) uses terse technical prose. Saying "stop atomic" or switching output styles reverts the reply voice immediately.
 
 
 ## Subagents do not inherit the style

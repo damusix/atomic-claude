@@ -231,7 +231,7 @@ A client that reaches for the daemon between commands and finds it gone (crashed
 
 ## Operator verbs
 
-These reach a room without holding a roster slot in it, for a human watching or steering from outside the agent conversation.
+These reach a room from outside the agent conversation, for a human watching or steering; all but `chat` do it without holding a roster slot.
 
 | Verb | Effect |
 |---|---|
