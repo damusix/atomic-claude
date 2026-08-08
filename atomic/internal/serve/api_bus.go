@@ -241,8 +241,7 @@ type busWhoResponse struct {
 
 func (h *busAPIHandler) handleWho(w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
-	if room == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing room")
+	if !requireRoom(w, room) {
 		return
 	}
 	resp, err := h.do(bus.Request{Op: bus.OpWho, Room: room})
@@ -271,8 +270,7 @@ const maxLogLineBytes = bus.MaxTextBytes + 64*1024
 
 func (h *busAPIHandler) handleLog(w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
-	if room == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing room")
+	if !requireRoom(w, room) {
 		return
 	}
 	n := 200
@@ -324,8 +322,7 @@ func readRoomLogTail(home, room string, n int) ([]bus.Envelope, error) {
 
 func (h *busAPIHandler) handleTail(w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
-	if room == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing room")
+	if !requireRoom(w, room) {
 		return
 	}
 	flusher, ok := w.(http.Flusher)
@@ -376,7 +373,6 @@ func (h *busAPIHandler) handleTail(w http.ResponseWriter, r *http.Request) {
 
 type busJoinBody struct {
 	Room string `json:"room"`
-	As   string `json:"as"`
 }
 
 func (h *busAPIHandler) handleJoin(w http.ResponseWriter, r *http.Request) {
@@ -384,7 +380,7 @@ func (h *busAPIHandler) handleJoin(w http.ResponseWriter, r *http.Request) {
 	if !decodeBusBody(w, r, &body) || !requireRoom(w, body.Room) {
 		return
 	}
-	name, err := h.join(body.Room, body.As)
+	name, err := h.join(body.Room)
 	if err != nil {
 		writeBusError(w, err)
 		return
@@ -394,11 +390,8 @@ func (h *busAPIHandler) handleJoin(w http.ResponseWriter, r *http.Request) {
 
 // join joins (creating if absent) room as this serve process's human
 // member and caches the assigned name.
-func (h *busAPIHandler) join(room, as string) (string, error) {
-	if as == "" {
-		as = "web"
-	}
-	name, repo, realm, err := bus.JoinIdentity(h.home, h.targetDir, as)
+func (h *busAPIHandler) join(room string) (string, error) {
+	name, repo, realm, err := bus.JoinIdentity(h.home, h.targetDir, "web")
 	if err != nil {
 		return "", err
 	}
@@ -454,7 +447,7 @@ func (h *busAPIHandler) handleSend(w http.ResponseWriter, r *http.Request) {
 	h.mu.Unlock()
 	if !alreadyJoined {
 		var err error
-		if name, err = h.join(body.Room, ""); err != nil {
+		if name, err = h.join(body.Room); err != nil {
 			writeBusError(w, err)
 			return
 		}
@@ -467,7 +460,7 @@ func (h *busAPIHandler) handleSend(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		delete(h.joined, body.Room)
 		h.mu.Unlock()
-		if name, err = h.join(body.Room, ""); err == nil {
+		if name, err = h.join(body.Room); err == nil {
 			resp, err = h.doEnsure(req)
 		}
 	}
@@ -562,9 +555,19 @@ func decodeBusBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return true
 }
 
+// requireRoom is the one gate every room-taking route passes through
+// before the room name reaches bus.RoomLogPath (or a daemon request that
+// eventually does) — room names are free text on the wire but get spliced
+// into a filesystem path, so anything path-shaped is rejected before it
+// can escape the rooms directory. Mirrors bus/action.go's readAction
+// guard.
 func requireRoom(w http.ResponseWriter, room string) bool {
 	if strings.TrimSpace(room) == "" {
 		writeAPIError(w, http.StatusBadRequest, "missing room")
+		return false
+	}
+	if strings.ContainsAny(room, `/\`) || strings.Contains(room, "..") {
+		writeAPIError(w, http.StatusBadRequest, `invalid room name: must not contain "/", "\", or ".."`)
 		return false
 	}
 	return true

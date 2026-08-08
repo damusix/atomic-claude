@@ -287,36 +287,46 @@ function RoomView({
     );
   }, [room]);
 
-  // Backfill from the durable room log, then attach the live tail. The
-  // tail sees everything published after it connects; ids dedupe the
-  // overlap between the two.
+  // Backfill from the durable room log, then attach the live tail — only
+  // once backfill settles (success or failure), so a live envelope can
+  // never render ahead of the older batch it belongs after. If the effect
+  // tears down first (room switched mid-backfill), `cancelled` skips
+  // opening the tail at all.
   useEffect(() => {
+    let cancelled = false;
+    let source: EventSource | null = null;
+
+    function openTail() {
+      if (cancelled || typeof EventSource === "undefined") return;
+      source = new EventSource(`/api/bus/tail?room=${encodeURIComponent(room)}`);
+      source.onmessage = (msgEvt) => {
+        let env: BusEnvelope;
+        try {
+          env = JSON.parse(msgEvt.data);
+        } catch {
+          return;
+        }
+        appendEnvelopes([env]);
+        if (env.closing) {
+          setClosed(true);
+          source?.close();
+        }
+      };
+    }
+
     void attempt(() => api.get<BusLogResponse>(`/bus/log?room=${encodeURIComponent(room)}&n=200`)).then(
       ([res, err]) => {
         if (!err && res?.ok && res.data) appendEnvelopes(res.data.envelopes);
+        openTail();
       },
     );
     refreshWho();
     const whoTimer = setInterval(refreshWho, 7000);
 
-    if (typeof EventSource === "undefined") return () => clearInterval(whoTimer);
-    const source = new EventSource(`/api/bus/tail?room=${encodeURIComponent(room)}`);
-    source.onmessage = (msgEvt) => {
-      let env: BusEnvelope;
-      try {
-        env = JSON.parse(msgEvt.data);
-      } catch {
-        return;
-      }
-      appendEnvelopes([env]);
-      if (env.closing) {
-        setClosed(true);
-        source.close();
-      }
-    };
     return () => {
+      cancelled = true;
       clearInterval(whoTimer);
-      source.close();
+      source?.close();
     };
   }, [room, appendEnvelopes, refreshWho]);
 

@@ -129,6 +129,62 @@ func TestAPIBus_LoopbackGate(t *testing.T) {
 	}
 }
 
+// TestAPIBus_RoomGuard_RejectsTraversal drives every room-taking route
+// with a path-shaped room name — "../escape" would clean through
+// filepath.Join in bus.RoomLogPath and escape the rooms directory if left
+// unvalidated. No daemon runs for this test: a route that reaches past the
+// guard would either 503 (Dial-only routes) or attempt a real join/send
+// against a daemon that isn't there — never the 400 asserted here — so a
+// non-400 result proves the guard was skipped, not just misrouted.
+func TestAPIBus_RoomGuard_RejectsTraversal(t *testing.T) {
+	home := busTestHome(t)
+	handler := newBusTestHandler(home, t.TempDir())
+	const evilRoom = "../escape"
+
+	getRoutes := []string{"log", "tail", "who", "sessions"}
+	for _, route := range getRoutes {
+		t.Run("GET "+route, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/bus/"+route+"?room="+evilRoom, nil)
+			req.RemoteAddr = "127.0.0.1:5555"
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("GET %s?room=%s = %d, want 400 (body: %s)", route, evilRoom, rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	postRoutes := []string{"join", "send", "say", "halt", "resume", "leave"}
+	for _, route := range postRoutes {
+		t.Run("POST "+route, func(t *testing.T) {
+			body := strings.NewReader(`{"room":"` + evilRoom + `","text":"hi"}`)
+			req := httptest.NewRequest(http.MethodPost, "/api/bus/"+route, body)
+			req.RemoteAddr = "127.0.0.1:5555"
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Errorf("POST %s room=%s = %d, want 400 (body: %s)", route, evilRoom, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// TestAPIBus_Join_TraversalRoom_NeverTouchesDaemon locks finding #2: join's
+// room validation must reject before doEnsure ever dials/spawns a daemon —
+// no daemon is started in this test, so a 400 here proves the guard runs
+// first rather than merely happening to also fail once daemon-side.
+func TestAPIBus_Join_TraversalRoom_NeverTouchesDaemon(t *testing.T) {
+	home := busTestHome(t)
+	srv := httptest.NewServer(newBusTestHandler(home, t.TempDir()))
+	defer srv.Close()
+
+	resp := postBusJSON(t, srv.URL+"/api/bus/join", map[string]string{"room": "../escape"})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("join with traversal room = %d, want 400", resp.StatusCode)
+	}
+}
+
 func TestAPIBus_StatusAndRooms_NoDaemon(t *testing.T) {
 	home := busTestHome(t)
 	srv := httptest.NewServer(newBusTestHandler(home, t.TempDir()))
@@ -339,6 +395,9 @@ func TestAPIBus_Transcript_RendersMarkdown(t *testing.T) {
 	if tr.TotalEntries != 3 || tr.ShownEntries != 3 {
 		t.Errorf("entries = %d/%d, want 3/3", tr.ShownEntries, tr.TotalEntries)
 	}
+	if tr.FirstEntry != 1 || tr.LastEntry != 3 {
+		t.Errorf("firstEntry/lastEntry = %d/%d, want 1/3", tr.FirstEntry, tr.LastEntry)
+	}
 	for _, want := range []string{"<strong>totals.ts:88</strong>", "tool output", "Read", "thinking"} {
 		if !strings.Contains(tr.HTML, want) {
 			t.Errorf("rendered HTML missing %q", want)
@@ -354,6 +413,9 @@ func TestAPIBus_Transcript_RendersMarkdown(t *testing.T) {
 	paged := decodeBusResponse[busTranscriptResponse](t, resp)
 	if paged.ShownEntries != 1 || paged.Offset != 1 {
 		t.Errorf("paged = %d shown, offset %d, want 1/1", paged.ShownEntries, paged.Offset)
+	}
+	if paged.FirstEntry != 2 || paged.LastEntry != 2 {
+		t.Errorf("firstEntry/lastEntry = %d/%d, want 2/2", paged.FirstEntry, paged.LastEntry)
 	}
 	if !strings.Contains(paged.HTML, "totals.ts:88") || strings.Contains(paged.HTML, "tool output") {
 		t.Errorf("offset=1 window should be the assistant entry only, got: %.200s", paged.HTML)

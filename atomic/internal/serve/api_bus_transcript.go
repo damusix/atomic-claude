@@ -81,8 +81,7 @@ type busSessionsResponse struct {
 
 func (h *busAPIHandler) handleSessions(w http.ResponseWriter, r *http.Request) {
 	room := r.URL.Query().Get("room")
-	if room == "" {
-		writeAPIError(w, http.StatusBadRequest, "missing room")
+	if !requireRoom(w, room) {
 		return
 	}
 	resp, err := h.do(bus.Request{Op: bus.OpWho, Room: room})
@@ -124,6 +123,13 @@ type busTranscriptResponse struct {
 	ShownEntries int    `json:"shownEntries"`
 	TotalEntries int    `json:"totalEntries"`
 	Offset       int    `json:"offset"`
+	// FirstEntry/LastEntry are the 1-based absolute positions of the shown
+	// window within the whole transcript (0/0 when the window is empty) —
+	// the same numbers transcriptToMarkdown renders into its own range
+	// note, single-sourced via transcriptMeta so the client never
+	// recomputes them from shownEntries/totalEntries/offset.
+	FirstEntry int `json:"firstEntry"`
+	LastEntry  int `json:"lastEntry"`
 }
 
 func (h *busAPIHandler) handleTranscript(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +181,7 @@ func (h *busAPIHandler) handleTranscript(w http.ResponseWriter, r *http.Request)
 	writeAPIJSON(w, busTranscriptResponse{
 		HTML: html, Title: title, AgentName: meta.agentName, Path: path,
 		ShownEntries: meta.shown, TotalEntries: meta.total, Offset: offset,
+		FirstEntry: meta.first, LastEntry: meta.last,
 	})
 }
 
@@ -219,6 +226,10 @@ type transcriptMeta struct {
 	agentName string
 	shown     int
 	total     int
+	// first/last are the 1-based absolute positions of the shown window
+	// within the whole transcript; 0/0 when the window is empty.
+	first int
+	last  int
 }
 
 // maxTranscriptLineBytes bounds one .jsonl line; a tool result can carry
@@ -279,14 +290,16 @@ func transcriptToMarkdown(path string, maxEntries, offset int) (string, transcri
 	}
 	window := entries[start:end]
 	meta.shown = len(window)
-	// 1-based chronological positions of the window within the whole
-	// transcript, for the range note below.
-	firstAbs := meta.total - len(entries) + start + 1
-	lastAbs := meta.total - len(entries) + end
+	if meta.shown > 0 {
+		// 1-based chronological positions of the window within the whole
+		// transcript, for the range note below and the API response.
+		meta.first = meta.total - len(entries) + start + 1
+		meta.last = meta.total - len(entries) + end
+	}
 
 	var b strings.Builder
 	if meta.total > meta.shown && meta.shown > 0 {
-		fmt.Fprintf(&b, "*(entries %d–%d of %d)*\n\n", firstAbs, lastAbs, meta.total)
+		fmt.Fprintf(&b, "*(entries %d–%d of %d)*\n\n", meta.first, meta.last, meta.total)
 	}
 	if meta.shown == 0 && meta.total > 0 {
 		fmt.Fprintf(&b, "*(no entries this far back — the transcript has %d)*\n", meta.total)

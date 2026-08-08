@@ -226,6 +226,22 @@ describe("Rail", () => {
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(2));
   });
 
+  test("at /bus renders the BusRail section, not the page-rail slots", async () => {
+    mockFetchOnce({ sessions: [] });
+    render(
+      <MemoryRouter initialEntries={["/bus?room=exp"]}>
+        <ApiProvider>
+          <Rail />
+        </ApiProvider>
+      </MemoryRouter>,
+    );
+
+    expect(document.querySelector(".bus-rail")).not.toBeNull();
+    expect(document.querySelector("#rail-props")).toBeNull();
+    expect(document.querySelector("#rail-out")).toBeNull();
+    expect(document.querySelector("#rail-in")).toBeNull();
+  });
+
   test("does not refetch on realm.changed when the open relpath is absent from a bounded changed list", async () => {
     const fetchSpy = mock(
       async () =>

@@ -16,6 +16,8 @@ interface BusTranscriptResponse {
   shownEntries: number;
   totalEntries: number;
   offset: number;
+  firstEntry: number;
+  lastEntry: number;
 }
 
 const PAGE = 100;
@@ -73,8 +75,7 @@ export function BusTranscriptModal({
                 {data ? (
                   <>
                     {" "}
-                    · entries {Math.max(1, data.totalEntries - offset - data.shownEntries + 1)}–
-                    {data.totalEntries - offset} of {data.totalEntries}
+                    · entries {data.firstEntry}–{data.lastEntry} of {data.totalEntries}
                   </>
                 ) : null}
               </p>
