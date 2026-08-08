@@ -1,6 +1,14 @@
 /* Bus page — experiment: web chat over the atomic bus. Consumes app.css
    custom properties only; no palette values defined here. */
 
+/* Chat is a full-bleed pane like the graph views: #main-pane's reading
+   padding (34px 0 80px) would otherwise sit as dead space under the
+   composer. Same effect body.mode-system achieves for the graphs. */
+#main-pane:has(.bus-page) {
+  padding: 0;
+  overflow: hidden;
+}
+
 .bus-page {
   display: flex;
   height: 100%;
@@ -328,6 +336,9 @@
 
 .bus-composer {
   display: flex;
+  /* flex-end, not stretch: the Send button keeps its own height pinned to
+     the bottom while the field grows upward. */
+  align-items: flex-end;
   gap: 8px;
   padding: 10px 16px;
   border-top: 1px solid var(--hairline);
@@ -339,7 +350,7 @@
   min-width: 0;
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   padding: 4px 9px;
   border-radius: 6px;
@@ -393,6 +404,11 @@ button.bus-chip {
   font: inherit;
   font-family: var(--font-mono);
   font-size: 0.72rem;
+  line-height: 1.5;
+  padding: 1px 9px;
+  border-radius: 999px;
+  align-self: flex-start;
+  margin-top: 3px;
 }
 
 button.bus-chip:hover .bus-chip-x {

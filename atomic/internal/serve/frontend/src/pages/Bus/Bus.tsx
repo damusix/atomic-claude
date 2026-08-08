@@ -302,6 +302,19 @@ function RoomView({
     if (el && followingRef.current) el.scrollTop = el.scrollHeight;
   }, [envelopes]);
 
+  // The composer growing shrinks the transcript pane — re-pin to the
+  // bottom on any size change while following, so typing a long message
+  // doesn't shove the latest traffic out of view.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (followingRef.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
   function onScroll() {
     const el = scrollRef.current;
     if (!el) return;
