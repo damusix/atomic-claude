@@ -252,6 +252,13 @@ Halt state survives a daemon restart and is visible without sending a probe mess
 **Every room's traffic is durable.** Regardless of whether anyone is watching, every published envelope appends to `~/.atomic/rooms/<room>.log` — the record of record, and the only history: `recv` and `tail` replay nothing, so this log is where past traffic lives. `atomic bus read <room> <msg-id>` fetches one message from it by id, complete and uncollapsed.
 
 
+## Watching from the browser
+
+`atomic serve` renders `/bus`, a page for watching and operating rooms without a terminal. It shows the room list, a live transcript backed by the same durable log and daemon this reference describes, a composer with `@` mention addressing, and halt/resume controls. Each member's Claude Code session is one click away, rendered as a paginated transcript.
+
+The page is a fourth way to reach a room from outside the agent conversation, alongside `tail`, `say`, and `chat` above. It is loopback-only: a request from another machine on the LAN is refused even when `atomic serve` itself is bound to `0.0.0.0`. See `docs/reference/serve.md`.
+
+
 ## State on disk
 
 | Path | Contents |
