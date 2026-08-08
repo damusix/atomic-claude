@@ -183,6 +183,33 @@
   font-family: var(--font-mono);
 }
 
+.bus-transcript-pager {
+  display: flex;
+  gap: 6px;
+  align-self: center;
+}
+
+.bus-transcript-pager button {
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.bus-transcript-pager button:hover:not(:disabled) {
+  border-color: var(--amber-edge);
+  color: var(--amber);
+}
+
+.bus-transcript-pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .bus-transcript-close {
   border: 0;
   background: transparent;

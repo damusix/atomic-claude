@@ -308,6 +308,23 @@ func TestAPIBus_Transcript_RendersMarkdown(t *testing.T) {
 		}
 	}
 
+	// Offset pages backward from the tail: with 3 entries and n=1,
+	// offset=1 lands on the middle entry (the assistant turn).
+	resp, err = http.Get(srv.URL + "/api/bus/transcript?session=sess-x&n=1&offset=1")
+	if err != nil {
+		t.Fatalf("GET transcript offset: %v", err)
+	}
+	paged := decodeBusResponse[busTranscriptResponse](t, resp)
+	if paged.ShownEntries != 1 || paged.Offset != 1 {
+		t.Errorf("paged = %d shown, offset %d, want 1/1", paged.ShownEntries, paged.Offset)
+	}
+	if !strings.Contains(paged.HTML, "totals.ts:88") || strings.Contains(paged.HTML, "tool output") {
+		t.Errorf("offset=1 window should be the assistant entry only, got: %.200s", paged.HTML)
+	}
+	if !strings.Contains(paged.HTML, "entries 2–2 of 3") {
+		t.Errorf("range note missing, got: %.200s", paged.HTML)
+	}
+
 	// Unknown session → 404; path-shaped session → 400.
 	resp, err = http.Get(srv.URL + "/api/bus/transcript?session=nope")
 	if err != nil {

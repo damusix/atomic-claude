@@ -123,6 +123,7 @@ type busTranscriptResponse struct {
 	Path         string `json:"path"`
 	ShownEntries int    `json:"shownEntries"`
 	TotalEntries int    `json:"totalEntries"`
+	Offset       int    `json:"offset"`
 }
 
 func (h *busAPIHandler) handleTranscript(w http.ResponseWriter, r *http.Request) {
@@ -137,6 +138,14 @@ func (h *busAPIHandler) handleTranscript(w http.ResponseWriter, r *http.Request)
 			n = parsed
 		}
 	}
+	// offset counts entries skipped from the tail — offset 0 is the latest
+	// window, offset n is the one before it, and so on backward.
+	offset := 0
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 && parsed <= 10000 {
+			offset = parsed
+		}
+	}
 
 	path, _, err := findSessionTranscript(h.home, session)
 	if err != nil {
@@ -148,7 +157,7 @@ func (h *busAPIHandler) handleTranscript(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	md, meta, err := transcriptToMarkdown(path, n)
+	md, meta, err := transcriptToMarkdown(path, n, offset)
 	if err != nil {
 		writeAPIError(w, http.StatusInternalServerError, "read transcript: "+err.Error())
 		return
@@ -165,7 +174,7 @@ func (h *busAPIHandler) handleTranscript(w http.ResponseWriter, r *http.Request)
 	}
 	writeAPIJSON(w, busTranscriptResponse{
 		HTML: html, Title: title, AgentName: meta.agentName, Path: path,
-		ShownEntries: meta.shown, TotalEntries: meta.total,
+		ShownEntries: meta.shown, TotalEntries: meta.total, Offset: offset,
 	})
 }
 
@@ -216,10 +225,12 @@ type transcriptMeta struct {
 // megabytes, and a line beyond this is skipped rather than failing the read.
 const maxTranscriptLineBytes = 8 * 1024 * 1024
 
-// transcriptToMarkdown reads a session .jsonl and produces markdown for the
-// last maxEntries user/assistant entries. Per-block truncation keeps one
-// giant tool result from swamping the page.
-func transcriptToMarkdown(path string, maxEntries int) (string, transcriptMeta, error) {
+// transcriptToMarkdown reads a session .jsonl and produces markdown for a
+// window of maxEntries user/assistant entries, offset entries back from
+// the tail (offset 0 = latest window). Per-block truncation keeps one
+// giant tool result from swamping the page; the sliding ring bounds
+// memory at offset+maxEntries entries regardless of transcript size.
+func transcriptToMarkdown(path string, maxEntries, offset int) (string, transcriptMeta, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", transcriptMeta{}, err
@@ -227,7 +238,8 @@ func transcriptToMarkdown(path string, maxEntries int) (string, transcriptMeta, 
 	defer f.Close()
 
 	var meta transcriptMeta
-	entries := make([]transcriptEntry, 0, maxEntries)
+	keep := maxEntries + offset
+	entries := make([]transcriptEntry, 0, keep)
 
 	reader := bufio.NewReaderSize(f, 256*1024)
 	for {
@@ -235,9 +247,9 @@ func transcriptToMarkdown(path string, maxEntries int) (string, transcriptMeta, 
 		if line != nil {
 			if entry, lineMeta, ok := parseTranscriptLine(line); ok {
 				meta.total++
-				if len(entries) == maxEntries {
+				if len(entries) == keep {
 					copy(entries, entries[1:])
-					entries = entries[:maxEntries-1]
+					entries = entries[:keep-1]
 				}
 				entries = append(entries, entry)
 			} else {
@@ -256,13 +268,30 @@ func transcriptToMarkdown(path string, maxEntries int) (string, transcriptMeta, 
 			return "", transcriptMeta{}, readErr
 		}
 	}
-	meta.shown = len(entries)
+
+	end := len(entries) - offset
+	if end < 0 {
+		end = 0
+	}
+	start := end - maxEntries
+	if start < 0 {
+		start = 0
+	}
+	window := entries[start:end]
+	meta.shown = len(window)
+	// 1-based chronological positions of the window within the whole
+	// transcript, for the range note below.
+	firstAbs := meta.total - len(entries) + start + 1
+	lastAbs := meta.total - len(entries) + end
 
 	var b strings.Builder
-	if meta.total > len(entries) {
-		fmt.Fprintf(&b, "*(showing the last %d of %d entries)*\n\n", len(entries), meta.total)
+	if meta.total > meta.shown && meta.shown > 0 {
+		fmt.Fprintf(&b, "*(entries %d–%d of %d)*\n\n", firstAbs, lastAbs, meta.total)
 	}
-	for i, entry := range entries {
+	if meta.shown == 0 && meta.total > 0 {
+		fmt.Fprintf(&b, "*(no entries this far back — the transcript has %d)*\n", meta.total)
+	}
+	for i, entry := range window {
 		if i > 0 {
 			b.WriteString("\n---\n\n")
 		}

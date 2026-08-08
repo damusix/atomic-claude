@@ -15,7 +15,10 @@ interface BusTranscriptResponse {
   path: string;
   shownEntries: number;
   totalEntries: number;
+  offset: number;
 }
+
+const PAGE = 100;
 
 export function BusTranscriptModal({
   member,
@@ -26,11 +29,14 @@ export function BusTranscriptModal({
 }) {
   const [data, setData] = useState<BusTranscriptResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const [offset, setOffset] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
     void attempt(() =>
-      api.get<BusTranscriptResponse>(`/bus/transcript?session=${encodeURIComponent(member.session)}`),
+      api.get<BusTranscriptResponse>(
+        `/bus/transcript?session=${encodeURIComponent(member.session)}&n=${PAGE}&offset=${offset}`,
+      ),
     ).then(([res, err]) => {
       if (cancelled) return;
       if (!err && res?.ok && res.data) setData(res.data);
@@ -39,7 +45,12 @@ export function BusTranscriptModal({
     return () => {
       cancelled = true;
     };
-  }, [member.session]);
+  }, [member.session, offset]);
+
+  // Older pages exist while the window's first entry is not entry 1;
+  // newer pages exist whenever we're offset back from the tail.
+  const canOlder = data ? offset + data.shownEntries < data.totalEntries : false;
+  const canNewer = offset > 0;
 
   return (
     <Dialog.Root
@@ -62,10 +73,29 @@ export function BusTranscriptModal({
                 {data ? (
                   <>
                     {" "}
-                    · {data.shownEntries}/{data.totalEntries} entries
+                    · entries {Math.max(1, data.totalEntries - offset - data.shownEntries + 1)}–
+                    {data.totalEntries - offset} of {data.totalEntries}
                   </>
                 ) : null}
               </p>
+            </div>
+            <div className="bus-transcript-pager">
+              <button
+                type="button"
+                disabled={!canOlder}
+                onClick={() => setOffset(offset + PAGE)}
+                aria-label="Older entries"
+              >
+                ‹ older
+              </button>
+              <button
+                type="button"
+                disabled={!canNewer}
+                onClick={() => setOffset(Math.max(0, offset - PAGE))}
+                aria-label="Newer entries"
+              >
+                newer ›
+              </button>
             </div>
             <Dialog.CloseTrigger className="bus-transcript-close" aria-label="Close">
               ✕
