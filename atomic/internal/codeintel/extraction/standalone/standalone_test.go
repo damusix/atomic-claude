@@ -250,16 +250,20 @@ func TestVue_ScriptSetup(t *testing.T) {
 		t.Errorf("no references ref for MyButton")
 	}
 
+	// Kept-case (code-intel-local-variable-suppression spec): a top-level
+	// <script setup> const is module-scope (scopeDepth 0 in the sub-extractor),
+	// not inside a FunctionScopeTypes construct, so it must still mint a
+	// variable node — regression-proof: require presence, fail if absent,
+	// rather than silently no-op'ing over an empty match set.
+	count := findNode(result.Nodes, types.NodeKindVariable, "count")
+	if count == nil {
+		t.Fatalf("count variable node not found (want: top-level <script setup> const is kept under scope suppression); nodes: %v", result.Nodes)
+	}
 	// The import (ref from 'vue') should be offset to line 6 (script starts at line 6).
-	// At minimum, the count variable or import should not be at script-relative line 2.
-	for _, n := range result.Nodes {
-		if n.Kind == types.NodeKindVariable && strings.Contains(n.Name, "count") {
-			// count is at line 7 in the file; script content starts at line 6,
-			// so script-relative line 2 → file line 7.
-			if n.StartLine < 6 {
-				t.Errorf("count variable StartLine = %d; expected >= 6 (file-relative)", n.StartLine)
-			}
-		}
+	// count is at line 7 in the file; script content starts at line 6, so
+	// script-relative line 2 → file line 7.
+	if count.StartLine < 6 {
+		t.Errorf("count variable StartLine = %d; expected >= 6 (file-relative)", count.StartLine)
 	}
 }
 
@@ -314,6 +318,14 @@ func TestSvelte_RootNodeAndChildren(t *testing.T) {
 	}
 	if childCount == 0 {
 		t.Errorf("no child nodes from script block")
+	}
+
+	// Kept-case (code-intel-local-variable-suppression spec, Svelte sibling of
+	// TestVue_ScriptSetup's Vue assertion): "export let name = 'World';" is
+	// module-scope (scopeDepth 0), not inside a FunctionScopeTypes construct,
+	// so it must still mint a variable node.
+	if n := findNode(result.Nodes, types.NodeKindVariable, "name"); n == nil {
+		t.Errorf("name variable node not found (want: top-level <script> let is kept under scope suppression); nodes: %v", result.Nodes)
 	}
 
 	// <Counter /> → references ref.

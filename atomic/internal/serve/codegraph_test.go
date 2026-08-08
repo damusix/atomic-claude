@@ -11,7 +11,10 @@ package serve_test
 //     opens that member's own db.
 //  3. Unknown member → non-200 JSON error body.
 //  4. Missing/unopenable index → non-200 JSON error body.
-//  5. Fingerprint stability: identical index state (across two handler calls)
+//  5. Parallel-edge dedup: duplicate (source, target, kind) rows (one per
+//     call site) collapse to a single edge; an edge differing only in kind
+//     survives.
+//  6. Fingerprint stability: identical index state (across two handler calls)
 //     → identical fingerprint; a count-preserving rename (same node/edge
 //     counts, different ids) → different fingerprint.
 
@@ -235,7 +238,67 @@ func TestCodeGraph_MissingIndex_NonOK_JSONError(t *testing.T) {
 	}
 }
 
-// ─── 5. Fingerprint stability ───────────────────────────────────────────────────
+// ─── 5. Parallel-edge dedup ─────────────────────────────────────────────────────
+
+// TestCodeGraph_DedupsParallelEdges reproduces the per-callsite fan-out bug:
+// the edges table stores one `calls` edge per call site (line/col
+// granularity), so a helper called 178 times from the same caller yields 178
+// identical (source, target, kind) rows. The client draws one stacked link
+// per row. The endpoint must collapse duplicate (source, target, kind)
+// triples to one edge each; an edge differing only in kind must survive.
+func TestCodeGraph_DedupsParallelEdges(t *testing.T) {
+	fake := &fakeCodeEngine{
+		allNodes: []types.Node{
+			{ID: "fn-a", Name: "caller", Kind: types.NodeKindFunction},
+			{ID: "fn-b", Name: "helper", Kind: types.NodeKindFunction},
+		},
+		allEdges: []types.Edge{
+			{Source: "fn-a", Target: "fn-b", Kind: types.EdgeKindCalls},
+			{Source: "fn-a", Target: "fn-b", Kind: types.EdgeKindCalls},
+			{Source: "fn-a", Target: "fn-b", Kind: types.EdgeKindCalls},
+			{Source: "fn-a", Target: "fn-b", Kind: types.EdgeKindReferences},
+		},
+	}
+
+	h := serve.NewCodeGraphHandler(serve.CodeGraphOptions{
+		RealmRoot:      t.TempDir(),
+		EngineProvider: fakeProviderFor(fake),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/code/graph/data", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp codeGraphResp
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v; body: %s", err, rr.Body.String())
+	}
+
+	if len(resp.Edges) != 2 {
+		t.Fatalf("expected 2 deduped edges (one per distinct (source,target,kind) triple), got %d: %+v", len(resp.Edges), resp.Edges)
+	}
+
+	seen := map[string]bool{}
+	for _, e := range resp.Edges {
+		key := e.Source + "\x00" + e.Target + "\x00" + e.Kind
+		if seen[key] {
+			t.Fatalf("duplicate edge triple in response: %+v", e)
+		}
+		seen[key] = true
+	}
+	if !seen["fn-a\x00fn-b\x00calls"] {
+		t.Error("expected the deduped calls edge to survive")
+	}
+	if !seen["fn-a\x00fn-b\x00references"] {
+		t.Error("expected the differing-kind edge to survive")
+	}
+}
+
+// ─── 6. Fingerprint stability ───────────────────────────────────────────────────
 
 func TestCodeGraph_Fingerprint_StableAcrossIdenticalIndex(t *testing.T) {
 	fake := &fakeCodeEngine{

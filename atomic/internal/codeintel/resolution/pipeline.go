@@ -59,6 +59,7 @@ import (
 	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/db"
+	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/extraction/standalone"
 	"github.com/damusix/atomic-claude/atomic/internal/codeintel/types"
 )
@@ -605,6 +606,17 @@ func (p *Pipeline) resolveOne(
 		if riErr != nil {
 			return "", "", false, riErr
 		}
+		// External import with a derivable package identity
+		// (docs/design/code-intel-package-nodes.md) resolves straight to the
+		// shared package: node — bypassing the targetKind probe below. The
+		// package node may not exist in the DB yet on its first appearance in
+		// this resolve run (the batch loop mints it, after resolveOne
+		// returns); a GetNode probe here would fatally abort the batch on
+		// that case. promoteEdgeKind is a no-op for imports regardless of
+		// target kind, so nothing is lost by skipping it.
+		if ri.Kind == ResolvedKindExternal && ri.PackageName != "" {
+			return extraction.GenerateNodeID("", "package", ri.PackageName, 0), ref.ReferenceKind, false, nil
+		}
 		if ri.Kind == ResolvedKindInternal && ri.TargetNodeID != "" {
 			if ri.Confidence >= 0.9 {
 				tk, tkErr := p.targetKind(ctx, ri.TargetNodeID)
@@ -621,26 +633,35 @@ func (p *Pipeline) resolveOne(
 		}
 	}
 
-	// Step 6 — matchReference (CP12).
+	// Step 6 — matchReference (CP12). Import-kind refs are excluded: import
+	// nodes are named the raw specifier string, and an unresolved import ref's
+	// ReferenceName is that same specifier, so generic exact-name matching
+	// would resolve the ref straight back to the import node that owns it — a
+	// self-loop edge. Import refs resolve only via Steps 3–5 (JVM FQN,
+	// framework, ResolveImport); if none produce a candidate, they are skipped
+	// with no edge.
+	//
 	// Fuzzy cap: for names longer than fuzzyNameLenCap, call MatchReferenceNoFuzzy
 	// to skip byFuzzy entirely. byFuzzy generates O(n*26^maxDist) edit-distance
 	// variants; for n=41+ that set grows large enough to stall a batch.
 	// Non-fuzzy strategies (exact/qualified/methodCall/filePath) still run.
-	var mr *MatchResult
-	var mrErr error
-	if len(ref.ReferenceName) > fuzzyNameLenCap {
-		mr, mrErr = p.matcher.MatchReferenceNoFuzzy(ctx, ref)
-	} else {
-		mr, mrErr = p.matcher.MatchReference(ctx, ref)
-	}
-	if mrErr != nil {
-		return "", "", false, mrErr
-	}
-	if mr != nil && mr.Node.ID != "" {
-		candidates = append(candidates, resolveCandidate{
-			targetNodeID: mr.Node.ID,
-			confidence:   mr.Confidence,
-		})
+	if !importKind {
+		var mr *MatchResult
+		var mrErr error
+		if len(ref.ReferenceName) > fuzzyNameLenCap {
+			mr, mrErr = p.matcher.MatchReferenceNoFuzzy(ctx, ref)
+		} else {
+			mr, mrErr = p.matcher.MatchReference(ctx, ref)
+		}
+		if mrErr != nil {
+			return "", "", false, mrErr
+		}
+		if mr != nil && mr.Node.ID != "" {
+			candidates = append(candidates, resolveCandidate{
+				targetNodeID: mr.Node.ID,
+				confidence:   mr.Confidence,
+			})
+		}
 	}
 
 	// Step 7 — return highest-confidence candidate.
@@ -810,20 +831,93 @@ func isStandaloneSQLExt(filePath string) bool {
 }
 
 // ---------------------------------------------------------------------------
+// Package-node mint + sweep (docs/spec/code-intel-package-nodes.md, CP2)
+// ---------------------------------------------------------------------------
+
+// packageNodeIDPrefix mirrors extraction.GenerateNodeID's package-kind
+// formula ("package:npm/" + name). Edge targets are checked against this
+// prefix rather than probed via targetKind — see resolveOne Step 5.
+const packageNodeIDPrefix = "package:npm/"
+
+// packageNameFromNodeID extracts the normalized package name from a
+// package-kind node id, or reports ok=false for any other id shape.
+func packageNameFromNodeID(id string) (name string, ok bool) {
+	if !strings.HasPrefix(id, packageNodeIDPrefix) {
+		return "", false
+	}
+	return strings.TrimPrefix(id, packageNodeIDPrefix), true
+}
+
+// newPackageNode builds the synthesized package-node shape mandated by the
+// spec: bare normalized name as both Name and QualifiedName, no file/line
+// (a package has neither), language unknown, never exported, no metadata.
+func newPackageNode(name string) types.Node {
+	return types.Node{
+		ID:            extraction.GenerateNodeID("", "package", name, 0),
+		Kind:          types.NodeKindPackage,
+		Name:          name,
+		QualifiedName: name,
+		Language:      types.LanguageUnknown,
+	}
+}
+
+// warmKnownPackages loads the set of package-node ids already in the DB at
+// the start of a resolve run. A package present in this set is never
+// re-upserted by the mint loop below — the guard that keeps an unchanged
+// run's package nodes' updated_at stable and re-fires no FTS5 triggers.
+func (p *Pipeline) warmKnownPackages(ctx context.Context) (map[string]bool, error) {
+	nodes, err := p.db.GetNodesByKind(ctx, types.NodeKindPackage)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		known[n.ID] = true
+	}
+	return known, nil
+}
+
+// sweepOrphanPackages deletes package nodes with zero inbound edges — the
+// converse of the mint loop. Runs once per resolve invocation, after every
+// batch has committed: a package's last importer may have been deleted
+// (DeleteNodesByFile cascades away its edges) since the package was minted,
+// and nothing else in the pipeline notices that.
+func (p *Pipeline) sweepOrphanPackages(ctx context.Context) error {
+	packages, err := p.db.GetNodesByKind(ctx, types.NodeKindPackage)
+	if err != nil {
+		return err
+	}
+	for _, pkg := range packages {
+		edges, err := p.db.GetEdgesByTarget(ctx, pkg.ID)
+		if err != nil {
+			return err
+		}
+		if len(edges) == 0 {
+			if err := p.db.DeleteNode(ctx, pkg.ID); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // ResolveAndPersistBatched — the main loop
 // ---------------------------------------------------------------------------
 
 // ResolveAndPersistBatched runs the resolution batch loop as described in
 // appendix F:
 //
-//  1. warmCaches (knownFiles, knownNames).
+//  1. warmCaches (knownFiles, knownNames) + warmKnownPackages (CP2).
 //  2. Read unresolved_refs at offset 0 (NOT advancing — delete shrinks the set).
 //  3. Per ref: resolveOne → createEdges.
-//  4. insertEdges (in a transaction).
+//  4. Mint any genuinely-new package-node targets (CP2), then insertEdges —
+//     nodes before edges, FK order — in a transaction.
 //  5. deleteSpecificResolvedReferences (bulk delete resolved + skipped refs).
 //  6. Break when a batch yields nothing new (avoids infinite loop on
 //     unresolvable refs).
-//  7. Call synthesizeCallbackEdges LAST (CP16 seam — no-op until then).
+//  7. Call synthesizeCallbackEdges (CP16 seam — no-op until then), then
+//     sweepOrphanPackages (CP2) LAST.
 //
 // Returns a ResolveProfile (per-phase wall-time + counts), the total number of
 // edges inserted, and any error.
@@ -860,6 +954,14 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 	// Emit resolve.warm immediately so a killed process sees it before match starts.
 	if emit != nil {
 		emit("resolve.warm", prof.WarmDur, prof.NodeCount)
+	}
+
+	// Warm the known-package set once per run (CP2) — mutated in place below
+	// as new packages are minted, so a package discovered in batch N is not
+	// re-minted when batch N+1 references it again.
+	knownPackages, err := p.warmKnownPackages(ctx)
+	if err != nil {
+		return prof, 0, err
 	}
 
 	totalEdges := 0
@@ -941,11 +1043,35 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 			continue
 		}
 
-		// Persist edges AND delete resolved refs in ONE transaction.
-		// Both operations share the same transaction so a crash between them
-		// cannot leave edges persisted without the corresponding refs deleted
-		// (which would cause duplicate edges on the next run).
+		// Package-node mint (CP2): any edge in this batch that targets a
+		// package node not yet known (neither warmed from the DB nor minted
+		// by an earlier batch in this same run) needs that node upserted
+		// before its edge — FK order — inside the same transaction. Dedup
+		// within the batch too: two edges in one batch may target the same
+		// genuinely-new package.
+		var newPackages []types.Node
+		mintedThisBatch := make(map[string]bool)
+		for _, e := range edges {
+			name, ok := packageNameFromNodeID(e.Target)
+			if !ok || knownPackages[e.Target] || mintedThisBatch[e.Target] {
+				continue
+			}
+			mintedThisBatch[e.Target] = true
+			newPackages = append(newPackages, newPackageNode(name))
+		}
+
+		// Persist package-node mints, edges, AND delete resolved refs in ONE
+		// transaction. All operations share the same transaction so a crash
+		// mid-batch cannot leave an edge pointing at a package node that was
+		// never persisted, nor edges persisted without the corresponding
+		// refs deleted (which would cause duplicate edges on the next run).
+		mintTime := time.Now().Unix()
 		if err := p.db.WithTx(ctx, func(tx *db.Tx) error {
+			for _, n := range newPackages {
+				if err := tx.UpsertNodeAt(ctx, n, mintTime); err != nil {
+					return err
+				}
+			}
 			for _, e := range edges {
 				if _, err := tx.InsertEdge(ctx, e); err != nil {
 					return err
@@ -955,6 +1081,9 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 		}); err != nil {
 			prof.MatchDur = time.Since(matchStart)
 			return prof, totalEdges, err
+		}
+		for _, n := range newPackages {
+			knownPackages[n.ID] = true
 		}
 
 		totalEdges += len(edges)
@@ -986,6 +1115,13 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 		return prof, totalEdges, err
 	}
 	totalEdges += sqlStringEdges
+
+	// Phase 5: sweep orphaned package nodes (CP2). Runs unconditionally,
+	// even when this invocation minted or resolved nothing — a package's
+	// last importer may have been removed since a prior run minted it.
+	if err := p.sweepOrphanPackages(ctx); err != nil {
+		return prof, totalEdges, err
+	}
 
 	return prof, totalEdges, nil
 }

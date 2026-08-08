@@ -637,6 +637,20 @@ var usingWithCheckRE = regexp.MustCompile(`(?i)\b(?:USING|WITH\s+CHECK)\s*\(([^)
 // Group 1 = target table name.
 var inlineRefRE = regexp.MustCompile(`(?i)\bREFERENCES\s+(` + sqlQNameRaw + `)`)
 
+// tableLevelFKColRE matches a table-level FOREIGN KEY (...) REFERENCES tgt (...)?
+// clause, capturing the local column list, the target table/qname, and the
+// optional target column list. Iteration 2: drives column-level FK reference
+// edges (in addition to the table→table edge already emitted via inlineRefRE).
+// Group 1 = local column list, group 2 = target qname, group 3 = target column list.
+var tableLevelFKColRE = regexp.MustCompile(`(?i)FOREIGN\s+KEY\s*\(([^)]*)\)\s+REFERENCES\s+(` + sqlQNameRaw + `)(?:\s*\(([^)]*)\))?`)
+
+// inlineColFKColListRE matches an inline column FK's REFERENCES clause with an
+// optional target column list, e.g. `col TYPE REFERENCES tgt (x)`. Applied per
+// column-definition line (mirrors extractColumns' line walk) so the REFERENCES
+// clause can be attributed to the column being defined on that line.
+// Group 1 = target qname, group 2 = target column list.
+var inlineColFKColListRE = regexp.MustCompile(`(?i)\bREFERENCES\s+(` + sqlQNameRaw + `)(?:\s*\(([^)]*)\))?`)
+
 // alterTablePat is the common prefix for ALTER TABLE patterns.
 // It handles the optional Postgres-specific ONLY keyword that appears between
 // TABLE and the table name: ALTER TABLE ONLY orders ADD ...
@@ -1234,6 +1248,19 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 				line := strings.Count(stripped[:m[1]], "\n") + 1
 				result.UnresolvedReferences = append(result.UnresolvedReferences,
 					sqlRef(filePath, tableID, tgtName, types.EdgeKindReferences, line))
+			}
+
+			// Iteration 2: FK column-level references. Emits refs from the local
+			// column node (not the table node) to the target column, or to the
+			// bare target table when no target column list is given. Additive to
+			// the table→table edge above — never dedups against it.
+			if len(colNodes) > 0 {
+				colIDByLowerName := make(map[string]string, len(colNodes))
+				for _, cn := range colNodes {
+					colIDByLowerName[strings.ToLower(cn.Name)] = cn.ID
+				}
+				result.UnresolvedReferences = append(result.UnresolvedReferences,
+					extractColumnFKRefs(filePath, stripped, tableBodyNoStr, tableBodyOff, colIDByLowerName)...)
 			}
 		}
 
@@ -2118,6 +2145,157 @@ func extractColumns(
 		nodes = append(nodes, colNode)
 		edges = append(edges, containsEdge(tableID, colID))
 	}
+	return
+}
+
+// ---------------------------------------------------------------------------
+// FK column-level reference extraction (iteration 2)
+// ---------------------------------------------------------------------------
+
+// splitIdentList splits a comma-separated column-name list (as captured from
+// inside a FOREIGN KEY (...) / REFERENCES (...) clause) into normalized
+// identifiers. Empty/whitespace-only input returns nil.
+func splitIdentList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		id := normIdent(strings.TrimSpace(p))
+		if id != "" {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// columnFKRefs pairs local and target column lists positionally, emitting a
+// references edge from each local column's node to "tgt.col" (the qualified
+// single-dot form that SQL-scoped resolution already routes to byQualifiedName).
+// Mismatched list lengths pair up to the shorter list; excess entries are
+// silently ignored (malformed DDL must not error the file). When tgtCols is
+// empty (no target column list — implicit PK reference), every local column
+// instead gets a column→table ref against the bare tgtName.
+func columnFKRefs(
+	filePath, tgtName string,
+	localCols, tgtCols []string,
+	colIDByLowerName map[string]string,
+	line int,
+) (refs []types.UnresolvedReference) {
+
+	if len(tgtCols) == 0 {
+		for _, lc := range localCols {
+			colID := colIDByLowerName[strings.ToLower(lc)]
+			if colID == "" {
+				continue
+			}
+			refs = append(refs, sqlRef(filePath, colID, tgtName, types.EdgeKindReferences, line))
+		}
+		return
+	}
+
+	n := len(localCols)
+	if len(tgtCols) < n {
+		n = len(tgtCols)
+	}
+	for i := 0; i < n; i++ {
+		colID := colIDByLowerName[strings.ToLower(localCols[i])]
+		if colID == "" {
+			continue
+		}
+		refs = append(refs, sqlRef(filePath, colID, tgtName+"."+tgtCols[i], types.EdgeKindReferences, line))
+	}
+	return
+}
+
+// extractColumnFKRefs scans a CREATE TABLE body for FK column-level references,
+// emitting an UnresolvedReference (kind references) from each local column
+// node — not the table node — to the matching target column, or to the bare
+// target table when the FK clause names no target column list. Two source
+// forms are covered:
+//   - table-level: FOREIGN KEY (a[, b]) REFERENCES tgt (x[, y])
+//   - inline:      col TYPE REFERENCES tgt (x)
+//
+// The existing table→table CP4 edge (emitted by the caller via inlineRefRE) is
+// untouched — this only adds column-level edges alongside it.
+//
+// bodyNoStr is the comment+string-blanked table body (matches CP4's FK-scan
+// convention, so a string-literal REFERENCES cannot produce a false edge);
+// bodyOff is its byte offset within stripped, used to compute line numbers.
+// colIDByLowerName maps each lower-cased column name (as extracted by
+// extractColumns) to that column's node ID.
+func extractColumnFKRefs(
+	filePath, stripped, bodyNoStr string, bodyOff int,
+	colIDByLowerName map[string]string,
+) (refs []types.UnresolvedReference) {
+
+	if bodyNoStr == "" {
+		return
+	}
+
+	// Table-level: FOREIGN KEY (a[, b]) REFERENCES tgt (x[, y])?
+	for _, m := range tableLevelFKColRE.FindAllStringSubmatchIndex(bodyNoStr, -1) {
+		localCols := splitIdentList(bodyNoStr[m[2]:m[3]])
+		rawTgt := bodyNoStr[m[4]:m[5]]
+		_, tgtName := parseQName(rawTgt)
+		if tgtName == "" || isSQLRefKeyword(tgtName) || len(localCols) == 0 {
+			continue
+		}
+		var tgtCols []string
+		if m[6] >= 0 {
+			tgtCols = splitIdentList(bodyNoStr[m[6]:m[7]])
+		}
+		line := strings.Count(stripped[:bodyOff+m[0]], "\n") + 1
+		refs = append(refs, columnFKRefs(filePath, tgtName, localCols, tgtCols, colIDByLowerName, line)...)
+	}
+
+	// Inline: col TYPE ... REFERENCES tgt (x)? — walk lines the same way
+	// extractColumns does so the REFERENCES clause is attributed to the column
+	// defined on that line, not any earlier/later column.
+	lines := strings.Split(bodyNoStr, "\n")
+	lineOffset := strings.Count(stripped[:bodyOff], "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		trimmed = strings.TrimRight(trimmed, ", \t")
+		if trimmed == "" {
+			continue
+		}
+		firstWord := strings.ToUpper(strings.Fields(trimmed)[0])
+		if constraintKeywords[firstWord] {
+			continue // table-level constraint line — handled above
+		}
+		colName := extractFirstIdent(trimmed)
+		if colName == "" || isSQLKeyword(colName) {
+			continue
+		}
+		colID := colIDByLowerName[strings.ToLower(colName)]
+		if colID == "" {
+			continue
+		}
+		im := inlineColFKColListRE.FindStringSubmatchIndex(trimmed)
+		if im == nil {
+			continue
+		}
+		rawTgt := trimmed[im[2]:im[3]]
+		_, tgtName := parseQName(rawTgt)
+		if tgtName == "" || isSQLRefKeyword(tgtName) {
+			continue
+		}
+		lineNum := lineOffset + i + 1
+		if im[4] >= 0 {
+			if tgtCols := splitIdentList(trimmed[im[4]:im[5]]); len(tgtCols) > 0 {
+				refs = append(refs, sqlRef(filePath, colID, tgtName+"."+tgtCols[0], types.EdgeKindReferences, lineNum))
+				continue
+			}
+		}
+		refs = append(refs, sqlRef(filePath, colID, tgtName, types.EdgeKindReferences, lineNum))
+	}
+
 	return
 }
 

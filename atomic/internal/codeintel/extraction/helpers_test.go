@@ -116,6 +116,28 @@ func TestGenerateNodeID_FileException(t *testing.T) {
 	}
 }
 
+// packageNodeGoldens pins the package-node id exception (docs/design/
+// code-intel-package-nodes.md): id = "package:npm/" + name — no hash,
+// filePath/line irrelevant, mirroring the file-node exception's shape.
+var packageNodeGoldens = []struct {
+	name string
+	want string
+}{
+	{"@hapi/hapi", "package:npm/@hapi/hapi"},
+	{"vitest", "package:npm/vitest"},
+}
+
+// TestGenerateNodeID_PackageException verifies the package-node short-circuit.
+func TestGenerateNodeID_PackageException(t *testing.T) {
+	for _, tc := range packageNodeGoldens {
+		// filePath="" and line=0 are irrelevant for package nodes.
+		got := generateNodeID("", "package", tc.name, 0)
+		if got != tc.want {
+			t.Errorf("generateNodeID(\"\", \"package\", %q, 0) = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 // TestGenerateNodeID_Stability verifies idempotence: sha256 is deterministic;
 // repeated calls with the same inputs must produce the same output.
 func TestGenerateNodeID_Stability(t *testing.T) {
