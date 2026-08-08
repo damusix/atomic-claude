@@ -87,9 +87,9 @@ adversarial review of the whole feature diff against this spec.
 
 | # | Scope | Files | Agent | Status |
 |---|-------|-------|-------|--------|
-| CP1 | Loopback gate on `/api/bus/*` + frontend notice + tests | `serve/api_bus.go`, `serve/api_bus_test.go`, `frontend/src/pages/Bus/Bus.tsx` | atomic-implementer (feature) | pending |
-| CP2 | Full-diff review of `origin/next..HEAD` against this spec; every finding fixed | (findings-driven) | atomic-reviewer + atomic-implementer (surgical) | pending |
-| CP3 | atomic-serve.md amendment + reference docs + README + atomic-help + CLAUDE.md | docs, templates | atomic-implementer (feature) | pending |
+| CP1 | Loopback gate on `/api/bus/*` + frontend notice + tests | `serve/api_bus.go`, `serve/api_bus_test.go`, `frontend/src/pages/Bus/Bus.tsx` | atomic-implementer (feature) | done |
+| CP2 | Full-diff review of `origin/next..HEAD` against this spec; every finding fixed | (findings-driven) | atomic-reviewer + atomic-implementer (surgical) | done |
+| CP3 | atomic-serve.md amendment + reference docs + README + atomic-help + CLAUDE.md | docs, templates | atomic-implementer (feature) | done |
 
 ## Risks
 
@@ -100,6 +100,21 @@ adversarial review of the whole feature diff against this spec.
 | Room log growth makes backfill slow | Backfill reads the whole log but caps parsed output at n; acceptable for local logs. Revisit with tail-seek if real logs reach tens of MB. |
 
 ## Change log
+
+### 2026-08-08 — Implementation log (autopilot run)
+
+CP1 (loopback gate, commit after review-fix round: `feat(serve): loopback-gate the bus chat
+API`) — one CHANGES_REQUESTED round: reviewer required a frontend notice test and a poll stop
+on block; both fixed in-iteration. CP2 (full-diff review of `origin/next..HEAD`) — findings:
+path-traversal via the HTTP log endpoint's room param (fixed: shared requireRoom guard on all
+ten room-taking routes), backfill/tail ordering race (fixed: tail opens after backfill
+settles), range math duplicated client-side (fixed: firstEntry/lastEntry single-sourced),
+unused join `as` plumbing (removed), missing rail tests (added); re-review PASS. Pre-existing
+daemon-side room-name validation gap filed as follow-up `bus-daemon-room-name-validation`.
+CP3 (contract + docs) — one round: stale embedded bundle flagged, regenerated in-commit by
+the pre-commit hook. Verify: full Go suite green, 153 frontend tests + tsc green, render +
+bundle parity clean, `atomic validate` exit 0, /atomic-help MISSING-scan clean. All success
+criteria boxes above hold as of this entry.
 
 ### 2026-08-08 — Initial spec (productionization of the experiment branch)
 
