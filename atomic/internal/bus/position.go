@@ -62,6 +62,19 @@ func (p position) name(as string) string {
 	return stackedName(p.realm, p.repo, as)
 }
 
+// JoinIdentity resolves the position-derived member identity a non-CLI
+// client (e.g. atomic serve's bus chat) joins with: the stacked
+// "<realm>-<repo>-<as>" name plus the repo/realm basenames Hub.Join stores
+// on the roster. Same resolution joinAction uses — one naming rule for
+// every join path.
+func JoinIdentity(home, cwd, as string) (name, repo, realm string, err error) {
+	pos, err := resolvePosition(home, cwd)
+	if err != nil {
+		return "", "", "", err
+	}
+	return pos.name(as), pos.repo, pos.realm, nil
+}
+
 // stackedName builds "<realm>-<repo>-<as>", dropping any empty segment and
 // collapsing a segment that repeats the one immediately before it
 // (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is

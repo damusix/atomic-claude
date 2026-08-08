@@ -1,0 +1,491 @@
+/* Bus page — experiment: web chat over the atomic bus. Consumes app.css
+   custom properties only; no palette values defined here. */
+
+/* Chat is a full-bleed pane like the graph views: #main-pane's reading
+   padding (34px 0 80px) would otherwise sit as dead space under the
+   composer. Same effect body.mode-system achieves for the graphs. */
+#main-pane:has(.bus-page) {
+  padding: 0;
+  overflow: hidden;
+}
+
+.bus-page {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.bus-sidebar {
+  width: 240px;
+  flex: none;
+  border-right: 1px solid var(--hairline);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+}
+
+.bus-sidebar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.bus-title {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--ink);
+}
+
+.bus-daemon {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.bus-daemon-up {
+  color: var(--amber);
+}
+
+.bus-daemon-down {
+  color: var(--ink-faint);
+}
+
+.bus-identity {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+}
+
+.bus-room-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bus-room {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.bus-room:hover {
+  background: var(--paper-raised);
+}
+
+.bus-room-active {
+  background: var(--amber-wash);
+  color: var(--ink);
+}
+
+.bus-room-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bus-room-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+}
+
+.bus-halt-chip {
+  color: var(--badge-stale-ink);
+  background: var(--badge-stale-bg);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.bus-room-empty {
+  color: var(--ink-faint);
+  font-size: 0.8rem;
+  padding: 4px 8px;
+}
+
+.bus-new-room {
+  display: flex;
+  gap: 6px;
+}
+
+.bus-new-room input {
+  flex: 1;
+  min-width: 0;
+}
+
+.bus-error {
+  margin: 0;
+  color: var(--badge-stale-ink);
+  font-size: 0.75rem;
+}
+
+.bus-hint {
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+}
+
+.bus-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--ink-soft);
+}
+
+.bus-room-view {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.bus-room-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.bus-room-title {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.bus-members {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bus-member {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  color: var(--ink-soft);
+}
+
+.bus-member[data-kind="human"] {
+  border-color: var(--amber-edge);
+  color: var(--amber);
+}
+
+.bus-member-stale {
+  opacity: 0.45;
+}
+
+.bus-halt-btn {
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--paper-raised);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.bus-halted-banner {
+  padding: 6px 16px;
+  background: var(--badge-stale-bg);
+  color: var(--badge-stale-ink);
+  font-size: 0.8rem;
+}
+
+.bus-transcript-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.bus-transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bus-jump-bottom {
+  position: absolute;
+  right: 18px;
+  bottom: 14px;
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--amber-edge);
+  background: var(--paper-raised);
+  color: var(--amber);
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+}
+
+.bus-jump-bottom:hover {
+  background: var(--amber-wash);
+}
+
+.bus-msg {
+  max-width: 72ch;
+  padding: 7px 11px;
+  border-radius: 8px;
+  background: var(--paper-raised);
+  border: 1px solid var(--hairline);
+}
+
+.bus-msg-self {
+  align-self: flex-end;
+  background: var(--amber-wash);
+  border-color: var(--amber-edge);
+}
+
+.bus-msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.72rem;
+  margin-bottom: 3px;
+}
+
+.bus-msg-sender {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.bus-msg-from {
+  font-family: var(--font-mono);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.bus-msg-kindpill {
+  font-size: 0.62rem;
+  line-height: 1.4;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  color: var(--ink-faint);
+}
+
+.bus-msg-kindpill[data-kind="human"] {
+  border-color: var(--amber-edge);
+  color: var(--amber);
+}
+
+.bus-msg-to {
+  font-family: var(--font-mono);
+  color: var(--amber);
+}
+
+.bus-msg-to-label {
+  color: var(--ink-faint);
+  font-family: var(--font-sans);
+}
+
+.bus-msg-fyi {
+  color: var(--ink-ghost);
+}
+
+.bus-msg-time {
+  margin-left: auto;
+  color: var(--ink-ghost);
+  font-family: var(--font-mono);
+}
+
+.bus-msg-text {
+  font-size: 0.88rem;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bus-note {
+  margin: 0;
+  padding: 4px 16px;
+  color: var(--ink-soft);
+  font-size: 0.76rem;
+}
+
+.bus-composer {
+  display: flex;
+  /* flex-start, not stretch: the Send button keeps its own height, pinned
+     to the top while the field grows downward-in-place (operator's pick). */
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+.bus-composer-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--paper-sunk);
+}
+
+.bus-composer-field textarea {
+  flex: 1 1 200px;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+  resize: none;
+  max-height: 9.5em;
+  overflow-y: auto;
+}
+
+.bus-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--amber-edge);
+  background: var(--amber-wash);
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+.bus-chip-label {
+  font-family: var(--font-sans);
+  color: var(--ink-faint);
+}
+
+.bus-chip-x {
+  margin-left: 2px;
+  color: var(--ink-faint);
+}
+
+button.bus-chip {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  padding: 1px 9px;
+  border-radius: 999px;
+  align-self: flex-start;
+  margin-top: 3px;
+}
+
+button.bus-chip:hover .bus-chip-x {
+  color: var(--amber);
+}
+
+.bus-chip-unknown {
+  border-color: var(--hairline);
+  background: var(--paper-raised);
+  color: var(--ink-faint);
+}
+
+.bus-mention-list {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  min-width: 240px;
+  max-height: 220px;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  background: var(--paper-raised);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  z-index: 30;
+}
+
+.bus-mention-item {
+  width: 100%;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  padding: 5px 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.bus-mention-item:hover,
+.bus-mention-active {
+  background: var(--amber-wash);
+  color: var(--amber);
+}
+
+.bus-new-room input {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--hairline);
+  background: var(--paper-sunk);
+  color: var(--ink);
+}
+
+/* Scoped to the two real action buttons — a bare `.bus-composer button`
+   selector would also swallow the chip and mention-item buttons inside the
+   field (it did: that's what made the chip render as a button, not a pill). */
+.bus-new-room button,
+.bus-send {
+  appearance: none;
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 6px 13px;
+  border-radius: 6px;
+  border: 1px solid var(--amber-edge);
+  background: var(--amber-wash);
+  color: var(--amber);
+  cursor: pointer;
+}
+
+.bus-new-room button:hover,
+.bus-send:hover {
+  background: var(--amber);
+  color: var(--paper);
+}
