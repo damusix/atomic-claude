@@ -61,8 +61,8 @@ surviving between calls, and `atomic repl stop`/idle timeout end it.
 
 - [ ] A session with no `eval` activity for longer than its idle window self-terminates —
       the harness removes its own socket and meta files and exits 0, with no daemon or reaper
-      process involved. The window defaults to `1h` and is overridden by `[repl] idle_timeout`
-      in `.claude/atomic.toml`.
+      process involved. The window resolves repo-first: `[repl] idle_timeout` in
+      `.claude/atomic.toml`, else `[repl] idle_timeout` in `~/.atomic/config.toml`, else `1h`.
 - [ ] `list`, `status`, `reset`, `stop` operate only on the current repo's sessions. `list` and
       `status` report a session whose socket is unreachable as dead rather than hanging or
       erroring. `reset` clears the interpreter namespace without ending the harness process.
@@ -120,10 +120,14 @@ atomic/
 │   │   └── action_test.go                   A
 │   ├── config/
 │   │   ├── repo.go                          M  replSection + repoKnownSections/repoKnownLeaves entries
-│   │   └── repo_test.go                     M
+│   │   ├── repo_test.go                     M
+│   │   ├── config.go                        M  user-level [repl] idle_timeout: Config field + knownKeys entry
+│   │   └── config_test.go                   M
 │   ├── doctor/
 │   │   ├── checks_repo_config.go            M  idle_timeout validation folded into category 13
-│   │   └── checks_repo_config_test.go       M
+│   │   ├── checks_repo_config_test.go       M
+│   │   ├── checks_config.go                 M  user-config idle_timeout validation
+│   │   └── checks_config_test.go            M
 │   └── cliusage/
 │       └── cliusage.go                      M  6 {repl, <verb>} entries
 ├── cmd/atomic/
@@ -196,14 +200,22 @@ atomic/internal/repl/action.go
   ReplAction — verb dispatch
     startAction, evalAction, listAction, statusAction, resetAction, stopAction
     readCode — positional argument wins; else stdin when not a tty; else usage error
+    resolveIdleTimeout — repo [repl] idle_timeout, else user [repl] idle_timeout, else 1h
 
 atomic/internal/config/repo.go
   replSection — idle_timeout leaf
   RepoConfig.Repl — new field
   repoKnownSections / repoKnownLeaves — "repl" / "repl.idle_timeout" entries
 
+atomic/internal/config/config.go
+  Config.Repl — user-level [repl] idle_timeout default
+  knownKeys — "repl.idle_timeout" entry
+
 atomic/internal/doctor/checks_repo_config.go
   RunCheckRepoConfigWith — idle_timeout parse validation folded into the existing warn/pass path
+
+atomic/internal/doctor/checks_config.go
+  config check — user-level repl.idle_timeout duration validation
 
 atomic/internal/cliusage/cliusage.go
   6 Command entries — {repl,start}, {repl,eval}, {repl,list}, {repl,status}, {repl,reset}, {repl,stop}
@@ -248,7 +260,7 @@ Flow: start (spawn + probe)
    already-running), remove any stale socket file
 5. CLI parses --env (if present) and merges it into the spawn environment
 6. CLI materializes the embedded harness script for --lang and spawns it detached (Setsid, nil
-   stdio) with --socket and --idle-timeout (resolved from [repl] idle_timeout, default 1h)
+   stdio) with --socket and --idle-timeout (resolved repo config -> user config -> 1h default)
 7. CLI polls the socket with bounded backoff until it accepts, writes meta (pid, lang, bin,
    started_at), exits 0
 
@@ -297,7 +309,7 @@ Flow: dead-session detection
 | 1 | Embedded harness scripts (Python + Node) + wire framing. Standalone scripts that bind a unix socket, serve newline-delimited-JSON eval/ping/reset/shutdown, truncate output at 64 KiB, and self-exit on idle. | `atomic/internal/repl/harness/`, `atomic/internal/repl/harness_embed.go`, `atomic/internal/repl/protocol.go` + tests | atomic-implementer (mode: feature) | ~7 | `go test ./internal/repl/...`: each harness test spawns its interpreter directly (skipped via `exec.LookPath` when absent), dials the socket, drives eval (single-line, multiline, exception), ping, reset, shutdown, asserts 64 KiB truncation, asserts self-exit on a short test-only idle window, and asserts two concurrent evals against one socket connection serialize (second completes only after the first's response, never errors) |
 | 2 | `internal/repl` Go package: paths, meta, env-file parser, detached spawn, liveness probe, client. No CLI wiring yet. | `atomic/internal/repl/{paths,meta,envfile,spawn,client}.go` + tests | atomic-implementer (mode: feature) | ~10 | `go test ./internal/repl/...`: repo-key stable for a given root and distinct across roots; env-file parsing (comments, blank lines, quoted values, no expansion); flock-guarded concurrent `EnsureStarted` calls produce exactly one live harness; dead/stale socket reported dead, not error; client `Eval` escalates SIGINT-then-SIGKILL past the deadline against a stub harness that ignores SIGINT |
 | 3 | CLI verbs: `start eval list status reset stop` through `ReplAction`; `buildReplCmd` and `runRepl`; `cliusage` entries. | `atomic/internal/repl/action.go`, `atomic/cmd/atomic/main.go`, `atomic/internal/cliusage/cliusage.go` + tests | atomic-implementer (mode: feature) | ~6 | `go test`: every verb dispatches; `--json` on all six; the six exit codes each covered by a scenario; `eval` argument-vs-stdin precedence and the usage-error case with neither; `list`/`status` output contains no `--env` value |
-| 4 | `[repl] idle_timeout` repo-config key: new `replSection` in the repo schema, plus doctor category-13 validation. | `atomic/internal/config/repo.go`, `atomic/internal/doctor/checks_repo_config.go`, `docs/spec/atomic-doctor.md` + tests | atomic-implementer (mode: surgical) | ~5 | `go test`: valid duration string parses and appears in the PASS detail; invalid duration string WARNs naming the value; absent key defaults to 1h with no warning; `repl.idle_timeout` excluded from unknown-key detection; `docs/spec/atomic-doctor.md`'s category-13 row + change log amended to name the `idle_timeout` validation |
+| 4 | `[repl] idle_timeout` config key at both scopes: `replSection` in the repo schema + user-level `[repl]` in `~/.atomic/config.toml`, repo-first resolution, doctor validation in category 13 (repo) and the config check (user). | `atomic/internal/config/repo.go`, `atomic/internal/config/config.go`, `atomic/internal/doctor/checks_repo_config.go`, `atomic/internal/doctor/checks_config.go`, `docs/spec/atomic-doctor.md` + tests | atomic-implementer (mode: feature) | ~9 | `go test`: valid duration string parses at each scope; repo value wins over user value; user value applies when repo key absent; both absent defaults to 1h with no warning; invalid duration WARNs (repo, category-13 ceiling) / is flagged (user, config check) naming the value; `repl.idle_timeout` excluded from unknown-key detection at both scopes; `docs/spec/atomic-doctor.md`'s category-13 row + change log amended to name the `idle_timeout` validation |
 | 5 | Discoverability: `templates/commands/atomic-help.md` cli-topic row, `docs/reference/repl.md`, README feature-table row, CLAUDE.md binary-subcommand mention, render + bundle parity. | `templates/commands/atomic-help.md`, `commands/atomic-help.md`, `docs/reference/repl.md`, `README.md`, `CLAUDE.md`, `atomic/internal/embedded/` | atomic-implementer (mode: feature) | ~6 | `make render && make -C atomic bundle` leave no diff; grep confirms `atomic repl` is named in `templates/commands/atomic-help.md` and `CLAUDE.md`; `atomic validate` clean |
 
 
@@ -317,3 +329,11 @@ Flow: dead-session detection
 ## Change log
 
 <!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+
+### 2026-08-08 — user-level idle_timeout fallback
+
+**What changed:** The idle window now resolves repo-first with a user-level fallback: `[repl] idle_timeout` in `.claude/atomic.toml`, else `[repl] idle_timeout` in `~/.atomic/config.toml`, else `1h`. CP4 widened to cover the user-config schema (`config.go` knownKeys + Config field), the doctor config check, and repo-over-user precedence tests; its mode moved surgical → feature (~9 files).
+
+**Why:** Owner decision resolving the design's open question — a per-user default avoids repeating the key in every repo's `atomic.toml`.
+
+**Superseded:** Idle window sourced from the repo `.claude/atomic.toml` key only, defaulting to `1h`.

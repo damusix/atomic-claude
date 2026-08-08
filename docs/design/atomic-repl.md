@@ -84,7 +84,8 @@ Mechanism decisions that shape the spec:
 | Timeout | Client-side deadline (`--timeout`, default 30s). On expiry the client sends SIGINT to the harness pid (from meta file); still hung after a short grace → SIGKILL, session reported dead. |
 | Output bounds | Harness truncates stdout/stderr at 64KiB each, sets `truncated`; CLI prints an explicit `[truncated]` marker. |
 | Concurrency | Harness is a single-threaded accept loop — evals serialize naturally; a concurrent caller blocks until its deadline. |
-| Idle reap | Harness-local timer since last op. On expiry: remove socket + meta, exit 0. Timeout resolved by Go at `start` time from `[repl] idle_timeout` in `.claude/atomic.toml` (default `1h`) and passed to the harness as a flag — the harness never reads config. |
+| Idle reap | Harness-local timer since last op. On expiry: remove socket + meta, exit 0. Timeout resolved by Go at `start` time — repo `.claude/atomic.toml` `[repl] idle_timeout`, else user `~/.atomic/config.toml` `[repl] idle_timeout`, else `1h` — and passed to the harness as a flag; the harness never reads config. |
+| Interpreter resolution | `--lang` maps to `python3`/`node` via PATH lookup; `--bin` overrides explicitly. No virtualenv auto-detection — guesses wrong in monorepos, and the flag is one token. |
 | Crash semantics | Fail loud: a dead session is reported as dead with a distinct exit code and a hint to `repl start` again. Never silently restarted — silent restart would hide state loss. |
 | Working directory | Harness cwd = repo root. |
 
@@ -92,5 +93,4 @@ Mechanism decisions that shape the spec:
 ## Open questions
 
 
-- Auto-detect `.venv/bin/python` at `start` when present, or require explicit `--bin`? Lean: explicit only — auto-detection guesses wrong in monorepos and the flag is one token.
-- Should a user-level `[repl]` default in `~/.atomic/config.toml` back the repo-scoped key? v1 ships repo-scoped only.
+- None.
