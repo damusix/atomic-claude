@@ -138,8 +138,10 @@ templates/commands/atomic-help.md            M  cli topic row
 commands/atomic-help.md                      M  rendered (make render)
 docs/reference/repl.md                       A  verb reference
 docs/spec/atomic-doctor.md                   M  category-13 row + change log: idle_timeout validation
+.vitepress/config.mts                        M  reference-sidebar entry (docs site; outside render/bundle)
 README.md                                    M  feature-table row
-CLAUDE.md                                    M  binary-subcommand callout
+CLAUDE.md                                    M  repl section (mirrors the bus section pattern)
+CLAUDE.local.md                              M  Documentation surfaces row (repo-local, gitignored)
 ```
 
 
@@ -240,11 +242,18 @@ docs/reference/repl.md
   Exit codes — the six-code table
   Config — [repl] idle_timeout
 
+.vitepress/config.mts
+  Reference sidebar — { text, link } entry for /reference/repl
+
 README.md
   Feature table — one row
 
 CLAUDE.md
-  Atomic binary subcommands — one-line callout naming atomic repl
+  Repl section — what it is, the six verbs, the idle_timeout config key (mirrors the
+    Inter-session messaging section's altitude)
+
+CLAUDE.local.md
+  Documentation surfaces table — docs/reference/repl.md row, atomic-writing voice
 ```
 
 
@@ -310,7 +319,7 @@ Flow: dead-session detection
 | 2 | `internal/repl` Go package: paths, meta, env-file parser, detached spawn, liveness probe, client. No CLI wiring yet. | `atomic/internal/repl/{paths,meta,envfile,spawn,client}.go` + tests | atomic-implementer (mode: feature) | ~10 | `go test ./internal/repl/...`: repo-key stable for a given root and distinct across roots; env-file parsing (comments, blank lines, quoted values, no expansion); flock-guarded concurrent `EnsureStarted` calls produce exactly one live harness; dead/stale socket reported dead, not error; client `Eval` escalates SIGINT-then-SIGKILL past the deadline against a stub harness that ignores SIGINT |
 | 3 | CLI verbs: `start eval list status reset stop` through `ReplAction`; `buildReplCmd` and `runRepl`; `cliusage` entries. | `atomic/internal/repl/action.go`, `atomic/cmd/atomic/main.go`, `atomic/internal/cliusage/cliusage.go` + tests | atomic-implementer (mode: feature) | ~6 | `go test`: every verb dispatches; `--json` on all six; the six exit codes each covered by a scenario; `eval` argument-vs-stdin precedence and the usage-error case with neither; `list`/`status` output contains no `--env` value |
 | 4 | `[repl] idle_timeout` config key at both scopes: `replSection` in the repo schema + user-level `[repl]` in `~/.atomic/config.toml`, repo-first resolution, doctor validation in category 13 (repo) and the config check (user). | `atomic/internal/config/repo.go`, `atomic/internal/config/config.go`, `atomic/internal/doctor/checks_repo_config.go`, `atomic/internal/doctor/checks_config.go`, `docs/spec/atomic-doctor.md` + tests | atomic-implementer (mode: feature) | ~9 | `go test`: valid duration string parses at each scope; repo value wins over user value; user value applies when repo key absent; both absent defaults to 1h with no warning; invalid duration WARNs (repo, category-13 ceiling) / is flagged (user, config check) naming the value; `repl.idle_timeout` excluded from unknown-key detection at both scopes; `docs/spec/atomic-doctor.md`'s category-13 row + change log amended to name the `idle_timeout` validation |
-| 5 | Discoverability: `templates/commands/atomic-help.md` cli-topic row, `docs/reference/repl.md`, README feature-table row, CLAUDE.md binary-subcommand mention, render + bundle parity. | `templates/commands/atomic-help.md`, `commands/atomic-help.md`, `docs/reference/repl.md`, `README.md`, `CLAUDE.md`, `atomic/internal/embedded/` | atomic-implementer (mode: feature) | ~6 | `make render && make -C atomic bundle` leave no diff; grep confirms `atomic repl` is named in `templates/commands/atomic-help.md` and `CLAUDE.md`; `atomic validate` clean |
+| 5 | Discoverability + public docs: `templates/commands/atomic-help.md` cli-topic row, `docs/reference/repl.md`, VitePress sidebar entry, README feature-table row, CLAUDE.md repl section, Documentation-surfaces row, render + bundle parity. | `templates/commands/atomic-help.md`, `commands/atomic-help.md`, `docs/reference/repl.md`, `.vitepress/config.mts`, `README.md`, `CLAUDE.md`, `CLAUDE.local.md`, `atomic/internal/embedded/` | atomic-implementer (mode: feature) | ~8 | `make render && make -C atomic bundle` leave no diff; `npm run docs:build` green with `/reference/repl` in the sidebar; grep confirms `atomic repl` is named in `templates/commands/atomic-help.md`, `README.md`, and `CLAUDE.md`; `CLAUDE.local.md`'s Documentation surfaces table carries a `docs/reference/repl.md` row; `atomic validate` clean |
 
 
 ## Risks
@@ -337,3 +346,11 @@ Flow: dead-session detection
 **Why:** Owner decision resolving the design's open question — a per-user default avoids repeating the key in every repo's `atomic.toml`.
 
 **Superseded:** Idle window sourced from the repo `.claude/atomic.toml` key only, defaulting to `1h`.
+
+### 2026-08-08 — public documentation surfaces added to CP5
+
+**What changed:** CP5 now also covers the VitePress reference-sidebar entry (`.vitepress/config.mts` — outside the render/bundle pipeline, verified via `npm run docs:build`), a `docs/reference/repl.md` row in `CLAUDE.local.md`'s Documentation surfaces table so `/documentation` maintenance tracks the page, and a full CLAUDE.md repl section in place of a one-line callout (mirrors the Inter-session messaging section's altitude).
+
+**Why:** Owner review — every existing reference page (code-intel, serve, bus) has a sidebar entry and a surfaces-table row; without them the new page is invisible on the docs site and untracked by doc maintenance.
+
+**Superseded:** CP5 scoped public docs to `docs/reference/repl.md` + README row + a one-line CLAUDE.md callout.
