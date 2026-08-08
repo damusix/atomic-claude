@@ -92,6 +92,43 @@ func decodeBusResponse[T any](t *testing.T, resp *http.Response) T {
 	return v
 }
 
+// TestAPIBus_LoopbackGate drives the handler's ServeHTTP directly with
+// crafted RemoteAddr values (not real TCP connections) so a non-loopback
+// peer can be asserted without binding a LAN-reachable listener. Covers a
+// read route and a write route — the gate must run before either dispatches
+// to the daemon.
+func TestAPIBus_LoopbackGate(t *testing.T) {
+	home := busTestHome(t)
+	handler := newBusTestHandler(home, t.TempDir())
+
+	tests := []struct {
+		name       string
+		remoteAddr string
+		method     string
+		path       string
+		wantStatus int
+	}{
+		{"LAN peer, read route", "192.168.1.50:4242", http.MethodGet, "/api/bus/status", http.StatusForbidden},
+		{"LAN peer, write route", "192.168.1.50:4242", http.MethodPost, "/api/bus/send", http.StatusForbidden},
+		{"loopback IPv4", "127.0.0.1:5555", http.MethodGet, "/api/bus/status", http.StatusOK},
+		{"loopback IPv6", "[::1]:5555", http.MethodGet, "/api/bus/status", http.StatusOK},
+		{"empty RemoteAddr", "", http.MethodGet, "/api/bus/status", http.StatusForbidden},
+		{"garbage RemoteAddr", "not-an-address", http.MethodGet, "/api/bus/status", http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req.RemoteAddr = tt.remoteAddr
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d (body: %s)", rec.Code, tt.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestAPIBus_StatusAndRooms_NoDaemon(t *testing.T) {
 	home := busTestHome(t)
 	srv := httptest.NewServer(newBusTestHandler(home, t.TempDir()))

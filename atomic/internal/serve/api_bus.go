@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -91,7 +92,26 @@ func webSessionID(targetDir string) string {
 	return "serve-web-" + hex.EncodeToString(sum[:4])
 }
 
+// isLoopbackPeer reports whether addr (an http.Request.RemoteAddr host:port)
+// is a loopback address. Unparseable or empty addr fails closed (false).
+func isLoopbackPeer(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func (h *busAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// send/say publish as the human operator and say bypasses room halts —
+	// a capability escalation over the rest of serve's read-only, LAN-safe
+	// browsing. Every route is gated on the TCP peer alone (never a
+	// proxy-forwarded header) so --host 0.0.0.0 never carries this reach.
+	if !isLoopbackPeer(r.RemoteAddr) {
+		writeAPIError(w, http.StatusForbidden, "bus chat is loopback-only; connect from the serving machine")
+		return
+	}
 	route := strings.TrimPrefix(r.URL.Path, "/api/bus/")
 	switch {
 	case route == "status" && r.Method == http.MethodGet:

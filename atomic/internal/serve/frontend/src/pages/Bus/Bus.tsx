@@ -112,10 +112,19 @@ export function Bus() {
   const [running, setRunning] = useState(false);
   const [newRoom, setNewRoom] = useState("");
   const [joinError, setJoinError] = useState<string | null>(null);
+  // loopbackBlocked flips once and stays flipped — a viewer on a LAN bind
+  // gets refused by every /api/bus/* route identically, so the first 403
+  // is enough to swap the whole page for the notice.
+  const [loopbackBlocked, setLoopbackBlocked] = useState(false);
 
   const refreshRooms = useCallback(() => {
     void attempt(() => api.get<BusRoomsResponse>("/bus/rooms")).then(([res, err]) => {
-      if (err || !res?.ok || !res.data) return;
+      if (err) return;
+      if (res?.status === 403) {
+        setLoopbackBlocked(true);
+        return;
+      }
+      if (!res?.ok || !res.data) return;
       setRunning(res.data.running);
       setRooms(res.data.rooms);
     });
@@ -123,15 +132,21 @@ export function Bus() {
 
   useEffect(() => {
     void attempt(() => api.get<BusStatusResponse>("/bus/status")).then(([res, err]) => {
-      if (!err && res?.ok && res.data) setStatus(res.data);
+      if (err) return;
+      if (res?.status === 403) {
+        setLoopbackBlocked(true);
+        return;
+      }
+      if (res?.ok && res.data) setStatus(res.data);
     });
   }, []);
 
   useEffect(() => {
+    if (loopbackBlocked) return;
     refreshRooms();
     const id = setInterval(refreshRooms, 4000);
     return () => clearInterval(id);
-  }, [refreshRooms]);
+  }, [refreshRooms, loopbackBlocked]);
 
   function openRoom(name: string) {
     setParams((prev) => {
@@ -155,6 +170,17 @@ export function Bus() {
     setNewRoom("");
     refreshRooms();
     openRoom(name);
+  }
+
+  if (loopbackBlocked) {
+    return (
+      <div className="bus-page" data-route="bus">
+        <div className="bus-empty">
+          <h2 className="bus-title">Bus chat is loopback-only</h2>
+          <p className="bus-hint">Available from the machine running atomic serve, not this connection.</p>
+        </div>
+      </div>
+    );
   }
 
   return (
