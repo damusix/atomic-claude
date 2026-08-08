@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestLoadRepoConfig_Parse: a well-formed [code] ignore array loads correctly.
@@ -192,6 +193,111 @@ func TestRepoConfigPath(t *testing.T) {
 	want := filepath.Join("/repo", ".claude", "atomic.toml")
 	if got != want {
 		t.Errorf("RepoConfigPath(%q) = %q, want %q", "/repo", got, want)
+	}
+}
+
+// --- [repl] idle_timeout (CP4: atomic-repl) ---
+
+// TestLoadRepoConfig_ReplIdleTimeout_Parse: a well-formed [repl] idle_timeout
+// loads correctly and produces no warnings.
+func TestLoadRepoConfig_ReplIdleTimeout_Parse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atomic.toml")
+	content := "[repl]\nidle_timeout = \"2h\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := LoadRepoConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Repl.IdleTimeout != "2h" {
+		t.Errorf("Repl.IdleTimeout = %q, want %q", cfg.Repl.IdleTimeout, "2h")
+	}
+}
+
+// TestLoadRepoConfig_ReplUnknownLeafWarns: an unrecognized key nested inside
+// [repl] warns with the dotted path, mirroring code.bogus_leaf's coverage.
+func TestLoadRepoConfig_ReplUnknownLeafWarns(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atomic.toml")
+	content := "[repl]\nidle_timeout = \"1h\"\nbogus = true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := LoadRepoConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if len(warns) != 1 || !strings.Contains(warns[0].Message, "repl.bogus") {
+		t.Errorf("warns = %v, want one warning mentioning repl.bogus", warns)
+	}
+}
+
+// TestLoadRepoConfig_ReplAbsent: no [repl] table at all leaves
+// Repl.IdleTimeout empty with no warnings — the same "absence is normal"
+// contract as every other optional section in this schema.
+func TestLoadRepoConfig_ReplAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "atomic.toml")
+	content := "[code]\nignore = [\"vendor/**\"]\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := LoadRepoConfig(path)
+	if err != nil {
+		t.Fatalf("LoadRepoConfig: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Repl.IdleTimeout != "" {
+		t.Errorf("Repl.IdleTimeout = %q, want empty", cfg.Repl.IdleTimeout)
+	}
+}
+
+// TestValidateIdleTimeout: table-driven coverage of the shared duration
+// validator used by config.Validate, the repo-config doctor check, and
+// internal/repl's resolveIdleTimeout.
+func TestValidateIdleTimeout(t *testing.T) {
+	cases := []struct {
+		name    string
+		value   string
+		wantErr bool
+		want    time.Duration
+	}{
+		{"hours", "1h", false, time.Hour},
+		{"minutes", "30m", false, 30 * time.Minute},
+		{"seconds", "90s", false, 90 * time.Second},
+		{"unparseable", "bogus", true, 0},
+		{"zero", "0s", true, 0},
+		{"negative", "-5m", true, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			d, err := ValidateIdleTimeout(tc.value)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ValidateIdleTimeout(%q): expected error, got nil", tc.value)
+				}
+				if !strings.Contains(err.Error(), tc.value) {
+					t.Errorf("error %q does not name the offending value %q", err.Error(), tc.value)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ValidateIdleTimeout(%q): unexpected error: %v", tc.value, err)
+			}
+			if d != tc.want {
+				t.Errorf("ValidateIdleTimeout(%q) = %v, want %v", tc.value, d, tc.want)
+			}
+		})
 	}
 }
 

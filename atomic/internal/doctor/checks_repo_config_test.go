@@ -197,6 +197,57 @@ func TestCheckRepoConfigInvalidScope(t *testing.T) {
 	}
 }
 
+// TestCheckRepoConfigValid_IdleTimeout verifies PASS for a well-formed
+// [repl] idle_timeout.
+func TestCheckRepoConfigValid_IdleTimeout(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	writeRepoConfig(t, root, "[repl]\nidle_timeout = \"2h\"\n")
+
+	r := doctor.RunCheckRepoConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %v, want PASS; detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// TestCheckRepoConfigInvalidIdleTimeout verifies WARN with the offending
+// value named in the detail.
+func TestCheckRepoConfigInvalidIdleTimeout(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	writeRepoConfig(t, root, "[repl]\nidle_timeout = \"bogus\"\n")
+
+	r := doctor.RunCheckRepoConfigWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %v, want WARN (invalid idle_timeout); detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "bogus") {
+		t.Errorf("Detail = %q, want mention of the offending value %q", r.Detail, "bogus")
+	}
+}
+
+// TestCheckRepoConfigInvalidIdleTimeout_ZeroRejected verifies a zero-duration
+// idle_timeout is treated as invalid (WARN), never as "disable".
+func TestCheckRepoConfigInvalidIdleTimeout_ZeroRejected(t *testing.T) {
+	restore := config.SetHarnessDirForTest(".claude")
+	defer restore()
+
+	root := t.TempDir()
+	writeRepoConfig(t, root, "[repl]\nidle_timeout = \"0s\"\n")
+
+	r := doctor.RunCheckRepoConfigWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %v, want WARN (zero idle_timeout is invalid); detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "0s") {
+		t.Errorf("Detail = %q, want mention of the offending value %q", r.Detail, "0s")
+	}
+}
+
 // writeWikisClaudeMD writes <root>/wiki/index.md and a CLAUDE.md whose
 // <wikis> block registers it — root becomes a realm root recognized by the
 // <wikis> registry, mirroring the fixture pattern in checks_code_index_test.go.
@@ -388,6 +439,7 @@ func TestCheckRepoConfigNeverFail(t *testing.T) {
 		{"malformed", "[code\nignore = [\"vendor/**\"\n"},
 		{"unknown key", "[code]\nignore = [\"vendor/**\"]\n[bogus]\nkey = \"value\"\n"},
 		{"invalid glob", "[code]\nignore = [\"vendor[/**\"]\n"},
+		{"invalid idle_timeout", "[repl]\nidle_timeout = \"bogus\"\n"},
 		{"valid", "[code]\nignore = [\"vendor/**\"]\n"},
 	}
 
