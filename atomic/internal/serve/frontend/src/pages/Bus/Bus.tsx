@@ -595,7 +595,7 @@ function Composer({
           </ul>
         ) : null}
       </div>
-      <button type="submit" disabled={disabled}>
+      <button type="submit" className="bus-send" disabled={disabled}>
         Send
       </button>
     </form>

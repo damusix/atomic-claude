@@ -233,6 +233,14 @@
   color: var(--amber);
 }
 
+/* Tool calls/results are single JSON-ish lines thousands of px wide;
+   overflow-x scrolling technically works but macOS hides the scrollbar —
+   wrapping reads better than dragging. */
+.bus-transcript-body pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .bus-transcript-note {
   color: var(--ink-soft);
 }

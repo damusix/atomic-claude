@@ -336,9 +336,9 @@
 
 .bus-composer {
   display: flex;
-  /* flex-end, not stretch: the Send button keeps its own height pinned to
-     the bottom while the field grows upward. */
-  align-items: flex-end;
+  /* flex-start, not stretch: the Send button keeps its own height, pinned
+     to the top while the field grows downward-in-place (operator's pick). */
+  align-items: flex-start;
   gap: 8px;
   padding: 10px 16px;
   border-top: 1px solid var(--hairline);
@@ -400,6 +400,7 @@
 }
 
 button.bus-chip {
+  appearance: none;
   cursor: pointer;
   font: inherit;
   font-family: var(--font-mono);
@@ -467,8 +468,12 @@ button.bus-chip:hover .bus-chip-x {
   color: var(--ink);
 }
 
+/* Scoped to the two real action buttons — a bare `.bus-composer button`
+   selector would also swallow the chip and mention-item buttons inside the
+   field (it did: that's what made the chip render as a button, not a pill). */
 .bus-new-room button,
-.bus-composer button {
+.bus-send {
+  appearance: none;
   font: inherit;
   font-size: 0.82rem;
   padding: 6px 13px;
@@ -480,7 +485,7 @@ button.bus-chip:hover .bus-chip-x {
 }
 
 .bus-new-room button:hover,
-.bus-composer button:hover {
+.bus-send:hover {
   background: var(--amber);
   color: var(--paper);
 }
