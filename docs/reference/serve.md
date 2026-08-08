@@ -1,6 +1,6 @@
 # atomic serve
 
-`atomic serve` starts a local, read-only HTTP server that renders a wiki realm (or a single repo) as a navigable, Obsidian-style knowledge graph in the browser. It is a presentation layer only — it reads what already exists (wiki summaries, code-intel indexes, bucket manifests) and never writes, re-indexes, or re-stamps anything.
+`atomic serve` starts a local HTTP server that renders a wiki realm (or a single repo) as a navigable, Obsidian-style knowledge graph in the browser. It is a presentation layer for that content: it reads what already exists (wiki summaries, code-intel indexes, bucket manifests) and never writes, re-indexes, or re-stamps any of it. The one exception is the bus chat page (`/bus`), which operates `atomic bus` rooms and stays loopback-only regardless of `--host`. See Bus chat below.
 
 The UI is a React single-page app: Go serves a JSON API plus a handful of carried, unreshaped endpoints (`/graph/data`, `/code/graph/data`, `/code/graph/members`, `/events`, `/healthz`); React Router resolves every other path client-side.
 
@@ -163,6 +163,27 @@ Lists every outbound `http(s)` URL across the realm: the URL, the source pages t
 The realm-health view, reachable but no longer the landing page. Renders `wiki.Stale` / `wiki.CheckStaleness` (DRIFT / STALE / STALE bucket) plus aggregate code-index health (worst severity across member repos, naming only repos that need action). No new staleness computation — staleness also surfaces ambiently as badges in the nav. `/healthz` is a separate plain-text liveness probe.
 
 
+## Bus chat
+
+`/bus` operates `atomic bus` rooms from the browser: watch a room's traffic live, speak into it as the operator, and open the Claude Code session behind any member.
+
+The room list polls `GET /api/bus/rooms` and shows each room's member count and halted state. Opening a room backfills the transcript from the room's durable log (`GET /api/bus/log`), then follows a live `GET /api/bus/tail` Server-Sent Events stream, deduplicated by envelope id. Each message shows its sender, its kind, and either its addressees or `fyi` for a room-wide status message.
+
+The composer sends as a web member named by position, the same `<realm>-<repo>-web` naming `atomic where` reports, with `kind: human`, so halt blocks agents and never this member. Typing `@` opens a dropdown of the room's members; picking one, or completing a mention with a space, turns it into a removable chip. The textarea grows as you type. Enter sends, Shift+Enter inserts a newline. Halt and resume buttons set and clear the room's halt flag.
+
+Opening a channel with no daemon running starts one, the same auto-spawn `atomic bus join` triggers from a terminal. The read-only requests (`status`, `rooms`, `who`, `log`, `tail`) never spawn a daemon: with none running they report an empty or not-running state instead.
+
+### Session rail
+
+The right rail on `/bus` lists the room's members, each with its `kind` and staleness, plus a chip for its Claude Code session when one is found. Sessions are located by globbing `~/.claude/projects/*/<session-id>.jsonl`. Clicking a chip opens the transcript in a paginated modal, rendered as markdown through the same server-side pipeline as realm pages. The parser tolerates the drift of an internal, unversioned `.jsonl` format: unknown line types are skipped, and long blocks are truncated rather than breaking the render.
+
+### Loopback only
+
+Every `/api/bus/*` request is refused with 403 unless it comes from the loopback interface, regardless of `--host`. `--host 0.0.0.0` exposes the read-only realm and repo views to the LAN; it does not extend to bus chat, because sending or halting as the human operator is a capability the read-only viewer never had.
+
+The gate checks the TCP peer address, not a header, so a request cannot claim to be local. It also cannot see through a reverse proxy: a proxy that terminates LAN connections and forwards them to `atomic serve` on `127.0.0.1` makes every forwarded request look local to the gate. Running such a proxy is a deliberate choice outside `atomic serve`'s threat model, not a gap in the gate.
+
+
 ## Live reload
 
 While a browser tab is open, `atomic serve` reflects filesystem changes without a restart. The server keeps one realm snapshot (fingerprint, nav paths, link graph) and re-checks it with a stat-only walk every 10 seconds, but only while at least one tab is subscribed to the `/events` stream. With no tabs open the server does no periodic work.
@@ -196,7 +217,7 @@ The React app's build output (`frontend/dist/`), including carried CSS and vendo
 
 ## Security
 
-- Binds to `127.0.0.1` by default; `--host 0.0.0.0` opts into LAN exposure. Read-only either way, and never an auth surface.
+- Binds to `127.0.0.1` by default; `--host 0.0.0.0` opts into LAN exposure. Read-only either way with respect to realm and repo content, and never an auth surface for that content. The bus chat page is the exception: it refuses every non-loopback request regardless of `--host`. See Bus chat above.
 - Every served path is resolved against the scope root and rejected (404) if it escapes via path traversal (`../` or absolute). `os.ReadFile` is never called on an unvalidated request path. The markdown-search query is treated purely as a substring, never a path.
-- No write operations of any kind. Serve observes; mutation stays in `/refresh-wiki`, `atomic code index`, and `atomic wiki` subcommands.
+- No write operations against realm or repo content. Mutating that content stays in `/refresh-wiki`, `atomic code index`, and `atomic wiki` subcommands. `POST /api/bus/*` is the one write surface serve exposes, and it targets the bus daemon's own state, not realm or repo content.
 - Plain-HTTP/no-JS readability of `/page/*` no longer applies post-cutover — content requires the SPA to run; unmatched non-API GETs return the SPA shell (200) rather than 404, and traversal guards enforce at the `/api/*` boundary.

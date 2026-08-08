@@ -3,11 +3,15 @@
 
 ## Goal
 
-Ship `atomic serve` — a local, read-only HTTP server that renders a wiki realm (and a
-bare repo, and a single member) as a navigable graph in the browser. Presentation only:
-every view wraps an engine that already exists (wiki link parser, wiki staleness, bucket
-diff, the code-intel realm resolver and query layer). No new analysis. CGO-free, no JS
-build step — assets vendored via `go:embed`.
+Ship `atomic serve` — a local HTTP server, read-only with respect to realm and repo
+content, that renders a wiki realm (and a bare repo, and a single member) as a navigable
+graph in the browser. Presentation only: every view wraps an engine that already exists
+(wiki link parser, wiki staleness, bucket diff, the code-intel realm resolver and query
+layer). No new analysis. CGO-free, no JS build step — assets vendored via `go:embed`.
+
+**Bus chat exception.** `POST /api/bus/*` targets the bus daemon's own state domain, not
+realm or repo content — it is loopback-only regardless of `--host`. Full contract:
+`docs/spec/serve-bus-chat.md`.
 
 Design: `docs/design/atomic-serve.md` — all deliberation settled there. This spec carries
 only what gets built.
@@ -360,6 +364,21 @@ None.
 
 
 ## Change log
+
+### 2026-08-08 — Read-only contract narrowed for bus chat
+
+**What changed:** The Goal section's scope statement changes from "a local, read-only
+HTTP server" to "a local HTTP server, read-only with respect to realm and repo content."
+A new "Bus chat exception" clause names `POST /api/bus/*` as the one write surface: it
+targets the bus daemon's own state domain, not realm or repo content, and stays
+loopback-only regardless of `--host`. Full contract: `docs/spec/serve-bus-chat.md`.
+
+**Why:** `docs/spec/serve-bus-chat.md` adds serve's first POST endpoints (`join`, `send`,
+`say`, `halt`, `resume`, `leave`) to operate `atomic bus` rooms from the UI. The
+unqualified "read-only" claim in this spec's Goal no longer described serve's full
+behavior.
+
+**Superseded:** the Goal section's unqualified "a local, read-only HTTP server" claim.
 
 ### 2026-07-17 — React SPA replaces the htmx-fragment shell
 

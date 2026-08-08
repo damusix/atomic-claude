@@ -113,6 +113,12 @@ var commands = []Command{
 		Description: "Send a one-shot human message without joining; always passes, even halted",
 	},
 	{
+		Path:        []string{"bus", "read"},
+		Args:        "<room> <msg-id>",
+		Flags:       []string{"--json"},
+		Description: "Print one message's full text from the room log; no daemon needed",
+	},
+	{
 		Path:        []string{"bus", "halt"},
 		Args:        "<room>",
 		Flags:       []string{"--text"},

@@ -87,6 +87,10 @@ type Options struct {
 	TargetDir string
 	// ClaudeMDPath is the CLAUDE.md path used for realm resolution.
 	ClaudeMDPath string
+	// Home is the user home dir, used by the /api/bus/* chat endpoints to
+	// reach the bus daemon's state under <home>/.atomic. Empty → resolved
+	// via os.UserHomeDir at startup.
+	Home string
 	// Stdout / Stderr receive log output.
 	Stdout io.Writer
 	Stderr io.Writer
@@ -203,6 +207,16 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	}
 	mux.Handle("/api/status", NewAPIStatusHandler(healthOpts))
 	mux.Handle("/api/external", NewAPIExternalHandler(navRoot, GitOrMtimeDateFn, store))
+
+	// /api/bus/* — EXPERIMENT: web chat over the atomic bus daemon (see
+	// api_bus.go's package comment for the read-only-contract caveat).
+	busHome := opts.Home
+	if busHome == "" {
+		busHome, _ = os.UserHomeDir()
+	}
+	if busHome != "" {
+		mux.Handle("/api/bus/", NewAPIBusHandler(BusAPIOptions{Home: busHome, TargetDir: opts.TargetDir}))
+	}
 
 	// /events — live-reload SSE stream: register, resync push, stream
 	// until the request context ends. Carried path (unchanged by the cutover).
@@ -452,6 +466,7 @@ func parseFlags(args []string, stdout, stderr io.Writer) (Options, error) {
 		Open:         open,
 		TargetDir:    targetDir,
 		ClaudeMDPath: fmt.Sprintf("%s/.claude/CLAUDE.md", home),
+		Home:         home,
 		Stdout:       stdout,
 		Stderr:       stderr,
 	}, nil

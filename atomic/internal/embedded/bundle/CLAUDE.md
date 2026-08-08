@@ -143,6 +143,6 @@ If `atomic` is installed, indexing is automatic — run `atomic code index` (the
 
 `atomic` CLI verbs are not skills, so the harness does not list them in the slash menu. Run `atomic --help` for the full subcommand list (each with a one-liner) and `atomic <verb> --help` for flags and behavior. `/atomic-help` (topic `cli`) is the in-session discovery surface.
 
-**`atomic serve`** — read-only localhost server rendering a wiki realm or single repo as a navigable graph in the browser (markdown + code graph + per-repo SQL schema view + federated search). `atomic serve --help`.
+**`atomic serve`** — read-only localhost server rendering a wiki realm or single repo as a navigable graph in the browser (markdown + code graph + per-repo SQL schema view + federated search), plus a loopback-only `/bus` page for operating `atomic bus` rooms. `atomic serve --help`.
 
 </atomic>

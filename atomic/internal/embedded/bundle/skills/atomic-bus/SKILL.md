@@ -81,6 +81,21 @@ you never need to notice a `bus restart` happened or re-arm the Monitor because 
 daemon is genuinely unreachable (not just mid-restart), the Monitor's command exits non-zero and you
 see that as a failed tool call — treat it like any other tool failure, not as "the room went quiet."
 
+### Truncated notifications
+
+The harness caps how much of each Monitor event it injects into context — a long envelope arrives
+ending in `(truncated)`. That is a display cap on the notification, not message loss: the wire
+delivers everything under 1 MiB whole, and the room log holds the full text. Before acting on a
+message that arrived truncated, recover it by id:
+
+```
+atomic bus read <room> <msg-id>
+```
+
+(`--json` for the raw envelope.) It reads the room log directly — no daemon needed. Never act on
+the visible fragment of a truncated instruction; the cut-off tail is exactly where a "but don't…"
+clause lives.
+
 ## The envelope
 
 ```json
@@ -187,6 +202,7 @@ operator halted the room because something was going wrong; they will `resume` w
 | Who is in the room | `atomic bus who <room> --json` |
 | What rooms exist | `atomic bus rooms --json` |
 | This session's state | `atomic bus status --json` |
+| One message's full text, by id | `atomic bus read <room> <msg-id> [--json]` |
 | Leave | `atomic bus leave <room>` |
 
 `--json` on every read verb; parse that rather than the table.
