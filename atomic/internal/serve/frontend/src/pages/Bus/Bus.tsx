@@ -67,18 +67,32 @@ interface BusLogResponse {
   envelopes: BusEnvelope[];
 }
 
-// parseComposer splits leading @fragment tokens off the message body:
-// "@fe @be run the tests" → { to: ["fe", "be"], text: "run the tests" }.
-// No leading @tokens → an FYI message (empty to).
-export function parseComposer(input: string): { to: string[]; text: string } {
-  const tokens = input.trim().split(/\s+/);
-  const to: string[] = [];
-  let i = 0;
-  while (i < tokens.length && tokens[i].startsWith("@") && tokens[i].length > 1) {
-    to.push(tokens[i].slice(1));
-    i += 1;
-  }
-  return { to, text: tokens.slice(i).join(" ") };
+// mentionQuery reports the @fragment currently being typed, or null when
+// the mention dropdown should be closed. Addressing is chips-first: a
+// mention is only ever typed at the start of an empty-body draft, so the
+// dropdown is active exactly while the draft is one leading @token — an @
+// in the body never pops it.
+export function mentionQuery(draft: string): string | null {
+  const m = draft.match(/^@(\S*)$/);
+  return m ? m[1] : null;
+}
+
+// chipCommit detects a mention completed by typing a space ("@fable " →
+// commit "fable" as a chip, keep the rest as the draft). Null when the
+// draft is not a freshly space-terminated leading mention. [\s\S] because
+// the composer is a textarea — the rest may span lines.
+export function chipCommit(draft: string): { chip: string; rest: string } | null {
+  const m = draft.match(/^@(\S+)\s+([\s\S]*)$/);
+  return m ? { chip: m[1], rest: m[2] } : null;
+}
+
+// resolveMember mirrors the daemon's --to resolution for the addressee
+// chips: exact name first, else a unique substring; anything ambiguous or
+// unmatched resolves to null (the chip renders the raw fragment instead).
+export function resolveMember(names: string[], frag: string): string | null {
+  if (names.includes(frag)) return frag;
+  const matches = names.filter((n) => n.includes(frag));
+  return matches.length === 1 ? matches[0] : null;
 }
 
 function formatTime(ts: number): string {
@@ -221,11 +235,16 @@ function RoomView({
 }) {
   const [envelopes, setEnvelopes] = useState<BusEnvelope[]>([]);
   const [who, setWho] = useState<BusWhoResponse | null>(null);
-  const [draft, setDraft] = useState("");
   const [note, setNote] = useState<string | null>(null);
   const [closed, setClosed] = useState(false);
+  const [following, setFollowing] = useState(true);
   const seenIds = useRef(new Set<string>());
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // followingRef mirrors `following` for the append effect below — the
+  // decision to stick must come from where the operator was *before* the
+  // new message rendered, not from re-measuring after it grew the scroll
+  // height (a tall message would silently kick the view out of follow).
+  const followingRef = useRef(true);
 
   const appendEnvelopes = useCallback((incoming: BusEnvelope[]) => {
     const fresh = incoming.filter((env) => env.id && !seenIds.current.has(env.id));
@@ -275,28 +294,43 @@ function RoomView({
     };
   }, [room, appendEnvelopes, refreshWho]);
 
-  // Follow the transcript unless the operator scrolled up to read history.
+  // Follow the transcript while the operator is at the bottom; scrolling
+  // up parks the view and new traffic stops moving it (the jump button
+  // below is the way back).
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
+    if (el && followingRef.current) el.scrollTop = el.scrollHeight;
   }, [envelopes]);
 
-  async function sendDraft() {
-    const { to, text } = parseComposer(draft);
-    if (!text) return;
+  function onScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    followingRef.current = atBottom;
+    setFollowing(atBottom);
+  }
+
+  function jumpToBottom() {
+    const el = scrollRef.current;
+    if (!el) return;
+    followingRef.current = true;
+    setFollowing(true);
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }
+
+  async function sendMessage(to: string[], text: string): Promise<boolean> {
+    if (!text.trim()) return false;
     setNote(null);
     const [res, err] = await attempt(() =>
       api.post<BusSendResponse>("/bus/send", { room, text, to }),
     );
     if (err) {
       setNote("send failed — bus unreachable");
-      return;
+      return false;
     }
     if (!res.ok) {
       setNote(`send failed (${res.status})`);
-      return;
+      return false;
     }
     if (res.data) {
       appendEnvelopes([res.data.envelope]);
@@ -304,8 +338,8 @@ function RoomView({
         setNote(`no member matching @${res.data.unknown_to.join(", @")} — delivered room-wide`);
       }
     }
-    setDraft("");
     onRosterChange();
+    return true;
   }
 
   async function setHalt(halt: boolean) {
@@ -344,18 +378,25 @@ function RoomView({
       ) : null}
       {closed ? <div className="bus-halted-banner">room closed</div> : null}
 
-      <div className="bus-transcript" ref={scrollRef}>
-        {envelopes.map((env) => (
+      <div className="bus-transcript-wrap">
+        <div className="bus-transcript" ref={scrollRef} onScroll={onScroll}>
+          {envelopes.map((env) => (
           <article
             key={env.id}
             className={env.from === selfName ? "bus-msg bus-msg-self" : "bus-msg"}
             data-kind={env.from_kind}
           >
             <div className="bus-msg-meta">
-              <span className="bus-msg-from">{env.from}</span>
-              <span className="bus-msg-kind">{env.from_kind}</span>
+              <span className="bus-msg-sender">
+                <span className="bus-msg-from">{env.from}</span>
+                <span className="bus-msg-kindpill" data-kind={env.from_kind}>
+                  {env.from_kind}
+                </span>
+              </span>
               {env.to.length > 0 ? (
-                <span className="bus-msg-to">→ {env.to.join(", ")}</span>
+                <span className="bus-msg-to">
+                  <span className="bus-msg-to-label">to</span> {env.to.join(", ")}
+                </span>
               ) : (
                 <span className="bus-msg-fyi">fyi</span>
               )}
@@ -363,31 +404,187 @@ function RoomView({
             </div>
             <div className="bus-msg-text">{env.text}</div>
           </article>
-        ))}
-        {envelopes.length === 0 ? <p className="bus-hint">No traffic yet.</p> : null}
+          ))}
+          {envelopes.length === 0 ? <p className="bus-hint">No traffic yet.</p> : null}
+        </div>
+        {!following ? (
+          <button type="button" className="bus-jump-bottom" onClick={jumpToBottom} aria-label="Scroll to latest">
+            ↓ latest
+          </button>
+        ) : null}
       </div>
 
       {note ? <p className="bus-note">{note}</p> : null}
 
-      <form
-        className="bus-composer"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void sendDraft();
-        }}
-      >
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder="@name to address, plain text for room-wide FYI…"
-          aria-label="Message"
-          disabled={closed}
-        />
-        <button type="submit" disabled={closed}>
-          Send
-        </button>
-      </form>
+      <Composer
+        members={(who?.members ?? []).map((m) => m.name).filter((n) => n !== selfName)}
+        disabled={closed}
+        onSend={sendMessage}
+      />
     </section>
+  );
+}
+
+// Composer — a chips-first message input. Typing @ at the start of the
+// draft opens a dropdown of room members (click / ArrowUp/Down / Enter /
+// Tab select, Escape dismisses); a picked or space-completed mention
+// becomes a removable addressee chip on the left of the input and leaves
+// the text. Backspace on an empty draft pops the last chip. Send delivers
+// chips as the to-list and the draft as the body.
+function Composer({
+  members,
+  disabled,
+  onSend,
+}: {
+  members: string[];
+  disabled: boolean;
+  onSend: (to: string[], text: string) => Promise<boolean>;
+}) {
+  const [chips, setChips] = useState<string[]>([]);
+  const [draft, setDraft] = useState("");
+  const [highlight, setHighlight] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Auto-grow the textarea with its content, capped by the CSS max-height
+  // — long messages wrap into new lines instead of scrolling horizontally.
+  useEffect(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  }, [draft]);
+
+  const frag = mentionQuery(draft);
+  const suggestions =
+    frag === null || dismissed
+      ? []
+      : members.filter(
+          (n) => !chips.includes(n) && n.toLowerCase().includes(frag.toLowerCase()),
+        );
+  const active = Math.min(highlight, Math.max(0, suggestions.length - 1));
+
+  function addChip(name: string) {
+    setChips((prev) => (prev.includes(name) ? prev : [...prev, name]));
+    setDraft("");
+    setHighlight(0);
+  }
+
+  function update(next: string) {
+    setDismissed(false);
+    setHighlight(0);
+    // A space right after a leading mention commits it as a chip — typing
+    // "@fable hello" addresses fable without ever touching the dropdown.
+    const commit = chipCommit(next);
+    if (commit) {
+      setChips((prev) => (prev.includes(commit.chip) ? prev : [...prev, commit.chip]));
+      setDraft(commit.rest);
+      return;
+    }
+    setDraft(next);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Backspace" && draft === "" && chips.length > 0) {
+      setChips((prev) => prev.slice(0, -1));
+      return;
+    }
+    if (suggestions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlight((active + 1) % suggestions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlight((active - 1 + suggestions.length) % suggestions.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        addChip(suggestions[active]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setDismissed(true);
+        return;
+      }
+    }
+    // Enter sends; Shift+Enter makes a newline — the textarea's default.
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void submit();
+    }
+  }
+
+  async function submit() {
+    if (await onSend(chips, draft)) {
+      setChips([]);
+      setDraft("");
+    }
+  }
+
+  return (
+    <form
+      className="bus-composer"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <div className="bus-composer-field">
+        {chips.map((c) => {
+          const resolved = resolveMember(members, c);
+          return (
+            <button
+              type="button"
+              key={c}
+              className={resolved ? "bus-chip" : "bus-chip bus-chip-unknown"}
+              title="Remove addressee"
+              onClick={() => setChips((prev) => prev.filter((x) => x !== c))}
+            >
+              <span className="bus-chip-label">to</span> {resolved ?? c}
+              <span className="bus-chip-x" aria-hidden="true">
+                ×
+              </span>
+            </button>
+          );
+        })}
+        <textarea
+          ref={taRef}
+          rows={1}
+          value={draft}
+          onChange={(e) => update(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={chips.length > 0 ? "message… (Enter sends, Shift+Enter newline)" : "@ to address someone, plain text for room-wide FYI…"}
+          aria-label="Message"
+          disabled={disabled}
+        />
+        {suggestions.length > 0 ? (
+          <ul className="bus-mention-list" role="listbox" aria-label="Room members">
+            {suggestions.map((n, i) => (
+              <li key={n}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={i === active}
+                  className={i === active ? "bus-mention-item bus-mention-active" : "bus-mention-item"}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    addChip(n);
+                  }}
+                >
+                  @{n}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+      <button type="submit" disabled={disabled}>
+        Send
+      </button>
+    </form>
   );
 }

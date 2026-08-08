@@ -1,36 +1,58 @@
-// parseComposer is the addressing contract between what the operator types
-// and the envelope's to list — leading @fragments address, everything else
-// is FYI body.
+// The composer's addressing contract is chips-first: mentionQuery decides
+// when the member dropdown is open, chipCommit turns a space-completed
+// leading mention into a chip, and resolveMember mirrors the daemon's
+// --to fragment resolution for chip display.
 import { describe, expect, test } from "bun:test";
-import { parseComposer } from "./Bus";
+import { chipCommit, mentionQuery, resolveMember } from "./Bus";
 
-describe("parseComposer", () => {
-  test("plain text is an FYI message", () => {
-    expect(parseComposer("deploying to staging in 5")).toEqual({
-      to: [],
-      text: "deploying to staging in 5",
-    });
+describe("mentionQuery", () => {
+  test("bare @ opens the dropdown with an empty fragment", () => {
+    expect(mentionQuery("@")).toBe("");
   });
 
-  test("leading @fragments become addressees", () => {
-    expect(parseComposer("@fe @be run the tests")).toEqual({
-      to: ["fe", "be"],
-      text: "run the tests",
-    });
+  test("typing after @ narrows the fragment", () => {
+    expect(mentionQuery("@fa")).toBe("fa");
   });
 
-  test("an @ mid-sentence stays in the body", () => {
-    expect(parseComposer("@fe ping me @home later")).toEqual({
-      to: ["fe"],
-      text: "ping me @home later",
-    });
+  test("closed once the body starts or when there is no leading @", () => {
+    expect(mentionQuery("@gui-fe hello")).toBeNull();
+    expect(mentionQuery("hello @fe")).toBeNull();
+    expect(mentionQuery("")).toBeNull();
+  });
+});
+
+describe("chipCommit", () => {
+  test("a space-terminated leading mention commits", () => {
+    expect(chipCommit("@fable ")).toEqual({ chip: "fable", rest: "" });
   });
 
-  test("a bare @ is body, not an empty addressee", () => {
-    expect(parseComposer("@ what")).toEqual({ to: [], text: "@ what" });
+  test("body typed after the space is preserved", () => {
+    expect(chipCommit("@fable hello there")).toEqual({ chip: "fable", rest: "hello there" });
   });
 
-  test("whitespace-only input yields empty text", () => {
-    expect(parseComposer("   ")).toEqual({ to: [], text: "" });
+  test("no commit while the mention is still being typed", () => {
+    expect(chipCommit("@fable")).toBeNull();
+    expect(chipCommit("plain text")).toBeNull();
+    expect(chipCommit("@ ")).toBeNull();
+  });
+});
+
+describe("resolveMember", () => {
+  const names = ["gui-fe", "gui-web", "gui-web-2", "api-be"];
+
+  test("exact name wins even when a sibling also substring-matches", () => {
+    expect(resolveMember(names, "gui-web")).toBe("gui-web");
+  });
+
+  test("unique substring resolves", () => {
+    expect(resolveMember(names, "be")).toBe("api-be");
+  });
+
+  test("ambiguous fragment resolves to null", () => {
+    expect(resolveMember(names, "web")).toBeNull();
+  });
+
+  test("no match resolves to null", () => {
+    expect(resolveMember(names, "zzz")).toBeNull();
   });
 });

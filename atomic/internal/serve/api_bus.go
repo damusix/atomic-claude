@@ -14,6 +14,8 @@ package serve
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,10 +52,13 @@ type busAPIHandler struct {
 	dialTimeout  time.Duration
 	ensureDaemon func(home string) (*bus.Client, error)
 
-	// session is this serve process's one web-member identity. Per-process
-	// (pid-scoped) rather than per-tab: the daemon treats one session value
-	// as one member, and every tab of this serve instance speaks as the
-	// same human operator.
+	// session is this serve instance's one web-member identity. Derived
+	// from TargetDir rather than the pid so a restarted serve reclaims the
+	// same roster entry instead of minting gui-web-2, -3, … on every
+	// restart; two serve instances on different target dirs still get
+	// distinct identities. Per-instance rather than per-tab: the daemon
+	// treats one session value as one member, and every tab of this serve
+	// speaks as the same human operator.
 	session string
 
 	mu     sync.Mutex
@@ -67,7 +72,7 @@ func NewAPIBusHandler(opts BusAPIOptions) http.Handler {
 		targetDir:    opts.TargetDir,
 		dialTimeout:  opts.DialTimeout,
 		ensureDaemon: opts.EnsureDaemon,
-		session:      fmt.Sprintf("serve-web-%d", os.Getpid()),
+		session:      webSessionID(opts.TargetDir),
 		joined:       map[string]string{},
 	}
 	if h.dialTimeout == 0 {
@@ -77,6 +82,13 @@ func NewAPIBusHandler(opts BusAPIOptions) http.Handler {
 		h.ensureDaemon = bus.EnsureDaemon
 	}
 	return h
+}
+
+// webSessionID derives the stable per-target-dir session identity — see
+// the session field's doc for why it must survive a serve restart.
+func webSessionID(targetDir string) string {
+	sum := sha256.Sum256([]byte(targetDir))
+	return "serve-web-" + hex.EncodeToString(sum[:4])
 }
 
 func (h *busAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
