@@ -28,7 +28,7 @@ import (
 // "position-derived member naming" entry.
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|close|chat> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|chat> [flags]")
 		return int(ExitUsage)
 	}
 
@@ -60,6 +60,8 @@ func BusAction(args []string, home, cwd string, out io.Writer) int {
 		return tailAction(rest, home, out)
 	case "say":
 		return sayAction(rest, home, out)
+	case "read":
+		return readAction(rest, home, out)
 	case "halt":
 		return haltAction(rest, home, out)
 	case "resume":
@@ -1711,6 +1713,72 @@ func tailStream(client *Client, rooms []string, onlyAddressed bool, from string,
 			return int(ExitOK)
 		}
 	}
+}
+
+// readAction implements `atomic bus read <room> <msg-id> [--json]`: fetch
+// one full envelope from the room's durable log. A pure log read — no
+// daemon round trip, works with the daemon down. This is the recovery
+// verb for consumers whose notification layer truncated a message (e.g.
+// Claude Code's Monitor cap on recv output; see skills/atomic-bus): the
+// log line always carries the complete text.
+func readAction(args []string, home string, out io.Writer) int {
+	const usage = "Usage: atomic bus read <room> <msg-id> [--json]\n"
+
+	fs := flag.NewFlagSet("bus-read", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	var jsonOut bool
+	fs.BoolVar(&jsonOut, "json", false, "emit the raw envelope JSON")
+	positional, err := parseFlags(fs, args)
+	if err != nil {
+		return int(ExitUsage)
+	}
+	if len(positional) != 2 {
+		fmt.Fprint(os.Stderr, usage)
+		return int(ExitUsage)
+	}
+	room, id := positional[0], positional[1]
+	// Room names are free text on the wire, but this verb splices one into
+	// a filesystem path — reject anything path-shaped before it can escape
+	// the rooms directory.
+	if room == "" || strings.ContainsAny(room, `/\`) || strings.Contains(room, "..") {
+		fmt.Fprintf(os.Stderr, "atomic bus read: invalid room name %q\n", room)
+		return int(ExitUsage)
+	}
+
+	env, found, err := ReadEnvelope(home, room, id)
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "atomic bus read: no log for room %q\n", room)
+			return int(ExitNoRoom)
+		}
+		fmt.Fprintf(os.Stderr, "atomic bus read: %v\n", err)
+		return int(ExitHard)
+	}
+	if !found {
+		fmt.Fprintf(os.Stderr, "atomic bus read: no message %q in room %q\n", id, room)
+		return int(ExitHard)
+	}
+
+	if jsonOut {
+		if err := json.NewEncoder(out).Encode(env); err != nil {
+			fmt.Fprintf(os.Stderr, "atomic bus read: %v\n", err)
+			return int(ExitHard)
+		}
+		return int(ExitOK)
+	}
+	// Full fidelity is the whole point of this verb, and TailLine's
+	// collapse elides anything past ~15 lines by design — so render
+	// directly: a one-line header, then the complete text verbatim.
+	addressee := "(fyi)"
+	if len(env.To) > 0 {
+		addressee = "to " + strings.Join(env.To, ", ")
+	}
+	header := fmt.Sprintf("%s  %s (%s) %s  [%s]", env.Ts.Format("2006-01-02 15:04:05"), env.From, env.FromKind, addressee, env.ID)
+	if env.ReplyTo != "" {
+		header += "  reply-to " + env.ReplyTo
+	}
+	fmt.Fprintf(out, "%s\n%s\n", header, env.Text)
+	return int(ExitOK)
 }
 
 // --- chat ---

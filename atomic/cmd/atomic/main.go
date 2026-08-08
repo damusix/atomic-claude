@@ -742,13 +742,13 @@ func buildConfigCmd() *cobra.Command {
 }
 
 // buildBusCmd builds the "bus" parent +
-// join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|close|chat
+// join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|chat
 // children. Dispatch is runBus (→ bus.BusAction from internal/bus/action.go).
 func buildBusCmd() *cobra.Command {
 	dispatch := func(args []string) { runBus(args) }
 	parent := &cobra.Command{
 		Use:   "bus",
-		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|halt|resume|prune|close|chat)",
+		Short: "Inter-session messaging over named rooms (join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|chat)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { dispatch(args); return nil },
 	}
@@ -809,6 +809,9 @@ func buildBusCmd() *cobra.Command {
 	})
 	addSub("say", "Send a one-shot human message without joining; always passes, even halted", "<room> <text>", func(c *cobra.Command) {
 		c.Flags().String("to", "", "comma-separated addressee names (omit for FYI)")
+	})
+	addSub("read", "Print one message's full text from the room log; no daemon needed", "<room> <msg-id>", func(c *cobra.Command) {
+		c.Flags().Bool("json", false, "emit the raw envelope JSON")
 	})
 	addSub("halt", "Stop a room: agent send fails with exit 7 until resume", "<room>", func(c *cobra.Command) {
 		c.Flags().String("text", "", "reason broadcast with the halt")

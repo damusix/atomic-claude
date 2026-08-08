@@ -1,2 +1,3 @@
+scope = "repo"
 [code]
 ignore = ["atomic/internal/serve/assets/vendor/**"]
