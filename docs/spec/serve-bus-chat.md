@@ -85,11 +85,11 @@ adversarial review of the whole feature diff against this spec.
 
 ## Checkpoints
 
-| # | Scope | Files | Agent | Status |
-|---|-------|-------|-------|--------|
-| CP1 | Loopback gate on `/api/bus/*` + frontend notice + tests | `serve/api_bus.go`, `serve/api_bus_test.go`, `frontend/src/pages/Bus/Bus.tsx` | atomic-implementer (feature) | done |
-| CP2 | Full-diff review of `origin/next..HEAD` against this spec; every finding fixed | (findings-driven) | atomic-reviewer + atomic-implementer (surgical) | done |
-| CP3 | atomic-serve.md amendment + reference docs + README + atomic-help + CLAUDE.md | docs, templates | atomic-implementer (feature) | done |
+| # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
+|---|------------|-------------|-------|------------|----------|
+| 1 | Loopback gate on `/api/bus/*` + frontend notice + tests (done) | `serve/api_bus.go`, `serve/api_bus_test.go`, `frontend/src/pages/Bus/Bus.tsx` | atomic-implementer (mode: feature) | ~4 | `TestAPIBus_LoopbackGate` table (LAN 403 on read+write routes, loopback IPv4/IPv6 pass, garbage fails closed); existing httptest suites prove the loopback path end-to-end |
+| 2 | Full-diff review of `origin/next..HEAD` against this spec; every finding fixed (done) | findings-driven | atomic-reviewer + atomic-implementer (mode: surgical) | — | re-review PASS; `TestAPIBus_RoomGuard_RejectsTraversal` over all ten room-taking routes; rail component tests; `go test ./internal/serve/ -count=1` + `bun test` green |
+| 3 | atomic-serve.md amendment + reference docs + README + atomic-help + CLAUDE.md (done) | docs, templates | atomic-implementer (mode: feature) | ~7 | `make render && git diff --exit-code commands/`; `make -C atomic bundle && git diff --exit-code`; `atomic validate artifacts` exit 0; /atomic-help MISSING-scan clean |
 
 ## Risks
 
