@@ -32,6 +32,27 @@ package languages
 //     method_signature       — method signatures (in interface bodies)
 //     call_expression        — function/method call sites
 //
+// FunctionScopeTypes probe (verified via a real-parse probe against the wazero
+// TS binding; see extraction/languages/zzprobe_test.go, deleted after use):
+//
+//	const f = (x) => x * 2;                     → arrow_function
+//	const f = function(x) { return x; };        → function_expression
+//	const f = function*(x) { yield x; };        → generator_function
+//	  (NOT "generator_function_expression" — the grammar's node-type is the
+//	  bare "generator_function", same family as "function_expression".)
+//	for (const x of y) { ... }                  → for_in_statement, whose
+//	  binding is a bare "identifier" child (field "left") — NOT wrapped in a
+//	  lexical_declaration/variable_declarator, so VariableTypes never matches
+//	  the for-of binding at all. It is unaffected by scope suppression by
+//	  construction, not because it is in FunctionScopeTypes.
+//	const { a, b } = x; const [c, d] = y;        → variable_declarator's
+//	  "name" field resolves to object_pattern / array_pattern, whose full text
+//	  ("{ a, b }", "[c, d]") is what nameFromNode returns — the identifier
+//	  guard in extractSimpleNode rejects it.
+//	namespace N { const X = 1; }                 → internal_module wraps a
+//	  statement_block directly; internal_module is not in FunctionScopeTypes,
+//	  so scopeDepth is unaffected — the namespace-scoped const is kept.
+//
 // IsExported strategy: ExportStatementTypes = {"export_statement"}.
 // The engine detects when it is visiting children of an export_statement and
 // sets forceExported=true for all semantic children it extracts. This is the
@@ -90,6 +111,13 @@ func TypeScriptExtractor() extraction.LanguageExtractor {
 		// Known simplification: arrow-function consts (const f = () => {}) are
 		// extracted as NodeKindVariable, not NodeKindFunction.
 		VariableTypes: extraction.TypeSet("lexical_declaration", "variable_declaration"),
+
+		// FunctionScopeTypes: scope-opening constructs that are not themselves
+		// FunctionTypes matches (a callback passed as a call argument, not a
+		// named declaration). VariableTypes matches found underneath one of
+		// these (scopeDepth > 0) never mint a node — see extractor.go
+		// extractSimpleNode. Node-type strings probe-confirmed above.
+		FunctionScopeTypes: extraction.TypeSet("arrow_function", "function_expression", "generator_function"),
 
 		// import_statement covers all import forms.
 		ImportTypes: extraction.TypeSet("import_statement"),
@@ -209,6 +237,13 @@ func tsGetSignature(ctx context.Context, node sitter.Node, source string) string
 
 // tsExtractImport extracts the module path from a TypeScript import_statement.
 // Supports: import { X } from "path"; import X from "path"; import "path";
+//
+// name is the full specifier for a package import (e.g. "@hapi/hapi",
+// "@langchain/core/messages") so scoped/subpath packages keep their full
+// identity instead of collapsing to the last path segment; it stays the
+// basename for a relative/absolute specifier (e.g. "./utils/context.ts" →
+// "context.ts"), since those resolve to a real file node via the imports
+// edge and a short label is less noisy there.
 func tsExtractImport(ctx context.Context, node sitter.Node, source string) (name string, path string) {
 	kind, err := node.Kind(ctx)
 	if err != nil || kind != "import_statement" {
@@ -227,8 +262,7 @@ func tsExtractImport(ctx context.Context, node sitter.Node, source string) (name
 		rest = strings.TrimSuffix(rest, ";")
 		rest = strings.Trim(rest, `"'`)
 		if rest != "" {
-			parts := strings.Split(rest, "/")
-			return parts[len(parts)-1], rest
+			return importNodeName(rest), rest
 		}
 	}
 
@@ -237,11 +271,21 @@ func tsExtractImport(ctx context.Context, node sitter.Node, source string) (name
 	rest = strings.TrimSuffix(rest, ";")
 	rest = strings.Trim(rest, `"'`)
 	if rest != "" {
-		parts := strings.Split(rest, "/")
-		return parts[len(parts)-1], rest
+		return importNodeName(rest), rest
 	}
 
 	return "", ""
+}
+
+// importNodeName returns the import node's display name for a specifier: the
+// full specifier for a package import, or the basename for a relative/
+// absolute one. Shared by the TypeScript and JavaScript extractors.
+func importNodeName(specifier string) string {
+	if strings.HasPrefix(specifier, ".") || strings.HasPrefix(specifier, "/") {
+		parts := strings.Split(specifier, "/")
+		return parts[len(parts)-1]
+	}
+	return specifier
 }
 
 // tsExtractHeritage extracts base-type references from TypeScript class and

@@ -81,6 +81,11 @@ const (
 	NodeKindFileFormat NodeKind = "file_format"
 	NodeKindMacro      NodeKind = "macro"
 	NodeKindScript     NodeKind = "script"
+	// NodeKindPackage is a synthesized shared hub for an external import
+	// specifier (docs/design/code-intel-package-nodes.md) — one node per
+	// resolved package identity, converging every importer's edge onto a
+	// single target instead of leaving each import node an orphan.
+	NodeKindPackage NodeKind = "package"
 )
 
 // AllNodeKinds is the complete set of NodeKind values, ordered as in
@@ -124,6 +129,7 @@ var AllNodeKinds = []NodeKind{
 	NodeKindFileFormat,
 	NodeKindMacro,
 	NodeKindScript,
+	NodeKindPackage,
 }
 
 // ---------------------------------------------------------------------------

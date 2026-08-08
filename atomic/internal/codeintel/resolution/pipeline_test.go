@@ -21,6 +21,7 @@ package resolution_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -384,6 +385,76 @@ func TestImportRefProducesImportsEdge(t *testing.T) {
 		t.Errorf("expected imports edge from %s, got none", importerNodeID)
 	} else if edges[0].Target != targetNodeID {
 		t.Errorf("imports edge target = %s, want %s", edges[0].Target, targetNodeID)
+	}
+}
+
+// TestUnresolvableImportRefProducesNoSelfLoopEdge proves that an import-kind
+// ref whose specifier cannot resolve to any file produces NO edge — even when
+// an import node in the DB bears the exact specifier as its own name.
+//
+// WHY this is the regression gate: import nodes are named the raw specifier
+// string, and an unresolvable import ref's ReferenceName is that same
+// specifier. If resolveOne falls through past Step 5 (ResolveImport) to Step 6
+// generic name matching, exact-name matching resolves the ref straight back to
+// the import node that owns it — a self-loop edge (source == target).
+// Verified in the wild: 46 of 46 "imports" edges in a diagnosed repo's DB were
+// exact self-loops. Import-kind refs must resolve only via Steps 3–5; if none
+// produce a candidate, the ref is skipped with no edge, never routed to
+// Step 6.
+func TestUnresolvableImportRefProducesNoSelfLoopEdge(t *testing.T) {
+	d := openPipelineTestDB(t)
+	ctx := context.Background()
+
+	// The owning file, so the import node has a valid FilePath.
+	importerPath := "src/app.ts"
+	if err := d.UpsertNode(ctx, types.Node{
+		ID:       "file:" + importerPath,
+		Kind:     types.NodeKindFile,
+		Name:     "app.ts",
+		FilePath: importerPath,
+		Language: types.LanguageTypeScript,
+	}); err != nil {
+		t.Fatalf("UpsertNode importer file: %v", err)
+	}
+
+	// The import node itself — named exactly the unresolvable specifier, and
+	// also the ref's own FromNodeID (mirrors extraction: the unresolved ref
+	// is attributed to the import node it lives under).
+	specifier := "./missing-module"
+	importNodeID := "import:" + importerPath + ":1"
+	if err := d.UpsertNode(ctx, types.Node{
+		ID:       importNodeID,
+		Kind:     types.NodeKindImport,
+		Name:     specifier,
+		FilePath: importerPath,
+		Language: types.LanguageTypeScript,
+	}); err != nil {
+		t.Fatalf("UpsertNode import node: %v", err)
+	}
+
+	ref := types.UnresolvedReference{
+		ID:            "ref-self-loop",
+		FromNodeID:    importNodeID,
+		ReferenceName: specifier,
+		ReferenceKind: types.EdgeKindImports,
+		FilePath:      importerPath,
+		Language:      types.LanguageTypeScript,
+	}
+	seedUnresolvedRef(t, d, ref)
+
+	pipeline := resolution.NewPipeline(d)
+	if _, _, err := pipeline.ResolveAndPersistBatched(ctx, 5000, nil); err != nil {
+		t.Fatalf("ResolveAndPersistBatched: %v", err)
+	}
+
+	edges := edgesWithKind(t, d, importNodeID, types.EdgeKindImports)
+	if len(edges) != 0 {
+		t.Errorf("unresolvable import ref must produce NO edge, got %d: %+v", len(edges), edges)
+	}
+	for _, e := range edges {
+		if e.Source == e.Target {
+			t.Errorf("unresolvable import ref produced a self-loop edge: %+v", e)
+		}
 	}
 }
 
@@ -825,6 +896,303 @@ func TestOverFuzzyCapNameDoesNotTriggerFuzzy(t *testing.T) {
 	// The unresolved ref remains (no exact match, fuzzy skipped — unresolvable for now).
 	if remaining := countUnresolvedRefs(t, d); remaining != 1 {
 		t.Errorf("expected 1 unresolved ref to remain (over-cap, no match), got %d", remaining)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CP2 (docs/spec/code-intel-package-nodes.md): package-node mint loop, sweep
+// ---------------------------------------------------------------------------
+
+// packageNodeID mirrors extraction.GenerateNodeID's package-kind formula
+// ("package:npm/" + name) without importing the extraction package into the
+// test — kept in sync by TestPackageMint_TwoImportersConvergeOnSharedNode's
+// own DB-lookup assertions, which would fail if the formula ever drifted.
+func packageNodeID(name string) string {
+	return "package:npm/" + name
+}
+
+// TestPackageMint_TwoImportersConvergeOnSharedNode proves the CORE mint
+// behavior: two files importing the same npm package — one via a deep
+// specifier, one bare — both produce an "imports" edge to the SAME
+// package:npm/@scope/pkg node, and that node has the shape mandated by the
+// spec (bare normalized name, no file/line, language unknown, not exported).
+func TestPackageMint_TwoImportersConvergeOnSharedNode(t *testing.T) {
+	d := openPipelineTestDB(t)
+	ctx := context.Background()
+
+	importerA := "src/a.ts"
+	importerB := "src/b.ts"
+	importerANodeID := "file:" + importerA
+	importerBNodeID := "file:" + importerB
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: importerANodeID, Kind: types.NodeKindFile, Name: "a.ts",
+		FilePath: importerA, Language: types.LanguageTypeScript,
+	}); err != nil {
+		t.Fatalf("UpsertNode importerA: %v", err)
+	}
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: importerBNodeID, Kind: types.NodeKindFile, Name: "b.ts",
+		FilePath: importerB, Language: types.LanguageTypeScript,
+	}); err != nil {
+		t.Fatalf("UpsertNode importerB: %v", err)
+	}
+
+	seedUnresolvedRef(t, d, types.UnresolvedReference{
+		ID:            "ref-pkgmint-deep",
+		FromNodeID:    importerANodeID,
+		ReferenceName: "@scope/pkg/deep/path.js",
+		ReferenceKind: types.EdgeKindImports,
+		FilePath:      importerA,
+		Language:      types.LanguageTypeScript,
+	})
+	seedUnresolvedRef(t, d, types.UnresolvedReference{
+		ID:            "ref-pkgmint-bare",
+		FromNodeID:    importerBNodeID,
+		ReferenceName: "@scope/pkg",
+		ReferenceKind: types.EdgeKindImports,
+		FilePath:      importerB,
+		Language:      types.LanguageTypeScript,
+	})
+
+	pipeline := resolution.NewPipeline(d)
+	if _, _, err := pipeline.ResolveAndPersistBatched(ctx, 5000, nil); err != nil {
+		t.Fatalf("ResolveAndPersistBatched: %v", err)
+	}
+
+	wantPkgID := packageNodeID("@scope/pkg")
+
+	edgesA := edgesWithKind(t, d, importerANodeID, types.EdgeKindImports)
+	if len(edgesA) != 1 || edgesA[0].Target != wantPkgID {
+		t.Fatalf("importerA imports edges = %+v, want exactly 1 targeting %q", edgesA, wantPkgID)
+	}
+	edgesB := edgesWithKind(t, d, importerBNodeID, types.EdgeKindImports)
+	if len(edgesB) != 1 || edgesB[0].Target != wantPkgID {
+		t.Fatalf("importerB imports edges = %+v, want exactly 1 targeting %q", edgesB, wantPkgID)
+	}
+
+	pkgNode, err := d.GetNode(ctx, wantPkgID)
+	if err != nil {
+		t.Fatalf("GetNode %s: %v", wantPkgID, err)
+	}
+	if pkgNode.Kind != types.NodeKindPackage {
+		t.Errorf("package node Kind = %q, want %q", pkgNode.Kind, types.NodeKindPackage)
+	}
+	if pkgNode.Name != "@scope/pkg" {
+		t.Errorf("package node Name = %q, want %q", pkgNode.Name, "@scope/pkg")
+	}
+	if pkgNode.QualifiedName != "@scope/pkg" {
+		t.Errorf("package node QualifiedName = %q, want %q", pkgNode.QualifiedName, "@scope/pkg")
+	}
+	if pkgNode.FilePath != "" {
+		t.Errorf("package node FilePath = %q, want empty", pkgNode.FilePath)
+	}
+	if pkgNode.StartLine != 0 || pkgNode.EndLine != 0 {
+		t.Errorf("package node lines = %d/%d, want 0/0", pkgNode.StartLine, pkgNode.EndLine)
+	}
+	if pkgNode.Language != types.LanguageUnknown {
+		t.Errorf("package node Language = %q, want %q", pkgNode.Language, types.LanguageUnknown)
+	}
+	if pkgNode.IsExported {
+		t.Errorf("package node IsExported = true, want false")
+	}
+
+	// Ref deletion (existing path) — both resolved refs must be gone.
+	if remaining := countUnresolvedRefs(t, d); remaining != 0 {
+		t.Errorf("expected 0 unresolved refs after mint, got %d", remaining)
+	}
+}
+
+// TestPackageMint_KnownPackageUpdatedAtStable proves idempotence: a package
+// already present in the DB at the start of a resolve run (warmed once from
+// GetNodesByKind, not the in-run mint set) is never re-upserted, even when a
+// new importer's edge targets it.
+//
+// WHY edge survival is the assertion, not just updated_at: UpsertNodeAt is
+// "INSERT OR REPLACE" — on a primary-key conflict SQLite deletes the
+// existing row and inserts the new one. With foreign_keys=ON (db.go), that
+// delete step cascades away every edge referencing the old row (edges.target
+// ON DELETE CASCADE, appendix A). So a re-upsert bug on an already-minted
+// package is not mere FTS5 churn — it silently deletes every importer's
+// edge into that package. The first importer's edge surviving run 2 is a
+// deterministic proxy for "the known-package guard held"; a wall-clock
+// updated_at comparison would not reliably catch the bug (two in-process
+// calls this close together can land in the same Unix second either way).
+func TestPackageMint_KnownPackageUpdatedAtStable(t *testing.T) {
+	d := openPipelineTestDB(t)
+	ctx := context.Background()
+
+	importerA := "src/a.ts"
+	importerANodeID := "file:" + importerA
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: importerANodeID, Kind: types.NodeKindFile, Name: "a.ts",
+		FilePath: importerA, Language: types.LanguageTypeScript,
+	}); err != nil {
+		t.Fatalf("UpsertNode importerA: %v", err)
+	}
+	seedUnresolvedRef(t, d, types.UnresolvedReference{
+		ID:            "ref-pkgmint-run1",
+		FromNodeID:    importerANodeID,
+		ReferenceName: "@hapi/hapi/lib/deep",
+		ReferenceKind: types.EdgeKindImports,
+		FilePath:      importerA,
+		Language:      types.LanguageTypeScript,
+	})
+
+	pipeline := resolution.NewPipeline(d)
+	if _, _, err := pipeline.ResolveAndPersistBatched(ctx, 5000, nil); err != nil {
+		t.Fatalf("ResolveAndPersistBatched run 1: %v", err)
+	}
+
+	pkgID := packageNodeID("@hapi/hapi")
+	before, err := d.GetNode(ctx, pkgID)
+	if err != nil {
+		t.Fatalf("GetNode after run 1: %v", err)
+	}
+	if edges := edgesWithKind(t, d, importerANodeID, types.EdgeKindImports); len(edges) != 1 {
+		t.Fatalf("expected 1 imports edge from importerA after run 1, got %d", len(edges))
+	}
+
+	// Second importer, second resolve run — the package is now "known" only
+	// via the DB warm-scan (GetNodesByKind), not any in-run state.
+	importerB := "src/b.ts"
+	importerBNodeID := "file:" + importerB
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: importerBNodeID, Kind: types.NodeKindFile, Name: "b.ts",
+		FilePath: importerB, Language: types.LanguageTypeScript,
+	}); err != nil {
+		t.Fatalf("UpsertNode importerB: %v", err)
+	}
+	seedUnresolvedRef(t, d, types.UnresolvedReference{
+		ID:            "ref-pkgmint-run2",
+		FromNodeID:    importerBNodeID,
+		ReferenceName: "@hapi/hapi",
+		ReferenceKind: types.EdgeKindImports,
+		FilePath:      importerB,
+		Language:      types.LanguageTypeScript,
+	})
+
+	if _, _, err := resolution.NewPipeline(d).ResolveAndPersistBatched(ctx, 5000, nil); err != nil {
+		t.Fatalf("ResolveAndPersistBatched run 2: %v", err)
+	}
+
+	after, err := d.GetNode(ctx, pkgID)
+	if err != nil {
+		t.Fatalf("GetNode after run 2: %v", err)
+	}
+	if after.UpdatedAt != before.UpdatedAt {
+		t.Errorf("package node updated_at changed across a known-package run: before=%q after=%q", before.UpdatedAt, after.UpdatedAt)
+	}
+
+	// Both runs' edges must be present — a re-upsert on the known package
+	// would have cascade-deleted importerA's edge (see WHY above); its
+	// survival proves the known-package guard held.
+	edgesA := edgesWithKind(t, d, importerANodeID, types.EdgeKindImports)
+	edgesB := edgesWithKind(t, d, importerBNodeID, types.EdgeKindImports)
+	if len(edgesA) != 1 || len(edgesB) != 1 {
+		t.Errorf("expected 1 imports edge from each importer, got A=%d B=%d", len(edgesA), len(edgesB))
+	}
+}
+
+// TestPackageMint_OrphanSweep proves the deletion round-trip: once a
+// package's last importer is removed (its file's nodes deleted, cascading
+// its edges), the next resolve run sweeps the now-orphaned package node —
+// even though that run has no new refs to process at all.
+func TestPackageMint_OrphanSweep(t *testing.T) {
+	d := openPipelineTestDB(t)
+	ctx := context.Background()
+
+	importerA := "src/a.ts"
+	importerANodeID := "file:" + importerA
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: importerANodeID, Kind: types.NodeKindFile, Name: "a.ts",
+		FilePath: importerA, Language: types.LanguageTypeScript,
+	}); err != nil {
+		t.Fatalf("UpsertNode importerA: %v", err)
+	}
+	seedUnresolvedRef(t, d, types.UnresolvedReference{
+		ID:            "ref-pkgmint-sweep",
+		FromNodeID:    importerANodeID,
+		ReferenceName: "lodash",
+		ReferenceKind: types.EdgeKindImports,
+		FilePath:      importerA,
+		Language:      types.LanguageTypeScript,
+	})
+
+	pipeline := resolution.NewPipeline(d)
+	if _, _, err := pipeline.ResolveAndPersistBatched(ctx, 5000, nil); err != nil {
+		t.Fatalf("ResolveAndPersistBatched mint run: %v", err)
+	}
+
+	pkgID := packageNodeID("lodash")
+	if _, err := d.GetNode(ctx, pkgID); err != nil {
+		t.Fatalf("package node missing after mint run: %v", err)
+	}
+
+	// Remove the last importer — cascades away its imports edge (FK CASCADE
+	// on edges.source), leaving the package node with zero inbound edges.
+	if err := d.DeleteNodesByFile(ctx, importerA); err != nil {
+		t.Fatalf("DeleteNodesByFile: %v", err)
+	}
+
+	if _, _, err := resolution.NewPipeline(d).ResolveAndPersistBatched(ctx, 5000, nil); err != nil {
+		t.Fatalf("ResolveAndPersistBatched sweep run: %v", err)
+	}
+
+	if _, err := d.GetNode(ctx, pkgID); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("expected package node to be swept (ErrNotFound), got node/err = %v", err)
+	}
+}
+
+// TestPackageMint_UnindexedAliasTargetMintsNothing is the regression pin: a
+// tsconfig-aliased specifier whose expanded target file is NOT in the DB
+// resolves ResolvedKindUnresolved (no PackageName — alias resolution never
+// classifies External), so it must mint no package node at all. Guards
+// against the mint loop firing on the deterministic node-id path (which does
+// not require an existing DB row) for anything other than a genuine
+// External-with-PackageName verdict.
+func TestPackageMint_UnindexedAliasTargetMintsNothing(t *testing.T) {
+	d := openPipelineTestDB(t)
+	ctx := context.Background()
+	projectRoot := t.TempDir()
+
+	tsconfigContent := `{"compilerOptions": {"baseUrl": ".", "paths": {"@app/*": ["src/*"]}}}`
+	if err := os.WriteFile(filepath.Join(projectRoot, "tsconfig.json"), []byte(tsconfigContent), 0o644); err != nil {
+		t.Fatalf("write tsconfig: %v", err)
+	}
+
+	importerPath := "src/app.ts"
+	importerNodeID := "file:" + importerPath
+	if err := d.UpsertNode(ctx, types.Node{
+		ID: importerNodeID, Kind: types.NodeKindFile, Name: "app.ts",
+		FilePath: importerPath, Language: types.LanguageTypeScript,
+	}); err != nil {
+		t.Fatalf("UpsertNode importer: %v", err)
+	}
+	seedUnresolvedRef(t, d, types.UnresolvedReference{
+		ID:            "ref-pkgmint-alias-miss",
+		FromNodeID:    importerNodeID,
+		ReferenceName: "@app/missing",
+		ReferenceKind: types.EdgeKindImports,
+		FilePath:      importerPath,
+		Language:      types.LanguageTypeScript,
+	})
+
+	pipeline := resolution.NewPipelineWithSeams(d, projectRoot, resolution.EmptyFrameworkRegistry, resolution.NoopSynthesizer{})
+	if _, _, err := pipeline.ResolveAndPersistBatched(ctx, 5000, nil); err != nil {
+		t.Fatalf("ResolveAndPersistBatched: %v", err)
+	}
+
+	packages, err := d.GetNodesByKind(ctx, types.NodeKindPackage)
+	if err != nil {
+		t.Fatalf("GetNodesByKind package: %v", err)
+	}
+	if len(packages) != 0 {
+		t.Errorf("expected no package nodes minted for an unindexed alias target, got %d: %+v", len(packages), packages)
+	}
+
+	// The ref stays unresolved (alias matched, target file not indexed).
+	if remaining := countUnresolvedRefs(t, d); remaining != 1 {
+		t.Errorf("expected the alias-miss ref to remain unresolved, got %d remaining", remaining)
 	}
 }
 

@@ -30,6 +30,11 @@ route-node id format + the 23-resolver registry).
 - [ ] Resolution links imports (relative + aliased + barrel re-export), names
       (`obj.method` + overloads), and frameworks; each detected framework emits
       `route` nodes on a fixture.
+- [ ] An external import with a derivable npm package name (JS-family only)
+      resolves to a synthesized `package:npm/<name>` node via an `imports` edge,
+      converging every importer of that package onto one shared hub — see
+      `docs/spec/code-intel-package-nodes.md` for the identity/normalization
+      rule and node-lifecycle contract.
 - [ ] Edge-kind promotions are correct (`extends`→`implements` when target is an
       interface; `calls`→`instantiates` when target is a class/struct).
 - [ ] Synthesized edges carry `provenance='heuristic'` + `synthesizedBy` and run
@@ -41,7 +46,7 @@ route-node id format + the 23-resolver registry).
 
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
-| 1 | **(master CP11) Import resolver + path aliases**: per-language extension resolution, relative/aliased/external classification, tsconfig JSONC alias load, re-export chain (depth 8), JVM/Go cross-package. | `internal/codeintel/resolution`; ref `src/resolution/import-resolver.ts`, `path-aliases.ts` (COPY); appendix F | Relative + aliased + barrel re-export imports resolve |
+| 1 | **(master CP11) Import resolver + path aliases**: per-language extension resolution, relative/aliased/external classification (an External verdict with a derivable npm package name, JS-family only, yields an `imports` edge to a synthesized `package:npm/<name>` node — appendix F cross-ref `docs/spec/code-intel-package-nodes.md`), tsconfig JSONC alias load, re-export chain (depth 8), JVM/Go cross-package. | `internal/codeintel/resolution`; ref `src/resolution/import-resolver.ts`, `path-aliases.ts` (COPY); appendix F | Relative + aliased + barrel re-export imports resolve |
 | 2 | **(master CP12) Name matcher**: filePath/qualified/methodCall/exact/fuzzy dispatch, `findBestMatch` scoring weights, C++/Java receiver inference. | `internal/codeintel/resolution`; ref `src/resolution/name-matcher.ts` (COPY weights); appendix F | `obj.method` and overloaded names resolve to the right def |
 | 3 | **(master CP13) Resolver pipeline**: `resolveOne` ordered dispatch, built-in skip sets, pre-filter, edge creation + kind promotion (`extends`→`implements`, `calls`→`instantiates`), batched persist (re-read-at-offset-0-after-delete loop). | `internal/codeintel/resolution`; ref `src/resolution/index.ts` (COPY order); appendix F | Unresolved refs become edges; promotions correct; batch loop terminates |
 | 4 | **(master CP14) Framework iface + registry + Express**: `detect`/`resolve`/`extract`/`postExtract`/`claimsReference`, route-node id format, registry. | `internal/codeintel/resolution/frameworks`; ref `src/resolution/frameworks/{index,express}.ts` (COPY template); appendix H | Express routes become `route` nodes + handler `references` edges |
@@ -427,3 +432,23 @@ missed. After: rw-actix 0→20. Only the Actix resolver changed.
 
 **Known simplification:** `web::scope(...)` path prefixes are not composed onto the
 route paths (same class as the Rails `scope` follow-up F-76).
+
+### 2026-08-08 — External classification now yields a package-node target
+
+**What changed:** CP11's import classification section and a new success
+criterion now describe the current contract: an External verdict with a
+derivable npm package name (JS-family languages only) resolves to a
+synthesized `package:npm/<name>` node via an `imports` edge, instead of
+terminating with no target. Every importer of the same package converges on
+one shared hub node. The identity/normalization rule (npm scoped-package and
+`node:`-prefix handling), minting mechanics, and orphan-sweep lifecycle are
+owned by `docs/spec/code-intel-package-nodes.md` — this spec's CP11 row and
+success criteria only cross-reference it.
+
+**Why:** `docs/spec/code-intel-package-nodes.md` (CP1/CP2 implemented) — every
+external import node used to keep only its inbound `contains` edge, and its
+unresolved ref was re-scanned by every resolve run indefinitely (refs are
+only deleted when they yield an edge).
+
+**Superseded:** the prior contract — an External verdict produced no target
+and `resolveOne` skipped at Step 7 with zero candidates.

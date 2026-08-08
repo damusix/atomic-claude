@@ -140,6 +140,19 @@ docs/
 
 **Superseded:** the ~20k approximate edge figure.
 
+### 2026-08-08 — `package` kind mapped into the import-export group
+
+**What changed:** `code-graph.js`'s kind→group taxonomy (SC5) maps the new
+`package` NodeKind (`docs/spec/code-intel-package-nodes.md` — a synthesized
+hub for an external import specifier) to the existing `import-export` group,
+alongside `import`/`export`/`route`. SC5's group count is unchanged at ~8; a
+kind addition here is a taxonomy-table entry, not a new visual group.
+
+**Why:** `docs/spec/code-intel-package-nodes.md` — `AllNodeKinds` grew from 38
+to 39 entries; every kind must resolve to a defined group (a kind absent from
+the table falls through to `other`, which would misplace `package` nodes
+outside their natural linkage cluster).
+
 ## Implementation log
 
 Loop ran 2026-07-07..08 under /autopilot (8 iterations, 7 checkpoints, every reviewer finding closed in-iteration).

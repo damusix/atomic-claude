@@ -20,6 +20,15 @@ import (
 //
 //	id = "file:" + filePath
 //
+// Exception for package nodes (kind == "package", docs/design/
+// code-intel-package-nodes.md): a synthesized shared hub keyed by ecosystem +
+// normalized name, not by file/line — a package has neither.
+//
+//	id = "package:npm/" + name
+//
+// v1 hardcodes the "npm/" ecosystem segment (JS-family only, per the design's
+// non-goals); a future ecosystem needs its own segment, not a parameter here.
+//
 // line is 1-based. Edges reference ids by value — any divergence breaks every
 // edge (risk R3). The golden-vector test in helpers_test.go is the CI gate.
 func generateNodeID(filePath, kind, name string, line int) string {
@@ -32,6 +41,9 @@ func generateNodeID(filePath, kind, name string, line int) string {
 func GenerateNodeID(filePath, kind, name string, line int) string {
 	if kind == "file" {
 		return "file:" + filePath
+	}
+	if kind == "package" {
+		return "package:npm/" + name
 	}
 	input := fmt.Sprintf("%s:%s:%s:%d", filePath, kind, name, line)
 	sum := sha256.Sum256([]byte(input))

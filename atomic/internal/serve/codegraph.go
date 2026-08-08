@@ -147,6 +147,8 @@ func (h *codeGraphHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	edges = dedupParallelEdges(edges)
+
 	resp := graphDataResponse{
 		Fingerprint: graphFingerprint(nodes, edges),
 		Nodes:       make([]graphNode, 0, len(nodes)),
@@ -174,6 +176,26 @@ func (h *codeGraphHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(resp) // headers already sent on error; nothing to recover
+}
+
+// dedupParallelEdges collapses edges sharing the same (source, target, kind)
+// triple to a single edge, preserving first-seen order. The edges table
+// stores one edge per call site (line/col granularity — correct data at the
+// DB layer), so a helper called N times from the same caller yields N
+// identical rows; the cosmos client would otherwise draw N stacked identical
+// links. This is a display-layer dedup only — nothing upstream changes.
+func dedupParallelEdges(edges []types.Edge) []types.Edge {
+	seen := make(map[string]struct{}, len(edges))
+	out := make([]types.Edge, 0, len(edges))
+	for _, e := range edges {
+		key := e.Source + "\x00" + e.Target + "\x00" + string(e.Kind)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, e)
+	}
+	return out
 }
 
 // graphFingerprint derives a content-sensitive fingerprint from the actual

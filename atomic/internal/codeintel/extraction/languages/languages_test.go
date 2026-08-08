@@ -297,6 +297,57 @@ func TestTypeScript_NodeCountStable(t *testing.T) {
 	}
 }
 
+// TestTypeScript_PackageImportKeepsFullSpecifierName asserts a scoped npm
+// package import ("@hapi/hapi") keeps its full specifier as the import
+// node's name, instead of collapsing to the last "/"-segment ("hapi") and
+// losing the package identity — three "@noormdev/sdk" imports used to
+// render as three indistinguishable "sdk" nodes.
+func TestTypeScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
+	if !ok {
+		t.Fatal("TypeScript not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	src := "import { Server } from '@hapi/hapi';\n"
+	result := e.Extract(context.Background(), "src/app.ts", src, types.LanguageTypeScript)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	imp := findNode(result.Nodes, types.NodeKindImport, "hapi")
+	if imp == nil {
+		t.Fatalf("import node not found; nodes: %s", nodeKindList(result.Nodes))
+	}
+	if imp.Name != "@hapi/hapi" {
+		t.Errorf("import node Name = %q, want %q (full specifier, not basename)", imp.Name, "@hapi/hapi")
+	}
+}
+
+// TestTypeScript_RelativeImportUsesBasenameName asserts a relative import
+// still yields the basename as the import node's name — relative imports
+// resolve to a real file node via the imports edge, so the short label
+// stays less noisy.
+func TestTypeScript_RelativeImportUsesBasenameName(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
+	if !ok {
+		t.Fatal("TypeScript not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	src := "import { x } from './utils/context.ts';\n"
+	result := e.Extract(context.Background(), "src/app.ts", src, types.LanguageTypeScript)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	imp := findNode(result.Nodes, types.NodeKindImport, "context.ts")
+	if imp == nil {
+		t.Fatalf("import node not found; nodes: %s", nodeKindList(result.Nodes))
+	}
+	if imp.Name != "context.ts" {
+		t.Errorf("import node Name = %q, want %q (basename for relative import)", imp.Name, "context.ts")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // JavaScript
 // ---------------------------------------------------------------------------
@@ -427,6 +478,52 @@ func TestJavaScript_NodeCountStable(t *testing.T) {
 	r2 := e.Extract(ctx, jsFixturePath, jsFixture, types.LanguageJavaScript)
 	if len(r1.Nodes) != len(r2.Nodes) {
 		t.Errorf("node count unstable: first=%d second=%d", len(r1.Nodes), len(r2.Nodes))
+	}
+}
+
+// TestJavaScript_PackageImportKeepsFullSpecifierName is the JavaScript
+// counterpart of TestTypeScript_PackageImportKeepsFullSpecifierName.
+func TestJavaScript_PackageImportKeepsFullSpecifierName(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
+	if !ok {
+		t.Fatal("JavaScript not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	src := "import { Server } from '@hapi/hapi';\n"
+	result := e.Extract(context.Background(), "src/app.js", src, types.LanguageJavaScript)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	imp := findNode(result.Nodes, types.NodeKindImport, "hapi")
+	if imp == nil {
+		t.Fatalf("import node not found; nodes: %s", nodeKindList(result.Nodes))
+	}
+	if imp.Name != "@hapi/hapi" {
+		t.Errorf("import node Name = %q, want %q (full specifier, not basename)", imp.Name, "@hapi/hapi")
+	}
+}
+
+// TestJavaScript_RelativeImportUsesBasenameName is the JavaScript
+// counterpart of TestTypeScript_RelativeImportUsesBasenameName.
+func TestJavaScript_RelativeImportUsesBasenameName(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
+	if !ok {
+		t.Fatal("JavaScript not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	src := "import { x } from './utils/context.js';\n"
+	result := e.Extract(context.Background(), "src/app.js", src, types.LanguageJavaScript)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	imp := findNode(result.Nodes, types.NodeKindImport, "context.js")
+	if imp == nil {
+		t.Fatalf("import node not found; nodes: %s", nodeKindList(result.Nodes))
+	}
+	if imp.Name != "context.js" {
+		t.Errorf("import node Name = %q, want %q (basename for relative import)", imp.Name, "context.js")
 	}
 }
 
@@ -1031,5 +1128,182 @@ func TestJavaScript_ExportDefault_IsExported(t *testing.T) {
 		if n.IsExported != tc.want {
 			t.Errorf("JS %s %s: IsExported=%v, want %v", tc.kind, tc.name, n.IsExported, tc.want)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FunctionScopeTypes — kept-cases (constructs that must NOT be suppressed)
+// ---------------------------------------------------------------------------
+
+// TestTypeScript_NamespaceConstKept asserts a const declared inside a
+// "namespace N { ... }" block still mints a variable node.
+// WHY: internal_module (the namespace grammar node) is not a FunctionScopeTypes
+// member — it is not a function scope. If the scope-suppression mechanism ever
+// widened its net to cover it, namespace-scoped state would silently vanish
+// from the graph.
+func TestTypeScript_NamespaceConstKept(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
+	if !ok {
+		t.Fatal("TypeScript not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	const src = `namespace N { const X = 1; }`
+	result := e.Extract(context.Background(), "src/ns.ts", src, types.LanguageTypeScript)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	if n := findNode(result.Nodes, types.NodeKindVariable, "X"); n == nil {
+		t.Errorf("namespace-scoped const X not found as a variable node; nodes: %s", nodeKindList(result.Nodes))
+	}
+}
+
+// TestTypeScript_ForOfBindingNeverMinted asserts a for-of loop binding never
+// produces a variable node — a behavioral pin, not just a probe note.
+// WHY: "for (const x of y)" parses as for_in_statement with a bare identifier
+// binding child (field "left") — it is never wrapped in a lexical_declaration,
+// so VariableTypes never matches it. This holds both before and after
+// FunctionScopeTypes landed: the binding was never reachable via
+// extractSimpleNode in either version, so this pins a behavior that must
+// never regress, not a case the checkpoint's suppression logic newly affects.
+func TestTypeScript_ForOfBindingNeverMinted(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
+	if !ok {
+		t.Fatal("TypeScript not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	const src = `for (const x of y) { console.log(x); }`
+	result := e.Extract(context.Background(), "src/forof.ts", src, types.LanguageTypeScript)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	if n := findNode(result.Nodes, types.NodeKindVariable, "x"); n != nil {
+		t.Errorf("for-of binding \"x\" minted as a variable node (want: never reachable via VariableTypes); nodes: %s", nodeKindList(result.Nodes))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TSX — FunctionScopeTypes inheritance (no tsx.go code change expected)
+// ---------------------------------------------------------------------------
+
+// TestTSX_InheritsFunctionScopeTypes asserts a callback-scoped const inside a
+// .tsx file is suppressed the same as .ts, proving TSXExtractor's
+// "cfg := TypeScriptExtractor()" copy-then-extend picks up FunctionScopeTypes
+// automatically — no tsx.go edit was needed for this checkpoint. It also
+// asserts a JSX ref inside a suppressed declaration's initializer is still
+// harvested — "walk continues either way" applies to JSXElementTypes too, not
+// only calls.
+func TestTSX_InheritsFunctionScopeTypes(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
+	if !ok {
+		t.Fatal("TSX not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	const src = `export const moduleConst = 1;
+
+items.forEach((item) => {
+  const inCallback = item;
+  const suppressedWithJSX = <Widget item={item} />;
+});
+`
+	result := e.Extract(context.Background(), "src/widget.tsx", src, types.LanguageTSX)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	if n := findNode(result.Nodes, types.NodeKindVariable, "moduleConst"); n == nil {
+		t.Errorf("moduleConst not found; nodes: %s", nodeKindList(result.Nodes))
+	}
+	if n := findNode(result.Nodes, types.NodeKindVariable, "inCallback"); n != nil {
+		t.Errorf("inCallback minted in .tsx (want suppressed — proves FunctionScopeTypes did NOT inherit); nodes: %s", nodeKindList(result.Nodes))
+	}
+	if n := findNode(result.Nodes, types.NodeKindVariable, "suppressedWithJSX"); n != nil {
+		t.Errorf("suppressedWithJSX minted (want suppressed); nodes: %s", nodeKindList(result.Nodes))
+	}
+
+	foundWidget := false
+	for _, r := range result.UnresolvedReferences {
+		if r.ReferenceKind == types.EdgeKindReferences && strings.Contains(r.ReferenceName, "Widget") {
+			foundWidget = true
+		}
+	}
+	if !foundWidget {
+		t.Errorf("expected a references ref for <Widget/> inside the suppressed declaration's initializer; refs: %v", result.UnresolvedReferences)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// JavaScript — FunctionScopeTypes parity with TypeScript
+// ---------------------------------------------------------------------------
+
+// TestJavaScript_FunctionScopeSuppression is the JS counterpart of
+// TestExtractor_FunctionScopeSuppression_TS in extractor_test.go: module-scope
+// const kept, arrow-callback const dropped, initializer call still harvested.
+func TestJavaScript_FunctionScopeSuppression(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageJavaScript)
+	if !ok {
+		t.Fatal("JavaScript not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	const src = `export const moduleConst = 1;
+
+items.forEach((item) => {
+  const inCallback = item;
+  helperCall(inCallback);
+});
+`
+	result := e.Extract(context.Background(), "src/scope.js", src, types.LanguageJavaScript)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	if n := findNode(result.Nodes, types.NodeKindVariable, "moduleConst"); n == nil {
+		t.Errorf("moduleConst not found; nodes: %s", nodeKindList(result.Nodes))
+	}
+	if n := findNode(result.Nodes, types.NodeKindVariable, "inCallback"); n != nil {
+		t.Errorf("inCallback minted (want suppressed — scopeDepth 1); nodes: %s", nodeKindList(result.Nodes))
+	}
+
+	found := false
+	for _, r := range result.UnresolvedReferences {
+		if r.ReferenceKind == types.EdgeKindCalls && r.ReferenceName == "helperCall" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected calls ref \"helperCall\" from the suppressed declaration's body; refs: %v", result.UnresolvedReferences)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Python — byte-identical output (no VariableTypes config; the new gating is
+// structurally unreachable for this language).
+// ---------------------------------------------------------------------------
+
+// TestPython_ByteIdenticalAfterScopeSuppression pins the existing pyFixture's
+// exact node/edge/ref counts. Python has no VariableTypes config, so
+// extractSimpleNode is never called with NodeKindVariable for Python — the
+// FunctionScopeTypes/identifier-guard gating added for TS/JS this checkpoint
+// cannot affect it. Counts verified identical against pre-fix extractor.go
+// (stash-and-rerun) before this test was written.
+func TestPython_ByteIdenticalAfterScopeSuppression(t *testing.T) {
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePython)
+	if !ok {
+		t.Fatal("Python not registered")
+	}
+	e := newExtractor(t, extLang, cfg)
+	result := e.Extract(context.Background(), pyFixturePath, pyFixture, types.LanguagePython)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+	if len(result.Nodes) != 12 {
+		t.Errorf("Python node count = %d, want 12 (byte-identical to pre-change)", len(result.Nodes))
+	}
+	if len(result.Edges) != 11 {
+		t.Errorf("Python edge count = %d, want 11 (byte-identical to pre-change)", len(result.Edges))
+	}
+	if len(result.UnresolvedReferences) != 7 {
+		t.Errorf("Python unresolved-ref count = %d, want 7 (byte-identical to pre-change)", len(result.UnresolvedReferences))
 	}
 }
