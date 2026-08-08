@@ -18,6 +18,7 @@ package indexer_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -480,6 +481,300 @@ func Hello() {}
 		if !ids1[id] {
 			t.Errorf("dedup: extra node %s appeared after unchanged re-sync", id)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TestExtractorVersion* — extractor_version self-healing migration (CP2)
+// ---------------------------------------------------------------------------
+//
+// project_metadata.extractor_version is a hand-bumped marker that changes
+// whenever extraction semantics change under extraction/. IndexAll compares
+// it against the stored value on every run: a mismatch (or an absent key on
+// an index that already has files) forces one full re-extraction pass —
+// bypassing the content-hash dedup skip — so already-indexed files self-heal
+// onto the new semantics. A matching version keeps the existing incremental
+// (dedup) behavior; a brand-new/empty index just stamps the key.
+//
+// Observability, without depending on clock resolution: a forced full pass
+// runs storeExtractionResult's delete-then-reinsert for the whole file, so a
+// node deleted directly from the DB (bypassing extraction) reappears only if
+// the file was actually re-extracted. The dedup skip returns before touching
+// the DB at all, so a deleted node stays deleted under incremental behavior.
+
+// metadataValue reads one project_metadata row directly, mirroring how the
+// production code reaches the table (db.DB() — no dedicated accessor).
+func metadataValue(t *testing.T, ctx context.Context, database *db.DB, key string) (string, bool) {
+	t.Helper()
+	var value string
+	err := database.DB().QueryRowContext(ctx,
+		`SELECT value FROM project_metadata WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false
+	}
+	if err != nil {
+		t.Fatalf("query project_metadata %s: %v", key, err)
+	}
+	return value, true
+}
+
+// deleteNonFileNode picks a non-file node for path and deletes it directly
+// from the nodes table, returning its id. Used to prove whether a run
+// actually re-extracted the file (id reappears) or skipped it via dedup (id
+// stays gone).
+func deleteNonFileNode(t *testing.T, ctx context.Context, database *db.DB, path string) string {
+	t.Helper()
+	nodes, err := database.GetNodesInFile(ctx, path)
+	if err != nil {
+		t.Fatalf("GetNodesInFile(%q): %v", path, err)
+	}
+	var victimID string
+	for _, n := range nodes {
+		if n.Kind != types.NodeKindFile {
+			victimID = n.ID
+			break
+		}
+	}
+	if victimID == "" {
+		t.Fatalf("GetNodesInFile(%q): no non-file node to delete (nodes=%v)", path, nodeKinds(nodes))
+	}
+	if _, err := database.DB().ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, victimID); err != nil {
+		t.Fatalf("manual delete node %s: %v", victimID, err)
+	}
+	return victimID
+}
+
+// nodeIDPresent reports whether id is among path's currently stored nodes.
+func nodeIDPresent(t *testing.T, ctx context.Context, database *db.DB, path, id string) bool {
+	t.Helper()
+	nodes, err := database.GetNodesInFile(ctx, path)
+	if err != nil {
+		t.Fatalf("GetNodesInFile(%q): %v", path, err)
+	}
+	for _, n := range nodes {
+		if n.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func indexHelloGoFixture(t *testing.T, ctx context.Context, database *db.DB, pool *extraction.Pool, dir string) *indexer.Orchestrator {
+	t.Helper()
+	writeFile(t, dir, "hello.go", `package main
+
+func Hello() {}
+`)
+	gitAdd(t, dir, ".")
+	gitCommit(t, dir, "init")
+
+	orch := indexer.NewOrchestrator(database, pool)
+	if err := orch.IndexAll(ctx, dir); err != nil {
+		t.Fatalf("IndexAll (setup): %v", err)
+	}
+	return orch
+}
+
+// TestExtractorVersionMismatchForcesFullReindex is the failing-first test:
+// before the migration mechanism exists, a stale stamped extractor_version
+// has no effect — the content-hash dedup skip still fires for an unchanged
+// file, and the manually deleted node never comes back.
+func TestExtractorVersionMismatchForcesFullReindex(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	orch := indexHelloGoFixture(t, ctx, database, pool, dir)
+
+	if _, ok := metadataValue(t, ctx, database, "extractor_version"); !ok {
+		t.Fatalf("extractor_version not stamped after first index")
+	}
+
+	victimID := deleteNonFileNode(t, ctx, database, "hello.go")
+
+	// Simulate an index built under stale extraction semantics.
+	if _, err := database.DB().ExecContext(ctx,
+		`UPDATE project_metadata SET value = 'stale' WHERE key = 'extractor_version'`); err != nil {
+		t.Fatalf("downgrade extractor_version: %v", err)
+	}
+
+	// Touch nothing on disk. The mismatch alone must force a full pass.
+	if err := orch.IndexAll(ctx, dir); err != nil {
+		t.Fatalf("IndexAll (migration run): %v", err)
+	}
+
+	if !nodeIDPresent(t, ctx, database, "hello.go", victimID) {
+		t.Errorf("extractor_version mismatch did not force a full re-extraction: manually deleted node %s was not restored", victimID)
+	}
+
+	value, ok := metadataValue(t, ctx, database, "extractor_version")
+	if !ok {
+		t.Fatalf("extractor_version key not stamped after migration run")
+	}
+	if value == "stale" {
+		t.Errorf("extractor_version key not rewritten after migration run")
+	}
+}
+
+// TestExtractorVersionMatchKeepsIncremental pins the existing incremental
+// (content-hash dedup) behavior: when the stamped version already matches,
+// IndexAll must not force re-extraction of unchanged files.
+func TestExtractorVersionMatchKeepsIncremental(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	orch := indexHelloGoFixture(t, ctx, database, pool, dir)
+
+	valueBefore, ok := metadataValue(t, ctx, database, "extractor_version")
+	if !ok {
+		t.Fatalf("extractor_version not stamped after first index")
+	}
+
+	victimID := deleteNonFileNode(t, ctx, database, "hello.go")
+
+	// Touch nothing on disk, version unchanged. The dedup skip must still
+	// fire: the manually deleted node stays deleted.
+	if err := orch.IndexAll(ctx, dir); err != nil {
+		t.Fatalf("IndexAll (incremental run): %v", err)
+	}
+
+	if nodeIDPresent(t, ctx, database, "hello.go", victimID) {
+		t.Errorf("matching extractor_version should keep the dedup skip: manually deleted node %s was restored", victimID)
+	}
+
+	valueAfter, _ := metadataValue(t, ctx, database, "extractor_version")
+	if valueAfter != valueBefore {
+		t.Errorf("extractor_version rewritten on a matching run: before=%q after=%q", valueBefore, valueAfter)
+	}
+}
+
+// TestExtractorVersionStampedOnFreshIndex covers a brand-new index: no prior
+// extractor_version key, no prior file rows. It must stamp the key without
+// needing a forced full pass (every file is new, not skipped, on a first run).
+func TestExtractorVersionStampedOnFreshIndex(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	writeFile(t, dir, "hello.go", `package main
+
+func Hello() {}
+`)
+	gitAdd(t, dir, ".")
+	gitCommit(t, dir, "init")
+
+	if _, ok := metadataValue(t, ctx, database, "extractor_version"); ok {
+		t.Fatalf("brand-new DB already has an extractor_version key")
+	}
+
+	orch := indexer.NewOrchestrator(database, pool)
+	if err := orch.IndexAll(ctx, dir); err != nil {
+		t.Fatalf("IndexAll: %v", err)
+	}
+
+	value, ok := metadataValue(t, ctx, database, "extractor_version")
+	if !ok {
+		t.Fatalf("extractor_version not stamped after first-ever index")
+	}
+	if value == "" {
+		t.Errorf("extractor_version stamped empty")
+	}
+
+	nodes, err := database.GetNodesInFile(ctx, "hello.go")
+	if err != nil {
+		t.Fatalf("GetNodesInFile: %v", err)
+	}
+	if len(nodes) < 2 {
+		t.Errorf("fresh index: expected at least 2 nodes (file + Hello func), got %d", len(nodes))
+	}
+}
+
+// TestSyncExtractorVersionMismatchForcesFullReindex is Sync's counterpart to
+// TestExtractorVersionMismatchForcesFullReindex: warm repos only ever run
+// Sync in practice (ship verbs call sync; index is cold-start-only), and the
+// spec's "Flow: self-healing migration" names both `atomic code index` and
+// `atomic code sync` — so a stale stamped version must escalate a Sync run
+// to a full re-extraction pass too, not just IndexAll.
+func TestSyncExtractorVersionMismatchForcesFullReindex(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	// Warm index via IndexAll (as a real repo would be cold-started).
+	orch := indexHelloGoFixture(t, ctx, database, pool, dir)
+
+	if _, ok := metadataValue(t, ctx, database, "extractor_version"); !ok {
+		t.Fatalf("extractor_version not stamped after first index")
+	}
+
+	victimID := deleteNonFileNode(t, ctx, database, "hello.go")
+
+	// Simulate an index built under stale extraction semantics.
+	if _, err := database.DB().ExecContext(ctx,
+		`UPDATE project_metadata SET value = 'stale' WHERE key = 'extractor_version'`); err != nil {
+		t.Fatalf("downgrade extractor_version: %v", err)
+	}
+
+	// Touch nothing on disk. Sync (not IndexAll) must still force a full pass.
+	if err := orch.Sync(ctx, dir); err != nil {
+		t.Fatalf("Sync (migration run): %v", err)
+	}
+
+	if !nodeIDPresent(t, ctx, database, "hello.go", victimID) {
+		t.Errorf("Sync: extractor_version mismatch did not force a full re-extraction: manually deleted node %s was not restored", victimID)
+	}
+
+	value, ok := metadataValue(t, ctx, database, "extractor_version")
+	if !ok {
+		t.Fatalf("extractor_version key not stamped after Sync migration run")
+	}
+	if value == "stale" {
+		t.Errorf("extractor_version key not rewritten after Sync migration run")
+	}
+}
+
+// TestSyncExtractorVersionMatchKeepsIncremental pins Sync's normal
+// incremental (content-hash dedup) behavior when the stamped version already
+// matches — a mismatch check must not force re-extraction of unchanged files
+// on every warm Sync.
+func TestSyncExtractorVersionMatchKeepsIncremental(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t)
+	database := openTestDB(t)
+	dir := t.TempDir()
+	initGitRepo(t, dir)
+
+	orch := indexHelloGoFixture(t, ctx, database, pool, dir)
+
+	valueBefore, ok := metadataValue(t, ctx, database, "extractor_version")
+	if !ok {
+		t.Fatalf("extractor_version not stamped after first index")
+	}
+
+	victimID := deleteNonFileNode(t, ctx, database, "hello.go")
+
+	// Touch nothing on disk, version unchanged. Sync's dedup skip must still
+	// fire: the manually deleted node stays deleted.
+	if err := orch.Sync(ctx, dir); err != nil {
+		t.Fatalf("Sync (incremental run): %v", err)
+	}
+
+	if nodeIDPresent(t, ctx, database, "hello.go", victimID) {
+		t.Errorf("Sync: matching extractor_version should keep the dedup skip: manually deleted node %s was restored", victimID)
+	}
+
+	valueAfter, _ := metadataValue(t, ctx, database, "extractor_version")
+	if valueAfter != valueBefore {
+		t.Errorf("Sync: extractor_version rewritten on a matching run: before=%q after=%q", valueBefore, valueAfter)
 	}
 }
 

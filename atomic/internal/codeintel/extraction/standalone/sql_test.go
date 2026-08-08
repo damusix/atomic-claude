@@ -4601,3 +4601,162 @@ func cp4RefNames(refs []types.UnresolvedReference) []string {
 	}
 	return names
 }
+
+// ---------------------------------------------------------------------------
+// FK column-level reference edges (iteration 2)
+// ---------------------------------------------------------------------------
+
+// findSQLNodeByQName returns the first node of the given kind whose
+// QualifiedName is an exact (case-insensitive) match. Column names collide
+// across tables (e.g. "parent_no" in both child and parent), so identity
+// assertions here must key on the qualified name, not the bare name.
+func findSQLNodeByQName(nodes []types.Node, kind types.NodeKind, qname string) *types.Node {
+	lower := strings.ToLower(qname)
+	for i := range nodes {
+		if nodes[i].Kind == kind && strings.ToLower(nodes[i].QualifiedName) == lower {
+			return &nodes[i]
+		}
+	}
+	return nil
+}
+
+// hasUnresolvedRefFrom returns true if a references-kind UnresolvedReference
+// with the given owner node ID and target name exists.
+func hasUnresolvedRefFrom(refs []types.UnresolvedReference, fromNodeID, name string) bool {
+	for _, r := range refs {
+		if r.FromNodeID == fromNodeID && r.ReferenceName == name && r.ReferenceKind == types.EdgeKindReferences {
+			return true
+		}
+	}
+	return false
+}
+
+const fkColumnFixture = `
+CREATE TABLE child (
+    id         INT NOT NULL,
+    parent_no  INT NOT NULL,
+    CONSTRAINT fk FOREIGN KEY (parent_no) REFERENCES parent (parent_no)
+);
+
+CREATE TABLE inline_child (
+    id         INT NOT NULL,
+    parent_no  INT REFERENCES parent (parent_no)
+);
+
+CREATE TABLE implicit_child (
+    id      INT NOT NULL,
+    fk_col  INT,
+    FOREIGN KEY (fk_col) REFERENCES parent
+);
+
+CREATE TABLE composite_child (
+    a  INT NOT NULL,
+    b  INT NOT NULL,
+    FOREIGN KEY (a, b) REFERENCES composite_parent (x, y)
+);
+`
+
+// TestFKColumnLevelReferences covers the four FK column-linkage forms from
+// the iteration-2 brief: table-level FK with an explicit column list, inline
+// column FK, table-level FK with no target column list (implicit PK), and a
+// composite (multi-column) FK paired positionally. Each case asserts the
+// references edge originates from the LOCAL COLUMN node (not the table node),
+// which is the gap this iteration closes — column nodes previously had no
+// outgoing edges of their own for FK linkage.
+func TestFKColumnLevelReferences(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/fk_columns.sql", fkColumnFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	nodes := result.Nodes
+	refs := result.UnresolvedReferences
+
+	// Table-level FK with explicit column list: child.parent_no -> parent.parent_no.
+	childCol := findSQLNodeByQName(nodes, types.NodeKindColumn, "child.parent_no")
+	if childCol == nil {
+		t.Fatal("expected column node 'child.parent_no'")
+	}
+	if !hasUnresolvedRefFrom(refs, childCol.ID, "parent.parent_no") {
+		t.Errorf("expected references edge from child.parent_no's column node to 'parent.parent_no'; got: %v", cp4RefNames(refs))
+	}
+
+	// Inline column FK: inline_child.parent_no -> parent.parent_no.
+	inlineCol := findSQLNodeByQName(nodes, types.NodeKindColumn, "inline_child.parent_no")
+	if inlineCol == nil {
+		t.Fatal("expected column node 'inline_child.parent_no'")
+	}
+	if !hasUnresolvedRefFrom(refs, inlineCol.ID, "parent.parent_no") {
+		t.Errorf("expected references edge from inline_child.parent_no's column node to 'parent.parent_no'; got: %v", cp4RefNames(refs))
+	}
+
+	// No target column list (implicit PK reference): implicit_child.fk_col -> bare "parent".
+	implicitCol := findSQLNodeByQName(nodes, types.NodeKindColumn, "implicit_child.fk_col")
+	if implicitCol == nil {
+		t.Fatal("expected column node 'implicit_child.fk_col'")
+	}
+	if !hasUnresolvedRefFrom(refs, implicitCol.ID, "parent") {
+		t.Errorf("expected references edge from implicit_child.fk_col's column node to bare 'parent'; got: %v", cp4RefNames(refs))
+	}
+
+	// Composite FK pairs positionally: a -> composite_parent.x, b -> composite_parent.y.
+	colA := findSQLNodeByQName(nodes, types.NodeKindColumn, "composite_child.a")
+	colB := findSQLNodeByQName(nodes, types.NodeKindColumn, "composite_child.b")
+	if colA == nil || colB == nil {
+		t.Fatal("expected column nodes 'composite_child.a' and 'composite_child.b'")
+	}
+	if !hasUnresolvedRefFrom(refs, colA.ID, "composite_parent.x") {
+		t.Errorf("expected references edge from composite_child.a's column node to 'composite_parent.x'; got: %v", cp4RefNames(refs))
+	}
+	if !hasUnresolvedRefFrom(refs, colB.ID, "composite_parent.y") {
+		t.Errorf("expected references edge from composite_child.b's column node to 'composite_parent.y'; got: %v", cp4RefNames(refs))
+	}
+
+	// The existing table→table CP4 edge must be unchanged: child (table) -> parent.
+	childTable := findSQLNodeByQName(nodes, types.NodeKindTable, "child")
+	if childTable == nil {
+		t.Fatal("expected table node 'child'")
+	}
+	if !hasUnresolvedRefFrom(refs, childTable.ID, "parent") {
+		t.Errorf("expected pre-existing table->table references edge from 'child' table node to 'parent'; got: %v", cp4RefNames(refs))
+	}
+}
+
+// fkColumnMismatchFixture exercises the malformed-DDL tolerance rule: a
+// composite FK whose local/target column-list lengths differ must pair up to
+// the shorter list and silently ignore the excess, without erroring the file.
+const fkColumnMismatchFixture = `
+CREATE TABLE mismatch_child (
+    a  INT NOT NULL,
+    b  INT NOT NULL,
+    c  INT NOT NULL,
+    FOREIGN KEY (a, b, c) REFERENCES mismatch_parent (x)
+);
+`
+
+func TestFKColumnLevelMismatchedListsIgnoreExcess(t *testing.T) {
+	ext := newSQL()
+	result, err := ext.Extract("/db/fk_mismatch.sql", fkColumnMismatchFixture)
+	if err != nil {
+		t.Fatalf("Extract: %v", err)
+	}
+	nodes := result.Nodes
+	refs := result.UnresolvedReferences
+
+	colA := findSQLNodeByQName(nodes, types.NodeKindColumn, "mismatch_child.a")
+	colB := findSQLNodeByQName(nodes, types.NodeKindColumn, "mismatch_child.b")
+	colC := findSQLNodeByQName(nodes, types.NodeKindColumn, "mismatch_child.c")
+	if colA == nil || colB == nil || colC == nil {
+		t.Fatal("expected column nodes 'a', 'b', 'c' on mismatch_child")
+	}
+
+	if !hasUnresolvedRefFrom(refs, colA.ID, "mismatch_parent.x") {
+		t.Errorf("expected references edge from mismatch_child.a to 'mismatch_parent.x'; got: %v", cp4RefNames(refs))
+	}
+	if hasUnresolvedRefFrom(refs, colB.ID, "mismatch_parent.x") || countUnresolvedRefs(refs, "mismatch_parent.y") > 0 {
+		t.Errorf("excess local column 'b' must not produce a column-level FK ref; got: %v", cp4RefNames(refs))
+	}
+	if hasUnresolvedRefFrom(refs, colC.ID, "mismatch_parent") {
+		t.Errorf("excess local column 'c' must not produce a column-level FK ref; got: %v", cp4RefNames(refs))
+	}
+}

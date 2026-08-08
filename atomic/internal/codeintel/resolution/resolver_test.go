@@ -565,6 +565,201 @@ func TestResolver_ReExportCycleMultiNode(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Test: cache-busted specifier (query string / fragment) resolves
+// ---------------------------------------------------------------------------
+
+func TestResolver_QueryStringSpecifier(t *testing.T) {
+	// WHY: browser-native-ESM projects cache-bust local imports with a trailing
+	// "?v=..." query string (or, less commonly, a "#fragment"). Without
+	// stripping the suffix, extensionCandidates computes filepath.Ext on the
+	// query/fragment tail (".1", not a recognized extension) and probes
+	// "editor.js?v=...js" — never the real file. Every local import in such a
+	// repo silently fails to resolve.
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	targetPath := "src/editor.js"
+	targetNodeID := seedFile(t, d, targetPath, types.LanguageJavaScript)
+	seedFile(t, d, "src/app.js", types.LanguageJavaScript)
+
+	cases := []struct {
+		name      string
+		specifier string
+	}{
+		{"query string", "./editor.js?v=2026.03.27.1"},
+		{"fragment", "./editor.js#v=2026.03.27.1"},
+	}
+
+	r := resolution.NewResolver(d)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref := types.UnresolvedReference{
+				ID:            "ref-querystring-" + tc.name,
+				FromNodeID:    "file:src/app.js",
+				ReferenceName: tc.specifier,
+				ReferenceKind: types.EdgeKindImports,
+				Line:          1,
+				FilePath:      "src/app.js",
+				Language:      types.LanguageJavaScript,
+			}
+			result, err := r.ResolveImport(ctx, ref, "src/app.js")
+			if err != nil {
+				t.Fatalf("ResolveImport %q: %v", tc.specifier, err)
+			}
+			if result.Kind != resolution.ResolvedKindInternal {
+				t.Errorf("%q: expected internal resolution, got %v", tc.specifier, result.Kind)
+			}
+			if result.TargetNodeID != targetNodeID {
+				t.Errorf("%q: TargetNodeID = %q, want %q", tc.specifier, result.TargetNodeID, targetNodeID)
+			}
+		})
+	}
+}
+
+func TestResolver_QueryStringSpecifier_NonJSFamilyUnchanged(t *testing.T) {
+	// WHY: query/fragment stripping is a browser-ESM idiom scoped to the
+	// JS-family languages. A Python (or other) specifier that happens to
+	// contain "?" or "#" must NOT be stripped — those characters are not
+	// syntactically valid in non-JS import specifiers, so an unchanged
+	// (unresolved) outcome proves no stripping occurred.
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	// Seed the "clean" target — if stripping happened for Python too, this
+	// would resolve; it must NOT.
+	seedFile(t, d, "myapp/utils.py", types.LanguagePython)
+
+	ref := types.UnresolvedReference{
+		ID:            "ref-py-query",
+		FromNodeID:    "file:myapp/main.py",
+		ReferenceName: "./utils?v=1",
+		ReferenceKind: types.EdgeKindImports,
+		Line:          1,
+		FilePath:      "myapp/main.py",
+		Language:      types.LanguagePython,
+	}
+
+	r := resolution.NewResolver(d)
+	result, err := r.ResolveImport(ctx, ref, "myapp/main.py")
+	if err != nil {
+		t.Fatalf("ResolveImport python query: %v", err)
+	}
+	if result.Kind != resolution.ResolvedKindUnresolved {
+		t.Errorf("python query specifier: expected unresolved (no stripping), got %v", result.Kind)
+	}
+}
+
+func TestResolver_CDNURLSpecifierWithQuery_NotFabricatedInternal(t *testing.T) {
+	// WHY: a CDN URL specifier that happens to carry a query string (e.g. an
+	// esbuild "+esm" style import) must not, after the query-strip fix, land
+	// on a fabricated internal node. isRelative(specifier) is false (no "./"
+	// or "../" prefix), so Bug 1's fix — scoped to relative specifiers before
+	// external classification — must leave it exactly as before: not resolved
+	// to an internal target. (Now correctly classified ResolvedKindExternal
+	// by isExternal's URL-scheme check — see TestResolver_URLSchemeSpecifier_External
+	// for the dedicated External-classification coverage.)
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	ref := types.UnresolvedReference{
+		ID:            "ref-cdn-esm",
+		FromNodeID:    "file:src/app.ts",
+		ReferenceName: "https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm?bundle",
+		ReferenceKind: types.EdgeKindImports,
+		Line:          1,
+		FilePath:      "src/app.ts",
+		Language:      types.LanguageTypeScript,
+	}
+
+	r := resolution.NewResolver(d)
+	result, err := r.ResolveImport(ctx, ref, "src/app.ts")
+	if err != nil {
+		t.Fatalf("ResolveImport cdn: %v", err)
+	}
+	if result.Kind == resolution.ResolvedKindInternal {
+		t.Errorf("cdn specifier with query string: must not resolve internal, got %v (target %q)", result.Kind, result.TargetNodeID)
+	}
+}
+
+func TestResolver_HashPrefixSubpathSpecifier_NotStripped(t *testing.T) {
+	// WHY: a Node.js ESM package.json "imports"-field subpath specifier
+	// (e.g. "#internal/config") starts with "#" — that is not a fragment
+	// suffix, it's the whole specifier. Stripping at index 0 collapses it to
+	// "" (no "/" → matches the JS/TS bare-package-name external branch),
+	// misclassifying it ResolvedKindExternal. It must be left intact and
+	// must not resolve External (no DB node is seeded for it, so honest
+	// classification is Unresolved).
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	ref := types.UnresolvedReference{
+		ID:            "ref-hash-subpath",
+		FromNodeID:    "file:src/app.js",
+		ReferenceName: "#internal/config",
+		ReferenceKind: types.EdgeKindImports,
+		Line:          1,
+		FilePath:      "src/app.js",
+		Language:      types.LanguageJavaScript,
+	}
+
+	r := resolution.NewResolver(d)
+	result, err := r.ResolveImport(ctx, ref, "src/app.js")
+	if err != nil {
+		t.Fatalf("ResolveImport %q: %v", ref.ReferenceName, err)
+	}
+	if result.Kind == resolution.ResolvedKindExternal {
+		t.Errorf("%q: must not be misclassified External (stripped to empty string), got %v", ref.ReferenceName, result.Kind)
+	}
+}
+
+func TestResolver_URLSchemeSpecifier_External(t *testing.T) {
+	// WHY: a browser/Deno ESM URL import (e.g. an esm.sh/jsdelivr CDN
+	// specifier) has no leading "./", "../", "@", or "node:" prefix and, for
+	// JS-family languages, contains a "/" — so it falls through every branch
+	// of isExternal and is misclassified ResolvedKindUnresolved instead of
+	// ResolvedKindExternal. isExternal must detect the "<scheme>://" prefix
+	// and classify it External regardless of language. A query-suffixed
+	// variant must also come back External: stripQueryAndFragment runs first
+	// for JS-family languages, but the "?" sits well past index 0 (inside the
+	// URL), so the scheme prefix survives the strip.
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	cases := []struct {
+		name      string
+		specifier string
+	}{
+		{"bare URL", "https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm"},
+		{"query-suffixed URL", "https://cdn.jsdelivr.net/npm/zod@3.23.8/+esm?bundle"},
+	}
+
+	r := resolution.NewResolver(d)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref := types.UnresolvedReference{
+				ID:            "ref-url-scheme-" + tc.name,
+				FromNodeID:    "file:src/app.ts",
+				ReferenceName: tc.specifier,
+				ReferenceKind: types.EdgeKindImports,
+				Line:          1,
+				FilePath:      "src/app.ts",
+				Language:      types.LanguageTypeScript,
+			}
+			result, err := r.ResolveImport(ctx, ref, "src/app.ts")
+			if err != nil {
+				t.Fatalf("ResolveImport %q: %v", tc.specifier, err)
+			}
+			if result.Kind != resolution.ResolvedKindExternal {
+				t.Errorf("%q: expected external resolution, got %v", tc.specifier, result.Kind)
+			}
+			if result.PackageName != "" {
+				t.Errorf("%q: PackageName = %q, want empty — a URL-scheme specifier has no derivable npm identity", tc.specifier, result.PackageName)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Test: unresolved when file not found in DB
 // ---------------------------------------------------------------------------
 
@@ -592,5 +787,239 @@ func TestResolver_UnresolvedWhenFileMissing(t *testing.T) {
 	}
 	if result.Kind != resolution.ResolvedKindUnresolved {
 		t.Errorf("missing: expected unresolved, got %v", result.Kind)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: npm scoped packages and package subpaths classify as external
+// ---------------------------------------------------------------------------
+
+func TestResolver_PackageSubpathAndScopedExternal(t *testing.T) {
+	// WHY: the old JS-family rule classified external only by the ABSENCE of
+	// a "/" (plus a top-level "@"/"node:" prefix check) — so a bare
+	// package's subpath entrypoint (no "@" scope, no "node:" protocol, but
+	// containing a "/") fell through into relative-path resolution and came
+	// back Unresolved instead of External. Node resolution semantics
+	// classify by PREFIX, not by slash presence: external unless the
+	// specifier starts with ".", "/", or "#".
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	cases := []struct {
+		name    string
+		refName string
+	}{
+		{"scoped package", "@hapi/hapi"},
+		{"scoped package subpath", "@scope/pkg/subpath"},
+		{"node protocol subpath", "node:fs/promises"},
+		{"bare package subpath (the uncovered gap)", "date-fns/format"},
+	}
+
+	r := resolution.NewResolver(d)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref := types.UnresolvedReference{
+				ID:            "ref-pkgsub-" + tc.refName,
+				FromNodeID:    "file:src/app.ts",
+				ReferenceName: tc.refName,
+				ReferenceKind: types.EdgeKindImports,
+				Line:          1,
+				FilePath:      "src/app.ts",
+				Language:      types.LanguageTypeScript,
+			}
+			result, err := r.ResolveImport(ctx, ref, "src/app.ts")
+			if err != nil {
+				t.Fatalf("ResolveImport %q: %v", tc.refName, err)
+			}
+			if result.Kind != resolution.ResolvedKindExternal {
+				t.Errorf("%q: expected external, got %v", tc.refName, result.Kind)
+			}
+		})
+	}
+}
+
+func TestResolver_RelativeAbsoluteHashStayNonExternal(t *testing.T) {
+	// WHY: the prefix-based external rule must not reclassify relative,
+	// absolute, or "#"-prefixed (Node.js "imports"-field subpath) specifiers
+	// as external — only the prefix decides, and none of ".", "/", "#"
+	// qualify as external.
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	cases := []string{"./x.ts", "/x.ts", "#subpath"}
+
+	r := resolution.NewResolver(d)
+	for _, spec := range cases {
+		t.Run(spec, func(t *testing.T) {
+			ref := types.UnresolvedReference{
+				ID:            "ref-nonext-" + spec,
+				FromNodeID:    "file:src/app.ts",
+				ReferenceName: spec,
+				ReferenceKind: types.EdgeKindImports,
+				Line:          1,
+				FilePath:      "src/app.ts",
+				Language:      types.LanguageTypeScript,
+			}
+			result, err := r.ResolveImport(ctx, ref, "src/app.ts")
+			if err != nil {
+				t.Fatalf("ResolveImport %q: %v", spec, err)
+			}
+			if result.Kind == resolution.ResolvedKindExternal {
+				t.Errorf("%q: must stay non-external, got %v", spec, result.Kind)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: ResolvedImport.PackageName populated for JS-family external imports
+// ---------------------------------------------------------------------------
+
+func TestResolver_ExternalImport_PackageName(t *testing.T) {
+	// WHY: PackageName is the seam checkpoint 2's mint loop reads to derive
+	// the shared package-node identity. It must be populated for a
+	// JS-family external specifier and empty for relative/alias/internal
+	// specifiers and for non-JS-family externals (no npm identity rule
+	// applies there in v1).
+	d, projectRoot := openTestDB(t)
+	ctx := context.Background()
+
+	tsconfigContent := `{"compilerOptions": {"baseUrl": ".", "paths": {"@app/*": ["src/*"]}}}`
+	if err := os.WriteFile(filepath.Join(projectRoot, "tsconfig.json"), []byte(tsconfigContent), 0o644); err != nil {
+		t.Fatalf("write tsconfig: %v", err)
+	}
+	targetPath := "src/util.ts"
+	seedFile(t, d, targetPath, types.LanguageTypeScript)
+
+	r := resolution.NewResolverWithProject(d, projectRoot)
+
+	t.Run("JS-family external gets PackageName", func(t *testing.T) {
+		ref := types.UnresolvedReference{
+			ID:            "ref-pkgname-scoped",
+			FromNodeID:    "file:src/app.ts",
+			ReferenceName: "@hapi/hapi/lib/deep",
+			ReferenceKind: types.EdgeKindImports,
+			Line:          1,
+			FilePath:      "src/app.ts",
+			Language:      types.LanguageTypeScript,
+		}
+		result, err := r.ResolveImport(ctx, ref, "src/app.ts")
+		if err != nil {
+			t.Fatalf("ResolveImport: %v", err)
+		}
+		if result.Kind != resolution.ResolvedKindExternal {
+			t.Fatalf("expected external, got %v", result.Kind)
+		}
+		if result.PackageName != "@hapi/hapi" {
+			t.Errorf("PackageName = %q, want %q", result.PackageName, "@hapi/hapi")
+		}
+	})
+
+	t.Run("relative specifier leaves PackageName empty", func(t *testing.T) {
+		ref := types.UnresolvedReference{
+			ID:            "ref-pkgname-relative",
+			FromNodeID:    "file:src/app.ts",
+			ReferenceName: "./util",
+			ReferenceKind: types.EdgeKindImports,
+			Line:          1,
+			FilePath:      "src/app.ts",
+			Language:      types.LanguageTypeScript,
+		}
+		result, err := r.ResolveImport(ctx, ref, "src/app.ts")
+		if err != nil {
+			t.Fatalf("ResolveImport: %v", err)
+		}
+		if result.Kind != resolution.ResolvedKindInternal {
+			t.Fatalf("expected internal, got %v", result.Kind)
+		}
+		if result.PackageName != "" {
+			t.Errorf("PackageName = %q, want empty for a relative/internal specifier", result.PackageName)
+		}
+	})
+
+	t.Run("alias specifier leaves PackageName empty", func(t *testing.T) {
+		ref := types.UnresolvedReference{
+			ID:            "ref-pkgname-alias",
+			FromNodeID:    "file:src/app.ts",
+			ReferenceName: "@app/util",
+			ReferenceKind: types.EdgeKindImports,
+			Line:          1,
+			FilePath:      "src/app.ts",
+			Language:      types.LanguageTypeScript,
+		}
+		result, err := r.ResolveImport(ctx, ref, "src/app.ts")
+		if err != nil {
+			t.Fatalf("ResolveImport: %v", err)
+		}
+		if result.Kind != resolution.ResolvedKindInternal {
+			t.Fatalf("expected internal (alias-resolved), got %v", result.Kind)
+		}
+		if result.PackageName != "" {
+			t.Errorf("PackageName = %q, want empty for an alias-resolved specifier", result.PackageName)
+		}
+	})
+
+	t.Run("non-JS-family external leaves PackageName empty", func(t *testing.T) {
+		ref := types.UnresolvedReference{
+			ID:            "ref-pkgname-python",
+			FromNodeID:    "file:app.py",
+			ReferenceName: "requests",
+			ReferenceKind: types.EdgeKindImports,
+			Line:          1,
+			FilePath:      "app.py",
+			Language:      types.LanguagePython,
+		}
+		pyResolver := resolution.NewResolver(d)
+		result, err := pyResolver.ResolveImport(ctx, ref, "app.py")
+		if err != nil {
+			t.Fatalf("ResolveImport: %v", err)
+		}
+		if result.Kind != resolution.ResolvedKindExternal {
+			t.Fatalf("expected external, got %v", result.Kind)
+		}
+		if result.PackageName != "" {
+			t.Errorf("PackageName = %q, want empty for a non-JS-family external", result.PackageName)
+		}
+	})
+}
+
+func TestResolver_NonJSFamilyExternalUnchanged(t *testing.T) {
+	// WHY: the new prefix-based external rule is scoped to JS-family
+	// languages only. Python's pre-existing dot-based heuristic (a bare,
+	// dot-free specifier is stdlib/site-package external; a dotted one is
+	// not) must be untouched by this change.
+	d, _ := openTestDB(t)
+	ctx := context.Background()
+
+	r := resolution.NewResolver(d)
+
+	cases := []struct {
+		name         string
+		refName      string
+		wantExternal bool
+	}{
+		{"bare stdlib-like (no dot)", "requests", true},
+		{"dotted (site-package submodule)", "requests.sessions", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref := types.UnresolvedReference{
+				ID:            "ref-py-" + tc.refName,
+				FromNodeID:    "file:app.py",
+				ReferenceName: tc.refName,
+				ReferenceKind: types.EdgeKindImports,
+				Line:          1,
+				FilePath:      "app.py",
+				Language:      types.LanguagePython,
+			}
+			result, err := r.ResolveImport(ctx, ref, "app.py")
+			if err != nil {
+				t.Fatalf("ResolveImport %q: %v", tc.refName, err)
+			}
+			gotExternal := result.Kind == resolution.ResolvedKindExternal
+			if gotExternal != tc.wantExternal {
+				t.Errorf("%q: external=%v, want %v (kind=%v)", tc.refName, gotExternal, tc.wantExternal, result.Kind)
+			}
+		})
 	}
 }

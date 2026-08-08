@@ -45,6 +45,18 @@ package languages
 // because nameFromNode can't reliably extract a name from them (the name lives in
 // the parent variable_declarator). Deferred to CP8 (lexical_declaration → arrow
 // function with name from declarator).
+//
+// FunctionScopeTypes probe (verified via a real-parse probe against the wazero
+// JS binding; see extraction/languages/zzprobe_test.go, deleted after use) —
+// identical findings to TypeScript (same grammar family):
+//
+//	const f = (x) => x * 2;                     → arrow_function
+//	const f = function(x) { return x; };        → function_expression
+//	const f = function*(x) { yield x; };        → generator_function
+//	for (const x of y) { ... }                  → for_in_statement with a bare
+//	  "identifier" binding child — not wrapped in a lexical_declaration, so
+//	  VariableTypes never matches it. Unaffected by scope suppression by
+//	  construction.
 
 import (
 	"context"
@@ -81,6 +93,11 @@ func JavaScriptExtractor() extraction.LanguageExtractor {
 		// Known simplification: arrow-function consts (const f = () => {}) are
 		// extracted as NodeKindVariable, not NodeKindFunction.
 		VariableTypes: extraction.TypeSet("lexical_declaration", "variable_declaration"),
+
+		// FunctionScopeTypes: scope-opening constructs that are not themselves
+		// FunctionTypes matches. Same set and rationale as TypeScript — see
+		// typescript.go and extractor.go extractSimpleNode.
+		FunctionScopeTypes: extraction.TypeSet("arrow_function", "function_expression", "generator_function"),
 
 		// import_statement covers ESM imports.
 		ImportTypes: extraction.TypeSet("import_statement"),
@@ -187,6 +204,14 @@ func jsGetSignature(ctx context.Context, node sitter.Node, source string) string
 
 // jsExtractImport extracts the module path from an import_statement node.
 // Supports: import { X } from 'path'; import X from 'path'; import 'path';
+//
+// name is the full specifier for a package import (e.g. "@hapi/hapi",
+// "@langchain/core/messages") so scoped/subpath packages keep their full
+// identity instead of collapsing to the last path segment; it stays the
+// basename for a relative/absolute specifier (e.g. "./utils/context.js" →
+// "context.js"), since those resolve to a real file node via the imports
+// edge and a short label is less noisy there. See importNodeName in
+// typescript.go (same package).
 func jsExtractImport(ctx context.Context, node sitter.Node, source string) (name string, path string) {
 	kind, err := node.Kind(ctx)
 	if err != nil || kind != "import_statement" {
@@ -205,8 +230,7 @@ func jsExtractImport(ctx context.Context, node sitter.Node, source string) (name
 		rest = strings.TrimSuffix(rest, ";")
 		rest = strings.Trim(rest, `"'`)
 		if rest != "" {
-			parts := strings.Split(rest, "/")
-			return parts[len(parts)-1], rest
+			return importNodeName(rest), rest
 		}
 	}
 
@@ -215,8 +239,7 @@ func jsExtractImport(ctx context.Context, node sitter.Node, source string) (name
 	rest = strings.TrimSuffix(rest, ";")
 	rest = strings.Trim(rest, `"'`)
 	if rest != "" {
-		parts := strings.Split(rest, "/")
-		return parts[len(parts)-1], rest
+		return importNodeName(rest), rest
 	}
 
 	return "", ""

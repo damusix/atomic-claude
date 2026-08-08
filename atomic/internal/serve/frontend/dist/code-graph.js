@@ -11,7 +11,7 @@
 // fingerprint-as-cache-key (namespaced "code:<member>:<fingerprint>" — a
 // bare fingerprint would collide with the docs profile's own cache entries,
 // which key on the SAME IndexedDB store), the flat-JSON → cosmos adapter, the
-// kind→group palette (SC5: the 38 codeintel NodeKind values collapsed to ~8
+// kind→group palette (SC5: the 39 codeintel NodeKind values collapsed to ~8
 // visual groups, each reading its own BRIGHT-band ramp shade off app.css's
 // --cc-<group>/--ramp-<hue>-<n> vars — see GROUP_HUE below; the hue per group
 // matches the docs profile's paired DUSKY type per docs/spec/code-graph.md's
@@ -34,7 +34,7 @@ window.CodeGraph = (function() {
   // ── Kind → group taxonomy (SC5) ────────────────────────────────────────────
 
   // KIND_GROUPS maps every codeintel NodeKind string (atomic/internal/codeintel/types/types.go's
-  // AllNodeKinds, 38 values) to one of 8 visual groups. A kind absent from
+  // AllNodeKinds, 39 values) to one of 8 visual groups. A kind absent from
   // this table — a future addition to types.go, or an unexpected server
   // value — falls through to the 'other' default bucket via kindToGroup, so
   // every node always resolves to a defined, colored group.
@@ -55,7 +55,11 @@ window.CodeGraph = (function() {
     // sql-routine — executable SQL/orchestration objects.
     procedure: 'sql-routine', trigger: 'sql-routine', task: 'sql-routine', script: 'sql-routine',
     // import-export — cross-module/cross-file linkage declarations.
-    'import': 'import-export', 'export': 'import-export', route: 'import-export'
+    'import': 'import-export', 'export': 'import-export', route: 'import-export',
+    // package — synthesized shared hub for an external import specifier
+    // (docs/spec/code-intel-package-nodes.md); groups with import/export/route
+    // as the linkage-declaration cluster.
+    'package': 'import-export'
   };
 
   function kindToGroup(kind) {

@@ -67,6 +67,23 @@ type LanguageExtractor struct {
 	CallTypes          map[string]struct{}
 	InstantiationTypes map[string]struct{}
 
+	// FunctionScopeTypes is an optional set of grammar node-type strings that
+	// open a new function scope without themselves being a FunctionTypes match
+	// (e.g. "arrow_function", "function_expression", "generator_function" in
+	// TS/JS — an arrow/function-expression callback passed as a call argument,
+	// not a named declaration). visitChildren increments visitor.scopeDepth
+	// while descending into a node of one of these kinds and decrements it on
+	// the way back out. A VariableTypes match only mints a node at scopeDepth
+	// == 0 — this is what suppresses function-body locals uniformly across
+	// scope-opening constructs the language's FunctionTypes config doesn't
+	// already cover via extractFunction's separate visitFunctionBody walk (which
+	// has no VariableTypes arm and so already suppresses locals inside named
+	// function bodies).
+	//
+	// Nil for languages that don't need this (Go, Python, …) — scopeDepth stays
+	// 0 always, so VariableTypes minting behavior is unchanged.
+	FunctionScopeTypes map[string]struct{}
+
 	// MacroDoBlockTypes is an optional set of grammar node-type strings that
 	// represent a do-block child inside a macro call (e.g. "do_block" in Elixir).
 	// When set and a StructTypes node resolves to NodeKind("") (the call-reference
@@ -325,6 +342,7 @@ type visitor struct {
 	result        types.ExtractionResult
 	nodeStack     []stackEntry
 	forceExported bool // set when visiting children of an ExportStatementTypes node
+	scopeDepth    int  // incremented while descending into a FunctionScopeTypes node
 }
 
 // parentID returns the ID of the current parent (top of nodeStack).
@@ -407,9 +425,26 @@ func (v *visitor) visitChildren(ctx context.Context, node sitter.Node) error {
 		if skip {
 			continue
 		}
+
+		// FunctionScopeTypes: an unmatched node that opens a function scope
+		// (e.g. arrow_function passed as a call argument) increments scopeDepth
+		// for the duration of its subtree. This is the mechanism that suppresses
+		// VariableTypes matches found underneath it — see extractSimpleNode.
+		isScope := false
+		if v.cfg.FunctionScopeTypes != nil {
+			if _, ok := v.cfg.FunctionScopeTypes[kind]; ok {
+				isScope = true
+			}
+		}
+		if isScope {
+			v.scopeDepth++
+		}
 		// Descend into unmatched nodes.
 		if err := v.visitChildren(ctx, child); err != nil {
 			v.result.Errors = append(v.result.Errors, fmt.Sprintf("visitChildren: %v", err))
+		}
+		if isScope {
+			v.scopeDepth--
 		}
 	}
 	return nil
@@ -928,6 +963,14 @@ func (v *visitor) extractTypeAlias(ctx context.Context, node sitter.Node) error 
 // returned skipChildren=true without scanning the RHS.
 // The parentID at this point is the enclosing scope (file node at top level),
 // so the call ref's FromNodeID is correctly attributed to the file.
+//
+// Scope suppression (kind == NodeKindVariable only): a match mints a node
+// only when scopeDepth == 0 (module/class/namespace scope, not inside a
+// FunctionScopeTypes construct — see LanguageExtractor.FunctionScopeTypes)
+// AND the resolved name is a single identifier, not a destructuring pattern's
+// rendered text ("{ a, b }", "[c, d]"). Either gate failing skips node
+// creation, but visitFunctionBody still runs — calls, JSX refs, and field
+// assignments inside the suppressed initializer are still harvested.
 func (v *visitor) extractSimpleNode(ctx context.Context, node sitter.Node, kind types.NodeKind) error {
 	resolved, err := v.resolveBody(ctx, node)
 	if err != nil {
@@ -942,16 +985,37 @@ func (v *visitor) extractSimpleNode(ctx context.Context, node sitter.Node, kind 
 	if name == "" {
 		return nil // skip unnamed nodes
 	}
-	_, err = v.createNode(ctx, node, kind, name)
-	if err != nil {
-		return err
+
+	mint := true
+	if kind == types.NodeKindVariable {
+		if v.scopeDepth > 0 || !isSingleIdentifierVariableName(name) {
+			mint = false
+		}
+	}
+
+	if mint {
+		if _, err := v.createNode(ctx, node, kind, name); err != nil {
+			return err
+		}
 	}
 
 	// Scan the node's children for embedded call/instantiation expressions.
 	// visitFunctionBody stops at nested function/method boundaries, so nested
 	// function literals in the initializer are handled as separate nodes.
+	// Runs regardless of mint: a suppressed local's initializer (a call, a JSX
+	// usage, a field assignment) is still real graph information.
 	v.visitFunctionBody(ctx, node)
 	return nil
+}
+
+// isSingleIdentifierVariableName reports whether name looks like a plain
+// identifier rather than the rendered text of a destructuring pattern
+// ("{ a, b }", "[c, d]"). A destructuring pattern has no single stable
+// identity to attach a variable node to, so VariableTypes matches whose
+// resolved name fails this check never mint a node, independent of
+// scopeDepth.
+func isSingleIdentifierVariableName(name string) bool {
+	return !strings.ContainsAny(name, "{[, \t\n\r")
 }
 
 // extractImport handles import nodes, emitting an import-kind node and calling
