@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, mock, test } from "bun:test";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { ApiProvider } from "../../utils/api";
 import { events } from "../../utils/events";
 
@@ -107,9 +108,11 @@ describe("Rail", () => {
 
   test("renders nothing but the bare aside until page.resolved fires", () => {
     render(
-      <ApiProvider>
-        <Rail />
-      </ApiProvider>,
+      <MemoryRouter>
+        <ApiProvider>
+          <Rail />
+        </ApiProvider>
+      </MemoryRouter>,
     );
     const aside = document.getElementById("right-rail");
     expect(aside).not.toBeNull();
@@ -119,9 +122,11 @@ describe("Rail", () => {
   test("fetches /api/rail/<relpath> on page.resolved and renders Properties/OUT/IN panels", async () => {
     mockFetchOnce(RAIL_FIXTURE);
     render(
-      <ApiProvider>
-        <Rail />
-      </ApiProvider>,
+      <MemoryRouter>
+        <ApiProvider>
+          <Rail />
+        </ApiProvider>
+      </MemoryRouter>,
     );
 
     await act(async () => {
@@ -156,9 +161,11 @@ describe("Rail", () => {
   test("clears the rail (hides panels) when page.resolved carries a null relpath", async () => {
     mockFetchOnce(RAIL_FIXTURE);
     render(
-      <ApiProvider>
-        <Rail />
-      </ApiProvider>,
+      <MemoryRouter>
+        <ApiProvider>
+          <Rail />
+        </ApiProvider>
+      </MemoryRouter>,
     );
 
     await act(async () => {
@@ -175,9 +182,11 @@ describe("Rail", () => {
   test("a page with no graph membership (404 from /api/rail) shows the bare aside, not an error", async () => {
     mockFetchOnce({ error: "not found" }, 404);
     render(
-      <ApiProvider>
-        <Rail />
-      </ApiProvider>,
+      <MemoryRouter>
+        <ApiProvider>
+          <Rail />
+        </ApiProvider>
+      </MemoryRouter>,
     );
 
     events.emit("page.resolved", { relpath: "orphan.md" });
@@ -199,9 +208,11 @@ describe("Rail", () => {
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
     render(
-      <ApiProvider>
-        <Rail />
-      </ApiProvider>,
+      <MemoryRouter>
+        <ApiProvider>
+          <Rail />
+        </ApiProvider>
+      </MemoryRouter>,
     );
 
     events.emit("page.resolved", { relpath: "wiki/index.md" });
@@ -226,9 +237,11 @@ describe("Rail", () => {
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
 
     render(
-      <ApiProvider>
-        <Rail />
-      </ApiProvider>,
+      <MemoryRouter>
+        <ApiProvider>
+          <Rail />
+        </ApiProvider>
+      </MemoryRouter>,
     );
 
     events.emit("page.resolved", { relpath: "wiki/index.md" });

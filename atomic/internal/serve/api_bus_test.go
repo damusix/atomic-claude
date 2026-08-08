@@ -242,4 +242,87 @@ func TestAPIBus_JoinSendTailWho_EndToEnd(t *testing.T) {
 	if autoSent.Name == "" {
 		t.Error("auto-join send returned empty member name")
 	}
+
+	// Sessions — the web member is listed; no transcript file exists yet,
+	// then one appears under <home>/.claude/projects and is found.
+	resp, err = http.Get(srv.URL + "/api/bus/sessions?room=exp")
+	if err != nil {
+		t.Fatalf("GET sessions: %v", err)
+	}
+	sessions := decodeBusResponse[busSessionsResponse](t, resp)
+	if len(sessions.Sessions) != 1 || sessions.Sessions[0].Transcript.Found {
+		t.Fatalf("sessions before transcript = %+v, want one member, transcript not found", sessions.Sessions)
+	}
+	writeFakeTranscript(t, home, sessions.Sessions[0].Session)
+	resp, err = http.Get(srv.URL + "/api/bus/sessions?room=exp")
+	if err != nil {
+		t.Fatalf("GET sessions: %v", err)
+	}
+	sessions = decodeBusResponse[busSessionsResponse](t, resp)
+	if !sessions.Sessions[0].Transcript.Found {
+		t.Error("transcript not found after writing the .jsonl")
+	}
+}
+
+// writeFakeTranscript writes a minimal Claude Code session .jsonl for
+// session under home's projects dir.
+func writeFakeTranscript(t *testing.T, home, session string) string {
+	t.Helper()
+	dir := home + "/.claude/projects/-tmp-demo"
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir projects: %v", err)
+	}
+	lines := []string{
+		`{"type":"ai-title","aiTitle":"Fix the rounding bug"}`,
+		`{"type":"user","timestamp":"2026-08-08T12:00:00Z","message":{"role":"user","content":"fix the cart rounding bug"}}`,
+		`{"type":"assistant","timestamp":"2026-08-08T12:00:10Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"where does the total get rounded"},{"type":"text","text":"Found it — banker's rounding in **totals.ts:88**."},{"type":"tool_use","name":"Read","input":{"file_path":"totals.ts"}}]}}`,
+		`{"type":"user","timestamp":"2026-08-08T12:00:12Z","message":{"role":"user","content":[{"type":"tool_result","content":[{"type":"text","text":"export function total() { … }"}]}]}}`,
+	}
+	path := dir + "/" + session + ".jsonl"
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	return path
+}
+
+func TestAPIBus_Transcript_RendersMarkdown(t *testing.T) {
+	home := busTestHome(t)
+	writeFakeTranscript(t, home, "sess-x")
+	srv := httptest.NewServer(newBusTestHandler(home, t.TempDir()))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/bus/transcript?session=sess-x")
+	if err != nil {
+		t.Fatalf("GET transcript: %v", err)
+	}
+	tr := decodeBusResponse[busTranscriptResponse](t, resp)
+	if tr.Title != "Fix the rounding bug" {
+		t.Errorf("title = %q, want ai-title value", tr.Title)
+	}
+	if tr.TotalEntries != 3 || tr.ShownEntries != 3 {
+		t.Errorf("entries = %d/%d, want 3/3", tr.ShownEntries, tr.TotalEntries)
+	}
+	for _, want := range []string{"<strong>totals.ts:88</strong>", "tool output", "Read", "thinking"} {
+		if !strings.Contains(tr.HTML, want) {
+			t.Errorf("rendered HTML missing %q", want)
+		}
+	}
+
+	// Unknown session → 404; path-shaped session → 400.
+	resp, err = http.Get(srv.URL + "/api/bus/transcript?session=nope")
+	if err != nil {
+		t.Fatalf("GET transcript nope: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown session = %d, want 404", resp.StatusCode)
+	}
+	resp, err = http.Get(srv.URL + "/api/bus/transcript?session=..%2F..%2Fetc")
+	if err != nil {
+		t.Fatalf("GET transcript traversal: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("traversal session = %d, want 400", resp.StatusCode)
+	}
 }

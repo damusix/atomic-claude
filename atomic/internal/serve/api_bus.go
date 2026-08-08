@@ -88,6 +88,10 @@ func (h *busAPIHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleRooms(w)
 	case route == "who" && r.Method == http.MethodGet:
 		h.handleWho(w, r)
+	case route == "sessions" && r.Method == http.MethodGet:
+		h.handleSessions(w, r)
+	case route == "transcript" && r.Method == http.MethodGet:
+		h.handleTranscript(w, r)
 	case route == "log" && r.Method == http.MethodGet:
 		h.handleLog(w, r)
 	case route == "tail" && r.Method == http.MethodGet:
