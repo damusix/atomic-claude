@@ -1,0 +1,245 @@
+package serve
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bus"
+)
+
+// busTestHome creates a short-pathed home dir — the daemon socket lives at
+// <home>/.atomic/bus.sock, and t.TempDir() can exceed the ~104-byte unix
+// socket path limit on macOS (same rationale as bus's own testListener).
+func busTestHome(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "atomicbusweb")
+	if err != nil {
+		dir = t.TempDir()
+	} else {
+		t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	}
+	return dir
+}
+
+// startBusDaemon runs an in-process bus daemon on home's socket and
+// guarantees it exits before the test finishes.
+func startBusDaemon(t *testing.T, home string) {
+	t.Helper()
+	if err := bus.EnsureDirs(home); err != nil {
+		t.Fatalf("ensure dirs: %v", err)
+	}
+	ln, err := net.Listen("unix", bus.SocketPath(home))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- bus.Serve(ctx, ln, bus.NewHub(home), nil)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		_ = ln.Close()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("bus daemon did not exit after cancellation")
+		}
+	})
+}
+
+// newBusTestHandler builds the handler under test with the spawn seam
+// replaced by a Dial-only variant, so no test can ever fork a real daemon.
+func newBusTestHandler(home, targetDir string) http.Handler {
+	return NewAPIBusHandler(BusAPIOptions{
+		Home:      home,
+		TargetDir: targetDir,
+		EnsureDaemon: func(h string) (*bus.Client, error) {
+			return bus.Dial(h, time.Second)
+		},
+	})
+}
+
+func postBusJSON(t *testing.T, url string, body any) *http.Response {
+	t.Helper()
+	b, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	resp, err := http.Post(url, "application/json", strings.NewReader(string(b)))
+	if err != nil {
+		t.Fatalf("POST %s: %v", url, err)
+	}
+	return resp
+}
+
+func decodeBusResponse[T any](t *testing.T, resp *http.Response) T {
+	t.Helper()
+	defer resp.Body.Close()
+	var v T
+	if err := json.NewDecoder(resp.Body).Decode(&v); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return v
+}
+
+func TestAPIBus_StatusAndRooms_NoDaemon(t *testing.T) {
+	home := busTestHome(t)
+	srv := httptest.NewServer(newBusTestHandler(home, t.TempDir()))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/bus/status")
+	if err != nil {
+		t.Fatalf("GET status: %v", err)
+	}
+	status := decodeBusResponse[busStatusResponse](t, resp)
+	if status.Running {
+		t.Error("status.running = true with no daemon")
+	}
+	if status.Name == "" {
+		t.Error("status.name empty — position-derived identity should resolve without a daemon")
+	}
+
+	resp, err = http.Get(srv.URL + "/api/bus/rooms")
+	if err != nil {
+		t.Fatalf("GET rooms: %v", err)
+	}
+	rooms := decodeBusResponse[busRoomsResponse](t, resp)
+	if rooms.Running || len(rooms.Rooms) != 0 {
+		t.Errorf("rooms with no daemon = %+v, want running:false with empty list", rooms)
+	}
+}
+
+func TestAPIBus_LogBackfill_TailsLastN(t *testing.T) {
+	home := busTestHome(t)
+	for i := 1; i <= 3; i++ {
+		env := bus.Envelope{ID: fmt.Sprintf("m-%d", i), Room: "exp", From: "a", FromKind: "agent", Ts: time.Unix(int64(1000+i), 0), Text: fmt.Sprintf("msg %d", i)}
+		if err := bus.Append(home, "exp", env); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	srv := httptest.NewServer(newBusTestHandler(home, t.TempDir()))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/bus/log?room=exp&n=2")
+	if err != nil {
+		t.Fatalf("GET log: %v", err)
+	}
+	log := decodeBusResponse[busLogResponse](t, resp)
+	if len(log.Envelopes) != 2 {
+		t.Fatalf("got %d envelopes, want 2", len(log.Envelopes))
+	}
+	if log.Envelopes[0].ID != "m-2" || log.Envelopes[1].ID != "m-3" {
+		t.Errorf("tail order = %s,%s, want m-2,m-3", log.Envelopes[0].ID, log.Envelopes[1].ID)
+	}
+
+	// A room with no log is empty history, not an error.
+	resp, err = http.Get(srv.URL + "/api/bus/log?room=nolog")
+	if err != nil {
+		t.Fatalf("GET log nolog: %v", err)
+	}
+	empty := decodeBusResponse[busLogResponse](t, resp)
+	if len(empty.Envelopes) != 0 {
+		t.Errorf("missing log returned %d envelopes, want 0", len(empty.Envelopes))
+	}
+}
+
+// TestAPIBus_JoinSendTailWho_EndToEnd drives the full chat flow against an
+// in-process daemon: join creates the room, who lists the human member,
+// tail streams a subsequently sent message, and halt does not block the
+// human member's send (halt binds agents only).
+func TestAPIBus_JoinSendTailWho_EndToEnd(t *testing.T) {
+	home := busTestHome(t)
+	startBusDaemon(t, home)
+	srv := httptest.NewServer(newBusTestHandler(home, t.TempDir()))
+	defer srv.Close()
+
+	// Join — creates the room ("open a channel if need be").
+	resp := postBusJSON(t, srv.URL+"/api/bus/join", map[string]string{"room": "exp"})
+	joined := decodeBusResponse[map[string]string](t, resp)
+	if joined["name"] == "" {
+		t.Fatal("join returned empty name")
+	}
+
+	// Who — the web member is on the roster as a human.
+	resp, err := http.Get(srv.URL + "/api/bus/who?room=exp")
+	if err != nil {
+		t.Fatalf("GET who: %v", err)
+	}
+	who := decodeBusResponse[busWhoResponse](t, resp)
+	if len(who.Members) != 1 || who.Members[0].Kind != bus.KindHuman {
+		t.Fatalf("who = %+v, want one human member", who.Members)
+	}
+
+	// Tail — subscribe first (headers arriving means the daemon-side
+	// subscription is live), then send, then read the streamed envelope.
+	tailResp, err := http.Get(srv.URL + "/api/bus/tail?room=exp")
+	if err != nil {
+		t.Fatalf("GET tail: %v", err)
+	}
+	defer tailResp.Body.Close()
+	if ct := tailResp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Fatalf("tail content-type = %q", ct)
+	}
+
+	resp = postBusJSON(t, srv.URL+"/api/bus/send", map[string]any{"room": "exp", "text": "hello agents"})
+	sent := decodeBusResponse[busSendResponse](t, resp)
+	if sent.Envelope.ID == "" || sent.Envelope.Text != "hello agents" {
+		t.Fatalf("send envelope = %+v", sent.Envelope)
+	}
+
+	envCh := make(chan bus.Envelope, 1)
+	go func() {
+		scanner := bufio.NewScanner(tailResp.Body)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			var env bus.Envelope
+			if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &env) == nil {
+				envCh <- env
+				return
+			}
+		}
+	}()
+	select {
+	case env := <-envCh:
+		if env.Text != "hello agents" || env.FromKind != bus.KindHuman {
+			t.Errorf("tailed envelope = %+v", env)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("tail did not deliver the sent envelope")
+	}
+
+	// Halt binds agents, not the joined human member — send still lands.
+	resp = postBusJSON(t, srv.URL+"/api/bus/halt", map[string]string{"room": "exp", "reason": "taking the wheel"})
+	resp.Body.Close()
+	resp = postBusJSON(t, srv.URL+"/api/bus/send", map[string]any{"room": "exp", "text": "still here"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("human send into halted room = %d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = postBusJSON(t, srv.URL+"/api/bus/resume", map[string]string{"room": "exp"})
+	resp.Body.Close()
+
+	// Send without a prior join into a fresh room — the join-if-needed
+	// path creates room + membership on the way.
+	resp = postBusJSON(t, srv.URL+"/api/bus/send", map[string]any{"room": "fresh", "text": "auto-join"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("auto-join send = %d, want 200", resp.StatusCode)
+	}
+	autoSent := decodeBusResponse[busSendResponse](t, resp)
+	if autoSent.Name == "" {
+		t.Error("auto-join send returned empty member name")
+	}
+}
