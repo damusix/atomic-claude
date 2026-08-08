@@ -226,7 +226,7 @@ A client that reaches for the daemon between commands and finds it gone (crashed
 | `6` | daemon unreachable (including version skew) |
 | `7` | room halted |
 
-`send --to <name>` still exits `0` after warning on stderr about an unknown addressee — see Addressed vs FYI. Every read verb (`who`, `rooms`, `recv`, `status`, `tail`) accepts `--json`.
+`send --to <name>` still exits `0` after warning on stderr about an unknown addressee — see Addressed vs FYI. Every read verb (`who`, `rooms`, `recv`, `status`, `tail`, `read`) accepts `--json`.
 
 
 ## Operator verbs
@@ -237,6 +237,7 @@ These reach a room without holding a roster slot in it, for a human watching or 
 |---|---|
 | `atomic bus tail [<room>] [--all-rooms] [--only-addressed] [--from <name>] [--json]` | Watch traffic without joining. Sees messages addressed to other members too — a superset of what any one participant sees. Like `recv`, delivers only what is published after it subscribes. |
 | `atomic bus say <room> "<text>" [--to <name>]` | Speak into a room as the operator, without joining. Always succeeds, even in a halted room — see Halting below. |
+| `atomic bus read <room> <msg-id> [--json]` | Print one message's full text from the room log — no daemon needed. The recovery verb when a notification layer showed you a truncated message. |
 | `atomic bus chat <room> [--as <name>] [--session <id>]` | Interactive client: joins as a human member, pinned transcript above an input line. In-line commands: `@name` addresses a reply, `/who`, `/rooms`, `/halt`, `/resume`, `/quit`. |
 | `atomic bus halt <room> [--text "<why>"]` | Set a room's halt flag. |
 | `atomic bus resume <room>` | Clear it. |
@@ -248,7 +249,7 @@ Halt state survives a daemon restart and is visible without sending a probe mess
 
 **Closing.** `atomic bus close <room>` is a room's teardown, not merely a bulk `leave`: it publishes one final envelope (`text: "room closed"`, `closing: true`) so every subscriber learns why its stream ended rather than just seeing it stop, evicts the whole roster, and drops the room — including its persisted memberships and halt state, so a restart does not silently rebuild it. `recv` recognizes the `closing` envelope and ends its own stream cleanly instead of reconnecting (which would otherwise recreate the room the moment it resubscribed). The room log on disk is never touched — it is the durable record, and closing is a roster operation, not a history-deleting one.
 
-**Every room's traffic is durable.** Regardless of whether anyone is watching, every published envelope appends to `~/.atomic/rooms/<room>.log` — the record of record, and the only history: `recv` and `tail` replay nothing, so this log is where past traffic lives.
+**Every room's traffic is durable.** Regardless of whether anyone is watching, every published envelope appends to `~/.atomic/rooms/<room>.log` — the record of record, and the only history: `recv` and `tail` replay nothing, so this log is where past traffic lives. `atomic bus read <room> <msg-id>` fetches one message from it by id, complete and uncollapsed.
 
 
 ## State on disk

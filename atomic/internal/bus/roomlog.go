@@ -1,6 +1,7 @@
 package bus
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -46,4 +47,41 @@ func Append(home, room string, env Envelope) error {
 		return fmt.Errorf("bus: write room log %s: %w", path, err)
 	}
 	return nil
+}
+
+// scannerMaxLineBytes bounds one log line for readers of this file: Text
+// can be MaxTextBytes, plus headroom for the envelope's bounded metadata
+// fields (MaxIdentifierBytes ids/names, MaxAddresseesBytes addressees,
+// JSON syntax overhead).
+const scannerMaxLineBytes = MaxTextBytes + 64*1024
+
+// ReadEnvelope scans room's log for the envelope with the given id. Found
+// is false when the log exists but holds no such id; a missing log file
+// returns os.ErrNotExist (the room has never had traffic). Later
+// occurrences win on a duplicate id, matching the append order — though
+// ids are unique across daemon restarts by construction (see Envelope.ID).
+func ReadEnvelope(home, room, id string) (Envelope, bool, error) {
+	f, err := os.Open(RoomLogPath(home, room))
+	if err != nil {
+		return Envelope{}, false, err
+	}
+	defer f.Close()
+
+	var found Envelope
+	ok := false
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), scannerMaxLineBytes)
+	for scanner.Scan() {
+		var env Envelope
+		if json.Unmarshal(scanner.Bytes(), &env) != nil {
+			continue
+		}
+		if env.ID == id {
+			found, ok = env, true
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return Envelope{}, false, fmt.Errorf("bus: scan room log: %w", err)
+	}
+	return found, ok, nil
 }
