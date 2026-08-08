@@ -102,6 +102,29 @@ export function TopBar({
           <line x1="16.3" y1="16.3" x2="13.8" y2="13.8" />
         </svg>
       </Link>
+      {/* Bus chat — EXPERIMENT: routes to the /bus room chat screen. */}
+      <Link
+        id="btn-bus"
+        className="theme-toggle"
+        to="/bus"
+        aria-label="Bus chat — talk to agent sessions"
+        title="Bus chat"
+      >
+        {/* Chat-bubble glyph */}
+        <svg
+          width="17"
+          height="17"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 8.9 8.9 0 0 1-3.2-.6L4 20.5l1.3-4A8 8 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3.2 8.4 8.4 0 0 1 21 11.5z" />
+        </svg>
+      </Link>
       <button
         type="button"
         className="theme-toggle"
