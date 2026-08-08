@@ -251,20 +251,20 @@ func assertCommandSetsEqual(t *testing.T, derived, golden []cliusage.Command) {
 	}
 }
 
-// TestRootCmdExact21Verbs verifies the Cobra root command has exactly the 21
+// TestRootCmdExact22Verbs verifies the Cobra root command has exactly the 22
 // expected top-level verbs and no extra auto-generated commands (completion,
 // help) leaked into the visible command set.
 // WHY: DisableDefaultCmd and SetHelpCommand suppress Cobra's auto-adds;
 // this test is the gate that catches any regression where Cobra re-adds them
 // or a new verb is accidentally introduced.
-func TestRootCmdExact21Verbs(t *testing.T) {
+func TestRootCmdExact22Verbs(t *testing.T) {
 	var repoOverride string
 	root := buildRootCmd(&repoOverride)
 
 	want := []string{
 		"bus", "claude", "code", "config", "docker", "docs", "doctor",
 		"followups", "hooks", "migrate", "profile", "prompt", "reminder",
-		"repo", "serve", "signals", "template", "update", "validate", "where", "wiki",
+		"repl", "repo", "serve", "signals", "template", "update", "validate", "where", "wiki",
 	}
 
 	// Collect visible (non-hidden) commands only.

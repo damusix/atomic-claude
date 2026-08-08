@@ -11,6 +11,13 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// replIdleTimeoutDefault is the display default for the resolved-value
+// surface (Resolved/Get/atomic config list) when repl.idle_timeout is unset.
+// Mirrors internal/repl.DefaultIdleTimeout (time.Hour) — config cannot import
+// internal/repl (repl already imports config; that would cycle), so this
+// string must be kept in sync by hand if the repl-side default ever changes.
+const replIdleTimeoutDefault = "1h"
+
 // runDoctorDefault is the built-in default for update.run_doctor.
 const runDoctorDefault = true
 
@@ -29,6 +36,7 @@ var knownKeys = []string{
 	"output.signals.max_depth",
 	"update.run_doctor",
 	"harness.dir",
+	"repl.idle_timeout",
 }
 
 // knownSchemaKeys is the exhaustive set of recognized dotted keys across all
@@ -162,6 +170,13 @@ type Config struct {
 	// Claude carries the Claude Code harness's per-agent overrides. Omitted
 	// from TOML when zero-valued.
 	Claude claudeSection `toml:"claude,omitempty"`
+	// Repl carries the user-level [repl] idle_timeout fallback, consulted by
+	// internal/repl's resolveIdleTimeout only when the repo config has none.
+	// Empty IdleTimeout means unset — unlike Harness.Dir, "" needs no backfill
+	// here because resolveIdleTimeout's own fallback (DefaultIdleTimeout) is
+	// what supplies the concrete default, not Load. Omitted from TOML when
+	// zero-valued.
+	Repl replSection `toml:"repl,omitempty"`
 }
 
 // Default returns a Config populated with built-in defaults.
@@ -349,6 +364,13 @@ func Validate(cfg *Config) error {
 			return fmt.Errorf("config: claude.agents.%s.effort: invalid effort %q; must be one of: low, medium, high, xhigh, max", agentName, ov.Effort)
 		}
 	}
+	// repl.idle_timeout: empty means unset (valid — resolveIdleTimeout falls
+	// back to its own default); a present value must be a positive duration.
+	if cfg.Repl.IdleTimeout != "" {
+		if _, err := ValidateIdleTimeout(cfg.Repl.IdleTimeout); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -439,6 +461,11 @@ func Set(cfg *Config, dottedKey, value string) error {
 			return err
 		}
 		cfg.Harness.Dir = value
+	case "repl.idle_timeout":
+		if _, err := ValidateIdleTimeout(value); err != nil {
+			return err
+		}
+		cfg.Repl.IdleTimeout = value
 	}
 	return nil
 }
@@ -470,6 +497,8 @@ func Unset(cfg *Config, dottedKey string) error {
 		cfg.Update.RunDoctor = runDoctorDefault
 	case "harness.dir":
 		cfg.Harness.Dir = harnessDirDefault
+	case "repl.idle_timeout":
+		cfg.Repl.IdleTimeout = ""
 	}
 	return nil
 }

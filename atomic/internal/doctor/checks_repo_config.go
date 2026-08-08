@@ -28,9 +28,9 @@ func repoConfigRelDisplay(root string) string {
 // The repo config is optional — its absence is normal (code-intel indexing
 // proceeds unfiltered) and reports PASS informational, mirroring the
 // code-index check's opt-in-absence contract. Parse errors, unknown keys,
-// invalid ignore glob patterns, and an invalid scope value are all non-fatal
-// by design at index/discovery time, so they surface here as WARN, never
-// FAIL.
+// invalid ignore glob patterns, an invalid scope value, and an invalid
+// [repl] idle_timeout are all non-fatal by design at index/discovery time,
+// so they surface here as WARN, never FAIL.
 //
 // Beyond RunCheckRepoConfigWith's root-only validation, this dispatcher also
 // WARNs when root's marker declares scope = "repo" while root is registered
@@ -155,6 +155,12 @@ func RunCheckRepoConfigWith(root string) Result {
 		warns = append(warns, config.Warning{
 			Message: fmt.Sprintf("scope %q is not valid (accepted values: repo, realm)", cfg.Scope),
 		})
+	}
+
+	if cfg.Repl.IdleTimeout != "" {
+		if _, err := config.ValidateIdleTimeout(cfg.Repl.IdleTimeout); err != nil {
+			warns = append(warns, config.Warning{Message: err.Error()})
+		}
 	}
 
 	if len(warns) > 0 {
