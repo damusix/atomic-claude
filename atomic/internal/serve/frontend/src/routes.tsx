@@ -4,6 +4,7 @@
 // /search, /status, /external, /code/schema, "/" landing.
 import type { RouteObject } from "react-router";
 import { Shell } from "./layouts/Shell/Shell";
+import { Bus } from "./pages/Bus/Bus";
 import { External } from "./pages/External";
 import { Graph } from "./pages/Graph/Graph";
 import { Page } from "./pages/Page/Page";
@@ -19,6 +20,7 @@ export const routes: RouteObject[] = [
       { index: true, element: <Page /> },
       { path: "page/*", element: <Page /> },
       { path: "graph", element: <Graph /> },
+      { path: "bus", element: <Bus /> },
       { path: "search", element: <Search /> },
       { path: "status", element: <Status /> },
       { path: "external", element: <External /> },

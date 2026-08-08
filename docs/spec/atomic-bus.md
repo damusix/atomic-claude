@@ -145,14 +145,14 @@ atomic/internal/bus/
 ├── daemon_test.go ......... A
 ├── room.go ................ A  (Room, Hub, roster, halt, Close, dropIfEmpty)
 ├── room_test.go ........... A
-├── roomlog.go ............. A  (Append)
-├── action.go .............. A  (BusAction verb dispatch, closeAction, recv reconnect)
+├── roomlog.go ............. A  (Append, ReadEnvelope)
+├── action.go .............. A  (BusAction verb dispatch, closeAction, readAction, recv reconnect)
 ├── action_test.go ......... A
 ├── render.go .............. A  (tail line, tables, colour, wrap)
 ├── render_test.go ......... A
 ├── chat.go ................ A  (interactive client)
 └── chat_test.go ........... A
-atomic/cmd/atomic/main.go .. M  (buildBusCmd — 18 children, runBus)
+atomic/cmd/atomic/main.go .. M  (buildBusCmd — 19 children, runBus)
 atomic/cmd/atomic/main_test.go  M  (dispatch + verb-count assertions)
 atomic/internal/cliusage/cliusage.go  M  (bus entries)
 skills/atomic-bus/SKILL.md . A  (connect + reaction policy)
@@ -224,12 +224,14 @@ atomic/internal/bus/room.go
 
 atomic/internal/bus/roomlog.go
   Append — one JSON line per envelope, 0600; the durable record of a room
+  ReadEnvelope — one envelope by id from a room's log; os.ErrNotExist when
+    the room has never had traffic
 
 atomic/internal/bus/action.go
   BusAction — exported entry; verb switch
     joinAction, leaveAction, sendAction, recvAction, whoAction, roomsAction,
     serveAction, startAction, stopAction, restartAction, pruneAction, closeAction,
-    tailAction, chatAction, sayAction, haltAction, resumeAction, statusAction
+    tailAction, chatAction, sayAction, readAction, haltAction, resumeAction, statusAction
   recvStream, recvDeliver, dialAndSubscribeRecv — recv's reconnect loop: survives a daemon
     restart by redialing and resubscribing, ends cleanly on Envelope.Closing
   haltReasonNote, livenessLabel, haltedSuffix — halt/staleness display shared by
@@ -251,7 +253,7 @@ atomic/internal/bus/chat.go
     backlog — buffer and count while scrolled up
 
 atomic/cmd/atomic/main.go
-  buildBusCmd — cobra parent plus 18 children
+  buildBusCmd — cobra parent plus 19 children
   runBus      — resolve home and cwd, delegate to bus.BusAction
 
 skills/atomic-bus/SKILL.md
@@ -336,6 +338,22 @@ Flow: daemon lifecycle
 
 
 ## Change log
+
+### 2026-08-08 — `atomic bus read <room> <msg-id>`: full-text recovery from the room log
+
+**What changed:** new verb `read` — fetch one envelope by id straight from
+`~/.atomic/rooms/<room>.log`, no daemon round trip (works with the daemon down). `--json` emits
+the raw envelope; the human form prints a one-line header plus the complete text verbatim —
+deliberately NOT `TailLine`, whose `collapse` elides past ~15 lines. `roomlog.go` gains
+`ReadEnvelope` (and the `scannerMaxLineBytes` reader budget the file's comments already
+promised); `readAction` rejects path-shaped room names before touching the filesystem.
+`buildBusCmd` grows to 19 children; `cliusage` gains the `{bus, read}` entry. Body sections
+amended: Change tree, Outline.
+
+**Why:** consumers whose notification layer caps long event text (Claude Code's Monitor
+truncates `recv` lines injected as task notifications) need a deterministic recovery path.
+The room log always held the full text; this makes retrieving one message a verb instead of
+an ad-hoc log grep. The `atomic-bus` skill's reaction policy now points at it.
 
 ### 2026-07-30 — Outline and Change tree brought current for the restart-durability round
 

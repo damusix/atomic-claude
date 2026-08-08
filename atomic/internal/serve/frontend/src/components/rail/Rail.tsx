@@ -5,16 +5,19 @@
 // (directory URLs resolve to their index file), which is the relpath
 // /api/rail must be queried with — the raw URL param is not always it.
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router";
 import { attempt } from "@logosdx/utils";
 import { openFile } from "../code-modal/store";
 import { shouldRefetchPage } from "../../hooks/useLiveReload";
 import { api } from "../../utils/api";
 import { events } from "../../utils/events";
+import { BusRail } from "./BusRail";
 import { MiniGraph } from "./MiniGraph";
 import type { RailResponse } from "./types";
 import "./style.css";
 
 export function Rail() {
+  const location = useLocation();
   const [relpath, setRelpath] = useState<string | null>(null);
   const [rail, setRail] = useState<RailResponse | null>(null);
 
@@ -52,6 +55,16 @@ export function Rail() {
       off();
     };
   }, [relpath]);
+
+  // /bus swaps the page-centric rail for the room's session list
+  // (EXPERIMENT, bus chat) — there is no open page to describe there.
+  if (location.pathname === "/bus") {
+    return (
+      <aside id="right-rail" aria-label="Rail">
+        <BusRail />
+      </aside>
+    );
+  }
 
   if (!relpath || !rail) {
     return <aside id="right-rail" aria-label="Rail" />;
