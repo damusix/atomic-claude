@@ -375,10 +375,11 @@ exported from the reference impl.
 
 ### C. Kind & language strings (COPY verbatim) — `src/types.ts`
 
-- **NodeKind (31):** `file, module, class, struct, interface, trait, protocol,
+- **NodeKind (39):** `file, module, class, struct, interface, trait, protocol,
   function, method, property, field, variable, constant, enum, enum_member,
   type_alias, namespace, parameter, import, export, route, component,
-  table, view, column, procedure, trigger, constraint, index, sequence, policy`.
+  table, view, column, procedure, trigger, constraint, index, sequence, policy,
+  stage, stream, task, model, file_format, macro, script, package`.
 - **EdgeKind (13):** `contains, calls, imports, exports, extends, implements,
   references, type_of, returns, instantiates, overrides, decorates, writes`.
   (`writes` added CP5 — routine→table mutation targets; lets `code impact`
@@ -808,3 +809,21 @@ scanning the member source tree normally, without touching the member repo.
 **Amended sections:** `## atomic CLI integration` (DB path bullet expanded to cover
 both repo-scope and explicit-path contracts); `## Non-goals` (explicit `--db` flag
 non-goal added).
+
+### 2026-08-08 — Correction: appendix C NodeKind roster synced to 39 (adds `package`)
+
+**What changed:** Appendix C's NodeKind list is corrected from 31 to the full
+current 39-entry roster, in `AllNodeKinds` order: `stage, stream, task, model,
+file_format, macro, script` (Snowflake/dbt SQL extraction) and `package`
+(synthesized external-import hub, `docs/spec/code-intel-package-nodes.md`) are
+now all present.
+
+**Why:** the seven Snowflake/dbt kinds were added to `types.go` by
+`docs/spec/sql-dbt-snowflake.md` and `docs/spec/sql-dbt-snowflake-v2.md`
+without a matching appendix C amendment here, so the roster had drifted stale
+(stuck at 31) since 2026-06-07. `package`, this checkpoint's own addition, is
+the trigger that surfaced the gap while amending the same list — corrected in
+the same pass rather than leaving the drift for a future reader to trip over.
+
+**Superseded:** the prior 31-entry list (`file` … `policy`), stale since the
+CP4 entry above.

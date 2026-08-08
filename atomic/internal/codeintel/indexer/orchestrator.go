@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -189,6 +190,96 @@ func compoundExt(path string) string {
 }
 
 // ---------------------------------------------------------------------------
+// Extractor-version self-healing migration
+// ---------------------------------------------------------------------------
+
+// extractorVersion is bumped by hand whenever a change under extraction/
+// would produce different nodes/edges/refs for files that are already
+// indexed (unchanged on disk, so the content-hash dedup skip would otherwise
+// hide the semantic drift forever). IndexAll compares it against the
+// project_metadata value on every run; a mismatch forces one full
+// re-extraction pass so already-indexed files self-heal.
+//
+// Bump history:
+//
+//	2 — function-scoped local variables no longer minted as nodes; only
+//	    single-identifier variable names are minted anywhere (destructuring
+//	    patterns suppressed).
+const extractorVersion = "2"
+
+// extractorVersionMetadataKey is the project_metadata row extractorVersion
+// is compared against and stamped into. Reuses the existing table — no
+// schema change.
+const extractorVersionMetadataKey = "extractor_version"
+
+// checkExtractorVersion reads project_metadata's stamped extractor_version
+// and reports whether IndexAll must treat every file as changed this run
+// (forceFull) and whether the key needs (re)writing afterward (needStamp).
+//
+//   - Stored value matches extractorVersion → (false, false): incremental
+//     as before, nothing to do.
+//   - Key absent, but the index already has file rows → (true, true): this
+//     index predates the extractor_version mechanism entirely; migrate
+//     every already-indexed file once, then stamp.
+//   - Key absent, index has no file rows → (false, true): brand-new index;
+//     nothing to migrate (every file is new, not skipped), just stamp.
+//   - Stored value present but different from extractorVersion → (true,
+//     true): a real semantics bump; migrate, then re-stamp.
+func (o *Orchestrator) checkExtractorVersion(ctx context.Context) (forceFull, needStamp bool, err error) {
+	stored, ok, err := o.getMetadata(ctx, extractorVersionMetadataKey)
+	if err != nil {
+		return false, false, err
+	}
+	if ok {
+		if stored == extractorVersion {
+			return false, false, nil
+		}
+		return true, true, nil
+	}
+
+	files, err := o.db.GetAllFiles(ctx)
+	if err != nil {
+		return false, false, err
+	}
+	return len(files) > 0, true, nil
+}
+
+// stampExtractorVersion writes the current extractorVersion into
+// project_metadata. Called only after a run completes successfully, so a
+// crash mid-migration leaves the mismatch in place and the next run retries
+// the full pass instead of recording a migration that never finished.
+func (o *Orchestrator) stampExtractorVersion(ctx context.Context) error {
+	return o.setMetadata(ctx, extractorVersionMetadataKey, extractorVersion)
+}
+
+// getMetadata reads one project_metadata row directly via the DB's exported
+// *sql.DB handle (db.go: "Callers may use it directly for queries") — there
+// is no dedicated project_metadata accessor beyond migrations.go's raw SQL
+// for schema_version, which this mirrors rather than duplicating.
+func (o *Orchestrator) getMetadata(ctx context.Context, key string) (value string, ok bool, err error) {
+	err = o.db.DB().QueryRowContext(ctx,
+		`SELECT value FROM project_metadata WHERE key = ?`, key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("orchestrator: read metadata %s: %w", key, err)
+	}
+	return value, true, nil
+}
+
+// setMetadata upserts one project_metadata row, mirroring migrations.go's
+// INSERT OR REPLACE pattern for schema_version.
+func (o *Orchestrator) setMetadata(ctx context.Context, key, value string) error {
+	if _, err := o.db.DB().ExecContext(ctx,
+		`INSERT OR REPLACE INTO project_metadata (key, value, updated_at)
+		 VALUES (?, ?, strftime('%s','now'))`, key, value); err != nil {
+		return fmt.Errorf("orchestrator: write metadata %s: %w", key, err)
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
 
@@ -268,17 +359,12 @@ func NewOrchestrator(database *db.DB, pool *extraction.Pool) *Orchestrator {
 // IndexAll scans projectRoot for source files and indexes them all into the DB.
 // Files are processed concurrently (bounded by the pool size). Errors from
 // individual files are recorded in the DB but do not abort the run.
+//
+// Runs the extractor_version migration check (see scanAndIndex) — the same
+// check Sync runs, per the spec's "Flow: self-healing migration", which
+// names both `atomic code index` and `atomic code sync`.
 func (o *Orchestrator) IndexAll(ctx context.Context, projectRoot string) error {
-	files, err := scanFiles(projectRoot)
-	if err != nil {
-		return fmt.Errorf("orchestrator: scan: %w", err)
-	}
-	files = o.filterIgnored(projectRoot, files)
-
-	if err := o.indexFiles(ctx, projectRoot, files); err != nil {
-		return err
-	}
-	return o.pruneDeleted(ctx, projectRoot, files)
+	return o.scanAndIndex(ctx, projectRoot, "orchestrator: scan")
 }
 
 // IndexPaths indexes exactly the files in paths. Each path must be absolute.
@@ -288,26 +374,57 @@ func (o *Orchestrator) IndexAll(ctx context.Context, projectRoot string) error {
 // Paths matched by o.ignore are also skipped. IndexPaths does not prune (see
 // pruneDeleted's doc comment) — it is handed an explicit subset.
 func (o *Orchestrator) IndexPaths(ctx context.Context, projectRoot string, paths []string) error {
-	return o.indexFiles(ctx, projectRoot, o.filterIgnored(projectRoot, paths))
+	return o.indexFiles(ctx, projectRoot, o.filterIgnored(projectRoot, paths), false)
 }
 
 // Sync re-indexes files in projectRoot that have changed since the last index.
-// It uses size+mtime as a pre-filter, then confirms with a content hash.
-// Files that have not changed are skipped (dedup). Changed files have their old
-// nodes deleted (cascade clears edges) before re-extraction (R-E invariant).
-// Files that have vanished from disk since the last run are pruned from the
-// index (pruneDeleted) so a delete or rename does not leave stale symbols.
+// Files that have not changed are skipped (content-hash dedup). Changed files
+// have their old nodes deleted (cascade clears edges) before re-extraction
+// (R-E invariant). Files that have vanished from disk since the last run are
+// pruned from the index (pruneDeleted) so a delete or rename does not leave
+// stale symbols.
+//
+// Sync runs the same extractor_version migration check as IndexAll (see
+// scanAndIndex) — the spec's "Flow: self-healing migration" names both
+// `atomic code index` and `atomic code sync`, and warm repos only ever run
+// Sync in practice (ship verbs call sync; index is cold-start-only), so the
+// mechanism must not be inert for Sync. A stale stamped version escalates a
+// Sync run to a full re-extraction pass (hash dedup bypassed for every
+// file), then stamps; a matching version keeps Sync's normal incremental
+// behavior.
 func (o *Orchestrator) Sync(ctx context.Context, projectRoot string) error {
+	return o.scanAndIndex(ctx, projectRoot, "orchestrator: sync scan")
+}
+
+// scanAndIndex is the shared body of IndexAll and Sync: check the
+// extractor_version migration, scan, index (forcing a full pass on a
+// mismatch), prune, and stamp. scanErrPrefix distinguishes the two callers'
+// scan-error wording.
+func (o *Orchestrator) scanAndIndex(ctx context.Context, projectRoot, scanErrPrefix string) error {
+	forceFull, needStamp, err := o.checkExtractorVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("orchestrator: extractor version check: %w", err)
+	}
+
 	files, err := scanFiles(projectRoot)
 	if err != nil {
-		return fmt.Errorf("orchestrator: sync scan: %w", err)
+		return fmt.Errorf("%s: %w", scanErrPrefix, err)
 	}
 	files = o.filterIgnored(projectRoot, files)
 
-	if err := o.indexFiles(ctx, projectRoot, files); err != nil {
+	if err := o.indexFiles(ctx, projectRoot, files, forceFull); err != nil {
 		return err
 	}
-	return o.pruneDeleted(ctx, projectRoot, files)
+	if err := o.pruneDeleted(ctx, projectRoot, files); err != nil {
+		return err
+	}
+
+	if needStamp {
+		if err := o.stampExtractorVersion(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // pruneDeleted removes index rows for files that exist in the DB but no longer
@@ -364,8 +481,10 @@ func (o *Orchestrator) pruneDeleted(ctx context.Context, projectRoot string, onD
 }
 
 // indexFiles processes a list of absolute file paths. It is the shared inner
-// loop for IndexAll and Sync.
-func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, filePaths []string) error {
+// loop for IndexAll, Sync, and IndexPaths. forceReindex, when true, bypasses
+// the content-hash dedup skip in indexOneFile for every file in this call —
+// used by IndexAll's extractor_version migration to force a full pass.
+func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, filePaths []string, forceReindex bool) error {
 	// Reset the per-run skip counter; indexOneFile increments it for files that
 	// cannot be read or stat'd (skipped, not fatal).
 	o.skippedFiles.Store(0)
@@ -393,7 +512,7 @@ func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, fileP
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()
-			if err := o.indexOneFile(ctx, projectRoot, p); err != nil {
+			if err := o.indexOneFile(ctx, projectRoot, p, forceReindex); err != nil {
 				errCh <- err
 			}
 		}(path)
@@ -411,7 +530,9 @@ func (o *Orchestrator) indexFiles(ctx context.Context, projectRoot string, fileP
 }
 
 // indexOneFile processes a single file: reads it, extracts, stores.
-func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath string) error {
+// forceReindex bypasses the content-hash dedup skip below (extractor_version
+// migration in progress).
+func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath string, forceReindex bool) error {
 	// Relative path used as the canonical DB key (matches reference impl).
 	relPath, err := filepath.Rel(projectRoot, filePath)
 	if err != nil {
@@ -440,10 +561,14 @@ func (o *Orchestrator) indexOneFile(ctx context.Context, projectRoot, filePath s
 	ext := strings.ToLower(compoundExt(relPath))
 	lang := extToLanguage[ext]
 
-	// Dedup: if the file record exists with the same content hash, skip.
-	if existing, err := o.db.GetFile(ctx, relPath); err == nil {
-		if existing.ContentHash == contentHash {
-			return nil // unchanged — skip
+	// Dedup: if the file record exists with the same content hash, skip —
+	// unless forceReindex is set (extractor_version migration in progress),
+	// in which case every file is treated as changed for this run.
+	if !forceReindex {
+		if existing, err := o.db.GetFile(ctx, relPath); err == nil {
+			if existing.ContentHash == contentHash {
+				return nil // unchanged — skip
+			}
 		}
 	}
 

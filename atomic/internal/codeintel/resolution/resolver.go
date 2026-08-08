@@ -83,6 +83,14 @@ type ResolvedImport struct {
 	TargetNodeID string
 	// Confidence is 0.0–1.0; set to 1.0 for exact DB hits.
 	Confidence float64
+	// PackageName is the normalized package identity for an External import
+	// (docs/design/code-intel-package-nodes.md) — set only when Kind ==
+	// ResolvedKindExternal and the specifier's ecosystem yields one. v1 covers
+	// JS-family languages only (the npm identity rule); every other language
+	// leaves this "". Also "" for a URL-scheme specifier, which has no
+	// derivable package. Checkpoint 2's mint loop reads this to converge every
+	// importer of one package onto a single package: node.
+	PackageName string
 }
 
 // Resolver resolves import-kind UnresolvedReferences.
@@ -133,6 +141,16 @@ func (r *Resolver) ResolveImport(ctx context.Context, ref types.UnresolvedRefere
 	specifier := ref.ReferenceName
 	lang := ref.Language
 
+	// Strip a trailing "?query" and/or "#fragment" — a browser-ESM idiom for
+	// cache-busting local imports (e.g. "./editor.js?v=2026.07.23.1"). Must
+	// happen before alias expansion / external classification / relative
+	// resolution so all three see the clean path. Scoped to the JS-family
+	// languages: other languages' specifiers may legitimately contain "?" or
+	// "#" as part of the module name and must be left untouched.
+	if isJSFamily(lang) {
+		specifier = stripQueryAndFragment(specifier)
+	}
+
 	// Step 1 — alias expansion (tsconfig paths) for non-relative specifiers.
 	// This MUST happen before external classification because an alias like
 	// "@app/*" would otherwise be misclassified as an npm scoped package.
@@ -157,7 +175,11 @@ func (r *Resolver) ResolveImport(ctx context.Context, ref types.UnresolvedRefere
 
 	// Step 2 — external classification (no alias matched above).
 	if isExternal(specifier, lang) {
-		return ResolvedImport{Kind: ResolvedKindExternal}, nil
+		result := ResolvedImport{Kind: ResolvedKindExternal}
+		if isJSFamily(lang) {
+			result.PackageName = npmPackageName(specifier)
+		}
+		return result, nil
 	}
 
 	// Step 3 — relative resolution.
@@ -347,14 +369,80 @@ func isRelative(specifier string) bool {
 	return strings.HasPrefix(specifier, "./") || strings.HasPrefix(specifier, "../")
 }
 
+// isJSFamily returns true for the languages that use browser-ESM cache-busted
+// import specifiers (a trailing "?query" and/or "#fragment").
+func isJSFamily(lang types.Language) bool {
+	switch lang {
+	case types.LanguageJavaScript, types.LanguageJSX,
+		types.LanguageTypeScript, types.LanguageTSX:
+		return true
+	}
+	return false
+}
+
+// stripQueryAndFragment removes a trailing "?query" and/or "#fragment" suffix
+// from an import specifier. Whichever of "?" or "#" appears first wins (a
+// fragment always terminates a query string per URL syntax), so the earliest
+// occurrence of either is the cut point — but only when that occurrence is
+// not the first character. A specifier starting with "#" is a Node.js ESM
+// package.json "imports"-field subpath specifier (e.g. "#internal/config"),
+// not a fragment suffix, and must be left intact.
+func stripQueryAndFragment(specifier string) string {
+	if i := strings.IndexAny(specifier, "?#"); i > 0 {
+		return specifier[:i]
+	}
+	return specifier
+}
+
+// npmPackageName normalizes a JS-family external import specifier to its npm
+// package identity (docs/design/code-intel-package-nodes.md, "Recommendation"
+// section). Called only after isExternal has already classified the
+// specifier, so a relative/absolute/alias-matched specifier never reaches
+// this function.
+//
+// Rules, in order:
+//   - "<scheme>://" anywhere → "" — a URL-scheme specifier (CDN/remote ESM
+//     import) has no npm package identity; no node is minted for it.
+//   - "node:" prefix → the specifier verbatim (e.g. "node:fs/promises" stays
+//     whole) — each builtin module is its own unit; no canonicalizing a bare
+//     "fs" onto "node:fs" (would need a Node-version-dependent allowlist).
+//   - "@" prefix (scoped package) → the first two slash-segments (e.g.
+//     "@scope/pkg/deep/path.js" → "@scope/pkg"). A scope with no package
+//     segment ("@scope/", "@scope") has no complete identity — the scope
+//     alone is returned, not a trailing-slash string.
+//   - otherwise → the first slash-segment (e.g. "pkg/sub" → "pkg"; a bare
+//     specifier with no "/" is returned unchanged).
+func npmPackageName(specifier string) string {
+	if strings.Contains(specifier, "://") {
+		return ""
+	}
+	if strings.HasPrefix(specifier, "node:") {
+		return specifier
+	}
+	if strings.HasPrefix(specifier, "@") {
+		parts := strings.SplitN(specifier, "/", 3)
+		if len(parts) >= 2 && parts[1] != "" {
+			return parts[0] + "/" + parts[1]
+		}
+		return parts[0]
+	}
+	if i := strings.Index(specifier, "/"); i >= 0 {
+		return specifier[:i]
+	}
+	return specifier
+}
+
 // isExternal returns true when the specifier should be classified as an
 // external/stdlib import for the given language — no DB node is expected.
 //
 // Classification rules:
 //   - Any specifier that is not relative ("./", "../") AND not aliased is a
 //     candidate. We check for explicit external signals here:
+//   - "<scheme>://" URL prefix → remote ESM import (CDN/URL specifier).
 //   - "node:" protocol prefix → Node.js built-in.
-//   - Specifiers without "/" or those starting with "@" (scoped npm packages).
+//   - JS-family (JS/JSX/TS/TSX): any specifier not starting with ".", "/",
+//     or "#" — covers scoped packages (@org/pkg), bare packages, and
+//     package subpaths (@org/pkg/sub, date-fns/format) uniformly.
 //   - Per-language built-in skip sets (Go stdlib, Java stdlib, Python stdlib).
 //
 // Note: alias specifiers are handled before isExternal is called, so we only
@@ -363,6 +451,15 @@ func isExternal(specifier string, lang types.Language) bool {
 	// Already relative — not external.
 	if isRelative(specifier) {
 		return false
+	}
+
+	// URL-scheme specifier (e.g. "https://cdn.jsdelivr.net/npm/zod/+esm") —
+	// a browser/Deno ESM import naming a remote module directly. "://" never
+	// appears in an internal relative/repo path or a bare package name for
+	// any indexed language, so this check is language-agnostic and safe
+	// ahead of the per-language branches below.
+	if strings.Contains(specifier, "://") {
+		return true
 	}
 
 	// node: protocol → Node.js built-in.
@@ -379,15 +476,17 @@ func isExternal(specifier string, lang types.Language) bool {
 	switch lang {
 	case types.LanguageTypeScript, types.LanguageJavaScript,
 		types.LanguageTSX, types.LanguageJSX:
-		// Node.js stdlib modules (bare names, no "/").
-		if isNodeBuiltin(specifier) {
+		// Node resolution semantics: any specifier that does not start with
+		// ".", "/", or "#" is external — covers scoped packages (@org/pkg),
+		// bare packages (react), package subpaths (@org/pkg/sub,
+		// date-fns/format), and bare Node builtins (fs, path) in one rule.
+		// "#"-prefixed Node subpath-imports (package.json "imports" field)
+		// and relative/absolute paths are excluded. tsconfig aliases are
+		// expanded before isExternal is consulted (ResolveImport Step 1), so
+		// an alias-matched specifier never reaches this check.
+		if !strings.HasPrefix(specifier, ".") && !strings.HasPrefix(specifier, "/") && !strings.HasPrefix(specifier, "#") {
 			return true
 		}
-		// npm package: bare name without path separators (e.g. "react", "lodash").
-		if !strings.Contains(specifier, "/") {
-			return true
-		}
-		// Scoped package sub-path (@org/pkg/utils) already caught above.
 
 	case types.LanguagePython:
 		// Python relative imports are handled by isRelative; absolute imports
@@ -421,23 +520,4 @@ func isExternal(specifier string, lang types.Language) bool {
 	}
 
 	return false
-}
-
-// nodeBuiltins is the set of Node.js built-in module names (no "node:" prefix).
-// These are external even without the protocol prefix.
-var nodeBuiltins = map[string]bool{
-	"assert": true, "async_hooks": true, "buffer": true, "child_process": true,
-	"cluster": true, "console": true, "constants": true, "crypto": true,
-	"dgram": true, "diagnostics_channel": true, "dns": true, "domain": true,
-	"events": true, "fs": true, "http": true, "http2": true, "https": true,
-	"inspector": true, "module": true, "net": true, "os": true, "path": true,
-	"perf_hooks": true, "process": true, "punycode": true, "querystring": true,
-	"readline": true, "repl": true, "stream": true, "string_decoder": true,
-	"timers": true, "tls": true, "trace_events": true, "tty": true, "url": true,
-	"util": true, "v8": true, "vm": true, "wasi": true, "worker_threads": true,
-	"zlib": true,
-}
-
-func isNodeBuiltin(specifier string) bool {
-	return nodeBuiltins[specifier]
 }

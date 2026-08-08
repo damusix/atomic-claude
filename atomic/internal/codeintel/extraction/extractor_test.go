@@ -84,6 +84,21 @@ func newGoExtractor(t *testing.T) *extraction.TreeSitterExtractor {
 	return extraction.NewTreeSitterExtractor(pool, extraction.LangGo, languages.GoExtractor())
 }
 
+func newTSExtractor(t *testing.T) *extraction.TreeSitterExtractor {
+	t.Helper()
+	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTypeScript)
+	if !ok {
+		t.Fatal("TypeScript not registered")
+	}
+	ctx := context.Background()
+	pool, err := extraction.NewPool(ctx, extraction.PoolOptions{Size: 1})
+	if err != nil {
+		t.Fatalf("NewPool: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+	return extraction.NewTreeSitterExtractor(pool, extLang, cfg)
+}
+
 func findNode(nodes []types.Node, kind types.NodeKind, namePart string) *types.Node {
 	for i := range nodes {
 		if nodes[i].Kind == kind && strings.Contains(nodes[i].Name, namePart) {
@@ -704,6 +719,167 @@ func TestExtractor_BestEffortPartialResultSurvives(t *testing.T) {
 	// Verify it is always the first node (callers depend on this for provenance).
 	if len(result.Nodes) > 0 && result.Nodes[0].Kind != types.NodeKindFile {
 		t.Errorf("result.Nodes[0].Kind = %q, want NodeKindFile — file: node must be first", result.Nodes[0].Kind)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Function-scope local-variable suppression (FunctionScopeTypes)
+// ---------------------------------------------------------------------------
+
+// scopeSuppressionFixture exercises every case in the spec's success criteria:
+// a module-scope const (kept), a const inside a single arrow callback (dropped),
+// a const nested two arrow-callbacks deep (dropped), a const inside a
+// function_expression callback body (dropped), a const inside a
+// generator_function callback body (dropped), and two destructuring
+// declarations — one at module scope, one inside a callback — both dropped by
+// the identifier guard regardless of depth. Every declaration's initializer
+// contains a call so the "walk continues either way" contract is exercised for
+// every suppressed case, not just the kept one. The function_expression and
+// generator_function cases are call arguments (not named declarations), so
+// they are reached via visitChildren the same way the arrow callback is —
+// this exercises the FunctionScopeTypes membership for those two kinds
+// specifically, not just arrow_function.
+const scopeSuppressionFixture = `export const moduleConst = 1;
+
+items.forEach((item) => {
+  const inCallback = item + 1;
+  helperCall(inCallback);
+});
+
+outerCallback(() => {
+  innerCallback(() => {
+    const twoDeep = 1;
+    console.log(twoDeep);
+  });
+});
+
+callbackWithFunctionExpr(function() {
+  const inFunctionExpr = 1;
+  functionExprCall(inFunctionExpr);
+});
+
+callbackWithGenerator(function*() {
+  const inGenerator = 1;
+  generatorCall(inGenerator);
+});
+
+const { a, b } = destructureModule();
+
+items.forEach((item) => {
+  const { c } = destructureCallback(item);
+});
+`
+
+const scopeSuppressionFixturePath = "src/scope.ts"
+
+// TestExtractor_FunctionScopeSuppression_TS is the failing-first test for the
+// checkpoint: before FunctionScopeTypes/scopeDepth landed, "inCallback",
+// "twoDeep", "{ a, b }", and "{ c }" were ALL minted as variable nodes parented
+// to the file node (verified against pre-fix extractor.go + typescript.go).
+// WHY: TS/JS function-body locals were an orphan starfield in the graph (51%
+// of nodes on a real repo, per the design doc) and a source of false calls
+// edges (cross-file resolution landing on test-local names). Only
+// module-scope, single-identifier declarations should mint a node.
+func TestExtractor_FunctionScopeSuppression_TS(t *testing.T) {
+	ctx := context.Background()
+	e := newTSExtractor(t)
+	result := e.Extract(ctx, scopeSuppressionFixturePath, scopeSuppressionFixture, types.LanguageTypeScript)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+
+	// Kept: module-scope const.
+	if n := findNode(result.Nodes, types.NodeKindVariable, "moduleConst"); n == nil {
+		t.Errorf("moduleConst not found as a variable node; nodes: %s", nodeKindList(result.Nodes))
+	}
+
+	// Dropped: const inside a single arrow callback.
+	if n := findNode(result.Nodes, types.NodeKindVariable, "inCallback"); n != nil {
+		t.Errorf("inCallback minted as a variable node (want suppressed — scopeDepth 1); nodes: %s", nodeKindList(result.Nodes))
+	}
+
+	// Dropped: const nested two arrow callbacks deep.
+	if n := findNode(result.Nodes, types.NodeKindVariable, "twoDeep"); n != nil {
+		t.Errorf("twoDeep minted as a variable node (want suppressed — scopeDepth 2); nodes: %s", nodeKindList(result.Nodes))
+	}
+
+	// Dropped: const inside a function_expression callback body — proves
+	// FunctionScopeTypes suppression for "function_expression" specifically,
+	// not only "arrow_function".
+	if n := findNode(result.Nodes, types.NodeKindVariable, "inFunctionExpr"); n != nil {
+		t.Errorf("inFunctionExpr minted as a variable node (want suppressed — function_expression scope); nodes: %s", nodeKindList(result.Nodes))
+	}
+
+	// Dropped: const inside a generator_function callback body — proves
+	// FunctionScopeTypes suppression for "generator_function" specifically.
+	if n := findNode(result.Nodes, types.NodeKindVariable, "inGenerator"); n != nil {
+		t.Errorf("inGenerator minted as a variable node (want suppressed — generator_function scope); nodes: %s", nodeKindList(result.Nodes))
+	}
+
+	// Dropped everywhere: destructuring patterns, module scope and callback.
+	for _, name := range []string{"a", "b", "c", "{ a, b }", "{ c }"} {
+		if n := findNode(result.Nodes, types.NodeKindVariable, name); n != nil {
+			t.Errorf("destructuring pattern minted a variable node (name %q); nodes: %s", n.Name, nodeKindList(result.Nodes))
+		}
+	}
+
+	// Total variable-kind node count: exactly one (moduleConst).
+	varCount := 0
+	for _, n := range result.Nodes {
+		if n.Kind == types.NodeKindVariable {
+			varCount++
+		}
+	}
+	if varCount != 1 {
+		t.Errorf("variable node count = %d, want 1 (moduleConst only); nodes: %s", varCount, nodeKindList(result.Nodes))
+	}
+
+	// "Walk continues either way": every call in every declaration's
+	// initializer — kept or suppressed — is still harvested as a calls ref.
+	wantCalls := []string{
+		"forEach", "helperCall", "outerCallback", "innerCallback", "log",
+		"callbackWithFunctionExpr", "functionExprCall",
+		"callbackWithGenerator", "generatorCall",
+		"destructureModule", "destructureCallback",
+	}
+	gotCalls := map[string]bool{}
+	for _, r := range result.UnresolvedReferences {
+		if r.ReferenceKind == types.EdgeKindCalls {
+			gotCalls[r.ReferenceName] = true
+		}
+	}
+	for _, want := range wantCalls {
+		if !gotCalls[want] {
+			t.Errorf("expected calls ref %q from a suppressed/kept declaration's initializer; got refs: %v", want, mapKeys(gotCalls))
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// No-op languages: byte-identical output (FunctionScopeTypes/VariableTypes
+// gating must be inert for languages that never invoke the new code paths).
+// ---------------------------------------------------------------------------
+
+// TestExtractor_GoByteIdenticalAfterScopeSuppression pins the Go fixture's
+// exact node/edge/ref counts. Go has no VariableTypes config at all, so
+// extractSimpleNode is never called with NodeKindVariable for Go — the new
+// gating is structurally unreachable. Counts verified identical against
+// pre-fix extractor.go (stash-and-rerun) before this test was written.
+func TestExtractor_GoByteIdenticalAfterScopeSuppression(t *testing.T) {
+	ctx := context.Background()
+	e := newGoExtractor(t)
+	result := e.Extract(ctx, goFixturePath, goFixture, types.LanguageGo)
+	if len(result.Errors) > 0 {
+		t.Fatalf("unexpected errors: %v", result.Errors)
+	}
+	if len(result.Nodes) != 12 {
+		t.Errorf("Go node count = %d, want 12 (byte-identical to pre-change)", len(result.Nodes))
+	}
+	if len(result.Edges) != 11 {
+		t.Errorf("Go edge count = %d, want 11 (byte-identical to pre-change)", len(result.Edges))
+	}
+	if len(result.UnresolvedReferences) != 4 {
+		t.Errorf("Go unresolved-ref count = %d, want 4 (byte-identical to pre-change)", len(result.UnresolvedReferences))
 	}
 }
 
