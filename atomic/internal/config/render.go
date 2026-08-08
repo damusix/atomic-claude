@@ -96,9 +96,16 @@ func Resolved(cfg *Config) map[string]string {
 	if harnessDirVal == "" {
 		harnessDirVal = harnessDirDefault
 	}
+	// repl.idle_timeout: an empty string means unset — display the same
+	// default resolveIdleTimeout falls back to.
+	idleTimeoutVal := cfg.Repl.IdleTimeout
+	if idleTimeoutVal == "" {
+		idleTimeoutVal = replIdleTimeoutDefault
+	}
 	return map[string]string{
 		"output.signals.max_depth": fmt.Sprintf("%d", maxDepth),
 		"update.run_doctor":        fmt.Sprintf("%t", runDoctor),
 		"harness.dir":              harnessDirVal,
+		"repl.idle_timeout":        idleTimeoutVal,
 	}
 }

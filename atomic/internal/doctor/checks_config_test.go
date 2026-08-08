@@ -479,6 +479,56 @@ model = "opus"
 	}
 }
 
+// --- [repl] idle_timeout (CP4: atomic-repl) ---
+
+// TestCheckConfig_invalidIdleTimeout: an unparseable repl.idle_timeout → FAIL
+// naming the offending value.
+func TestCheckConfig_invalidIdleTimeout(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[repl]\nidle_timeout = \"turbo\"\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.FAIL {
+		t.Errorf("severity = %q, want FAIL for invalid repl.idle_timeout; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "turbo") {
+		t.Errorf("detail %q: want mention of the offending value 'turbo'", r.Detail)
+	}
+}
+
+// TestCheckConfig_zeroIdleTimeout: a zero-duration repl.idle_timeout → FAIL —
+// zero means invalid, never "disable".
+func TestCheckConfig_zeroIdleTimeout(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[repl]\nidle_timeout = \"0s\"\n")
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.FAIL {
+		t.Errorf("severity = %q, want FAIL for zero repl.idle_timeout; detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// TestCheckConfig_validIdleTimeout: a well-formed repl.idle_timeout with a
+// synced resolved.md → PASS.
+func TestCheckConfig_validIdleTimeout(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[repl]\nidle_timeout = \"45m\"\n")
+
+	cfg, warns, err := config.Load(config.TOMLPath(root))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Fatalf("unexpected warnings: %v", warns)
+	}
+	writeResolved(t, root, config.Render(cfg))
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS for valid repl.idle_timeout; detail: %s", r.Severity, r.Detail)
+	}
+}
+
 // alwaysYesPrompter always returns DecisionYes for testing.
 type alwaysYesPrompter struct{}
 

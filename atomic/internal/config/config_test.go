@@ -1128,6 +1128,242 @@ func TestHarnessDirUnknownKeyTypoSuggestion(t *testing.T) {
 	}
 }
 
+// --- [repl] idle_timeout (CP4: atomic-repl) ---
+
+// TestReplIdleTimeoutAbsent: absent [repl] in TOML leaves the field empty
+// (unset), matching the schema's "empty means unset" contract for this key.
+func TestReplIdleTimeoutAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[output.signals]\nmax_depth = 3\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Repl.IdleTimeout != "" {
+		t.Errorf("absent repl.idle_timeout should be empty, got %q", cfg.Repl.IdleTimeout)
+	}
+}
+
+// TestReplIdleTimeoutExplicit: explicit [repl] idle_timeout in TOML loads verbatim.
+func TestReplIdleTimeoutExplicit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[repl]\nidle_timeout = \"2h\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Repl.IdleTimeout != "2h" {
+		t.Errorf("Repl.IdleTimeout = %q, want \"2h\"", cfg.Repl.IdleTimeout)
+	}
+}
+
+// TestReplIdleTimeoutGetSet: Get returns the built-in display default when
+// unset, and the set value after Set.
+func TestReplIdleTimeoutGetSet(t *testing.T) {
+	cfg := Default()
+	v, err := Get(cfg, "repl.idle_timeout")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if v != "1h" {
+		t.Errorf("default Get = %q, want \"1h\"", v)
+	}
+
+	if err := Set(cfg, "repl.idle_timeout", "45m"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	v, err = Get(cfg, "repl.idle_timeout")
+	if err != nil {
+		t.Fatalf("Get after Set: %v", err)
+	}
+	if v != "45m" {
+		t.Errorf("after Set 45m, Get = %q, want \"45m\"", v)
+	}
+}
+
+// TestReplIdleTimeoutSetInvalidVariants: Set rejects unparseable, zero, and
+// negative durations.
+func TestReplIdleTimeoutSetInvalidVariants(t *testing.T) {
+	for _, v := range []string{"bogus", "0s", "-5m", "0"} {
+		cfg := Default()
+		if err := Set(cfg, "repl.idle_timeout", v); err == nil {
+			t.Errorf("Set(repl.idle_timeout, %q): expected error, got nil", v)
+		}
+	}
+}
+
+// TestReplIdleTimeoutSetValidVariants: Set accepts every time.ParseDuration
+// shape the spec names (hours, minutes, seconds).
+func TestReplIdleTimeoutSetValidVariants(t *testing.T) {
+	for _, v := range []string{"1h", "30m", "90s"} {
+		cfg := Default()
+		if err := Set(cfg, "repl.idle_timeout", v); err != nil {
+			t.Errorf("Set(repl.idle_timeout, %q): unexpected error: %v", v, err)
+		}
+		if cfg.Repl.IdleTimeout != v {
+			t.Errorf("Repl.IdleTimeout after Set(%q) = %q, want %q", v, cfg.Repl.IdleTimeout, v)
+		}
+	}
+}
+
+// TestReplIdleTimeoutUnset: Unset reverts repl.idle_timeout to empty (unset).
+func TestReplIdleTimeoutUnset(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "repl.idle_timeout", "2h"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unset(cfg, "repl.idle_timeout"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Get(cfg, "repl.idle_timeout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "1h" {
+		t.Errorf("after Unset got %q, want default \"1h\"", got)
+	}
+	if cfg.Repl.IdleTimeout != "" {
+		t.Errorf("after Unset, Repl.IdleTimeout field = %q, want empty", cfg.Repl.IdleTimeout)
+	}
+}
+
+// TestReplIdleTimeoutRoundTrip: set → persist → load → get returns the set value.
+func TestReplIdleTimeoutRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	if err := Set(cfg, "repl.idle_timeout", "3h"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	got, err := Get(loaded, "repl.idle_timeout")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got != "3h" {
+		t.Errorf("got %q, want \"3h\"", got)
+	}
+}
+
+// TestReplIdleTimeoutRoundTrip_UnsetOmitsSection: an unset repl.idle_timeout
+// round-trips without writing an empty [repl] table — WritePersist must not
+// leave `idle_timeout = ""` on disk.
+func TestReplIdleTimeoutRoundTrip_UnsetOmitsSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "[repl]") {
+		t.Errorf("expected no [repl] table for an unset idle_timeout, got:\n%s", raw)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if loaded.Repl.IdleTimeout != "" {
+		t.Errorf("Repl.IdleTimeout = %q, want empty", loaded.Repl.IdleTimeout)
+	}
+}
+
+// TestReplIdleTimeoutValidateRejectsBadValue: Validate rejects an unparseable
+// or non-positive repl.idle_timeout.
+func TestReplIdleTimeoutValidateRejectsBadValue(t *testing.T) {
+	for _, v := range []string{"bogus", "0s", "-1h"} {
+		cfg := Default()
+		cfg.Repl.IdleTimeout = v
+		if err := Validate(cfg); err == nil {
+			t.Errorf("Validate with repl.idle_timeout=%q: expected error, got nil", v)
+		} else if !strings.Contains(err.Error(), v) {
+			t.Errorf("Validate error %q does not name the offending value %q", err.Error(), v)
+		}
+	}
+}
+
+// TestReplIdleTimeoutValidateAcceptsAbsent: Validate does not error when
+// repl.idle_timeout is unset (empty).
+func TestReplIdleTimeoutValidateAcceptsAbsent(t *testing.T) {
+	cfg := Default()
+	if err := Validate(cfg); err != nil {
+		t.Errorf("Validate on config without repl.idle_timeout: %v", err)
+	}
+}
+
+// TestReplIdleTimeoutNoUnknownKeyWarning: repl.idle_timeout in TOML does not
+// produce a structural unknown-key warning.
+func TestReplIdleTimeoutNoUnknownKeyWarning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	content := "[repl]\nidle_timeout = \"1h\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.Message, "repl") {
+			t.Errorf("unexpected warning for known key: %q", w.Message)
+		}
+	}
+}
+
+// TestReplIdleTimeoutUnknownKeyTypoSuggestion: Set typo on repl.idle_timeout
+// suggests the correct key.
+func TestReplIdleTimeoutUnknownKeyTypoSuggestion(t *testing.T) {
+	cfg := Default()
+	err := Set(cfg, "repl.idle_timeot", "1h") // typo: idle_timeot
+	if err == nil {
+		t.Fatal("expected error for unknown key, got nil")
+	}
+	if !strings.Contains(err.Error(), "repl.idle_timeout") {
+		t.Errorf("expected suggestion 'repl.idle_timeout' in error %q", err.Error())
+	}
+}
+
 // TestUpdateUnknownLeafKeyWarn: unknown key under [update] section emits a warning.
 func TestUpdateUnknownLeafKeyWarn(t *testing.T) {
 	dir := t.TempDir()

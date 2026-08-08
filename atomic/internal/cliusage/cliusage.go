@@ -592,6 +592,42 @@ var commands = []Command{
 		Flags:       nil,
 		Description: "Scaffold .claude/ layout: dirs + nested .claude/.gitignore + root ignore rules (idempotent)",
 	},
+	{
+		Path:        []string{"repl", "start"},
+		Args:        "",
+		Flags:       []string{"--name", "--lang", "--env", "--bin", "--json"},
+		Description: "Spawn a persistent py|js interpreter session; --lang accepts python/js/node/javascript aliases",
+	},
+	{
+		Path:        []string{"repl", "eval"},
+		Args:        "[--] [<code>]",
+		Flags:       []string{"--name", "--timeout", "--json"},
+		Description: "Evaluate code against a session; code from the positional arg (use -- before dash-leading code) or piped stdin",
+	},
+	{
+		Path:        []string{"repl", "list"},
+		Args:        "",
+		Flags:       []string{"--all", "--json"},
+		Description: "List sessions in the current repo+realm scope, or every scope with --all",
+	},
+	{
+		Path:        []string{"repl", "status"},
+		Args:        "",
+		Flags:       []string{"--name", "--all", "--json"},
+		Description: "Report one session's liveness, pid, and origin root",
+	},
+	{
+		Path:        []string{"repl", "reset"},
+		Args:        "",
+		Flags:       []string{"--name", "--json"},
+		Description: "Clear a session's interpreter namespace; the process stays alive",
+	},
+	{
+		Path:        []string{"repl", "stop"},
+		Args:        "",
+		Flags:       []string{"--name", "--json"},
+		Description: "End a session and remove its socket + meta",
+	},
 }
 
 // Commands returns the ordered command surface. The returned slice is a copy;

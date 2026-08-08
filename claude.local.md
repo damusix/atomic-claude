@@ -231,6 +231,7 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `docs/reference/serve.md` | `atomic serve` usage, scope resolution, browsing wiki + code graph locally | atomic-writing |
 | `docs/reference/wiki-workflow.md` | wiki setup, repo/realm scope, wiki verbs (scan/stale/linkify/bucket) | atomic-writing |
 | `docs/reference/bus.md` | `atomic bus` room model, addressed vs FYI, envelope, daemon lifecycle, exit codes, operator verbs | atomic-writing |
+| `docs/reference/repl.md` | `atomic repl` persistent interpreter sessions, scope model, six verbs, exit codes, idle_timeout config | atomic-writing |
 | `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
 | `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
 | `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |

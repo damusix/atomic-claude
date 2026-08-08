@@ -168,6 +168,7 @@ export default defineConfig({
                     { text: 'Code Intelligence', link: '/reference/code-intel' },
                     { text: 'Serve', link: '/reference/serve' },
                     { text: 'Inter-session Bus', link: '/reference/bus' },
+                    { text: 'REPL', link: '/reference/repl' },
                     { text: 'Conventions', link: '/reference/conventions' },
                 ],
             },

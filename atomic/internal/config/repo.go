@@ -6,6 +6,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/pelletier/go-toml/v2"
@@ -16,12 +17,37 @@ type codeSection struct {
 	Ignore []string `toml:"ignore"`
 }
 
+// replSection is the [repl] TOML table — one leaf, idle_timeout — shared by
+// RepoConfig (repo-scoped, this file) and Config (user-scoped, config.go).
+// Both harnesses decode the same shape; only resolution precedence differs
+// (see internal/repl/action.go's resolveIdleTimeout: repo wins over user).
+type replSection struct {
+	IdleTimeout string `toml:"idle_timeout"`
+}
+
+// ValidateIdleTimeout parses and validates a [repl] idle_timeout value: it
+// must parse as a Go duration string (time.ParseDuration) and be strictly
+// positive — zero or negative means invalid, never "disable" (see
+// docs/spec/atomic-repl.md). Returns the parsed duration on success so
+// callers that need the value (resolveIdleTimeout) don't reparse it.
+func ValidateIdleTimeout(value string) (time.Duration, error) {
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("config: repl.idle_timeout %q is not a valid duration (e.g. \"1h\", \"30m\", \"90s\"): %w", value, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("config: repl.idle_timeout %q must be a positive duration, got %s", value, d)
+	}
+	return d, nil
+}
+
 // RepoConfig is the parsed repo-scoped configuration read from
 // RepoConfigPath(projectRoot) (see harness.go) — a small, separate schema
 // from the user-scoped Config above.
 type RepoConfig struct {
 	Code  codeSection `toml:"code"`
 	Scope string      `toml:"scope"`
+	Repl  replSection `toml:"repl"`
 }
 
 // repoKnownSections is the set of known top-level TOML table names in the
@@ -29,6 +55,7 @@ type RepoConfig struct {
 var repoKnownSections = map[string]bool{
 	"code": true,
 	"pi":   true,
+	"repl": true,
 }
 
 // repoKnownTopLevelLeaves is the set of known top-level scalar keys in the
@@ -41,7 +68,8 @@ var repoKnownTopLevelLeaves = map[string]bool{
 
 // repoKnownLeaves is the set of known dotted leaf keys in the repo config schema.
 var repoKnownLeaves = map[string]bool{
-	"code.ignore": true,
+	"code.ignore":       true,
+	"repl.idle_timeout": true,
 }
 
 // LoadRepoConfig reads path into a RepoConfig leniently, mirroring Load's
