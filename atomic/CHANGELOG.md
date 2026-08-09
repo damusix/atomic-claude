@@ -1,5 +1,14 @@
 # Changelog
 
+## [6.1.0](https://github.com/damusix/atomic-claude/compare/v6.0.2...v6.1.0) (2026-08-09)
+
+
+### Features
+
+* **codeintel:** import resolution, local-var suppression, package hubs ([682e6bb](https://github.com/damusix/atomic-claude/commit/682e6bb3b5ae557960802dd447b7be0d3b3cddf4))
+* **repl:** persistent interpreter sessions ([649032f](https://github.com/damusix/atomic-claude/commit/649032f9147655f05dfb74e6b6796c357c6cbd80))
+* **serve:** bus chat page + atomic bus read ([2177d45](https://github.com/damusix/atomic-claude/commit/2177d45df5b24dd553a19d1765e620df8ce69b63))
+
 ## [6.0.2](https://github.com/damusix/atomic-claude/compare/v6.0.1...v6.0.2) (2026-08-04)
 
 
