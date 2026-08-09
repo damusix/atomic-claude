@@ -1,5 +1,17 @@
 # Changelog
 
+## [6.2.0](https://github.com/damusix/atomic-claude/compare/v6.1.0...v6.2.0) (2026-08-09)
+
+
+### Features
+
+* **selfupdate:** staged updates via state.json ([5db4408](https://github.com/damusix/atomic-claude/commit/5db4408474274760be1a6be2fdc3d1f1a3f65664))
+
+
+### Bug Fixes
+
+* **plan:** allow multiple diagrams and pseudocode in design docs ([#190](https://github.com/damusix/atomic-claude/issues/190)) ([11bf44e](https://github.com/damusix/atomic-claude/commit/11bf44eba899d708b1a15a10c998211a5dd3b5f3))
+
 ## [6.1.0](https://github.com/damusix/atomic-claude/compare/v6.0.2...v6.1.0) (2026-08-09)
 
 
