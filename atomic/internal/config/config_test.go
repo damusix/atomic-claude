@@ -422,6 +422,12 @@ func TestResolvedZeroValueConfig(t *testing.T) {
 	if m["update.run_doctor"] != "true" {
 		t.Errorf("Resolved(&Config{}) update.run_doctor = %q, want \"true\"", m["update.run_doctor"])
 	}
+	if m["update.check"] != "true" {
+		t.Errorf("Resolved(&Config{}) update.check = %q, want \"true\"", m["update.check"])
+	}
+	if m["update.stage"] != "true" {
+		t.Errorf("Resolved(&Config{}) update.stage = %q, want \"true\"", m["update.stage"])
+	}
 }
 
 // TestUpdateRunDoctorTrueRoundTrip: set true → persist → load → still true.
@@ -1361,6 +1367,344 @@ func TestReplIdleTimeoutUnknownKeyTypoSuggestion(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "repl.idle_timeout") {
 		t.Errorf("expected suggestion 'repl.idle_timeout' in error %q", err.Error())
+	}
+}
+
+// --- [update] check / stage (selfupdate-state CP1) ---
+
+// TestUpdateCheckDefault: Default() sets update.check = true.
+func TestUpdateCheckDefault(t *testing.T) {
+	cfg := Default()
+	if !cfg.Update.Check {
+		t.Error("Default() should set Update.Check = true")
+	}
+}
+
+// TestUpdateCheckAbsent: absent update.check in TOML → default true.
+func TestUpdateCheckAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[output.signals]\nmax_depth = 3\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if !cfg.Update.Check {
+		t.Error("absent update.check should default to true")
+	}
+}
+
+// TestUpdateCheckExplicitFalse: explicit update.check = false round-trips correctly.
+func TestUpdateCheckExplicitFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[update]\ncheck = false\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Update.Check {
+		t.Error("explicit check = false should be false, not true")
+	}
+}
+
+// TestUpdateCheckExplicitTrue: explicit update.check = true loads correctly.
+func TestUpdateCheckExplicitTrue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[update]\ncheck = true\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Update.Check {
+		t.Error("explicit check = true should be true")
+	}
+}
+
+// TestUpdateCheckRoundTrip: set false → persist → load → false.
+func TestUpdateCheckRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	if err := Set(cfg, "update.check", "false"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if loaded.Update.Check {
+		t.Error("persisted check=false should load as false")
+	}
+}
+
+// TestSetUpdateCheckBadValue: Set rejects values other than true/false.
+func TestSetUpdateCheckBadValue(t *testing.T) {
+	cfg := Default()
+	err := Set(cfg, "update.check", "yes")
+	if err == nil {
+		t.Fatal("expected error for invalid value 'yes'")
+	}
+	if !strings.Contains(err.Error(), "true") || !strings.Contains(err.Error(), "false") {
+		t.Errorf("error should mention allowed values: %v", err)
+	}
+}
+
+// TestSetUpdateCheckTrue: Set("update.check", "true") works.
+func TestSetUpdateCheckTrue(t *testing.T) {
+	cfg := Default()
+	cfg.Update.Check = false
+	if err := Set(cfg, "update.check", "true"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if !cfg.Update.Check {
+		t.Error("Set true should set Check = true")
+	}
+}
+
+// TestSetUpdateCheckFalse: Set("update.check", "false") works.
+func TestSetUpdateCheckFalse(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "update.check", "false"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if cfg.Update.Check {
+		t.Error("Set false should set Check = false")
+	}
+}
+
+// TestUnsetUpdateCheck: Unset reverts update.check to default (true).
+func TestUnsetUpdateCheck(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "update.check", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unset(cfg, "update.check"); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Update.Check {
+		t.Error("after Unset, update.check should be true (default)")
+	}
+}
+
+// TestGetUpdateCheck: Get returns "true"/"false" string for update.check.
+func TestGetUpdateCheck(t *testing.T) {
+	cfg := Default()
+	v, err := Get(cfg, "update.check")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if v != "true" {
+		t.Errorf("default update.check Get = %q, want \"true\"", v)
+	}
+
+	if err := Set(cfg, "update.check", "false"); err != nil {
+		t.Fatal(err)
+	}
+	v, err = Get(cfg, "update.check")
+	if err != nil {
+		t.Fatalf("Get after Set false: %v", err)
+	}
+	if v != "false" {
+		t.Errorf("after Set false, Get = %q, want \"false\"", v)
+	}
+}
+
+// TestUpdateStageDefault: Default() sets update.stage = true.
+func TestUpdateStageDefault(t *testing.T) {
+	cfg := Default()
+	if !cfg.Update.Stage {
+		t.Error("Default() should set Update.Stage = true")
+	}
+}
+
+// TestUpdateStageAbsent: absent update.stage in TOML → default true.
+func TestUpdateStageAbsent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[output.signals]\nmax_depth = 3\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if !cfg.Update.Stage {
+		t.Error("absent update.stage should default to true")
+	}
+}
+
+// TestUpdateStageExplicitFalse: explicit update.stage = false round-trips correctly.
+func TestUpdateStageExplicitFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[update]\nstage = false\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if cfg.Update.Stage {
+		t.Error("explicit stage = false should be false, not true")
+	}
+}
+
+// TestUpdateStageExplicitTrue: explicit update.stage = true loads correctly.
+func TestUpdateStageExplicitTrue(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	tomlContent := "[update]\nstage = true\n"
+	if err := os.WriteFile(path, []byte(tomlContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Update.Stage {
+		t.Error("explicit stage = true should be true")
+	}
+}
+
+// TestUpdateStageRoundTrip: set false → persist → load → false.
+func TestUpdateStageRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	cfg := Default()
+	if err := Set(cfg, "update.stage", "false"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := WritePersist(path, cfg); err != nil {
+		t.Fatalf("WritePersist: %v", err)
+	}
+
+	loaded, warns, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(warns) != 0 {
+		t.Errorf("unexpected warnings: %v", warns)
+	}
+	if loaded.Update.Stage {
+		t.Error("persisted stage=false should load as false")
+	}
+}
+
+// TestSetUpdateStageBadValue: Set rejects values other than true/false.
+func TestSetUpdateStageBadValue(t *testing.T) {
+	cfg := Default()
+	err := Set(cfg, "update.stage", "yes")
+	if err == nil {
+		t.Fatal("expected error for invalid value 'yes'")
+	}
+	if !strings.Contains(err.Error(), "true") || !strings.Contains(err.Error(), "false") {
+		t.Errorf("error should mention allowed values: %v", err)
+	}
+}
+
+// TestSetUpdateStageTrue: Set("update.stage", "true") works.
+func TestSetUpdateStageTrue(t *testing.T) {
+	cfg := Default()
+	cfg.Update.Stage = false
+	if err := Set(cfg, "update.stage", "true"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if !cfg.Update.Stage {
+		t.Error("Set true should set Stage = true")
+	}
+}
+
+// TestSetUpdateStageFalse: Set("update.stage", "false") works.
+func TestSetUpdateStageFalse(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "update.stage", "false"); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if cfg.Update.Stage {
+		t.Error("Set false should set Stage = false")
+	}
+}
+
+// TestUnsetUpdateStage: Unset reverts update.stage to default (true).
+func TestUnsetUpdateStage(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "update.stage", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Unset(cfg, "update.stage"); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Update.Stage {
+		t.Error("after Unset, update.stage should be true (default)")
+	}
+}
+
+// TestGetUpdateStage: Get returns "true"/"false" string for update.stage.
+func TestGetUpdateStage(t *testing.T) {
+	cfg := Default()
+	v, err := Get(cfg, "update.stage")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if v != "true" {
+		t.Errorf("default update.stage Get = %q, want \"true\"", v)
+	}
+
+	if err := Set(cfg, "update.stage", "false"); err != nil {
+		t.Fatal(err)
+	}
+	v, err = Get(cfg, "update.stage")
+	if err != nil {
+		t.Fatalf("Get after Set false: %v", err)
+	}
+	if v != "false" {
+		t.Errorf("after Set false, Get = %q, want \"false\"", v)
 	}
 }
 

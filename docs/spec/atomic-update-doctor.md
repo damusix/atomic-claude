@@ -45,8 +45,16 @@ After a successful binary swap by `atomic update`: first, refresh the `~/.claude
 flowchart TD
     A[atomic update] --> B{--check?}
     B -- yes --> C[print availability + exit]
-    B -- no --> D[selfupdate.Lookup + Apply]
-    D -- success --> R{--skip-claude-update?}
+    B -- no --> LK{acquire update lock}
+    LK -- held less than 10min, no --force --> LR[refuse: name lock age; exit non-zero]
+    LK -- acquired / stale takeover / --force --> D[fresh GitHub lookup]
+    D -- not newer --> Z1[print up to date; clear lock; exit 0]
+    D -- newer --> SM{staged version+checksum match?}
+    SM -- yes --> SW[swap from staged archive, no re-download]
+    SM -- no --> DL[download archive + verify + swap]
+    SW --> UP[stamp updated_at; clear lock]
+    DL --> UP
+    UP --> R{--skip-claude-update?}
     R -- no --> S[re-exec NEW binary: claude update --no-update-check, --no-hooks if hook absent]
     R -- yes --> E
     S --> E{--no-doctor?}
@@ -60,7 +68,15 @@ flowchart TD
     G -- err/panic --> J[print 'doctor self-check failed'; exit 0]
 ```
 
-Caption: doctor invocation is at the `runUpdate` orchestration layer, not inside the `selfupdate` package. Update success exit is unconditional once `Apply` succeeds.
+Caption: the update lock and staged-swap decision sit ahead of the artifact refresh and doctor pass. `--force` bypasses only the lock-contention branch (`LK`) — it never weakens the checksum re-verify inside `SM`. Doctor invocation is at the `runUpdate` orchestration layer, not inside the `selfupdate` package. Update success exit is unconditional once the swap (staged or downloaded) succeeds.
+
+## Update lock and staged swap
+
+`atomic update` guards the swap with a lock recorded in `~/.atomic/state.json`: `updating=true` plus `update_started_at`. A second updater within 10 minutes of an active lock is refused with an error naming the lock's age; past 10 minutes the lock is considered abandoned and is taken over. `--force` bypasses the lock-contention check only — it stamps the lock unconditionally but never skips or weakens the checksum re-verify below. The lock clears and `updated_at` stamps on completion of any swap, staged or downloaded; on failure at any step the lock clears best-effort before the existing error path propagates.
+
+Before deciding how to swap, `atomic update` always performs its own fresh GitHub lookup — it never trusts `state.json`'s `latest_version` alone for the swap decision. When the fresh lookup's version matches `state.json`'s staged record and the staged file's checksum re-verifies against the release's `checksums.txt`, the swap uses the staged archive directly with no re-download. Any version mismatch, checksum mismatch, or missing staged file falls back to the ordinary download-and-swap path.
+
+The staged archive is produced out-of-band: a detached child, spawned at most once per hour by any `atomic` invocation (not `atomic update` alone) after stamping `last_check` in `state.json`, performs the GitHub lookup and — at most once per version, gated by config `update.stage` — downloads and checksum-verifies a release archive into `~/.cache/atomic/staged/`. See [`selfupdate-state.md`](./selfupdate-state.md) for the full state schema, spawn cadence, and staging gate.
 
 ## Artifact auto-refresh contract
 
@@ -177,6 +193,14 @@ For testability, `runUpdate` accepts a function-typed dependency `runDoctor func
 | `update.run_doctor` bool zero-value (false) indistinguishable from "absent" | medium | Use raw-map presence check at decode time (existing pattern at `config.go:79`) — explicit-false vs absent both have different semantics; `Default()` sets `RunDoctor: true` |
 
 ## Change log
+
+### 2026-08-09 — Update lock, staged fast-path swap, and detached background check
+
+**What changed:** `atomic update`'s Architecture flow gains a lock-acquisition step (refuse a fresh lock less than 10 minutes old by naming its age, take over a stale one, `--force` bypasses the lock check only) and a staged-vs-download branch ahead of the existing artifact-refresh/doctor steps: a fresh GitHub lookup decides whether to swap from a pre-staged, checksum-re-verified archive with no re-download, or fall back to the existing `Apply` download flow. A new `## Update lock and staged swap` section documents the lock, the fast-path decision, and the detached child — spawned at most once per hour by any invoked verb, not `atomic update` alone — that performs the periodic GitHub lookup and once-per-version background staging. Everything after the swap (artifact refresh, post-update doctor) is unchanged.
+
+**Why:** `docs/spec/selfupdate-state.md` moves the periodic version check off an in-process goroutine/cache-file pair and onto `~/.atomic/state.json`, so a later `atomic update` can swap from an already-verified staged binary instead of downloading from zero.
+
+**Superseded:** The prior body described the swap as a single unconditional `selfupdate.Lookup + Apply` step with no lock and no staged fast path; the periodic check that fed the update-available banner lived outside this spec entirely, as an in-process `BackgroundCheck` goroutine writing to a `~/.cache/atomic/update.json` cache file (documented in `docs/spec/atomic-binary.md`).
 
 ### 2026-07-16 — User state root relocated to ~/.atomic
 

@@ -5,9 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
+	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 )
 
 // makeAtomicDir creates <root>/.atomic/ and returns the dir path.
@@ -526,6 +528,112 @@ func TestCheckConfig_validIdleTimeout(t *testing.T) {
 	r := doctor.RunCheckConfigWith(root)
 	if r.Severity != doctor.PASS {
 		t.Errorf("severity = %q, want PASS for valid repl.idle_timeout; detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// --- Chronic background-update-check failure (CP7: selfupdate-state) ---
+
+// writeUpdateState writes a selfupdate.State to <root>/.atomic/state.json.
+func writeUpdateState(t *testing.T, root string, s selfupdate.State) {
+	t.Helper()
+	makeAtomicDir(t, root)
+	if err := selfupdate.WriteState(config.StatePath(root), s); err != nil {
+		t.Fatalf("WriteState: %v", err)
+	}
+}
+
+// TestCheckConfig_chronicUpdateFailure_WARN: a non-empty update.last_result
+// (runUpdateCheck writes LastResult="" on success, lookupErr.Error() or
+// stageErr.Error() on failure) surfaces as WARN naming the recorded failure
+// text, even though config.toml itself is absent (otherwise PASS).
+func TestCheckConfig_chronicUpdateFailure_WARN(t *testing.T) {
+	root := t.TempDir()
+	lastCheck := time.Date(2026, 8, 9, 12, 0, 0, 0, time.UTC)
+	writeUpdateState(t, root, selfupdate.State{
+		Update: selfupdate.UpdateState{
+			LastCheck:  lastCheck,
+			LastResult: "GET https://api.github.com/repos/x/y/releases/latest: 500 Internal Server Error",
+		},
+	})
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %q, want WARN; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "500 Internal Server Error") {
+		t.Errorf("detail %q: want mention of the recorded last_result error", r.Detail)
+	}
+}
+
+// TestCheckConfig_chronicUpdateFailure_emptySuccess_noFinding: an empty
+// update.last_result (runUpdateCheck writes LastResult="" on a successful
+// check) is healthy and must not produce a finding; PASS is preserved.
+func TestCheckConfig_chronicUpdateFailure_emptySuccess_noFinding(t *testing.T) {
+	root := t.TempDir()
+	writeUpdateState(t, root, selfupdate.State{
+		Update: selfupdate.UpdateState{
+			LastCheck:     time.Now(),
+			LatestVersion: "1.2.3",
+			LastResult:    "",
+		},
+	})
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS (healthy update state); detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// TestCheckConfig_chronicUpdateFailure_missingStateFile_noFinding: no
+// state.json at all (LoadState's zero-value contract) must not produce a
+// finding — absence is not itself a failure signal.
+func TestCheckConfig_chronicUpdateFailure_missingStateFile_noFinding(t *testing.T) {
+	root := t.TempDir()
+	// Deliberately do NOT write state.json.
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.PASS {
+		t.Errorf("severity = %q, want PASS (no state.json); detail: %s", r.Severity, r.Detail)
+	}
+}
+
+// TestCheckConfig_chronicUpdateFailure_neverEscalatesToFAIL: category
+// severity ceiling for this finding is WARN, never FAIL — a chronic update
+// failure alone (independent of config.toml validity) must not FAIL the
+// category.
+func TestCheckConfig_chronicUpdateFailure_neverEscalatesToFAIL(t *testing.T) {
+	root := t.TempDir()
+	writeUpdateState(t, root, selfupdate.State{
+		Update: selfupdate.UpdateState{LastResult: "dial tcp: no such host"},
+	})
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity == doctor.FAIL {
+		t.Errorf("severity = %q, want not-FAIL for a chronic update failure alone", r.Severity)
+	}
+}
+
+// TestCheckConfig_chronicUpdateFailure_combinedWithDrift: a chronic update
+// failure alongside an unrelated config.toml drift finding combines into a
+// single WARN mentioning both, mirroring the existing unknown-key + drift
+// combination behavior.
+func TestCheckConfig_chronicUpdateFailure_combinedWithDrift(t *testing.T) {
+	root := t.TempDir()
+	writeTOML(t, root, "[output.signals]\nmax_depth = 5\n")
+	// deliberately do NOT write resolved.md -> drift WARN
+	writeUpdateState(t, root, selfupdate.State{
+		Update: selfupdate.UpdateState{LastResult: "connection refused"},
+	})
+
+	r := doctor.RunCheckConfigWith(root)
+	if r.Severity != doctor.WARN {
+		t.Errorf("severity = %q, want WARN; detail: %s", r.Severity, r.Detail)
+	}
+	if !strings.Contains(r.Detail, "sync") {
+		t.Errorf("detail %q: want mention of config drift ('sync')", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "connection refused") {
+		t.Errorf("detail %q: want mention of the chronic update failure", r.Detail)
 	}
 }
 

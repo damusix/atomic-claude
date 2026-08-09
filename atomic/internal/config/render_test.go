@@ -92,6 +92,48 @@ func TestRenderUpdateSectionFalse(t *testing.T) {
 	}
 }
 
+// TestRenderUpdateCheckSection: Render includes update.check with its value.
+func TestRenderUpdateCheckSection(t *testing.T) {
+	cfg := Default()
+	out := Render(cfg)
+	if !strings.Contains(out, "update.check") {
+		t.Errorf("expected 'update.check' in render, got: %q", out)
+	}
+}
+
+// TestRenderUpdateCheckSectionFalse: Render shows false after Set false.
+func TestRenderUpdateCheckSectionFalse(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "update.check", "false"); err != nil {
+		t.Fatal(err)
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, "update.check` = `false") {
+		t.Errorf("expected 'update.check` = `false' in render after Set, got: %q", out)
+	}
+}
+
+// TestRenderUpdateStageSection: Render includes update.stage with its value.
+func TestRenderUpdateStageSection(t *testing.T) {
+	cfg := Default()
+	out := Render(cfg)
+	if !strings.Contains(out, "update.stage") {
+		t.Errorf("expected 'update.stage' in render, got: %q", out)
+	}
+}
+
+// TestRenderUpdateStageSectionFalse: Render shows false after Set false.
+func TestRenderUpdateStageSectionFalse(t *testing.T) {
+	cfg := Default()
+	if err := Set(cfg, "update.stage", "false"); err != nil {
+		t.Fatal(err)
+	}
+	out := Render(cfg)
+	if !strings.Contains(out, "update.stage` = `false") {
+		t.Errorf("expected 'update.stage` = `false' in render after Set, got: %q", out)
+	}
+}
+
 // TestRenderHarnessDir: Render includes harness.dir with its default value.
 func TestRenderHarnessDir(t *testing.T) {
 	cfg := Default()

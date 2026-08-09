@@ -20,6 +20,7 @@ func TestPathHelpers(t *testing.T) {
 		{"ProposedCLAUDEMD", ProposedCLAUDEMD(home), filepath.Join(home, ".atomic", "proposed", "CLAUDE.md")},
 		{"PreInstallDir", PreInstallDir(home), filepath.Join(home, ".atomic", "pre-install")},
 		{"ProfilePath", ProfilePath(home), filepath.Join(home, ".atomic", "profile.md")},
+		{"StatePath", StatePath(home), filepath.Join(home, ".atomic", "state.json")},
 	}
 
 	for _, tt := range tests {
