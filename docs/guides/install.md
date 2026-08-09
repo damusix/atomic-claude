@@ -71,7 +71,7 @@ Update the binary:
 atomic update
 ```
 
-This fetches the latest release, verifies its SHA256 checksum, and replaces the binary. It then refreshes the `~/.claude` artifact bundle automatically and finishes with a health check. One command updates everything; if any check fails, it prints what to look at. The refresh respects your hook setup: if the session-start hook is not registered, the update will not add it.
+This is usually near-instant. A background process checks for new releases roughly once an hour and, at most once per release, downloads and checksum-verifies the archive ahead of time, so `atomic update` swaps a file already sitting on disk instead of downloading from scratch. It still re-verifies the version and checksum before swapping, so this is never a stale or unverified binary. It then refreshes the `~/.claude` artifact bundle automatically and finishes with a health check. One command updates everything; if any check fails, it prints what to look at. The refresh respects your hook setup: if the session-start hook is not registered, the update will not add it.
 
 To skip the artifact refresh, pass `--skip-claude-update` and run it yourself when ready:
 
@@ -79,12 +79,24 @@ To skip the artifact refresh, pass `--skip-claude-update` and run it yourself wh
 atomic claude update
 ```
 
-Four useful flags for `atomic update`:
+Five useful flags for `atomic update`:
 
 - `--check` — just check if an update is available, do not download
 - `--channel prerelease` — track release candidates instead of stable
 - `--no-doctor` — skip the post-update health check
 - `--skip-claude-update` — replace the binary only, skip the artifact refresh
+- `--force` — take over an update lock held by another process; never skips checksum verification
+
+`atomic update` refuses to run if another update looks to be in progress, unless that lock is more than 10 minutes old (then it is assumed abandoned and taken over automatically). `--force` is the manual override for a lock you know is stale.
+
+Two config keys control the background check that makes updates fast; both default to `true`:
+
+```bash
+atomic config set update.check false   # stop the hourly background version check entirely
+atomic config set update.stage false   # keep checking for updates, but never pre-download
+```
+
+The last check time, what's staged, and whether an update is in progress all live in the machine-managed `~/.atomic/state.json`. You never need to edit it by hand.
 
 To suppress the health check permanently:
 

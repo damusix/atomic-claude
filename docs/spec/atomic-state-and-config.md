@@ -44,9 +44,28 @@ Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config 
 ├── backups/<ts>/<relpath>   # claudeinstall pre-write backups
 ├── proposed/
 │   └── CLAUDE.md            # claudeinstall divergence merge target
-├── cache/                   # reserved (selfupdate version-check, future)
-└── state.json               # reserved (last-update-check, future)
+└── state.json               # machine-managed selfupdate state; atomic temp+rename; never hand-edited
 ```
+
+Selfupdate stages a downloaded, checksum-verified release archive at a fixed XDG-style path, `~/.cache/atomic/staged/` (hardcoded; not resolved via `os.UserCacheDir()`). The directory is disposable, safe to delete anytime. `state.json`'s `staged` field is the sole authority on what is currently staged, not the file's mere presence on disk.
+
+## State file schema (`~/.atomic/state.json`)
+
+Unlike `config.toml` above, `state.json` is machine-managed: written only by `atomic` itself (the detached background-check child and `atomic update`'s lock/swap logic), atomically via temp+rename, and never hand-edited. It holds one top-level `update` block:
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `last_check` | timestamp | when the periodic background lookup last ran |
+| `updating` | bool | true while an `atomic update` swap (or background stage) holds the lock |
+| `update_started_at` | timestamp | lock-acquisition time; a lock older than 10 minutes is considered abandoned |
+| `updated_at` | timestamp | when the last successful swap completed |
+| `last_notified` | timestamp | when the update-available banner last printed (rate-limited to once per 24h) |
+| `latest_version` | string | most recent version seen by the background lookup |
+| `stage_attempted_for` | string | version the once-per-version staging gate has already attempted |
+| `last_result` | string | empty on success; the background lookup's or staging attempt's error otherwise |
+| `staged.version`, `staged.path`, `staged.sha256` | string | the pre-verified release archive `atomic update` can swap from without re-downloading |
+
+See [`selfupdate-state.md`](./selfupdate-state.md) for the full spawn cadence, lock-acquisition rules, and staged-swap flow that read and write this file.
 
 
 ## Schema (v1 — start narrow)
@@ -58,13 +77,17 @@ max_depth = 3               # positive integer; bounded tree depth in `atomic si
 
 [update]
 run_doctor = true           # true | false; run doctor after `atomic update`
+check = true                # true | false; enable the hourly detached background version check
+stage = true                # true | false; enable once-per-version background staged download
 
 [harness]
 dir = ".claude"              # single non-empty path segment; repo-local state-directory name
 ```
 
 
-Current keys: `output.signals.max_depth`, `update.run_doctor`, `harness.dir`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
+Current keys: `output.signals.max_depth`, `update.run_doctor`, `update.check`, `update.stage`, `harness.dir`. Further keys (`forge.*`, `cleanup.*`, …) are added per concrete steering need in follow-up specs. Each schema addition: schema entry → renderer entry → one steering site reading it → change-log entry on this spec.
+
+`update.check` and `update.stage` (bool, default `true`) gate the two halves of the detached background-update child described in [`selfupdate-state.md`](./selfupdate-state.md): `update.check` enables the hourly GitHub lookup that any invoked verb may spawn; `update.stage` enables that child's once-per-version download-and-checksum-verify into `~/.cache/atomic/staged/`. Both are user-level only — no repo-scoped equivalent.
 
 `harness.dir` (string, default `.claude`) names the repo-local state-directory every repo-scoped `atomic` verb resolves against — `<repo>/<harness.dir>/.scratchpad`, `<repo>/<harness.dir>/project`, `<repo>/<harness.dir>/.atomic-index`, `<repo>/<harness.dir>/atomic.toml`, `<repo>/<harness.dir>/worktrees` — decoupling those paths from Claude Code's `.claude` convention (e.g. `atomic config set harness.dir .pi` for a `pi` harness). It is unrelated to the `~/.atomic` user-state root above: `~/.atomic` is fixed and not configurable (see Non-goals). Validation: **write (`set`)** rejects empty, `.`, `..`, and any value containing `/` — same shape as every other write-time rejection in this schema. **Read (load)** goes one step further than the generic unknown-key leniency described below: a stored value that fails that same shape check (e.g. hand-edited to `..`) is not merely warned about — the resolver silently falls back to the built-in default, because an unvalidated value would otherwise reach `filepath.Join` unguarded in every repo-local path helper.
 
@@ -129,6 +152,19 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 
 ## Change log
 
+
+### 2026-08-09 — Add state.json + update.check/update.stage config keys
+
+**What changed:** The Layout tree drops the stale `cache/` reserved placeholder and `state.json`'s "reserved (future)" annotation, describing it instead as the machine-managed selfupdate state file it now is; a real staging path is documented separately: a fixed XDG-style path, `~/.cache/atomic/staged/` (hardcoded, not `os.UserCacheDir()`), disposable; `state.json`'s `staged` field is the authority, not the file's presence. A new `## State file schema` section documents `state.json`'s `update` block: `last_check`, `updating`, `update_started_at`, `updated_at`, `last_notified`, `latest_version`, `stage_attempted_for`, `last_result`, and `staged{version,path,sha256}`. Schema v1 gains two config keys: `update.check` and `update.stage` (bool, default `true` each), gating the hourly background lookup and the once-per-version background staging respectively.
+
+| Key | Type | Default | Valid values |
+|-----|------|---------|--------------|
+| `update.check` | bool | `true` | `true`, `false` |
+| `update.stage` | bool | `true` | `true`, `false` |
+
+**Why:** `docs/spec/selfupdate-state.md` replaces the old in-process goroutine/cache-file version check with a detached child that reads and writes `~/.atomic/state.json`, and adds a once-per-version staged-download fast path for `atomic update`.
+
+**Superseded:** The Layout tree previously listed `cache/  # reserved (selfupdate version-check, future)` and `state.json  # reserved (last-update-check, future)` as unused placeholders with no schema.
 
 ### 2026-07-16 — Add harness.dir config key
 
