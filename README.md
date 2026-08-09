@@ -28,6 +28,14 @@
  <a href="./LICENSE"><img src="https://img.shields.io/github/license/damusix/atomic-claude" alt="License" /></a>
 </p>
 
+<p align="center">
+ <img src="./assets/atomic-serve.gif" alt="atomic serve: wiki, system graph, code explorer, and bus chat in the browser" />
+</p>
+
+<p align="center">
+ <em><code>atomic serve</code>: the wiki, the system graph, the code explorer, and bus chat.</em>
+</p>
+
 
 ## 🌟 Features
 
