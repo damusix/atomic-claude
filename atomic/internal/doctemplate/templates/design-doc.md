@@ -14,10 +14,15 @@ rename sections; add sections only when the design genuinely needs them.
 
 <user-facing pain or motivation>
 
-<!-- Include a Mermaid diagram (flowchart / ERD / sequence / state) here or under
-     Recommendation when the work involves architecture, conceptual relationships,
-     or state transitions. One-sentence caption above the block so non-rendering
-     readers still get it. -->
+<!-- Diagrams: use as many Mermaid blocks (flowchart / ERD / sequence / state) as the
+     complexity warrants — here, under Approaches, or under Recommendation, each placed
+     next to what it explains. No quota in either direction: none for a simple change,
+     several for a multi-flow or multi-entity design. One-sentence caption above each
+     block so non-rendering readers still get it.
+     Pseudocode: a fenced language-neutral pseudocode block is welcome wherever it is
+     the clearest statement of logic — an algorithm, a decision rule, a matching order.
+     Pseudocode communicates the rule, not the implementation: no real signatures,
+     imports, or library calls. -->
 
 
 ## Goals / Non-goals

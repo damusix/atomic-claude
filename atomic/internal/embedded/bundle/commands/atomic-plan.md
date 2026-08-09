@@ -88,13 +88,14 @@ Design captures things the spec deliberately doesn't:
 - Business rules and invariants — what must always be true, regardless of implementation.
 - Approaches considered and rejected, with reasoning. Evidence-backed (file:line, signals, prior decisions) where the evidence exists; honest about gaps where it doesn't.
 - Open philosophical / product questions that the spec shouldn't try to answer.
-- Diagrams of conceptual relationships (entities, states, flows) — not call graphs.
+- Diagrams of conceptual relationships (entities, states, flows) — not call graphs. Use as many as the complexity warrants — flowcharts, ERDs, sequence, state — each placed next to what it explains. No quota in either direction: a diagram earns its place by clarifying something, never by satisfying the template.
+- Pseudocode where it is the clearest statement of logic — an algorithm, a decision rule, a matching order. Language-neutral, fenced, no real signatures or library calls: it communicates the rule, not the implementation. The design doc is the home for pseudocode; the spec stays contract-level.
 
 The design doc persists by default. Whether it gets cited later is downstream — not a gate. A design doc that captured one feature's thinking still pays for itself by anchoring the spec authoring loop and giving future contributors the "why".
 
 `<topic>` = short kebab-case (e.g. `oauth-refresh`, `user-search-perf`). No date prefix — `git log` carries that.
 
-**Design structure:** seed the file from the embedded template — `atomic template design-doc > docs/design/<topic>.md` — then fill every `<angle-bracket>` placeholder and delete the guidance comments as you fill. The template is the structural contract — same sections, same order, no improvised headers. Its guidance comments carry the fill rules (Mermaid diagram placement, evidence expectations).
+**Design structure:** seed the file from the embedded template — `atomic template design-doc > docs/design/<topic>.md` — then fill every `<angle-bracket>` placeholder and delete the guidance comments as you fill. The template is the structural contract — same sections, same order, no improvised headers. Its guidance comments carry the fill rules (diagram and pseudocode usage, evidence expectations).
 
 ### Write spec
 
@@ -218,7 +219,7 @@ Implementation details belong in code, not specs:
 - Exact function signatures — the implementer picks these.
 - Specific variable names — the implementer picks these.
 - Specific algorithms ("use `Array.reduce`") — the implementer decides how.
-- Step-by-step pseudocode — write success criteria instead.
+- Step-by-step pseudocode — that lives in the design doc; the spec writes success criteria instead.
 
 The implementer (builder / surgeon) is allowed to correct course on anything that doesn't break success criteria. **Success criteria are the contract; everything else is a sketch the implementer can adapt.** Deviations that would break a success criterion require spec amendment, not silent drift.
 
@@ -252,7 +253,7 @@ The `Agent` column hints at dispatch:
 - Spec is a table, not an essay. If a section runs >5 bullets, split into checkpoints.
 - Every checkpoint has a `Verifies` column. If you can't write what proves the step done, the step is too vague.
 - No speculative scope ("we might also want to..."). Out-of-scope items go in Non-goals.
-- No code in this command. Plan only.
+- No implementation code in this command. Plan only. Design-doc pseudocode is communication, not code — allowed.
 - One round of clarifying questions max. After that, write with stated assumptions and let the user correct.
 - Document skeletons come from the binary: `atomic template design-doc|spec|brief|state|followups`. If `atomic` is absent or the verb errors, stop: `document template unavailable (atomic template <name> failed) — install/update the atomic binary. cannot proceed.` Never improvise the structure from memory.
 - Skip planning entirely for *trivial* work — write the spec inline (or offer to implement directly if the user prefers).
