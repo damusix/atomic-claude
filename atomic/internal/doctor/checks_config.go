@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/damusix/atomic-claude/atomic/internal/config"
+	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
 )
 
 // checkConfig implements category 9: config integrity.
@@ -21,7 +23,51 @@ func checkConfig(opts Opts) Result {
 
 // RunCheckConfigWith runs the config check against an explicit home dir.
 // Exported for testing; production callers use checkConfig.
+//
+// Combines two independent findings: config.toml/config.resolved.md drift
+// (checkConfigDrift) and a chronic background self-update-check failure
+// (checkChronicUpdateFailure, read from ~/.atomic/state.json). The chronic
+// finding never escalates severity past WARN — a background check failure
+// is not itself a config validity problem — but its detail is appended
+// alongside whatever the drift check already found.
 func RunCheckConfigWith(home string) Result {
+	base := checkConfigDrift(home)
+	chronicDetail := checkChronicUpdateFailure(home)
+	if chronicDetail == "" {
+		return base
+	}
+	switch base.Severity {
+	case PASS:
+		return Result{Severity: WARN, Detail: chronicDetail}
+	default:
+		return Result{Severity: base.Severity, Detail: base.Detail + "; " + chronicDetail}
+	}
+}
+
+// checkChronicUpdateFailure reads the self-update state file and reports a
+// detail string when the background check's last_result records a failure
+// (non-empty — see cmd/atomic/main.go's runUpdateCheck, which writes
+// lookupErr.Error() or stageErr.Error() on failure and "" on success).
+// Returns "" when the state file is absent (selfupdate.LoadState's
+// zero-value contract) or the last check succeeded.
+func checkChronicUpdateFailure(home string) string {
+	state := selfupdate.LoadState(config.StatePath(home))
+	if state.Update.LastResult == "" {
+		return ""
+	}
+	if state.Update.LastCheck.IsZero() {
+		return fmt.Sprintf("background update check failing: %s", state.Update.LastResult)
+	}
+	return fmt.Sprintf(
+		"background update check failing since %s: %s",
+		state.Update.LastCheck.Format(time.RFC3339),
+		state.Update.LastResult,
+	)
+}
+
+// checkConfigDrift implements the config.toml / config.resolved.md drift
+// half of category 9.
+func checkConfigDrift(home string) Result {
 	tomlPath := config.TOMLPath(home)
 	resolvedPath := config.ResolvedPath(home)
 

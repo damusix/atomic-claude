@@ -119,6 +119,27 @@ func TestCodeNonFanOutVerbs_NoOnlyExclude(t *testing.T) {
 	}
 }
 
+// TestUpdate_HasForceFlag verifies SC 13/14 of selfupdate-state: the update
+// verb's Flags carries --force alongside the pre-existing flags, and the
+// internal background-invocation marker never leaks into the public surface.
+func TestUpdate_HasForceFlag(t *testing.T) {
+	cmd := cliusage.LookupByPath([]string{"update"})
+	if cmd == nil {
+		t.Fatal("LookupByPath([update]) returned nil")
+	}
+	if !containsFlag(cmd.Flags, "--force") {
+		t.Errorf("update: expected --force flag, got %v", cmd.Flags)
+	}
+	for _, existing := range []string{"--check", "--channel", "--no-doctor", "--skip-claude-update"} {
+		if !containsFlag(cmd.Flags, existing) {
+			t.Errorf("update: expected pre-existing flag %q preserved, got %v", existing, cmd.Flags)
+		}
+	}
+	if containsFlag(cmd.Flags, "--__background-check") {
+		t.Error("update: --__background-check is an internal marker, must not appear in cliusage")
+	}
+}
+
 // helpers
 
 func containsFlag(flags []string, want string) bool {

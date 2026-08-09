@@ -15,7 +15,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -199,43 +198,6 @@ func TestLookupBodyParseError(t *testing.T) {
 }
 
 // ---------- Cache tests ----------
-
-func TestCacheRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "update.json")
-
-	now := time.Now().UTC().Truncate(time.Second)
-	e := CacheEntry{
-		CheckedAt:      now,
-		CurrentVersion: "0.1.0",
-		LatestVersion:  "0.1.1",
-		NotifiedAt:     now.Add(-time.Hour),
-	}
-	if err := WriteCache(path, e); err != nil {
-		t.Fatalf("WriteCache: %v", err)
-	}
-	got, err := ReadCache(path)
-	if err != nil {
-		t.Fatalf("ReadCache: %v", err)
-	}
-	if got.CurrentVersion != "0.1.0" || got.LatestVersion != "0.1.1" {
-		t.Errorf("unexpected cache contents: %+v", got)
-	}
-	if !got.CheckedAt.Equal(now) {
-		t.Errorf("CheckedAt round-trip: got %v, want %v", got.CheckedAt, now)
-	}
-}
-
-func TestCacheMissingFile(t *testing.T) {
-	dir := t.TempDir()
-	e, err := ReadCache(filepath.Join(dir, "noexist.json"))
-	if err != nil {
-		t.Fatalf("expected zero value for missing file, got error: %v", err)
-	}
-	if !e.CheckedAt.IsZero() {
-		t.Errorf("expected zero CheckedAt for missing file")
-	}
-}
 
 func TestCacheXDGOverride(t *testing.T) {
 	dir := t.TempDir()
@@ -563,174 +525,51 @@ func TestCheckNewerAvailable(t *testing.T) {
 	}
 }
 
-// ---------- BackgroundCheck tests ----------
+// ---------- IsNewer / ShouldNotify tests (parent state-only banner decision) ----------
 
-func TestBackgroundCheckCompletesWithLatest(t *testing.T) {
-	releases := []Release{{TagName: "v0.2.0"}}
-	srv := makeTestServer(releases)
-	defer srv.Close()
-
-	c := testClient(srv)
-	cachePath := filepath.Join(t.TempDir(), "update.json")
-
-	ctx := context.Background()
-	ch := c.BackgroundCheck(ctx, cachePath, "v0.1.0", "stable")
-
-	select {
-	case res := <-ch:
-		if res.Err != nil {
-			t.Fatalf("unexpected error: %v", res.Err)
-		}
-		if res.Latest != "v0.2.0" {
-			t.Errorf("expected v0.2.0, got %s", res.Latest)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("BackgroundCheck did not complete within timeout")
+func TestIsNewer(t *testing.T) {
+	cases := []struct {
+		name    string
+		current string
+		latest  string
+		want    bool
+	}{
+		{"latest newer", "1.0.0", "1.1.0", true},
+		{"equal", "1.0.0", "1.0.0", false},
+		{"latest older", "1.1.0", "1.0.0", false},
+		{"empty latest (never checked)", "1.0.0", "", false},
+		{"malformed latest never errors, reports false", "1.0.0", "not-a-version", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := IsNewer(tc.current, tc.latest); got != tc.want {
+				t.Errorf("IsNewer(%q, %q) = %v, want %v", tc.current, tc.latest, got, tc.want)
+			}
+		})
 	}
 }
 
-func TestBackgroundCheckUsesCache(t *testing.T) {
-	var callCount atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount.Add(1)
-		json.NewEncoder(w).Encode([]Release{{TagName: "v0.3.0"}})
-	}))
-	defer srv.Close()
-
-	c := testClient(srv)
-	dir := t.TempDir()
-	cachePath := filepath.Join(dir, "update.json")
-
-	// write a fresh cache entry (< 1h old)
-	entry := CacheEntry{
-		CheckedAt:     time.Now().UTC(),
-		LatestVersion: "v0.2.0",
-	}
-	if err := WriteCache(cachePath, entry); err != nil {
-		t.Fatalf("WriteCache: %v", err)
-	}
-
-	ctx := context.Background()
-	ch := c.BackgroundCheck(ctx, cachePath, "v0.1.0", "stable")
-	res := <-ch
-
-	if res.Err != nil {
-		t.Fatalf("unexpected error: %v", res.Err)
-	}
-	if res.Latest != "v0.2.0" {
-		t.Errorf("expected cached v0.2.0, got %s", res.Latest)
-	}
-	if callCount.Load() != 0 {
-		t.Errorf("expected 0 HTTP calls (cache hit), got %d", callCount.Load())
-	}
-}
-
-func TestBackgroundCheckStaleCache(t *testing.T) {
-	var callCount atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount.Add(1)
-		json.NewEncoder(w).Encode([]Release{{TagName: "v0.3.0"}})
-	}))
-	defer srv.Close()
-
-	c := testClient(srv)
-	dir := t.TempDir()
-	cachePath := filepath.Join(dir, "update.json")
-
-	// write a stale cache entry (> 1h old)
-	entry := CacheEntry{
-		CheckedAt:     time.Now().UTC().Add(-2 * time.Hour),
-		LatestVersion: "v0.2.0",
-	}
-	if err := WriteCache(cachePath, entry); err != nil {
-		t.Fatalf("WriteCache: %v", err)
-	}
-
-	ctx := context.Background()
-	ch := c.BackgroundCheck(ctx, cachePath, "v0.1.0", "stable")
-	res := <-ch
-
-	if res.Err != nil {
-		t.Fatalf("unexpected error: %v", res.Err)
-	}
-	if res.Latest != "v0.3.0" {
-		t.Errorf("expected fresh v0.3.0, got %s", res.Latest)
-	}
-	if callCount.Load() != 1 {
-		t.Errorf("expected 1 HTTP call (stale cache), got %d", callCount.Load())
-	}
-}
-
-// ---------- MaybeBanner tests ----------
-
-func TestMaybeBannerSuppressedWithin24h(t *testing.T) {
-	dir := t.TempDir()
-	cachePath := filepath.Join(dir, "update.json")
-
-	entry := CacheEntry{
-		NotifiedAt:    time.Now().UTC().Add(-23 * time.Hour),
-		LatestVersion: "v0.2.0",
-	}
-	var buf strings.Builder
-	printed := MaybeBanner(&buf, "v0.1.0", "v0.2.0", entry, cachePath, time.Now())
-
-	if printed {
-		t.Error("expected MaybeBanner to return false within 24h window")
-	}
-	if buf.Len() != 0 {
-		t.Errorf("expected no output to writer, got: %q", buf.String())
-	}
-}
-
-func TestMaybeBannerPrintedFirstTime(t *testing.T) {
-	dir := t.TempDir()
-	cachePath := filepath.Join(dir, "update.json")
-
-	entry := CacheEntry{
-		NotifiedAt:    time.Time{}, // zero = never notified
-		LatestVersion: "v0.2.0",
-	}
+func TestShouldNotify(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	var buf strings.Builder
-	printed := MaybeBanner(&buf, "v0.1.0", "v0.2.0", entry, cachePath, now)
-
-	if !printed {
-		t.Error("expected MaybeBanner to return true on first notification")
+	cases := []struct {
+		name         string
+		current      string
+		latest       string
+		lastNotified time.Time
+		want         bool
+	}{
+		{"never notified, newer available", "1.0.0", "1.1.0", time.Time{}, true},
+		{"notified 23h ago, within window", "1.0.0", "1.1.0", now.Add(-23 * time.Hour), false},
+		{"notified exactly 24h ago, window boundary", "1.0.0", "1.1.0", now.Add(-24 * time.Hour), true},
+		{"notified 25h ago, past window", "1.0.0", "1.1.0", now.Add(-25 * time.Hour), true},
+		{"up to date, never notify regardless of window", "1.0.0", "1.0.0", time.Time{}, false},
 	}
-	want := "update available: 0.2.0 (current: v0.1.0). run: atomic update\n"
-	if buf.String() != want {
-		t.Errorf("banner text mismatch:\ngot:  %q\nwant: %q", buf.String(), want)
-	}
-
-	// notified_at must be persisted to cache
-	saved, err := ReadCache(cachePath)
-	if err != nil {
-		t.Fatalf("ReadCache after MaybeBanner: %v", err)
-	}
-	if saved.NotifiedAt.IsZero() {
-		t.Error("expected notified_at to be updated in cache after banner print")
-	}
-	if !saved.NotifiedAt.Equal(now.UTC()) {
-		t.Errorf("notified_at mismatch: got %v, want %v", saved.NotifiedAt, now.UTC())
-	}
-}
-
-func TestMaybeBannerNotPrintedWhenUpToDate(t *testing.T) {
-	dir := t.TempDir()
-	cachePath := filepath.Join(dir, "update.json")
-
-	entry := CacheEntry{
-		NotifiedAt:    time.Time{},
-		LatestVersion: "v0.1.0",
-	}
-	var buf strings.Builder
-	printed := MaybeBanner(&buf, "v0.1.0", "v0.1.0", entry, cachePath, time.Now())
-
-	if printed {
-		t.Error("expected no banner when up to date")
-	}
-	if buf.Len() != 0 {
-		t.Errorf("expected no output, got: %q", buf.String())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := ShouldNotify(tc.current, tc.latest, tc.lastNotified, now); got != tc.want {
+				t.Errorf("ShouldNotify(%q, %q, %v, now) = %v, want %v", tc.current, tc.latest, tc.lastNotified, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -793,33 +632,6 @@ func TestCheckUpToDateReturnsNoVPrefix(t *testing.T) {
 	}
 }
 
-// TestMaybeBannerNoVPrefix: MaybeBanner with latest="v1.2.0", cur="1.1.0"
-// must print "1.2.0" (no leading v) and must NOT contain "v1.2.0".
-func TestMaybeBannerNoVPrefix(t *testing.T) {
-	dir := t.TempDir()
-	cachePath := filepath.Join(dir, "update.json")
-
-	entry := CacheEntry{
-		NotifiedAt:    time.Time{}, // zero = never notified
-		LatestVersion: "v1.2.0",
-	}
-	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
-	var buf strings.Builder
-	printed := MaybeBanner(&buf, "1.1.0", "v1.2.0", entry, cachePath, now)
-
-	if !printed {
-		t.Error("expected MaybeBanner to return true")
-	}
-	out := buf.String()
-	want := "update available: 1.2.0 (current: 1.1.0). run: atomic update\n"
-	if out != want {
-		t.Errorf("banner text mismatch:\ngot:  %q\nwant: %q", out, want)
-	}
-	if strings.Contains(out, "v1.2.0") {
-		t.Errorf("banner must not contain 'v1.2.0', got: %q", out)
-	}
-}
-
 // ---------- Lookup context cancellation test ----------
 
 func TestLookupContextCancelled(t *testing.T) {
@@ -841,5 +653,484 @@ func TestLookupContextCancelled(t *testing.T) {
 	_, err := c.Lookup(ctx, "stable", "")
 	if err == nil {
 		t.Fatal("expected error from cancelled context, got nil")
+	}
+}
+
+// ---------- DisplayVersion (exported wrapper, F-1) ----------
+
+// TestDisplayVersion_ExportedWrapper pins the exported wrapper against the
+// same table as the unexported displayVersion — callers outside this
+// package (the check-branch write site, the banner) need this to normalize
+// a raw tag before it ever reaches state.json or stdout.
+func TestDisplayVersion_ExportedWrapper(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"v1.2.0", "1.2.0"},
+		{"1.2.0", "1.2.0"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		if got := DisplayVersion(tc.in); got != tc.want {
+			t.Errorf("DisplayVersion(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// ---------- StageDir ----------
+
+// TestStageDir_NoHardcodedHome proves the staging directory is derived
+// purely from the home argument (never os.UserHomeDir()), so tests and a
+// future real caller land in ~/.cache/atomic/staged/ under whatever home is
+// passed in — never a hardcoded path.
+func TestStageDir_NoHardcodedHome(t *testing.T) {
+	home := "/tmp/fake-home-for-test"
+	want := filepath.Join(home, ".cache", "atomic", "staged")
+	if got := StageDir(home); got != want {
+		t.Errorf("StageDir(%q) = %q, want %q", home, got, want)
+	}
+}
+
+// ---------- Stage (background staging helper) ----------
+
+// stageTestServer wires a release archive + checksums.txt behind an
+// httptest server and returns (srv, rel, sha256sum) — rel points its asset
+// URLs at the server via DownloadURL like the existing Apply tests.
+func stageTestServer(t *testing.T, tag, content string) (*httptest.Server, Release, string) {
+	t.Helper()
+	buildDir := t.TempDir()
+	archivePath, sha256sum, err := buildTarGz(buildDir, content)
+	if err != nil {
+		t.Fatalf("build archive: %v", err)
+	}
+	assetName := filepath.Base(archivePath)
+	checksumPath := buildChecksums(buildDir, assetName, sha256sum)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/"+assetName, func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, archivePath)
+	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, checksumPath)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	rel := Release{
+		TagName: tag,
+		Assets: []Asset{
+			{Name: assetName, BrowserDownloadURL: srv.URL + "/" + assetName},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/checksums.txt"},
+		},
+	}
+	return srv, rel, sha256sum
+}
+
+func TestStage_DownloadsAndRecordsChecksumVerifiedArchive(t *testing.T) {
+	srv, rel, wantSHA := stageTestServer(t, "v0.1.1", "fake-atomic-archive")
+	_ = srv
+
+	c := &Client{HTTPClient: &http.Client{Timeout: 5 * time.Second}, DownloadURL: srv.URL}
+	stageDir := t.TempDir()
+
+	got, err := c.Stage(context.Background(), rel, stageDir)
+	if err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	if got.Version != "0.1.1" {
+		t.Errorf("Version = %q, want %q (no leading v)", got.Version, "0.1.1")
+	}
+	if got.SHA256 != wantSHA {
+		t.Errorf("SHA256 = %q, want %q", got.SHA256, wantSHA)
+	}
+	if !strings.HasPrefix(got.Path, stageDir) {
+		t.Errorf("Path %q not under stageDir %q", got.Path, stageDir)
+	}
+	if _, err := os.Stat(got.Path); err != nil {
+		t.Errorf("staged file missing on disk: %v", err)
+	}
+	// The recorded SHA256 must be independently re-verifiable straight off
+	// disk — this is what CP5's swap-time re-check relies on.
+	data, err := os.ReadFile(got.Path)
+	if err != nil {
+		t.Fatalf("read staged file: %v", err)
+	}
+	h := sha256.Sum256(data)
+	if hex.EncodeToString(h[:]) != wantSHA {
+		t.Errorf("staged file content does not hash to the recorded SHA256")
+	}
+}
+
+func TestStage_SHAMismatchFailsWithoutStaging(t *testing.T) {
+	buildDir := t.TempDir()
+	archivePath, _, err := buildTarGz(buildDir, "content")
+	if err != nil {
+		t.Fatalf("build archive: %v", err)
+	}
+	assetName := filepath.Base(archivePath)
+	checksumPath := buildChecksums(buildDir, assetName, strings.Repeat("0", 64))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/"+assetName, func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, archivePath)
+	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, checksumPath)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	rel := Release{
+		TagName: "v0.1.1",
+		Assets: []Asset{
+			{Name: assetName, BrowserDownloadURL: srv.URL + "/" + assetName},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/checksums.txt"},
+		},
+	}
+	c := &Client{HTTPClient: &http.Client{Timeout: 5 * time.Second}, DownloadURL: srv.URL}
+	stageDir := t.TempDir()
+
+	_, err = c.Stage(context.Background(), rel, stageDir)
+	if err == nil {
+		t.Fatal("expected SHA mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), "SHA256 mismatch") {
+		t.Errorf("expected 'SHA256 mismatch' in error, got: %v", err)
+	}
+	entries, _ := os.ReadDir(stageDir)
+	if len(entries) != 0 {
+		t.Errorf("expected no staged file after SHA mismatch, found %v", entries)
+	}
+}
+
+func TestStage_NeverTouchesCurrentBinary(t *testing.T) {
+	// Stage takes no currentBinary argument at all — this test documents
+	// that contract by construction (a compile-time guarantee), and
+	// additionally proves stageDir is left as the sole write target.
+	srv, rel, _ := stageTestServer(t, "v0.1.1", "content")
+	c := &Client{HTTPClient: &http.Client{Timeout: 5 * time.Second}, DownloadURL: srv.URL}
+	stageDir := t.TempDir()
+
+	if _, err := c.Stage(context.Background(), rel, stageDir); err != nil {
+		t.Fatalf("Stage: %v", err)
+	}
+	entries, err := os.ReadDir(stageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected exactly 1 staged file, got %d", len(entries))
+	}
+}
+
+// ---------- AcquireLock / ReleaseLock (CP4 primitive; CP5 extends) ----------
+
+func TestAcquireLock_FreeLockAcquires(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := State{}
+	got, ok := AcquireLock(s, now)
+	if !ok {
+		t.Fatal("expected acquisition on a free lock")
+	}
+	if !got.Update.Updating {
+		t.Error("Updating not set to true")
+	}
+	if !got.Update.UpdateStartedAt.Equal(now) {
+		t.Errorf("UpdateStartedAt = %v, want %v", got.Update.UpdateStartedAt, now)
+	}
+}
+
+func TestAcquireLock_HeldLockRefuses(t *testing.T) {
+	held := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := State{}
+	s.Update.Updating = true
+	s.Update.UpdateStartedAt = held
+
+	now := held.Add(time.Minute)
+	got, ok := AcquireLock(s, now)
+	if ok {
+		t.Fatal("expected refusal when lock already held")
+	}
+	// State must be returned unmodified on refusal.
+	if !got.Update.UpdateStartedAt.Equal(held) {
+		t.Errorf("UpdateStartedAt mutated on refusal: got %v, want unchanged %v", got.Update.UpdateStartedAt, held)
+	}
+}
+
+func TestReleaseLock_ClearsLockFields(t *testing.T) {
+	ownedSince := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := State{}
+	s.Update.Updating = true
+	s.Update.UpdateStartedAt = ownedSince
+
+	got := ReleaseLock(s, ownedSince)
+	if got.Update.Updating {
+		t.Error("Updating still true after ReleaseLock")
+	}
+	if !got.Update.UpdateStartedAt.IsZero() {
+		t.Errorf("UpdateStartedAt not cleared: %v", got.Update.UpdateStartedAt)
+	}
+}
+
+// TestReleaseLock_OwnerMismatchLeavesLockFieldsUntouched pins the fencing
+// guard: when s's on-disk UpdateStartedAt no longer equals the caller's
+// recorded ownedSince token, a newer holder has taken over (or --force
+// re-stamped) since — the stale caller's release must not clear that
+// holder's active lock, only its own already-set non-lock fields.
+func TestReleaseLock_OwnerMismatchLeavesLockFieldsUntouched(t *testing.T) {
+	ownedSince := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newerHolderSince := ownedSince.Add(5 * time.Minute)
+
+	s := State{}
+	s.Update.Updating = true
+	s.Update.UpdateStartedAt = newerHolderSince
+	s.Update.LastResult = "staging failed"
+
+	got := ReleaseLock(s, ownedSince)
+	if !got.Update.Updating || !got.Update.UpdateStartedAt.Equal(newerHolderSince) {
+		t.Errorf("lock fields mutated on owner mismatch: Updating=%v UpdateStartedAt=%v, want Updating=true UpdateStartedAt=%v",
+			got.Update.Updating, got.Update.UpdateStartedAt, newerHolderSince)
+	}
+	if got.Update.LastResult != "staging failed" {
+		t.Errorf("LastResult = %q, want preserved even without lock ownership", got.Update.LastResult)
+	}
+}
+
+// ---------- AcquireOrTakeoverLock (CP5: foreground apply lock policy) ----------
+
+func TestAcquireOrTakeoverLock_FreeLockAcquires(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := State{}
+	got, err := AcquireOrTakeoverLock(s, now, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got.Update.Updating {
+		t.Error("Updating not set to true")
+	}
+	if !got.Update.UpdateStartedAt.Equal(now) {
+		t.Errorf("UpdateStartedAt = %v, want %v", got.Update.UpdateStartedAt, now)
+	}
+}
+
+func TestAcquireOrTakeoverLock_FreshLockRefusesNamingAge(t *testing.T) {
+	started := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := State{}
+	s.Update.Updating = true
+	s.Update.UpdateStartedAt = started
+	now := started.Add(3 * time.Minute)
+
+	got, err := AcquireOrTakeoverLock(s, now, false)
+	if err == nil {
+		t.Fatal("expected refusal for a lock younger than the stale threshold")
+	}
+	if !strings.Contains(err.Error(), "3m0s") {
+		t.Errorf("expected the lock's age (3m0s) named in the error, got: %v", err)
+	}
+	// State must be returned unmodified on refusal.
+	if !got.Update.UpdateStartedAt.Equal(started) {
+		t.Errorf("UpdateStartedAt mutated on refusal: got %v, want unchanged %v", got.Update.UpdateStartedAt, started)
+	}
+}
+
+func TestAcquireOrTakeoverLock_StaleLockTakenOver(t *testing.T) {
+	started := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := State{}
+	s.Update.Updating = true
+	s.Update.UpdateStartedAt = started
+	now := started.Add(11 * time.Minute) // past the 10-minute stale threshold
+
+	got, err := AcquireOrTakeoverLock(s, now, false)
+	if err != nil {
+		t.Fatalf("expected takeover of an abandoned lock, got refusal: %v", err)
+	}
+	if !got.Update.Updating {
+		t.Error("Updating not set to true after takeover")
+	}
+	if !got.Update.UpdateStartedAt.Equal(now) {
+		t.Errorf("UpdateStartedAt not refreshed on takeover: got %v, want %v", got.Update.UpdateStartedAt, now)
+	}
+}
+
+func TestAcquireOrTakeoverLock_ForceBypassesFreshLock(t *testing.T) {
+	started := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	s := State{}
+	s.Update.Updating = true
+	s.Update.UpdateStartedAt = started
+	now := started.Add(30 * time.Second) // well within the stale window
+
+	got, err := AcquireOrTakeoverLock(s, now, true)
+	if err != nil {
+		t.Fatalf("--force must bypass a fresh lock: %v", err)
+	}
+	if !got.Update.UpdateStartedAt.Equal(now) {
+		t.Errorf("force must stamp unconditionally: got %v, want %v", got.Update.UpdateStartedAt, now)
+	}
+}
+
+// ---------- ApplyStaged (CP5: swap-from-staged sibling of Apply) ----------
+
+// buildStagedArchive builds a genuine, extractable gzip-compressed tar
+// archive named assetName, containing a single "atomic" file with content,
+// under dir. Unlike stageTestServer's checksum-only fixtures (Stage never
+// extracts what it downloads), ApplyStaged actually extracts and swaps, so
+// its tests need a real archive.
+func buildStagedArchive(t *testing.T, dir, assetName, content string) (archivePath, sha string) {
+	t.Helper()
+	archivePath = filepath.Join(dir, assetName)
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	hdr := &tar.Header{Name: "atomic", Mode: 0o755, Size: int64(len(content))}
+	if err := tw.WriteHeader(hdr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write([]byte(content)); err != nil {
+		t.Fatal(err)
+	}
+	tw.Close()
+	gz.Close()
+	f.Close()
+
+	data, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	return archivePath, hex.EncodeToString(sum[:])
+}
+
+func TestApplyStaged_SwapsWithoutDownloadingArchive(t *testing.T) {
+	tag := "v0.1.1"
+	assetName := fmt.Sprintf("atomic_0.1.1_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	const binaryContent = "fake-atomic-binary-staged-swap"
+
+	buildDir := t.TempDir()
+	_, sha := buildStagedArchive(t, buildDir, assetName, binaryContent)
+	checksumPath := buildChecksums(buildDir, assetName, sha)
+
+	// Staged file lives in a directory the archive endpoint never serves —
+	// ApplyStaged must read it straight off disk.
+	stageDir := t.TempDir()
+	stagedPath := filepath.Join(stageDir, assetName)
+	if err := os.Rename(filepath.Join(buildDir, assetName), stagedPath); err != nil {
+		t.Fatal(err)
+	}
+
+	var archiveHits int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/"+assetName, func(w http.ResponseWriter, r *http.Request) {
+		archiveHits++
+		w.WriteHeader(http.StatusNotFound)
+	})
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, checksumPath)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	rel := Release{
+		TagName: tag,
+		Assets: []Asset{
+			{Name: assetName, BrowserDownloadURL: srv.URL + "/" + assetName},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/checksums.txt"},
+		},
+	}
+	c := &Client{HTTPClient: &http.Client{Timeout: 5 * time.Second}, DownloadURL: srv.URL}
+
+	binDir := t.TempDir()
+	currentBin := filepath.Join(binDir, "atomic")
+	if err := os.WriteFile(currentBin, []byte("old-binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.ApplyStaged(context.Background(), rel, stagedPath, currentBin); err != nil {
+		t.Fatalf("ApplyStaged: %v", err)
+	}
+	if archiveHits != 0 {
+		t.Errorf("archive endpoint hit %d times, want 0 (ApplyStaged must never re-download the archive)", archiveHits)
+	}
+	got, err := os.ReadFile(currentBin)
+	if err != nil {
+		t.Fatalf("read swapped binary: %v", err)
+	}
+	if string(got) != binaryContent {
+		t.Errorf("binary content = %q, want %q", got, binaryContent)
+	}
+}
+
+func TestApplyStaged_ChecksumMismatchLeavesBinaryUntouched(t *testing.T) {
+	tag := "v0.1.1"
+	assetName := fmt.Sprintf("atomic_0.1.1_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+
+	buildDir := t.TempDir()
+	// Fresh checksums.txt records a value that does not match the staged
+	// archive's actual content — simulates a release re-cut since staging.
+	checksumPath := buildChecksums(buildDir, assetName, strings.Repeat("0", 64))
+
+	stageDir := t.TempDir()
+	stagedPath, _ := buildStagedArchive(t, stageDir, assetName, "stale-or-corrupted-content")
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, checksumPath)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	rel := Release{
+		TagName: tag,
+		Assets: []Asset{
+			{Name: assetName, BrowserDownloadURL: srv.URL + "/" + assetName},
+			{Name: "checksums.txt", BrowserDownloadURL: srv.URL + "/checksums.txt"},
+		},
+	}
+	c := &Client{HTTPClient: &http.Client{Timeout: 5 * time.Second}, DownloadURL: srv.URL}
+
+	binDir := t.TempDir()
+	currentBin := filepath.Join(binDir, "atomic")
+	if err := os.WriteFile(currentBin, []byte("original"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err := c.ApplyStaged(context.Background(), rel, stagedPath, currentBin)
+	if err == nil {
+		t.Fatal("expected a checksum-mismatch error, got nil")
+	}
+	if !strings.Contains(err.Error(), "SHA256 mismatch") {
+		t.Errorf("expected 'SHA256 mismatch' in error, got: %v", err)
+	}
+	got, _ := os.ReadFile(currentBin)
+	if string(got) != "original" {
+		t.Errorf("binary was replaced despite a checksum mismatch")
+	}
+}
+
+func TestApplyStaged_MissingStagedFileErrorsWithoutTouchingBinary(t *testing.T) {
+	tag := "v0.1.1"
+	assetName := fmt.Sprintf("atomic_0.1.1_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
+	rel := Release{
+		TagName: tag,
+		Assets: []Asset{
+			{Name: "checksums.txt", BrowserDownloadURL: "http://unused.invalid/checksums.txt"},
+		},
+	}
+	c := &Client{HTTPClient: &http.Client{Timeout: 2 * time.Second}}
+
+	binDir := t.TempDir()
+	currentBin := filepath.Join(binDir, "atomic")
+	if err := os.WriteFile(currentBin, []byte("original"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	missing := filepath.Join(t.TempDir(), assetName)
+	err := c.ApplyStaged(context.Background(), rel, missing, currentBin)
+	if err == nil {
+		t.Fatal("expected an error for a missing staged file, got nil")
+	}
+	got, _ := os.ReadFile(currentBin)
+	if string(got) != "original" {
+		t.Error("binary was replaced despite a missing staged file")
 	}
 }

@@ -51,3 +51,10 @@ func ProfilePath(home string) string {
 func ProfileRelPath() string {
 	return ".atomic/profile.md"
 }
+
+// StatePath returns the path to the self-update state file
+// (~/.atomic/state.json) — the single machine-managed source of truth for
+// update-check cadence, staged downloads, and swap-lock coordination.
+func StatePath(home string) string {
+	return filepath.Join(Dir(home), "state.json")
+}

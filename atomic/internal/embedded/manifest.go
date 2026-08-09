@@ -21,7 +21,7 @@ func Manifest() []Artifact {
 		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "af78e8a8a0f0b0144f670aeb586d26cd2a1bbdd36b95e1388050db02aefad3b6"},
 		{Kind: "command", Source: "bundle/commands/_templates/implementer-prompt.md", Target: "commands/_templates/implementer-prompt.md", SHA256: "88821c30f61b773218b90332f2060eec09979515545aaddfcb10081f1e8ce14f"},
 		{Kind: "command", Source: "bundle/commands/_templates/reviewer-prompt.md", Target: "commands/_templates/reviewer-prompt.md", SHA256: "296889105ed096f4afb9239c5931f9b900037d55e676f89bf3023daf5d62ffed"},
-		{Kind: "command", Source: "bundle/commands/atomic-help.md", Target: "commands/atomic-help.md", SHA256: "88fb9e403ae1acf1e543ca19eda89c5dabd20078bb9e3c0d19ba188c8a1ec3e6"},
+		{Kind: "command", Source: "bundle/commands/atomic-help.md", Target: "commands/atomic-help.md", SHA256: "1c7e53afb742de2f28ebc9bf051c26d1e6fe2eeee23695513446d1e5a6793d57"},
 		{Kind: "command", Source: "bundle/commands/atomic-plan.md", Target: "commands/atomic-plan.md", SHA256: "726aac9549f60fa53a0ddbd64344fdde08133d80617e7a05b5e30405ffe2aa37"},
 		{Kind: "command", Source: "bundle/commands/autopilot.md", Target: "commands/autopilot.md", SHA256: "870d43fb4ed89bdfea1c2544a0470eefbf1dd5f03301bc075bd923f1efc224d8"},
 		{Kind: "command", Source: "bundle/commands/challenge-swarm.md", Target: "commands/challenge-swarm.md", SHA256: "be8a134582d0557fddbc088f82da43b48a613ea551e1f9b0908821b7cf8af4a9"},

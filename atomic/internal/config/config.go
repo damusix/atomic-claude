@@ -21,6 +21,12 @@ const replIdleTimeoutDefault = "1h"
 // runDoctorDefault is the built-in default for update.run_doctor.
 const runDoctorDefault = true
 
+// updateCheckDefault is the built-in default for update.check.
+const updateCheckDefault = true
+
+// updateStageDefault is the built-in default for update.stage.
+const updateStageDefault = true
+
 // signalsMaxDepthDefault is the built-in default for output.signals.max_depth.
 const signalsMaxDepthDefault = 3
 
@@ -35,6 +41,8 @@ const harnessDirDefault = ".claude"
 var knownKeys = []string{
 	"output.signals.max_depth",
 	"update.run_doctor",
+	"update.check",
+	"update.stage",
 	"harness.dir",
 	"repl.idle_timeout",
 }
@@ -106,6 +114,12 @@ type outputSection struct {
 // updateSection is the [update] TOML table.
 type updateSection struct {
 	RunDoctor bool `toml:"run_doctor"`
+	// Check gates the background detached-child GitHub lookup (selfupdate-state).
+	// No repo-scoped equivalent — user config only.
+	Check bool `toml:"check"`
+	// Stage gates once-only background download+checksum staging of a newer
+	// release binary (selfupdate-state). No repo-scoped equivalent.
+	Stage bool `toml:"stage"`
 }
 
 // harnessSection is the [harness] TOML table.
@@ -185,7 +199,11 @@ func Default() *Config {
 		Output: outputSection{
 			Signals: signalsSubSection{MaxDepth: signalsMaxDepthDefault},
 		},
-		Update:  updateSection{RunDoctor: runDoctorDefault},
+		Update: updateSection{
+			RunDoctor: runDoctorDefault,
+			Check:     updateCheckDefault,
+			Stage:     updateStageDefault,
+		},
 		Harness: harnessSection{Dir: harnessDirDefault},
 	}
 }
@@ -214,10 +232,18 @@ func Load(path string) (*Config, []Warning, error) {
 	// typed struct. The bool zero-value (false) is indistinguishable from
 	// "absent" after decode, so we check the raw map here.
 	updateRunDoctorExplicit := false
+	updateCheckExplicit := false
+	updateStageExplicit := false
 	if updateRaw, ok := rawMap["update"]; ok {
 		if updateTable, ok := updateRaw.(map[string]any); ok {
 			if _, ok := updateTable["run_doctor"]; ok {
 				updateRunDoctorExplicit = true
+			}
+			if _, ok := updateTable["check"]; ok {
+				updateCheckExplicit = true
+			}
+			if _, ok := updateTable["stage"]; ok {
+				updateStageExplicit = true
 			}
 		}
 	}
@@ -251,6 +277,13 @@ func Load(path string) (*Config, []Warning, error) {
 	// section resets the struct to zero (false), so we must restore the default.
 	if !updateRunDoctorExplicit {
 		cfg.Update.RunDoctor = runDoctorDefault
+	}
+	// update.check / update.stage: same explicit-presence backfill as run_doctor.
+	if !updateCheckExplicit {
+		cfg.Update.Check = updateCheckDefault
+	}
+	if !updateStageExplicit {
+		cfg.Update.Stage = updateStageDefault
 	}
 	// output.signals.max_depth: only backfill default when the key was absent.
 	// When explicitly set, it is decoded as-is (even 0 or negative); Validate
@@ -342,7 +375,8 @@ func checkUnknownKeys(m map[string]any, prefix string) []Warning {
 }
 
 // Validate returns an error if cfg contains values outside the allowed schema.
-// update.run_doctor is a bool and has no invalid state at the Config level.
+// update.run_doctor / update.check / update.stage are bools and have no
+// invalid state at the Config level.
 func Validate(cfg *Config) error {
 	if cfg.Output.Signals.MaxDepth <= 0 {
 		return fmt.Errorf("config: output.signals.max_depth must be a positive integer, got %d", cfg.Output.Signals.MaxDepth)
@@ -456,6 +490,24 @@ func Set(cfg *Config, dottedKey, value string) error {
 		default:
 			return fmt.Errorf("config: update.run_doctor %q is not one of: false, true", value)
 		}
+	case "update.check":
+		switch value {
+		case "true":
+			cfg.Update.Check = true
+		case "false":
+			cfg.Update.Check = false
+		default:
+			return fmt.Errorf("config: update.check %q is not one of: false, true", value)
+		}
+	case "update.stage":
+		switch value {
+		case "true":
+			cfg.Update.Stage = true
+		case "false":
+			cfg.Update.Stage = false
+		default:
+			return fmt.Errorf("config: update.stage %q is not one of: false, true", value)
+		}
 	case "harness.dir":
 		if err := validateHarnessDir(value); err != nil {
 			return err
@@ -495,6 +547,10 @@ func Unset(cfg *Config, dottedKey string) error {
 		cfg.Output.Signals.MaxDepth = signalsMaxDepthDefault
 	case "update.run_doctor":
 		cfg.Update.RunDoctor = runDoctorDefault
+	case "update.check":
+		cfg.Update.Check = updateCheckDefault
+	case "update.stage":
+		cfg.Update.Stage = updateStageDefault
 	case "harness.dir":
 		cfg.Harness.Dir = harnessDirDefault
 	case "repl.idle_timeout":
