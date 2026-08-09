@@ -37,6 +37,12 @@ features:
 
 <div class="vp-doc home-extra">
 
+## See it run
+
+The wiki, the system graph, the code explorer, and bus chat, served from `atomic serve` on localhost.
+
+<video src="/atomic-serve.mp4" autoplay loop muted playsinline style="width:100%;border-radius:8px;"></video>
+
 ## Run your first grounded loop
 
 The next step is your own repo. Turn on the output style, index your code, and hand the loop a real task, from install to a first merged change.
