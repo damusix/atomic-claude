@@ -41,9 +41,9 @@ func TestNodeHarness(t *testing.T) {
 		stateGet:         "stateProbe + 1",
 		resetErrorMarker: "ReferenceError",
 
-		slowEval: "(() => { const until = Date.now() + 600; while (Date.now() < until) {} return 'slow-done'; })()",
-		fastEval: "1 + 1",
-		wantFast: "2",
+		slowEval: "(() => { const until = Date.now() + 600; while (Date.now() < until) {} globalThis.slowMarker = 40; return 'slow-done'; })()",
+		fastEval: "slowMarker + 2",
+		wantFast: "42",
 	})
 }
 
