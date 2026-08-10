@@ -44,12 +44,6 @@ func RunCode(args []string, projectRoot string, stdout, stderr io.Writer, stdin 
 	rest := args[1:]
 	ctx := context.Background()
 
-	// Internal verb: `atomic code __serve <projectRoot>` — spawned by the proxy
-	// auto-start path. Not advertised in help; not user-facing.
-	if verb == "__serve" {
-		return runServe(ctx, rest, stderr)
-	}
-
 	// `atomic code mcp` is the proxy path (CP23): connect-or-start the daemon,
 	// then pipe stdin↔socket. Does not need the pre-created engine.
 	// dbPath for standalone repo: <projectRoot>/.claude/.atomic-index/atomic.db.
@@ -113,7 +107,7 @@ func printCodeUsage(w io.Writer) {
 	fmt.Fprintln(w, "  files     List indexed files (optional path/pattern filter)")
 	fmt.Fprintln(w, "  affected  Find test files transitively affected by changed files")
 	fmt.Fprintln(w, "  explore   Gather relevant context for a query (markdown output)")
-	fmt.Fprintln(w, "  mcp       Run the MCP server over stdio")
+	fmt.Fprintln(w, "  mcp       Run the MCP server over stdio (--daemon runs the auto-started server itself)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "All query verbs accept --json for machine-readable output.")
 	fmt.Fprintln(w, "DB path: "+config.IndexDBPath("<project>"))
@@ -1009,54 +1003,59 @@ func EnsureGitignore(projectRoot string) error {
 // mcp
 // ---------------------------------------------------------------------------
 
-// runMCP is the proxy path for `atomic code mcp` (CP23).
-// It connect-or-starts the singleton daemon (flock-guarded auto-start) and
-// then bidirectionally pipes stdin↔socket / stdout↔socket.
-// The daemon stays alive when the proxy exits; a second call reuses the warm engine.
+// runMCP is `atomic code mcp` (CP23, GitHub issue #193).
 //
-// projectRoot is the source tree root; dbPath is where the index lives. Both
-// are resolved by main.go (realm-aware) before calling here.
+// Without --daemon it is the proxy path: connect-or-start the singleton
+// daemon (flock-guarded auto-start) and then bidirectionally pipe
+// stdin↔socket / stdout↔socket. The daemon stays alive when the proxy exits;
+// a second call reuses the warm engine.
+//
+// With --daemon this process IS the daemon: DefaultSpawn execs exactly this
+// invocation (see mcp.DaemonArgv) with explicit --source/--db so the daemon
+// never re-resolves scope from the process cwd. Folding daemon mode into the
+// already-registered mcp verb — instead of a separate internal verb — means
+// the spawned argv always names a real Cobra command; the old unregistered
+// internal verb used to make Cobra reject the spawn's own flags with
+// "unknown flag" before the daemon handler ever ran (GitHub issue #193).
+//
+// projectRoot/dbPath are the proxy-mode source+db, resolved by main.go
+// (realm-aware) before calling here; they are ignored when --daemon is set,
+// in favor of the explicit --source/--db flags.
 func runMCP(ctx context.Context, projectRoot, dbPath string, args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("code mcp", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	cliutil.SetUsage(fs, "atomic code mcp [--watch-interval <dur>] [--no-watch]")
+	cliutil.SetUsage(fs, "atomic code mcp [--daemon --source <path> --db <path>] [--watch-interval <dur>] [--no-watch]")
+	var daemon bool
+	var sourceRoot, explicitDB string
 	var watchInterval time.Duration
 	var noWatch bool
+	fs.BoolVar(&daemon, "daemon", false, "run as the daemon itself, bound to --source/--db (spawned by the proxy auto-start path)")
+	fs.StringVar(&sourceRoot, "source", "", "source root to serve (requires --daemon)")
+	fs.StringVar(&explicitDB, "db", "", "absolute path to the SQLite index db (requires --daemon)")
 	fs.DurationVar(&watchInterval, "watch-interval", 0, "override the daemon's sync interval (default 10s)")
 	fs.BoolVar(&noWatch, "no-watch", false, "disable background sync poller in the daemon")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
-	opts := codemcp.WatchOptions{
-		Disable:  noWatch,
-		Interval: watchInterval,
+	if !daemon {
+		if sourceRoot != "" || explicitDB != "" {
+			fmt.Fprintln(stderr, "atomic code mcp: --source/--db require --daemon")
+			return 1
+		}
+		opts := codemcp.WatchOptions{
+			Disable:  noWatch,
+			Interval: watchInterval,
+		}
+		if err := codemcp.RunProxy(ctx, projectRoot, dbPath, opts, nil, os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintf(stderr, "atomic code mcp: %v\n", err)
+			return 1
+		}
+		return 0
 	}
-	if err := codemcp.RunProxy(ctx, projectRoot, dbPath, opts, nil, os.Stdin, os.Stdout); err != nil {
-		fmt.Fprintf(stderr, "atomic code mcp: %v\n", err)
-		return 1
-	}
-	return 0
-}
 
-// runServe is the internal daemon entry point, invoked only by the auto-start
-// proxy via `atomic code __serve --source SRC --db DB`. Not user-facing; not in help.
-// Explicit source+db make the daemon cwd-independent (the key fix).
-func runServe(ctx context.Context, args []string, stderr io.Writer) int {
-	fs := flag.NewFlagSet("code __serve", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	var sourceRoot, dbPath string
-	var watchInterval time.Duration
-	var noWatch bool
-	fs.StringVar(&sourceRoot, "source", "", "source root to serve (required)")
-	fs.StringVar(&dbPath, "db", "", "absolute path to the SQLite index db (required)")
-	fs.DurationVar(&watchInterval, "watch-interval", 0, "override the daemon's sync interval (default 10s)")
-	fs.BoolVar(&noWatch, "no-watch", false, "disable background sync poller")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	if sourceRoot == "" || dbPath == "" {
-		fmt.Fprintln(stderr, "atomic code __serve: --source and --db are required")
+	if sourceRoot == "" || explicitDB == "" {
+		fmt.Fprintln(stderr, "atomic code mcp: --daemon requires --source and --db")
 		return 1
 	}
 
@@ -1067,8 +1066,8 @@ func runServe(ctx context.Context, args []string, stderr io.Writer) int {
 		interval = watchInterval
 	}
 
-	if err := codemcp.RunDaemon(ctx, sourceRoot, dbPath, nil, interval); err != nil {
-		fmt.Fprintf(stderr, "atomic code __serve: %v\n", err)
+	if err := codemcp.RunDaemon(ctx, sourceRoot, explicitDB, nil, interval); err != nil {
+		fmt.Fprintf(stderr, "atomic code mcp: %v\n", err)
 		return 1
 	}
 	return 0

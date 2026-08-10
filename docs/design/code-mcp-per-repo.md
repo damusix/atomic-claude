@@ -9,9 +9,9 @@ Reproduced deterministically. Claude Code launches an MCP server with its cwd at
 ```
 atomic --repo /…/taxgentic/gui code mcp        (cwd = /…/taxgentic, not a git repo)
   → proxy resolves --repo gui (ok, no git needed)
-  → spawns:  atomic code __serve gui     (child inherits cwd = /…/taxgentic)
+  → spawns:  atomic code mcp --daemon gui  (child inherits cwd = /…/taxgentic)
   → child re-resolves scope from CWD, not from its path arg:
-       realm.Resolve(/…/taxgentic) = ScopeRealmAll → __serve is in the realm reject set → daemon exits
+       realm.Resolve(/…/taxgentic) = ScopeRealmAll → mcp --daemon is in the realm reject set → daemon exits
        (or, from a plain non-git dir: repoctx.Resolve("") → git rev-parse fails → exit 128)
   → socket never binds → proxy waitLive times out (10s) → "daemon did not start within 10s"
 ```
@@ -39,7 +39,7 @@ Second defect, same area: a realm member has no local index — its graph lives 
 
 ## Root cause (one line)
 
-The daemon (`__serve`) and the `code` dispatch resolve project scope from the **current working directory** instead of trusting the path they were handed; launched from a non-git / realm-root cwd (where `.mcp.json` lives), the spawned daemon dies before binding its socket.
+The daemon (`mcp --daemon`) and the `code` dispatch resolve project scope from the **current working directory** instead of trusting the path they were handed; launched from a non-git / realm-root cwd (where `.mcp.json` lives), the spawned daemon dies before binding its socket.
 
 ## Approaches
 
@@ -47,7 +47,7 @@ The daemon (`__serve`) and the `code` dispatch resolve project scope from the **
 |---|----------|------|------|
 | A | Spawn daemon with explicit (sourceRoot, dbPath); daemon uses `NewWithDBPath`, never consults cwd | cwd-independent; fixes db-location + pollution in one move; no realm-verb-rejection in the daemon | touches proxy spawn + daemon signature + socket path |
 | B | Set `cmd.Dir = <member>` on the spawn so cwd becomes the member | smaller diff | member dir is a git repo but the index is under the realm → still wrong db; still pollutes; fragile |
-| C | Make `--repo`/`__serve` run `realm.Resolve(path)` in the existing dispatch | reuses position-sensing | still routes through the realm-verb-rejection (mcp/__serve rejected in member scope); needs un-rejection anyway |
+| C | Make `--repo`/`mcp --daemon` run `realm.Resolve(path)` in the existing dispatch | reuses position-sensing | still routes through the realm-verb-rejection (mcp rejected in member scope); needs un-rejection anyway |
 
 ## Recommendation
 
@@ -58,7 +58,7 @@ flowchart TD
   P["atomic --repo PATH code mcp (any cwd)"] --> R[realm.Resolve PATH]
   R -->|member| D1[sourceRoot=member, dbPath=realm/.atomic/key.db]
   R -->|standalone repo| D2[sourceRoot=repo, dbPath=repo/.claude/.atomic-index/atomic.db]
-  D1 --> S["spawn __serve --source SRC --db DB (explicit, cwd-independent)"]
+  D1 --> S["spawn mcp --daemon --source SRC --db DB (explicit, cwd-independent)"]
   D2 --> S
   S --> DA[daemon: NewWithDBPath SRC,DB]
   DA --> SK[socket next to DB, not in member source]
