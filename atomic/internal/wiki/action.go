@@ -120,8 +120,24 @@ func wikiStampAction(args []string) int {
 	// <file> argument (issue #158). Re-parse iteratively, peeling off one
 	// positional token at a time, so flags may appear in any position —
 	// before, after, or interspersed with <file>.
+	//
+	// Pre-split at the first bare "--" before the loop so POSIX terminator
+	// semantics hold globally: everything after it is positional, verbatim,
+	// never re-parsed as a flag. (fs.Parse only honors "--" within the call
+	// that consumes it — re-parsing the tail would otherwise treat a flag
+	// placed after "--" as live again.)
+	head := args
+	var tail []string
+	for i, a := range args {
+		if a == "--" {
+			head = args[:i]
+			tail = args[i+1:]
+			break
+		}
+	}
+
 	var positional []string
-	rest := args
+	rest := head
 	for {
 		if err := fs.Parse(rest); err != nil {
 			return 2
@@ -133,6 +149,7 @@ func wikiStampAction(args []string) int {
 		positional = append(positional, rest[0])
 		rest = rest[1:]
 	}
+	positional = append(positional, tail...)
 	if len(positional) < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: atomic wiki stamp <file> --repo <path>\n")
 		fmt.Fprintf(os.Stderr, "       atomic wiki stamp <file> --root <wiki-root> --cites <ids>\n")

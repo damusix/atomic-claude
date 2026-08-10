@@ -1,14 +1,17 @@
 package wiki
 
 // action_test.go — CP1 tests for the shared argument scanner hardening
-// (resolveWikiRoot / parseBucketDocArgs) behind `atomic wiki bucket`.
+// (resolveWikiRoot / parseBucketDocArgs) behind `atomic wiki bucket`, plus
+// wikiStampAction's flag/positional argument order handling.
 //
 // Covers: -h/-help/--help yield errUsageRequested and print usage without
 // mutating state (issue #164 — `bucket add -h` used to silently create a
 // bucket named "-h"); an unrecognized single-dash token is rejected with
 // the same parity as an unrecognized double-dash token; parseBucketDocArgs'
 // collapse to delegate at resolveWikiRoot still honors --router in any
-// position.
+// position; wikiStampAction accepts flags before, after, or interspersed
+// with the positional <file> argument, and honors "--" as a global
+// terminator ending flag parsing (issue #158).
 
 import (
 	"bytes"
@@ -400,4 +403,55 @@ func TestWikiStampAction_MissingModeFlagsStillErrors(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("wikiStampAction with no mode flags: exit %d, want 1", code)
 	}
+}
+
+// TestWikiStampAction_TerminatorEndsFlagParsing pins POSIX "--" terminator
+// semantics (issue #158 follow-up): the re-parse loop must honor the first
+// bare "--" globally, not just within the single fs.Parse call that consumes
+// it. Everything after "--" is positional, verbatim, never re-parsed as a
+// flag — so `wiki stamp -- <file> --repo <repo>` must NOT stamp.
+func TestWikiStampAction_TerminatorEndsFlagParsing(t *testing.T) {
+	repoDir := makeStampGitRepo(t)
+
+	t.Run("post-terminator flags are literal, no mode set", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "target.md")
+		if err := os.WriteFile(file, []byte("---\ntitle: x\n---\nbody\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", file, err)
+		}
+
+		code := wikiStampAction([]string{"--", file, "--repo", repoDir})
+		if code != 1 {
+			t.Fatalf("wikiStampAction(-- %s --repo %s) = %d, want 1 (--repo after -- must be literal)", file, repoDir, code)
+		}
+
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		if strings.Contains(string(data), "reflects_rev:") {
+			t.Errorf("expected no stamp written after literal --repo, got:\n%s", data)
+		}
+	})
+
+	t.Run("flags before terminator still parse, positional after stamps", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "target.md")
+		if err := os.WriteFile(file, []byte("---\ntitle: x\n---\nbody\n"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", file, err)
+		}
+
+		code := wikiStampAction([]string{"--repo", repoDir, "--", file})
+		if code != 0 {
+			t.Fatalf("wikiStampAction(--repo %s -- %s) = %d, want 0", repoDir, file, code)
+		}
+
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		if !strings.Contains(string(data), "reflects_rev:") {
+			t.Errorf("expected reflects_rev stamp written, got:\n%s", data)
+		}
+	})
 }
