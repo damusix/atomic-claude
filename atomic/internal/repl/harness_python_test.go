@@ -42,9 +42,9 @@ func TestPythonHarness(t *testing.T) {
 		stateGet:         "state_probe + 1",
 		resetErrorMarker: "NameError",
 
-		slowEval: "import time\ntime.sleep(0.6)\n'slow-done'",
-		fastEval: "1 + 1",
-		wantFast: "2",
+		slowEval: "import time\ntime.sleep(0.6)\nslow_marker = 40\n'slow-done'",
+		fastEval: "slow_marker + 2",
+		wantFast: "42",
 	})
 }
 
