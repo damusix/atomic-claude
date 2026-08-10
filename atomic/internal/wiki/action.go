@@ -115,11 +115,24 @@ func wikiStampAction(args []string) int {
 	fs.BoolVar(&knowledge, "knowledge", false, "knowledge page mode: stamp sources: list")
 	fs.StringVar(&sources, "sources", "", "comma-separated sources entries (knowledge mode)")
 
-	if err := fs.Parse(args); err != nil {
-		return 2
+	// Stdlib flag.FlagSet stops parsing at the first non-flag argument, so a
+	// single fs.Parse(args) never consumes flags placed after the positional
+	// <file> argument (issue #158). Re-parse iteratively, peeling off one
+	// positional token at a time, so flags may appear in any position —
+	// before, after, or interspersed with <file>.
+	var positional []string
+	rest := args
+	for {
+		if err := fs.Parse(rest); err != nil {
+			return 2
+		}
+		rest = fs.Args()
+		if len(rest) == 0 {
+			break
+		}
+		positional = append(positional, rest[0])
+		rest = rest[1:]
 	}
-
-	positional := fs.Args()
 	if len(positional) < 1 {
 		fmt.Fprintf(os.Stderr, "Usage: atomic wiki stamp <file> --repo <path>\n")
 		fmt.Fprintf(os.Stderr, "       atomic wiki stamp <file> --root <wiki-root> --cites <ids>\n")

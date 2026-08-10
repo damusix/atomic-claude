@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -260,5 +261,143 @@ func TestBucketVerbs_UnrecognizedSingleDashTokenExits2(t *testing.T) {
 				t.Errorf("wikiAction bucket %s -x: got exit %d, want 2; output: %q", verb, code, out.String())
 			}
 		})
+	}
+}
+
+// ---- wikiStampAction: flag/positional argument order (issue #158) ----
+//
+// Stdlib flag.FlagSet stops parsing at the first non-flag argument, so the
+// documented `atomic wiki stamp <file> --repo <path>` form (flags after the
+// positional) never consumed the trailing flags and fell through to the
+// "supply either --repo ..." error. wikiStampAction must accept flags in any
+// position — flags-first, flags-after-path, and interspersed.
+
+// makeStampGitRepo creates a git repo with one commit and returns its dir.
+func makeStampGitRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	cmds := [][]string{
+		{"git", "-C", dir, "init"},
+		{"git", "-C", dir, "config", "user.email", "t@t.com"},
+		{"git", "-C", dir, "config", "user.name", "T"},
+	}
+	for _, c := range cmds {
+		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", c, err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	addCmds := [][]string{
+		{"git", "-C", dir, "add", "."},
+		{"git", "-C", dir, "commit", "-m", "init"},
+	}
+	for _, c := range addCmds {
+		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", c, err, out)
+		}
+	}
+	return dir
+}
+
+// TestWikiStampAction_FlagOrder is a table test over the three stamp modes
+// (summary / concern / knowledge) crossed with three argument orders
+// (flags-first, flags-after-path, interspersed). All nine combinations must
+// exit 0 and actually write the expected frontmatter key.
+func TestWikiStampAction_FlagOrder(t *testing.T) {
+	repoDir := makeStampGitRepo(t)
+
+	knowledgeRoot := t.TempDir()
+	citedSignalsDir := filepath.Join(knowledgeRoot, "cited-repo", ".claude", "project")
+	if err := os.MkdirAll(citedSignalsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(citedSignalsDir, "signals.md"), []byte("signals\n"), 0o644); err != nil {
+		t.Fatalf("write signals.md: %v", err)
+	}
+
+	type modeCase struct {
+		name     string
+		pairs    [][]string // each element is one complete flag unit (name, or name+value) — never split
+		wantKey  string
+		fileName string // must be kebab-case for knowledge mode
+	}
+	modes := []modeCase{
+		{name: "summary", pairs: [][]string{{"--repo", repoDir}}, wantKey: "reflects_rev", fileName: "target.md"},
+		{name: "concern", pairs: [][]string{{"--root", knowledgeRoot}, {"--cites", "cited-repo"}}, wantKey: "reflects", fileName: "target.md"},
+		{name: "knowledge", pairs: [][]string{{"--knowledge"}, {"--sources", "research/notes.md@abc123"}}, wantKey: "sources", fileName: "topic.md"},
+	}
+
+	flatten := func(pairs [][]string) []string {
+		var out []string
+		for _, p := range pairs {
+			out = append(out, p...)
+		}
+		return out
+	}
+
+	orders := []struct {
+		name  string
+		build func(file string, pairs [][]string) []string
+	}{
+		{name: "flags-first", build: func(file string, pairs [][]string) []string {
+			return append(flatten(pairs), file)
+		}},
+		{name: "flags-after-path", build: func(file string, pairs [][]string) []string {
+			return append([]string{file}, flatten(pairs)...)
+		}},
+		{name: "interspersed", build: func(file string, pairs [][]string) []string {
+			// Split at a pair boundary — never inside a flag/value pair,
+			// which would otherwise swallow the positional as the flag's value.
+			mid := len(pairs) / 2
+			out := flatten(pairs[:mid])
+			out = append(out, file)
+			out = append(out, flatten(pairs[mid:])...)
+			return out
+		}},
+	}
+
+	for _, m := range modes {
+		for _, o := range orders {
+			t.Run(m.name+"/"+o.name, func(t *testing.T) {
+				dir := t.TempDir()
+				file := filepath.Join(dir, m.fileName)
+				if err := os.WriteFile(file, []byte("---\ntitle: x\n---\nbody\n"), 0o644); err != nil {
+					t.Fatalf("write %s: %v", file, err)
+				}
+
+				args := o.build(file, m.pairs)
+				code := wikiStampAction(args)
+				if code != 0 {
+					t.Fatalf("wikiStampAction(%v) = %d, want 0", args, code)
+				}
+
+				data, err := os.ReadFile(file)
+				if err != nil {
+					t.Fatalf("read %s: %v", file, err)
+				}
+				if !strings.Contains(string(data), m.wantKey+":") {
+					t.Errorf("expected %q key written to %s; got:\n%s", m.wantKey, file, data)
+				}
+			})
+		}
+	}
+}
+
+// TestWikiStampAction_MissingModeFlagsStillErrors verifies a genuinely
+// missing mode flag (no --repo/--root+--cites/--knowledge+--sources) still
+// produces the existing "supply either" error and exit 1 — the flag/position
+// fix must not mask real usage errors.
+func TestWikiStampAction_MissingModeFlagsStillErrors(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "target.md")
+	if err := os.WriteFile(file, []byte("---\ntitle: x\n---\nbody\n"), 0o644); err != nil {
+		t.Fatalf("write %s: %v", file, err)
+	}
+
+	code := wikiStampAction([]string{file})
+	if code != 1 {
+		t.Fatalf("wikiStampAction with no mode flags: exit %d, want 1", code)
 	}
 }
