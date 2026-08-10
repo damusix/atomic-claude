@@ -53,7 +53,7 @@ func renderKind(sharedTmpl *template.Template, kind, templatesDir, outDir string
 	kindTemplDir := filepath.Join(templatesDir, kind)
 	kindOutDir := filepath.Join(outDir, kind)
 
-	// Enumerate source templates (recursive — includes subdirs like _templates/).
+	// Enumerate source templates (recursive — includes any nested subdirs).
 	srcTemplates, err := listMDFilesRecursive(kindTemplDir)
 	if err != nil {
 		return fmt.Errorf("list templates/%s: %w", kind, err)

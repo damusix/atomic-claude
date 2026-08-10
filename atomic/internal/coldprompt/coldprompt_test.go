@@ -11,7 +11,7 @@ import (
 // each documented cold-op name. The briefs are embedded at build time — a
 // non-empty result proves the embed succeeded and the file has content.
 func TestGet_KnownNames(t *testing.T) {
-	cases := []string{"git-cleanup", "claude-merge"}
+	cases := []string{"git-cleanup", "claude-merge", "implementer", "reviewer"}
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
 			got, err := coldprompt.Get(name)
@@ -50,7 +50,7 @@ func TestNames(t *testing.T) {
 	if len(names) == 0 {
 		t.Fatal("Names() returned empty slice")
 	}
-	want := map[string]bool{"git-cleanup": true, "claude-merge": true}
+	want := map[string]bool{"git-cleanup": true, "claude-merge": true, "implementer": true, "reviewer": true}
 	got := make(map[string]bool, len(names))
 	for _, n := range names {
 		got[n] = true

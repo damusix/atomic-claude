@@ -10,7 +10,7 @@ A `/quick-fix <task>` slash command that runs the subagent implement→review lo
 ## Non-goals
 
 
-- No new agents, skills, or prompt templates. Reuses `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, and `commands/_templates/implementer-prompt.md` / `reviewer-prompt.md` unchanged.
+- No new agents, skills, or prompt templates. Reuses `atomic-implementer`, `atomic-reviewer`, `atomic-investigator`, and the shared `atomic prompt implementer` / `atomic prompt reviewer` briefs unchanged.
 - No spec or design authoring. `/quick-fix` never writes `docs/spec/` or `docs/design/`.
 - No file-count cap anywhere in the command. Scope is cohesion-bounded (axiom 1) — a mechanical fix threading one param through DTO → validator → controller → use case → repo → client is one slice, however many files.
 - No worktree gate.
@@ -22,7 +22,7 @@ A `/quick-fix <task>` slash command that runs the subagent implement→review lo
 ## Success criteria
 
 
-- [ ] `/quick-fix <task>` runs the implement→review loop with the same scratchpad trio (`BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`) and the same `_templates` prompts as `/subagent-implementation`, with `{SPEC_PATH}` substituted as `"no spec — inline brief in BRIEF.md"`. No spec file is required or created.
+- [ ] `/quick-fix <task>` runs the implement→review loop with the same scratchpad trio (`BRIEF.md`, `STATE.md`, `FOLLOWUPS.md`) and the same `atomic prompt implementer` / `atomic prompt reviewer` briefs as `/subagent-implementation`, with `{SPEC_PATH}` substituted as `"no spec — inline brief in BRIEF.md"`. No spec file is required or created.
 - [ ] The command's fit gate and mid-loop escape hatch trigger on uncertainty signals only (multiple viable approaches, fuzzy success criteria, architectural/contract choice, root-cause shift) — never on file count. The command text contains no numeric file threshold as a scope gate or exit condition; the surgical-vs-feature mode-selection heuristic (mirroring `/subagent-implementation` Step A) is agent choice, not a scope cap.
 - [ ] On escape, the command stops, names the signal that fired, and prints a handoff to `/subagent-implementation` (noting its inline path may still apply) or `/atomic-plan`, retaining the scratchpad for the handoff.
 - [ ] Iteration cap is 3; at cap without PASS, the user is asked (continue / escalate / stop) via `AskUserQuestion`.
@@ -138,6 +138,14 @@ Flow: iteration cap
 
 
 ## Change log
+
+### 2026-08-10 — Correction: prompt source moved to the binary
+
+**What changed:** Non-goals and the first Success criterion cited `commands/_templates/implementer-prompt.md` / `reviewer-prompt.md`. Those files were migrated into the `coldprompt` package and are now served by `atomic prompt implementer` / `atomic prompt reviewer` — both references updated to match.
+
+**Why:** The prompt-templates-to-binary migration (see `docs/spec/document-templates.md` change log) removed `commands/_templates/` entirely; this spec's body still cited the old path.
+
+**Superseded:** the file-path references to `commands/_templates/implementer-prompt.md` / `reviewer-prompt.md`.
 
 ### 2026-07-11 — Correction: file-threshold criterion scoped to gates
 

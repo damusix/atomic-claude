@@ -1,8 +1,10 @@
 // Package coldprompt embeds and exposes cold-op brief texts used by
-// `atomic prompt <name>`. Briefs are self-contained instructions for a generic
-// subagent executing a rare, disposable task (e.g. git cleanup, CLAUDE.md
-// merge). They are NOT install artifacts — they are embedded directly in this
-// package and never shipped into the ~/.claude bundle.
+// `atomic prompt <name>`. Briefs are self-contained instructions for a
+// subagent starting with no accumulated context — a disposable task (e.g.
+// git cleanup, CLAUDE.md merge) or a per-iteration role in the
+// subagent-implementation loop (implementer, reviewer). They are NOT install
+// artifacts — they are embedded directly in this package and never shipped
+// into the ~/.claude bundle.
 package coldprompt
 
 import (
@@ -18,10 +20,18 @@ var gitCleanupBrief string
 //go:embed briefs/claude-merge.md
 var claudeMergeBrief string
 
+//go:embed briefs/implementer.md
+var implementerBrief string
+
+//go:embed briefs/reviewer.md
+var reviewerBrief string
+
 // briefs maps registered cold-op names to their embedded brief text.
 var briefs = map[string]string{
 	"git-cleanup":  gitCleanupBrief,
 	"claude-merge": claudeMergeBrief,
+	"implementer":  implementerBrief,
+	"reviewer":     reviewerBrief,
 }
 
 // Get returns the embedded brief text for the given name. Returns a non-nil

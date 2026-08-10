@@ -527,6 +527,18 @@ var commands = []Command{
 		Description: "Emit the CLAUDE.md merge cold-op brief",
 	},
 	{
+		Path:        []string{"prompt", "implementer"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the implementer subagent prompt brief",
+	},
+	{
+		Path:        []string{"prompt", "reviewer"},
+		Args:        "",
+		Flags:       nil,
+		Description: "Emit the reviewer subagent prompt brief",
+	},
+	{
 		Path:        []string{"template", "brief"},
 		Args:        "",
 		Flags:       nil,

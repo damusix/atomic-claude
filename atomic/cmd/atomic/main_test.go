@@ -2373,7 +2373,7 @@ func TestRunUpdateApply_LockClearedOnApplyFailure(t *testing.T) {
 // + dispatch chain must be end-to-end verified; a broken embed path or a
 // typo in the name table would silently produce empty output.
 func TestPromptAction_KnownNames(t *testing.T) {
-	names := []string{"git-cleanup", "claude-merge"}
+	names := []string{"git-cleanup", "claude-merge", "implementer", "reviewer"}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
 			var out strings.Builder

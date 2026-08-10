@@ -98,7 +98,7 @@ Pick the agent based on iteration scope:
 - **`atomic-implementer (mode: feature)`** for feature checkpoints — one cohesive slice, however many files.
 - **`general-purpose`** as fallback if neither fits.
 
-Build the implementer prompt by reading `commands/_templates/implementer-prompt.md` and substituting:
+Build the implementer prompt by running `atomic prompt implementer` and substituting:
 
 | Placeholder | Value |
 |-------------|-------|
@@ -114,7 +114,7 @@ Dispatch via `Agent` tool with `subagent_type: "atomic-implementer"` and include
 
 Use `subagent_type: "atomic-reviewer"`.
 
-Build the reviewer prompt from `commands/_templates/reviewer-prompt.md`, substituting:
+Build the reviewer prompt by running `atomic prompt reviewer` and substituting:
 
 | Placeholder | Value |
 |-------------|-------|
@@ -262,6 +262,6 @@ Do NOT push, merge, or open a PR. The user picks how to ship (`/commit pr`, `/co
 - Reviewer and implementer are separate agents. Never the same one. Never combine roles.
 - If the same blocking signal repeats across two consecutive `CHANGES_REQUESTED` rounds, the stuck-fix escalation in Step C fires automatically — surface `/pressure-test` and `atomic-strategist` RCA options to the user. Do not silently loop again without surfacing this.
 - Subagent output is the tool result. Summarize it to the user in 1-3 lines per iteration; don't dump full transcripts.
-- Subagent prompt templates live in `commands/_templates/` (`implementer-prompt.md`, `reviewer-prompt.md`); document skeletons come from the binary (`atomic template brief|state|followups|implementation-log`). If a prompt template is missing or the template verb fails, the loop can't start — surface that error rather than inlining prompts or improvising document structure.
+- Subagent prompts and document skeletons both come from the binary (`atomic prompt implementer|reviewer`; `atomic template brief|state|followups|implementation-log`). If either verb fails, the loop can't start — surface that error rather than inlining prompts or improvising document structure.
 
 </constraints>
