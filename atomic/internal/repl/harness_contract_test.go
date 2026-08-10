@@ -79,8 +79,8 @@ type harnessCase struct {
 	stateGet         string // reads it back, evaluating to 42
 	resetErrorMarker string // error naming the unbound variable after a reset
 
-	slowEval string // blocks the harness for slowEvalWindow, then yields 'slow-done'
-	fastEval string // returns immediately, evaluating to 2
+	slowEval string // blocks for slowEvalWindow, then binds the marker fastEval reads and yields 'slow-done'
+	fastEval string // computes 42 from slowEval's marker — unbound (an error) unless slowEval completed first
 	wantFast string
 }
 
@@ -335,12 +335,8 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 	t.Run("concurrent evals serialize", func(t *testing.T) {
 		h := startHarness(t, c, conformanceIdleTimeout)
 
-		type outcome struct {
-			resp     Response
-			finished time.Time
-		}
-		slowDone := make(chan outcome, 1)
-		fastDone := make(chan outcome, 1)
+		slowDone := make(chan Response, 1)
+		fastDone := make(chan Response, 1)
 
 		slowConn := h.dial(t)
 		fastConn := h.dial(t)
@@ -348,7 +344,7 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 		go func() {
 			slowConn.write(t, Request{V: ProtocolVersion, Op: OpEval, Code: c.slowEval})
 			resp, _ := slowConn.read(t)
-			slowDone <- outcome{resp, time.Now()}
+			slowDone <- resp
 		}()
 
 		// Give the harness time to accept the slow connection and start
@@ -359,23 +355,25 @@ func runHarnessConformance(t *testing.T, c harnessCase) {
 		go func() {
 			fastConn.write(t, Request{V: ProtocolVersion, Op: OpEval, Code: c.fastEval})
 			resp, _ := fastConn.read(t)
-			fastDone <- outcome{resp, time.Now()}
+			fastDone <- resp
 		}()
 
 		slow := waitOutcome(t, slowDone, "slow eval")
 		fast := waitOutcome(t, fastDone, "fast eval")
 
-		assertOK(t, slow.resp)
-		if fast.resp.Error != "" {
-			t.Errorf("second eval errored while another was in flight: %s", fast.resp.Error)
+		assertOK(t, slow)
+		if fast.Error != "" {
+			t.Errorf("second eval errored while another was in flight: %s", fast.Error)
 		}
-		assertOK(t, fast.resp)
-		if fast.resp.Value != c.wantFast {
-			t.Errorf("second eval value = %q, want %q", fast.resp.Value, c.wantFast)
-		}
-		if fast.finished.Before(slow.finished) {
-			t.Errorf("second eval finished at %s, before the first at %s — evals did not serialize",
-				fast.finished.Format(time.StampMilli), slow.finished.Format(time.StampMilli))
+		assertOK(t, fast)
+		// Ordering is proven inside the interpreter: fastEval computes its
+		// value from a marker slowEval binds as its final act, so a harness
+		// that ran them concurrently yields an unbound-name error or a wrong
+		// value here. Comparing client-side time.Now() stamps instead was
+		// flaky — both responses can arrive within the same instant and
+		// goroutine scheduling then decides which stamps first.
+		if fast.Value != c.wantFast {
+			t.Errorf("second eval value = %q, want %q — evals did not serialize", fast.Value, c.wantFast)
 		}
 	})
 
