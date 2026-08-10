@@ -87,7 +87,7 @@ Record classification in `STATE.md` under `## Iteration 1`. If the surgical disp
 
 ## Phase 2 — Implementation
 
-Build the implementer prompt from `commands/_templates/implementer-prompt.md`, substituting:
+Build the implementer prompt by running `atomic prompt implementer` and substituting:
 
 | Placeholder | Value |
 |-------------|-------|
@@ -110,7 +110,7 @@ TDD discipline applies: failing test that reproduces the bug must be written fir
 
 ## Phase 3 — Reviewer pass
 
-Build the reviewer prompt from `commands/_templates/reviewer-prompt.md`, substituting:
+Build the reviewer prompt by running `atomic prompt reviewer` and substituting:
 
 | Placeholder | Value |
 |-------------|-------|
@@ -233,6 +233,6 @@ Do NOT push, merge, or open a PR. User picks the ship verb when ready.
 - Never auto-relaunch on CI re-watch failure (ci-mode step 4.4). Hard rule — prevents infinite loops on flaky infra.
 - If the same normalized top-level error repeats across three consecutive iterations, the same-failure bail fires and surfaces the stuck-fix escalation block (see § Iteration cap + bail-out) — do not silently loop past the bail.
 - Subagent output is the tool result. Summarize to the user in 1-3 lines per iteration; don't dump full transcripts.
-- Prompt templates live in `commands/_templates/`. If missing, stop: `implementer/reviewer prompt template not found at commands/_templates/<file>. cannot proceed.` Document skeletons come from the binary (`atomic template brief|state|followups|diagnose-context`); if the verb fails, stop the same way rather than improvising structure.
+- Subagent prompts and document skeletons both come from the binary (`atomic prompt implementer|reviewer`; `atomic template brief|state|followups|diagnose-context`). If either verb fails, stop: `implementer/reviewer prompt unavailable (atomic prompt <name> failed) — install/update the atomic binary. cannot proceed.` — rather than improvising structure.
 
 </constraints>

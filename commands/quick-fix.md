@@ -48,7 +48,7 @@ SCRATCH=".claude/.scratchpad/$(date +%Y-%m-%d)-<topic>"
 mkdir -p "$SCRATCH"
 ```
 
-Same trio as `/subagent-implementation`, and this command reuses the exact same `commands/_templates/implementer-prompt.md` / `reviewer-prompt.md` prompts — the two command files are co-consumers of one scratchpad contract; a future shape change to either should update both.
+Same trio as `/subagent-implementation`, and this command reuses the exact same `atomic prompt implementer` / `atomic prompt reviewer` briefs — the two command files are co-consumers of one scratchpad contract; a future shape change to either should update both.
 
 ### `$SCRATCH/BRIEF.md`
 
@@ -74,7 +74,7 @@ Cap: 3 iterations. Repeat until the reviewer signs off, the escape hatch fires, 
 
 This mirrors `/subagent-implementation` Step A's heuristic verbatim — it is agent selection for cohesion-fit, not a scope cap on `/quick-fix` itself.
 
-Build the prompt from `commands/_templates/implementer-prompt.md`, substituting:
+Build the prompt by running `atomic prompt implementer` and substituting:
 
 | Placeholder | Value |
 |------------|-------|
@@ -86,7 +86,7 @@ Build the prompt from `commands/_templates/implementer-prompt.md`, substituting:
 
 ### Dispatch reviewer
 
-`subagent_type: "atomic-reviewer"`. Build the prompt from `commands/_templates/reviewer-prompt.md`, substituting:
+`subagent_type: "atomic-reviewer"`. Build the prompt by running `atomic prompt reviewer` and substituting:
 
 | Placeholder | Value |
 |------------|-------|
@@ -181,7 +181,8 @@ No implementation log, no `/documentation` dispatch, no signals refresh here —
 - No worktree gate — this command assumes work happens in place.
 - No numeric file-count threshold gates scope or triggers the escape hatch anywhere in this command. The surgical-vs-feature agent choice in the Loop section is cohesion-fit selection, not a scope cap.
 - If the implementer reports `BLOCKED`/`NEEDS_CONTEXT`, the escape hatch fires unconditionally — never loop past it silently.
-- This command and `/subagent-implementation` are co-consumers of the same `commands/_templates/implementer-prompt.md` / `reviewer-prompt.md` prompts and the same scratchpad trio contract — a shape change to either should update both command files.
+- Subagent prompts and document skeletons both come from the binary (`atomic prompt implementer|reviewer`; `atomic template brief|state|followups`). If either verb fails, stop: `implementer/reviewer prompt unavailable (atomic prompt <name> failed) — install/update the atomic binary. cannot proceed.` — rather than inlining prompts or improvising structure.
+- This command and `/subagent-implementation` are co-consumers of the same `atomic prompt implementer` / `atomic prompt reviewer` briefs and the same scratchpad trio contract — a shape change to either should update both command files.
 - Do not push, merge, or open a PR. Ship is `/commit`.
 
 </constraints>

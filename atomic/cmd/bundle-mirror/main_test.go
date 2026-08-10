@@ -41,7 +41,7 @@ func buildMiniRepo(t *testing.T) string {
 	write("commands/commit-only.md", "# commit-only\n")
 	write("commands/atomic-plan.md", "# atomic-plan\n")
 	write("commands/brand-new-command.md", "# brand-new-command\n")
-	write("commands/_templates/something.md", "should be excluded\n")
+	write("commands/subdir/something.md", "ships — no command allowlist, subdirectories included\n")
 
 	write("rules/python/style.md", "# python style\n")
 	write("rules/typescript/style.md", "# typescript style\n")

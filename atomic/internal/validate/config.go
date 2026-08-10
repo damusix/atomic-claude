@@ -115,7 +115,7 @@ func runC3(repoRoot string) ([]Finding, error) {
 	var findings []Finding
 	for _, e := range entries {
 		if e.IsDir() {
-			continue // skip _templates/ and other subdirs
+			continue // skip subdirectories — non-recursive, top-level commands/*.md only
 		}
 		if !strings.HasSuffix(e.Name(), ".md") {
 			continue

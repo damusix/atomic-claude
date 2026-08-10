@@ -10,7 +10,6 @@
 ## Non-goals
 
 
-- No migration of `implementer-prompt.md` / `reviewer-prompt.md` out of `commands/_templates/`.
 - No template for ci-mode `CONTEXT.md` (raw log capture), `.claude/project/followups/<id>.md` (CLI-owned), or wiki pages.
 - No variable substitution in the verb — skeletons are static text; the LLM fills `<angle-bracket>` placeholders.
 - No bundle/install shipping of the skeleton files — they live only inside the binary.
@@ -116,7 +115,13 @@ Flow: template unavailable
 
 ## Change log
 
-<!-- Populated on first amendment after the spec is approved. Do not log drafting/refinement turns. -->
+### 2026-08-10 — Prompt templates migrated to the binary
+
+**What changed:** `implementer-prompt.md` / `reviewer-prompt.md` moved out of `commands/_templates/` into the `coldprompt` package as embedded briefs, served by `atomic prompt implementer` / `atomic prompt reviewer`. This removes the last underscore-prefixed path from the bundle, so `atomic/internal/embedded/bundle.go`'s `//go:embed` prefix drops the `all:` qualifier it existed for.
+
+**Why:** `commands/_templates/*.md` still leaked into Claude Code's harness skill listing as invocable entries (`_templates:implementer-prompt`) — the exact noise problem this spec's own skeletons were built to avoid. Finishes the migration this spec deferred.
+
+**Superseded:** the Non-goals bullet excluding this migration (removed) and the Implementation log's deferred item naming it (resolved, below) — both retired in favor of this entry.
 
 
 ## Implementation log
@@ -138,4 +143,4 @@ Built directly in one pass (background session, not the subagent loop). Commits 
 
 **Deferred items still open:**
 
-- Migrating `implementer-prompt.md` / `reviewer-prompt.md` into the binary (same command-surface noise argument) — see design doc open question.
+- none — the item deferred here (migrating `implementer-prompt.md` / `reviewer-prompt.md` into the binary) was resolved 2026-08-10; see Change log above.
