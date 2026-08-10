@@ -36,11 +36,13 @@ func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, s
 		return 0
 	}
 
-	// __serve is an internal verb spawned by the proxy with explicit --source/--db
-	// flags. Route it directly to RunCode (which dispatches to runServe) before
-	// realm resolution, so the daemon never hits the realm-verb-reject gate
-	// regardless of the process cwd. This is what makes the daemon cwd-independent.
-	if args[0] == "__serve" {
+	// A --daemon invocation of the mcp verb is spawned by DefaultSpawn with
+	// explicit --source/--db flags (GitHub issue #193 — daemon mode folded into
+	// the mcp verb so the spawned argv always names a Cobra-registered command).
+	// Route it directly to RunCode before realm resolution, so the daemon never
+	// hits the realm-verb-reject gate regardless of the process cwd. This is
+	// what makes the daemon cwd-independent.
+	if args[0] == "mcp" && containsFlag(args[1:], "daemon") {
 		return RunCode(args, projectRoot, stdout, stderr, stdin)
 	}
 
@@ -128,15 +130,6 @@ func runRealmMember(args []string, res realm.Resolution, stdout, stderr io.Write
 		return runMCP(ctx, memberAbs, dbPath, args[1:], stderr)
 	}
 
-	// __serve is an internal verb invoked by the proxy subprocess with explicit
-	// --source/--db flags. It must never reach this routing layer (the proxy
-	// spawns it as a top-level `atomic code __serve` command, bypassing realm
-	// dispatch entirely via main.go's special-casing).
-	if verb == "__serve" {
-		fmt.Fprintf(stderr, "atomic code __serve: not available in realm-member scope (internal verb)\n")
-		return 1
-	}
-
 	eng, err := engine.NewWithDBPath(memberAbs, dbPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "atomic code: create engine for %s: %v\n", m.Key, err)
@@ -163,11 +156,6 @@ func runRealmAll(args []string, cwd string, res realm.Resolution, claudeMDPath s
 	case "mcp":
 		// No single target — tell the user to use --repo to pick one.
 		fmt.Fprintf(stderr, "atomic code mcp: not available in realm scope; pass --repo <member> to serve a specific repo\n")
-		return 1
-	case "__serve":
-		// Internal verb spawned by the proxy with explicit --source/--db; should
-		// never reach realm routing (main.go handles it before calling RunCodeWithRealm).
-		fmt.Fprintf(stderr, "atomic code __serve: internal verb not available in realm scope\n")
 		return 1
 	}
 

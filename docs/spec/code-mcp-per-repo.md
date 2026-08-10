@@ -31,7 +31,7 @@ Resolve the db from the explicit path and spawn a cwd-independent daemon that se
 
 | # | Checkpoint | Files/areas | Agent | Est. files | Verifies |
 |---|-----------|--------------|-------|-----------|---------|
-| 1 | Reproduce + fix: cwd-independent daemon serving the explicit db, socket next to the db, no member pollution | `atomic/internal/codeintel/cli/code.go` (`runMCP`, `runServe`), `atomic/internal/codeintel/cli/realm.go` (`--repo`/`__serve` path resolution; the explicit-path single target must not hit the mcp/`__serve` realm reject), `atomic/internal/codeintel/mcp/proxy.go` (spawn explicit source+db, cwd-independent), `atomic/internal/codeintel/mcp/daemon.go` (`RunDaemon` takes source+db, `NewWithDBPath`; `SocketPath`/`LockPath` derive from the db dir), `atomic/cmd/atomic/main.go` (`--repo` resolves member→realm db); new test in `mcp/` or `cli/` | atomic-implementer (feature) | 5–9 | new regression test is RED before the fix, GREEN after: daemon launched with cwd at a non-git dir binds its socket and answers `initialize`; member path → realm db, standalone → local index; member source tree stays clean; repo-mode socket path unchanged |
+| 1 | Reproduce + fix: cwd-independent daemon serving the explicit db, socket next to the db, no member pollution | `atomic/internal/codeintel/cli/code.go` (`runMCP`, including its `--daemon` branch), `atomic/internal/codeintel/cli/realm.go` (`--repo`/`--daemon` path resolution; the explicit-path single target must not hit the mcp realm reject), `atomic/internal/codeintel/mcp/proxy.go` (spawn explicit source+db, cwd-independent), `atomic/internal/codeintel/mcp/daemon.go` (`RunDaemon` takes source+db, `NewWithDBPath`; `SocketPath`/`LockPath` derive from the db dir), `atomic/cmd/atomic/main.go` (`--repo` resolves member→realm db); new test in `mcp/` or `cli/` | atomic-implementer (feature) | 5–9 | new regression test is RED before the fix, GREEN after: daemon launched with cwd at a non-git dir binds its socket and answers `initialize`; member path → realm db, standalone → local index; member source tree stays clean; repo-mode socket path unchanged |
 | 2 | In-daemon periodic self-sync (10s) | `atomic/internal/codeintel/mcp/daemon.go` (poller goroutine on daemon ctx), small poller helper if needed; `cli/code.go` (`--watch-interval`/`--no-watch` flags) | atomic-implementer (feature) | 3–5 | sync fires on a clock-injected interval and stops on ctx cancel (test); named const default 10s asserted by test |
 | 3 | Concurrency + surface | test for 2+ concurrent daemons different repos; `atomic/internal/cliusage/`, `templates/commands/atomic-help.md`, `docs/reference/code-intel.md` for any new mcp flag; `make render` + `make -C atomic bundle` | atomic-implementer (feature) | 4–6 | 2+ daemons different repos, no collision (test); cliusage/help/docs reflect any new flag; render+bundle drift-clean |
 
@@ -43,10 +43,18 @@ Resolve the db from the explicit path and spawn a cwd-independent daemon that se
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
 | Socket-path change breaks existing repo-mode MCP | Medium | Repo-mode (local index) keeps its current socket path; only members move the socket to the db dir under `<realm>/.atomic/`. Test both paths. |
-| Un-rejecting mcp/`__serve` re-introduces ambiguity at a realm root | Low | Only the explicit-path single-target (`--repo`, or the spawned `__serve` with explicit source+db) serves; `code mcp` from a realm-root cwd with no `--repo` has no single target and stays rejected. |
+| Un-rejecting a daemon-mode mcp invocation re-introduces ambiguity at a realm root | Low | Only the explicit-path single-target (`--repo`, or the spawned `mcp --daemon` invocation with explicit source+db) serves; `code mcp` from a realm-root cwd with no `--repo` has no single target and stays rejected. |
 | Self-sync boots a parser pool on every change | Low | Lazy pool (already landed) only boots on a real change; gate the sync on a cheap pending-change check; a no-op tick stays sub-second. |
 | Two daemons race writing the same realm db (member MCP + a future external sync) | Low | One daemon per db; SQLite WAL + busy-timeout already configured. Out of scope to coordinate external writers. |
 
 ## Change log
 
 (empty — spec created 2026-06-22)
+
+### 2026-08-10 — Daemon mode folded into `code mcp --daemon`
+
+**What changed:** The internal `atomic code __serve` verb DefaultSpawn used to exec was never registered as a Cobra subcommand, so the `code` parent's own flag parsing rejected the spawn's `--source`/`--db` flags with "unknown flag" — every real auto-start daemon spawn failed, surfacing only as "daemon did not start within 10s" at the proxy. Daemon mode is now a `--daemon` flag on the already-registered `mcp` verb (`atomic code mcp --daemon --source <path> --db <path>`); `mcp.DaemonArgv` is the single seam both `DefaultSpawn` and its regression tests build the argv through, so the two can no longer drift apart. `runServe` is deleted; `runMCP` gained the `--daemon` branch.
+
+**Why:** GitHub issue #193 — the checkpoint 1 fix this spec originally described worked in-process (tests passed) but never worked as a real spawned subprocess, because the spawned verb was never wired into the Cobra command tree.
+
+**Superseded:** The checkpoint 1 row and the "Un-rejecting mcp/`__serve`" risk row above described an internal `__serve` verb; both now read `--daemon` instead.

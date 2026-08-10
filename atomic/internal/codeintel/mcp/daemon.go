@@ -187,7 +187,7 @@ type SyncFunc func(ctx context.Context) error
 
 // Daemon is the per-project unix-socket MCP singleton daemon.
 //
-// Use RunDaemon to start it from the `atomic code __serve` internal verb.
+// Use RunDaemon to start it from `atomic code mcp --daemon`.
 // Use NewTestDaemon to construct one with injectable durations for tests.
 type Daemon struct {
 	socketPath string

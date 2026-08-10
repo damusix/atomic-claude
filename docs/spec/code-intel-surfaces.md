@@ -282,3 +282,21 @@ resolvers' existing `Resolve`/`ClaimsReference`.
 framework-extraction seam — the index pipeline ran extract → resolve, skipping
 framework route extraction. The pipeline is now extract → framework-extract →
 resolve.
+
+### 2026-08-10 — `mcp` verb's internal `__serve` sibling folded into `--daemon`
+
+**What changed:** The CP23 entry above (2026-06-06) documents `cli/code.go`
+wiring an internal `__serve` verb to `RunDaemon`; that verb was never
+registered in the Cobra tree, so every real daemon auto-start spawn (which
+execs `atomic code __serve --source ... --db ...`) failed with Cobra's
+"unknown flag" before `RunDaemon` ever ran — invisible in-process because
+CP23's 13 tests all drove `RunDaemon`/`RunProxy` directly, never through the
+real command tree. Daemon mode is now a `--daemon` flag on the already-
+registered `mcp` verb (`atomic code mcp --daemon --source <path> --db
+<path>`); `runServe` is deleted.
+
+**Why:** GitHub issue #193.
+
+**Superseded:** The CP23 entry's "internal `__serve` verb invokes `RunDaemon`"
+clause; the daemon entry point is unchanged (`RunDaemon`), only the verb that
+reaches it changed.

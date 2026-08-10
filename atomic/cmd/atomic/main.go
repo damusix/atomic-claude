@@ -817,7 +817,10 @@ func buildCodeCmd(repoOverride *string) *cobra.Command {
 		c.Flags().String("only", "", "include only files matching pattern")
 		c.Flags().String("exclude", "", "exclude files matching pattern")
 	})
-	addSub("mcp", "Run the MCP server over stdio (proxy + daemon; --no-watch disables sync poller)", "", func(c *cobra.Command) {
+	addSub("mcp", "Run the MCP server over stdio (proxy by default; --daemon --source --db runs the daemon itself; --no-watch disables sync poller)", "", func(c *cobra.Command) {
+		c.Flags().Bool("daemon", false, "run as the daemon itself, bound to --source/--db")
+		c.Flags().String("source", "", "source root to serve (requires --daemon)")
+		c.Flags().String("db", "", "absolute path to the SQLite index db (requires --daemon)")
 		c.Flags().Duration("watch-interval", 0, "override the daemon's sync interval")
 		c.Flags().Bool("no-watch", false, "disable background sync poller in the daemon")
 	})
