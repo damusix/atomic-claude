@@ -42,7 +42,8 @@ Serve API (`atomic/internal/serve/api_bus.go`, `api_bus_transcript.go`):
 - [ ] `GET /api/bus/sessions?room=` maps each roster member to transcript availability via a
       strict-validated glob of `<home>/.claude/projects/*/<session>.jsonl` (newest match wins).
 - [ ] `GET /api/bus/transcript?session=&n=&offset=` renders the window `offset` entries back
-      from the tail as HTML-in-JSON (goldmark): role headers with timestamps, thinking
+      from the tail as HTML-in-JSON (goldmark), entries ordered newest-first (the range note
+      reads `entries Y–X of T, newest first`): role headers with timestamps, thinking
       snippets, tool call/result fences, per-block truncation; memory bounded at `offset+n`
       entries; path-shaped session ids → 400; unknown → 404.
 
@@ -58,7 +59,10 @@ Frontend (`frontend/src/pages/Bus/`, `frontend/src/components/rail/Bus*`):
       "↓ latest" button; composer growth re-pins via ResizeObserver while following.
 - [ ] Message meta reads `<from> ⟨kind-pill⟩ to <names>` or `fyi` — no bare arrow.
 - [ ] Rail on `/bus` lists members with kind/staleness and clickable session chips; the
-      transcript modal pages older/newer with an absolute `entries X–Y of T` range.
+      transcript modal opens on the latest window with entries newest-first, shows a
+      descending absolute `entries Y–X of T` range, and pages `‹ newer` / `older ›` (newer
+      leads, disabled on the latest window); the modal layers above the fixed topbar and
+      keeps its header and path footer visible regardless of transcript height.
 - [ ] When the loopback gate refuses (non-loopback viewer), the page shows the loopback-only
       notice instead of a broken chat. (CP1)
 
@@ -100,6 +104,22 @@ adversarial review of the whole feature diff against this spec.
 | Room log growth makes backfill slow | Backfill reads the whole log but caps parsed output at n; acceptable for local logs. Revisit with tail-seek if real logs reach tens of MB. |
 
 ## Change log
+
+### 2026-08-10 — Transcript modal: newest-first + layering/layout fixes
+
+**What changed:** the transcript window renders newest-first (server-side, in
+`transcriptToMarkdown`), the range note and modal header read descending (`entries Y–X of T,
+newest first`), and the pager leads with `‹ newer` then `older ›`. Modal CSS: backdrop/positioner
+z-index raised 60/61 → 200/201 (the fixed topbar sits at 100 and covered the modal header),
+scroll area gets `flex: 1; min-height: 0`, and header/footer get `flex-shrink: 0` (the path
+footer's `overflow: hidden` let flexbox crush it to zero height).
+
+**Why:** user report — modal opened on the latest window but read oldest-of-window first with
+an ascending range and older-leading pager ("everything looks backwards"); footer chopped;
+header chopped under the navbar.
+
+**Superseded:** window entries rendered chronologically (oldest first) with an ascending
+`entries X–Y of T` range and an `‹ older` / `newer ›` pager.
 
 ### 2026-08-08 — Implementation log (autopilot run)
 

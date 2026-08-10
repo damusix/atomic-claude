@@ -299,16 +299,18 @@ func transcriptToMarkdown(path string, maxEntries, offset int) (string, transcri
 
 	var b strings.Builder
 	if meta.total > meta.shown && meta.shown > 0 {
-		fmt.Fprintf(&b, "*(entries %d–%d of %d)*\n\n", meta.first, meta.last, meta.total)
+		fmt.Fprintf(&b, "*(entries %d–%d of %d, newest first)*\n\n", meta.last, meta.first, meta.total)
 	}
 	if meta.shown == 0 && meta.total > 0 {
 		fmt.Fprintf(&b, "*(no entries this far back — the transcript has %d)*\n", meta.total)
 	}
-	for i, entry := range window {
-		if i > 0 {
+	// Newest first: the modal opens on the latest window, so the latest
+	// entry belongs at the top and reading down walks back in time.
+	for i := len(window) - 1; i >= 0; i-- {
+		if i < len(window)-1 {
 			b.WriteString("\n---\n\n")
 		}
-		writeEntryMarkdown(&b, entry)
+		writeEntryMarkdown(&b, window[i])
 	}
 	return b.String(), meta, nil
 }

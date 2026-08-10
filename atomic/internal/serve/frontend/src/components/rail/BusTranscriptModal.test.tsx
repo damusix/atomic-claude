@@ -44,8 +44,13 @@ describe("BusTranscriptModal", () => {
 
     render(<BusTranscriptModal member={MEMBER} onClose={() => {}} />);
 
-    await waitFor(() => expect(screen.getByText(/entries 310–409 of 409/)).toBeInTheDocument());
+    // Newest-first display: the range reads latest→oldest, and the pager
+    // leads with newer (disabled on the latest window) then older.
+    await waitFor(() => expect(screen.getByText(/entries 409–310 of 409/)).toBeInTheDocument());
     expect(screen.getByLabelText("Older entries")).not.toBeDisabled();
     expect(screen.getByLabelText("Newer entries")).toBeDisabled();
+    const buttons = screen.getAllByRole("button", { name: /entries/ });
+    expect(buttons[0]).toHaveAttribute("aria-label", "Newer entries");
+    expect(buttons[1]).toHaveAttribute("aria-label", "Older entries");
   });
 });
