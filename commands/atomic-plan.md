@@ -89,7 +89,8 @@ Design captures things the spec deliberately doesn't:
 - Approaches considered and rejected, with reasoning. Evidence-backed (file:line, signals, prior decisions) where the evidence exists; honest about gaps where it doesn't.
 - Open philosophical / product questions that the spec shouldn't try to answer.
 - Diagrams of conceptual relationships (entities, states, flows) — not call graphs. Use as many as the complexity warrants — flowcharts, ERDs, sequence, state — each placed next to what it explains. No quota in either direction: a diagram earns its place by clarifying something, never by satisfying the template.
-- Pseudocode where it is the clearest statement of logic — an algorithm, a decision rule, a matching order. Language-neutral, fenced, no real signatures or library calls: it communicates the rule, not the implementation. The design doc is the home for pseudocode; the spec stays contract-level.
+- Pseudocode where it is the clearest statement of logic — an algorithm, a decision rule, a matching order. Language-agnostic preferred: the reader should absorb the rule without parsing syntax details. A real language (TypeScript, SQL, ...) is fine when it genuinely conveys better — SQL for relational logic, TS for type shapes — but it stays illustrative: no real imports or library calls. It communicates the rule, not the implementation. The design doc is the home for pseudocode; the spec stays contract-level.
+- When the work ships a surface others call — a library, an API, a CLI — sketch both sides: how it is implemented and how the consumer uses it (the public call site, the command invocation, the request/response). A design that only shows the inside hides the contract that matters most.
 
 The design doc persists by default. Whether it gets cited later is downstream — not a gate. A design doc that captured one feature's thinking still pays for itself by anchoring the spec authoring loop and giving future contributors the "why".
 
