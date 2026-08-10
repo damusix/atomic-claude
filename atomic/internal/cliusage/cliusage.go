@@ -439,8 +439,8 @@ var commands = []Command{
 	{
 		Path:        []string{"code", "mcp"},
 		Args:        "",
-		Flags:       []string{"--watch-interval", "--no-watch"},
-		Description: "Run the MCP server over stdio (proxy + daemon; --no-watch disables sync poller)",
+		Flags:       []string{"--daemon", "--source", "--db", "--watch-interval", "--no-watch"},
+		Description: "Run the MCP server over stdio (proxy by default; --daemon --source --db runs the daemon itself; --no-watch disables sync poller)",
 	},
 	{
 		Path:        []string{"wiki", "scan"},

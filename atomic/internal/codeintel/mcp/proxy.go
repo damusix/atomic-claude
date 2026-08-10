@@ -4,9 +4,9 @@
 // the singleton daemon (flock-guarded) and then bidirectionally pipes
 // stdin↔socket / stdout↔socket.
 //
-// The daemon entry point is RunDaemon, invoked by the internal `atomic code __serve`
-// verb (see code.go). That verb is NOT advertised in /atomic-help; it is called
-// only by the auto-start path.
+// The daemon entry point is RunDaemon, invoked via the same `mcp` verb with
+// --daemon set (see code.go). --daemon is not advertised as a normal workflow
+// flag; it exists for the auto-start path (DefaultSpawn/DaemonArgv) to invoke.
 package mcp
 
 import (
@@ -35,7 +35,7 @@ type WatchOptions struct {
 
 // SpawnFunc is the function called by the proxy to start the daemon when the
 // socket is absent or dead. The real implementation forks a detached
-// `atomic code __serve --source SRC --db DB [--watch-interval T | --no-watch]`
+// `atomic code mcp --daemon --source SRC --db DB [--watch-interval T | --no-watch]`
 // subprocess. Tests inject an in-process stub that starts a goroutine daemon
 // instead.
 //
@@ -44,23 +44,33 @@ type WatchOptions struct {
 // opts controls the sync-poller flags forwarded to the daemon.
 type SpawnFunc func(sourceRoot, dbPath string, opts WatchOptions) error
 
-// DefaultSpawn starts `atomic code __serve --source <sourceRoot> --db <dbPath>`
-// detached (no TTY, stdout/stderr to devnull so the parent can exit immediately).
-// Passing explicit paths makes the daemon cwd-independent: it never re-resolves
-// scope from the process working directory.
+// DaemonArgv builds the argv DefaultSpawn execs to start the daemon: the
+// already-registered `code mcp` verb with --daemon plus the explicit
+// source+db paths (GitHub issue #193 — folding daemon mode into `mcp` instead
+// of a separate internal verb keeps the spawned command permanently
+// Cobra-registered, so it can never again drift out of the command tree).
+// Exported so tests can drive the exact argv DefaultSpawn produces.
+func DaemonArgv(sourceRoot, dbPath string, opts WatchOptions) []string {
+	argv := []string{"code", "mcp", "--daemon", "--source", sourceRoot, "--db", dbPath}
+	if opts.Disable {
+		argv = append(argv, "--no-watch")
+	} else if opts.Interval > 0 {
+		argv = append(argv, "--watch-interval", opts.Interval.String())
+	}
+	return argv
+}
+
+// DefaultSpawn starts `atomic code mcp --daemon --source <sourceRoot> --db
+// <dbPath>` detached (no TTY, stdout/stderr to devnull so the parent can exit
+// immediately). Passing explicit paths makes the daemon cwd-independent: it
+// never re-resolves scope from the process working directory.
 // opts is forwarded as --watch-interval / --no-watch flags to the daemon.
 func DefaultSpawn(sourceRoot, dbPath string, opts WatchOptions) error {
 	self, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("spawn daemon: locate executable: %w", err)
 	}
-	argv := []string{"code", "__serve", "--source", sourceRoot, "--db", dbPath}
-	if opts.Disable {
-		argv = append(argv, "--no-watch")
-	} else if opts.Interval > 0 {
-		argv = append(argv, "--watch-interval", opts.Interval.String())
-	}
-	cmd := exec.Command(self, argv...)
+	cmd := exec.Command(self, DaemonArgv(sourceRoot, dbPath, opts)...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		// Detach from the parent's process group so the daemon survives the proxy exit.
 		Setsid: true,
