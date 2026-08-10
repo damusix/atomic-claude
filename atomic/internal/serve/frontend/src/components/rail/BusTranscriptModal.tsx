@@ -75,7 +75,7 @@ export function BusTranscriptModal({
                 {data ? (
                   <>
                     {" "}
-                    · entries {data.firstEntry}–{data.lastEntry} of {data.totalEntries}
+                    · entries {data.lastEntry}–{data.firstEntry} of {data.totalEntries}
                   </>
                 ) : null}
               </p>
@@ -83,19 +83,19 @@ export function BusTranscriptModal({
             <div className="bus-transcript-pager">
               <button
                 type="button"
-                disabled={!canOlder}
-                onClick={() => setOffset(offset + PAGE)}
-                aria-label="Older entries"
-              >
-                ‹ older
-              </button>
-              <button
-                type="button"
                 disabled={!canNewer}
                 onClick={() => setOffset(Math.max(0, offset - PAGE))}
                 aria-label="Newer entries"
               >
-                newer ›
+                ‹ newer
+              </button>
+              <button
+                type="button"
+                disabled={!canOlder}
+                onClick={() => setOffset(offset + PAGE)}
+                aria-label="Older entries"
+              >
+                older ›
               </button>
             </div>
             <Dialog.CloseTrigger className="bus-transcript-close" aria-label="Close">

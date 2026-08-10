@@ -403,6 +403,14 @@ func TestAPIBus_Transcript_RendersMarkdown(t *testing.T) {
 			t.Errorf("rendered HTML missing %q", want)
 		}
 	}
+	// Entries render newest-first: the tool-output entry (chronologically
+	// last) precedes the assistant turn, which precedes the opening user ask.
+	toolIdx := strings.Index(tr.HTML, "tool output")
+	assistantIdx := strings.Index(tr.HTML, "totals.ts:88")
+	userIdx := strings.Index(tr.HTML, "fix the cart rounding bug")
+	if !(toolIdx < assistantIdx && assistantIdx < userIdx) {
+		t.Errorf("entries not newest-first: tool@%d assistant@%d user@%d", toolIdx, assistantIdx, userIdx)
+	}
 
 	// Offset pages backward from the tail: with 3 entries and n=1,
 	// offset=1 lands on the middle entry (the assistant turn).
@@ -420,7 +428,7 @@ func TestAPIBus_Transcript_RendersMarkdown(t *testing.T) {
 	if !strings.Contains(paged.HTML, "totals.ts:88") || strings.Contains(paged.HTML, "tool output") {
 		t.Errorf("offset=1 window should be the assistant entry only, got: %.200s", paged.HTML)
 	}
-	if !strings.Contains(paged.HTML, "entries 2–2 of 3") {
+	if !strings.Contains(paged.HTML, "entries 2–2 of 3, newest first") {
 		t.Errorf("range note missing, got: %.200s", paged.HTML)
 	}
 
