@@ -10,6 +10,7 @@ description: >
   Scoped writes only — never touches files outside the active wiki root or the
   @-ref target file.
 tools: Read, Write, Edit, Grep, Glob, Bash, Agent
+skills: [atomic-writing]
 model: sonnet
 ---
 

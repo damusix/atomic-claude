@@ -13,12 +13,12 @@ type Artifact struct {
 // Generated at build time by cmd/bundle-mirror; commit the result.
 func Manifest() []Artifact {
 	return []Artifact{
-		{Kind: "agent", Source: "bundle/agents/atomic-implementer.md", Target: "agents/atomic-implementer.md", SHA256: "3f8d70ef8e882bb2dc42484d71c60dcf69b7cff4fe08df033048d6624eed1ace"},
+		{Kind: "agent", Source: "bundle/agents/atomic-implementer.md", Target: "agents/atomic-implementer.md", SHA256: "40be1f81385a779be02e44d8bac36db4f58bbe521a2d73656a166fb06059831c"},
 		{Kind: "agent", Source: "bundle/agents/atomic-investigator.md", Target: "agents/atomic-investigator.md", SHA256: "52572452c80162c61a8b1fe50f47cc37810965a2b62f417da951ecf575e9aeef"},
-		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "c47a070867f38e5a4b42acd4c12ad2b0646543fd3dc53dd81155635bc9957d15"},
+		{Kind: "agent", Source: "bundle/agents/atomic-reviewer.md", Target: "agents/atomic-reviewer.md", SHA256: "a456a0dd15afa422b24d575ac8f9ccebd54f74191d7a324f615cbbbca4cc6aac"},
 		{Kind: "agent", Source: "bundle/agents/atomic-strategist.md", Target: "agents/atomic-strategist.md", SHA256: "fce077f4e17942ea4129a77915de631394f7eae281353172abfff9b2ae95aadd"},
-		{Kind: "agent", Source: "bundle/agents/atomic-wiki-inferrer.md", Target: "agents/atomic-wiki-inferrer.md", SHA256: "5467ef4d2f64e512a632c038f91f1bdf389f9ce06293c869f45bb0b7541c9f29"},
-		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "af78e8a8a0f0b0144f670aeb586d26cd2a1bbdd36b95e1388050db02aefad3b6"},
+		{Kind: "agent", Source: "bundle/agents/atomic-wiki-inferrer.md", Target: "agents/atomic-wiki-inferrer.md", SHA256: "fe6f100b0fc7018ca8f6fd83a3aabb23b282c37fd14d2c144339c622b945f6f3"},
+		{Kind: "claude-md", Source: "bundle/CLAUDE.md", Target: "CLAUDE.md", SHA256: "90100289161ca6742076fc538b4bcdf1b854eee193dbdd4adf43d865e34841a3"},
 		{Kind: "command", Source: "bundle/commands/_templates/implementer-prompt.md", Target: "commands/_templates/implementer-prompt.md", SHA256: "88821c30f61b773218b90332f2060eec09979515545aaddfcb10081f1e8ce14f"},
 		{Kind: "command", Source: "bundle/commands/_templates/reviewer-prompt.md", Target: "commands/_templates/reviewer-prompt.md", SHA256: "296889105ed096f4afb9239c5931f9b900037d55e676f89bf3023daf5d62ffed"},
 		{Kind: "command", Source: "bundle/commands/atomic-help.md", Target: "commands/atomic-help.md", SHA256: "1c7e53afb742de2f28ebc9bf051c26d1e6fe2eeee23695513446d1e5a6793d57"},
@@ -57,8 +57,8 @@ func Manifest() []Artifact {
 		{Kind: "skill", Source: "bundle/skills/atomic-verify/SKILL.md", Target: "skills/atomic-verify/SKILL.md", SHA256: "5668ada68772f2ec43129305d51694d7b93deaa8577653ac7fc7b5bfcb2144e1"},
 		{Kind: "skill", Source: "bundle/skills/atomic-visual-options/SKILL.md", Target: "skills/atomic-visual-options/SKILL.md", SHA256: "c33181fb08ef20597c15b480cb932eda7a5aebded1962ce098935805b28ee19e"},
 		{Kind: "skill", Source: "bundle/skills/atomic-wiki/SKILL.md", Target: "skills/atomic-wiki/SKILL.md", SHA256: "4ae2e4ca56d629736cc9c87b77ebcff64e2b93952cb9f592f347711b930bd2b5"},
-		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/realm.md", Target: "skills/atomic-wiki/references/realm.md", SHA256: "8553c5282f40d51dea51c6052a38a01d9e30edad59078c0166c3e04aeccc2045"},
-		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/repo.md", Target: "skills/atomic-wiki/references/repo.md", SHA256: "0d2040cf9de42da838912fc7397ad1a71c131cccb619eb0c74b670f10542a9d7"},
+		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/realm.md", Target: "skills/atomic-wiki/references/realm.md", SHA256: "a5471720bb8c96b0da3746e6928594181aa702f638e5923441e3f2858f53b06d"},
+		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/repo.md", Target: "skills/atomic-wiki/references/repo.md", SHA256: "da139499c675ca021300756bc07e89d801742fcc4fd8cf2dedacaefde28869a9"},
 		{Kind: "skill", Source: "bundle/skills/atomic-writing/SKILL.md", Target: "skills/atomic-writing/SKILL.md", SHA256: "76f293fb67c5f202172f45afec49270f3c3b2713f3a5140189221bd5a470822f"},
 	}
 }

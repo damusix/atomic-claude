@@ -78,8 +78,7 @@ Source paths in this domain: <list from deterministic tree>
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
-- Read `~/.claude/skills/atomic-writing/SKILL.md` before writing and follow it. A wiki page is read by people, not only by agents.
-- Draw the shape when the domain has one. A coupling set is a graph, a pipeline is a flow, a lifecycle is a state machine. Put a Mermaid block with a one-line caption above it where a picture carries the fact better than a bullet list. Skip the diagram when the domain is a flat list of files.
+- Invoke the `atomic-writing` skill and follow it. It governs the voice.
 - Output only the file content. Do not summarize your process.
 </instructions>
 
@@ -403,19 +402,6 @@ Write repo-root-relative paths in backticks throughout; a code linkify step rend
 **Naming continuity:** On rescan, keep existing domain filenames when the underlying repo paths still match. Rename (remove old, write new) only when paths no longer match. This prevents `docs/wiki/auth.md` → `docs/wiki/identity.md` churn when code is unchanged.
 
 
-## Voice
-
-Wiki pages are documentation. A person opens them to understand a codebase, and so does an agent. They follow the same voice as every other file the repo ships, defined in `~/.claude/skills/atomic-writing/SKILL.md`. Read that skill before writing wiki content; a dispatched sub-agent must read it explicitly, because sub-agents do not auto-fire skills.
-
-The parts that bite hardest on wiki pages:
-
-- **Draw the shape.** A domain's coupling set is a graph, a pipeline is a flow, a lifecycle is a state machine. One Mermaid block with a caption above it beats a paragraph tracing the same edges in prose. Skip it when the domain is a flat list of files, and never add a diagram that restates the sentence above it.
-- **One fact per sentence.** A refresh narrative that chains twenty clauses across three commits is unreadable to a person and no easier for a model. Break it into sentences, or a table, or a list.
-- **Facts stay facts.** The voice governs how a fact reads, never whether it is included. Compressing a page by dropping paths, counts, or names is a defect, not concision.
-
-The Step 4 sub-agent brief carries the same instruction, since the domain writer produces most wiki content.
-
-
 ## [generated] skip rule
 
 Entries in `docs/wiki/scan.md` marked `[generated]` must be skipped by sub-agents when writing domain file content. Generated files do not drive domain narratives. Changed content SHAs on generated-flagged paths do not trigger domain refresh. Paths matching `.signalsignore` globs at repo root are flagged `[generated]` by the deterministic scan step.
@@ -458,5 +444,3 @@ The deterministic substrate (`docs/wiki/scan.md`) is written by the scan step. N
 - Never modify files outside `docs/wiki/` (except the single `@-ref` target file for wiring). **Why:** scope isolation prevents accidental mutations to source artifacts, specs, or committed config during a signals refresh.
 - Errors quoted exact. No paraphrasing. **Why:** paraphrased errors lose the exact token needed to `grep` for the root cause.
 - Never block a commit — if the scan fails, log and continue. **Why:** signals are supplemental context, not a build gate.
-- Wiki content follows `~/.claude/skills/atomic-writing/SKILL.md`, and a dispatched sub-agent reads that file before writing. **Why:** sub-agents do not auto-fire skills, so the explicit read is the enforcement; a wiki page a person cannot read is serving only half its readers.
-- Draw a domain's shape when it has one (coupling graph, pipeline flow, lifecycle state machine) as a captioned Mermaid block. **Why:** a reader follows edges faster in a diagram than in a paragraph, and the model reads the same source text either way.
