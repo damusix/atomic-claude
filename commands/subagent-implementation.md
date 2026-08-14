@@ -287,7 +287,7 @@ After each `CHANGES_REQUESTED`, compare the current iteration's blocking signal 
     Option A — pressure-test the spec:
       /pressure-test @docs/spec/<topic>.md
 
-    Option B — dispatch atomic-strategist (opus, read-only) for cross-cutting RCA:
+    Option B — dispatch atomic-strategist (high effort, read-only) for cross-cutting RCA:
       "Dispatch atomic-strategist: review STATE.md and the last two reviewer verdicts.
        Identify why the same signal keeps failing and whether the spec or approach needs revision."
 
@@ -298,7 +298,7 @@ After each `CHANGES_REQUESTED`, compare the current iteration's blocking signal 
     ```
 
 2. **Wait for user input** via `AskUserQuestion` with three choices: `continue loop`, `run /pressure-test`, `dispatch atomic-strategist`.
-3. **Never auto-dispatch** `atomic-strategist` or auto-invoke `/pressure-test` — both are user-driven (axiom 3: expensive/opus; the user opts in). The orchestrator surfaces the block and waits.
+3. **Never auto-dispatch** `atomic-strategist` or auto-invoke `/pressure-test` — both are user-driven (axiom 3: expensive; the user opts in). The orchestrator surfaces the block and waits.
 4. After user chooses, record the choice in `STATE.md` under the current iteration's `Decisions:` line.
 5. If the user chooses `continue loop` → loop back to Step A as normal.
 6. If the user chooses `dispatch atomic-strategist` → dispatch `atomic-strategist` (read-only) with a prompt summarizing the task context, the repeated signal, and the last two iteration findings from `STATE.md`. Incorporate any strategic recommendation into the next `BRIEF.md` before looping. The strategist dispatch does NOT consume a loop iteration — it is a diagnosis step.
@@ -372,15 +372,21 @@ Once reviewer says `PASS` and there are no more checkpoints in the spec to ship:
     If the spec is dead (e.g. user decided not to ship the feature), still write the log with the status as `abandoned — <date>` and one line on why.
 
 4. Update repo documentation by invoking `/documentation` — it handles `README.md`, `CLAUDE.md`, `docs/spec/`, `docs/design/`.
-5. **Refresh signals for the loop's range.** This runs once at finalize over the whole task range, not per-iteration. Range: from the `Loop base SHA` recorded in `STATE.md` to the current HEAD (after docs commits).
+5. **Audit the finished work.** Dispatch `atomic-auditor` once, after docs are written and before the signals refresh. It is read-only and runs in a fresh context, so pass it everything: `spec: docs/spec/<topic>.md`, `range: <loop-base>..HEAD`, `state: $SCRATCH/STATE.md`, and the `## Documentation surfaces` table if the project has one.
+
+    It gates what per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, commit types that misstate user-visible impact, and documentation that is current but says nothing.
+
+    `VERDICT: PASS` → continue. `VERDICT: CHANGES_REQUESTED` → run **one** more implementer/reviewer iteration against its findings, then continue regardless of what a second audit would say. **Dispatch the auditor exactly once per task.** Re-auditing after the fix turns finalize into an unbounded loop, which is fatal under `/autopilot`.
+
+6. **Refresh signals for the loop's range.** This runs once at finalize over the whole task range, not per-iteration. Range: from the `Loop base SHA` recorded in `STATE.md` to the current HEAD (after docs commits).
 
    1. If `command -v atomic` returns nothing → skip.
    2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report the error and skip.
    3. Exit 1 → dispatch `atomic-wiki-inferrer` with `mode: silent`, `first_run: false`, and `changed_range: <loop-base>..HEAD`. Run `atomic wiki mark-dirty` best-effort after the wiki inferrer returns.
    4. Stage `docs/wiki/*.md` (router, domain files, and `scan.md`). Commit: `chore(signals): refresh after <topic>`. Record the SHA in `STATE.md`.
 
-6. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.
-7. Report to the user: what shipped, which iterations + commit SHAs (including the signals refresh commit, if one was made), what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
+7. Delete `$SCRATCH` (the task's dated dir) — only after the user has signed off on the FOLLOWUPS triage AND the implementation log is written. Other dated dirs from prior runs are not your concern.
+8. Report to the user: what shipped, which iterations + commit SHAs (including the signals refresh commit, if one was made), what was verified, what FOLLOWUPS were dispositioned, what's left (if anything). Mirror what you just wrote to the spec — they should match.
 
     **Documentation advisory.** If `## Documentation surfaces` exists in CLAUDE instructions and the implemented changes touch files matching any surface's "Covers" column, append to the next-steps suggestions:
 

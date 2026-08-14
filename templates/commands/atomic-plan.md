@@ -74,7 +74,7 @@ Brainstorm 3-5 approaches. Capture in a table:
 
 Then a `## Recommendation` with the chosen approach and rationale referencing evidence (file:line, signals snapshot, prior decisions). Hedged recommendations are a signal — surface `/pressure-test` at handoff.
 
-**Optional `atomic-strategist` dispatch** (opus, read-only): when the tradeoff is genuinely hard, multiple approaches survive scrutiny, or blast radius spans ≥2 subsystems. Strategist returns a recommendation with explicit confidence + hidden assumptions named. Don't dispatch for clear-cut calls — opus is expensive.
+**Optional `atomic-strategist` dispatch** (high effort, read-only): when the tradeoff is genuinely hard, multiple approaches survive scrutiny, or blast radius spans ≥2 subsystems. Strategist returns a recommendation with explicit confidence + hidden assumptions named. Don't dispatch for clear-cut calls — a max-effort pass is expensive.
 
 ### Write design (non-trivial only)
 
@@ -156,7 +156,7 @@ Print the spec path. Summarize in 3-5 lines.
 - Recommendation row is hedged ("probably A, but B if X").
 - User's clarify answers contained hedges ("maybe", "not sure", "could go either way").
 - Cross-system blast radius (≥2 subsystems or ≥3 affected areas).
-- `atomic-strategist` was dispatched (the question was hard enough to need opus — hard enough to challenge).
+- `atomic-strategist` was dispatched (the question was hard enough to need it — hard enough to challenge).
 
 When triggered, print the reason and the copyable commands:
 
@@ -241,11 +241,11 @@ The `Agent` column hints at dispatch:
 
 `Est. files` is a sanity check — if a row shows `~15 files`, it's probably two checkpoints.
 
-## Voice — spec/design, not prose
+## Voice
 
-**Spec / design voice is table-first, terse, brevity-dominant.** These files are re-read often by humans and agents and live or die by token cost. Use tables, Mermaid diagrams, and short bullet lists as the primary form. Prose only where a contract genuinely needs sentences (Goal, Problem statement, Rationale, Recommendation). When prose is required, keep it tight: active voice, no marketing jargon, no em dashes, no throat-clearing, no AI-tell phrases.
+Specs and design docs follow the `atomic-writing` skill, same as every other file the repo ships. The skill's per-surface length budget already puts them at their right density: shortest that carries the contract in full, with the structure doing the work.
 
-**Do NOT invoke the `atomic-writing` skill here.** That skill is for enduring narrative docs (README, guides) where some narrative carries value; specs and design pay token cost on every read and stay terse.
+In practice that means table-first. Use tables, Mermaid diagrams, and short bullet lists as the primary form; a human approves this document and a subagent builds from it, and both follow a drawn flow faster than a paragraph describing the same thing. Keep prose for what a contract genuinely needs sentences for — Goal, Problem statement, Rationale, Recommendation — and keep it tight there.
 
 <constraints>
 

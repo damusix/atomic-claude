@@ -15,7 +15,6 @@ func TestPathHelpers(t *testing.T) {
 	}{
 		{"Dir", Dir(home), filepath.Join(home, ".atomic")},
 		{"TOMLPath", TOMLPath(home), filepath.Join(home, ".atomic", "config.toml")},
-		{"ResolvedPath", ResolvedPath(home), filepath.Join(home, ".atomic", "config.resolved.md")},
 		{"BackupDir", BackupDir(home), filepath.Join(home, ".atomic", "backups")},
 		{"ProposedCLAUDEMD", ProposedCLAUDEMD(home), filepath.Join(home, ".atomic", "proposed", "CLAUDE.md")},
 		{"PreInstallDir", PreInstallDir(home), filepath.Join(home, ".atomic", "pre-install")},

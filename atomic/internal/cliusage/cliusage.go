@@ -188,7 +188,7 @@ var commands = []Command{
 		Path:        []string{"config", "set"},
 		Args:        "<key> <val>",
 		Flags:       nil,
-		Description: "Set config value; re-renders config.resolved.md",
+		Description: "Set config value",
 	},
 	{
 		Path:        []string{"config", "unset"},

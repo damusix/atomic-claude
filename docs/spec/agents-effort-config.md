@@ -130,7 +130,7 @@ keep the public `AgentTierSelector` name to avoid churn unless trivially safe to
 
 `Render` emits, per agent with an override, up to two dotted keys under the `[claude]`
 section: `claude.agents.<name>.model` and `claude.agents.<name>.effort` (only for non-empty fields). Sorted,
-byte-stable. This is the auto-loaded `config.resolved.md` view.
+byte-stable. Surfaced on demand by `atomic config list`.
 
 
 ## No back-compat, no migration

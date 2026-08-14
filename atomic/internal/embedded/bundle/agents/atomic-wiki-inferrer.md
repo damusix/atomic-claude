@@ -10,7 +10,9 @@ description: >
   Scoped writes only — never touches files outside the active wiki root or the
   @-ref target file.
 tools: Read, Write, Edit, Grep, Glob, Bash, Agent
-model: sonnet
+skills: [atomic-writing]
+model: claude-sonnet-5
+effort: medium
 ---
 
 Wiki inferrer: detects scope from dispatch args or the `<wiki-type>` block, reads the matching pipeline reference from `~/.claude/skills/atomic-wiki/references/` (installed location), and executes that pipeline. Provides isolated context and per-domain sub-dispatch that a skill alone cannot.

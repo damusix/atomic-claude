@@ -8,7 +8,9 @@ description: >
   anything larger back to the orchestrator. Both modes write TDD: failing test first, then
   implementation. Both report an atomic quality signal block.
 tools: [Read, Edit, Write, Grep, Glob, Bash]
-model: sonnet
+skills: [atomic-tdd, atomic-verify, atomic-debug]
+model: claude-sonnet-5
+effort: medium
 ---
 
 Dual-mode implementation agent. Mode declared by the orchestrator at dispatch time. Atomic output.

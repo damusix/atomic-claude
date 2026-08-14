@@ -2,8 +2,6 @@
 
 <atomic>
 
-@~/.atomic/config.resolved.md
-
 ## User profile
 
 @~/.atomic/profile.md
@@ -59,7 +57,7 @@ Personal facts about you — name, role, employer, active projects, interests, p
 ## Commits & PRs
 
 
-Commit messages follow the `atomic-git-discipline` skill: Conventional Commits, terse subject, body only when the why isn't obvious. Any subagent briefed to create a commit reads `~/.claude/skills/atomic-git-discipline/SKILL.md` before committing — subagents can't auto-fire skills, so the read is the enforcement. PR titles and bodies follow the same skill: state only what the diff can't show, ~120 words max — no test plan, no enumerated file lists. Commits, PR titles, and PR bodies never carry an AI byline or attribution: no "Generated with Claude Code" footer, no `Co-Authored-By: Claude` trailer, no session links. **Why:** attribution footers are noise in `git blame` and release notes, and they misstate authorship — the human shipping the change owns it.
+Commit messages follow the `atomic-git-discipline` skill: Conventional Commits, terse subject, body only when the why isn't obvious. Subagents do not auto-fire skills. A custom agent that needs one declares it in `skills:` frontmatter, which injects the full skill content at startup; a `general-purpose` subagent briefed to commit is told to invoke the skill, since it has no frontmatter to declare. Never restate a skill's rules in a dispatch prompt. PR titles and bodies follow the same skill: state only what the diff can't show, ~120 words max — no test plan, no enumerated file lists. Commits, PR titles, and PR bodies never carry an AI byline or attribution: no "Generated with Claude Code" footer, no `Co-Authored-By: Claude` trailer, no session links. **Why:** attribution footers are noise in `git blame` and release notes, and they misstate authorship — the human shipping the change owns it.
 
 
 ## Bash over Read+Write
@@ -105,7 +103,7 @@ Use regex when searching for literal strings, log messages, comments, config val
 | `docs/spec/<topic>.md` | Implementation contract derived from the design; canonical source for `/subagent-implementation`. | Committed; see `rules/specs/`. |
 | `.claude/worktrees/<branch>/` | Isolated branches created by the implement loop / autopilot via the worktree-setup partial — Claude Code's native worktree home (`EnterWorktree`, `claude --worktree`); ship verbs detect provenance on merge/squash. Gitignored via nested `.claude/.gitignore`. | Prompt to delete on merge. |
 | `tmp/` | Ad-hoc experiments, scratch scripts, one-off tests. Gitignored. | Throwaway. |
-| `~/.atomic/` | Per-user state: `config.toml`, `config.resolved.md` (auto-loaded), `backups/`, `proposed/CLAUDE.md`. | Never committed. |
+| `~/.atomic/` | Per-user state: `config.toml`, `profile.md` (auto-loaded), `state.json`, `backups/`, `proposed/CLAUDE.md`. Inspect resolved values with `atomic config list`. | Never committed. |
 
 
 ## Specs

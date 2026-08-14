@@ -1,59 +1,86 @@
 ---
 name: atomic-writing
 description: >
-  Voice and tone rules for *enduring narrative documentation* — README.md, docs/guides/,
-  CHANGELOG narrative entries, and any other long-form human-facing markdown that ships
-  in the repo. Clear, direct, technical narrative. No marketing language, no AI-tell
-  phrases, no em dashes, no throat-clearing. Two voices: Claude's TUI replies use atomic
-  output style (terse, fragments); file contents split by surface — narrative docs use
-  this skill, everything else (specs, design docs, CLAUDE.md, signals files) uses terse
-  technical prose. Invoked by /documentation when editing README or guides. Invoked as callee
-  by `atomic-documentation` when surface is human-facing prose. Auto-fires on
-  "draft the README", "write the docs", "improve this prose", "edit the guide".
+  One voice for every file the repo ships: README, docs/guides/, docs/reference/,
+  docs/spec/, docs/design/, docs/research/, docs/wiki/, CLAUDE.md, and the prompt
+  artifacts under commands/, agents/, skills/, rules/, and output-styles/. Clear,
+  direct, technical, and visual wherever the content has a shape. No marketing
+  language, no AI-tell phrases, no em dashes in prose, no throat-clearing. The voice
+  is constant; length is set by what the surface has to carry. Prefer a diagram,
+  table, or tree over a paragraph when the content has a shape, because a drawn flow
+  carries a logic better than a paragraph does for a human reader and a model alike.
+  Invoked by /documentation and as callee by atomic-documentation. Auto-fires on
+  "draft the README", "write the docs", "improve this prose", "edit the guide",
+  "write the spec", "clean up this doc", "make this readable".
 ---
 
 <trigger>
 
 - "draft the README", "write the docs", "improve this prose", "edit the guide"
-- "clean this up", "tighten this", "edit for tone" — when target is narrative prose
-- `/documentation` updating README or a guide
-- User asks to draft, edit, or improve `README.md`, `docs/guides/`, or other narrative human-facing markdown
+- "write the spec", "write the design doc", "clean up this doc", "make this readable"
+- "clean this up", "tighten this", "edit for tone" — on any file the repo ships
+- `/documentation` editing any indexed surface
+- Writing or editing any `.md` file that ships in the repo
 
 </trigger>
 
-Enduring narrative documentation has its own voice. This skill governs it. Claude's TUI replies use a different style (atomic output style, terse, fragments). All other files — specs, design docs, `CLAUDE.md`, signals files — use terse technical prose. This skill covers the middle ground: plain, specific, technical narrative. Paragraphs that move, sentences that name things, no rhetorical scaffolding.
+Every file this repo ships has one voice: plain, specific, technical, and visual where the content has a shape. A spec, a README, a design doc, and a command artifact differ in length and structure. They do not differ in voice.
 
-Run these rules when writing or editing prose in `README.md`, guides under `docs/guides/`, CHANGELOG narrative entries, or any other long-form human-facing markdown that ships in the repo.
-
-**Do NOT apply this skill to `docs/spec/` or `docs/design/`.** Those files use terse technical prose: table-first, diagrams allowed, prose kept terse and to the point. Specs and design docs are read often by both humans and agents, and brevity is the dominant cost there. Atomic-writing narrative would inflate them without adding value.
+The reason is a contract that reads well to only one party is broken. A spec an agent can walk but a human cannot review is not a contract, and a guide a human enjoys but an agent cannot follow is not documentation. Write for the human. A model reads what a human reads.
 
 <voice_rules>
 
-## What this skill is, and what it is not
+## The one boundary
 
-| | Atomic (TUI style) | Atomic-writing (this skill) | Terse technical | Marketing slop (avoid) |
-|---|---|---|---|---|
-| **Where** | Claude's TUI replies to the user | README, docs/guides/, CHANGELOG narrative | `docs/spec/`, `docs/design/`, `CLAUDE.md`, signals files | Anywhere |
-| **Form** | Fragments OK, drop articles, terse | Full sentences, paragraphs that flow | Tables, diagrams, terse bullets | Punchy taglines, hero copy |
-| **Length** | Shortest viable | As long as needed; no shorter | Shortest that carries the contract | Whatever sounds dramatic |
-| **Voice** | Imperative, telegraphic | Active, specific, technical | Imperative, declarative | Aspirational, promissory |
-| **Em dashes** | Allowed in inline replies | Forbidden | Forbidden | Stuffed with them |
-| **Adverbs** | Cut | Cut | Cut | Loaded |
-| **Reader** | The user, mid-task, watching the terminal | A developer reading docs to understand or use the system | A human or agent who will implement, follow, or audit a contract | An imagined "audience" being sold to |
+| | Atomic output style | Atomic-writing (this skill) |
+|---|---|---|
+| **Governs** | How Claude talks in the terminal | What Claude writes into files |
+| **Where** | TUI replies to the user | Every `.md` file that ships in the repo |
+| **Form** | Fragments OK, drop articles, ASCII only | Full sentences where prose is right, Mermaid where a picture is right |
+| **Lives in** | `output-styles/atomic.md` | This skill |
 
-Two voices. The atomic output style (`output-styles/atomic.md`) covers Claude's TUI replies. This skill covers file contents when those files are enduring narrative docs. Everything else (specs, design docs, `CLAUDE.md`, signals files) uses terse technical prose. The two voices do not contradict; they apply to different surfaces.
+Nothing else splits. There is no separate "terse technical" voice for specs, designs, `CLAUDE.md`, or agent prompts.
+
+## Same voice, different length
+
+Length is set by the job the surface does, not by a compression quota and not by a house maximum.
+
+| Surface | Job | Length |
+|---------|-----|--------|
+| `README.md`, `docs/guides/` | Teach the system to someone new | As long as the explanation needs |
+| `docs/reference/` | Answer a lookup fast | Tables and lists first, prose for what a table cannot hold |
+| `docs/spec/`, `docs/design/` | Carry a contract a human approves and an agent implements | Shortest that carries the contract in full; the structure is the contract |
+| `docs/wiki/` | Orient a reader to a codebase | Dense. Facts with paths, no throat-clearing |
+| `docs/research/` | Record what was found and why a path was chosen | As long as the evidence needs |
+| `CLAUDE.md`, `rules/` | Instruct, in every session | Tightest. Every line costs tokens on every turn |
+| `commands/`, `agents/`, `skills/`, `output-styles/` | Instruct an agent mid-task | Tight. Instruct plainly, cut rationale that only defends the instruction |
+
+Tight is not cryptic. Cutting filler is always right. Cutting the contract to save a line is never right.
 
 ## Core rules
 
-1. **Active voice, named actor.** Every sentence has a subject doing something. Replace "the decision was made" with "the team decided" or, in docs, "we picked" or "use X". Never let inanimate things perform human verbs ("the complaint becomes a fix", "the architecture emerges").
+1. **Show the shape.** When the content has a shape, draw it. A reader follows a flow faster in a diagram than in a paragraph, and so does a model. This is a preference, not a gate: draw it when a picture explains better, write prose when prose explains better, and never add a diagram that only restates the sentence above it.
 
-2. **Be specific. Name the thing.** No vague declaratives ("the implications are significant", "the reasons are structural"). Name the implication. Name the reason. If you cannot, the sentence has no content.
+    | Content | Form | In `docs/` | In prompt artifacts |
+    |---------|------|-----------|---------------------|
+    | Steps passing between actors | sequence | Mermaid `sequenceDiagram` | numbered steps with `->` effects |
+    | Branching process | flowchart | Mermaid `flowchart` | ASCII arrow chain |
+    | Entities and relations | ER | Mermaid `erDiagram` | crow's-foot ASCII |
+    | States and transitions | state machine | Mermaid `stateDiagram-v2` | `Draft -> Paid -> Shipped` |
+    | Containment or nesting | tree | indented tree | indented tree |
+    | Options against criteria | table | table | table |
 
-3. **Start with the point.** Cut "Here's the thing:", "Here's what X", "It turns out", "The truth is", "Let me be clear", "I'll be honest". State the point directly.
+    Put a one-line caption above every Mermaid block saying what it shows. Prompt artifacts may use Mermaid when the flow is load-bearing and prose would take more lines; otherwise use the ASCII form, which costs fewer tokens at equal clarity. For the full route vocabulary and the discipline caps, see `output-styles/atomic.md`.
 
-4. **Show importance through content.** Delete "Full stop.", "Period.", "Let that sink in.", "Make no mistake.", "This matters because". Demonstrate why it matters, or let the reader judge.
+2. **Active voice, named actor.** Every sentence has a subject doing something. Replace "the decision was made" with "the team decided" or, in docs, "we picked" or "use X". Never let inanimate things perform human verbs ("the complaint becomes a fix", "the architecture emerges").
 
-5. **Use plain words over business clichés and stock AI phrasing.** The second group is harder to catch because every individual word earns its place; the phrase is what fails. Replace:
+3. **Be specific. Name the thing.** No vague declaratives ("the implications are significant", "the reasons are structural"). Name the implication. Name the reason. If you cannot, the sentence has no content.
+
+4. **Start with the point.** Cut "Here's the thing:", "Here's what X", "It turns out", "The truth is", "Let me be clear", "I'll be honest". State the point directly.
+
+5. **Show importance through content.** Delete "Full stop.", "Period.", "Let that sink in.", "Make no mistake.", "This matters because". Demonstrate why it matters, or let the reader judge.
+
+6. **Use plain words over business clichés and stock AI phrasing.** The second group is harder to catch because every individual word earns its place; the phrase is what fails. Replace:
 
     | Avoid | Use |
     |---|---|
@@ -73,62 +100,88 @@ Two voices. The atomic output style (`output-styles/atomic.md`) covers Claude's 
     | that's the actual X | state X |
     | read that honestly / to be honest | (delete) |
 
-6. **Use commas, periods, or parentheses.** Em dashes are an AI tell, and the comma or period is almost always clearer.
+    The same failure produces the reveal formula: "what nobody tells you", "the dirty secret of X", "X is great until Y", "the missing piece". A reveal that announces itself is not a reveal. State the fact.
 
-7. **Cut filler adverbs.** Remove `really`, `just`, `literally`, `genuinely`, `honestly`, `simply`, `actually`, `truly`, `deeply`, `fundamentally`, `inherently`, `inevitably`, `interestingly`, `importantly`, `crucially`, `meaningfully`. Keep `-ly` words only when they carry technical meaning (`asynchronously`, `recursively`).
+7. **Use commas, periods, or parentheses instead of em dashes in prose.** Em dashes are an AI tell, and the comma or period is almost always clearer. This rule governs sentences. An em dash used as a field separator in a structured line or table cell (`name — responsibility`, `path — what it covers`) is structure, not prose, and stays.
 
-8. **State the answer directly.** Skip "Not because X. Because Y.", "X isn't the problem. Y is.", "The question isn't X. It's Y." State Y without the dramatic setup.
+8. **Cut filler adverbs.** Remove `really`, `just`, `literally`, `genuinely`, `honestly`, `simply`, `actually`, `truly`, `deeply`, `fundamentally`, `inherently`, `inevitably`, `interestingly`, `importantly`, `crucially`, `meaningfully`. Keep `-ly` words only when they carry technical meaning (`asynchronously`, `recursively`).
 
-9. **Lead with what it is.** Skip "Not a foo. Not a bar. A baz." — define the thing, then contrast if needed.
+9. **State the answer directly.** Skip "Not because X. Because Y.", "X isn't the problem. Y is.", "The question isn't X. It's Y." State Y without the dramatic setup.
 
-10. **Make the point directly.** Drop "What if X?", "Think about it.", "Here's what I mean:", "Picture this." — state the conclusion.
+10. **Lead with what it is.** Skip "Not a foo. Not a bar. A baz." Define the thing, then contrast if needed.
 
-11. **Quantify or name the specific case.** Replace `every`, `always`, `never`, `everyone`, `nobody`, `all` (when used as authority crutches) with the actual scope ("most production setups", "every command in this family").
+11. **Make the point directly.** Drop "What if X?", "Think about it.", "Here's what I mean:", "Picture this." State the conclusion.
 
-12. **Let headings orient the reader.** Cut "The rest of this section explains…", "Let me walk you through…", "As we will see…" — section headings already signal what is ahead.
+12. **Quantify or name the specific case.** Replace `every`, `always`, `never`, `everyone`, `nobody`, `all` (when used as authority crutches) with the actual scope ("most production setups", "every command in this family").
 
-13. **Trust the reader.** A developer reading these docs already knows code. Skip the hand-holding, the disclaimers, the "this might sound complex but". State the technical fact.
+13. **Let headings orient the reader.** Cut "The rest of this section explains…", "Let me walk you through…", "As we will see…" Section headings already signal what is ahead.
 
-14. **Keep technical density.** Unlike atomic TUI replies, doc prose can run long when the content requires it. Do not compress a five-sentence explanation into a fragment because compression is a virtue. Compression in docs is only a virtue when it removes filler, not when it removes content.
+14. **Trust the reader.** A developer reading these files already knows code, and so does the agent. Skip the hand-holding, the disclaimers, the "this might sound complex but". State the technical fact.
 
-15. **Keep some narrative.** Paragraphs that connect ideas are good. A README built entirely from bullet lists reads like a spec, not like documentation. Mix lists (for enumerable things) with paragraphs (for reasoning and motivation).
+15. **Let length follow content.** Do not compress a five-sentence explanation into a fragment because compression is a virtue, and do not pad a table into paragraphs because prose feels more finished. Mix forms by what the content is: paragraphs carry reasoning and motivation, lists carry enumerable things, diagrams carry shapes, tables carry comparisons. A page built from one form alone is usually the wrong page.
 
-## Quick checklist before saving a doc edit
+16. **Instruct plainly in prompt artifacts.** In `commands/`, `agents/`, `skills/`, `rules/`, and `CLAUDE.md`, give the instruction and the constraint. Rationale earns its place when it changes what the reader does at the edges, which is what a `**Why:**` line is for. Rationale that only defends the instruction against an imagined objection is noise, and it costs tokens on every turn.
 
-- Em dash anywhere? Replace with comma or period.
+## Quick checklist before saving
+
+- Content has a shape and no diagram? Consider drawing it. Diagram that only restates the prose? Cut it.
+- Mermaid block with no caption line above it? Add one.
+- Em dash inside a sentence? Replace with comma or period. (In a table cell or `a — b` list line, leave it.)
 - Adverb anywhere? Delete unless it carries technical meaning.
 - Sentence starting with `What`, `Here's`, `So`, or `Look,`? Restructure.
 - Passive voice? Find the actor.
 - Vague declarative ("the implications matter")? Name the implication or cut.
 - Three-item rhythm list (`speed, quality, cost`)? Drop to two, or break the rhythm.
 - Marketing word (game-changer, lean into, deep dive)? Replace.
-- Stock AI phrase (load-bearing, it's worth noting, the real question is)? Cut it and state the fact it was decorating.
+- Stock AI phrase or reveal formula (load-bearing, it's worth noting, what nobody tells you)? Cut it and state the fact it was decorating.
 - Inanimate noun doing a human verb? Name the human.
 - Throat-clearing opener ("Here's the thing")? Cut.
 - Binary-contrast structure ("not X. Y.")? State Y.
-- Meta-joiner ("As we will see…")? Delete.
+- In a prompt artifact: paragraph that only defends an instruction? Cut it.
 
-## Examples (before / after)
+## Examples
 
-**Throat-clearing + binary contrast:**
+**Prose that should have been a diagram:**
+
+> Before: *The ship verb first stages the changes, then runs the doc-impact check against the surfaces table, then refreshes signals if the staged set is not documentation-only, and finally writes the commit.*
+>
+> After:
+>
+> Ship verb order, and why it is fixed:
+>
+> ```mermaid
+> flowchart LR
+>     A[stage] --> B[doc-impact]
+>     B --> C{docs-only?}
+>     C -->|yes| E[commit]
+>     C -->|no| D[signals refresh] --> E
+> ```
+>
+> `doc-impact` runs before the signals refresh so newly staged doc files land in the scan.
+
+**Throat-clearing and binary contrast:**
 
 > Before: *Here's the thing: configuring the bundle isn't hard. It's just tedious.*
+>
 > After: *Configuring the bundle is tedious, not hard.*
 
 **Marketing language:**
 
 > Before: *In today's fast-paced development landscape, atomic-claude lets teams lean into discipline without slowing down.*
+>
 > After: *Atomic-claude adds workflow discipline (TDD, signals, structured commits) without adding ceremony.*
 
-**False agency + adverbs:**
+**False agency and adverbs:**
 
 > Before: *The signals workflow inherently keeps Claude genuinely informed about the codebase as it evolves.*
+>
 > After: *The signals workflow refreshes a snapshot of the codebase whenever the source tree changes, so each Claude session opens with a current map of the project.*
 
-**Em dash + rhetorical setup:**
+**Defensive rationale in an artifact:**
 
-> Before: *What if you could ship a feature without ever leaving the terminal — and have it reviewed automatically?*
-> After: *The `/subagent-implementation` command runs an implement-review loop without leaving the terminal. A reviewer agent gates each iteration.*
+> Before: *Run `make render` before `make bundle`. This is important because the bundle step reads the rendered output, and if you skip it you may find that your changes do not appear, which can be confusing to debug later.*
+>
+> After: *Run `make render` before `make bundle`. **Why:** bundle embeds what render wrote; reversing the order embeds stale output.*
 
 </voice_rules>
 
@@ -136,10 +189,11 @@ Two voices. The atomic output style (`output-styles/atomic.md`) covers Claude's 
 
 ## Boundaries
 
-- **Scope: narrative docs only.** TUI replies follow atomic output style. `docs/spec/`, `docs/design/`, `CLAUDE.md`, and signals files use terse technical prose, not this skill. Files in `.claude/`, `agents/`, `commands/`, `skills/`, `output-styles/` follow their own conventions. Pure structure (tables, frontmatter, code blocks) passes through unchanged.
-- **Tables and code blocks pass through unchanged.** This skill governs prose. Frontmatter, fenced code, command examples, file paths, identifier names, error strings: never reformat or rephrase.
-- **Spec checkpoint tables and design alternative tables pass through unchanged.** Their structure is the contract. Only the surrounding prose (Goal, Problem, Rationale) is in scope.
+- **Scope: file contents.** Claude's TUI replies follow the atomic output style, not this skill. Everything the repo writes to a file follows this skill.
+- **Structure passes through unchanged.** Frontmatter, fenced code, command examples, file paths, identifier names, error strings, and Mermaid node labels: never reformat or rephrase. This skill governs prose and chooses between prose and picture. It does not restyle a contract.
+- **Spec checkpoint tables, `## Change tree`, `## Outline`, and `## Flows` keep their defined formats.** Those formats are specified in `rules/specs/spec-currency.md` and are the contract itself. This skill governs the prose around them and encourages a diagram alongside them, never a replacement for them.
+- **Do not rewrite a file's voice as a side effect of an unrelated edit.** Voice work is its own change. Editing one section of a spec does not license rewriting the other twelve.
 - **CHANGELOG entries follow the project's existing tone.** This skill nudges new entries toward plainness but does not rewrite older entries on sight.
-- **Comments in source code follow the global comment rules in `CLAUDE.md`, not this skill.** This skill is for documentation files, not inline code comments.
+- **Comments in source code follow the comment rules in `CLAUDE.md`, not this skill.** This skill is for markdown files, not inline code comments.
 
 </constraints>

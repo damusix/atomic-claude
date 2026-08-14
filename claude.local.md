@@ -232,16 +232,17 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `docs/reference/wiki-workflow.md` | wiki setup, repo/realm scope, wiki verbs (scan/stale/linkify/bucket) | atomic-writing |
 | `docs/reference/bus.md` | `atomic bus` room model, addressed vs FYI, envelope, daemon lifecycle, exit codes, operator verbs | atomic-writing |
 | `docs/reference/repl.md` | `atomic repl` persistent interpreter sessions, scope model, six verbs, exit codes, idle_timeout config | atomic-writing |
+| `docs/reference/atomic-toml.md` | repo-scoped `.claude/atomic.toml`: scope marker, code-index ignore globs, repl idle_timeout, lenient load contract | atomic-writing |
 | `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
 | `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
-| `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
+| `CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |
 
 
 ## Research notes (`docs/research/`)
 
 
 Point-in-time research and decision records: a problem investigated, the experiment that settled it,
-and the agreed plan. Committed, human-facing, terse-technical voice. Mermaid allowed (it is a `docs/` file).
+and the agreed plan. Committed, human-facing, `atomic-writing` voice like every other file. Mermaid allowed (it is a `docs/` file).
 
 These are **not** maintained documentation surfaces — keep them out of the `## Documentation surfaces`
 table above so the `atomic-documentation` maintenance flow never flags them as stale. A research note

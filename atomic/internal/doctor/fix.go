@@ -44,7 +44,6 @@ type Repairer struct {
 	HooksFn           func(io.Writer) error
 	ManifestFn        func(io.Writer) error
 	FollowupsRenderFn func(io.Writer) error
-	ConfigFn          func(home string) error
 	HomeFn            func() (string, error)
 	IsRepoDevFn       func() (bool, error)
 	RepoRootFn        func() string
@@ -57,7 +56,6 @@ func DefaultRepairer() Repairer {
 		HooksFn:           defaultHooksRepair,
 		ManifestFn:        defaultManifestRepair,
 		FollowupsRenderFn: defaultFollowupsRenderRepair,
-		ConfigFn:          defaultConfigRepair,
 		HomeFn:            resolveHome,
 		IsRepoDevFn:       defaultIsRepoDev,
 		RepoRootFn:        defaultRepoRoot,
@@ -202,9 +200,9 @@ func repairPlan(r Result) (plan string, fixable bool) {
 	case "binary":
 		return "cannot auto-fix — run `atomic update` to update.", false
 	case "config":
-		// Parse errors and invalid values cannot be auto-fixed; user must edit.
-		// Only drift (WARN) is fixable.
-		return "re-render config.resolved.md from current config.toml", r.Severity == WARN
+		// Unknown keys and invalid values are both user-authored; the only
+		// remedy is editing config.toml or `atomic config unset <key>`.
+		return "cannot auto-fix — edit config.toml or run `atomic config unset <key>`", false
 	case "profile":
 		// Profile file and @-ref are created/updated by install/update; cannot auto-fix here.
 		return "run `atomic claude install` to create the profile stub; @-ref insertion is bundle-source-driven and updates with `atomic claude install/update`", false
@@ -243,11 +241,6 @@ func (rp Repairer) applyRepair(r Result, p Prompter, out io.Writer) (string, err
 			return "", err
 		}
 		return "bundle regenerated via `make -C atomic bundle`", nil
-	case "config":
-		if err := rp.applyConfigRepair(out); err != nil {
-			return "", err
-		}
-		return "config.resolved.md re-rendered", nil
 	case "followups":
 		if err := rp.applyFollowupsRepair(r, out); err != nil {
 			return "", err
@@ -269,16 +262,6 @@ func (rp Repairer) applyFollowupsRepair(r Result, out io.Writer) error {
 		return rp.FollowupsRenderFn(out)
 	}
 	return fmt.Errorf("no auto-fix available for this followups condition")
-}
-
-// applyConfigRepair re-renders config.resolved.md from the current TOML.
-func (rp Repairer) applyConfigRepair(out io.Writer) error {
-	fmt.Fprintln(out, "$ re-rendering config.resolved.md")
-	home, err := rp.HomeFn()
-	if err != nil {
-		return fmt.Errorf("resolve home dir: %w", err)
-	}
-	return rp.ConfigFn(home)
 }
 
 // applyManifestRepairWithGuard checks repo-dev before delegating.

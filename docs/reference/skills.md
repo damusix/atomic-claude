@@ -31,7 +31,7 @@ These keep Claude and your docs in sync with the project.
 
 | Skill | Fires when you say... | What it does |
 |-------|----------------------|-------------|
-| `atomic-writing` | "draft the README", "write the docs", "edit the guide" | Applies a clear, direct voice to narrative documentation. No marketing language, no AI-tell phrases. |
+| `atomic-writing` | "draft the README", "write the docs", "edit the guide", "write the spec" | The one voice for every file the repo ships, from READMEs to specs to agent prompts. Length follows the surface; a diagram beats a paragraph wherever the content has a shape. No marketing language, no AI-tell phrases. |
 | `atomic-documentation` | "doc this change", "what surfaces does this touch" | Figures out which docs need updating based on a diff and routes each to the right voice. |
 | `atomic-wiki` | "I want a place for notes/tickets/research", "add a bucket", "add this to my wiki", "wiki this", "what does my wiki know about X", "is my wiki stale", "set up a karpathy wiki" | Routes capture-folder intent to `atomic wiki bucket add` (never a bare mkdir), handles karpathy-realm setup, and answers staleness queries for registered wikis. |
 | `atomic-bus` | "join the bus", "connect to the bus", "message the backend session", "delegate this to the frontend session", "coordinate with the other agent", "watch the room", "halt the room" | Joins a named room (`atomic bus join`) and starts a `recv` Monitor so peer messages arrive as prompts. Carries the reaction policy: act on messages addressed to you, note FYI traffic, never act unaddressed. |

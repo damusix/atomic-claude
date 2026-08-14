@@ -878,7 +878,7 @@ func buildConfigCmd() *cobra.Command {
 		parent.AddCommand(c)
 	}
 	addSub("get", "Print resolved config value", "<key>", nil)
-	addSub("set", "Set config value; re-renders config.resolved.md", "<key> <val>", nil)
+	addSub("set", "Set config value", "<key> <val>", nil)
 	addSub("unset", "Revert key to built-in default", "<key>", nil)
 	addSub("list", "List all resolved key=value pairs", "", func(c *cobra.Command) {
 		c.Flags().Bool("json", false, "print as JSON object")

@@ -5,12 +5,13 @@ Agents are specialized workers that run in a fresh context. The orchestrator dis
 
 ## Code agents
 
-These write and review code.
+These write, review, and gate code.
 
 | Agent | What it does | Model |
 |-------|-------------|-------|
-| `atomic-implementer` | Dual-mode implementation agent. The orchestrator declares the mode at dispatch time. **feature mode**: implements a feature checkpoint — one cohesive slice across however many files it touches (controller + service + DTO + tests, etc.); refuses cross-cutting or ambiguous scope. **surgical mode**: small targeted edits with a hard cap of 2 files, test files excluded; bounces anything larger back to the orchestrator. Both modes write a failing test first. | Sonnet |
-| `atomic-reviewer` | Reviews a diff after each implementer pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. Flags over-engineering — reinvented stdlib, duplicate helpers, or one-implementation abstractions. Also runs in spec-mode: reviews a draft spec against its design doc (coverage, voice, over-prescription) to gate the `/atomic-plan` spec loop. | Sonnet |
+| `atomic-implementer` | Dual-mode implementation agent. The orchestrator declares the mode at dispatch time. **feature mode**: implements a feature checkpoint — one cohesive slice across however many files it touches (controller + service + DTO + tests, etc.); refuses cross-cutting or ambiguous scope. **surgical mode**: small targeted edits with a hard cap of 2 files, test files excluded; bounces anything larger back to the orchestrator. Both modes write a failing test first. | Sonnet, `medium` effort |
+| `atomic-reviewer` | Reviews a diff after each implementer pass. Re-runs the quality signals it verifies (tests, type checks). One line per finding, ends with PASS or CHANGES_REQUESTED. Flags suppression patterns — error-catching added to dodge a failure without investigating it. Flags over-engineering — reinvented stdlib, duplicate helpers, or one-implementation abstractions. Also runs in spec-mode: reviews a draft spec against its design doc (coverage, voice, over-prescription) to gate the `/atomic-plan` spec loop. | Sonnet, `xhigh` effort |
+| `atomic-auditor` | Final gate on a finished implementation, dispatched once after the loop goes green. Audits four things per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, commit types that misstate user-visible impact, and documentation that is current but says nothing. Read-only, fresh context, ends with PASS or CHANGES_REQUESTED. | Opus, `max` effort |
 
 
 ## Research agents
@@ -19,8 +20,8 @@ These read code but never write it.
 
 | Agent | What it does | Model |
 |-------|-------------|-------|
-| `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." When an index is present, leads with `atomic code explore` for broad scoping (one natural-language query returns the relevant symbols, files, and relationships), then uses `atomic code search/callers/callees/impact` for targeted follow-up; falls back to `sg`/`grep` otherwise. Returns a file:line table with no speculation. | Haiku |
-| `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. Dispatched for root-cause analysis when the implement→review loop gets stuck on the same failure. | Opus |
+| `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." When an index is present, leads with `atomic code explore` for broad scoping (one natural-language query returns the relevant symbols, files, and relationships), then uses `atomic code search/callers/callees/impact` for targeted follow-up; falls back to `sg`/`grep` otherwise. Returns a file:line table with no speculation. | Haiku, `low` effort |
+| `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. Dispatched for root-cause analysis when the implement→review loop gets stuck on the same failure. | caller's choice, `xhigh` effort |
 
 
 ## Infrastructure agents
@@ -29,7 +30,7 @@ These handle system-level tasks.
 
 | Agent | What it does | Model |
 |-------|-------------|-------|
-| `atomic-wiki-inferrer` | Scope-sensitive wiki pipeline. Repo scope: scans via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), writes `docs/wiki/index.md` plus per-domain files, and wires the `@docs/wiki/index.md` ref (checking `claude.local.md`/`CLAUDE.local.md` before `CLAUDE.md`). Realm scope: executes the cross-repo pipeline against `<root>/wiki/`. Dispatched by `/refresh-wiki` and silently by ship verbs. | Sonnet |
+| `atomic-wiki-inferrer` | Scope-sensitive wiki pipeline. Repo scope: scans via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), writes `docs/wiki/index.md` plus per-domain files, and wires the `@docs/wiki/index.md` ref (checking `claude.local.md`/`CLAUDE.local.md` before `CLAUDE.md`). Realm scope: executes the cross-repo pipeline against `<root>/wiki/`. Dispatched by `/refresh-wiki` and silently by ship verbs. | Sonnet, `medium` effort |
 
 
 ## Model and effort overrides
@@ -51,11 +52,14 @@ Model and effort are independent. Set either one alone, both, or neither.
 
 | Agent | Default tier |
 |-------|-------------|
-| `atomic-investigator` | haiku |
-| `atomic-implementer` | sonnet |
-| `atomic-reviewer` | sonnet |
-| `atomic-wiki-inferrer` | sonnet |
-| `atomic-strategist` | opus |
+| `atomic-investigator` | `claude-haiku-4-5-20251001`, effort `low` |
+| `atomic-implementer` | `claude-sonnet-5`, effort `medium` |
+| `atomic-reviewer` | `claude-sonnet-5`, effort `xhigh` |
+| `atomic-wiki-inferrer` | `claude-sonnet-5`, effort `medium` |
+| `atomic-auditor` | `claude-opus-5`, effort `max` |
+| `atomic-strategist` | unpinned, effort `xhigh` |
+
+`atomic-strategist` ships with no `model:` field on purpose, so the parent session or your own config decides whether a given question is worth opus or fable. Effort is the knob that survives an unpinned model.
 
 (`fable` is forward-reserved and may not correspond to a live Claude Code model tier yet.)
 
@@ -77,15 +81,13 @@ This immediate re-patch only touches agent files that are already installed unde
 
 **Drift detection and repair.** `atomic doctor`'s install-integrity check compares each installed agent's frontmatter against what your `[claude.agents]` config would produce (the bundle patched with your `model`/`effort` overrides). An installed agent missing a configured override reports WARN, the same way any other install drift does. `atomic doctor --fix` re-applies the patch and clears it. This is not a separate check; it reuses the same install-integrity check that already covers every installed artifact.
 
-**Viewing active overrides.** `~/.atomic/config.resolved.md` (auto-loaded every session) includes a `[claude]` section listing any active overrides:
+**Viewing active overrides.** Run `atomic config list`:
 
 ```
-## [claude]
-
-- `claude.agents.atomic-implementer.model` = `claude-opus-4-8`
-- `claude.agents.atomic-reviewer.effort` = `high`
+claude.agents.atomic-implementer.model = claude-opus-4-8
+claude.agents.atomic-reviewer.effort   = high
 ```
 
-No override stored → no `[claude]` section in the file.
+No override stored → no `claude.agents.*` lines.
 
 **Note:** only bundled artifacts tracked by `[install.artifacts]` are patched. Agents you added manually to `~/.claude/agents/` are not touched.

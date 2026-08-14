@@ -12,7 +12,7 @@ This command exists to codify five non-negotiable behaviors. They override the c
 
 1. **Always use the `/subagent-implementation` loop.** The implement→review→commit-per-green loop is the engine. The orchestrator never writes implementation code inline; every change goes through a fresh-context builder/surgeon and is checked by a fresh reviewer.
 2. **Every reviewer finding is addressed in-iteration.** Blocking *and* non-blocking (🔴/🟡/🔵). Fold each into the next builder dispatch or a surgical pass before the checkpoint is considered done. The scratchpad `FOLLOWUPS.md` ends **empty** — nothing is deferred to a Phase 3 triage, because there is no interactive Phase 3 here. (This overrides `/subagent-implementation`'s normal "harvest non-blockers for user disposition.")
-3. **Auto-dispatching `atomic-strategist` is allowed.** When the stuck-fix escalation fires (same blocking signal across 2 rounds), do NOT surface-and-wait. Dispatch `atomic-strategist` (opus, **read-only**) for root-cause analysis, then feed its findings into the next builder dispatch. Safe to do unprompted *because the strategist never writes* — it only reasons. (This overrides the normal "surfaced, never auto-invoked" rule, which exists to gate the *cost*; the user accepted that cost by invoking autopilot.)
+3. **Auto-dispatching `atomic-strategist` is allowed.** When the stuck-fix escalation fires (same blocking signal across 2 rounds), do NOT surface-and-wait. Dispatch `atomic-strategist` (high effort, **read-only**) for root-cause analysis, then feed its findings into the next builder dispatch. Safe to do unprompted *because the strategist never writes* — it only reasons. (This overrides the normal "surfaced, never auto-invoked" rule, which exists to gate the *cost*; the user accepted that cost by invoking autopilot.)
 4. **Always ask how to merge — and only that.** The merge method is the single human decision. If `$ARGUMENTS` supplied a merge-verb, use it silently. Otherwise the Ship gate asks. Nothing else in the run prompts the user.
 5. **The spec is currency-clean before every dispatch.** Produce and maintain the spec under the planning rule in `CLAUDE.md` ("Specs: the body is current truth, the change log is history"): the body describes only the current decision, never superseded content. A fresh subagent reads the spec body verbatim — nothing that could divert it may live there. Re-verify before each builder dispatch.
 
@@ -221,7 +221,20 @@ Run the loop exactly as `/subagent-implementation` defines it — scratchpad bri
 
 Orchestrator runs the full suite itself (invoke `atomic-verify`): tests, typecheck, lint, build, render+bundle parity, `atomic validate` (spec + config, when a spec or bundled artifact changed), and the `/atomic-help` MISSING-scan if artifacts changed. Confirm green before shipping. Do not trust subagent claims at the finish line.
 
-Once the suite is green, run a range-scoped signals refresh before the ship gate. Range: `Loop base SHA` in `STATE.md` (the Phase 2 worktree branch point) to current HEAD.
+Once the suite is green, update documentation, then refresh signals. Order matters: a new doc file has to exist before the scan runs, or the refreshed signals miss it.
+
+Invoke `/documentation` in authoring mode, scoped to the loop's range (`Loop base SHA` in `STATE.md` to HEAD). Running it unattended changes two things from its normal behavior:
+
+- **Answer its per-surface prompts yourself.** `/documentation` and the `doc-impact` partial normally walk each affected surface asking Yes/Later/Remind/Skip. Rule 4 above says the ship gate is the only prompt, so take `Yes` on every stale or incomplete surface and record what you touched in `STATE.md`. Never `Later` here: a follow-up nobody asked for is how documentation rots.
+- **Write new pages, not just patches to old ones.** Authoring mode can create a page for a domain this change introduced. The ship verb's `doc-impact` runs in maintenance mode and never suggests new pages, so skipping this step means a new feature ships undocumented and nothing downstream notices.
+
+Commit as `docs: <topic>`. If no surface matched the change, record that in `STATE.md` and move on.
+
+Then dispatch `atomic-auditor` once, read-only, over the same range. Pass it the spec, `range: <loop-base>..HEAD`, `STATE.md`, and the surfaces table. It is the only gate that reads the finished work as a whole, and the only one that never saw the loop that produced it.
+
+`VERDICT: PASS` → continue to signals. `VERDICT: CHANGES_REQUESTED` → run **one** more implementer/reviewer iteration against its findings, re-run the suite, then continue. **Never re-audit.** A second audit pass is how an unattended run stops terminating.
+
+Then run a range-scoped signals refresh before the ship gate, over the same range.
 
 1. If `command -v atomic` returns nothing → skip.
 2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report + skip.

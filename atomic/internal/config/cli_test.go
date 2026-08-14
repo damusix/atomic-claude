@@ -93,10 +93,6 @@ func TestRun_set_valid(t *testing.T) {
 	if _, err := os.Stat(TOMLPath(home)); err != nil {
 		t.Fatalf("config.toml not created: %v", err)
 	}
-	// Resolved file must exist.
-	if _, err := os.Stat(ResolvedPath(home)); err != nil {
-		t.Fatalf("config.resolved.md not created: %v", err)
-	}
 }
 
 func TestRun_set_invalid_value(t *testing.T) {
@@ -147,20 +143,6 @@ func TestRun_set_missing_args(t *testing.T) {
 	}
 }
 
-func TestRun_set_rerenders_resolved(t *testing.T) {
-	home := t.TempDir()
-	runCLI(t, home, "set", "output.signals.max_depth", "5")
-	data, err := os.ReadFile(ResolvedPath(home))
-	if err != nil {
-		t.Fatalf("read resolved: %v", err)
-	}
-	if !strings.Contains(string(data), "output.signals.max_depth` = `5") {
-		t.Fatalf("resolved.md should contain max_depth=5, got: %s", string(data))
-	}
-}
-
-// --- unset ---
-
 func TestRun_unset_reverts_to_default(t *testing.T) {
 	home := t.TempDir()
 	runCLI(t, home, "set", "output.signals.max_depth", "5")
@@ -174,19 +156,6 @@ func TestRun_unset_reverts_to_default(t *testing.T) {
 	}
 	if strings.TrimSpace(out) != "3" {
 		t.Fatalf("after unset, expected '3', got %q", strings.TrimSpace(out))
-	}
-}
-
-func TestRun_unset_rerenders_resolved(t *testing.T) {
-	home := t.TempDir()
-	runCLI(t, home, "set", "output.signals.max_depth", "5")
-	runCLI(t, home, "unset", "output.signals.max_depth")
-	data, err := os.ReadFile(ResolvedPath(home))
-	if err != nil {
-		t.Fatalf("read resolved: %v", err)
-	}
-	if !strings.Contains(string(data), "output.signals.max_depth` = `3") {
-		t.Fatalf("resolved.md should contain max_depth=3 after unset, got: %s", string(data))
 	}
 }
 

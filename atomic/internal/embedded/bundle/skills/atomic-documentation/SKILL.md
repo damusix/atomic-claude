@@ -24,12 +24,14 @@ Also invoked by `/documentation` (authoring mode) and by ship verbs (maintenance
 
 This skill reads the project's indexed documentation surfaces, matches a diff against them, and either flags stale/incomplete docs (maintenance mode) or runs the full discovery + generation pipeline (authoring mode). It emits a structured YAML block listing affected surfaces. When the user picks "Yes", it opens the file and makes the edit.
 
-## Two voices
+## Two surfaces, one file voice
 
-| Voice | Where | Style |
-|-------|-------|-------|
+| Surface | Where | Style |
+|---------|-------|-------|
 | **How Claude talks** | TUI replies | Atomic output style: terse, fragments OK, drop articles. Governed by `output-styles/atomic.md`. |
-| **How files are written** | All file content | Narrative docs (`README.md`, `docs/guides/`) use `atomic-writing` skill. Everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose: tables, bullets, imperative. |
+| **How files are written** | All file content | The `atomic-writing` skill, everywhere: README, guides, reference, specs, designs, wiki pages, `CLAUDE.md`, and the prompt artifacts under `commands/`, `agents/`, `skills/`, `rules/`. One voice; length is set by what the surface carries. |
+
+There is no separate terse-technical voice. A spec and a README differ in length and structure, not in voice, and either one prefers a diagram over a paragraph when the content has a shape.
 
 ## How surface routing works
 
@@ -149,7 +151,7 @@ Generated docs are for humans navigating a codebase. Apply these standards:
 Quality checks:
 - Document *why*, not *what* — restating the code adds no value.
 - Break prose with a heading, table, diagram, or code block every ~15 lines.
-- Write direct and specific — "This comprehensive guide provides an in-depth overview of..." is AI phrasing. So are "load-bearing", "here's the thing", "it's worth noting", "at its core", "the real question is", and the contrastive reveal ("not X, it's Y"), which stages an insight instead of stating one. Cut the phrase, keep the fact. This check applies to both voices, including the terse-technical surfaces `atomic-writing` does not cover.
+- Write direct and specific — "This comprehensive guide provides an in-depth overview of..." is AI phrasing. So are "load-bearing", "here's the thing", "it's worth noting", "at its core", "the real question is", and the contrastive reveal ("not X, it's Y"), which stages an insight instead of stating one. Cut the phrase, keep the fact. This check applies to every file surface, prompt artifacts included.
 - Note where generated pages should be linked so they're discoverable.
 - When updating a doc because the API changed, update all examples too.
 
@@ -176,7 +178,7 @@ surfaces:
       Add row to payments endpoint table with method, path, auth, request/response.
 ```
 
-Voice values: `atomic-writing | terse-technical`. Use `atomic-writing` for narrative docs (`README.md`, `docs/guides/`); `terse-technical` for everything else (specs, designs, `CLAUDE.md`, signals, agents, commands).
+`voice` is always `atomic-writing`. The field stays in the schema as an explicit pointer to the skill that governs the edit, not as a choice between alternatives.
 
 `impact_type` values: `stale | incomplete | missing`. Maintenance mode never emits `missing`.
 

@@ -78,6 +78,7 @@ Source paths in this domain: <list from deterministic tree>
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
+- Invoke the `atomic-writing` skill and follow it. It governs the voice.
 - Output only the file content. Do not summarize your process.
 </instructions>
 

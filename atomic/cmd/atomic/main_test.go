@@ -118,7 +118,7 @@ var cp3WantMeta = []struct {
 	{[]string{"code", "mcp"}, "", "Run the MCP server over stdio (proxy by default; --daemon --source --db runs the daemon itself; --no-watch disables sync poller)"},
 	// config subcommands
 	{[]string{"config", "get"}, "<key>", "Print resolved config value"},
-	{[]string{"config", "set"}, "<key> <val>", "Set config value; re-renders config.resolved.md"},
+	{[]string{"config", "set"}, "<key> <val>", "Set config value"},
 	{[]string{"config", "unset"}, "<key>", "Revert key to built-in default"},
 	{[]string{"config", "list"}, "", "List all resolved key=value pairs"},
 	{[]string{"config", "path"}, "", "Print path to config.toml"},

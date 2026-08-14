@@ -458,61 +458,6 @@ func TestBackupPathContainsTimestamp(t *testing.T) {
 	t.Error("no updated action found")
 }
 
-// TestApply_PreCreatesResolvedConfigStub: Apply pre-creates config.resolved.md under
-// <targetDir>/.atomic/ when it does not exist yet. This file is @-referenced from
-// CLAUDE.md so every Claude session sees it; the file must exist after first install.
-func TestApply_PreCreatesResolvedConfigStub(t *testing.T) {
-	target := t.TempDir()
-
-	plan, err := claudeinstall.Plan(target, target, embedded.Manifest())
-	if err != nil {
-		t.Fatalf("Plan: %v", err)
-	}
-	if err := claudeinstall.Apply(target, target, plan, false, fixedClock); err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	resolvedPath := filepath.Join(target, ".atomic", "config.resolved.md")
-	if _, err := os.Stat(resolvedPath); err != nil {
-		t.Errorf("config.resolved.md not created: %v", err)
-	}
-}
-
-// TestApply_PreserveExistingResolvedConfig: Apply must not overwrite config.resolved.md
-// when it already exists with content. The file is user-managed after first create.
-func TestApply_PreserveExistingResolvedConfig(t *testing.T) {
-	target := t.TempDir()
-
-	// Pre-create the resolved config with existing content.
-	atomicDir := filepath.Join(target, ".atomic")
-	if err := os.MkdirAll(atomicDir, 0o755); err != nil {
-		t.Fatalf("mkdir: %v", err)
-	}
-	resolvedPath := filepath.Join(atomicDir, "config.resolved.md")
-	existingContent := []byte("existing\n")
-	if err := os.WriteFile(resolvedPath, existingContent, 0o644); err != nil {
-		t.Fatalf("write existing: %v", err)
-	}
-
-	plan, err := claudeinstall.Plan(target, target, embedded.Manifest())
-	if err != nil {
-		t.Fatalf("Plan: %v", err)
-	}
-	if err := claudeinstall.Apply(target, target, plan, false, fixedClock); err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	after, err := os.ReadFile(resolvedPath)
-	if err != nil {
-		t.Fatalf("read resolved: %v", err)
-	}
-	if string(after) != string(existingContent) {
-		t.Errorf("Apply overwrote config.resolved.md: got %q, want %q", after, existingContent)
-	}
-}
-
-// TestInstall_CreatesProfileStub: Install creates profile.md under .atomic/ on first install.
-// The file must exist and contain all six schema sections.
 func TestInstall_CreatesProfileStub(t *testing.T) {
 	target := t.TempDir()
 

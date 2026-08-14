@@ -50,7 +50,7 @@ Required sections:
 - **Why** — short paragraphs explaining the reasoning. What problem was being solved, what alternatives were rejected, what the user clarified. Not exhaustive; aim for a future-reader who needs enough to write the commit message.
 - **Open threads** (optional) — unresolved questions or follow-ups deferred to a later session.
 
-Voice: terse technical prose — bullets, short paragraphs. Not `atomic-writing` (that's narrative docs). Not atomic output style (that's Claude's replies).
+Voice: `atomic-writing`, at the length budget it gives a short-lived state file — bullets and short paragraphs, no narrative. Not atomic output style; that governs Claude's replies, not file contents.
 
 ## Ship-verb integration
 

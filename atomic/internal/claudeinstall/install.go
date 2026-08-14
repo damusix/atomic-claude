@@ -277,26 +277,7 @@ func Apply(targetDir, home string, plan []FileAction, dryRun bool, clock Clock) 
 			return err
 		}
 	}
-	if !dryRun {
-		if err := ensureResolvedConfigStub(home); err != nil {
-			return err
-		}
-	}
 	return nil
-}
-
-// ensureResolvedConfigStub creates <home>/.atomic/config.resolved.md as an empty
-// file if it does not already exist. Idempotent: leaves any existing content untouched.
-// This file is @-referenced from CLAUDE.md so every Claude session can load it.
-func ensureResolvedConfigStub(home string) error {
-	resolvedPath := config.ResolvedPath(home)
-	if _, err := os.Stat(resolvedPath); err == nil {
-		return nil // already exists — leave it alone
-	}
-	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0o755); err != nil {
-		return fmt.Errorf("mkdir for config.resolved.md: %w", err)
-	}
-	return os.WriteFile(resolvedPath, []byte{}, 0o644)
 }
 
 // ProfileNudge is the bootstrap message printed to stdout when profile.md is

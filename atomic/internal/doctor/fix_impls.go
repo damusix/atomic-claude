@@ -119,9 +119,3 @@ func applyManifestRepair(out io.Writer) error {
 	}
 	return nil
 }
-
-// defaultConfigRepair re-renders config.resolved.md from the current TOML.
-// Called by Repairer.ConfigFn in production.
-func defaultConfigRepair(home string) error {
-	return RunConfigRepairWith(home)
-}

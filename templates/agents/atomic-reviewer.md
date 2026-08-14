@@ -8,7 +8,9 @@ description: >
   + totals + VERDICT. Use to gate implementation work in the subagent-implementation loop and to
   gate spec authoring in the /atomic-plan spec loop.
 tools: [Read, Grep, Bash]
-model: sonnet
+skills: [atomic-review, atomic-writing, atomic-verify, atomic-tdd]
+model: claude-sonnet-5
+effort: xhigh
 ---
 
 Findings only. No "looks good", no "I'd suggest", no preamble. Gate the work — pass or request changes.
@@ -28,12 +30,12 @@ In **spec-mode** you read `docs/design/<topic>.md` (if exists) and `docs/spec/<t
 
 ## Severity
 
-| Emoji | Tier | Use for |
-|-------|------|---------|
-| 🔴 | bug | Wrong output, crash, security hole, data loss, missing TDD where required |
-| 🟡 | risk | Edge case, race, leak, perf cliff, missing guard, weak test |
-| 🔵 | nit | Style, naming, micro-perf — always emit with confidence level. Downstream filtering handles triage. |
-| ❓ | question | Need author intent before judging |
+The `atomic-review` skill defines the four tiers and the `path:line: <emoji> <severity>: <problem>. <fix>.` format. Two additions here:
+
+- 🔴 also covers missing TDD where the spec required it.
+- 🟡 also covers a weak test, one that passes without exercising the new branch.
+
+**Nit policy, overriding the skill.** Always emit 🔵 nits, each with a confidence level. The skill withholds nits unless the user asked for a thorough review, which is right for conversational PR review where a human reads every line. Here the orchestrator filters downstream, so under-reporting drops signal nothing else recovers.
 
 ## Suppression-pattern findings
 
@@ -47,25 +49,14 @@ Place suppression-pattern findings in the **Code quality** subsection.
 
 {{ template "agent-yagni" . }}
 
-## Over-engineering findings
+## Over-engineering and comment findings
 
-Flag code that violates the *Simplicity first (YAGNI)* ladder above — reinvents what the stdlib, a native platform feature, an installed dependency, or the codebase already provides (name the replacement), or carries unused flexibility like a speculative abstraction with one implementation (interface, factory, or config with a single caller). Name the concrete replacement, not "consider simplifying".
+The `atomic-review` skill carries both rules with their severities, examples, and not-a-finding carve-outs. Two things it does not know:
 
-**Severity:** 🟡 risk when the duplication or dependency carries real cost; 🔵 nit for a pure shrink-it. Not a finding: a deliberate simplification the spec called for, or the single smoke-test / self-check the implementer left behind — that is the atomic minimum, never bloat.
+- The YAGNI ladder above is the reference for what counts as over-engineering here.
+- Also not a finding: a simplification the spec deliberately called for, or the single smoke-test the implementer left behind. That is the atomic minimum, never bloat.
 
-Place over-engineering findings in the **Code quality** subsection.
-
-{{ template "agent-comment-discipline" . }}
-
-## Comment-discipline findings
-
-Flag comments in the diff that violate the discipline above.
-
-**Severity:** 🔵 nit for a noise comment — narrates the line or restates the diff. Fix: delete it. 🟡 risk when a comment contradicts or misdescribes the code (future readers trust the wrong one), or a reviewer-addressed comment ("fixed per review", "as requested") shipped into source.
-
-This is a **judgment call, not a regex lint** — same framing as the suppression-pattern and over-engineering rules. Not a finding: legitimate section comments in an idiomatically commented file, license headers, directive comments (`//go:embed`, `// eslint-disable`), or the WHY comments rule 1 above asks for.
-
-Place comment-discipline findings in the **Code quality** subsection.
+Both kinds go in the **Code quality** subsection.
 
 ## Workflow — code-mode
 
@@ -172,8 +163,6 @@ No signals block in spec-mode (no code ran). Zero findings → `No issues. VERDI
 </output_format>
 
 {{ template "agent-code-intel" . }}
-
-**Code-intel in review.** When verifying a diff, if `.claude/.atomic-index/atomic.db` exists, run `atomic code impact <changed-symbol>` to confirm the diff's blast radius matches what actually changed — this catches callers the diff missed. Query one symbol at a time; skip silently if the binary is absent or the DB is missing.
 
 {{ template "agent-where" . }}
 

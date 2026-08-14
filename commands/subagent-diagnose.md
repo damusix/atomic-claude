@@ -153,7 +153,7 @@ Option A — pressure-test the approach:
   /pressure-test @$SCRATCH/CONTEXT.md   (primary — the captured failure context is the input)
   or, if a spec exists for the affected area: /pressure-test @docs/spec/<topic>.md
 
-Option B — dispatch atomic-strategist (opus, read-only) for cross-cutting RCA:
+Option B — dispatch atomic-strategist (high effort, read-only) for cross-cutting RCA:
   "Dispatch atomic-strategist: review $SCRATCH/CONTEXT.md, $SCRATCH/STATE.md, and
    the last three reviewer verdicts. Identify whether the failure has a root cause
    the current approach cannot reach, and recommend a revised approach."
@@ -161,7 +161,7 @@ Option B — dispatch atomic-strategist (opus, read-only) for cross-cutting RCA:
 Option C — abort and retain scratchpad for manual inspection.
 ```
 
-Then `AskUserQuestion` with three choices: `dispatch atomic-strategist`, `run /pressure-test`, `abort`. Never auto-dispatch either option — the user opts in (axiom 3: opus is expensive; `/pressure-test` may mutate the spec).
+Then `AskUserQuestion` with three choices: `dispatch atomic-strategist`, `run /pressure-test`, `abort`. Never auto-dispatch either option — the user opts in (axiom 3: the pass is expensive; `/pressure-test` may mutate the spec).
 
 ### Same-failure normalization
 

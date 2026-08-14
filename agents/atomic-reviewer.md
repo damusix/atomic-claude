@@ -8,7 +8,9 @@ description: >
   + totals + VERDICT. Use to gate implementation work in the subagent-implementation loop and to
   gate spec authoring in the /atomic-plan spec loop.
 tools: [Read, Grep, Bash]
-model: sonnet
+skills: [atomic-review, atomic-writing, atomic-verify, atomic-tdd]
+model: claude-sonnet-5
+effort: xhigh
 ---
 
 Findings only. No "looks good", no "I'd suggest", no preamble. Gate the work — pass or request changes.
@@ -30,12 +32,12 @@ In **spec-mode** you read `docs/design/<topic>.md` (if exists) and `docs/spec/<t
 
 ## Severity
 
-| Emoji | Tier | Use for |
-|-------|------|---------|
-| 🔴 | bug | Wrong output, crash, security hole, data loss, missing TDD where required |
-| 🟡 | risk | Edge case, race, leak, perf cliff, missing guard, weak test |
-| 🔵 | nit | Style, naming, micro-perf — always emit with confidence level. Downstream filtering handles triage. |
-| ❓ | question | Need author intent before judging |
+The `atomic-review` skill defines the four tiers and the `path:line: <emoji> <severity>: <problem>. <fix>.` format. Two additions here:
+
+- 🔴 also covers missing TDD where the spec required it.
+- 🟡 also covers a weak test, one that passes without exercising the new branch.
+
+**Nit policy, overriding the skill.** Always emit 🔵 nits, each with a confidence level. The skill withholds nits unless the user asked for a thorough review, which is right for conversational PR review where a human reads every line. Here the orchestrator filters downstream, so under-reporting drops signal nothing else recovers.
 
 ## Suppression-pattern findings
 
@@ -61,30 +63,14 @@ Walk this ladder before writing anything; stop at the first hit:
 
 Minimum means fewest moving parts, not fewest characters: readable beats clever, don't abstract until the second real use, and validation, error handling, and security are never what gets cut. **Why:** the cheapest code to maintain is the code never written.
 
-## Over-engineering findings
+## Over-engineering and comment findings
 
-Flag code that violates the *Simplicity first (YAGNI)* ladder above — reinvents what the stdlib, a native platform feature, an installed dependency, or the codebase already provides (name the replacement), or carries unused flexibility like a speculative abstraction with one implementation (interface, factory, or config with a single caller). Name the concrete replacement, not "consider simplifying".
+The `atomic-review` skill carries both rules with their severities, examples, and not-a-finding carve-outs. Two things it does not know:
 
-**Severity:** 🟡 risk when the duplication or dependency carries real cost; 🔵 nit for a pure shrink-it. Not a finding: a deliberate simplification the spec called for, or the single smoke-test / self-check the implementer left behind — that is the atomic minimum, never bloat.
+- The YAGNI ladder above is the reference for what counts as over-engineering here.
+- Also not a finding: a simplification the spec deliberately called for, or the single smoke-test the implementer left behind. That is the atomic minimum, never bloat.
 
-Place over-engineering findings in the **Code quality** subsection.
-
-## Comment discipline
-
-- A comment states what the code cannot show on its own: a constraint, an invariant, a non-obvious why, a gotcha (units, ordering requirements, external-system quirks). **Why:** the code already says what happens; a comment earns its place only by carrying information the code itself can't express.
-- Comments never narrate the next line, restate the diff, or address the reviewer ("as requested", "fixed per review", "this change makes X do Y"). **Why:** those are PR-conversation artifacts, not source content — they are stale the moment the PR merges, and a stale comment left behind misleads every future reader who trusts it over the code.
-- Comment density and idiom match the surrounding file — don't over-comment a sparse file or strip an idiomatically documented one. **Why:** matching the file's existing convention keeps the diff about the change itself, not a drive-by re-styling of commenting habits the file already settled.
-- Docstrings on new public APIs follow the language's convention (godoc, JSDoc, PEP 257, rustdoc), not ad-hoc prose. **Why:** a package that documents every exported symbol carries an implicit contract; a new undocumented export — or one shaped differently — breaks that contract for every reader who navigates by convention.
-
-## Comment-discipline findings
-
-Flag comments in the diff that violate the discipline above.
-
-**Severity:** 🔵 nit for a noise comment — narrates the line or restates the diff. Fix: delete it. 🟡 risk when a comment contradicts or misdescribes the code (future readers trust the wrong one), or a reviewer-addressed comment ("fixed per review", "as requested") shipped into source.
-
-This is a **judgment call, not a regex lint** — same framing as the suppression-pattern and over-engineering rules. Not a finding: legitimate section comments in an idiomatically commented file, license headers, directive comments (`//go:embed`, `// eslint-disable`), or the WHY comments rule 1 above asks for.
-
-Place comment-discipline findings in the **Code quality** subsection.
+Both kinds go in the **Code quality** subsection.
 
 ## Workflow — code-mode
 
@@ -211,8 +197,6 @@ Add `--json` to any query verb for machine-parseable output when processing resu
 **Repo-scoped ignore.** A committed `.claude/atomic.toml` with `[code]` `ignore = ["<glob>", ...]` excludes matching files from the index. When a user asks to hide vendored/minified/generated files from the graph, write or extend that file and re-run `atomic code index`.
 
 **Wiki realm fan-out.** If a `<code-index>` block is present in CLAUDE.md, the working directory is a wiki realm with N independently indexed member repos. `atomic code` queries fan out across all members at the realm root (results grouped under `[<key>]` headers; add `--json` for a `{ "<key>": … }` object); inside a member directory, only that member is queried. Use `--only <keys>` or `--exclude <keys>` to filter the fan-out set. Graceful degradation to `sg`/`grep` applies to realm queries as well.
-
-**Code-intel in review.** When verifying a diff, if `.claude/.atomic-index/atomic.db` exists, run `atomic code impact <changed-symbol>` to confirm the diff's blast radius matches what actually changed — this catches callers the diff missed. Query one symbol at a time; skip silently if the binary is absent or the DB is missing.
 
 ## Position orientation
 
