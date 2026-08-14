@@ -20,7 +20,8 @@ These read code but never write it.
 | Agent | What it does | Model |
 |-------|-------------|-------|
 | `atomic-investigator` | Locates code. "Where is X defined?", "What calls Y?", "List all uses of Z." When an index is present, leads with `atomic code explore` for broad scoping (one natural-language query returns the relevant symbols, files, and relationships), then uses `atomic code search/callers/callees/impact` for targeted follow-up; falls back to `sg`/`grep` otherwise. Returns a file:line table with no speculation. | Haiku |
-| `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. Dispatched for root-cause analysis when the implement→review loop gets stuck on the same failure. | Opus |
+| `atomic-strategist` | Reasons through hard problems — plans, specs, architectural tradeoffs. Surfaces hidden assumptions and recommends approaches. Read-only; never implements. Dispatched for root-cause analysis when the implement→review loop gets stuck on the same failure. | caller's choice, `xhigh` effort |
+| `atomic-auditor` | Final gate on a finished implementation, dispatched once after the loop goes green. Audits four things per-checkpoint review cannot see: success criteria no single checkpoint owned, iterations that each passed and do not compose, commit types that misstate user-visible impact, and documentation that is current but says nothing. Read-only, fresh context, ends with PASS or CHANGES_REQUESTED. | Opus, `max` effort |
 
 
 ## Infrastructure agents
@@ -51,11 +52,14 @@ Model and effort are independent. Set either one alone, both, or neither.
 
 | Agent | Default tier |
 |-------|-------------|
-| `atomic-investigator` | haiku |
-| `atomic-implementer` | sonnet |
-| `atomic-reviewer` | sonnet |
-| `atomic-wiki-inferrer` | sonnet |
-| `atomic-strategist` | opus |
+| `atomic-investigator` | `claude-haiku-4-5-20251001`, effort `low` |
+| `atomic-implementer` | `claude-sonnet-5`, effort `medium` |
+| `atomic-reviewer` | `claude-sonnet-5`, effort `xhigh` |
+| `atomic-wiki-inferrer` | `claude-sonnet-5`, effort `medium` |
+| `atomic-auditor` | `claude-opus-5`, effort `max` |
+| `atomic-strategist` | unpinned, effort `xhigh` |
+
+`atomic-strategist` ships with no `model:` field on purpose, so the parent session or your own config decides whether a given question is worth opus or fable. Effort is the knob that survives an unpinned model.
 
 (`fable` is forward-reserved and may not correspond to a live Claude Code model tier yet.)
 

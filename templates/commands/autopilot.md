@@ -80,7 +80,20 @@ Run the loop exactly as `/subagent-implementation` defines it — scratchpad bri
 
 Orchestrator runs the full suite itself (invoke `atomic-verify`): tests, typecheck, lint, build, render+bundle parity, `atomic validate` (spec + config, when a spec or bundled artifact changed), and the `/atomic-help` MISSING-scan if artifacts changed. Confirm green before shipping. Do not trust subagent claims at the finish line.
 
-Once the suite is green, run a range-scoped signals refresh before the ship gate. Range: `Loop base SHA` in `STATE.md` (the Phase 2 worktree branch point) to current HEAD.
+Once the suite is green, update documentation, then refresh signals. Order matters: a new doc file has to exist before the scan runs, or the refreshed signals miss it.
+
+Invoke `/documentation` in authoring mode, scoped to the loop's range (`Loop base SHA` in `STATE.md` to HEAD). Running it unattended changes two things from its normal behavior:
+
+- **Answer its per-surface prompts yourself.** `/documentation` and the `doc-impact` partial normally walk each affected surface asking Yes/Later/Remind/Skip. Rule 4 above says the ship gate is the only prompt, so take `Yes` on every stale or incomplete surface and record what you touched in `STATE.md`. Never `Later` here: a follow-up nobody asked for is how documentation rots.
+- **Write new pages, not just patches to old ones.** Authoring mode can create a page for a domain this change introduced. The ship verb's `doc-impact` runs in maintenance mode and never suggests new pages, so skipping this step means a new feature ships undocumented and nothing downstream notices.
+
+Commit as `docs: <topic>`. If no surface matched the change, record that in `STATE.md` and move on.
+
+Then dispatch `atomic-auditor` once, read-only, over the same range. Pass it the spec, `range: <loop-base>..HEAD`, `STATE.md`, and the surfaces table. It is the only gate that reads the finished work as a whole, and the only one that never saw the loop that produced it.
+
+`VERDICT: PASS` → continue to signals. `VERDICT: CHANGES_REQUESTED` → run **one** more implementer/reviewer iteration against its findings, re-run the suite, then continue. **Never re-audit.** A second audit pass is how an unattended run stops terminating.
+
+Then run a range-scoped signals refresh before the ship gate, over the same range.
 
 1. If `command -v atomic` returns nothing → skip.
 2. Run `atomic signals stale`. Exit 0 → skip (nothing material changed). Exit 2 → report + skip.

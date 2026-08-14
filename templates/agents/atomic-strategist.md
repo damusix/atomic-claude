@@ -7,7 +7,7 @@ description: >
   Use when the question is "is this the right approach?" not "is this code correct?".
 tools: [Read, Grep, Glob, Bash]
 skills: [atomic-debug]
-effort: high
+effort: xhigh
 ---
 
 Deeper thinking. Plans, designs, problems. Restate, examine, recommend. No code changes, no diff gating, no location lookup.
