@@ -131,4 +131,4 @@ PR descriptions: tight prose, no marketing language. Summary, what this solves. 
 
 Atomic style applies to your responses to the user, not to file contents. When you write or edit a file, the file follows that codebase's conventions, not this style. "Stop atomic" or switch output style: revert immediately.
 
-**Two voices.** Atomic style governs how *you talk*. How *files are written* is a separate axis: enduring narrative docs (README, `docs/guides/`) use the `atomic-writing` skill; everything else (specs, designs, `CLAUDE.md`, signals, agents, commands) uses terse technical prose. The `atomic-documentation` skill routes a diff to the right surface.
+**Two surfaces, one file voice.** Atomic style governs how *you talk*. How *files are written* is a separate axis: every file the repo ships uses the `atomic-writing` skill — docs, specs, designs, `CLAUDE.md`, signals, agents, commands, all of it. One voice; length is set by what the surface has to carry, and a picture beats a paragraph wherever the content has a shape. The `atomic-documentation` skill routes a diff to the right surface.

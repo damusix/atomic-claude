@@ -234,14 +234,14 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `docs/reference/repl.md` | `atomic repl` persistent interpreter sessions, scope model, six verbs, exit codes, idle_timeout config | atomic-writing |
 | `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
 | `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
-| `CLAUDE.md` | global contract, agent/command/skill registry | terse-technical |
+| `CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |
 
 
 ## Research notes (`docs/research/`)
 
 
 Point-in-time research and decision records: a problem investigated, the experiment that settled it,
-and the agreed plan. Committed, human-facing, terse-technical voice. Mermaid allowed (it is a `docs/` file).
+and the agreed plan. Committed, human-facing, `atomic-writing` voice like every other file. Mermaid allowed (it is a `docs/` file).
 
 These are **not** maintained documentation surfaces — keep them out of the `## Documentation surfaces`
 table above so the `atomic-documentation` maintenance flow never flags them as stale. A research note

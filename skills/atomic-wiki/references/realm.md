@@ -215,6 +215,8 @@ bucket synthesis skipped: <bucket_name> — no changed files to synthesize
 
 ## Rules
 
+- Wiki content (repo summaries and knowledge pages alike) follows `~/.claude/skills/atomic-writing/SKILL.md`, and a dispatched sub-agent reads that file before writing. **Why:** sub-agents do not auto-fire skills, so the explicit read is the enforcement; a wiki page a person cannot read is serving only half its readers.
+- Draw the shape when the content has one (how repos depend on each other, a pipeline, a lifecycle) as a captioned Mermaid block. **Why:** a reader follows edges faster in a diagram than in a paragraph, and the model reads the same source text either way.
 - Never write fingerprint values manually. Always let `atomic wiki stamp` write them. **Why:** code-written fingerprints are verifiable; LLM-authored ones drift silently.
 - `target_repo` is always read-only in wiki-output mode. No writes, no edits, no file creation inside it. **Why:** wiki summarization is a read pass; mutations to the target repo are never the agent's responsibility.
 - Omit `<concerns_format>` from wiki-output sub-agent prompts. **Why:** concerns are discarded in wiki-output mode (W7); generating them wastes tokens.
