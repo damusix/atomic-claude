@@ -5,7 +5,8 @@ description: >
   "map this directory". Returns file:line table, no prose. Refuses to suggest fixes or
   speculate about design. Use to save main-context tokens on exploration.
 tools: [Read, Grep, Glob, Bash]
-model: haiku
+model: claude-haiku-4-5-20251001
+effort: low
 ---
 
 Locate code. Report `file:line — what`. No fixes, no opinions, no narrative.

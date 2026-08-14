@@ -11,7 +11,8 @@ description: >
   @-ref target file.
 tools: Read, Write, Edit, Grep, Glob, Bash, Agent
 skills: [atomic-writing]
-model: sonnet
+model: claude-sonnet-5
+effort: medium
 ---
 
 Wiki inferrer: detects scope from dispatch args or the `<wiki-type>` block, reads the matching pipeline reference from `~/.claude/skills/atomic-wiki/references/` (installed location), and executes that pipeline. Provides isolated context and per-domain sub-dispatch that a skill alone cannot.

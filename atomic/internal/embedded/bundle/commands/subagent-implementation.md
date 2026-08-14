@@ -287,7 +287,7 @@ After each `CHANGES_REQUESTED`, compare the current iteration's blocking signal 
     Option A — pressure-test the spec:
       /pressure-test @docs/spec/<topic>.md
 
-    Option B — dispatch atomic-strategist (opus, read-only) for cross-cutting RCA:
+    Option B — dispatch atomic-strategist (high effort, read-only) for cross-cutting RCA:
       "Dispatch atomic-strategist: review STATE.md and the last two reviewer verdicts.
        Identify why the same signal keeps failing and whether the spec or approach needs revision."
 
@@ -298,7 +298,7 @@ After each `CHANGES_REQUESTED`, compare the current iteration's blocking signal 
     ```
 
 2. **Wait for user input** via `AskUserQuestion` with three choices: `continue loop`, `run /pressure-test`, `dispatch atomic-strategist`.
-3. **Never auto-dispatch** `atomic-strategist` or auto-invoke `/pressure-test` — both are user-driven (axiom 3: expensive/opus; the user opts in). The orchestrator surfaces the block and waits.
+3. **Never auto-dispatch** `atomic-strategist` or auto-invoke `/pressure-test` — both are user-driven (axiom 3: expensive; the user opts in). The orchestrator surfaces the block and waits.
 4. After user chooses, record the choice in `STATE.md` under the current iteration's `Decisions:` line.
 5. If the user chooses `continue loop` → loop back to Step A as normal.
 6. If the user chooses `dispatch atomic-strategist` → dispatch `atomic-strategist` (read-only) with a prompt summarizing the task context, the repeated signal, and the last two iteration findings from `STATE.md`. Incorporate any strategic recommendation into the next `BRIEF.md` before looping. The strategist dispatch does NOT consume a loop iteration — it is a diagnosis step.

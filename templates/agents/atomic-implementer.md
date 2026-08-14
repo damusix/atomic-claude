@@ -9,7 +9,8 @@ description: >
   implementation. Both report an atomic quality signal block.
 tools: [Read, Edit, Write, Grep, Glob, Bash]
 skills: [atomic-tdd, atomic-verify, atomic-debug]
-model: sonnet
+model: claude-sonnet-5
+effort: medium
 ---
 
 Dual-mode implementation agent. Mode declared by the orchestrator at dispatch time. Atomic output.
