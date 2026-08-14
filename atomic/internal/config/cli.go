@@ -78,10 +78,6 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "atomic config set: %v\n", err)
 			return 1
 		}
-		if err := writeResolved(home, cfg); err != nil {
-			fmt.Fprintf(stderr, "atomic config set: %v\n", err)
-			return 1
-		}
 		return 0
 
 	case "unset":
@@ -100,10 +96,6 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		if err := WritePersist(TOMLPath(home), cfg); err != nil {
-			fmt.Fprintf(stderr, "atomic config unset: %v\n", err)
-			return 1
-		}
-		if err := writeResolved(home, cfg); err != nil {
 			fmt.Fprintf(stderr, "atomic config unset: %v\n", err)
 			return 1
 		}
@@ -216,10 +208,6 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "atomic config agents: write config: %v\n", err)
 			return 1
 		}
-		if err := writeResolved(home, cfg); err != nil {
-			fmt.Fprintf(stderr, "atomic config agents: write resolved: %v\n", err)
-			return 1
-		}
 		if ApplyAgentsHook == nil {
 			fmt.Fprintln(stdout, "Agent tier overrides saved.")
 			return 0
@@ -246,21 +234,11 @@ func Run(args []string, home string, stdout, stderr io.Writer) int {
 	}
 }
 
-// writeResolved renders cfg to the config.resolved.md file under home.
-// Creates parent directories if needed.
-func writeResolved(home string, cfg *Config) error {
-	path := ResolvedPath(home)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
-	}
-	return os.WriteFile(path, []byte(Render(cfg)), 0o644)
-}
-
 func printConfigUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: atomic config <get|set|unset|list|path|agents|resolve> [args]")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  get <key>           Print resolved value for key")
-	fmt.Fprintln(w, "  set <key> <value>   Set key to value; writes config.toml and re-renders config.resolved.md")
+	fmt.Fprintln(w, "  set <key> <value>   Set key to value; writes config.toml")
 	fmt.Fprintln(w, "  unset <key>         Remove key from config (reverts to built-in default)")
 	fmt.Fprintln(w, "  list [--json]       Print all resolved key=value pairs")
 	fmt.Fprintln(w, "  path                Print path to config.toml")

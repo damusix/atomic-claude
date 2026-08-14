@@ -2,8 +2,6 @@
 
 <atomic>
 
-@~/.atomic/config.resolved.md
-
 ## User profile
 
 @~/.atomic/profile.md
@@ -105,7 +103,7 @@ Use regex when searching for literal strings, log messages, comments, config val
 | `docs/spec/<topic>.md` | Implementation contract derived from the design; canonical source for `/subagent-implementation`. | Committed; see `rules/specs/`. |
 | `.claude/worktrees/<branch>/` | Isolated branches created by the implement loop / autopilot via the worktree-setup partial — Claude Code's native worktree home (`EnterWorktree`, `claude --worktree`); ship verbs detect provenance on merge/squash. Gitignored via nested `.claude/.gitignore`. | Prompt to delete on merge. |
 | `tmp/` | Ad-hoc experiments, scratch scripts, one-off tests. Gitignored. | Throwaway. |
-| `~/.atomic/` | Per-user state: `config.toml`, `config.resolved.md` (auto-loaded), `backups/`, `proposed/CLAUDE.md`. | Never committed. |
+| `~/.atomic/` | Per-user state: `config.toml`, `profile.md` (auto-loaded), `state.json`, `backups/`, `proposed/CLAUDE.md`. Inspect resolved values with `atomic config list`. | Never committed. |
 
 
 ## Specs

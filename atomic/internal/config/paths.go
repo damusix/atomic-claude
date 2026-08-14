@@ -15,12 +15,6 @@ func TOMLPath(home string) string {
 	return filepath.Join(Dir(home), "config.toml")
 }
 
-// ResolvedPath returns the path to the rendered markdown snapshot.
-// This file is @-referenced from CLAUDE.md so every Claude session sees it.
-func ResolvedPath(home string) string {
-	return filepath.Join(Dir(home), "config.resolved.md")
-}
-
 // BackupDir returns the directory where claudeinstall writes pre-write backups.
 func BackupDir(home string) string {
 	return filepath.Join(Dir(home), "backups")

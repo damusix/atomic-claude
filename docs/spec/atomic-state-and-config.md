@@ -4,7 +4,7 @@
 ## Goal
 
 
-Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config (`atomic config get|set|unset|list|path`) whose resolved values reach every Claude session via a single `@-ref` from the bundled `CLAUDE.md` to `~/.atomic/config.resolved.md`. Universal delivery: works with or without Claude Code hooks installed.
+Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config (`atomic config get|set|unset|list|path`). `config.toml` is the single source of truth; `atomic config list` renders resolved values on demand. Config is consumed by the `atomic` binary, not injected into Claude sessions.
 
 
 ## Non-goals
@@ -24,12 +24,10 @@ Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config 
 
 
 - [ ] `atomic config get|set|unset|list|path` work end-to-end against the schema below.
-- [ ] `atomic config set <key> <value>` rejects unknown keys and unknown values with a typo-suggesting error; valid sets atomically write `config.toml` and re-render `config.resolved.md`.
-- [ ] Fresh install creates `~/.atomic/config.resolved.md` (empty), and bundled `CLAUDE.md` carries the `@~/.atomic/config.resolved.md` line.
+- [ ] `atomic config set <key> <value>` rejects unknown keys and unknown values with a typo-suggesting error; valid sets atomically write `config.toml`.
 - [ ] On fresh install, SHA-compare of installed vs bundled `CLAUDE.md` matches (no divergence, no `.atomic-proposed` written).
 - [ ] `claudeinstall` writes backups to `~/.atomic/backups/<ts>/` and proposed merges to `~/.atomic/proposed/CLAUDE.md`.
-- [ ] `atomic doctor` includes a new `config` check (TOML parses, no unknown keys, `config.resolved.md` matches render of TOML).
-- [ ] `atomic doctor --fix` re-renders `config.resolved.md` when drift detected.
+- [ ] `atomic doctor` includes a `config` check (TOML parses, no unknown keys, values validate).
 - [ ] `atomic-claude-merger` agent and `/atomic-claude-merge` command reference the new proposed path.
 - [ ] Axiom 2 amended in `.claude/rules/authoring/axioms.md` with the shell-settable carve-out.
 
@@ -40,7 +38,6 @@ Consolidate atomic-owned state under `~/.atomic/` and ship a TOML-backed config 
 ```
 ~/.atomic/
 ├── config.toml              # user-written, atomic config set rewrites
-├── config.resolved.md       # rendered from TOML + defaults; @-ref'd from CLAUDE.md
 ├── backups/<ts>/<relpath>   # claudeinstall pre-write backups
 ├── proposed/
 │   └── CLAUDE.md            # claudeinstall divergence merge target
@@ -135,12 +132,9 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 
 | Risk | Likelihood | Mitigation |
 |------|-----------|-----------|
-| `@-ref` resolves to missing file on fresh install | med | CP5 pre-creates an empty `config.resolved.md`; CP4 ships the `@-ref` in source so it's present even before any `set` |
 | Schema additions in newer binaries break older binaries that read the same `config.toml` | med | Lenient read (unknown keys ignored with WARN); strict only on write |
-| `config.resolved.md` drifts from `config.toml` (manual edits to TOML, crashed `set`, etc.) | med | `doctor` config check compares; `--fix` re-renders |
 | Old `~/.claude/.atomic-backups/` and `CLAUDE.md.atomic-proposed` pile up indefinitely | low | Accepted. Documented in non-goals; user cleans up |
 | `CLAUDE.md` source edit forgotten when regenerating bundle | low | Existing `.githooks/pre-commit` regens; CI `git diff --exit-code` enforces |
-| Renderer non-determinism (map iteration order, timestamp leakage) | med | Sort keys before emit; no timestamps in `config.resolved.md` body; byte-stable test |
 | Memory entries overriding config silently outlive `atomic config set` | med | Axiom-2 carve-out documents the scoping rule; rely on user discipline |
 
 
@@ -224,6 +218,15 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 | `update.run_doctor` | bool | `true` | `true`, `false` |
 
 **Why:** Users who find the automatic post-update doctor pass noisy or who run doctor explicitly as part of a CI gate can disable it durably without passing `--no-doctor` on every invocation.
+
+
+### 2026-08-14 — Drop config.resolved.md
+
+**What changed:** `~/.atomic/config.resolved.md` is gone, along with the `@-ref` that pulled it into every Claude session. `config.Render`, `config.ResolvedPath`, `writeResolved`, and the install-time stub are deleted. `config.toml` is the only source of truth; `atomic config list` renders resolved values on demand. Doctor category 9 keeps validating the TOML and loses the drift half, which also removes its `--fix` repair, since neither remaining condition is auto-fixable.
+
+**Why:** The file put a generated snapshot into every session's context for values only the `atomic` binary reads, and it drifted silently. A user's copy advertised four per-agent effort overrides while their `config.toml` had no `[claude.agents]` block at all, written by an older binary using pre-CP7 key names and never regenerated. A snapshot that can lie about config is worse than no snapshot.
+
+**Removed:** the rendered markdown view, its `@-ref`, the drift check, and the drift repair.
 
 
 ## Implementation log
