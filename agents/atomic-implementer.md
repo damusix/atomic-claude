@@ -8,7 +8,7 @@ description: >
   anything larger back to the orchestrator. Both modes write TDD: failing test first, then
   implementation. Both report an atomic quality signal block.
 tools: [Read, Edit, Write, Grep, Glob, Bash]
-skills: [atomic-writing]
+skills: [atomic-tdd, atomic-verify, atomic-debug]
 model: sonnet
 ---
 

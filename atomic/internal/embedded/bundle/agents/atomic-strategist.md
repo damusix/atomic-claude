@@ -6,6 +6,7 @@ description: >
   Read-only. Does not implement, does not gate diffs, does not locate code.
   Use when the question is "is this the right approach?" not "is this code correct?".
 tools: [Read, Grep, Glob, Bash]
+skills: [atomic-debug]
 model: opus
 ---
 

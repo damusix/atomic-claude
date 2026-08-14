@@ -8,7 +8,7 @@ description: >
   + totals + VERDICT. Use to gate implementation work in the subagent-implementation loop and to
   gate spec authoring in the /atomic-plan spec loop.
 tools: [Read, Grep, Bash]
-skills: [atomic-writing]
+skills: [atomic-writing, atomic-verify, atomic-tdd]
 model: sonnet
 ---
 
