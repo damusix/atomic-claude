@@ -116,6 +116,8 @@ Memory entries overriding config must be scoped ("for this session", "for this t
 | # | Checkpoint | Files/areas | Verifies |
 |---|------------|-------------|----------|
 | 1 | New package `atomic/internal/config/` with TOML load (lenient), schema validate (strict), get/set/unset, atomic write via `os.Rename` from tmp | `atomic/internal/config/*.go` | unit: round-trip set→load→get; unknown key rejected on set; unknown key ignored on load with WARN |
+> Checkpoints 2, 4, 5, and 7 below describe the `config.resolved.md` renderer, its `@-ref`, its install-time stub, and the doctor drift check. All four were removed on 2026-08-14 — see the change log. The rows stay as the build record; do not treat them as work to do.
+
 | 2 | Renderer: `config.resolved.md` generated from resolved values (TOML + defaults) | `atomic/internal/config/render.go` | unit: deterministic output (byte-stable for same input); empty TOML renders empty-but-present file with header |
 | 3 | CLI wiring: `atomic config get|set|unset|list|path`, including `list --json` | `atomic/cmd/atomic/main.go`, `atomic/internal/config/cli.go` | integration: each subcommand exit codes + output match contract; typo suggestion fires on near-match |
 | 4 | Bundle source `CLAUDE.md` adds line `@~/.atomic/config.resolved.md` and a one-paragraph mention of the `.atomic/` namespace | `CLAUDE.md` (repo root), bundle regen via `make -C atomic bundle` | CI "Verify bundle is committed" passes; `manifest.go` reflects new CLAUDE.md hash |

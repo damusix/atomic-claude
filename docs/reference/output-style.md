@@ -74,9 +74,9 @@ Restart Claude Code (or start a new session) for the change to take effect.
 Five Auto-Clarity triggers revert the style to full prose: security warnings, irreversible-action confirmations, multi-step sequences where fragment order could be misread, cases where the compression itself creates technical ambiguity, and the user asking to clarify or repeating a question. Clarity is the point, and these are the cases where a terse fragment could be misread. Atomic style resumes once the clear part is done.
 
 
-## Two voices
+## Two surfaces, one file voice
 
-Atomic style governs replies in the terminal, never file contents. When Claude writes or edits a file, the file follows its codebase's conventions: enduring narrative docs (README, guides) use the `atomic-writing` skill's voice, everything else (specs, designs, CLAUDE.md, signals) uses terse technical prose. Saying "stop atomic" or switching output styles reverts the reply voice immediately.
+Atomic style governs replies in the terminal, never file contents. When Claude writes or edits a file, that file follows the `atomic-writing` skill: README, guides, reference pages, specs, design docs, wiki pages, `CLAUDE.md`, and the prompt artifacts alike. One voice, with length set by what the surface has to carry. Saying "stop atomic" or switching output styles reverts the reply voice immediately, and has no effect on how files are written.
 
 
 ## Subagents do not inherit the style

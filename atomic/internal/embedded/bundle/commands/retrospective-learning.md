@@ -56,7 +56,7 @@ Catalog every config-shaped file at BOTH installed (~/.claude) and project level
 
 Look for:
 
-- Global: ~/.claude/CLAUDE.md, ~/.claude/CLAUDE.local.md, ~/.claude/commands/, ~/.claude/agents/, ~/.claude/skills/, ~/.claude/output-styles/, ~/.claude/rules/, ~/.claude/settings.json, ~/.claude/settings.local.json, ~/.atomic/config.toml, ~/.atomic/config.resolved.md, ~/.atomic/profile.md
+- Global: ~/.claude/CLAUDE.md, ~/.claude/CLAUDE.local.md, ~/.claude/commands/, ~/.claude/agents/, ~/.claude/skills/, ~/.claude/output-styles/, ~/.claude/rules/, ~/.claude/settings.json, ~/.claude/settings.local.json, ~/.atomic/config.toml, ~/.atomic/profile.md
 - Project: ./CLAUDE.md, ./CLAUDE.local.md, .claude/commands/, .claude/agents/, .claude/skills/, .claude/settings.json, .claude/settings.local.json, .claude/project/signals.md, .claude/project/followups/INDEX.md, .claude/project/followups/*.md
 - Memory: ~/.claude/projects/${PROJECT_SLUG}/memory/MEMORY.md and topic files
 
@@ -671,6 +671,6 @@ Atomic. No narration. Print every shell command before running it (axiom 3). Fin
 - Skip Phase 5b (pattern promotion) entirely in current-only scope — requires cross-session history.
 - Skip prior-retro audit on first run (when `$RUNS_DIR` is empty).
 - Run-log JSON schema is informal — only `decisions[].target_file` and `decisions[].verify_phrase` are load-bearing for prior-retro audits. The rest is informational.
-- `atomic-strategist` dispatch (opus, read-only) is *not* part of the default pipeline. Only invoke when the cross-conversation pattern is genuinely ambiguous — multiple plausible root causes for the same recurring friction. Don't dispatch on clear-cut signals; opus is expensive.
+- `atomic-strategist` dispatch (high effort, read-only) is *not* part of the default pipeline. Only invoke when the cross-conversation pattern is genuinely ambiguous — multiple plausible root causes for the same recurring friction. Don't dispatch on clear-cut signals; the pass is expensive.
 
 </constraints>

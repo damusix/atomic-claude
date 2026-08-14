@@ -26,7 +26,7 @@ If `--print-template` is present, print the following and exit:
 | `README.md` | project overview, quick start | atomic-writing |
 ```
 
-Add this section to your committed `CLAUDE.md` and fill in your project's doc files. Voice values: `atomic-writing`, `terse-technical`.
+Add this section to your committed `CLAUDE.md` and fill in your project's doc files. Voice is always `atomic-writing` — the column exists to name the skill that governs the edit, not to pick between alternatives.
 
 ## Step 1 — Detect mode
 

@@ -36,7 +36,7 @@ Opt-in only. Does not auto-fire.
 
 ## Voice
 
-Working-memory voice — bullets + short paragraphs. Not atomic output style (that's Claude's replies). Not `atomic-writing` (that's narrative docs like README and guides). Internal context that the commit-message synthesis will read.
+`atomic-writing` voice at the length budget it gives a short-lived state file: bullets and short paragraphs, no narrative. Not atomic output style, which governs Claude's replies rather than file contents. Internal context that the commit-message synthesis will read.
 
 ## Lifecycle
 
