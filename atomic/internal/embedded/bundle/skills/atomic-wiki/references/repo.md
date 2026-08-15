@@ -78,7 +78,7 @@ Source paths in this domain: <list from deterministic tree>
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
-- Invoke the `atomic-writing` skill and follow it. It governs the voice.
+- Write for a human reader as much as for a model. The `atomic-writing` skill is preloaded: follow it, including its content-to-form route table — when a section has a shape, draw the shape instead of describing it. `docs/wiki/` sits under `docs/`, so Mermaid is the right form here, not ASCII.
 - Output only the file content. Do not summarize your process.
 </instructions>
 
@@ -92,14 +92,29 @@ description: <one-line summary of this domain>
 ## What it does
 <1-3 fact lines>
 ## Artifacts
-<bullet list: path — role. User-facing Claude Code files: commands, agents, skills, templates for this concern. Omit section if none.>
+
+| Path | Role |
+|------|------|
+<user-facing Claude Code files for this concern: commands, agents, skills, templates. Omit the section if none.>
+
 ## CLI code
-<bullet list: path — role. Go packages that implement/manage/validate this concern. Omit section if none.>
+
+| Path | Role |
+|------|------|
+<Go packages that implement, manage, or validate this concern. Omit the section if none.>
+
 ## Docs
-<bullet list: path — role. Specs, design docs, reference pages, guides about this concern. Omit section if none.>
+
+| Path | Role |
+|------|------|
+<specs, design docs, reference pages, and guides about this concern. Omit the section if none.>
+
 ## Coupling
-<bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known stale cross-references as facts.>
+
+<a Mermaid `flowchart LR` under a one-line caption: this domain plus every domain a change here forces a change in, each edge labelled with what propagates. Then any coupling fact the diagram cannot carry, including known stale cross-references. Omit the diagram when this domain couples to nothing.>
+
 ## Conventions worth knowing
+
 <domain-local convention facts>
 </output_format>
 
@@ -331,6 +346,8 @@ The fallback is deliberately limited.
 |----------|-----|-------|---|
 <rows from deterministic scan>
 
+<at most two sentences naming what moved since the last scan and why. This section is a current-state snapshot, not a changelog: replace these sentences every run. Never append a new range narrative to what a prior run wrote — per-range history belongs in git log, and an unbounded paragraph here costs every session that loads this router.>
+
 ## DevOps & CI
 
 <release pipeline, deploy mechanism, CI provider — 1-2 lines each>
@@ -348,9 +365,11 @@ The fallback is deliberately limited.
 
 (Detail column empty when no domain files exist — small repo, everything in router)
 
+<a Mermaid `flowchart` under a one-line caption, showing how the domains relate: which feed which, which share a substrate, where the entry points are. This is the orientation picture a reader gets before reading any domain file. Skip it when there are fewer than three domains — a picture of two boxes earns nothing.>
+
 ## Cross-cutting
 
-<test layout, conventions pointer, scan substrate path, domain partitioning basis>
+<test layout, conventions pointer, scan substrate path, domain partitioning basis. Facts that belong to no single domain. Keep each to a line or two and draw the shape when one has a shape; this section states current truth, so revise entries in place rather than appending a new one per run.>
 ```
 
 Write every path citation — the `Repo paths` column AND the `Detail` column — as a **repo-root-relative path in backticks** (e.g. `` `docs/wiki/auth.md` ``, NOT `wiki/auth.md`). A code step (`atomic signals linkify`, base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `` [`docs/wiki/auth.md`](docs/wiki/auth.md) ``. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target from the linkified Detail cell.

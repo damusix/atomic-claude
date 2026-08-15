@@ -434,6 +434,8 @@ For each `STALE concern <path> (<repo>)` line from Step 5:
 
 Re-synthesize the concern document. Read the cited repos' current signals files and summary files to understand the current state. Rewrite `<path>` with fresh content that reflects the current state of those repos.
 
+A concern describes something that cuts across repos, so it almost always has a shape worth drawing. Follow the `atomic-writing` skill and route the content to its form: a Mermaid `flowchart` for how the repos interact, a `sequenceDiagram` for a call or deploy path that crosses them, a table for the same decision made differently in each. Mermaid renders in `atomic serve`.
+
 Every concern document (new or rewritten) **must** begin with YAML frontmatter that includes:
 
 ```yaml

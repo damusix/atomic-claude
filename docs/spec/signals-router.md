@@ -122,14 +122,14 @@ The router is a complete orientation document, not a thin index. Two zones:
 | `# Project signals` | Header |
 | `## Framework & runtime` | Stack, language versions, key dependencies (compressed, not exhaustive) |
 | `## Build / test / lint` | Command table: purpose + command + source. CI gate notes. |
-| `## Language breakdown` | Counts: language, LOC, file count, percentage |
+| `## Language breakdown` | Counts: language, LOC, file count, percentage. At most two sentences on what moved since the last scan, rewritten each run — a snapshot, never an appended per-range changelog. |
 | `## DevOps & CI` | Release pipeline, deploy mechanism, CI provider. 1-2 lines each. |
 
 **Zone 2 — Domain route table.** Scales with domain count (~30 tokens/row).
 
 | Section | Content |
 |---------|---------|
-| `## Domains` | Table: Domain / Repo paths / One-liner / Detail link |
+| `## Domains` | Table: Domain / Repo paths / One-liner / Detail link. Followed by a Mermaid `flowchart` of how the domains relate, omitted below three domains. |
 | `## Cross-cutting` | Test layout, conventions pointer, deterministic-substrate path |
 
 Domain table format:
@@ -157,10 +157,10 @@ Required sections (vertical slice):
 |---------|---------|
 | `# <domain>` | Domain name |
 | `## What it does` | 1-3 line fact description |
-| `## Artifacts` | Bullet list: `path — role`. User-facing Claude Code files (commands, agents, skills, templates) for this concern. Omit if none. |
-| `## CLI code` | Bullet list: `path — role`. Go packages that implement/manage/validate this concern. Omit if none. |
-| `## Docs` | Bullet list: `path — role`. Specs, design docs, reference pages, guides. Omit if none. |
-| `## Coupling` | Bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known bugs or stale cross-references. |
+| `## Artifacts` | Table: path + role. User-facing Claude Code files (commands, agents, skills, templates) for this concern. Omit if none. |
+| `## CLI code` | Table: path + role. Go packages that implement/manage/validate this concern. Omit if none. |
+| `## Docs` | Table: path + role. Specs, design docs, reference pages, guides. Omit if none. |
+| `## Coupling` | Mermaid `flowchart LR` under a one-line caption: this domain and every domain a change here forces a change in, edges labelled with what propagates. Then any coupling fact the diagram cannot carry, including known bugs and stale cross-references. Diagram omitted when the domain couples to nothing. |
 | `## Conventions worth knowing` | Domain-local convention facts |
 
 Path citations are written repo-root-relative in backticks and rendered to file-relative markdown links by `atomic signals linkify` — never `@-refs` (a `[text](path)` link is not an `@-ref`). Fact-shaped, not steering-shaped.
@@ -319,6 +319,14 @@ Prevents `signals/auth.md` → `signals/identity.md` churn on reruns where code 
 
 
 ## Change log
+
+### 2026-08-15 — Signals output routes by content shape, not fixed bullet lists
+
+**What changed:** The domain-file schema replaces its four mandated bullet lists with shape-appropriate forms: `## Artifacts`, `## CLI code`, and `## Docs` become path/role tables, and `## Coupling` becomes a captioned Mermaid `flowchart LR` plus whatever facts the diagram cannot carry. `## Domains` gains a domain-relationship flowchart below its table, omitted below three domains. `## Language breakdown` caps its prose at two sentences, rewritten per run.
+
+**Why:** the schema was overriding the voice. `atomic-writing` is preloaded into `atomic-wiki-inferrer` and its Rule 1 routes content to a diagram whenever the content has a shape, but a template that literally reads "bullet list" three lines below the instruction to follow that skill wins. `## Coupling` is a dependency graph, and rendering a graph as bullets is the specific case the rule exists to prevent. The `## Language breakdown` cap addresses unbounded accretion: each incremental run appended a new range narrative to the prior one, growing a multi-thousand-word paragraph in the file that is `@`-ref'd into every session. Per-range history is what `git log` is for.
+
+**Superseded:** Prior body specified `Bullet list:` for `## Artifacts`, `## CLI code`, `## Docs`, and `## Coupling`, gave `## Domains` a table with no diagram, and put no bound on `## Language breakdown` prose.
 
 ### 2026-07-16 — User state root relocated to ~/.atomic
 

@@ -50,10 +50,11 @@ Apply the same domain-partitioning logic as the repo-scope Step 3 (vertical slic
 
 ### W4 — Dispatch sub-agents per domain
 
-Same sub-agent dispatch logic as the repo-scope Step 4, with two differences:
+Same sub-agent dispatch logic as the repo-scope Step 4, with three differences:
 
 1. Sub-agents read from `target_repo` read-only and write their domain output to `wiki_dir/repos/<repo-name>/` (or single file for small repos). They do NOT write into `target_repo`.
 2. **Omit the `<concerns_format>` block from sub-agent prompts.** Wiki mode never surfaces concerns (W7 explicitly excludes them), so including the block wastes tokens generating output that is immediately discarded.
+3. Correct the Mermaid clause when reusing Step 4's voice instruction: wiki pages live under `wiki_dir/`, not `docs/`. They are still human-facing pages rendered by `atomic serve`, so Mermaid remains the right form — nothing here is a token-budgeted prompt artifact.
 
 The output format is the **wiki summary format** (not the signals domain file format):
 
@@ -70,17 +71,23 @@ generated: <YYYY-MM-DD>
 
 <2-4 fact sentences about what this repo/domain does>
 
+<a Mermaid `flowchart` under a one-line caption when this repo has moving parts worth seeing: the main components and how a request, job, or build flows between them. Skip it for a library with one entry point.>
+
 ## Key paths
 
-<bullet list: path — purpose. Most important entry points and packages.>
+| Path | Purpose |
+|------|---------|
+<the entry points and packages a newcomer needs first.>
 
 ## Tech stack
 
-<bullet: language, frameworks, key deps — facts from reading source/config>
+| Layer | Choice |
+|-------|--------|
+<language, frameworks, key deps — facts read from source and config, not guessed from names.>
 
 ## Patterns worth knowing
 
-<bullet: conventions, non-obvious decisions, things that affect callers>
+<conventions, non-obvious decisions, and anything that affects callers. Draw the shape when one has a shape: a state machine for a lifecycle, an `erDiagram` for a data model, a `sequenceDiagram` for a protocol.>
 </output_format>
 ```
 
@@ -167,6 +174,8 @@ For each coherent topic found across the content files:
 3. If the file already exists, read it first, then **merge** new information into the existing content. Never duplicate facts already present. Preserve existing structure where it still applies; extend or refine as needed.
 
 4. If the file does not exist, create it. Write durable, topic-keyed knowledge content — not a raw dump, not a bullet list of file names. Synthesize facts, patterns, and relationships that persist beyond any single capture file.
+
+   A knowledge page is read by a person deciding something, so it is the surface where a picture pays off most. Follow the preloaded `atomic-writing` skill's content-to-form routing and draw the relationships you synthesized: a `flowchart` for how pieces connect, an `erDiagram` for a data model, a `stateDiagram-v2` for a lifecycle, a table for options weighed against criteria. Mermaid renders here.
 
    When the body links to another concept in the bundle (a repo summary, concern, or another knowledge page), use a standard bundle-relative markdown link `[text](/path.md)` — not an Obsidian `[[wikilink]]`. **Why:** OKF §5.1 recommends bundle-relative `/path.md` as the canonical cross-link form; standard markdown links are portable across all consumers (serve, Obsidian, GitHub, goldmark).
 

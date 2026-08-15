@@ -33,7 +33,7 @@ func Manifest() []Artifact {
 		{Kind: "command", Source: "bundle/commands/git-cleanup.md", Target: "commands/git-cleanup.md", SHA256: "c7f86866d71ebc86ceb0419f75974692be32da288fd3d6c4d9a242bfe1840940"},
 		{Kind: "command", Source: "bundle/commands/pressure-test.md", Target: "commands/pressure-test.md", SHA256: "8e223d4856c75dcbe27c3e57c8dfc063345052ccb094d6317958ded813e29395"},
 		{Kind: "command", Source: "bundle/commands/quick-fix.md", Target: "commands/quick-fix.md", SHA256: "192d0bdf0f9cf363e0b242b494ae2ff5e92135c4e0fe35f44ca0433f573233d0"},
-		{Kind: "command", Source: "bundle/commands/refresh-wiki.md", Target: "commands/refresh-wiki.md", SHA256: "fd762831ea7b38243121936f46f6d1f5c20e5055f6de5d4be4e76bdc1acff341"},
+		{Kind: "command", Source: "bundle/commands/refresh-wiki.md", Target: "commands/refresh-wiki.md", SHA256: "e600cb728978efdf2af1770897d1492bd053bd036d8d1f55ff7a73f3fb87e12a"},
 		{Kind: "command", Source: "bundle/commands/remind-me.md", Target: "commands/remind-me.md", SHA256: "41433cbfc8b4d139d133885c4d6caacfb99c395767824dae60203baad950366f"},
 		{Kind: "command", Source: "bundle/commands/report-issue-with-atomic.md", Target: "commands/report-issue-with-atomic.md", SHA256: "c0a9002ae97488eea38458b8383d36c3a993ec6cb7809e1e2caafaa5994b4b81"},
 		{Kind: "command", Source: "bundle/commands/report-issue.md", Target: "commands/report-issue.md", SHA256: "f308c19d1279d14e8dc548dafa9908e3441aff38c0e2d91b66d616efbb7e7f98"},
@@ -58,8 +58,8 @@ func Manifest() []Artifact {
 		{Kind: "skill", Source: "bundle/skills/atomic-verify/SKILL.md", Target: "skills/atomic-verify/SKILL.md", SHA256: "5668ada68772f2ec43129305d51694d7b93deaa8577653ac7fc7b5bfcb2144e1"},
 		{Kind: "skill", Source: "bundle/skills/atomic-visual-options/SKILL.md", Target: "skills/atomic-visual-options/SKILL.md", SHA256: "c33181fb08ef20597c15b480cb932eda7a5aebded1962ce098935805b28ee19e"},
 		{Kind: "skill", Source: "bundle/skills/atomic-wiki/SKILL.md", Target: "skills/atomic-wiki/SKILL.md", SHA256: "4ae2e4ca56d629736cc9c87b77ebcff64e2b93952cb9f592f347711b930bd2b5"},
-		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/realm.md", Target: "skills/atomic-wiki/references/realm.md", SHA256: "a5471720bb8c96b0da3746e6928594181aa702f638e5923441e3f2858f53b06d"},
-		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/repo.md", Target: "skills/atomic-wiki/references/repo.md", SHA256: "da139499c675ca021300756bc07e89d801742fcc4fd8cf2dedacaefde28869a9"},
+		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/realm.md", Target: "skills/atomic-wiki/references/realm.md", SHA256: "e27ae83a5fa5a25e70bee86fcb2a2acd55dfa94d32527bf47c0856cf713ae3db"},
+		{Kind: "skill", Source: "bundle/skills/atomic-wiki/references/repo.md", Target: "skills/atomic-wiki/references/repo.md", SHA256: "e343035c3a3139edd8cb759e917923cee7ed711cda9ee12c866b8b5835f6dc99"},
 		{Kind: "skill", Source: "bundle/skills/atomic-writing/SKILL.md", Target: "skills/atomic-writing/SKILL.md", SHA256: "76f293fb67c5f202172f45afec49270f3c3b2713f3a5140189221bd5a470822f"},
 	}
 }
