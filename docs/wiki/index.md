@@ -66,7 +66,7 @@ On top of that scan, the `selfupdate-state` feature (branch `selfupdate-state`, 
 
 - CI: GitHub Actions ([`.github/workflows/`](../../.github/workflows)). Four workflows: `ci.yml` (test/vet/fmt/bundle-drift gates), `docs.yml` (VitePress site build/deploy), `release-please.yml` (changelog automation), `release.yml` (goreleaser on tag).
 - Release: goreleaser produces multi-arch binaries. release-please manages version + tag.
-- Pre-commit hook ([`.githooks/pre-commit`](../../.githooks/pre-commit)): three-stage render→bundle→followups chain. Install via `make hooks`.
+- Pre-commit hook ([`.githooks/pre-commit`](../../.githooks/pre-commit)): four-stage render→bundle→followups→frontend-dist chain. Stage 4 rebuilds [`atomic/internal/serve/frontend/dist`](../../atomic/internal/serve/frontend/dist) via bun when the frontend workspace is staged, and degrades to a warning when bun is absent. Install via `make hooks`.
 
 ## Domains
 
