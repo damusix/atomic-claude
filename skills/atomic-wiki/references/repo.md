@@ -78,7 +78,8 @@ Source paths in this domain: <list from deterministic tree>
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
-- Write for a human reader as much as for a model. The `atomic-writing` skill is preloaded: follow it, including its content-to-form route table — when a section has a shape, draw the shape instead of describing it. `docs/wiki/` sits under `docs/`, so Mermaid is the right form here, not ASCII.
+- Write for a human reader as much as for a model. The `atomic-writing` skill is preloaded: follow it, including its content-to-form route table — when something has a shape, draw the shape instead of describing it. `docs/wiki/` sits under `docs/`, so Mermaid is the right form here, not ASCII.
+- There is no diagram quota. The schema below names the diagram each section usually needs, but any section may carry one, several, or none: draw one per idea that has a shape and leave the rest as prose. A file with a flowchart, an ER diagram, and a state machine is fine when it explains three things with three shapes. The test is whether the picture explains better than the sentence would, never a count.
 - Output only the file content. Do not summarize your process.
 </instructions>
 
@@ -148,7 +149,7 @@ Source paths: <list of paths in this domain>
 Check:
 - Every claim in the domain file is supported by a source file.
 - No claims about paths outside this domain.
-- Required sections present: What it does, Where it lives, What it talks to, Conventions worth knowing.
+- Required sections present: What it does, Artifacts, CLI code, Docs, Coupling, Conventions worth knowing. Artifacts, CLI code, and Docs are omitted when the domain has none of that kind.
 - OKF frontmatter present (`type: Domain` and `description:`) at the top of the file.
 - No @-refs (repo-root-relative paths in backticks only — a code linkify step renders them to relative links later; a `[text](path)` link is not an @-ref).
 - Fact-shaped, not steering-shaped.
@@ -395,23 +396,29 @@ description: <one-line summary of this domain>
 
 ## Artifacts
 
-<bullet list: path — role. User-facing Claude Code files for this concern.>
+| Path | Role |
+|------|------|
+<user-facing Claude Code files for this concern.>
 
 ## CLI code
 
-<bullet list: path — role. Go packages for this concern. Omit if none.>
+| Path | Role |
+|------|------|
+<Go packages for this concern. Omit if none.>
 
 ## Docs
 
-<bullet list: path — role. Specs, design docs, reference pages, guides.>
+| Path | Role |
+|------|------|
+<specs, design docs, reference pages, guides.>
 
 ## Coupling
 
-<bullet list: what changes here force changes in other domains. Name the other domain.>
+<captioned Mermaid `flowchart LR`: this domain and every domain a change here forces a change in, edges labelled with what propagates. Then any coupling fact the diagram cannot carry.>
 
 ## Conventions worth knowing
 
-<domain-local convention facts>
+<domain-local convention facts. Draw any that have a shape — a `stateDiagram-v2` for a lifecycle, an `erDiagram` for a data model, a `flowchart` for an ordering constraint like a build pipeline.>
 ```
 
 Write repo-root-relative paths in backticks throughout; a code linkify step renders them to relative links — never @-refs.

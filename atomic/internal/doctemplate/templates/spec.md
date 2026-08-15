@@ -6,6 +6,13 @@ The implementation contract written by /atomic-plan
 one under ## Change log, which stays until the first post-approval amendment.
 The body is forward-only current truth: no decision history, no prior-version references,
 no rejected-fork enumeration (see rules/specs/spec-currency.md).
+Diagrams: a subagent builds from this contract and a human approves it, and both follow a
+drawn flow faster than a paragraph. Use as many Mermaid blocks as the contract has shapes —
+state machines for lifecycles, ERDs for data models, sequence or flowchart for behavior —
+each next to what it explains, with a one-sentence caption above. No quota in either
+direction: none for a one-file change, several for a multi-flow design. A diagram earns its
+place by making the contract unambiguous, never by filling the template. Keep them
+contract-level: pseudocode and implementation sketches belong in the design doc.
 -->
 # <title>
 
@@ -42,7 +49,8 @@ no rejected-fork enumeration (see rules/specs/spec-currency.md).
 
 ## Change tree
 
-<!-- Indented file tree of what this spec touches. One line per node.
+<!-- Indented file tree of what this spec touches, inside a fenced code block —
+     markdown collapses the alignment otherwise. One line per node.
      Markers: A created, M modified, D removed. Optional parenthetical for
      symbols touched — sketch-level, same altitude as the Checkpoints table's
      Files/areas column, never a signature contract. Example:
@@ -58,7 +66,8 @@ no rejected-fork enumeration (see rules/specs/spec-currency.md).
 
 ## Outline
 
-<!-- Hollow outline of the work: per file, the named pieces to be created or
+<!-- Hollow outline of the work, inside a fenced code block so the nesting
+     survives: per file, the named pieces to be created or
      reshaped — functions/types for code, sections/blocks for markdown
      artifacts; a mixed change uses each file's natural unit. One line per
      piece: `name — responsibility`. Members nest one level under their
@@ -87,7 +96,11 @@ no rejected-fork enumeration (see rules/specs/spec-currency.md).
 
 ## Flows
 
-<!-- One numbered actor -> step sequence per behavior being implemented.
+<!-- One actor -> step sequence per behavior being implemented, as numbered
+     steps or as a Mermaid `sequenceDiagram` / `flowchart` — whichever reads
+     clearer for that flow. A multi-actor exchange or a branching path is
+     usually clearer drawn; a short linear sequence is usually clearer
+     numbered. Draw one per behavior; several flows means several diagrams.
      A change that ships no runtime behavior (pure docs/config) writes
      `None — <reason>` instead of omitting the section — presence is what
      the reviewer checks, not omission. Example:

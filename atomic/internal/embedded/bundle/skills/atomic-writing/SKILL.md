@@ -61,6 +61,8 @@ Tight is not cryptic. Cutting filler is always right. Cutting the contract to sa
 
 1. **Show the shape.** When the content has a shape, draw it. A reader follows a flow faster in a diagram than in a paragraph, and so does a model. This is a preference, not a gate: draw it when a picture explains better, write prose when prose explains better, and never add a diagram that only restates the sentence above it.
 
+    There is no diagram budget. Draw one for every idea in the document that has a shape, wherever that idea sits — a page may carry a flowchart, an ER diagram, and a state machine because it explains three things with three shapes. Two diagrams that each show one thing beat one diagram carrying both. The limit is whether the picture earns its place, never a count.
+
     | Content | Form | In `docs/` | In prompt artifacts |
     |---------|------|-----------|---------------------|
     | Steps passing between actors | sequence | Mermaid `sequenceDiagram` | numbered steps with `->` effects |
@@ -122,10 +124,25 @@ Tight is not cryptic. Cutting filler is always right. Cutting the contract to sa
 
 16. **Instruct plainly in prompt artifacts.** In `commands/`, `agents/`, `skills/`, `rules/`, and `CLAUDE.md`, give the instruction and the constraint. Rationale earns its place when it changes what the reader does at the edges, which is what a `**Why:**` line is for. Rationale that only defends the instruction against an imagined objection is noise, and it costs tokens on every turn.
 
+17. **Mark blocks with real markdown, never with indentation.** Code goes in a fenced block with a language tag; a quotation goes in a `>` blockquote. Never use a bare four-space-indented block to mean either one. **Why:** an indented block carries no language tag, so it loses syntax highlighting, and parsers disagree about it — nested under a list item or after a blank line it is read as a paragraph by some and as code by others, which silently mangles the content. A fence and a `>` are unambiguous everywhere.
+
+    Indentation still does its normal job of nesting a block under a list item; the block it nests is a fence, not a bare indented one:
+
+    ````markdown
+    1. Run the migration:
+
+        ```bash
+        atomic migrate
+        ```
+    ````
+
+    A fence that contains another fence needs more backticks than the one it wraps, as above — four outside, three inside. Equal counts end the outer block at the inner block's opening line.
+
 ## Quick checklist before saving
 
 - Content has a shape and no diagram? Consider drawing it. Diagram that only restates the prose? Cut it.
 - Mermaid block with no caption line above it? Add one.
+- Code or a quotation set off by indentation alone? Make it a fence or a `>` blockquote.
 - Em dash inside a sentence? Replace with comma or period. (In a table cell or `a — b` list line, leave it.)
 - Adverb anywhere? Delete unless it carries technical meaning.
 - Sentence starting with `What`, `Here's`, `So`, or `Look,`? Restructure.
