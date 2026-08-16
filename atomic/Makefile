@@ -7,7 +7,7 @@
 # is gitignored: go:embed cannot reach ../../../context, so the tree has to be
 # mirrored into the package, but it never needs to be committed.
 bundle:
-	go run ./cmd/bundle-mirror -repo ../ -outdir ./internal/embedded
+	go run ./internal/tools/bundle-mirror -repo ../ -outdir ./internal/embedded
 
 # test: run all tests. Depends on bundle — internal/embedded does not compile
 # until the mirror exists.

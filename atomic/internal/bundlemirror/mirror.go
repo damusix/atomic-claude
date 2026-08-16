@@ -1,4 +1,4 @@
-// Package bundlemirror implements the artifact mirror logic used by cmd/bundle-mirror.
+// Package bundlemirror implements the artifact mirror logic used by internal/tools/bundle-mirror.
 // Separated so it can be tested without the main() entrypoint.
 package bundlemirror
 
