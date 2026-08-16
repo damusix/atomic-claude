@@ -18,9 +18,8 @@ const subscriberBuffer = 32
 // single mutex — rather than one per room — is deliberate: "never allow
 // two backends in one room" is a compare-and-swap against the roster, and
 // that check-then-set can only be atomic if nothing else can observe or
-// mutate room state in between. See docs/design/atomic-bus.md's
-// "Approach A" rationale and room_test.go's concurrent-join tests, which
-// are the actual proof of this property.
+// mutate room state in between. room_test.go's concurrent-join tests are the
+// proof of this property.
 //
 // The same mutex also serializes every room's disk I/O: Publish and
 // setHalted append to the room log synchronously while h.mu is held, so
@@ -66,11 +65,8 @@ type Room struct {
 
 	halted bool
 	// haltReason is the text a Halt call was given, cleared on Resume.
-	// Retained (not just broadcast at halt time) so rooms/who/status can
-	// report why a room is halted at any later point, including after a
-	// daemon restart rehydrates it from persisted state (see Rehydrate below;
-	// docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
-	// visible" entry).
+	// Retained rather than only broadcast at halt time so rooms/who/status can
+	// report why a room is halted later, including after Rehydrate restores it.
 	haltReason string
 
 	// usedIDs records every envelope id this Room has assigned during this
@@ -90,12 +86,8 @@ type Room struct {
 // fanOut, which always runs under the owning Hub's mutex (see Room's doc
 // comment) — no separate lock needed.
 //
-// session and skipSelf are also Room.hasLiveSubscription's and fanOut's
-// only source of "is this session currently watching" — the plumbing item 2
-// (self-echo) and item 3 (liveness) share, per docs/spec/atomic-bus.md's
-// 2026-07-29 change-log entry: "Hub.Subscribe(room, ch) carries no
-// identity, and fanOut iterates every subscriber, so the daemon cannot
-// currently tell who published."
+// session and skipSelf are the only way the daemon can tell who published or
+// who is currently watching: the subscribe call itself carries no identity.
 type subscriber struct {
 	ch       chan<- Envelope
 	dropped  int
@@ -140,9 +132,8 @@ func noRoomError(room string) error {
 // kindSystem is dropMarkerEnvelope's FromKind, deliberately outside
 // validKind's {KindAgent, KindHuman} enum — Join can never assign it to a
 // member, so FromKind == kindSystem is exactly as unspoofable as
-// From == systemName. setHalted's control envelope uses KindHuman instead
-// (see docs/design/atomic-bus.md's halt flow, step 2); systemName alone is
-// what makes that one unspoofable too.
+// From == systemName. setHalted's control envelope uses KindHuman instead,
+// where systemName alone is what makes it unspoofable.
 // operatorName is the fixed From of every `say` / `halt` / `resume` envelope.
 // The daemon assigns it in handleSay — it is never read from the request — and
 // Join reserves it exactly as it reserves systemName, so From == operatorName
@@ -198,12 +189,10 @@ func validKind(kind string) bool {
 // otherwise spoof a daemon control envelope (see systemName's doc
 // comment).
 //
-// repo and realm are the joining client's own reported position
-// (docs/spec/atomic-bus.md's 2026-07-29 "position-derived member naming"
-// entry) — stored on the roster verbatim, same trust level as mode: unlike
-// From/FromKind at publish time, there is no roster entry yet to check
-// these against, since this call is what creates one. Empty realm is valid
-// and common; never rewritten to a placeholder.
+// repo and realm are the client's own reported position, stored verbatim at
+// the same trust level as mode: unlike From/FromKind at publish time there is
+// no roster entry to check them against, because this call is what creates
+// one. Empty realm is valid and common; never rewritten to a placeholder.
 func (h *Hub) Join(room, name, mode, kind, session, repo, realm string) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -266,13 +255,9 @@ func (r *Room) nameAvailableTo(candidate, session string) bool {
 
 // Rehydrate restores every room and member recorded in st into the Hub —
 // the startup step that rebuilds the whole roster from ~/.atomic/bus.json
-// (docs/spec/atomic-bus.md: "a restarted daemon rehydrates the whole
-// roster ... not one session at a time as each happens to run a command").
-// bus.json already holds every session on the machine, not just whichever
-// one's next command happens to notice the daemon is gone, so this one
-// pass at Serve startup (daemon.go) is what makes a member who stays idle
-// across the restart still present and addressable — the per-client
-// re-registration this replaced could only ever restore a session that ran
+// bus.json already holds every session on the machine, so this one pass at
+// Serve startup keeps a member who stays idle across the restart present and
+// addressable — the per-client re-registration it replaced could only restore a session that ran
 // a command.
 //
 // Rehydrate bypasses Join's name-collision retry entirely: a restored
@@ -296,15 +281,11 @@ func (h *Hub) Rehydrate(st *State) {
 			if mode == "" {
 				mode = "participate"
 			}
-			// A rehydrated member's LastSeen is restored from what was
-			// persisted, not restamped to "now" — restamping is exactly the
-			// bug this fixes: it resurrected a session dead for hours as
-			// freshly live and put it permanently out of Prune's reach
-			// (docs/spec/atomic-bus.md's 2026-07-30 "last_seen must persist,
-			// not be restamped" entry). A zero LastSeen means this entry was
-			// written before the field existed; Joined is the best available
-			// signal of that member's last known activity, and (unlike
-			// LastSeen on an old entry) is never zero.
+			// LastSeen is restored as persisted, never restamped to "now":
+			// restamping resurrects a session dead for hours as freshly live
+			// and puts it permanently out of Prune's reach. A zero LastSeen
+			// predates the field, and Joined is the best available stand-in
+			// because it is never zero.
 			lastSeen := m.LastSeen
 			if lastSeen.IsZero() {
 				lastSeen = m.Joined
@@ -315,10 +296,8 @@ func (h *Hub) Rehydrate(st *State) {
 		}
 	}
 
-	// Halt is room-level, not tied to any one session's membership — restore
-	// it independently so a room an operator halted comes back halted even
-	// if nobody currently occupies it (docs/spec/atomic-bus.md: "halt
-	// survives a daemon restart").
+	// Halt is room-level, not tied to any session's membership — restore it
+	// independently so a halted room comes back halted even when empty.
 	for room, rs := range st.Rooms {
 		if rs == nil || !rs.Halted {
 			continue
@@ -330,12 +309,9 @@ func (h *Hub) Rehydrate(st *State) {
 }
 
 // UnknownAddressees reports which entries of to are not currently members
-// of room — send --to <name> uses this to warn on an addressed message
-// that reaches nobody (docs/spec/atomic-bus.md: "send --to <name> warns on
-// stderr when no such member is in the room"). This never blocks or alters
-// delivery: a named member may legitimately be about to join, so Publish
-// still sends unconditionally (see docs/spec/atomic-bus.md's Finding 3
-// change-log entry) — this is only the signal a caller uses to warn.
+// of room, so `send --to <name>` can warn about a message that reaches
+// nobody. This never blocks or alters delivery: a named member may
+// legitimately be about to join, so Publish still sends unconditionally.
 func (h *Hub) UnknownAddressees(room string, to []string) []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -353,12 +329,9 @@ func (h *Hub) UnknownAddressees(room string, to []string) []string {
 	return unknown
 }
 
-// Leave removes session's membership from room, then drops the room
-// entirely when that was its last member and nothing is subscribed to it
-// (dropIfEmpty) — reported back as dropped so callers with room-scoped
-// persisted state (e.g. a halt flag) know to clear it too
-// (docs/spec/atomic-bus.md's 2026-07-30 "drop a room when its last member
-// leaves" entry).
+// Leave removes session's membership from room, dropping the room when that
+// was its last member and nothing is subscribed. The dropped return is what
+// tells callers holding room-scoped state (a halt flag, say) to clear it.
 func (h *Hub) Leave(room, session string) (dropped bool, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -379,8 +352,7 @@ func (h *Hub) Leave(room, session string) (dropped bool, err error) {
 
 // dropIfEmpty removes room from the Hub when it has no members and no live
 // subscribers — a room created by a typo, or simply finished with, does not
-// outlive the mistake (docs/spec/atomic-bus.md: "a room disappears when its
-// last member leaves"). The subscriber check is what keeps this from
+// outlive the mistake. The subscriber check is what keeps this from
 // yanking a room out from under a live `tail` or `recv`: those hold no
 // roster membership, so a room with subscribers but zero members must stay
 // — dropping it here would orphan them, since any future Publish to this
@@ -417,12 +389,9 @@ func (h *Hub) Who(room string) ([]Member, error) {
 
 // staleThreshold is how long a member may go with neither fresh LastSeen
 // activity nor a live subscription before who/prune consider it stale.
-// Chosen to match the idle-shutdown default this package used to run on
-// before that mechanism was removed entirely (docs/spec/atomic-bus.md's
-// 2026-07-28 "idle shutdown removed" entry) — ten minutes already proved
-// itself a reasonable "this session is gone" bar for one Claude Code agent
-// turn (think, tool calls, reply) without being trigger-happy on an agent
-// mid-task. A member holding an open recv/chat subscription is never stale
+// Ten minutes already proved a reasonable "this session is gone" bar for one
+// Claude Code agent turn (think, tool calls, reply) without being
+// trigger-happy on an agent mid-task. A member holding an open recv/chat subscription is never stale
 // regardless of this threshold — see isStale below — so staleThreshold only
 // bites a member that joined and then neither sent anything nor kept a
 // subscription open, e.g. a `join` with no following `Monitor(recv)`.
@@ -437,12 +406,8 @@ const staleThreshold = 10 * time.Minute
 // isStale reports whether m should currently be treated as gone: no recent
 // activity (LastSeen within staleThreshold of now) and no live subscription
 // for its session (hasLiveSubscription). A live subscription overrides
-// LastSeen entirely — a member that's connected and just hasn't sent
-// anything is not stale no matter how long that's been, because the
-// subscription itself is ongoing proof of life (docs/spec/atomic-bus.md:
-// "refreshed on any operation from that session and on an open
-// subscription"). Caller must hold h.mu (reads r.subs via
-// hasLiveSubscription).
+// LastSeen entirely: an open subscription is ongoing proof of life, however
+// long the member has been quiet. Caller must hold h.mu.
 func (r *Room) isStale(m Member, now time.Time) bool {
 	if now.Sub(m.LastSeen) <= staleThreshold {
 		return false
@@ -468,11 +433,9 @@ func (r *Room) hasLiveSubscription(session string) bool {
 
 // Prune removes every member of room currently marked stale (isStale) and
 // reports their names, sorted. This is the one place in the package that
-// removes a member without that session asking to leave — deliberately
-// explicit and operator-invoked, never automatic: docs/spec/atomic-bus.md
-// is direct about why — "nothing reaps a member silently ... a quiet
-// session is not a dead one, and evicting a live member would break
-// addressing with no diagnostic."
+// removes a member without that session asking to leave, so it is operator-
+// invoked and never automatic: a quiet session is not a dead one, and
+// evicting a live member would break addressing with no diagnostic.
 func (h *Hub) Prune(room string) ([]string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -516,18 +479,15 @@ func (h *Hub) Rooms() []RoomInfo {
 }
 
 // Publish assigns an id and timestamp, stamps from/from_kind/from_repo/
-// from_realm from the sender's roster membership — never from the request,
-// the same invariant that governs from/from_kind (docs/spec/atomic-bus.md's
-// 2026-07-29 "position-derived member naming" entry) — appends
-// unconditionally to the durable room log, and fans out to live
+// from_realm from the sender's roster membership and never from the request,
+// appends unconditionally to the durable room log, and fans out to live
 // subscribers.
 //
 // Halt is enforced here, not merely advertised: a member whose kind is not
 // exactly KindHuman is rejected before any of that happens when the room
-// is halted. See docs/design/atomic-bus.md, "Resolved open decisions" #4 —
-// halt only makes unattended agent-to-agent loops safe if the daemon
-// itself refuses the send; an advisory flag is something the looping agent
-// that most needs stopping is exactly the one that would ignore.
+// is halted. Halt only makes unattended agent-to-agent loops safe if the
+// daemon refuses the send: an advisory flag is exactly what a looping agent
+// would ignore.
 //
 // Written as "!= KindHuman" rather than "== KindAgent" deliberately: Kind
 // is closed to exactly {KindAgent, KindHuman} by Join's validKind check, so
@@ -556,9 +516,8 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 		}
 	}
 
-	// A successful send is "an operation from that session" — refresh
-	// LastSeen before publishing (docs/spec/atomic-bus.md's last_seen
-	// criterion). member is a map value, not a pointer, so the touched copy
+	// A successful send counts as activity, so refresh LastSeen before
+	// publishing. member is a map value, not a pointer, so the touched copy
 	// must be written back.
 	now := h.now()
 	member.LastSeen = now
@@ -574,8 +533,7 @@ func (h *Hub) Publish(room, session string, to []string, replyTo, text string) (
 // PublishAs publishes on behalf of name/kind directly, without requiring
 // name to hold a room membership via Join — the path `say` uses to speak
 // into a room without occupying a roster slot or appearing in `who`
-// (docs/spec/atomic-bus.md checkpoint 5: "say — one-shot send without
-// joining"). Unlike Publish, room must already exist (getRoom, not
+// Unlike Publish, room must already exist (getRoom, not
 // getOrCreateRoom) — nothing is listening in a room nobody has ever
 // joined, mirroring Halt/Resume's own "room must exist" contract.
 //
@@ -637,11 +595,8 @@ func (r *Room) resolveAddressees(to []string) ([]string, error) {
 }
 
 // resolveOneAddressee resolves one --to entry against r's roster
-// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
-// the role" entry: "--to resolves an exact name first, then a unique
-// suffix or substring"). A fully stacked name is long to type correctly by
-// hand, so this is what lets "--to fe-main" reach
-// "taxgentic-gui-fe-main" without the sender typing the whole thing.
+// An exact name wins, then a unique suffix or substring: a fully stacked name
+// is long to type by hand, so "--to fe-main" reaches "taxgentic-gui-fe-main".
 //
 // Exact match wins outright, before any scan — the case that matters once
 // a "-2" collision sibling exists: "--to taxgentic-gui-fe-main" must reach
@@ -750,7 +705,7 @@ func (r *Room) publishValidated(home, room, from, fromKind, fromRepo, fromRealm 
 }
 
 // Halt sets room's halt flag and publishes a control envelope announcing
-// it (docs/design/atomic-bus.md's halt flow, step 2). Halt does not
+// it. Halt does not
 // require the caller to be a joined member — an operator can stop a room
 // whether or not they are currently in it — so the control envelope's From
 // is the fixed sentinel "system" rather than a roster name.
@@ -766,12 +721,9 @@ func (h *Hub) Resume(room, text string) error {
 
 // defaultResumeText is the envelope body setHalted publishes when Resume is
 // called with no explicit text — a resume notification must never carry an
-// empty body (docs/spec/atomic-bus.md: "resume publishes an envelope with a
-// body, not an empty string"). Halt is unaffected: an operator's empty
-// --text on halt is left exactly as given, unchanged by this fix — an
-// agent reading a halt with no reason still learns the one fact that
-// matters (the room is halted), where an empty resume notification carries
-// nothing to act on at all.
+// empty body. Halt is left as given: an agent reading a halt with no reason
+// still learns the one fact that matters, where an empty resume notification
+// carries nothing to act on at all.
 const defaultResumeText = "room resumed"
 
 // setHalted only flips r.halted once the control envelope announcing it is
@@ -825,8 +777,7 @@ func (h *Hub) setHalted(room string, halted bool, text string) error {
 // IsHalted reports whether room currently has its halt flag set, and the
 // reason given at halt time (empty when not halted, or when halted with no
 // --text) — the query handleWho/handleRooms use to surface halt state
-// alongside a room's own contents (docs/spec/atomic-bus.md's 2026-07-30
-// "halt must persist and be visible" entry).
+// alongside a room's own contents.
 func (h *Hub) IsHalted(room string) (halted bool, reason string, err error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -841,8 +792,7 @@ func (h *Hub) IsHalted(room string) (halted bool, reason string, err error) {
 // Close publishes a final "room closed" envelope, evicts every member,
 // ends every live subscriber's stream, and drops the room from the Hub
 // entirely — an operator-level operation like Halt, needing no prior
-// membership (docs/spec/atomic-bus.md: "close ... Operator-level, like
-// halt/say/tail — no session identity required"). The room log on disk is
+// membership, like halt/say/tail. The room log on disk is
 // never touched: it is the durable record, and a roster operation must not
 // delete it.
 //
@@ -918,8 +868,8 @@ func (h *Hub) SessionIsMember(room, session string) bool {
 // Subscribe registers ch to receive every future Publish (including
 // Halt/Resume's control envelopes) on room, creating room if it doesn't
 // exist yet — tail may watch a room before anyone has joined it (see
-// docs/design/atomic-bus.md's decision #5: tail never joins and holds no
-// name). session identifies the subscribing session for fanOut's self-echo
+// tail never joins and holds no name). session identifies the subscribing
+// session for fanOut's self-echo
 // check and hasLiveSubscription's liveness check — pass "" when the caller
 // has no session of its own (tail's subscriptions; a caller that never
 // sends and therefore has nothing to self-skip). Subscribe itself trusts
@@ -949,8 +899,7 @@ func (h *Hub) Subscribe(room string, ch chan<- Envelope, session string, skipSel
 // --- Room internals. All of the following assume h.mu is already held. ---
 
 // messageIDPrefix names every opaque envelope id nextEnvelopeID assigns
-// (e.g. "m-3f2ab71c") — short and opaque per docs/spec/atomic-bus.md's
-// envelope-shape success criterion.
+// (e.g. "m-3f2ab71c") — short and opaque.
 const messageIDPrefix = "m"
 
 // maxIDGenAttempts bounds nextEnvelopeID's collision-retry loop — the same
@@ -963,8 +912,7 @@ const maxIDGenAttempts = 5
 // daemon restart while the room log it writes into is durable and outlives
 // the daemon: two different messages, from two different daemon lifetimes,
 // would both be assigned id "1" — exactly the ambiguity
-// docs/spec/atomic-bus.md's "ids stay unique across a daemon restart"
-// criterion exists to close.
+// ids must stay unique across a daemon restart.
 //
 // ids.ShortID draws 2 random bytes (65536 values) per call — not adequate
 // on its own for a room log that persists indefinitely and can accumulate
@@ -1009,8 +957,7 @@ func randomIDHalf(prefix string) (string, error) {
 // publisher, except a subscriber whose skipSelf is set and whose session
 // matches publisherSession — that subscriber is skipped entirely, silently
 // and without touching its drop count, because it was never meant to
-// receive this envelope in the first place (docs/spec/atomic-bus.md: "a
-// subscriber does not receive its own published messages"). An empty
+// receive this envelope in the first place. An empty
 // publisherSession (operator publishes, halt/resume control envelopes)
 // never matches any subscriber's session, since a real session id is never
 // empty — see Subscribe's doc.

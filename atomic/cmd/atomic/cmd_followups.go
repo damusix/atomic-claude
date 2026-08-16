@@ -57,7 +57,7 @@ func buildFollowupsCmd(repoOverride *string) *cobra.Command {
 	return parent
 }
 
-// --- CP4: top-level-only verb builders with flag metadata -----------------
+// --- top-level-only verb builders with flag metadata ---------------------
 //
 // The five verbs below have no Cobra subcommands (they are leaves). Each uses
 // DisableFlagParsing:true so the existing handler's own flag.NewFlagSet parses

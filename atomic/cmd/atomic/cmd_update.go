@@ -37,9 +37,8 @@ const updateCheckInterval = time.Hour
 const backgroundCheckMarker = "--__background-check"
 
 // stripBackgroundCheckMarker removes backgroundCheckMarker from args if
-// present, reporting whether it was found. CP4 wires the returned bool into
-// the once-only background-staging gate; this checkpoint only guarantees the
-// marker parses cleanly.
+// present, reporting whether it was found. The bool gates once-only
+// background staging.
 func stripBackgroundCheckMarker(args []string) (found bool, cleaned []string) {
 	cleaned = make([]string, 0, len(args))
 	for _, a := range args {
@@ -52,23 +51,21 @@ func stripBackgroundCheckMarker(args []string) (found bool, cleaned []string) {
 	return found, cleaned
 }
 
-// selfupdateFastPath implements the parent fast path (docs/spec/selfupdate-state.md,
-// Flow "parent fast path", steps 2-4): read state, render the update-available
-// banner from state alone when due, and — stamp-before-spawn — launch a
-// detached background-check child at most once per hour. current, spawn, and
-// now are all injected so tests exercise every gate without forking a real
-// process, depending on the wall clock, or the test binary's own unparseable
-// "dev" version.Version.
+// selfupdateFastPath renders the update banner from state alone and, at most
+// once per hour, stamps last_check before launching a detached check child.
+// Stamping first means a crash or a racing invocation cannot leave the hourly
+// budget unspent. current, spawn, and now are injected so tests reach every
+// gate without forking, waiting on the clock, or tripping over the test
+// binary's unparseable "dev" version. See docs/spec/selfupdate-state.md.
 func selfupdateFastPath(home, verb, current string, noUpdateCheck bool, w io.Writer, now func() time.Time, spawn func(exe string) error) {
 	statePath := config.StatePath(home)
 	state := selfupdate.LoadState(statePath)
 	nowVal := now()
 
 	if selfupdate.ShouldNotify(current, state.Update.LatestVersion, state.Update.LastNotified, nowVal) {
-		// F-1: defense-in-depth normalization. The check branch already
-		// writes latest_version pre-stripped of any "v" prefix, but the
-		// banner strips again here so a stray legacy or hand-edited value
-		// in state.json can never surface a "vX.Y.Z" string to the user.
+		// The check branch already writes latest_version without a "v"
+		// prefix; stripping again keeps a legacy or hand-edited state.json
+		// from surfacing "vX.Y.Z" to the user.
 		fmt.Fprintf(w, "update available: %s (current: %s). run: atomic update\n", selfupdate.DisplayVersion(state.Update.LatestVersion), current)
 		state.Update.LastNotified = nowVal
 		if err := selfupdate.WriteState(statePath, state); err != nil {
@@ -90,8 +87,7 @@ func selfupdateFastPath(home, verb, current string, noUpdateCheck bool, w io.Wri
 		return
 	}
 
-	// Stamp and persist last_check BEFORE spawning: a crash or a racing
-	// invocation must never leave the hourly budget unspent.
+	// Stamp before spawning — see the note on this function.
 	state.Update.LastCheck = nowVal
 	if err := selfupdate.WriteState(statePath, state); err != nil {
 		fmt.Fprintf(w, "atomic: write update state: %v\n", err)
@@ -154,9 +150,8 @@ func buildUpdateCmd() *cobra.Command {
 	return c
 }
 
-// runUpdateCheck implements the check branch of `atomic update --check`
-// (spec Flow "detached child check + stage", steps 2-5): performs the
-// GitHub lookup and writes latest_version/last_result to state.json
+// runUpdateCheck performs the GitHub lookup and writes
+// latest_version/last_result to state.json
 // regardless of outcome, then — only when background is true, i.e. this is
 // the auto-spawned invocation carrying backgroundCheckMarker, never a
 // manually-typed --check — runs the once-only background-staging gate.

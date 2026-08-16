@@ -14,7 +14,7 @@ import (
 // callees|impact|node|files|affected|explore|mcp children.
 // Dispatch is runCode (→ codecli.RunCodeWithRealm); the handler's own
 // flag.NewFlagSet parses flags at runtime — Cobra flag registrations here are
-// for CP4 derivation only (deriveCommands reads cmd.Flags).
+// for deriveCommands, which reads cmd.Flags; they are not parsed here.
 func buildCodeCmd(repoOverride *string) *cobra.Command {
 	dispatch := func(args []string) { runCode(args, *repoOverride) }
 	parent := &cobra.Command{
