@@ -1,0 +1,123 @@
+
+/* ============================================================
+   GRAPH SEARCH
+   ============================================================ */
+
+/* Matches .graph-member-select and .graph-view-switch in app.css — the three
+   float on the canvas as one bar, so they share radius, padding, type size and
+   the blurred paper surface. Diverging here is what made this read as a raw
+   browser control dropped onto the graph. */
+.graph-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.graph-search-input {
+  width: 180px;
+  /* Right padding clears the absolutely-positioned clear button. */
+  padding: 5px 26px 5px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--paper-raised) 88%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.graph-search-input::placeholder {
+  color: var(--ink-ghost);
+}
+
+.graph-search-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--hairline-2));
+}
+
+.graph-search-input::-webkit-search-decoration,
+.graph-search-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+/* Inside the field, not beside it: as a sibling it rendered as a second
+   control competing with the input for the eye. */
+.graph-search-clear {
+  position: absolute;
+  top: 50%;
+  left: 158px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.graph-search-clear:hover {
+  color: var(--ink);
+}
+
+.graph-search-count {
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.graph-search-count[data-empty] {
+  background: color-mix(in srgb, var(--ink-faint) 12%, transparent);
+  color: var(--ink-faint);
+}
+
+/* ============================================================
+   REINDEX
+   ============================================================ */
+
+/* Matches .graph-member-select beside it rather than the schema page's taller
+   control — this toolbar floats over the canvas and its rows are shorter. */
+.graph-reindex {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--paper-raised) 88%, transparent);
+  backdrop-filter: blur(6px);
+  color: var(--ink-soft, var(--ink-faint));
+  font-family: var(--sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.graph-reindex:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--hairline-2));
+  color: var(--amber);
+}
+
+.graph-reindex:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.graph-reindex[data-state="failed"] {
+  border-color: color-mix(in srgb, var(--warn, #e0a83a) 45%, var(--hairline-2));
+  color: var(--warn, #e0a83a);
+}
+
+.graph-reindex-error {
+  color: var(--warn, #e0a83a);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}

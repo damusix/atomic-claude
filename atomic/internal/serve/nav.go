@@ -370,25 +370,21 @@ func folderNodeToJSON(node *navFolderNode, basePrefix string) navNodeJSON {
 	return navNodeJSON{Label: node.name, Children: children}
 }
 
-// computeStaleness is the production StalenessFn.  It calls wiki.Stale once,
-// parses its DRIFT/STALE/STALE-bucket output, and returns two maps:
+// computeStaleness is the production StalenessFn.  It reads the cached
+// DRIFT/STALE/STALE-bucket sets and returns two maps:
 //   - staleMembers: member name (basename of path) → true
 //   - bucketDiffs: bucket name → true
 //
-// Errors from wiki.Stale (exit code 2) are non-fatal: both maps are returned
+// Errors from wiki.Stale (exit code 2) are non-fatal: both maps come back
 // empty.  This is intentional: a staleness-check failure must not crash the nav
 // tree — it degrades to showing no badges rather than returning an error page.
 //
 // The function is read-only and does not write any file.
 func computeStaleness(realmRoot, _ string) (staleMembers map[string]bool, bucketDiffs map[string]bool) {
-	var buf strings.Builder
-	code, err := wiki.Stale(realmRoot, &buf)
-	if err != nil || code == wiki.StaleCodeError {
-		// Hard error (wiki/ absent, unreadable index, etc.) — degrade gracefully.
-		return map[string]bool{}, map[string]bool{}
-	}
-
-	sets := parseStaleLines(buf.String())
+	// The walk itself is shared with /api/status through navStalenessCache —
+	// it is seconds long, and running it twice per page load was most of what
+	// made a page load slow.
+	sets := navStalenessCache.get(realmRoot)
 	// Concerns are their own category: a stale concern does NOT light up the
 	// member-stale badge.  Nav only surfaces member and bucket staleness.
 	return sets.Members, sets.Buckets

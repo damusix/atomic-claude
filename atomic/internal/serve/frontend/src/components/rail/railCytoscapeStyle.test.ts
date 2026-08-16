@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { atomicCyTypeColors } from "../../utils/typeColors";
+import { atomicCyTypeColors, graphTypeColors } from "../../utils/typeColors";
 import { railCytoscapeStyle, registerRailCy, rethemeRailGraph } from "./railCytoscapeStyle";
 
 describe("railCytoscapeStyle", () => {
-  test("is built from typeColors — the default node fill matches atomicCyTypeColors()'s default-fill/default-dark", () => {
-    const colors = atomicCyTypeColors();
+  test("is built from typeColors — the default node fill matches graphTypeColors()'s default-fill/default-dark", () => {
+    // graphTypeColors, not atomicCyTypeColors: the rail paints from the same
+    // vivid band as the full-page graph so a type is one colour app-wide.
+    const colors = graphTypeColors();
     const rules = railCytoscapeStyle("some/page.md");
 
     const defaultRule = rules.find((r) => r.selector === "node");
@@ -14,8 +16,8 @@ describe("railCytoscapeStyle", () => {
     );
   });
 
-  test("emits one per-type node selector for every OKF type, colored from typeColors", () => {
-    const colors = atomicCyTypeColors();
+  test("emits one per-type node selector for every OKF type, colored and shaped from typeColors", () => {
+    const colors = graphTypeColors();
     const rules = railCytoscapeStyle("focus");
 
     for (const type of ["page", "repo", "concern", "knowledge", "bucket", "external", "index", "domain"]) {
@@ -23,6 +25,9 @@ describe("railCytoscapeStyle", () => {
       expect(rule).toBeDefined();
       const expectedFill = colors[type];
       expect(rule?.style["background-gradient-stop-colors"]).toContain(String(expectedFill));
+      // Shape is the second channel — a type that only differed by hue was
+      // unreadable at the rail's 8px dots.
+      expect(rule?.style.shape).toBeDefined();
     }
   });
 

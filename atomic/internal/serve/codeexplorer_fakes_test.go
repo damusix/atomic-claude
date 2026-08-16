@@ -17,6 +17,10 @@ import (
 
 // fakeCodeEngine is a stub CodeEngine for tests.
 type fakeCodeEngine struct {
+	// Reindex plumbing — see IndexAll below.
+	IndexAllCalls int
+	IndexAllErr   error
+
 	node          types.Node
 	nodesByName   []types.Node
 	callers       types.Subgraph
@@ -74,6 +78,13 @@ func (f *fakeCodeEngine) GetAllEdges(_ context.Context) ([]types.Edge, error) {
 	return f.allEdges, f.nodeErr
 }
 func (f *fakeCodeEngine) Close() {}
+
+// IndexAll records the call so reindex tests can assert the endpoint reached
+// the engine; the real rebuild is not something a unit test should run.
+func (f *fakeCodeEngine) IndexAll(context.Context) error {
+	f.IndexAllCalls++
+	return f.IndexAllErr
+}
 
 // fakeProviderFor wraps a fake engine as an EngineProvider.
 func fakeProviderFor(eng serve.CodeEngine) serve.EngineProvider {
@@ -135,3 +146,5 @@ func (r *richFakeCodeEngine) GetOutgoingEdges(_ context.Context, nodeID string) 
 func (r *richFakeCodeEngine) GetAllNodes(_ context.Context) ([]types.Node, error) { return nil, nil }
 func (r *richFakeCodeEngine) GetAllEdges(_ context.Context) ([]types.Edge, error) { return nil, nil }
 func (r *richFakeCodeEngine) Close()                                              {}
+
+func (r *richFakeCodeEngine) IndexAll(context.Context) error { return nil }

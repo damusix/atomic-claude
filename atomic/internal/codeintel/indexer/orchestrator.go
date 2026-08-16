@@ -205,7 +205,15 @@ func compoundExt(path string) string {
 //	2 — function-scoped local variables no longer minted as nodes; only
 //	    single-identifier variable names are minted anywhere (destructuring
 //	    patterns suppressed).
-const extractorVersion = "2"
+//	3 — SQL: ALTER TABLE ADD COLUMN IF NOT EXISTS no longer mints a column
+//	    named "IF" (nor "CONSTRAINT" from ADD CONSTRAINT), and CREATE DOMAIN
+//	    inside the DO $$ BEGIN … EXCEPTION wrapper is extracted.
+//	4 — SQL: continuation lines of a multi-line table constraint (REFERENCES,
+//	    ON DELETE, MATCH, DEFERRABLE …) no longer parse as column definitions.
+//	5 — SQL: constraints record the columns they cover, and a constraint whose
+//	    name and key clause sit on separate lines keeps its declared name
+//	    instead of being synthesized as <table>_fk_N.
+const extractorVersion = "5"
 
 // extractorVersionMetadataKey is the project_metadata row extractorVersion
 // is compared against and stamped into. Reuses the existing table — no

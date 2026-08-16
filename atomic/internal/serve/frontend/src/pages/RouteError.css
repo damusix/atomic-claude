@@ -1,0 +1,42 @@
+/* pages/RouteError — the unmatched-path and render-failure views. Rendered
+   inside the shell, so the reader keeps the nav, search and mode rail. */
+
+.route-error {
+  padding-top: 12vh;
+}
+
+.route-error-code {
+  margin: 0 0 6px;
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.route-error h1 {
+  margin: 0 0 12px;
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 34px;
+  letter-spacing: -0.02em;
+}
+
+.route-error p {
+  color: var(--ink-soft);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.route-error code {
+  overflow-wrap: anywhere;
+}
+
+.route-error-actions {
+  margin-top: 20px;
+}
+
+.route-error-sep {
+  margin: 0 10px;
+  color: var(--ink-ghost);
+}

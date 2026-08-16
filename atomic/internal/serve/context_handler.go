@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 )
 
 // normRelPath converts a URL path segment to the forward-slash form stored in
@@ -38,6 +40,113 @@ type dirEntry struct {
 	Name    string `json:"name"`    // display name (subfolder name, or file name with .md stripped)
 	RelPath string `json:"relpath"` // realm-root-relative target: "<dir>/<name>/" for a folder, "<dir>/<file>" for a file
 	Folder  bool   `json:"folder"`
+
+	// Filename is the entry as it exists on disk, extension included. Name
+	// drops the extension for display; a listing that shows only that cannot
+	// be told apart from a folder listing.
+	Filename string `json:"filename,omitempty"`
+
+	// Title and Summary describe what the entry contains — frontmatter first,
+	// then the document's own heading and opening prose. A directory takes
+	// them from its index file. Without these a listing is a column of
+	// slugs that says nothing about any of them.
+	Title   string `json:"title,omitempty"`
+	Summary string `json:"summary,omitempty"`
+
+	// Index is the index file a folder resolves to, empty when it has none.
+	// A folder that opens a page and a folder that opens another listing
+	// behave differently and should not look identical.
+	Index string `json:"index,omitempty"`
+}
+
+// summaryCap is the length a listing summary is trimmed to — long enough to
+// say what a document is, short enough that a listing stays a listing.
+const summaryCap = 150
+
+// describeEntry fills a listing entry's title and summary from the file's own
+// content, reusing the same extraction the graph's hover cards use so a
+// document is described identically wherever it appears.
+func describeEntry(root, fileRel string) (title, summary string) {
+	abs, ok := safeResolve(root, fileRel)
+	if !ok {
+		return "", ""
+	}
+	data, err := readFile(abs)
+	if err != nil {
+		return "", ""
+	}
+
+	meta := extractNodeMeta(fileRel, data)
+	summary = meta.Description
+	if summary == "" {
+		summary = meta.Snippet
+	}
+
+	// extractNodeMeta falls back to a humanized filename, which in a listing
+	// only restates the name already shown. The document's own first heading
+	// is the better answer, so it is preferred over that fallback — but never
+	// over an explicit frontmatter title.
+	title = meta.Title
+	if !hasFrontmatterTitle(data) {
+		if heading := firstHeading(data); heading != "" {
+			title = heading
+		}
+	}
+	return title, truncateRunes(summary, summaryCap)
+}
+
+// hasFrontmatterTitle reports whether the file declares its own title.
+func hasFrontmatterTitle(data []byte) bool {
+	meta, _, err := frontmatter.Parse(string(data))
+	if err != nil || meta == nil {
+		return false
+	}
+	raw, ok := meta["title"]
+	if !ok {
+		return false
+	}
+	s, ok := raw.(string)
+	return ok && strings.TrimSpace(s) != ""
+}
+
+// firstHeading returns the text of the file's first ATX heading, ignoring the
+// frontmatter block and fenced code (where a "#" is a comment, not a heading).
+func firstHeading(data []byte) string {
+	_, body, err := frontmatter.Parse(string(data))
+	if err != nil {
+		body = string(data)
+	}
+
+	inFence := false
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(strings.TrimRight(raw, "\r"))
+		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if inFence || !strings.HasPrefix(line, "#") {
+			continue
+		}
+		heading := strings.TrimSpace(strings.TrimLeft(line, "#"))
+		if heading != "" {
+			return heading
+		}
+	}
+	return ""
+}
+
+// truncateRunes trims to at most limit runes, cutting at the last word break
+// so the summary does not end mid-word.
+func truncateRunes(s string, limit int) string {
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	cut := string(runes[:limit])
+	if space := strings.LastIndexByte(cut, ' '); space > limit/2 {
+		cut = cut[:space]
+	}
+	return strings.TrimRight(cut, " ,;:—-") + "…"
 }
 
 // listDirEntries reads the immediate markdown files and subfolders of
@@ -69,17 +178,29 @@ func listDirEntries(root, dirRel string) (entries []dirEntry, ok bool) {
 	sort.Strings(files)
 
 	for _, d := range dirs {
-		entries = append(entries, dirEntry{
+		entry := dirEntry{
 			Name:    d,
 			RelPath: filepath.ToSlash(filepath.Join(dirRel, d)) + "/",
 			Folder:  true,
-		})
+		}
+		// A folder with an index file opens a document, not another listing —
+		// describe it by that document.
+		if index, found := resolveDirIndex(root, filepath.ToSlash(filepath.Join(dirRel, d))); found {
+			entry.Index = index
+			entry.Title, entry.Summary = describeEntry(root, index)
+		}
+		entries = append(entries, entry)
 	}
 	for _, f := range files {
+		fileRel := filepath.ToSlash(filepath.Join(dirRel, f))
+		title, summary := describeEntry(root, fileRel)
 		entries = append(entries, dirEntry{
-			Name:    stripMDExt(f),
-			RelPath: filepath.ToSlash(filepath.Join(dirRel, f)),
-			Folder:  false,
+			Name:     stripMDExt(f),
+			Filename: f,
+			RelPath:  fileRel,
+			Folder:   false,
+			Title:    title,
+			Summary:  summary,
 		})
 	}
 	return entries, true

@@ -1,5 +1,19 @@
-/* Shell — three-pane Obsidian shell (#shell/#content-column/#main-pane/
-   #right-rail) is already fully styled by the carried public/app.css (same
-   selectors the pre-cutover markup used). Nothing new to add here yet — the
-   rail pane's own content (Properties/mini-graph/OUT/IN) lands in CP6 with
-   its own components/rail/style.css. */
+/* Shell — the carried public/app.css still owns #shell/#content-column/
+   #main-pane/#right-rail sizing. This file adds only what the focus-canvas
+   layout introduces: the positioning context the nav drawer overlays into,
+   and the reading width the document gains when that drawer is closed. */
+
+#shell {
+  position: relative;
+}
+
+/* The drawer is absolutely positioned, so its containing block is #shell's
+   padding box — which starts at the viewport top, behind the fixed header.
+   Offsetting by the header height puts it under the header, not below it. */
+.nav-drawer {
+  top: var(--header-height);
+}
+
+/* The drawer overlays the content rather than displacing it, so the column
+   geometry does not change with it — pages/Page owns the frame width and the
+   prose measure inside it. */

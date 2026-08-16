@@ -10,6 +10,8 @@ package serve
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"io"
@@ -189,6 +191,14 @@ func RunWithContext(ctx context.Context, opts Options) int {
 	mux.Handle("/api/file/", NewAPIFileHandler(opts.TargetDir))
 	mux.Handle("/api/rail/", NewAPIRailHandler(navRoot, store))
 	mux.Handle("/api/nav", NewAPINavHandler(navOpts))
+	// The staleness walk is seconds long on a real realm, and /api/nav is the
+	// first thing the shell asks for — without a head start the very first
+	// page load still waits on it, cache or no cache. Fire and forget: if it
+	// has not finished by the time the request lands, the request computes it
+	// as it always did.
+	if isRealmScope && navOpts.StalenessFn == nil {
+		go navStalenessCache.get(navOpts.RealmRoot)
+	}
 	mux.Handle("/api/search/md", NewAPIMdSearchHandler(MdSearchOptions{NavRoot: navRoot}))
 	mux.Handle("/api/code/search", NewAPICodeSearchHandler(CodeSearchOptions{
 		RealmRoot:    opts.TargetDir,
@@ -233,6 +243,14 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		WikiIndexPath: wikiIndexPath,
 		// EngineProvider nil → DefaultEngineProvider.
 	})
+	// /api/code/index — rebuild a member's index. Loopback-only; see the
+	// handler's own comment on why a write surface exists here at all.
+	mux.Handle("/api/code/index", NewAPIReindexHandler(CodeExplorerOptions{
+		RealmRoot:     opts.TargetDir,
+		ClaudeMDPath:  opts.ClaudeMDPath,
+		WikiIndexPath: wikiIndexPath,
+	}))
+
 	for _, route := range []string{
 		"/api/code/node",
 		"/api/code/callers",
@@ -240,6 +258,7 @@ func RunWithContext(ctx context.Context, opts Options) int {
 		"/api/code/impact",
 		"/api/code/files",
 		"/api/code/schema",
+		"/api/code/capabilities",
 		"/api/code/file",
 	} {
 		mux.Handle(route, apiExplorerHandler)
@@ -363,6 +382,8 @@ func RunWithContext(ctx context.Context, opts Options) int {
 // them client-side). Path-traversal is guarded by http.FileServer/http.FS.
 func newSPAHandler(root fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(root))
+	etags := buildAssetETags(root)
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := strings.TrimPrefix(r.URL.Path, "/")
 		if p == "" {
@@ -370,14 +391,49 @@ func newSPAHandler(root fs.FS) http.Handler {
 		}
 		if f, err := root.Open(p); err == nil {
 			_ = f.Close()
+			// The bundle filenames carry no content hash, and go:embed zeroes
+			// modtimes — so these responses reached the browser with no
+			// validator at all and were cached heuristically. A binary
+			// upgrade then served a new main.js against a cached main.css,
+			// which does not look like a stale cache; it looks like the app
+			// is broken. An ETag over the embedded bytes plus no-cache makes
+			// every request revalidate and 304 when nothing changed.
+			if tag, ok := etags[p]; ok {
+				w.Header().Set("ETag", tag)
+				w.Header().Set("Cache-Control", "no-cache")
+			}
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 		// No file on disk at this path: fall back to the SPA shell.
+		if tag, ok := etags["index.html"]; ok {
+			w.Header().Set("ETag", tag)
+			w.Header().Set("Cache-Control", "no-cache")
+		}
 		r2 := r.Clone(r.Context())
 		r2.URL.Path = "/"
 		fileServer.ServeHTTP(w, r2)
 	})
+}
+
+// buildAssetETags hashes every embedded file once at startup. The set is
+// fixed for the life of the process — the files live in the binary — so this
+// is a one-time walk, not per-request work.
+func buildAssetETags(root fs.FS) map[string]string {
+	tags := map[string]string{}
+	_ = fs.WalkDir(root, ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		b, readErr := fs.ReadFile(root, p)
+		if readErr != nil {
+			return nil
+		}
+		sum := sha256.Sum256(b)
+		tags[p] = `"` + hex.EncodeToString(sum[:16]) + `"`
+		return nil
+	})
+	return tags
 }
 
 // lanIPv4s returns the non-loopback IPv4 addresses of the host's interfaces, so a

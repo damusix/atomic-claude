@@ -216,3 +216,5 @@ func TestAPICodeSchema_NotIndexed_Degraded(t *testing.T) {
 		t.Errorf("expected no tables, got %+v", got.Tables)
 	}
 }
+
+func (r *realmRecordingEngine) IndexAll(context.Context) error { return nil }

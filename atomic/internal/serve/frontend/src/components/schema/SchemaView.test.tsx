@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { ApiProvider } from "../../utils/api";
+import { events } from "../../utils/events";
 import { SchemaView } from "./SchemaView";
 
 function requestURL(input: RequestInfo | URL): string {
@@ -67,7 +69,9 @@ describe("SchemaView", () => {
     renderSchema();
 
     await waitFor(() => expect(screen.getByText("users")).toBeInTheDocument());
-    expect(screen.getByText("Tables")).toBeInTheDocument();
+    // Sections are the directory the objects were declared in, named as
+    // written; a file at the root has no directory to name.
+    expect(screen.getByText("(no directory)")).toBeInTheDocument();
     expect(screen.queryByText("Views")).not.toBeInTheDocument();
     expect(screen.getByText("id")).toBeInTheDocument();
     expect(screen.getByText("orders")).toBeInTheDocument();
@@ -75,7 +79,57 @@ describe("SchemaView", () => {
     expect(screen.queryByLabelText("Code member")).not.toBeInTheDocument();
   });
 
-  test("empty schema renders the empty-index message", async () => {
+  // Filtering matches column names as well as table names: "which table has
+  // a tax_year column" is as common a question as "where is the invoice
+  // table", and only one of them is answerable by table name.
+  test("filter matches on table name and on column name", async () => {
+    mockFetch({
+      "/code/graph/members": { members: [{ prefix: "", indexed: true }] },
+      "/code/schema": {
+        tables: [
+          {
+            node: { id: "t1", name: "invoice", kind: "table", filePath: "sql/01_tables/a.sql", startLine: 1 },
+            columns: [{ id: "c1", name: "tax_year", kind: "column", filePath: "sql/01_tables/a.sql", startLine: 2 }],
+            fkSources: [],
+            writers: [],
+          },
+          {
+            node: { id: "t2", name: "party", kind: "table", filePath: "sql/01_tables/b.sql", startLine: 1 },
+            columns: [{ id: "c2", name: "label", kind: "column", filePath: "sql/01_tables/b.sql", startLine: 2 }],
+            fkSources: [],
+            writers: [],
+          },
+        ],
+      },
+    });
+
+    renderSchema();
+
+    // Scoped to the card headings' links: the heading also carries a kind
+    // badge, and the object names appear again in the rail index.
+    const cards = () =>
+      [...document.querySelectorAll(".code-schema-main .code-schema-table-name .code-node-link")].map(
+        (e) => e.textContent,
+      );
+
+    await waitFor(() => expect(cards()).toContain("invoice"));
+
+    const filter = screen.getByPlaceholderText("Table or column name…");
+
+    await userEvent.type(filter, "party");
+    await waitFor(() => expect(cards()).not.toContain("invoice"));
+    expect(cards()).toContain("party");
+
+    await userEvent.clear(filter);
+    await userEvent.type(filter, "tax_year");
+    await waitFor(() => expect(cards()).toContain("invoice"));
+    expect(cards()).not.toContain("party");
+  });
+
+  // Most projects have no SQL, so an empty schema is the normal case rather
+  // than a fault — it says so, and routes to the surfaces that do cover
+  // non-SQL code instead of leaving a blank page.
+  test("empty schema explains itself and points at the code surfaces", async () => {
     mockFetch({
       "/code/graph/members": { members: [{ prefix: "", indexed: true }] },
       "/code/schema": { tables: [] },
@@ -83,7 +137,13 @@ describe("SchemaView", () => {
 
     renderSchema();
 
-    await waitFor(() => expect(screen.getByText("No SQL schema found in this index.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("No SQL in this index")).toBeInTheDocument());
+    expect(screen.getByText(/it is not an error/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /code graph/ })).toHaveAttribute(
+      "href",
+      "/graph?view=code",
+    );
+    expect(screen.getByRole("link", { name: /code search/ })).toHaveAttribute("href", "/search");
   });
 
   test("not-indexed member: error envelope renders a schema-unavailable message", async () => {
@@ -128,5 +188,41 @@ describe("SchemaView", () => {
 
     await waitFor(() => expect(screen.getByText("alpha_table")).toBeInTheDocument());
     expect(screen.getByLabelText("Code member")).toBeInTheDocument();
+  });
+
+  // The rail index is published from here, and the fetch hook holds `data`
+  // null in flight and nulls it again on a failed refetch. Publishing
+  // regardless emptied the rail on every member switch and every transient
+  // failure, which read as the index vanishing at random.
+  test("never publishes an empty index while the response is not loaded", async () => {
+    const published: number[] = [];
+    const off = events.on("schema.index", ({ sections }) => published.push(sections.length));
+
+    mockFetch({
+      "/code/graph/members": { members: [{ prefix: "", indexed: true }] },
+      "/code/schema": {
+        tables: [
+          {
+            node: { id: "t1", name: "invoice", kind: "table", filePath: "sql/a.sql", startLine: 1 },
+            columns: [],
+            fkSources: [],
+            writers: [],
+          },
+        ],
+      },
+    });
+
+    const { unmount } = renderSchema();
+    await waitFor(() => expect(screen.getByText("invoice")).toBeInTheDocument());
+
+    // Every publish before unmount describes a loaded response.
+    expect(published.length).toBeGreaterThan(0);
+    expect(published.every((n) => n > 0)).toBe(true);
+
+    // Leaving the route does clear it — a stale tree beside another page
+    // would be worse than none.
+    unmount();
+    expect(published.at(-1)).toBe(0);
+    off();
   });
 });

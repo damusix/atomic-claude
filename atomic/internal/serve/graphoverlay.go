@@ -327,8 +327,9 @@ func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		elems = buildCytoElements(g)
 	}
 
-	// Inject provenance nodes + fingerprint-class edges.
-	injectProvenanceEdges(&elems, provDAG)
+	// Inject provenance nodes + fingerprint-class edges. Scoped when a local
+	// subgraph was requested — see injectProvenanceEdges.
+	injectProvenanceEdges(&elems, provDAG, nodeParam != "")
 
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
@@ -343,7 +344,13 @@ func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Cytoscape elements. Nodes not already present are added with their kind as
 // type. Provenance edges carry the "fingerprint" class; drifted edges carry
 // "fingerprint drift" so the graph page CSS renders them red.
-func injectProvenanceEdges(elems *cytoElements, dag ProvenanceDAG) {
+// When scoped is true the elements are a local subgraph around one node, and
+// the DAG may only contribute to what is already there: it adds no nodes, and
+// only those edges whose endpoints are both in scope. Injecting the realm's
+// whole provenance DAG into a one-node neighbourhood is what put a dozen
+// unrelated clusters in the rail's mini-graph, with no path to the page being
+// viewed — the panel claimed they were that page's neighbours.
+func injectProvenanceEdges(elems *cytoElements, dag ProvenanceDAG, scoped bool) {
 	// Build a set of existing node IDs to avoid duplicates.
 	existing := make(map[string]bool, len(elems.Nodes))
 	for _, n := range elems.Nodes {
@@ -352,6 +359,9 @@ func injectProvenanceEdges(elems *cytoElements, dag ProvenanceDAG) {
 
 	// Add provenance nodes that aren't already in the graph.
 	for _, n := range dag.Nodes {
+		if scoped {
+			break
+		}
 		if !existing[n.ID] {
 			label := n.ID
 			if idx := strings.LastIndexByte(label, '/'); idx >= 0 {
@@ -372,6 +382,11 @@ func injectProvenanceEdges(elems *cytoElements, dag ProvenanceDAG) {
 	// Add provenance edges with "fingerprint" class (or "fingerprint drift").
 	seen := make(map[string]bool)
 	for _, e := range dag.Edges {
+		// In a scoped view an edge to a node that was never added would be a
+		// dangling reference, and Cytoscape drops the whole element set on one.
+		if scoped && (!existing[e.Source] || !existing[e.Target]) {
+			continue
+		}
 		key := fmt.Sprintf("fp:%s→%s", e.Source, e.Target)
 		if seen[key] {
 			continue

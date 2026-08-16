@@ -285,7 +285,15 @@ func NewAPIRailHandler(root string, g graphProvider) http.Handler {
 
 // apiNavResponse is the /api/nav success payload.
 type apiNavResponse struct {
-	Scope  string         `json:"scope"`
+	Scope string `json:"scope"`
+	// Name is the scope root's directory name — what the shell labels the
+	// realm or repo with. Without it the header can only show a hardcoded
+	// product name, which says nothing about what is actually being served.
+	Name string `json:"name"`
+	// Branch is the checked-out git branch at that root, empty when there
+	// isn't one. Recomputed per request so a checkout shows up on the next
+	// live-reload refetch rather than at the next server restart.
+	Branch string         `json:"branch"`
 	Groups []navGroupJSON `json:"groups"`
 }
 
@@ -310,12 +318,24 @@ func NewAPINavHandler(opts NavOptions) http.Handler {
 		}
 
 		if opts.IsRealmScope {
-			writeAPIJSON(w, apiNavResponse{Scope: "realm", Groups: buildRealmNavGroupsJSON(opts)})
+			identity := resolveScopeIdentity(opts.RealmRoot)
+			writeAPIJSON(w, apiNavResponse{
+				Scope:  "realm",
+				Name:   identity.Name,
+				Branch: identity.Branch,
+				Groups: buildRealmNavGroupsJSON(opts),
+			})
 			return
 		}
 
 		snap, _ := store.ensureFresh()
-		writeAPIJSON(w, apiNavResponse{Scope: "repo", Groups: buildRepoNavGroupsJSON(snap.navPaths)})
+		identity := resolveScopeIdentity(opts.RealmRoot)
+		writeAPIJSON(w, apiNavResponse{
+			Scope:  "repo",
+			Name:   identity.Name,
+			Branch: identity.Branch,
+			Groups: buildRepoNavGroupsJSON(snap.navPaths),
+		})
 	})
 }
 

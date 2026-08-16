@@ -3,7 +3,7 @@
 // from system-graph.js's renderGraphPane()/mountCodeView()/enterGraphMode()
 // shell-orchestration (htmx-era DOM rebuilds, not part of the carried
 // engine) — see docs/spec/serve-react-frontend.md's "Flow: graph-mode mount".
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import {
   fetchGraphMembers,
@@ -13,6 +13,10 @@ import {
   resolveMember,
   teardownGraph,
 } from "../../utils/graphEngineAdapter";
+import { GraphLayoutToggle } from "./GraphLayoutToggle";
+import { GraphReindex } from "./GraphReindex";
+import { GraphSearch } from "./GraphSearch";
+import "./style.css";
 
 function memberLabel(m: GraphMember): string {
   return (m.prefix || "(local)") + (m.indexed ? "" : " — not indexed");
@@ -23,7 +27,26 @@ export function Graph() {
   const view: GraphView = searchParams.get("view") === "code" ? "code" : "docs";
   const memberParam = searchParams.get("member") ?? "";
   const [members, setMembers] = useState<GraphMember[]>([]);
+  // Bumped when a rebuild finishes. It is part of the mount key, so the graph
+  // remounts against the new index rather than continuing to draw the old one.
+  const [reindexNonce, setReindexNonce] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Being on this route is what collapses the rail and unpads the pane (see
+  // app.css's mode-graph-view rules), so this route is what declares it.
+  // graph-core.js sets its own mode-system class on every engine mount, but
+  // the background layout warm mounts the engine offscreen from ordinary
+  // pages, so that flag says "the engine is running", not "the graph owns the
+  // screen" — only the second one is a layout fact.
+  //
+  // A layout effect, not a passive one: it must be applied before the mount
+  // effect below measures the container, or the engine sizes its canvas
+  // against the reading padding and then has the padding pulled out from
+  // under it.
+  useLayoutEffect(() => {
+    document.body.classList.add("mode-graph-view");
+    return () => document.body.classList.remove("mode-graph-view");
+  }, []);
 
   // The container carries a key derived from view+member (below, in the
   // JSX) so a switch forces React to create a FRESH DOM node — mirroring
@@ -70,8 +93,11 @@ export function Graph() {
       cancelled = true;
       teardownGraph(view);
     };
+    // reindexNonce is a dep, not just part of the container key: the key alone
+    // gives React a fresh DOM node, but without re-running this the engine is
+    // never mounted into it and the pane goes blank after a rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, memberParam]);
+  }, [view, memberParam, reindexNonce]);
 
   function switchView(next: GraphView) {
     if (next === view) return;
@@ -116,6 +142,8 @@ export function Graph() {
             Code
           </button>
         </span>
+        <GraphLayoutToggle resetKey={`${view}:${memberParam}:${reindexNonce}`} />
+        <GraphSearch resetKey={`${view}:${memberParam}:${reindexNonce}`} />
         <span id="graph-member-picker-slot">
           {view === "code" && members.length > 1 && (
             <select
@@ -133,9 +161,15 @@ export function Graph() {
             </select>
           )}
         </span>
+        {/* Only in code view: the docs graph is built from markdown links, not
+            from the code index, so rebuilding the index would change nothing
+            a reader can see there. */}
+        {view === "code" ? (
+          <GraphReindex member={memberParam} onReindexed={() => setReindexNonce((n) => n + 1)} />
+        ) : null}
       </div>
       <div
-        key={`${view}:${memberParam}`}
+        key={`${view}:${memberParam}:${reindexNonce}`}
         ref={containerRef}
         id={view === "code" ? "code-cy" : "system-cy"}
         data-code-graph={view === "code" ? "" : undefined}

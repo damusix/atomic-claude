@@ -1,23 +1,53 @@
-// Shell — the three-pane app shell (top bar, left nav, content, rail).
-// Visual parity target: templates/layout.html's #shell (pre-cutover markup).
-import { useEffect, useState } from "react";
+// Shell — the focus-canvas app shell: top bar, permanent icon rail, the
+// generated library in an overlay drawer, content, inspector rail. The drawer
+// (rather than a fourth permanent column) is what lets the document own the
+// full width while reading, which is the whole point of the layout.
+import { useCallback, useEffect, useState } from "react";
 import { Outlet, ScrollRestoration, useNavigate } from "react-router";
 import { CodeModal } from "../../components/code-modal/CodeModal";
-import { NavTree } from "../../components/nav/NavTree";
+import { IconRail } from "../../components/nav/IconRail";
+import { NavDrawer } from "../../components/nav/NavDrawer";
 import { TopBar } from "../../components/nav/TopBar";
 import { PageModal } from "../../components/rail/PageModal";
 import { Rail } from "../../components/rail/Rail";
 import { SearchPalette } from "../../components/search/SearchPalette";
+import { useFavicon } from "../../hooks/useFavicon";
+import { useGraphWarm } from "../../hooks/useGraphWarm";
 import { useHashScroll } from "../../hooks/useHashScroll";
 import { useLiveReload } from "../../hooks/useLiveReload";
 import { installGraphUIGlobal, setNavigator, wireDismiss } from "../../utils/graphUI";
 import "./style.css";
 
+const NAV_KEY = "atomic-nav-open";
+
 export function Shell() {
   useHashScroll();
   const { connState } = useLiveReload();
+  useFavicon(connState);
+  useGraphWarm();
   const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = useState(false);
+  // Drawer state persists so the shell reopens the way it was left — a
+  // reader who keeps the library open does not re-open it every reload.
+  const [navOpen, setNavOpen] = useState(() => {
+    if (typeof localStorage === "undefined") return false;
+    return localStorage.getItem(NAV_KEY) === "open";
+  });
+
+  const toggleNav = useCallback(() => {
+    setNavOpen((open) => {
+      const next = !open;
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(NAV_KEY, next ? "open" : "closed");
+      }
+      return next;
+    });
+  }, []);
+
+  const closeNav = useCallback(() => {
+    setNavOpen(false);
+    if (typeof localStorage !== "undefined") localStorage.setItem(NAV_KEY, "closed");
+  }, []);
 
   // Exposes window.AtomicGraphUI so the carried vanilla profiles
   // (system-graph.js, code-graph.js) can call showPreviewCard/openPageModal/
@@ -36,8 +66,9 @@ export function Shell() {
   return (
     <>
       <TopBar connState={connState} onOpenSearch={() => setSearchOpen(true)} />
-      <div id="shell">
-        <NavTree />
+      <div id="shell" data-nav={navOpen ? "open" : "closed"}>
+        <IconRail navOpen={navOpen} onToggleNav={toggleNav} />
+        <NavDrawer open={navOpen} onClose={closeNav} />
         <div id="content-column">
           <main id="main-pane">
             <Outlet />
