@@ -1,6 +1,6 @@
-# claude.local.md
+# CLAUDE.md
 
-Project-local context for working **on** this repo. Not copied anywhere — read by Claude only when the cwd is this repo.
+Project-local context for working **on** this repo. Not copied anywhere — read by Claude only when the cwd is this repo. The contract that ships to users is `context/CLAUDE.md`, a different file.
 
 
 ## What this repo is
@@ -19,8 +19,8 @@ Target macOS and Linux only. Drop Windows-specific review findings, Windows-only
 
 | File | Role | Destination |
 |------|------|-------------|
-| `context/CLAUDE.md` | Single source of truth. Two roles in one file: (a) the global contract that ships as every user's `~/.claude/CLAUDE.md` on install, and (b) this repo's own project instructions when working *on* atomic-claude. Since it no longer sits at the repo root, Claude Code does not auto-load it here — the `@context/CLAUDE.md` ref below pulls it in. | `context/`, committed → `~/.claude/CLAUDE.md` on install |
-| `CLAUDE.local.md` | Project-local overlay for this repo *only*. Build pipeline rules, doc reference paths, mandatory checklist, design axioms. Loads alongside `CLAUDE.md` when cwd is this repo. Gitignored. Do NOT duplicate `CLAUDE.md` content here — both files load into context, duplication = wasted tokens. | Stays here, cwd-scoped, gitignored. |
+| `context/CLAUDE.md` | Single source of truth. Two roles in one file: (a) the global contract that ships as every user's `~/.claude/CLAUDE.md` on install, and (b) this repo's own project instructions when working *on* atomic-claude. Since it no longer sits at the repo root, Claude Code does not auto-load it here — the `@context/CLAUDE.md` ref below pulls it in. Not to be confused with the root `CLAUDE.md`, which is the row below. | `context/`, committed → `~/.claude/CLAUDE.md` on install |
+| `CLAUDE.md` (this file) | Project-local overlay for this repo *only*. Build pipeline rules, doc reference paths, mandatory checklist, design axioms. Auto-loads at the repo root, and pulls in `context/CLAUDE.md` by `@`-ref. Do NOT duplicate `context/CLAUDE.md` content here — both load into context, duplication = wasted tokens. | Repo root, committed, never installed. |
 | `README.md` | Human-facing overview of what the config does and how to install it. | Repo root, committed. |
 | `context/commands/*.md` | **Rendered** slash command definitions. Edit `templates/commands/<verb>.md` (and `templates/shared/<flow>.md` for cross-verb partials); `make render` regenerates these. Copied to `~/.claude/commands/` by `atomic claude install`. | `~/.claude/commands/` |
 | `templates/commands/<verb>.md` | Source of truth for command files. Either a single `{{ template "<flow>" . }}` directive plus verb-specific orchestration, or a self-contained body if no partial applies. | Renders to `context/commands/<verb>.md`. |
@@ -81,7 +81,7 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 |---|---------|----------------|---------------|
 | 1 | The artifact file itself | Always | `templates/agents/atomic-*.md` (NEVER `context/agents/<name>.md` directly — that's rendered), `templates/commands/<verb>.md` (NEVER `context/commands/<verb>.md` directly — that's rendered), `context/skills/<name>/SKILL.md`, `context/output-styles/atomic-*.md`, or `context/rules/<lang>/*.md`. Use `atomic-` prefix for custom artifacts. For new commands or agents, also run `make render` to materialize the output under `context/commands/` or `context/agents/`. |
 | 2 | `CLAUDE.md` | Always — single source of truth | This is both (a) the global contract that ships as every user's `~/.claude/CLAUDE.md` on install, and (b) the committed project instructions when working *on* atomic-claude. One file, both roles. Agents and skills are surfaced by the harness each session (agent roster + skill trigger descriptions), so they need no CLAUDE.md registry section — keep each artifact's own description accurate instead. Commands go only into the `## Workflow` lifecycle ordering (the per-command catalog was removed; discovery is via the harness slash listing + `/atomic-help`); naming conventions cover output styles/rules. |
-| 3 | `CLAUDE.local.md` | Only when the new artifact changes *project-local* conventions for this repo specifically (e.g. new bundle path, new build step, new file role) | Edit the relevant section. This file is gitignored and stays in this repo. Do NOT duplicate the global registration here — `CLAUDE.local.md` is for repo-specific overlays only, not for mirroring `CLAUDE.md`. Both files load into context when cwd is this repo, so duplication = wasted tokens. |
+| 3 | `CLAUDE.md` (root, this file) | Only when the new artifact changes *project-local* conventions for this repo specifically (e.g. new bundle path, new build step, new file role) | Edit the relevant section. This file never installs. Do NOT duplicate the global registration here — the root file is for repo-specific overlays only, not for mirroring `context/CLAUDE.md`. Both load into context when cwd is this repo, so duplication = wasted tokens. |
 | 4 | `README.md` | Always — public-facing index | Add to the matching table in `docs/reference/commands.md` (or agents/skills equivalent). Keep one-line descriptions. |
 | 5 | `docs/spec/<topic>.md` | If the artifact has non-trivial behavior or cross-references | Write or extend the spec. Required for anything dispatched by another artifact or that mutates state. **Amending an existing spec: see "Spec amendment rule" below — never silently overwrite the original.** |
 | 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit` requires editing the command to call it AND the skill to declare itself as called from there. |
@@ -204,17 +204,17 @@ Zero `MISSING:` lines = pass. Any output = blocker.
 </help_router_contract>
 
 
-## Signals `@-ref` must stay wired (in this repo: `claude.local.md`)
+## Signals `@-ref` must stay wired (in this repo: the root `CLAUDE.md`)
 
 
 Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` is NOT — it can be thousands of lines on large repos and would blow up context. The inferrer reads it on demand; sessions do not need it. `docs/wiki/CLAUDE.md` (steering) is also NOT `@-ref`'d — it lazy-loads as nested memory whenever Claude reads a file under `docs/wiki/`, which is exactly when the inferrer operates.
 
 
-**In this repo specifically**, the ref lives in `claude.local.md` (this file) — not in `CLAUDE.md`. Reason: `CLAUDE.md` is the bundle source (gets installed as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. `claude.local.md` is gitignored, project-local, and still auto-loaded by Claude Code when cwd is this repo. That's the correct home for the project-scoped `@`-ref.
+**In this repo specifically**, the ref lives in the root `CLAUDE.md` (this file) — not in `context/CLAUDE.md`. Reason: `context/CLAUDE.md` is the bundle source (it installs as every user's global `~/.claude/CLAUDE.md`), so project-specific paths there would leak into every install. The root file never installs, and Claude Code auto-loads it when cwd is this repo. That's the correct home for the project-scoped `@`-ref.
 
 
 - The `atomic-signals-inferrer` agent checks for `@docs/wiki/index.md` in `claude.local.md` / `CLAUDE.local.md` first, then `CLAUDE.md`. If present in ANY of them, it skips wiring. The agent's search order is the contract.
-- For most repos, the ref ends up in `CLAUDE.md` (one file, no separation). For this repo and any other config-source repos, it lives in `claude.local.md`. Both are valid.
+- For most repos, the ref ends up in `CLAUDE.md` (one file, no separation) — which is also where it lives here, now that the shipped contract has moved to `context/CLAUDE.md` and freed the root name.
 - If you fork the layout (e.g. moving refs into a separate `@`-included file), update the agent's search order in lockstep.
 
 
@@ -245,7 +245,7 @@ Only `signals.md` (the compact router) is `@-ref`'d. `deterministic-signals.md` 
 | `docs/reference/atomic-toml.md` | repo-scoped `.claude/atomic.toml`: scope marker, code-index ignore globs, repl idle_timeout, lenient load contract | atomic-writing |
 | `docs/credits.md` | inspirations, prior-art credits | atomic-writing |
 | `docs/index.md` | VitePress site homepage, feature highlights, tagline | atomic-writing |
-| `CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |
+| `context/CLAUDE.md` | global contract, agent/command/skill registry | atomic-writing |
 
 
 ## Research notes (`docs/research/`)
