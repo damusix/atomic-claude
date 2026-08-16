@@ -3468,7 +3468,7 @@ func TestF4CopyInsideTaskNotScript(t *testing.T) {
 
 // TestTSQLCrossApplyCalls verifies that CROSS APPLY <tvf>(...) in a T-SQL
 // procedure body emits a calls edge to the invoked table-valued function.
-// WHY (issue #70): APPLY is the canonical T-SQL idiom for correlated TVF joins.
+// WHY: APPLY is the canonical T-SQL idiom for correlated TVF joins.
 // Without this, proc→TVF lineage is invisible to the code-intel graph.
 const tsqlCrossApplyFixture = `
 CREATE TABLE [dbo].[Orders] ([OrderId] INT);

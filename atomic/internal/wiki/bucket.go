@@ -132,7 +132,7 @@ func manifestDir(wikiDir, name string) string {
 // A bucket name becomes a directory component in three places (the
 // realm-root folder, the wiki/.buckets manifest dir, and the <bucket> index
 // entry), so this is the register-time backstop behind the CLI arg
-// scanner's own dash-token rejection (issue #164) — it also covers callers
+// scanner's own dash-token rejection — it also covers callers
 // that reach RegisterBucket programmatically, bypassing the CLI entirely.
 func validateBucketName(name string) error {
 	if strings.TrimSpace(name) == "" {

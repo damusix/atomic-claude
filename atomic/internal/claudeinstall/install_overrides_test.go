@@ -274,7 +274,7 @@ func TestAgentModelOverride_NonAgentUnchanged(t *testing.T) {
 // TestAgentModelOverride_DiffMatchesAfterInstall: after installing with an
 // [claude.agents] tier override, Diff must report DiffMatch for the overridden agent —
 // it has to compare against the patched embedded content, not the raw bundle
-// bytes, or a correct install falsely shows as drifted (issue #129).
+// bytes, or a correct install falsely shows as drifted.
 func TestAgentModelOverride_DiffMatchesAfterInstall(t *testing.T) {
 	target := t.TempDir()
 	suppressProfileRefresh(t)

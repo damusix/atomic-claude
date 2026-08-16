@@ -11,7 +11,7 @@ package wiki
 // collapse to delegate at resolveWikiRoot still honors --router in any
 // position; wikiStampAction accepts flags before, after, or interspersed
 // with the positional <file> argument, and honors "--" as a global
-// terminator ending flag parsing (issue #158).
+// terminator ending flag parsing.
 
 import (
 	"bytes"
@@ -267,7 +267,7 @@ func TestBucketVerbs_UnrecognizedSingleDashTokenExits2(t *testing.T) {
 	}
 }
 
-// ---- wikiStampAction: flag/positional argument order (issue #158) ----
+// ---- wikiStampAction: flag/positional argument order ----
 //
 // Stdlib flag.FlagSet stops parsing at the first non-flag argument, so the
 // documented `atomic wiki stamp <file> --repo <path>` form (flags after the

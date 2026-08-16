@@ -117,7 +117,7 @@ func wikiStampAction(args []string) int {
 
 	// Stdlib flag.FlagSet stops parsing at the first non-flag argument, so a
 	// single fs.Parse(args) never consumes flags placed after the positional
-	// <file> argument (issue #158). Re-parse iteratively, peeling off one
+	// <file> argument. Re-parse iteratively, peeling off one
 	// positional token at a time, so flags may appear in any position —
 	// before, after, or interspersed with <file>.
 	//

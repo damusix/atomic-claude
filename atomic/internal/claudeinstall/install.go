@@ -506,7 +506,7 @@ type DiffRow struct {
 // Loads the [claude.agents] config overrides once so agent rows are compared against
 // the patched content Apply would have written, not the raw bundle bytes —
 // otherwise a correct install with a configured tier override falsely reports
-// as drifted (issue #129).
+// as drifted.
 func Diff(targetDir, home string) ([]DiffRow, error) {
 	manifest := embedded.Manifest()
 	agentOverrides := loadAgentOverrides(home)

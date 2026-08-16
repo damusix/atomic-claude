@@ -1016,7 +1016,7 @@ func EnsureGitignore(projectRoot string) error {
 // already-registered mcp verb — instead of a separate internal verb — means
 // the spawned argv always names a real Cobra command; the old unregistered
 // internal verb used to make Cobra reject the spawn's own flags with
-// "unknown flag" before the daemon handler ever ran (GitHub issue #193).
+// "unknown flag" before the daemon handler ever ran.
 //
 // projectRoot/dbPath are the proxy-mode source+db, resolved by main.go
 // (realm-aware) before calling here; they are ignored when --daemon is set,

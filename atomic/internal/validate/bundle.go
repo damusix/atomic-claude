@@ -105,7 +105,7 @@ func runBundleImpl(jsonOut, suggest bool, w io.Writer) int {
 // Bundle parity only has meaning in the atomic-claude dev repo (it compares the
 // working tree against the embedded source snapshot). When repoRoot is not that
 // repo, the check is skipped cleanly with exit 0 rather than crashing on the
-// absent source (issue #35).
+// absent source.
 func runBundleAt(repoRoot string, jsonOut, suggest bool, w io.Writer) int {
 	if !repoDev(repoRoot) {
 		if jsonOut {

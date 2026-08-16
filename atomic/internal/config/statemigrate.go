@@ -40,7 +40,7 @@ func setSymlinkStateForTest(fn func(oldname, newname string) error) func() {
 const stagingDirName = ".atomic.migrating"
 
 // MigrateUserState moves legacy per-user state from <home>/.claude/.atomic to
-// <home>/.atomic (issue #150). Idempotent: a no-op once <home>/.atomic already
+// <home>/.atomic. Idempotent: a no-op once <home>/.atomic already
 // exists as a real directory — a real legacy dir found at that point is never
 // merged into it, only left for `atomic doctor` to flag. Leaves a compat
 // symlink at the legacy path so old @-refs (@~/.claude/.atomic/...) in

@@ -182,7 +182,7 @@ func runWholeRepo(jsonOut, suggest bool, w io.Writer) int {
 	// Bundle parity compares the working tree against the embedded source
 	// snapshot, which only exists in the atomic-claude repo. Outside it, skip
 	// silently — a user's own project has no bundle to validate, and surfacing
-	// it would crash (issue #35) or confuse.
+	// it would crash or confuse.
 	var bundleFindings []Finding
 	var bundleSummary summary
 	includeBundle := repoDev(root)

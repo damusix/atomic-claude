@@ -192,7 +192,7 @@ func makeRealmWithMember(t *testing.T, setup func(memberRoot string)) (realmRoot
 	return realm, member
 }
 
-// TestRunMigrateInstall_TwoRootSplit proves the two-root split (issue #150):
+// TestRunMigrateInstall_TwoRootSplit proves the two-root split:
 // config.toml is read/written under <home>/.atomic (config helpers get home),
 // while migrate.Context.Root — the root install-scope steps operate on —
 // still receives <home>/.claude. A step that captured home instead of

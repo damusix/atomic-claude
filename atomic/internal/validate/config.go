@@ -42,7 +42,7 @@ var reSubagentType = regexp.MustCompile(`subagent_type:\s*["']([a-zA-Z][a-zA-Z0-
 // Claude Code (e.g. @.claude/project/signals.md). It is deliberately loose on
 // the right of the @; the email guard in runC5 (isEmailLocalChar) rejects any
 // match whose @ is preceded by an email local-part character, so `bob@host.com`
-// in prose is not mistaken for a file include (issue #159).
+// in prose is not mistaken for a file include.
 var reAtRef = regexp.MustCompile(`@([./a-zA-Z0-9_-]+\.[a-zA-Z]{2,4})`)
 
 // isEmailLocalChar reports whether b can appear in an email address local part
@@ -193,7 +193,7 @@ func runC5(repoRoot string) ([]Finding, error) {
 			matches := reAtRef.FindAllStringSubmatchIndex(seg.Text, -1)
 			for _, loc := range matches {
 				// Skip email addresses: an @ preceded by a local-part char
-				// (bob@host.com) is not a file include (issue #159).
+				// (bob@host.com) is not a file include.
 				if loc[0] > 0 && isEmailLocalChar(seg.Text[loc[0]-1]) {
 					continue
 				}
