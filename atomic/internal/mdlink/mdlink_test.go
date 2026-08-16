@@ -76,6 +76,41 @@ func TestLinkify_SkipSet(t *testing.T) {
 	}
 }
 
+// TestLinkify_DegenerateTokens verifies prose that quotes a bare path character
+// is left alone. These tokens always stat clean — Join(base, ".") and Join(base,
+// "/") are base, ".." is its parent — so disk resolution cannot reject them, and
+// linking one aims the reader at the repo root or above it.
+func TestLinkify_DegenerateTokens(t *testing.T) {
+	dir := t.TempDir()
+	makeFile(t, dir, "agents/atomic-builder.md")
+
+	fileAbs := filepath.Join(dir, ".claude", "project", "signals.md")
+	content := "A specifier starting with `.`, `..`, or `/` is relative; see `agents/atomic-builder.md`.\n"
+	got := mdlink.Linkify(content, fileAbs, dir)
+
+	want := "A specifier starting with `.`, `..`, or `/` is relative; " +
+		"see [`agents/atomic-builder.md`](../../agents/atomic-builder.md).\n"
+	if got != want {
+		t.Errorf("degenerate token linked:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+// TestLinkify_DoubleBacktickSpan verifies a doubled-backtick span quoting text
+// that itself contains backticks survives. The scanner reads the pair as a
+// zero-width token, which resolves to the base dir and would otherwise be
+// emitted as a link, shredding the quoted string into three pieces.
+func TestLinkify_DoubleBacktickSpan(t *testing.T) {
+	dir := t.TempDir()
+
+	fileAbs := filepath.Join(dir, "docs", "wiki", "doctor.md")
+	content := "It prints ``not installed; run `atomic claude install`.`` and exits 0.\n"
+	got := mdlink.Linkify(content, fileAbs, dir)
+
+	if got != content {
+		t.Errorf("double-backtick span was rewritten:\ngot:  %q\nwant: %q", got, content)
+	}
+}
+
 // TestLinkify_Idempotent verifies re-running on already-linkified content is byte-identical.
 func TestLinkify_Idempotent(t *testing.T) {
 	dir := t.TempDir()

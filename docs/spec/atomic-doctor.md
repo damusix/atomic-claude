@@ -212,6 +212,11 @@ Skill-required and content-authored repairs degrade to printed instructions. Thi
 | 2 | Doctor itself errored (cannot read state, conflicting flags, missing required dependency). |
 
 
+Under `--fix` the code reflects the state *after* repairs. Repairs mutate what the checks examined, so the pre-repair verdict is stale by the time the process exits, and a caller gating CI on `--fix` must be able to tell "found problems and fixed them" from "still broken". Every check re-runs once the repair pass completes and the second verdict is what the process exits with.
+
+Two guards bound the cost and the honesty of that second pass: it is skipped entirely when no repair was applied, and a re-check that itself errors keeps the pre-repair verdict rather than reporting a healthy state nobody managed to observe. The printed report is always the pre-repair one, so under `--fix` the report and the exit code may legitimately disagree.
+
+
 ## Checkpoints
 
 
@@ -420,3 +425,11 @@ Built across 11 iterations of `/subagent-implementation` (8 checkpoints + 1 spec
 **Why:** Checkpoint 4 of `docs/spec/atomic-repl.md` — the idle window resolves repo-first with a user-level fallback, and both scopes needed their invalid-value case surfaced to a human rather than silently degrading to `internal/repl`'s own `DefaultIdleTimeout` fallback.
 
 **Superseded:** Prior body described scope-marker and ignore-pattern/`[code]` validation only, with no mention of `[repl] idle_timeout`.
+
+### 2026-08-15 — `--fix` exits on the post-repair state
+
+**What changed:** Under `--fix`, every check re-runs after the repair pass and the second verdict becomes the process exit code. The re-check is skipped when no repair was applied, and one that errors keeps the pre-repair verdict. The printed report stays pre-repair, so report and exit code may legitimately disagree under `--fix`.
+
+**Why:** The pre-repair code collapsed "found problems and fixed them" and "still broken" to the same value 1, so a CI job gating on `atomic doctor --fix` could not distinguish them and always needed a second invocation to confirm green.
+
+**Superseded:** The exit code was computed once, before repairs ran, and a `--fix` run that successfully repaired every FAIL still exited 1.

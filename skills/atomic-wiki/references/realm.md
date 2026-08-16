@@ -50,10 +50,24 @@ Apply the same domain-partitioning logic as the repo-scope Step 3 (vertical slic
 
 ### W4 — Dispatch sub-agents per domain
 
-Same sub-agent dispatch logic as the repo-scope Step 4, with two differences:
+Dispatch one `atomic-wiki-writer` per member repo, naming that type explicitly — omitting `subagent_type` falls back to `general-purpose`, which carries no `skills:` frontmatter. Same dispatch logic as the repo-scope Step 4, with two differences:
 
 1. Sub-agents read from `target_repo` read-only and write their domain output to `wiki_dir/repos/<repo-name>/` (or single file for small repos). They do NOT write into `target_repo`.
 2. **Omit the `<concerns_format>` block from sub-agent prompts.** Wiki mode never surfaces concerns (W7 explicitly excludes them), so including the block wastes tokens generating output that is immediately discarded.
+
+Only one pipeline reference is loaded per run, so the sub-agent instructions are restated here rather than cross-referenced into `repo.md`:
+
+```
+<instructions>
+- Summaries are FACTS about current state — not instructions, rules, or intent. Every sentence must be verifiable by reading a source file in target_repo.
+- Read the actual source files. Do not infer from filenames alone.
+- Invoke the `atomic-writing` skill and follow it. It governs three things here, not one: the page's reading order, when a shape gets drawn instead of written, and the sentence-level voice.
+- Draw every shape the repo has. A build pipeline, a request path, and a deploy flow are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
+- Before writing any Mermaid block, read `~/.claude/skills/atomic-writing/references/mermaid.md` — it picks the diagram type from the reader's question and lists what breaks rendering.
+- Draw from the source you read, never from prose someone already wrote about it. A diagram inherits any error in the paragraph it was copied from.
+- Output only the file content. Do not summarize your process.
+</instructions>
+```
 
 The output format is the **wiki summary format** (not the signals domain file format):
 
@@ -66,29 +80,44 @@ generated: <YYYY-MM-DD>
 # reflects_rev and reflects fields are intentionally absent — written by 'atomic wiki stamp'
 ---
 
-## Overview
+## What it does
 
-<2-4 fact sentences about what this repo/domain does>
+<Purpose before mechanism: what this repo is for, whose problem it solves, what breaks
+ without it. Then the mechanism in a sentence or two. Name any mismatch between the
+ repo's name and what it actually contains.>
 
-## Key paths
+## How it works
 
-<bullet list: path — purpose. Most important entry points and packages.>
+<The shapes: how a request, a build, or a piece of data moves through this repo. One
+ diagram per shape, each captioned with the claim it makes rather than naming the
+ subject, each past the first under its own `###` sub-heading. No cap on the count,
+ though a realm summary is read to decide whether to open the repo at all, so draw the
+ shapes that decide that. A repo with no shape worth drawing writes prose alone.>
 
-## Tech stack
+## Where it lives
 
-<bullet: language, frameworks, key deps — facts from reading source/config>
+<One table: path | role. Entry points and the packages a reader would open first.
+ Not an exhaustive tree.>
 
-## Patterns worth knowing
+## Stack
 
-<bullet: conventions, non-obvious decisions, things that affect callers>
+<Language, frameworks, and the dependencies that constrain a change, read from source
+ and config rather than inferred from a lockfile's size.>
+
+## Constraints
+
+<Non-obvious decisions and conventions that affect a caller, each naming what breaks
+ when it is violated.>
 </output_format>
 ```
+
+Same reading order as a repo-scope domain file: what is this and why do I care, how does it work, where is it, what it is built on, what will bite me. A realm summary is read by someone deciding whether to open the repo at all, so a page that opens on a path list answers the question they have not asked yet.
 
 The `reflects_rev` frontmatter field is **intentionally left absent**. The code step `atomic wiki stamp` writes it after this agent completes. The agent does not compute or write any fingerprint values.
 
 ### W5 — Reviewer validates each summary file
 
-Same reviewer dispatch logic as the repo-scope Step 5. Reviewer checks that every claim is verifiable from source files in `target_repo`. Iterate up to 3 times before flagging unresolved.
+Same reviewer dispatch logic as the repo-scope Step 5. Reviewer checks that every claim is verifiable from source files in `target_repo`, and applies the same page-shape checks: sections present in order, `## What it does` opening on purpose rather than mechanism, every diagram captioned with a claim and every one past the first under its own sub-heading, `## Where it lives` as one table, every constraint naming what breaks. Diagram count is not capped; flag a diagram that restates its neighbour, and a shape left in prose that a picture would carry better. Iterate up to 3 times before flagging unresolved.
 
 ### W6 — Skip @-ref wiring
 

@@ -20,7 +20,7 @@ A sixth subagent that gates the finished implementation once, in a context that 
 - [ ] Emits all four section headers every run, including when empty, so the orchestrator can grep them.
 - [ ] `/subagent-implementation` Phase 3 dispatches it after `/documentation` and before the signals refresh, capped at one dispatch.
 - [ ] `/autopilot` Phase 4 dispatches it after documentation and before signals, capped at one dispatch.
-- [ ] `/atomic-help` reports 6 subagents and names the auditor in both the topic row and the tour listing.
+- [ ] `/atomic-help` reports 7 subagents and names the auditor in both the topic row and the tour listing.
 - [ ] `docs/reference/agents.md` carries an auditor row and the corrected model/effort defaults table.
 - [ ] `make render` and `make -C atomic bundle` are clean; `atomic validate` reports zero FAIL.
 
@@ -80,7 +80,7 @@ atomic/internal/embedded/ ............. M  (bundle mirror + manifest)
 |---|------------|-------------|----------|
 | 1 | The agent | `templates/agents/atomic-auditor.md` | Renders to `agents/`; frontmatter pins opus-5 + max effort + read-only tools + three preloaded skills; four passes and the VERDICT contract present; render+bundle parity clean |
 | 2 | Dispatch wiring | `templates/commands/subagent-implementation.md`, `templates/commands/autopilot.md` | Dispatched once after `/documentation`, before signals, in both commands; one-dispatch cap stated; autopilot gains the authoring-mode docs step with self-answered prompts; Phase 3 steps renumbered without gaps |
-| 3 | Discovery surfaces | `templates/commands/atomic-help.md`, `docs/reference/agents.md` | Help reports 6 subagents in the topic row and the tour; agents reference carries the auditor row and corrected defaults; MISSING-scan zero; `atomic validate` zero FAIL |
+| 3 | Discovery surfaces | `templates/commands/atomic-help.md`, `docs/reference/agents.md` | Help reports 7 subagents in the topic row and the tour; agents reference carries the auditor row and corrected defaults; MISSING-scan zero; `atomic validate` zero FAIL |
 
 ## Risks
 

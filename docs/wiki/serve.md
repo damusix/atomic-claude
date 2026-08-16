@@ -1,102 +1,246 @@
 ---
 type: Domain
-description: Local read-only HTTP server — a Go JSON API (/api/*) plus carried htmx-free endpoints (/graph/data, /code/graph/data, /events, /healthz) backing an embedded React SPA. Obsidian-style shell, goldmark render, in-body wikilink resolution, a cosmos.gl-powered Docs|Code graph pane (Cytoscape mini-graph in the rail), federated code search, code-file modal, SSE-driven live-reload for the nav tree and open page, and a loopback-only `/bus` chat page for operating `atomic bus` rooms.
+description: The `atomic serve` local HTTP server: a Go JSON API backing an embedded React SPA that renders a realm or repo as a graph.
+tags: [web-ui, daemon, code-graph]
 ---
 
 # serve
 
+
 ## What it does
 
-`atomic serve [path] [--port N] [--open]` starts a localhost-only, read-only HTTP server (default port 4500) that renders a wiki realm or a single repo as a navigable graph in the browser. Scope is resolved via `realm.Resolve`: registered realm root → Realm scope, inside a member → Member scope, bare repo → Repo scope. Binds to `127.0.0.1` only; no write operations of any kind. Shuts down cleanly on SIGINT/SIGTERM. A shared realm-snapshot store backs live-reload: `GET /events` streams realm-change notifications over Server-Sent Events so the nav tree and the currently displayed page/rail refresh automatically, without a manual reload or a full restart.
 
-**Bus chat (`/bus`) narrows the read-only claim above.** The `/bus` page operates `atomic bus` rooms from the browser — a polled room list, a durable-log backfill followed by a live SSE tail, an `@`-mention composer that sends as a `kind: human` web member, and halt/resume controls — backed by `GET`/`POST /api/bus/*` handlers (`api_bus.go`, `api_bus_transcript.go`). This is the one surface where `atomic serve` writes: the writes target the bus daemon's own state (room membership and messages), never realm or repo content, and every `/api/bus/*` request — read or write — is refused with 403 unless its TCP peer is loopback, regardless of `--host`, so `--host 0.0.0.0` never extends bus send/halt capability to the LAN. Contract: [`docs/spec/atomic-serve.md`](../spec/atomic-serve.md)'s 2026-08-08 change-log entry and [`docs/spec/serve-bus-chat.md`](../spec/serve-bus-chat.md); user-facing detail: [`docs/reference/serve.md`](../reference/serve.md)'s "Bus chat" section.
+A wiki realm is a set of markdown files and a set of SQLite symbol graphs. Read as files, the links between them stay invisible: nothing shows which pages reference each other, which repos are stale, or what a symbol connects to across members.
 
-**Architecture (post-cutover — [`docs/spec/serve-react-frontend.md`](../spec/serve-react-frontend.md)).** The UI is a Bun-toolchained React + TypeScript SPA ([`atomic/internal/serve/frontend/`](../../atomic/internal/serve/frontend)); the committed build output (`frontend/dist/`) is embedded via `go:embed`, so `go build` needs no Bun/Node invocation. Go exposes a JSON API under `/api/*` (page, file, rail, nav, search, code-intel, status, external) plus a handful of carried, unreshaped endpoints (`/graph/data`, `/code/graph/data`, `/code/graph/members`, `/events`, `/healthz`); every other GET falls back to the embedded `index.html` and React Router resolves the path client-side. The pre-cutover htmx-fragment shell (`templates/layout.html`, OOB fragment handlers, vendored htmx) is deleted, not left dead alongside the new code.
+`atomic serve [path] [--port N] [--host H] [--open]` renders all of it in a browser (default port 4500, default bind `127.0.0.1`). Go serves a JSON API; the UI is a React + TypeScript SPA built by Bun, committed as `frontend/dist/` and embedded with `go:embed`, so `go build` never invokes Bun or Node.
 
-The UI is a single persistent Obsidian-style shell: top bar (breadcrumb + `md|code` search), left nav tree (Ark UI `TreeView`), middle content pane with `[page|system]` toggle, right rail (YAML properties + this-page mini-graph + OUT/IN link lists). Graph mode hosts two views behind a nested Docs|Code control: the whole-realm docs graph (cosmos.gl over `GET /graph/data`) and a per-repo code graph (cosmos.gl over `GET /code/graph/data`), sharing one `graph-core.js` cosmos.gl engine — carried verbatim into `frontend/public/` and mounted from React via `window` contracts (`GraphCore`, `AtomicGraphUI`, `AtomicCodeExplorer`), not htmx `hx-*` attributes. Markdown rendering (goldmark + chroma + wikilink resolution) stays server-side, delivered as HTML-in-JSON via `/api/page/*`/`/api/rail/*`; Obsidian-style `[[page]]` / `[[page|alias]]` wikilinks resolve server-side using the same graph edges as the right rail, so body and rail can never disagree.
+Serve is read-only with respect to realm and repo content. The `/api/bus/*` chat endpoints are the one exception: they write to the bus daemon's own state (room membership and messages), never to files, and every one of them is refused unless the request's TCP peer is loopback.
 
-**Live-reload does not patch the graph pane in place** — a subscribed tab's nav tree and open page/rail refresh on an `/events` push, but the graph pane (Docs or Code view) reflects a realm change only on its next `/graph/data`/`/code/graph/data` fetch. Tracked by follow-up `cosmos-graph-live-reload-reconcile`.
 
-## Artifacts
+## How it works
 
-- [`docs/spec/atomic-serve.md`](../../docs/spec/atomic-serve.md) — implementation spec (success criteria SC1–SC11, non-goals, security contract)
-- [`docs/design/atomic-serve.md`](../../docs/design/atomic-serve.md) — design deliberation (scope model, asset vendoring decisions, route map)
-- [`docs/reference/serve.md`](../../docs/reference/serve.md) — user-facing reference: flags, scope table, all routes and views
-- [`docs/design/serve-live-reload.md`](../design/serve-live-reload.md) — design deliberation for live-reload: problem statement (three independent, per-request-or-startup-frozen filesystem walks giving nav/graph/rail three different freshness models), goals/non-goals (no fsnotify, no WebSockets, whole-realm fingerprint as the unit of change, no user-facing tick-interval flag), chosen shape (subscriber-gated ticker + one shared snapshot store + plain-`EventSource` SSE + lazy per-request fingerprint validation as a correctness backstop)
-- [`docs/spec/serve-live-reload.md`](../spec/serve-live-reload.md) — implementation spec, checkpoints CP1–CP5; CP5 (system-mode graph diff/patch) was struck and superseded at the cosmos engine merge (see the 2026-07-08 change-log entry) — server-side flows (snapshot store, `/events`, page-mode reconcile) are unaffected and remain current
-- [`docs/design/serve-bus-chat.md`](../design/serve-bus-chat.md) — design deliberation for the `/bus` chat page: problem statement (`atomic bus`'s terminal-only verbs vs. serve's existing realm view), the four-piece shape (`/bus` page, `/api/bus/*` facade, session rail, `atomic bus read`), and five resolved decisions — the read-only contract is narrowed rather than broken, a loopback gate replaces an opt-in flag, the web member's identity is derived from the served directory rather than the process pid so a restart reclaims the same roster entry, a plain auto-growing textarea over a contenteditable composer, and tolerant parsing of Claude Code's unversioned `.jsonl` transcript format
-- [`docs/spec/serve-bus-chat.md`](../spec/serve-bus-chat.md) — implementation spec and checkpoint table: CP1 (loopback gate + frontend notice + tests), CP2 (full-diff review of the experiment branch against this spec), CP3 (`atomic-serve.md` amendment + reference docs); parent contracts are [`docs/spec/atomic-serve.md`](../spec/atomic-serve.md) (read-only scope amended) and [`docs/spec/atomic-bus.md`](../spec/atomic-bus.md) (the `atomic bus read` verb's own change, logged there)
 
-## CLI code
+Every path that is not an API route returns the SPA shell, which is how a deep link works without a server-side route table.
 
-- [`atomic/internal/serve/`](../../atomic/internal/serve) — leaf package; `frontend/` subtree holds the React SPA (Bun + TS, [`docs/spec/serve-react-frontend.md`](../spec/serve-react-frontend.md)), embedded via `frontend_dist.go`. Key Go files:
-  - `serve.go` — `Run`/`RunWithContext` entry points, `Options`, `DisplayScope`, `ResolveDisplayScope`; mounts `/api/*` JSON handlers (page, file, rail, nav, search/md, search/stream, code/search, code/*, status, external), the carried endpoints (`/graph/data`, `/code/graph/data`, `/code/graph/members`, `/events`, `/healthz`), and a catch-all `newSPAHandler` that serves `frontend/dist/` static files or falls back to `index.html`; constructs one shared `*snapshotStore` (`NewSnapshotStore(navRoot)`) and one `subscriberRegistry`, both shared across handler constructors and the live-reload ticker. `Options.Home` (new) carries the user home dir; when it (or a fallback `os.UserHomeDir()`) resolves, `serve.go` additionally mounts `/api/bus/` via `NewAPIBusHandler(BusAPIOptions{Home, TargetDir})` — the one conditional mount in the mux, skipped entirely when no home dir is found
-  - `render.go` — goldmark + chroma markdown-to-HTML renderer, mermaid fenced-block pass-through, YAML frontmatter stripped before goldmark; `RenderMarkdownWithGraph` is the production entry point (link rewriting + in-body wikilink resolution via the page's graph edges), returning plain hrefs for the API layer to embed as HTML-in-JSON
-  - `wikilink.go` — goldmark inline parser/renderer for Obsidian-style `[[page]]`/`[[page|alias]]` wikilinks; `wikilinkResolverFromGraph` reuses the page's already-computed `Graph.Outbound` edges so body and rail agree by construction; emits plain `<a href="/page/…">` (or a `wikilink-broken` span), not an `hx-get` attribute
-  - `nav.go`, `rail_handler.go`, `search_md.go`, `search_stream.go`, `codesearch.go`, `codeexplorer.go`, `health.go`, `external.go` — view-model builders each reshaped into an `/api/*` JSON handler (`NewAPI*Handler` constructors in `serve.go`); every field carrying pre-rendered HTML is named `html`/`*Html`, everything else is plain data
-  - `graphoverlay.go`, `codegraph.go`, `code_graph_members.go` — the carried, unreshaped `/graph/data`, `/code/graph/data`, `/code/graph/members` endpoints (unchanged paths and shapes from the pre-cutover build). `codegraph.go`'s handler calls `dedupParallelEdges(edges)` before building the response: the DB stores one `calls` edge per call site (correct data), so a helper called from N sites yields N identical `(source, target, kind)` rows that the cosmos client would otherwise draw as N stacked identical links; dedup collapses them to one, preserving first-seen order, and `graphFingerprint` runs on the deduped set so a duplicate-count-only change does not churn the layout-cache key.
-  - `api_bus.go` — the `/api/bus/*` handler (`NewAPIBusHandler`, `BusAPIOptions`): every request is gated on `isLoopbackPeer(r.RemoteAddr)` (TCP peer only, parsed via `net.SplitHostPort`/`net.ParseIP`, never a header) before any op runs; `status`/`rooms`/`who` call `h.do` → `bus.Dial` and degrade to a not-running/empty response with no daemon; `log` reads the room log file directly (`readRoomLogTail` → `os.Open(bus.RoomLogPath(...))`, no daemon round trip at all) and `tail` calls `bus.Dial` directly for an `OpTail` `client.Subscribe` (also never spawns); `join` and `send`'s join-if-needed path (with a stale-membership retry on `bus.ExitNotJoined`) call `h.doEnsure` → `bus.EnsureDaemon`, the sole spawn-capable seam; `webSessionID` derives the stable `serve-web-<sha256(TargetDir)[:8]>` session id; `requireRoom` rejects any room name containing [`/`](../..), `\`, or [`..`](../../..) before it reaches `bus.RoomLogPath`; `writeBusError` maps a `bus.Error`'s exit code to an HTTP status (usage→400, no-room/not-joined→404, halted→409, unreachable→503)
-  - `api_bus_transcript.go` — `/api/bus/sessions` (maps each room member to transcript availability) and `/api/bus/transcript` (renders a window of a session's `.jsonl` as HTML-in-JSON): `findSessionTranscript` globs `<home>/.claude/projects/*/<session>.jsonl` for the newest match after validating the session id against a strict `^[A-Za-z0-9._-]{1,128}$` pattern; `transcriptToMarkdown` is a hand-rolled, tolerant `.jsonl` parser — unknown line types and malformed or over-`maxTranscriptLineBytes` lines are skipped rather than failing the read, a sliding window of `offset+n` entries bounds memory regardless of transcript size, and each rendered block is truncated (4000 chars for text, 600 for tool results, 280 for thinking) before the assembled markdown is passed through `RenderMarkdown`
-  - `graph.go` — `BuildLinkGraph`, node-type classification, root-relative link resolution; shared by the API page/rail handlers and the carried graph-data endpoints
-  - `snapshot.go`, `events.go` — the live-reload realm-snapshot store and `/events` SSE endpoint; unchanged by the React cutover (server-side flows only)
-  - `code_members.go`, `stale.go`, `walk.go` — shared helpers (member discovery, staleness parsing, dir/file walk filters); member db paths resolve via `config.IndexDBPath` (harness-dir-aware, config domain issue #150 — replaced the `localIndexRel` constant, merged from `next`)
-  - `frontend_dist.go` — `//go:embed` source for the committed `frontend/dist/` build output; carries `//go:generate bun run --cwd frontend build.ts`, so `go generate ./...` (the bundle domain's build step) now also runs the Bun frontend build. [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)'s test job installs Bun (`oven-sh/setup-bun@v2`, pinned `1.3.13`) and runs `bun install --frozen-lockfile` in [`atomic/internal/serve/frontend/`](../../atomic/internal/serve/frontend) immediately before the "Generate bundle" step, so `go generate` has a populated `node_modules`
-  - `frontend/` — the React + TypeScript SPA workspace (`src/pages`, `src/components`, `src/layouts/Shell`, `src/hooks`, `src/utils/api` shared `FetchEngine`); `public/` carries the vendored/carried assets verbatim (`graph-core.js`, `system-graph.js`, `code-graph.js`, vendored `cosmos-graph.js`/`cytoscape.min.js`/`mermaid.min.js`, `app.css`, pruned of htmx-specific selectors); `dist/` is the committed build output
-  - `frontend/src/pages/Bus/Bus.tsx` — the `/bus` route: a polled room list (`GET /api/bus/rooms`), log backfill (`GET /api/bus/log`) followed by an `EventSource` SSE tail (`GET /api/bus/tail`, exempt from the shared-`FetchEngine` rule since it is not fetch-based) deduplicated by envelope id, an `@`-mention composer (`mentionQuery`/`chipCommit`/`resolveMember` helpers — mentions only open at the start of an empty draft, committed as removable chips on pick or space), and halt/resume controls; a `loopbackBlocked` state flips once on a 403 from the initial `/api/bus/status` fetch or the `/api/bus/rooms` poll and swaps the whole page for a loopback-only notice (other calls — join, send, who, halt — surface a generic error instead, since only those two checks inspect the response status for 403)
-  - `frontend/src/components/rail/BusRail.tsx` and `BusTranscriptModal.tsx` — the right rail on `/bus`: `BusRail` polls `GET /api/bus/sessions?room=` and lists each member's name/kind/staleness plus a session chip when a transcript is found; clicking one opens `BusTranscriptModal`, which pages `GET /api/bus/transcript?session=&n=&offset=` (offset counts entries back from the tail) and renders the returned HTML-in-JSON through the same `md-content` pipeline realm pages use
-  - `frontend/src/components/nav/TopBar.tsx` (`btn-bus` nav icon linking to `/bus`) and `frontend/src/routes.tsx` (`/bus` route) wire the page in; `frontend/src/components/rail/Rail.tsx` swaps the page-centric rail for `BusRail` whenever the current path is `/bus`
-- [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) — dispatches `atomic serve`
-- [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) — `serve` verb entry: path `["serve"]`, args `[path]`, flags `["--port", "--host", "--open"]`
-- [`scripts/graph-gates.mjs`](../../scripts/graph-gates.mjs) — LOCAL (not CI) Playwright gate harness against the graph views, retargeted to the React shell's selectors at cutover
-- [`scripts/test-system-graph-culling.cjs`](../../scripts/test-system-graph-culling.cjs) — manual-run unit test for `graph-core.js`'s `computeLabelSet()`
+```mermaid
+flowchart LR
+    B[browser] -->|/api/* and carried paths| API[Go handlers]
+    B -->|any other GET| SPA[embedded frontend/dist]
+    SPA --> RR[React Router resolves the path]
+    RR -->|fetch| API
+    API --> S[(snapshotStore<br/>fingerprint + nav + link graph)]
+    API --> CE[(code-intel engine<br/>per-member SQLite)]
+    API --> BUS[(bus daemon socket)]
+```
 
-## Docs
+`newSPAHandler` serves a file from `frontend/dist/` when one exists at the request path and otherwise returns `index.html`, so a deep link like `/page/docs/wiki/serve.md` reaches the client router instead of 404ing.
 
-- [`docs/spec/atomic-serve.md`](../../docs/spec/atomic-serve.md) — success criteria, non-goals, security contract; SC11 amended to describe graph mode hosting Docs + Code views behind a nested control, the shared cosmos.gl core, member-picker behavior, and the code-view click→code-explorer-modal behavior
-- [`docs/design/atomic-serve.md`](../../docs/design/atomic-serve.md) — design decisions: scope model, asset vendoring, route list, Cytoscape+ELK choice
-- [`docs/reference/serve.md`](../../docs/reference/serve.md) — user-facing reference for all flags, scope resolution table, every route; "Graph mode" section documents the Docs|Code nested toggle, including the Code graph view (kind-grouped legend, `contains`-edge de-emphasis, node-size-by-degree, member picker, per-repo fingerprint-keyed layout cache, "index not available" message)
-- [`docs/design/cosmos-system-graph.md`](../design/cosmos-system-graph.md) — design doc for the docs-graph engine swap (Cytoscape canvas 2D + one-shot cola layout → cosmos.gl GPU simulation): problem statement (no continuous physics, no headroom past ~3k nodes), goals/non-goals (rail mini-graph and `/graph/data` contract explicitly out of scope; symbol/code-graph rendering explicitly deferred as future headroom, later built by [`docs/design/code-graph.md`](../design/code-graph.md)/[`docs/spec/code-graph.md`](../spec/code-graph.md))
-- [`docs/spec/cosmos-system-graph.md`](../spec/cosmos-system-graph.md) — implementation spec for the docs-graph engine swap; the rendering contract [`docs/spec/atomic-serve.md`](../spec/atomic-serve.md)'s SC11 and [`docs/spec/code-graph.md`](../spec/code-graph.md) both delegate to
-- [`docs/design/code-graph.md`](../design/code-graph.md) (NEW) — design deliberation for the code graph view: granularity (symbol-level full graph chosen over file-level aggregation or a two-level drill), JS reuse shape (shared cosmos core + per-view profiles chosen over forking `system-graph.js` or in-place branching), data endpoint shape (lean flat JSON chosen over reusing `/graph/data`'s Cytoscape-envelope shape)
-- [`docs/spec/code-graph.md`](../spec/code-graph.md) (NEW) — implementation spec + checkpoints for the code graph view: CP1 index-integrity guard, CP2 `/code/graph/data` export endpoint + fingerprint, CP3 committed gate harness, CP4 shared cosmos core extraction, CP5 code view profile (kind→group palette, edge-kind styling, layout cache), CP6 Docs|Code switcher + member picker, CP7 docs amendments. 2026-08-08 change-log entry: `code-graph.js`'s KIND_GROUPS taxonomy maps the new `package` `NodeKind` ([`docs/spec/code-intel-package-nodes.md`](../spec/code-intel-package-nodes.md)) into the existing `import-export` group alongside `import`/`export`/`route` — SC5's ~8-group count is unchanged, this is a taxonomy-table entry not a new group.
-- [`docs/design/serve-live-reload.md`](../design/serve-live-reload.md) — design deliberation for live-reload: problem statement (nav walks per request, the Network View cache stat-walked its own fingerprint per request, and the link graph was built once at startup and frozen — three independent freshness models); two distinct goals kept explicit (fixing the frozen-graph staleness bug vs. the separate live-watch UX requirement); goals/non-goals (one walk mechanism, live-updating open views, zero server work with no browser tab open, no fsnotify, no WebSockets, whole-realm fingerprint as the unit of change, no user-facing tick-interval flag)
-- [`docs/spec/serve-live-reload.md`](../spec/serve-live-reload.md) — implementation spec, checkpoints CP1–CP5; CP5 ("system-mode client patching") is struck through in the current body and superseded per the 2026-07-08 change-log entry — its Cytoscape-specific implementation (commits `5c6dbc3`, `78d75be`) had no surviving attachment point once PR #123's cosmos.gl engine swap replaced the docs-graph client wholesale; server-side flows (CP1–CP4: snapshot store, `/events`, page-mode reconcile) are untouched and remain current; successor work is tracked by follow-up `cosmos-graph-live-reload-reconcile`
-- [`docs/spec/atomic-serve.md`](../spec/atomic-serve.md) gained a 2026-08-08 change-log entry narrowing the Goal section's scope claim from "a local, read-only HTTP server" to "read-only with respect to realm and repo content," naming `POST /api/bus/*` as the one exception (bus daemon state, loopback-only regardless of `--host`); [`docs/reference/serve.md`](../reference/serve.md) gained a "Bus chat" section covering the composer, session rail, and loopback-only behavior in user-facing terms
+### HTTP surface
+
+| Route | Returns |
+|-------|---------|
+| `GET /healthz` | Liveness probe, plain text `ok` |
+| `GET /api/page/<relpath>` | Rendered markdown as HTML-in-JSON, plus title, breadcrumb segments, `hasMermaid`. Empty relpath serves the scope landing (realm index, else [`README.md`](../../README.md)). A directory with no index file returns `{dir, entries}` |
+| `GET /api/file/<relpath>` | Chroma line-table HTML for a source file |
+| `GET /api/rail/<relpath>` | One payload: `properties`, `out`, `in`, `graphDataURL` |
+| `GET /api/nav` | Realm scope: six groups (Realm, Repos, Concerns, Knowledge, Buckets, External) with staleness badges. Repo scope: docs file tree |
+| `GET /api/search/md?q=` | Literal case-insensitive substring search over `*.md`, capped at 50 results |
+| `GET /api/code/search?q=&only=&exclude=` | Federated symbol search, grouped per member. An unindexed member returns `indexed:false` with empty results, not an error |
+| `GET /api/search/stream?q=&src=` | SSE: one `md` event, one `code` event per member as its search completes, terminal `end` |
+| `GET /api/code/{node,callers,callees,impact,files,schema,file}` | Code-explorer JSON, backing the code modal and SQL schema view |
+| `GET /api/status` | Realm health: wiki staleness plus code-index health |
+| `GET /api/external` | External-link registry with first-seen dates |
+| `GET /api/bus/*` | Bus chat facade, loopback-only (routes below) |
+| `GET /events` | Live-reload SSE, `{fp, changed}` |
+| `GET /graph/data[?node=&depth=]` | Docs link graph as Cytoscape elements. `node=` gives a BFS subgraph, default depth 2. Edge classes: `md-link`, `wikilink`, `fingerprint` |
+| `GET /code/graph/data[?member=]` | One member's entire symbol graph as flat JSON, plus a content fingerprint |
+| `GET /code/graph/members` | Realm members with indexed state, for the code view's member picker |
+| `GET /*` | Static file from `frontend/dist/`, else `index.html` |
+
+Bus routes, all under `/api/bus/`:
+
+| Method | Routes |
+|--------|--------|
+| `GET` | `status`, `rooms`, `who`, `sessions`, `transcript`, `log`, `tail` |
+| `POST` | `join`, `send`, `say`, `halt`, `resume`, `leave` |
+
+### Security model
+
+Three guards, each at a different layer:
+
+| Guard | Where | Rejects |
+|-------|-------|---------|
+| `isLoopbackPeer` | every `/api/bus/*` request | a non-loopback TCP peer |
+| `safeResolve` (`render.go`) | page, rail, file | a path escaping the served root |
+| `requireRoom` | bus room names | a name that would escape `RoomLogPath` |
+
+**Read-only, and the one hole in it.** `isLoopbackPeer` parses `r.RemoteAddr` with `net.SplitHostPort` and `net.ParseIP(...).IsLoopback()`, never a header, so `--host 0.0.0.0` extends browsing to the LAN but never bus send or halt. It also cannot see through a reverse proxy that terminates LAN traffic locally, which is outside the gate's threat model rather than a gap in it. Unparseable addresses fail closed.
+
+**Path traversal is rejected at the handler**, not by the filesystem. `safeResolve` (in `render.go`) is the shared guard for page, rail, and file; a rejected path returns a 404 JSON envelope. `requireRoom` is the equivalent guard for bus room names, which get spliced into a filesystem path.
+
+**`webSessionID` is derived from the served directory**, as `serve-web-<first 8 hex of sha256(TargetDir)>`, not from the pid, so a restarted server reclaims its existing roster entry instead of minting a new member each time. One identity per serve instance, shared by every browser tab.
+
+### Scope and serving
+
+**`Run` versus `RunWithContext`.** `Run` owns signal handling and returns an exit code to `main`. `RunWithContext` is the testable seam that takes a context and `Options` directly.
+
+**`--port 0` asks the OS for a free port** and the chosen URL is printed to stdout, so tests and scripts can parse it. A wildcard bind also prints every reachable LAN address below the loopback URL.
+
+**`DisplayScopeRepo` covers a repo with no code index.** Docs-only mode is valid; serve never requires an index to start.
+
+**[`.claude`](../../.claude) is not skipped by the walkers.** It holds servable project docs that `atomic wiki linkify` cites across members; skipping it would render valid links as broken and 404 their rails. Nested dotdirs inside it are still skipped.
+
+**Wikilink resolution happens once.** `wikilinkResolverFromGraph` reads the focused page's already-resolved outbound edges filtered to `mdlink.Wikilink`, so the page body and the right rail cannot disagree. Renaming that constant breaks the resolver.
+
+### Bus facade
+
+**No bus read route spawns a daemon.** `status`, `rooms`, and `who` go through `h.do` to `bus.Dial`; `log` reads the room log file with no daemon involved; `tail` dials directly for a subscription. All degrade to a not-running or empty response. Only `join` and `send`'s join-if-needed path use `h.doEnsure` to `bus.EnsureDaemon`. Opening `/bus` never starts a daemon; sending into a room does.
+
+**Transcript parsing is deliberately tolerant.** `api_bus_transcript.go` skips unknown line types, malformed JSON, and over-length lines rather than failing the read, bounds memory with a sliding window, and truncates each rendered block. A future change to Claude Code's `.jsonl` format degrades rendering quality, not availability. Session ids are validated against `^[A-Za-z0-9._-]{1,128}$` before being spliced into a glob.
+
+### Graph pane
+
+The carried scripts form a dependency chain, and each stage reads the previous one's `window` global at its own top-level init:
+
+```
+cosmos-graph.js  ->  graph-core.js  ->  system-graph.js
+(window.Cosmos)      (window.GraphCore)  code-graph.js
+```
+
+The rail mini-graph's `cytoscape.min.js` is an unrelated load; the rail never uses cosmos.gl.
+
+**Graph fingerprints are content-derived**, from sorted node and edge tuples rather than counts and a timestamp, so a renamed symbol invalidates the cached layout. The code view namespaces its IndexedDB key as `code:<member>:<fingerprint>` to avoid colliding with the docs profile in the same store.
+
+**`/code/graph/data` dedups parallel edges before responding.** The database correctly stores one `calls` edge per call site, so a helper invoked from N places produces N identical `(source, target, kind)` rows that the client would draw as N stacked links. `dedupParallelEdges` collapses them preserving first-seen order, and `graphFingerprint` runs on the deduped set so a duplicate-count-only change does not churn the layout cache.
+
+### Live reload
+
+Three gates stand in front of the expensive rebuild, so an idle server does no periodic filesystem work at all and a burst of edits rebuilds once rather than once per tick.
+
+```mermaid
+flowchart TD
+    T["ticker fires"] --> G1{"any /events<br/>subscribers?"}
+    G1 -->|no| SK["skip"]
+    G1 -->|yes| F["stat-only<br/>fingerprint walk"]
+    F --> G2{"fingerprint<br/>changed?"}
+    G2 -->|no| SK
+    G2 -->|yes| G3{"rebuild already<br/>in flight?"}
+    G3 -->|yes| SK
+    G3 -->|no| RB["rebuild: nav walk +<br/>BuildLinkGraph, diff manifest"]
+    RB --> SW["atomic.Pointer swap,<br/>broadcast {fp, changed}"]
+```
+
+Gate 3 skips rather than blocks: a caller that finds a rebuild in flight gets the current snapshot back and picks up the change on a later pass. Every per-request handler shares this same `ensureFresh` path, so the ticker is a freshness nudge for subscribers rather than the only thing that rebuilds.
+
+**The realm snapshot is swapped, never mutated.** `snapshot.go` publishes an immutable `realmSnapshot` through a single `atomic.Pointer` swap, so a torn read is structurally impossible. Page and rail handlers reach it through the `graphProvider` interface rather than holding a `*Graph`.
+
+The ticker starts once at startup and stops on the same context that drives graceful shutdown.
+
+**The `changed` list in an `/events` payload is capped at 100 entries** and omitted above the cap. The client treats an omitted list as "everything changed" and refetches.
+
+**Live-reload does not patch the graph pane.** A subscribed tab refetches its nav tree unconditionally and its open page and rail conditionally, but the graph pane reflects a realm change only on its next `/graph/data` or `/code/graph/data` fetch. Tracked by the `cosmos-graph-live-reload-reconcile` follow-up.
+
+
+## Where it lives
+
+
+Go, all in [`atomic/internal/serve/`](../../atomic/internal/serve):
+
+| Path | Role |
+|------|------|
+| `serve.go` | `Run` / `RunWithContext`, `Options`, `DisplayScope`, `ResolveDisplayScope`, the whole mux, `newSPAHandler`, listener and graceful shutdown |
+| `api_handlers.go` | The page, file, rail, nav, md-search, code-search, and search-stream handlers; `writeAPIJSON` / `writeAPIError` share one `{"error": "..."}` envelope |
+| `context_handler.go` | Relpath resolution shared by page and rail (index files, directory listing) |
+| `render.go` | goldmark + chroma renderer, mermaid fence pass-through, `RenderMarkdownWithGraph`, `safeResolve` |
+| `wikilink.go` | goldmark inline parser and renderer for `[[page]]` / `[[page\|alias]]` |
+| `graph.go` | `BuildLinkGraph` plus the `Graph` queries: `Has`, `Outbound`, `Backlinks`, `IsOrphan`, `NodeType`, `Meta` |
+| `snapshot.go` | `snapshotStore` — fingerprint, nav paths, and link graph behind one `atomic.Pointer` |
+| `events.go` | `/events` SSE endpoint and the subscriber-gated ticker |
+| `graphoverlay.go` | `/graph/data` Cytoscape element assembly |
+| `graphcache.go` | Fingerprint-invalidated cache for the whole-realm graph payload |
+| `provenance.go` | Provenance DAG from `reflects:` / `sources:` frontmatter, feeding the `fingerprint` edge class |
+| `nav.go` | Realm and repo nav group builders, `computeStaleness` |
+| `rail_handler.go` | Rail properties from key-ordered YAML frontmatter |
+| `search_md.go`, `search_stream.go` | Markdown search and the SSE framing around it |
+| `codesearch.go` | Federated symbol-search fan-out across members |
+| `codeexplorer.go` | `CodeEngine` / `EngineProvider` seams and the `/api/code/*` handlers |
+| `codegraph.go` | `/code/graph/data` export, `dedupParallelEdges`, `graphFingerprint` |
+| `code_graph_members.go` | `/code/graph/members` |
+| `code_members.go` | `memberResolver` — realm federation union self-index discovery |
+| `health.go` | `/api/status` realm health |
+| `external.go` | `BuildExternalRegistry`, `GitOrMtimeDateFn` |
+| `stale.go` | Sole parser for `wiki.Stale` output |
+| `walk.go` | `shouldSkipDir`, shared by every file walker in the package |
+| `api_bus.go` | `/api/bus/*` handler: loopback gate, dial-vs-ensure split, `requireRoom`, `writeBusError` |
+| `api_bus_transcript.go` | `/api/bus/sessions` and `/api/bus/transcript` |
+| `frontend_dist.go` | `//go:embed all:frontend/dist` and `//go:generate bun run --cwd frontend build.ts` |
+
+Frontend, all under [`atomic/internal/serve/frontend/`](../../atomic/internal/serve/frontend):
+
+| Path | Role |
+|------|------|
+| [`atomic/internal/serve/frontend/CLAUDE.md`](../../atomic/internal/serve/frontend/CLAUDE.md) | The workspace's own conventions: Bun only, LogosDX for data, Ark UI for primitives, one folder per component |
+| `build.ts` | `Bun.build` into `dist/assets/`, copies `public/` verbatim, writes `dist/index.html` |
+| `index.html` | SPA shell, loads the carried scripts |
+| `src/routes.tsx` | `/`, `/page/*`, `/graph`, `/bus`, `/search`, `/status`, `/external`, `/code/schema` |
+| `src/layouts/Shell/` | Three-pane shell (top bar, nav tree, content, rail); installs `window.AtomicGraphUI` |
+| `src/pages/` | Route screens, including `Graph/` (Docs and Code views) and `Bus/` |
+| `src/components/` | `nav`, `rail`, `search`, `code-modal`, `schema`, and generic `ui` primitives |
+| `src/hooks/useLiveReload.ts` | `EventSource('/events')` to a `realm.changed` observer event; `shouldRefetchPage` decides page and rail refetch |
+| `src/utils/api.ts` | The single shared `FetchEngine` |
+| `src/utils/graphEngineAdapter.ts` | Lazy-loads the carried scripts in dependency order, mounts a profile, owns member resolution |
+| `src/utils/typeColors.ts` | Single-source type-to-color derivation, exposed on `window` for the carried scripts |
+| `public/graph-core.js` | View-agnostic cosmos.gl engine: mount, teardown, retheme, WebGL2 detection, IndexedDB layout cache, label overlay, drag |
+| `public/system-graph.js`, `public/code-graph.js` | The docs and code profiles: data fetch, palette, cache key, hover and click hooks |
+| `public/vendor/` | `cosmos-graph.js`, `cytoscape.min.js`, `mermaid.min.js` |
+
+Outside the package:
+
+| Path | Role |
+|------|------|
+| [`atomic/cmd/atomic/main.go`](../../atomic/cmd/atomic/main.go) | Dispatches `atomic serve` |
+| [`atomic/internal/cliusage/cliusage.go`](../../atomic/internal/cliusage/cliusage.go) | `serve` entry: args `[path]`, flags `--port`, `--host`, `--open` |
+| [`atomic/internal/mdlink/`](../../atomic/internal/mdlink) | `ExtractLinks` for markdown links and wikilinks |
+| [`atomic/internal/frontmatter/`](../../atomic/internal/frontmatter) | `Parse` (strip before goldmark) and `ParseOrdered` (rail properties) |
+| [`scripts/graph-gates.mjs`](../../scripts/graph-gates.mjs) | Playwright gate harness for both graph views, run by hand |
+| [`scripts/test-system-graph-culling.cjs`](../../scripts/test-system-graph-culling.cjs) | Manual unit test for `graph-core.js`'s `computeLabelSet()` |
+
+Docs:
+
+| Path | Covers |
+|------|--------|
+| [`docs/spec/atomic-serve.md`](../spec/atomic-serve.md) | Success criteria, non-goals, the read-only contract and its bus-chat narrowing |
+| [`docs/design/atomic-serve.md`](../design/atomic-serve.md) | Scope model, asset vendoring, route map |
+| [`docs/reference/serve.md`](../reference/serve.md) | User-facing: flags, scope table, every route, graph mode, bus chat |
+| [`docs/spec/serve-react-frontend.md`](../spec/serve-react-frontend.md), [`docs/design/serve-react-frontend.md`](../design/serve-react-frontend.md) | The React SPA and the `/api/*` contract table |
+| [`docs/spec/serve-live-reload.md`](../spec/serve-live-reload.md), [`docs/design/serve-live-reload.md`](../design/serve-live-reload.md) | Snapshot store, `/events`, page-mode reconcile |
+| [`docs/spec/serve-bus-chat.md`](../spec/serve-bus-chat.md), [`docs/design/serve-bus-chat.md`](../design/serve-bus-chat.md) | The `/bus` page, loopback gate, session rail, transcript parsing |
+| [`docs/spec/cosmos-system-graph.md`](../spec/cosmos-system-graph.md), [`docs/design/cosmos-system-graph.md`](../design/cosmos-system-graph.md) | The cosmos.gl rendering contract both graph views delegate to |
+| [`docs/spec/code-graph.md`](../spec/code-graph.md), [`docs/design/code-graph.md`](../design/code-graph.md) | The code graph view: granularity, palette, layout cache, member picker |
+
+
+## Constraints
+
+
+**The SPA fallback returns 200, not 404.** Any unknown non-API path serves `index.html`. A typo in an asset path yields HTML where JavaScript was expected, which surfaces as a parse error in the browser rather than a missing-file error.
+
+**Carried script load order matters, and getting it wrong fails silently.** Both graph profiles read `window.GraphCore` at their own top-level init, so loading a profile before `graph-core.js` produces no error, just a pane that never mounts.
+
+**`code-graph.js`'s `KIND_GROUPS` table must track `AllNodeKinds`** in [`atomic/internal/codeintel/types/types.go`](../../atomic/internal/codeintel/types/types.go) (39 values, mapped to 8 visual groups). A kind missing from the table falls through to the `other` bucket instead of erroring, so a taxonomy gap is invisible until someone cross-checks the counts.
+
+**`public/` is copied verbatim into `dist/` by `build.ts`, and both are committed.** Editing `public/code-graph.js` without re-running `make -C atomic frontend` leaves the served copy stale. CI has a dedicated frontend job that runs `bun test`, rebuilds, and fails on `git diff --exit-code -- atomic/internal/serve/frontend/dist`.
+
+**The build disables identifier minification on purpose.** At this dependency-graph size the renamer's tie-breaker is non-deterministic, which would make the dist drift gate fail on identical input. Whitespace and syntax minification stay on.
+
+**`bun:test` does not reset modules between test files.** `loadScript`'s `loaded` cache and `railCytoscapeStyle`'s `window.__railCy` global both leak across files, so `src/test/setup.testing.ts` resets them in a global `afterEach` on top of whatever individual suites do.
+
 
 ## Coupling
 
-- **wiki domain**: `serve` calls `wiki.ReadBucketEntries`, `wiki.ReadScanMembers`, `wiki.Stale`, `wiki.CheckStaleness`, `wiki.ResolveFingerprint`, and `wiki.FileSHA256`. Changes to wiki's staleness or bucket-diff APIs break serve's health page and nav badges.
-- **code-intel domain**: `serve` imports `codeintel/realm` (for `realm.Resolve`) and opens per-member indexes via `engine.NewWithDBPath`. Changes to `realm.Resolve` scope types or `engine.NewWithDBPath` signature require matching changes in `serve.go` and `codesearch.go`. `codeexplorer.go` uses `GetNodesInFile` from `CodeEngine`; changes to that method signature propagate here. `CodeEngine` also declares `GetAllNodes(ctx)` and `GetAllEdges(ctx)` — pass-throughs to the engine facade's bulk DB reads at [`atomic/internal/codeintel/engine/engine.go`](../../atomic/internal/codeintel/engine/engine.go), added specifically to back `codegraph.go`'s `/code/graph/data` full-graph export; changes to either method's signature propagate to `codegraph.go`. `CodeEngine`'s `GetCallers`/`GetCallees`/`GetImpactRadius` are backed by [`atomic/internal/codeintel/graph/`](../../atomic/internal/codeintel/graph)'s `Manager` — `codeexplorer.go`'s `renderSubgraph` depends on `GetImpactRadius`'s container-descend children resolving in `Subgraph.Nodes` (its own root-substitution already tolerated the pre-fix hollow `GetCallers`/`GetCallees` start-node entry, so that half of the hydration fix serves direct CLI/MCP/`codectx` consumers of the `Subgraph` contract rather than `renderSubgraph` itself). `GetCallers`/`GetCallees` now also error (rather than returning an empty subgraph) for an unresolvable node ID.
-- **mdlink domain**: `serve` depends on `mdlink.ExtractLinks` for graph and backlink construction. `Edge.CodeFile` is populated from `mdlink.Link` fields; changes to `Link` struct or wikilink resolution rules affect `graph.go`, `rail_handler.go`, and `graphoverlay.go`. `wikilink.go` imports `mdlink` for the `mdlink.Wikilink` edge-kind constant used to filter outbound edges in `wikilinkResolverFromGraph`; a rename of that constant breaks the resolver.
-- **cliusage / doctor domain**: `atomic validate artifacts` lints `atomic serve` citations against `cliusage.go`. Adding or removing serve flags requires updating `cliusage.go` or artifact linting false-positives.
-- **frontmatter package** ([`atomic/internal/frontmatter/`](../../atomic/internal/frontmatter)): `rail_handler.go` calls `frontmatter.ParseOrdered` for the Properties slot; `render.go` calls `frontmatter.Parse` to strip frontmatter before goldmark. Changes to `KV` type, `ParseOrdered` signature, or `splitFrontmatter` semantics propagate to both handlers.
-- **bus domain** ([`atomic/internal/bus/`](../../atomic/internal/bus)): `api_bus.go` imports `internal/bus` directly (in-process, not a subprocess) and calls `bus.JoinIdentity` (web member naming/position), `bus.Dial` (the Dial-only read path), `bus.EnsureDaemon` (the two spawn-capable ops, `join` and `send`'s join-if-needed retry), and `bus.RoomLogPath` (room-log file location, used by both the `log` read route and `requireRoom`'s guard). `api_bus_transcript.go` makes no direct bus-package calls of its own — it reaches the daemon only through `api_bus.go`'s shared `h.do` method and consumes wire types (`bus.Request`, `bus.Member`, `bus.OpWho`). Wire types `bus.Request`, `bus.Response`, `bus.Envelope`, `bus.RoomInfo`, `bus.Member`, and `bus.Error` (its `Code` enum drives `writeBusError`'s HTTP-status mapping) cross the package boundary with no serve-side translation layer. Changes to any of these functions' signatures, the `Envelope`/`Member`/`RoomInfo` JSON shapes, or the `bus.Error.Code` values break `api_bus.go`/`api_bus_transcript.go` compilation or their JSON contract with the `/bus` frontend.
 
-## Conventions worth knowing
-
-- `Run` / `RunWithContext` split: `Run` owns signal handling and calls `os.Exit`; `RunWithContext` is the testable seam — tests inject a context and `Options` directly.
-- All static assets (the committed `frontend/dist/` React build, including carried CSS/vendored JS) are embedded at compile time via `//go:embed`; no network fetch and no file dependency outside the binary at runtime.
-- Path traversal is rejected at the handler level — every served path is resolved against the scope root and 404'd (as an `/api/*` JSON error envelope) if it escapes; `safeResolve` is the shared guard used by page, rail, and file handlers.
-- `parseFlags` normalizes the positional target-dir arg to an absolute path via `filepath.Abs` so downstream handlers can resolve request paths against the root regardless of invocation form (`atomic serve .` or a relative path).
-- cosmos.gl script load order (carried into `frontend/public/`, loaded by `index.html`): `cosmos-graph.js` (vendored, exposes `window.Cosmos`) → `graph-core.js` (view-agnostic engine; must load before any per-view profile) → `system-graph.js` (docs profile) → `code-graph.js` (code profile). The rail mini-graph's `cytoscape.min.js` is a separate, unrelated load — the rail never uses cosmos.gl.
-- `graph-core.js` / profile split unchanged by the React cutover: `graph-core.js` owns mount/teardown/retheme lifecycle, WebGL2 detection, motion policy, the IndexedDB layout cache, the DOM label overlay, legend chips, and drag handling; `system-graph.js`/`code-graph.js` supply only the data fetch + adapter, palette/taxonomy, cache key, label/meta resolvers, and hover/click hooks. React mounts a profile via `utils/graphEngineAdapter`, calling `window.GraphCore.mount(container, profile)` — the same contract the pre-cutover htmx shell used.
-- Fingerprint-as-cache-key: both graph endpoints derive a content-sensitive fingerprint (sorted node/edge tuples, not counts + a timestamp) so a renamed-symbol layout cache never replays stale positions. The code view's cache key is namespaced `code:<member>:<fingerprint>` to avoid colliding with the docs profile's own entries in the same IndexedDB store.
-- `code-graph.js`'s KIND_GROUPS table must stay in sync with [`atomic/internal/codeintel/types/types.go`](../../atomic/internal/codeintel/types/types.go)'s `AllNodeKinds` (39 values) — a kind absent from the table falls through to the `other` default bucket rather than erroring, so a taxonomy gap is silent unless cross-checked against the code-intel domain's node-kind count. `frontend/build.ts` (`Bun.build` + `cp("public", outdir)`) copies `frontend/public/` verbatim into `frontend/dist/` — editing `public/code-graph.js` and re-running the frontend build is what keeps the committed `frontend/dist/code-graph.js` identical to its `public/` source; both are committed together.
-- `memberResolver` (`code_members.go`) is the single seam for code-member discovery — federation ∪ self-index union, plus the local-db fallback path — embedded by every code-facing handler rather than duplicated per handler.
-- [`scripts/graph-gates.mjs`](../../scripts/graph-gates.mjs) and [`scripts/test-system-graph-culling.cjs`](../../scripts/test-system-graph-culling.cjs) are LOCAL developer tools, not CI gates — run by hand after touching the graph assets.
-- `--port 0` triggers OS-assigned port; the chosen port is printed to stdout so callers (tests, scripts) can parse it.
-- `DisplayScopeRepo` covers both "repo with a code index" and "bare repo with no index" — docs-only mode is valid; a code index is not required to start.
-- `GET /api/rail/<relpath>` returns one JSON payload with `properties`, `out`, `in`, and `graphDataURL` fields — the pre-cutover four-OOB-fragment htmx composite is gone; React renders the Properties/OUT/IN panels directly from the JSON, and the rail mini-graph child fetches `/graph/data?node=<relpath>&depth=1` itself.
-- `/healthz` is the liveness probe (plain text `ok`); `GET /api/status` is the JSON realm-health payload the React `Status` page renders (moved off `/health` pre-cutover, then off HTML entirely at the React cutover).
-- In production the link graph is served through the shared `*snapshotStore` (`serve.go`'s `NewSnapshotStore(navRoot)`), not a startup-frozen `*Graph` — `ensureFresh()` rebuilds it via `BuildLinkGraph` whenever the realm's fingerprint changes. Page and rail handlers read it through the `graphProvider` interface (`g.currentGraph()`); `Graph.Has(rel)` is O(1) via `nodeSet`.
-- Wikilink resolution is single-source: `wikilinkResolverFromGraph` reads the already-computed outbound edges from `Graph.Outbound(pageRelPath)` filtered to `mdlink.Wikilink` kind — the body and the right rail use the same resolution, no second resolution pass.
-- Node type classification is cached in `Graph.nodeTypes` at build time; `NodeType(relPath)` is O(1) at render time. The `type` field on each `/graph/data` node element is colored via the shared `typeColors` module — a single-source type→color reader exposed as a `window` global (`frontend/src/utils/typeColors`) so the carried `system-graph.js`/`code-graph.js` profiles and the rail's Cytoscape stylesheet factory (`railCytoscapeStyle`) read the same colors.
-- Live-reload's ticker is a single goroutine, started once at server startup and stopped by the same context that drives graceful shutdown, gated on subscriber count (`registry.count() == 0` skips even the cheap stat-only fingerprint walk).
-- The realm snapshot (`snapshot.go`) is published via a single `atomic.Pointer[realmSnapshot]` swap, never mutated field-by-field, so a torn read is structurally impossible.
-- The `/events` `changeEvent.Changed` manifest-diff list is capped at 100 entries; above the cap the field is omitted, and the client treats an omitted list the same as an oversized one — refetch everything.
-- **Live-reload does not patch the graph pane in place**, and never did (pre-cutover htmx shell or current React SPA). Checkpoint 5 of [`docs/spec/serve-live-reload.md`](../spec/serve-live-reload.md) planned an in-place graph-pane patch, was built against the pre-cosmos client, and was superseded and dropped when PR #123's cosmos.gl engine swap replaced that client before CP5 could be re-attached (2026-07-08 change-log entry in that spec). The graph pane reflects a realm change only on its next `/graph/data`/`/code/graph/data` fetch. Tracked by follow-up `cosmos-graph-live-reload-reconcile`.
-- `bun:test` does not reset modules between test files in the same process, so module-level state leaks across files: `loadScript`'s `loaded` promise cache and `railCytoscapeStyle`'s `window.__railCy` global are both shared. [`atomic/internal/serve/frontend/src/test/setup.testing.ts`](../../atomic/internal/serve/frontend/src/test/setup.testing.ts)'s global `afterEach` now calls `__resetLoadScriptCacheForTest()` and deletes `window.__railCy` centrally, on top of the per-file resets individual suites already did (`MiniGraph.test.tsx`'s own `afterEach` also deletes `window.__railCy` — belt-and-suspenders, since `railCytoscapeStyle.test.ts`'s "nothing registered" case is order-dependent on it). The Rail suite mocks out `MiniGraph` entirely (covered by its own suite) rather than stubbing its script-load chain — an RTL `waitFor` timeout there traced to macrotask-timer starvation from unmounting `MiniGraph` mid-flight on an in-flight `FetchEngine` request with no `AbortController`.
-- The bus chat loopback gate (`isLoopbackPeer` in `api_bus.go`) checks the TCP peer host parsed from `r.RemoteAddr` (`net.SplitHostPort` + `net.ParseIP(...).IsLoopback()`) — never a header — so it cannot be spoofed by a forwarded-for value; it also cannot see through a reverse proxy that terminates LAN traffic locally, which is a deliberate choice outside the gate's threat model, not a gap in it.
-- `webSessionID` derives a stable `serve-web-<sha256(TargetDir)[:8]>` session id from the served directory rather than the process pid, so a restarted `atomic serve` reclaims its existing bus roster entry instead of minting a new member on every restart; one id per serve instance, shared by every browser tab against that instance.
-- No bus read route spawns a daemon: `status`/`rooms`/`who` dial via `h.do` → `bus.Dial`, `log` reads the room-log file directly with no daemon involved at all, and `tail` dials `bus.Dial` directly for a subscription — all degrade to a not-running/empty response with no daemon up. Only `join` and `send`'s join-if-needed path use `h.doEnsure` → `bus.EnsureDaemon`, the sole spawn-capable seam — opening the `/bus` page never starts a daemon, but sending into a room does.
-- `.jsonl` transcript parsing is tolerant by convention, not by accident: unknown line types, malformed JSON, and lines beyond `maxTranscriptLineBytes` are skipped rather than failing the read, and each rendered block is truncated to a fixed length — a future Claude Code session-file format change degrades transcript rendering quality, never availability.
+- **wiki domain.** `serve` calls `wiki.Stale`, `wiki.ReadScanMembers`, `wiki.ReadBucketEntries`, `wiki.ResolveFingerprint`, and `wiki.FileSHA256`. The `DRIFT` / `STALE` line grammar is a wire format between them: a change to it breaks `stale.go`, and with it the nav badges and `/api/status`.
+- **code-intel domain.** `serve` calls `realm.Resolve` for scope, opens per-member indexes through `engine.NewWithDBPath`, and talks to the engine only through the `CodeEngine` interface in `codeexplorer.go`. Adding a method there means every fake in `codeexplorer_fakes_test.go` grows too.
+- **bus domain.** `api_bus.go` imports `internal/bus` in-process, not as a subprocess, and uses `bus.JoinIdentity`, `bus.Dial`, `bus.EnsureDaemon`, and `bus.RoomLogPath`. The wire types `bus.Request`, `bus.Response`, `bus.Envelope`, `bus.RoomInfo`, `bus.Member`, and `bus.Error` cross the boundary with no translation layer, so their JSON shapes are also serve's contract with the `/bus` frontend. `bus.Error.Code` drives the HTTP status mapping.
+- **doctor domain.** `health.go` calls `doctor.RunCheckCodeIndexRealmWith` and `doctor.RunCheckCodeIndexWith` for the code-index half of `/api/status`. Separately, `atomic validate artifacts` lints `atomic serve` citations against `cliusage.go`, so a new flag has to be registered there or valid citations start failing.
+- **config domain.** Member database paths resolve through `config.IndexDBPath`, which is harness-dir aware. Serve never hardcodes `.claude/.atomic-index/`.
+- **bundle domain.** `go generate ./...` runs the Bun frontend build through `frontend_dist.go`'s `go:generate` directive, so the bundle step depends on a populated `frontend/node_modules`. CI installs Bun and runs `bun install --frozen-lockfile` before generating.

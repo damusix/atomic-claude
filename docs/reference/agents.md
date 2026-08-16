@@ -30,7 +30,8 @@ These handle system-level tasks.
 
 | Agent | What it does | Model |
 |-------|-------------|-------|
-| `atomic-wiki-inferrer` | Scope-sensitive wiki pipeline. Repo scope: scans via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), writes `docs/wiki/index.md` plus per-domain files, and wires the `@docs/wiki/index.md` ref (checking `claude.local.md`/`CLAUDE.local.md` before `CLAUDE.md`). Realm scope: executes the cross-repo pipeline against `<root>/wiki/`. Dispatched by `/refresh-wiki` and silently by ship verbs. | Sonnet, `medium` effort |
+| `atomic-wiki-inferrer` | Scope-sensitive wiki pipeline, and an orchestrator rather than an author. Repo scope: scans via `atomic signals scan`, infers domain structure (using real import/call edges from the code-intel index when present; filename heuristics otherwise), dispatches one `atomic-wiki-writer` per domain and `atomic-reviewer` per page, then assembles `docs/wiki/index.md` and wires the `@docs/wiki/index.md` ref (checking `claude.local.md`/`CLAUDE.local.md` before `CLAUDE.md`). Realm scope: executes the cross-repo pipeline against `<root>/wiki/`. Runs in its own context so the scan, which is thousands of lines, never enters the caller's. Dispatched by `/refresh-wiki` and silently by ship verbs. | Sonnet, `medium` effort |
+| `atomic-wiki-writer` | Authors one wiki page from source, dispatched once per domain by `atomic-wiki-inferrer` with the page contract and source paths in its prompt. Carries the `atomic-writing` skill in frontmatter, so the page's reading order, its diagrams, and its voice load as context rather than arriving as a request. Reads the files rather than inferring from filenames, draws every shape the domain has, and reports judgments separately from facts. Holds no `Agent` tool, so it cannot fan out. | Sonnet, `high` effort |
 
 
 ## Model and effort overrides
@@ -56,6 +57,7 @@ Model and effort are independent. Set either one alone, both, or neither.
 | `atomic-implementer` | `claude-sonnet-5`, effort `medium` |
 | `atomic-reviewer` | `claude-sonnet-5`, effort `xhigh` |
 | `atomic-wiki-inferrer` | `claude-sonnet-5`, effort `medium` |
+| `atomic-wiki-writer` | `claude-sonnet-5`, effort `high` |
 | `atomic-auditor` | `claude-opus-5`, effort `max` |
 | `atomic-strategist` | unpinned, effort `xhigh` |
 
