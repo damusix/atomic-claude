@@ -13,6 +13,7 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/cliutil"
 	"github.com/damusix/atomic-claude/atomic/internal/frontmatter"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
+	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
 )
 
 // builtinSubagents is the set of subagent names built into Claude Code that do
@@ -112,6 +113,16 @@ func runC3(repoRoot string) ([]Finding, error) {
 		return nil, fmt.Errorf("C3: read commands dir: %w", err)
 	}
 
+	// Commands are checked in expanded form: a dispatch can live inside a shared
+	// partial, and scanning the unexpanded source would silently stop covering
+	// it. This is the same expansion bundlemirror performs on the way into the
+	// bundle, so C3 sees exactly what installs.
+	partials, err := templaterender.LoadPartials(
+		filepath.Join(bundlespec.SourceRoot(repoRoot), templaterender.PartialsDir))
+	if err != nil {
+		return nil, fmt.Errorf("C3: load partials: %w", err)
+	}
+
 	var findings []Finding
 	for _, e := range entries {
 		if e.IsDir() {
@@ -124,6 +135,10 @@ func runC3(repoRoot string) ([]Finding, error) {
 		src, err := os.ReadFile(cmdPath)
 		if err != nil {
 			return nil, fmt.Errorf("C3: read %s: %w", cmdPath, err)
+		}
+		src, err = templaterender.Expand(partials, e.Name(), src)
+		if err != nil {
+			return nil, fmt.Errorf("C3: expand %s: %w", cmdPath, err)
 		}
 
 		// Extract prose-only text segments (skips fenced/indented code blocks).

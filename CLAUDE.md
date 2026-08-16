@@ -22,21 +22,19 @@ Target macOS and Linux only. Drop Windows-specific review findings, Windows-only
 | `context/CLAUDE.md` | Single source of truth. Two roles in one file: (a) the global contract that ships as every user's `~/.claude/CLAUDE.md` on install, and (b) this repo's own project instructions when working *on* atomic-claude. Since it no longer sits at the repo root, Claude Code does not auto-load it here — the `@context/CLAUDE.md` ref below pulls it in. Not to be confused with the root `CLAUDE.md`, which is the row below. | `context/`, committed → `~/.claude/CLAUDE.md` on install |
 | `CLAUDE.md` (this file) | Project-local overlay for this repo *only*. Build pipeline rules, doc reference paths, mandatory checklist, design axioms. Auto-loads at the repo root, and pulls in `context/CLAUDE.md` by `@`-ref. Do NOT duplicate `context/CLAUDE.md` content here — both load into context, duplication = wasted tokens. | Repo root, committed, never installed. |
 | `README.md` | Human-facing overview of what the config does and how to install it. | Repo root, committed. |
-| `context/commands/*.md` | **Rendered** slash command definitions. Edit `templates/commands/<verb>.md` (and `templates/shared/<flow>.md` for cross-verb partials); `make render` regenerates these. Copied to `~/.claude/commands/` by `atomic claude install`. | `~/.claude/commands/` |
-| `templates/commands/<verb>.md` | Source of truth for command files. Either a single `{{ template "<flow>" . }}` directive plus verb-specific orchestration, or a self-contained body if no partial applies. | Renders to `context/commands/<verb>.md`. |
-| `templates/shared/<name>.md` | Reusable partials composed by command AND agent templates via `{{ template "<name>" . }}`. One shared pool — a partial defined once is callable from any command or agent template. `agent-`-prefixed partials compose into agent templates, the rest into commands. The full inventory and the per-template composition tables live in `docs/wiki/bundle.md` — read them there rather than keeping a second copy here, which is what let this row drift. One rule that is not derivable from the files themselves: `agent-yagni` is kept **verbatim in sync** with the Simplicity-first (YAGNI) ladder in `CLAUDE.md`'s Principles block, and `CLAUDE.md` is not rendered, so nothing enforces the match. | Not copied directly; consumed at render time. |
-| `context/agents/*.md` | **Rendered** subagent definitions. Edit `templates/agents/<name>.md` (and `templates/shared/agent-*.md` for cross-agent partials); `make render` regenerates these. NEVER edit `context/agents/<name>.md` directly — overwritten on next render. Copied to `~/.claude/agents/` by `atomic claude install`. | `~/.claude/agents/` |
-| `templates/agents/<name>.md` | Source of truth for agent files. Either a self-contained body (most agents) or verbatim-shared blocks pulled via `{{ template "agent-*" . }}` (builder + surgeon, which share TDD workflow, signal output format, and discipline rules). | Renders to `context/agents/<name>.md`. |
+| `context/commands/*.md` | Slash command definitions, committed in source form. May carry `{{ template "<flow>" . }}` directives resolved against `context/_partials/`; expansion happens on the way into the embedded bundle, never back into `context/`. Copied to `~/.claude/commands/` by `atomic claude install`. | `~/.claude/commands/` |
+| `context/agents/*.md` | Subagent definitions, same contract as commands. Every agent composes at least `agent-atomic-voice`. | `~/.claude/agents/` |
+| `context/_partials/<name>.md` | Reusable blocks composed by command AND agent sources via `{{ template "<name>" . }}`. One shared pool — a partial defined once is callable from either kind. Never installs: the mirror walks only the artifact kind directories, and `_partials/` is not one of them. The full inventory and the per-artifact composition tables live in `docs/wiki/bundle.md` — read them there rather than keeping a second copy here, which is what let this row drift. One rule that is not derivable from the files themselves: `agent-yagni` is kept **verbatim in sync** with the Simplicity-first (YAGNI) ladder in `context/CLAUDE.md`'s Principles block, and `CLAUDE.md` is not expanded, so nothing enforces the match. | Not copied; consumed at build time. |
 | `context/skills/*/SKILL.md` | Discipline skills. Copied to `~/.claude/skills/`. | `~/.claude/skills/` |
 | `context/output-styles/*.md` | Output style definitions. Copied to `~/.claude/output-styles/`. | `~/.claude/output-styles/` |
 | `context/rules/<topic>/*.md` | **Shipped** path-scoped topic rules. `paths:` frontmatter globs (e.g. `**/*.{ts,tsx}`, `docs/spec/**`) so the rule only loads when Claude touches a matching file — auto-loads into subagents too (verified). Currently: `typescript/`, `python/` (language style), `specs/spec-currency.md` (spec body-is-truth, globs `docs/spec/**` + `docs/design/**`). | `~/.claude/rules/` (via `atomic claude install`) |
-| `.claude/rules/<topic>/*.md` | **Repo-only** path-scoped rules — committed (gitignore-negated) but NOT bundled, so they never ship to users. `.claude/rules/authoring/` holds the contributor artifact-authoring references (`agent-config`, `prompting`, `claude-code-refs`, `axioms`) — glob the artifact sources (`context/**` and `templates/**`) so they auto-load only when editing an artifact, instead of `@`-ref'ing every session. | Stays in repo; never installed. |
+| `.claude/rules/<topic>/*.md` | **Repo-only** path-scoped rules — committed (gitignore-negated) but NOT bundled, so they never ship to users. `.claude/rules/authoring/` holds the contributor artifact-authoring references (`agent-config`, `prompting`, `claude-code-refs`, `axioms`) — glob the artifact sources (`context/**`) so they auto-load only when editing an artifact, instead of `@`-ref'ing every session. | Stays in repo; never installed. |
 
 
 ## Reference docs
 
 
-**Artifact-authoring references** — frontmatter/dispatch semantics (`.claude/rules/authoring/agent-config.md`), Anthropic prompting patterns (`.claude/rules/authoring/prompting.md`), upstream Claude Code doc URLs (`.claude/rules/authoring/claude-code-refs.md`), and atomic's design axioms (`.claude/rules/authoring/axioms.md`) — are now **path-scoped rules**. They auto-load only when an artifact source is touched (anything under `context/` or `templates/`), in the main agent and in subagents, instead of `@`-ref'ing every session. Read before adding or editing any command / agent / skill / output-style / rule.
+**Artifact-authoring references** — frontmatter/dispatch semantics (`.claude/rules/authoring/agent-config.md`), Anthropic prompting patterns (`.claude/rules/authoring/prompting.md`), upstream Claude Code doc URLs (`.claude/rules/authoring/claude-code-refs.md`), and atomic's design axioms (`.claude/rules/authoring/axioms.md`) — are now **path-scoped rules**. They auto-load only when an artifact source is touched (anything under `context/`), in the main agent and in subagents, instead of `@`-ref'ing every session. Read before adding or editing any command / agent / skill / output-style / rule.
 
 
 These stay auto-loaded every session (project-specific, compact):
@@ -79,13 +77,13 @@ Run this whenever you add, rename, or remove a command / agent / skill / output-
 
 | # | Surface | When to update | What to write |
 |---|---------|----------------|---------------|
-| 1 | The artifact file itself | Always | `templates/agents/atomic-*.md` (NEVER `context/agents/<name>.md` directly — that's rendered), `templates/commands/<verb>.md` (NEVER `context/commands/<verb>.md` directly — that's rendered), `context/skills/<name>/SKILL.md`, `context/output-styles/atomic-*.md`, or `context/rules/<lang>/*.md`. Use `atomic-` prefix for custom artifacts. For new commands or agents, also run `make render` to materialize the output under `context/commands/` or `context/agents/`. |
+| 1 | The artifact file itself | Always | `context/agents/atomic-*.md`, `context/commands/<verb>.md`, `context/skills/<name>/SKILL.md`, `context/output-styles/atomic-*.md`, or `context/rules/<lang>/*.md` — one file, no separate template. Use the `atomic-` prefix for custom artifacts. |
 | 2 | `CLAUDE.md` | Always — single source of truth | This is both (a) the global contract that ships as every user's `~/.claude/CLAUDE.md` on install, and (b) the committed project instructions when working *on* atomic-claude. One file, both roles. Agents and skills are surfaced by the harness each session (agent roster + skill trigger descriptions), so they need no CLAUDE.md registry section — keep each artifact's own description accurate instead. Commands go only into the `## Workflow` lifecycle ordering (the per-command catalog was removed; discovery is via the harness slash listing + `/atomic-help`); naming conventions cover output styles/rules. |
 | 3 | `CLAUDE.md` (root, this file) | Only when the new artifact changes *project-local* conventions for this repo specifically (e.g. new bundle path, new build step, new file role) | Edit the relevant section. This file never installs. Do NOT duplicate the global registration here — the root file is for repo-specific overlays only, not for mirroring `context/CLAUDE.md`. Both load into context when cwd is this repo, so duplication = wasted tokens. |
 | 4 | `README.md` | Always — public-facing index | Add to the matching table in `docs/reference/commands.md` (or agents/skills equivalent). Keep one-line descriptions. |
 | 5 | `docs/spec/<topic>.md` | If the artifact has non-trivial behavior or cross-references | Write or extend the spec. Required for anything dispatched by another artifact or that mutates state. **Amending an existing spec: see "Spec amendment rule" below — never silently overwrite the original.** |
 | 6 | Cross-references in other artifacts | If this artifact is invoked by, or invokes, another | Wire both directions. Example: a new skill invoked by `/commit` requires editing the command to call it AND the skill to declare itself as called from there. |
-| 7 | **`/atomic-help` topic table + tour** ⚠ | **Always** — every artifact a user might type, install, or run. Non-negotiable. | Edit `templates/commands/atomic-help.md`. Add / remove / rename the row in the right category sub-table (Lifecycle / Ship matrix / State & context / Maintenance & utilities / Reference). Material lifecycle or maintenance change → also update the matching tour stage (Stage 2 lifecycle / Stage 3 state files / Stage 4 maintenance). **Read the full contract in `<help_router_contract>` below before skipping any sub-rule.** |
+| 7 | **`/atomic-help` topic table + tour** ⚠ | **Always** — every artifact a user might type, install, or run. Non-negotiable. | Edit `context/commands/atomic-help.md`. Add / remove / rename the row in the right category sub-table (Lifecycle / Ship matrix / State & context / Maintenance & utilities / Reference). Material lifecycle or maintenance change → also update the matching tour stage (Stage 2 lifecycle / Stage 3 state files / Stage 4 maintenance). **Read the full contract in `<help_router_contract>` below before skipping any sub-rule.** |
 | 8 | Bundle inclusion (`atomic/internal/bundlemirror/mirror.go`) | Only if you introduce a **new artifact kind** (not a new file of an existing kind) | Add the inclusion rule. Existing kinds (`context/agents/`, `context/commands/`, `context/skills/`, `context/output-styles/`, `context/rules/`) auto-include matching files. |
 | 9 | Signals refresh | After adding the file | Run `/refresh-signals` (or let ship verbs dispatch `atomic-signals-inferrer` in silent mode) so `docs/wiki/scan.md` and `docs/wiki/index.md` reflect the new file. |
 
@@ -111,24 +109,26 @@ The `atomic` binary embeds `context/` at build time via `go:embed`. `go:embed` c
 **Failure mode to recognize.** A bare `go build` or `go test` on a fresh clone, bypassing `make`, fails with `pattern bundle: no matching files found`. That is the mirror being absent, not a broken tree — run `make -C atomic bundle`.
 
 
-**Pre-commit hook.** `.githooks/pre-commit` (installed via `make hooks`, which sets `core.hooksPath=.githooks`) has three stages, each firing only when a staged path touches its own inputs: (1) `make render` when any `templates/` file is staged, re-staging `context/commands/` and `context/agents/`; (2) `atomic followups render` when any followups entry file (other than INDEX.md) is staged, re-staging `INDEX.md` (degrades to WARN if `atomic` binary absent); (3) `make frontend` when `atomic/internal/serve/frontend/**` outside `dist/` is staged, re-staging `frontend/dist/`. If you commit without the hook installed, the render regen is your responsibility — CI fails the "Verify render is committed" step on drift.
+**Pre-commit hook.** `.githooks/pre-commit` (installed via `make hooks`, which sets `core.hooksPath=.githooks`) has two stages, each firing only when a staged path touches its own inputs: (1) `atomic followups render` when any followups entry file (other than INDEX.md) is staged, re-staging `INDEX.md` (degrades to WARN if `atomic` binary absent); (2) `make frontend` when `atomic/internal/serve/frontend/**` outside `dist/` is staged, re-staging `frontend/dist/`. There is no render or bundle stage — neither produces a committed file.
 
 
 **`atomic hooks` vs git hooks — different systems.** `atomic hooks install` registers a Claude Code session-start hook (injects pending reminders into context). That has nothing to do with the build pipeline. Render parity is enforced by CI; the git pre-commit hook in `.githooks/` is the local convenience layer.
 
 
-## Templates: regenerate before every commit
+## Shared partials
 
 
-Both `context/commands/` AND `context/agents/` are fully generated from `templates/` via `make render`. Rendered kinds are `templates/commands/<verb>.md` → `context/commands/<verb>.md` and `templates/agents/<name>.md` → `context/agents/<name>.md`; both pull reusable partials from `templates/shared/<name>.md` (one shared pool). Unlike the embedded bundle, the rendered files are **tracked** — they are what ships, and reviewing a command means reading its rendered form. `templates/` stays at the repo root because it never installs. The render order and kind list live in `templaterender.renderedKinds`.
+A command or agent source may compose a reusable block with `{{ template "<name>" . }}`, resolved against `context/_partials/`. Both kinds draw from one pool. Expansion happens inside `make bundle`, on the way into the embedded bundle — nothing is ever written back into `context/`, so an artifact exists in exactly one place and a partial edit reaches every consumer on the next build.
 
-**Hard rule: any commit that touches a template must include the re-rendered `context/commands/` and/or `context/agents/` outputs in the same commit.** Editing `context/commands/<verb>.md` or `context/agents/<name>.md` directly is overwritten on the next render; the contributor skill `.claude/skills/atomic-cli-contrib/SKILL.md` §10 spells out the rule.
 
-**How to regenerate.** From repo root: `make render`. Outputs flow to `context/commands/<verb>.md` and `context/agents/<name>.md`. Stage everything under `context/commands/` and `context/agents/`, include in the same commit. The pre-commit hook automates this when templates are staged.
+**Only commands and agents expand.** Skills, rules, output styles, and `context/CLAUDE.md` are copied byte-for-byte, so a literal `{{` in their prose is safe. A directive naming a partial that does not exist fails the build rather than shipping an artifact with a hole in it.
 
-**Orphan rule.** A `context/commands/<verb>.md` or `context/agents/<name>.md` without a matching `templates/<kind>/<name>.md` causes `make render` to halt with a non-zero exit and an error that names both remediation paths (create the template OR `rm` the orphan output). The error message is kind-aware. Adding a new command or agent means creating the template file under `templates/commands/` or `templates/agents/`, never directly in the output dir.
 
-**Pipeline order.** Render runs before bundle, so `bundle` declares `render` as its prerequisite: `make render` writes `context/commands/` and `context/agents/`, then `make bundle` reads all of `context/` to produce the embedded mirror. Alongside them, `atomic followups render` regenerates `INDEX.md` and `make frontend` rebuilds `serve/frontend/dist`. CI runs one drift gate (`make render && git diff --exit-code`) — the bundle has none, being gitignored; the pre-commit hook chains the three committed-output stages.
+**Adding an artifact is one file.** `context/commands/<verb>.md` or `context/agents/<name>.md` — there is no second location to keep in sync, and no orphan rule, because there is no separate output to orphan.
+
+
+**Pipeline order.** One generation step: `make bundle` expands `context/` into `atomic/internal/embedded/`. Alongside it, `atomic followups render` regenerates `INDEX.md` and `make frontend` rebuilds `serve/frontend/dist`. CI has no render or bundle drift gate — neither output is committed.
+
 
 </build_pipeline>
 
@@ -167,7 +167,7 @@ These rules exist because this repo is meant to be installed into *user reposito
 
 **Why this is critical:** `/atomic-help` is the canonical onboarding map and the only discoverability surface for new users. It is a routing layer — not duplicated docs — so nothing automated detects drift. A command that exists but is unmentioned in help may as well not exist; users typing `/atomic-help` or `/atomic-help tour` will never find it. Every artifact add / remove / rename has a corresponding help update, and that update is part of the same change, not a follow-up.
 
-**Triggering events.** Every one of these requires a `templates/commands/atomic-help.md` edit before commit:
+**Triggering events.** Every one of these requires a `context/commands/atomic-help.md` edit before commit:
 
 - Adding any command, agent, skill, output-style, or rule.
 - Removing any of the above.
@@ -180,11 +180,11 @@ These rules exist because this repo is meant to be installed into *user reposito
 
 - **Every committed slash command must appear in at least one `/atomic-help` topic row.** Primary verb for its own topic, or named alternative in another topic's output. A command not discoverable through help is invisible to new users.
 - **Every committed agent and skill must be reachable through a topic.** Agents → topic `agents`. Skills → topic `skills`. Surfacing the roster suffices — individual agents/skills do not each need their own topic, but the roster must stay accurate.
-- **Tour stages mirror the documented surface.** Stage 1 (surfaces) names the five composing layers (output style, skills, commands, agents, binary). Stage 2 (lifecycle) lists the canonical plan → implement → ship → docs verbs. Stage 3 (state files) enumerates where things live (signals, scratchpad, session reports, follow-ups, worktrees, design/spec). Stage 4 (maintenance) covers doctor / validate / update / cleanup / ci / report. Adding a new artifact in one of those zones means updating the matching stage in `templates/commands/atomic-help.md` alongside the topic table.
-- **Renames update both the topic row and every freeform-intent example.** Run `grep -n '/<old-verb>' templates/commands/atomic-help.md` after a rename — must return zero matches.
+- **Tour stages mirror the documented surface.** Stage 1 (surfaces) names the five composing layers (output style, skills, commands, agents, binary). Stage 2 (lifecycle) lists the canonical plan → implement → ship → docs verbs. Stage 3 (state files) enumerates where things live (signals, scratchpad, session reports, follow-ups, worktrees, design/spec). Stage 4 (maintenance) covers doctor / validate / update / cleanup / ci / report. Adding a new artifact in one of those zones means updating the matching stage in `context/commands/atomic-help.md` alongside the topic table.
+- **Renames update both the topic row and every freeform-intent example.** Run `grep -n '/<old-verb>' context/commands/atomic-help.md` after a rename — must return zero matches.
 - **Removals delete the topic row, any freeform-intent example, and any tour-stage mention.** No dangling pointers.
 - **Binary subcommands surfaced to users count as commands for this rule.** New `atomic <verb>` that a user runs directly → mention it under the `binary` / `cli` topic (or whichever maintenance / setup topic fits). Internal subcommands invoked only by other artifacts do not.
-- **Final pass before commit (mandatory).** Open `templates/commands/atomic-help.md`, scan every category table and all four tour stages, ask: *"Would a new user typing `/atomic-help` discover the change I just made?"* If no, fix the template, re-run `make render` + `make -C atomic bundle`, stage everything. This is the gate — do not commit without it.
+- **Final pass before commit (mandatory).** Open `context/commands/atomic-help.md`, scan every category table and all four tour stages, ask: *"Would a new user typing `/atomic-help` discover the change I just made?"* If no, fix `context/commands/atomic-help.md` and stage it. This is the gate — do not commit without it.
 
 **Reshape-don't-cram clause.** If the topic taxonomy becomes the wrong shape (categories overflow, a stage gets bloated past ~15 lines, a topic table grows past one screen), reshape it. The point of the router is discoverability, not exhaustiveness; a help command nobody can scan is worse than one missing one verb. When in doubt, split a category or promote a sub-topic into its own row.
 
@@ -195,7 +195,7 @@ These rules exist because this repo is meant to be installed into *user reposito
 for cmd in context/commands/*.md; do
   verb=$(basename "$cmd" .md)
   [ "$verb" = "atomic-help" ] && continue
-  grep -q "/$verb" templates/commands/atomic-help.md || echo "MISSING: /$verb"
+  grep -q "/$verb" context/commands/atomic-help.md || echo "MISSING: /$verb"
 done
 ```
 
@@ -273,7 +273,7 @@ Current notes:
 ## VitePress docs site (public, not bundled)
 
 
-The `.vitepress/` theme, `docs/index.md` landing page, and `package.json` are the public docs site only — **not** part of the Go build or the embedded bundle. Editing them does NOT require `make render` / `make bundle`, and neither does `README.md` — the bundle mirror ships only what is under `context/`. Build/verify with `npm run docs:build` (~1.2s; harmless `@vueuse/core` `#__PURE__` Rollup warnings are expected).
+The `.vitepress/` theme, `docs/index.md` landing page, and `package.json` are the public docs site only — **not** part of the Go build or the embedded bundle. Editing them does NOT require `make bundle`, and neither does `README.md` — the bundle mirror ships only what is under `context/`. Build/verify with `npm run docs:build` (~1.2s; harmless `@vueuse/core` `#__PURE__` Rollup warnings are expected).
 
 
 ### Home feature-card icons — use an icon font, not inline SVG
@@ -334,7 +334,7 @@ These live under `.claude/skills/`, auto-load for sessions in this repo, and are
 ## Contributor-only commands
 
 
-These live under `.claude/commands/`, load as project-scoped slash commands for sessions in this repo, and are **never bundled or installed** — they are not in `templates/` and never go through `make render` / `make bundle`. Each needs an explicit negation pair in `.gitignore` (the `.claude/commands/*` line ignores the dir by default; siblings there are broken symlinks to the user's global install and stay ignored). Because they are repo-local, the global artifact checklist (CLAUDE.md registry, `/atomic-help` router, README, docs, signals) does **not** apply — the command file's own frontmatter description is the discovery surface, and the harness lists it in the slash menu.
+These live under `.claude/commands/`, load as project-scoped slash commands for sessions in this repo, and are **never bundled or installed** — they are not under `context/` and never go through `make bundle`. Each needs an explicit negation pair in `.gitignore` (the `.claude/commands/*` line ignores the dir by default; siblings there are broken symlinks to the user's global install and stay ignored). Because they are repo-local, the global artifact checklist (CLAUDE.md registry, `/atomic-help` router, README, docs, signals) does **not** apply — the command file's own frontmatter description is the discovery surface, and the harness lists it in the slash menu.
 
 
 | Command | Purpose |

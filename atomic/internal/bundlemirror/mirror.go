@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
+	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"text/template"
 )
 
 // Artifact describes one file in the embedded manifest.
@@ -63,6 +65,12 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 
 	contextRoot := bundlespec.SourceRoot(repoRoot)
 
+	// One pool for the whole walk; every templated artifact clones from it.
+	partials, err := templaterender.LoadPartials(filepath.Join(contextRoot, templaterender.PartialsDir))
+	if err != nil {
+		return nil, err
+	}
+
 	// agents/atomic-*.md
 	agentsDir := filepath.Join(contextRoot, "agents")
 	entries, err := os.ReadDir(agentsDir)
@@ -75,7 +83,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		}
 		src := filepath.Join(agentsDir, e.Name())
 		target := "agents/" + e.Name()
-		a, err := readArtifact(src, target, "agent")
+		a, err := readArtifact(partials, src, target, "agent")
 		if err != nil {
 			return nil, err
 		}
@@ -108,7 +116,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 				return err
 			}
 			target := filepath.ToSlash(rel)
-			a, err := readArtifact(path, target, "skill")
+			a, err := readArtifact(partials, path, target, "skill")
 			if err != nil {
 				return err
 			}
@@ -132,7 +140,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		}
 		src := filepath.Join(outputStylesDir, e.Name())
 		target := "output-styles/" + e.Name()
-		a, err := readArtifact(src, target, "output-style")
+		a, err := readArtifact(partials, src, target, "output-style")
 		if err != nil {
 			return nil, err
 		}
@@ -153,7 +161,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 			return err
 		}
 		target := filepath.ToSlash(rel)
-		a, err := readArtifact(path, target, "command")
+		a, err := readArtifact(partials, path, target, "command")
 		if err != nil {
 			return err
 		}
@@ -178,7 +186,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 			return err
 		}
 		target := filepath.ToSlash(rel)
-		a, err := readArtifact(path, target, "rule")
+		a, err := readArtifact(partials, path, target, "rule")
 		if err != nil {
 			return err
 		}
@@ -191,7 +199,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 
 	// CLAUDE.md
 	claudeMdSrc := filepath.Join(contextRoot, "CLAUDE.md")
-	a, err := readArtifact(claudeMdSrc, "CLAUDE.md", "claude-md")
+	a, err := readArtifact(partials, claudeMdSrc, "CLAUDE.md", "claude-md")
 	if err != nil {
 		return nil, err
 	}
@@ -208,13 +216,30 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	return artifacts, nil
 }
 
-// readArtifact reads src once, computes its SHA256, and returns an enumeratedArtifact
-// without writing anything to disk. The bytes are retained in Data so Run can
-// write them without a second os.ReadFile.
-func readArtifact(src, target, kind string) (enumeratedArtifact, error) {
+// expandedKinds are the artifact kinds whose sources may compose a shared
+// partial. Everything else is copied through byte-for-byte: a skill or rule has
+// never been templated, and running one through the engine would treat a
+// literal {{ in its prose as a directive.
+var expandedKinds = map[string]bool{"command": true, "agent": true}
+
+// readArtifact reads src once, expands it if its kind is templated, computes
+// the SHA256 of the result, and returns an enumeratedArtifact without writing
+// anything to disk. The bytes are retained in Data so Run can write them
+// without a second os.ReadFile.
+//
+// The SHA is taken over the expanded bytes because that is what installs; a
+// parity check comparing sources to the manifest has to agree with the file a
+// user ends up with.
+func readArtifact(partials *template.Template, src, target, kind string) (enumeratedArtifact, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return enumeratedArtifact{}, fmt.Errorf("read %s: %w", src, err)
+	}
+	if expandedKinds[kind] {
+		data, err = templaterender.Expand(partials, filepath.Base(src), data)
+		if err != nil {
+			return enumeratedArtifact{}, err
+		}
 	}
 	return enumeratedArtifact{
 		Artifact: Artifact{

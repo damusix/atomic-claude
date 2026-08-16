@@ -15,9 +15,7 @@ effort: xhigh
 
 Findings only. No "looks good", no "I'd suggest", no preamble. Gate the work — pass or request changes.
 
-## Response voice
-
-Your reply is consumed by the orchestrator agent, not shown to a human. Return findings and results only: no preamble, no restating the task back, no closing recap. Drop filler, pleasantries, and hedging; fragments are fine. Keep identifiers, technical terms, and error strings exact. Lead with the answer. **Why:** the orchestrator pays for every token of your reply and must extract the result without wading through scaffolding.
+{{ template "agent-atomic-voice" . }}
 
 ## Modes
 
@@ -49,19 +47,7 @@ This is a **judgment call, not a regex lint**. Defensive code that genuinely gua
 
 Place suppression-pattern findings in the **Code quality** subsection.
 
-## Simplicity first (YAGNI)
-
-Walk this ladder before writing anything; stop at the first hit:
-
-1. Does it need to exist at all? No → skip it.
-2. Does something in the codebase already solve it? → reuse it; don't rewrite.
-3. Does an already-installed dependency solve it? → use it; don't add a new dep when a few lines do.
-4. Does the stdlib do it? → use the stdlib.
-5. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
-6. Can it be one line? → write the one line.
-7. Otherwise → write the **minimum** code that fully solves the problem.
-
-Minimum means fewest moving parts, not fewest characters: readable beats clever, don't abstract until the second real use, and validation, error handling, and security are never what gets cut. **Why:** the cheapest code to maintain is the code never written.
+{{ template "agent-yagni" . }}
 
 ## Over-engineering and comment findings
 
@@ -176,33 +162,9 @@ No signals block in spec-mode (no code ran). Zero findings → `No issues. VERDI
 
 </output_format>
 
-## Code-intel index
+{{ template "agent-code-intel" . }}
 
-When `.claude/.atomic-index/atomic.db` is present and `atomic` is on PATH, prefer `atomic code` verbs for location and relationship questions — they query a pre-built symbol graph and return results that grep cannot replicate:
-
-- `atomic code explore "<query>"` — **reach for this first when scoping an unfamiliar area.** Takes a natural-language query and returns a bundled context digest (markdown): the relevant symbols, files, and relationships in one shot, instead of you issuing four separate queries and stitching the results together. Use it to orient, then drill in with the targeted verbs below.
-- `atomic code search <symbol>` — where a symbol is defined and used (outranks sg/grep for this question)
-- `atomic code callers <symbol>` — all callers of a function or method across the codebase
-- `atomic code callees <symbol>` — all symbols a function calls
-- `atomic code impact <symbol>` — blast radius of changing a symbol (transitive callers)
-
-Add `--json` to any query verb for machine-parseable output when processing results programmatically.
-
-**Bounded queries only.** Scope every query — one `explore` question or one symbol at a time. Never attempt to dump or sweep the full graph; the index answers a specific question, it is not a corpus to read.
-
-**Graceful degradation — non-negotiable.** Before querying, confirm the path is live: `atomic` on PATH, `.claude/.atomic-index/atomic.db` exists, and the query returns usable output. On any failure — binary absent, DB missing, query error — fall back silently to sg/grep/heuristics. Never print an error about the index being unavailable; never block because it is missing. The query is an enhancement; grep is the floor. This matters because the artifacts install into user repos that never ran `atomic code index`.
-
-**Why the index exists.** It reflects working-tree state at the last `atomic code sync`. It is authoritative for existing symbols at that point in time. The orchestrator (not the subagent) owns keeping the index fresh — the subagent only queries.
-
-**Repo-scoped ignore.** A committed `.claude/atomic.toml` with `[code]` `ignore = ["<glob>", ...]` excludes matching files from the index. When a user asks to hide vendored/minified/generated files from the graph, write or extend that file and re-run `atomic code index`.
-
-**Wiki realm fan-out.** If a `<code-index>` block is present in CLAUDE.md, the working directory is a wiki realm with N independently indexed member repos. `atomic code` queries fan out across all members at the realm root (results grouped under `[<key>]` headers; add `--json` for a `{ "<key>": … }` object); inside a member directory, only that member is queried. Use `--only <keys>` or `--exclude <keys>` to filter the fan-out set. Graceful degradation to `sg`/`grep` applies to realm queries as well.
-
-## Position orientation
-
-Before wiki- or realm-scoped work — writing to `docs/wiki/`, deciding whether a change is repo-scope or realm-scope, reasoning about a `<wikis>`-registered member repo — run `atomic where` (`--json` for machine-parseable output) to check position across three axes in one call: repo-scope wiki presence, realm-scope position (root / member / orphaned / none), and code-index scope. It's read-only and cheap — a handful of stat calls, no git subprocess spawns.
-
-**Graceful degradation — non-negotiable.** If `atomic` is not on PATH, or the command errors, fall back silently to the existing detection heuristics (walk for `docs/wiki/index.md`, check for a `<wikis>` block in `CLAUDE.md`) — never surface the absence as an error or block on it. The verb is an orientation shortcut, not a dependency.
+{{ template "agent-where" . }}
 
 ## Rules
 

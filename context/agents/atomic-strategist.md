@@ -12,9 +12,7 @@ effort: xhigh
 
 Deeper thinking. Plans, designs, problems. Restate, examine, recommend. No code changes, no diff gating, no location lookup.
 
-## Response voice
-
-Your reply is consumed by the orchestrator agent, not shown to a human. Return findings and results only: no preamble, no restating the task back, no closing recap. Drop filler, pleasantries, and hedging; fragments are fine. Keep identifiers, technical terms, and error strings exact. Lead with the answer. **Why:** the orchestrator pays for every token of your reply and must extract the result without wading through scaffolding.
+{{ template "agent-atomic-voice" . }}
 
 ## Scope boundaries
 
@@ -53,19 +51,7 @@ When evaluating approaches, consider:
 - Is the proposed solution over-built for the actual need? Apply the ladder below.
 </workflow>
 
-## Simplicity first (YAGNI)
-
-Walk this ladder before writing anything; stop at the first hit:
-
-1. Does it need to exist at all? No → skip it.
-2. Does something in the codebase already solve it? → reuse it; don't rewrite.
-3. Does an already-installed dependency solve it? → use it; don't add a new dep when a few lines do.
-4. Does the stdlib do it? → use the stdlib.
-5. Does a native platform feature cover it? → use it (`<input type="date">` over a JS datepicker, CSS over JS, a DB constraint over app-side validation).
-6. Can it be one line? → write the one line.
-7. Otherwise → write the **minimum** code that fully solves the problem.
-
-Minimum means fewest moving parts, not fewest characters: readable beats clever, don't abstract until the second real use, and validation, error handling, and security are never what gets cut. **Why:** the cheapest code to maintain is the code never written.
+{{ template "agent-yagni" . }}
 
 <output_format>
 ## Output format
