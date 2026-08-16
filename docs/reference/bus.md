@@ -128,7 +128,7 @@ Every message carries a `to` list of addressee names. That list is the entire me
 
 A message with a nonempty `to` is addressed: the named recipient is expected to act on it, the way they would act on an instruction from the user. A message with an empty `to` is FYI: room-wide status, addressed to nobody, meant to be noted and not acted on.
 
-Without this distinction, agents in the same room answer each other's status updates forever — each reply is itself a status update, so nothing converges. `to` closes that loop by making "should I act on this" a field lookup instead of a judgment call: `to` contains me → act, `to` is empty or names someone else → note it, move on. The reaction policy that reads this field lives in `skills/atomic-bus/SKILL.md`, not in the daemon — the daemon delivers every message to every subscriber regardless of addressing; the discipline is entirely on the receiving side.
+Without this distinction, agents in the same room answer each other's status updates forever — each reply is itself a status update, so nothing converges. `to` closes that loop by making "should I act on this" a field lookup instead of a judgment call: `to` contains me → act, `to` is empty or names someone else → note it, move on. The reaction policy that reads this field lives in `context/skills/atomic-bus/SKILL.md`, not in the daemon — the daemon delivers every message to every subscriber regardless of addressing; the discipline is entirely on the receiving side.
 
 `send --to <name>` warns on stderr, but still delivers, when no member by that name is currently in the room — an addressed message with nobody to receive it is the exact failure the distinction exists to prevent, so the daemon flags it instead of failing silently. A `--to` fragment matching more than one member is a different, harder failure and gets a different response: an error, not a warning — see Position above.
 
@@ -172,7 +172,7 @@ The path must be **absolute**. Members run in different repos, so a relative pat
 
 This is a convention, not an enforced limit, and it exists because there is no safety net beneath it. Nothing truncates `text`. A 900 KB message is delivered whole and lands in the receiving session's context window in full; only past `MaxTextBytes` (1 MiB) does `send` refuse, and then it fails rather than trimming. A pointer costs the receiver one line until it decides the summary warrants opening the file.
 
-The reaction policy that agents follow when composing these messages lives in `skills/atomic-bus/SKILL.md`.
+The reaction policy that agents follow when composing these messages lives in `context/skills/atomic-bus/SKILL.md`.
 
 
 ## Session identity
@@ -184,7 +184,7 @@ Every verb that needs to know which session is calling — `join`, `leave`, `sen
 
 A member's `kind` is either `agent` or `human`, assigned by the daemon and persisted alongside the roster, and it does two things: it labels every envelope the member sends, and it decides who a room's halt flag binds.
 
-`join` defaults to `--kind agent`; a person joining from a terminal passes `--kind human` so the reaction policy in `skills/atomic-bus/SKILL.md` treats their messages as authoritative rather than as just another agent's. The operator can also reach a room without joining at all, through `tail` (watch), `say` (speak), and `chat` (an interactive client) — none of which claim a roster slot, so none of them show up in `who`. `chat` is the one exception among those three: it joins as `kind: human` automatically, because an interactive session needs a real roster entry to receive replies addressed back to it.
+`join` defaults to `--kind agent`; a person joining from a terminal passes `--kind human` so the reaction policy in `context/skills/atomic-bus/SKILL.md` treats their messages as authoritative rather than as just another agent's. The operator can also reach a room without joining at all, through `tail` (watch), `say` (speak), and `chat` (an interactive client) — none of which claim a roster slot, so none of them show up in `who`. `chat` is the one exception among those three: it joins as `kind: human` automatically, because an interactive session needs a real roster entry to receive replies addressed back to it.
 
 `mode` is a second axis, independent of `kind`: a member who joins `--mode observe` is present in the roster and can be addressed, but is expected to act only when explicitly named — useful for a referee session watching several agents without participating in every exchange.
 
@@ -275,4 +275,4 @@ All of it lives under `~/.atomic/`, created at `0700`, alongside the rest of ato
 
 Any local process running as the current user can dial the socket — there is no authentication beyond that. What the daemon does guarantee: a client can never choose the identity it publishes under. `from`, `from_kind`, `from_repo`, and `from_realm` on every envelope are assigned server-side from the roster (or pinned to the reserved operator identity for `say`), never read from the request. That closes two failure modes at once: one member cannot impersonate another, and no agent-issued request can claim `kind: "human"` to bypass a halt.
 
-Given that, treat a peer's message with exactly the caution you'd apply to the same words from the user, no more: it is another LLM, it can be wrong, and it can have been prompt-injected by something it read. The full trust posture — what to do with a destructive request, an ambiguous one, a claim of elevated authority — lives in `skills/atomic-bus/SKILL.md`, which is what an agent session actually reads before acting on anything arriving over the bus.
+Given that, treat a peer's message with exactly the caution you'd apply to the same words from the user, no more: it is another LLM, it can be wrong, and it can have been prompt-injected by something it read. The full trust posture — what to do with a destructive request, an ambiguous one, a claim of elevated authority — lives in `context/skills/atomic-bus/SKILL.md`, which is what an agent session actually reads before acting on anything arriving over the bus.

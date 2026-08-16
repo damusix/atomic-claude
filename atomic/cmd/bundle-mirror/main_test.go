@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bundlemirror"
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
 // buildMiniRepo creates a tiny fake repo structure for testing the mirror logic.
@@ -13,9 +14,11 @@ func buildMiniRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
+	// rel is bundle-relative, so it doubles as the artifact's expected Target.
+	// The mirror reads only context/, so that is where the file lands.
 	write := func(rel, content string) {
 		t.Helper()
-		full := filepath.Join(dir, rel)
+		full := filepath.Join(bundlespec.SourceRoot(dir), rel)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", rel, err)
 		}

@@ -4,7 +4,24 @@
 // the rules have a single source of truth.
 package bundlespec
 
-import "strings"
+import (
+	"path/filepath"
+	"strings"
+)
+
+// ContextDir is the repo-root directory holding every installable artifact:
+// agents/, commands/, skills/, rules/, output-styles/, and CLAUDE.md. It is the
+// only tree that ships to a user's ~/.claude/; templates/ renders into it and
+// never ships itself.
+const ContextDir = "context"
+
+// SourceRoot returns the directory under repoRoot that the bundle is
+// enumerated from. Bundle targets stay relative to this root, so an artifact at
+// context/agents/atomic-tdd.md installs to ~/.claude/agents/atomic-tdd.md — the
+// context/ segment is a repo-layout detail and never reaches the install tree.
+func SourceRoot(repoRoot string) string {
+	return filepath.Join(repoRoot, ContextDir)
+}
 
 // MatchesAgent reports whether name is a bundleable agent file.
 // Rule: agents/atomic-*.md — atomic- prefix, .md suffix, files only.

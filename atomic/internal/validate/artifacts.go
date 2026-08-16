@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bundlemirror"
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 	"github.com/damusix/atomic-claude/atomic/internal/mdparse"
 )
@@ -320,7 +321,7 @@ func runArtifactCorpus(repoRoot string) ([]Finding, error) {
 	for _, a := range artifacts {
 		// a.Target is the relative path inside the install layout (e.g.
 		// "agents/atomic-builder.md"). The source file is at repoRoot/a.Target.
-		srcPath := filepath.Join(repoRoot, a.Target)
+		srcPath := filepath.Join(bundlespec.SourceRoot(repoRoot), a.Target)
 		src, err := os.ReadFile(srcPath)
 		if err != nil {
 			return nil, fmt.Errorf("read artifact %s: %w", a.Target, err)

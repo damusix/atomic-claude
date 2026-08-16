@@ -1,25 +1,28 @@
 .PHONY: render bundle test build vet fmt tidy frontend
 
-# render: render templates/ into commands/ (and any other future kinds).
+# render: render templates/ into context/commands/ and context/agents/.
 # Run this after editing any file under templates/.
 render:
-	go run ./cmd/render-templates -repo ../ -outdir ../
+	go run ./cmd/render-templates -repo ../ -outdir ../context
 
-# bundle: regenerate the embedded artifact bundle from the repo root.
-# Run this after editing any source artifact (agents/, commands/, skills/, etc.).
+# bundle: regenerate the embedded artifact bundle from context/.
+# The output (internal/embedded/bundle/ + manifest.go) is a build artifact and
+# is gitignored: go:embed cannot reach ../../../context, so the tree has to be
+# mirrored into the package, but it never needs to be committed.
 bundle: render
 	go run ./cmd/bundle-mirror -repo ../ -outdir ./internal/embedded
 
-# test: run all tests.
-test:
+# test: run all tests. Depends on bundle — internal/embedded does not compile
+# until the mirror exists.
+test: bundle
 	go test ./...
 
-# build: compile the binary.
-build:
+# build: compile the binary. Depends on bundle for the same reason as test.
+build: bundle
 	go build -o ../bin/atomic ./cmd/atomic
 
-# vet: run go vet.
-vet:
+# vet: run go vet. Depends on bundle for the same reason as test.
+vet: bundle
 	go vet ./...
 
 # fmt: check formatting (print unformatted files).

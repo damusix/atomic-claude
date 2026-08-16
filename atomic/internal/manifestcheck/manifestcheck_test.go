@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/damusix/atomic-claude/atomic/internal/bundlemirror"
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 	"github.com/damusix/atomic-claude/atomic/internal/manifestcheck"
 )
@@ -15,16 +16,17 @@ import (
 func makeRepo(t *testing.T, artifacts map[string][]byte) string {
 	t.Helper()
 	root := t.TempDir()
+	ctx := bundlespec.SourceRoot(root)
 
-	// Create required top-level dirs so bundlemirror.Enumerate doesn't fail.
+	// Create the required dirs under context/ so bundlemirror.Enumerate doesn't fail.
 	for _, dir := range []string{"agents", "skills", "output-styles", "commands", "rules"} {
-		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(ctx, dir), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
 
 	for target, content := range artifacts {
-		dst := filepath.Join(root, filepath.FromSlash(target))
+		dst := filepath.Join(ctx, filepath.FromSlash(target))
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			t.Fatalf("mkdir for %s: %v", target, err)
 		}
@@ -89,7 +91,7 @@ func TestCompare_Drift(t *testing.T) {
 	}
 
 	// Mutate the on-disk file after we captured the committed state.
-	if err := os.WriteFile(filepath.Join(root, "agents/atomic-foo.md"), []byte("# agent CHANGED\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(bundlespec.SourceRoot(root), "agents/atomic-foo.md"), []byte("# agent CHANGED\n"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 

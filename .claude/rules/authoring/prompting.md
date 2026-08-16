@@ -1,13 +1,13 @@
 ---
 paths:
-  - "agents/**"
+  - "context/agents/**"
+  - "context/skills/**"
+  - "context/commands/**"
+  - "context/output-styles/**"
+  - "context/rules/**"
   - "templates/agents/**"
-  - "skills/**"
-  - "commands/**"
   - "templates/commands/**"
   - "templates/shared/**"
-  - "output-styles/**"
-  - "rules/**"
 ---
 
 # Claude prompting best practices

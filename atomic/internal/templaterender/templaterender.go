@@ -206,7 +206,7 @@ func checkOrphans(kind, kindOutDir string, srcTemplates []string) error {
 	for _, name := range orphans {
 		sb.WriteString(fmt.Sprintf("  orphan: %s/%s\n", kind, name))
 		sb.WriteString(fmt.Sprintf("    create: templates/%s/%s\n", kind, name))
-		sb.WriteString(fmt.Sprintf("    rm:     %s/%s\n", kind, name))
+		sb.WriteString(fmt.Sprintf("    rm:     %s\n", filepath.Join(kindOutDir, name)))
 	}
 
 	return errors.New(strings.TrimRight(sb.String(), "\n"))

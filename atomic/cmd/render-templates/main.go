@@ -1,5 +1,7 @@
 // render-templates renders the artifact templates from <repoRoot>/templates/
-// into the corresponding output directories (commands/ etc.) under <outDir>.
+// into the corresponding output directories (commands/ etc.) under <outDir>,
+// which defaults to the context/ tree — templates are build-time source and
+// never ship, their rendered outputs do.
 //
 // Run via: go run ./cmd/render-templates -repo <path> -outdir <path>
 // Or from atomic/Makefile: make render
@@ -12,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/templaterender"
 )
 
@@ -19,7 +22,7 @@ func main() {
 	var repoRoot string
 	var outDir string
 	flag.StringVar(&repoRoot, "repo", "", "path to repo root (parent of atomic/); defaults to ../ relative to cwd")
-	flag.StringVar(&outDir, "outdir", "", "path to write rendered outputs into; defaults to repo root")
+	flag.StringVar(&outDir, "outdir", "", "path to write rendered outputs into; defaults to <repo>/context")
 	flag.Parse()
 
 	wd, err := os.Getwd()
@@ -44,7 +47,7 @@ func main() {
 	}
 
 	if outDir == "" {
-		outDir = repoRoot
+		outDir = bundlespec.SourceRoot(repoRoot)
 	}
 
 	outDir, err = filepath.Abs(outDir)

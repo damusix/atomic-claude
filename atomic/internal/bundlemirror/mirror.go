@@ -51,11 +51,17 @@ func Enumerate(repoRoot string) ([]embedded.Artifact, error) {
 }
 
 // enumerate is the internal no-write walker shared by Enumerate and Run.
+//
+// Every path is resolved under repoRoot/context/, and every Target is relative
+// to that context root — so the bundle layout, and therefore the install tree
+// under ~/.claude/, is unaffected by where the sources live in the repo.
 func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	var artifacts []enumeratedArtifact
 
+	contextRoot := bundlespec.SourceRoot(repoRoot)
+
 	// agents/atomic-*.md
-	agentsDir := filepath.Join(repoRoot, "agents")
+	agentsDir := filepath.Join(contextRoot, "agents")
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read agents dir: %w", err)
@@ -74,7 +80,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// skills/atomic-*/** — full directory tree per matching skill.
-	skillsDir := filepath.Join(repoRoot, "skills")
+	skillsDir := filepath.Join(contextRoot, "skills")
 	skillEntries, err := os.ReadDir(skillsDir)
 	if err != nil {
 		return nil, fmt.Errorf("read skills dir: %w", err)
@@ -94,7 +100,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 			if d.IsDir() {
 				return nil
 			}
-			rel, err := filepath.Rel(repoRoot, path)
+			rel, err := filepath.Rel(contextRoot, path)
 			if err != nil {
 				return err
 			}
@@ -112,7 +118,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// output-styles/atomic*.md
-	outputStylesDir := filepath.Join(repoRoot, "output-styles")
+	outputStylesDir := filepath.Join(contextRoot, "output-styles")
 	osEntries, err := os.ReadDir(outputStylesDir)
 	if err != nil {
 		return nil, fmt.Errorf("read output-styles dir: %w", err)
@@ -131,7 +137,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// commands/**/*.md — all markdown files, including subdirectories.
-	commandsDir := filepath.Join(repoRoot, "commands")
+	commandsDir := filepath.Join(contextRoot, "commands")
 	err = filepath.WalkDir(commandsDir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
@@ -139,7 +145,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		if d.IsDir() || !bundlespec.MatchesCommand(d.Name()) {
 			return nil
 		}
-		rel, err := filepath.Rel(repoRoot, path)
+		rel, err := filepath.Rel(contextRoot, path)
 		if err != nil {
 			return err
 		}
@@ -156,7 +162,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// rules/**/*.md
-	rulesDir := filepath.Join(repoRoot, "rules")
+	rulesDir := filepath.Join(contextRoot, "rules")
 	err = filepath.WalkDir(rulesDir, func(path string, d fs.DirEntry, werr error) error {
 		if werr != nil {
 			return werr
@@ -164,7 +170,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 		if d.IsDir() || !bundlespec.MatchesRule(path) {
 			return nil
 		}
-		rel, err := filepath.Rel(repoRoot, path)
+		rel, err := filepath.Rel(contextRoot, path)
 		if err != nil {
 			return err
 		}
@@ -181,7 +187,7 @@ func enumerate(repoRoot string) ([]enumeratedArtifact, error) {
 	}
 
 	// CLAUDE.md
-	claudeMdSrc := filepath.Join(repoRoot, "CLAUDE.md")
+	claudeMdSrc := filepath.Join(contextRoot, "CLAUDE.md")
 	a, err := readArtifact(claudeMdSrc, "CLAUDE.md", "claude-md")
 	if err != nil {
 		return nil, err

@@ -4,24 +4,29 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 )
 
 // setupMinimalRepo creates a minimal repo layout that enumerate can walk
-// without errors: empty agents/, skills/, output-styles/, commands/, rules/
-// directories plus a CLAUDE.md and one agent file.
+// without errors: a context/ tree holding empty agents/, skills/,
+// output-styles/, commands/, rules/ directories plus a CLAUDE.md and one agent
+// file. Everything sits under context/ because that is the only tree the
+// mirror reads.
 func setupMinimalRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
+	ctx := bundlespec.SourceRoot(root)
 	for _, dir := range []string{"agents", "skills", "output-styles", "commands", "rules"} {
-		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(ctx, dir), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", dir, err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("# CLAUDE\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ctx, "CLAUDE.md"), []byte("# CLAUDE\n"), 0o644); err != nil {
 		t.Fatalf("write CLAUDE.md: %v", err)
 	}
 	agentContent := []byte("# atomic-test-agent\n")
-	if err := os.WriteFile(filepath.Join(root, "agents", "atomic-test-agent.md"), agentContent, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(ctx, "agents", "atomic-test-agent.md"), agentContent, 0o644); err != nil {
 		t.Fatalf("write agent: %v", err)
 	}
 	return root
@@ -42,8 +47,8 @@ func TestEnumerate_SrcPathAndData(t *testing.T) {
 	}
 
 	for _, it := range items {
-		// SrcPath must be the absolute path constructed from repoRoot + target.
-		wantSrc := filepath.Join(root, filepath.FromSlash(it.Target))
+		// SrcPath must be the absolute path constructed from the context root + target.
+		wantSrc := filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(it.Target))
 		if it.SrcPath != wantSrc {
 			t.Errorf("artifact %q: SrcPath = %q, want %q", it.Target, it.SrcPath, wantSrc)
 		}
@@ -78,7 +83,7 @@ func TestEnumerate_AgentPresent(t *testing.T) {
 	for _, it := range items {
 		if it.Target == "agents/atomic-test-agent.md" {
 			found = true
-			wantSrc := filepath.Join(root, "agents", "atomic-test-agent.md")
+			wantSrc := filepath.Join(bundlespec.SourceRoot(root), "agents", "atomic-test-agent.md")
 			if it.SrcPath != wantSrc {
 				t.Errorf("SrcPath = %q, want %q", it.SrcPath, wantSrc)
 			}

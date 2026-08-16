@@ -40,11 +40,10 @@ jobs:
         working-directory: ./atomic/internal/serve/frontend
         run: bun install --frozen-lockfile
 
+      # The bundle is gitignored, so there is no drift gate here — only the
+      # generation step that makes internal/embedded compile.
       - name: Generate bundle
         run: go generate ./...
-
-      - name: Verify bundle is committed
-        run: git diff --exit-code
 
       - name: Test
         run: go test ./...

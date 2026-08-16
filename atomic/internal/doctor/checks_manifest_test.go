@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
 	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 )
@@ -45,9 +46,9 @@ func TestCheckManifest_fail_drift(t *testing.T) {
 	for _, a := range manifest {
 		// Pick any agent artifact source path relative to root.
 		// The source path inside embedded FS is e.g. "bundle/agents/atomic-builder.md".
-		// The file lives at <root>/<Target> where Target = "agents/atomic-builder.md".
+		// The file lives at <root>/context/<Target> where Target = "agents/atomic-builder.md".
 		if a.Kind == "agent" {
-			driftTarget = filepath.Join(root, filepath.FromSlash(a.Target))
+			driftTarget = filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(a.Target))
 			break
 		}
 	}
@@ -92,7 +93,7 @@ func TestCheckManifest_fail_findings(t *testing.T) {
 	var driftRelPath string
 	for _, a := range manifest {
 		if a.Kind == "agent" {
-			driftTarget = filepath.Join(root, filepath.FromSlash(a.Target))
+			driftTarget = filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(a.Target))
 			driftRelPath = a.Target
 			break
 		}
@@ -142,7 +143,7 @@ func TestCheckManifest_fail_findings_missing(t *testing.T) {
 	if missingRelPath == "" {
 		t.Fatal("no agent artifact found in manifest")
 	}
-	if err := os.Remove(filepath.Join(root, filepath.FromSlash(missingRelPath))); err != nil {
+	if err := os.Remove(filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(missingRelPath))); err != nil {
 		t.Fatalf("remove artifact: %v", err)
 	}
 
@@ -176,7 +177,7 @@ func TestCheckManifest_fail_findings_extra(t *testing.T) {
 	// present in embedded.Manifest(). The name is chosen to be distinct from any
 	// real artifact.
 	extraRelPath := "agents/atomic-zzz-extra-fixture-test.md"
-	extraDst := filepath.Join(root, filepath.FromSlash(extraRelPath))
+	extraDst := filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(extraRelPath))
 	if err := os.WriteFile(extraDst, []byte("# extra fixture\n"), 0o644); err != nil {
 		t.Fatalf("write extra artifact: %v", err)
 	}
@@ -205,7 +206,8 @@ func TestCheckManifest_fail_findings_extra(t *testing.T) {
 // buildSyntheticRepoDev creates a temporary directory tree that looks like the
 // atomic-claude repo root to IsRepoDev and bundlemirror.Enumerate:
 //   - atomic/internal/bundlemirror/mirror.go  (marker file)
-//   - all source artifact files from embedded.Manifest() written at their Target paths
+//   - all source artifact files from embedded.Manifest() written under context/
+//     at their Target paths
 //
 // Returns the root path.
 func buildSyntheticRepoDev(t *testing.T) string {
@@ -227,7 +229,7 @@ func buildSyntheticRepoDev(t *testing.T) string {
 		if err != nil {
 			t.Fatalf("read embedded %s: %v", a.Source, err)
 		}
-		dst := filepath.Join(root, filepath.FromSlash(a.Target))
+		dst := filepath.Join(bundlespec.SourceRoot(root), filepath.FromSlash(a.Target))
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			t.Fatalf("mkdir %s: %v", filepath.Dir(dst), err)
 		}
