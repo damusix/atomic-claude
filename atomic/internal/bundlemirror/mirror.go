@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/damusix/atomic-claude/atomic/internal/bundlespec"
-	"github.com/damusix/atomic-claude/atomic/internal/embedded"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -15,8 +14,12 @@ import (
 )
 
 // Artifact describes one file in the embedded manifest.
-// Kept for backward compatibility with cmd/bundle-mirror; consumers outside
-// this package should prefer embedded.Artifact.
+//
+// This package deliberately declares its own type rather than reusing
+// embedded.Artifact: internal/embedded carries the go:embed directive for
+// bundle/, so importing it here would make the mirror unbuildable until the
+// very directory the mirror exists to create is already present. Keeping the
+// generator free of that import is what lets a fresh clone bootstrap.
 type Artifact struct {
 	Kind   string
 	Source string // path inside embedded FS, e.g. "bundle/agents/atomic-builder.md"
@@ -25,11 +28,11 @@ type Artifact struct {
 }
 
 // enumeratedArtifact is the internal type returned by enumerate. It carries the
-// embedded.Artifact fields alongside SrcPath (the absolute filesystem source
-// path) and Data (the file bytes already read during enumeration) so that Run
-// can write the artifact without a second os.ReadFile call.
+// Artifact fields alongside SrcPath (the absolute filesystem source path) and
+// Data (the file bytes already read during enumeration) so that Run can write
+// the artifact without a second os.ReadFile call.
 type enumeratedArtifact struct {
-	embedded.Artifact
+	Artifact
 	SrcPath string // absolute path of the source file on disk
 	Data    []byte // file bytes read during enumeration; reused by Run to avoid a second read
 }
@@ -38,12 +41,12 @@ type enumeratedArtifact struct {
 // artifact list without writing anything to disk. Callers outside this package
 // (e.g. manifestcheck) should use this instead of Run when no disk write is
 // needed.
-func Enumerate(repoRoot string) ([]embedded.Artifact, error) {
+func Enumerate(repoRoot string) ([]Artifact, error) {
 	items, err := enumerate(repoRoot)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]embedded.Artifact, len(items))
+	out := make([]Artifact, len(items))
 	for i, it := range items {
 		out[i] = it.Artifact
 	}
@@ -214,7 +217,7 @@ func readArtifact(src, target, kind string) (enumeratedArtifact, error) {
 		return enumeratedArtifact{}, fmt.Errorf("read %s: %w", src, err)
 	}
 	return enumeratedArtifact{
-		Artifact: embedded.Artifact{
+		Artifact: Artifact{
 			Kind:   kind,
 			Source: "bundle/" + target,
 			Target: target,

@@ -39,10 +39,14 @@ func makeRepo(t *testing.T, artifacts map[string][]byte) string {
 }
 
 // committedFrom converts a slice of disk artifacts (from Enumerate) into the
-// embedded.Artifact format expected by Compare.
-func committedFrom(arts []embedded.Artifact) []embedded.Artifact {
+// embedded.Artifact format expected by Compare. The two structs are field-wise
+// identical; they stay separate types so the mirror can build without the
+// embedded package. See bundlemirror.Artifact.
+func committedFrom(arts []bundlemirror.Artifact) []embedded.Artifact {
 	out := make([]embedded.Artifact, len(arts))
-	copy(out, arts)
+	for i, a := range arts {
+		out[i] = embedded.Artifact{Kind: a.Kind, Source: a.Source, Target: a.Target, SHA256: a.SHA256}
+	}
 	return out
 }
 
@@ -59,7 +63,7 @@ func TestCompare_OK(t *testing.T) {
 		t.Fatalf("Enumerate: %v", err)
 	}
 
-	result, err := manifestcheck.Compare(root, live)
+	result, err := manifestcheck.Compare(root, committedFrom(live))
 	if err != nil {
 		t.Fatalf("Compare: %v", err)
 	}
@@ -95,7 +99,7 @@ func TestCompare_Drift(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	result, err := manifestcheck.Compare(root, live)
+	result, err := manifestcheck.Compare(root, committedFrom(live))
 	if err != nil {
 		t.Fatalf("Compare: %v", err)
 	}
@@ -175,7 +179,7 @@ func TestCompare_Extra(t *testing.T) {
 
 	// Committed is a subset: drop the agent, so disk has it but committed doesn't.
 	committed := make([]embedded.Artifact, 0, len(live))
-	for _, a := range live {
+	for _, a := range committedFrom(live) {
 		if a.Target == "agents/atomic-foo.md" {
 			continue
 		}
@@ -218,7 +222,7 @@ func TestCompare_Combined(t *testing.T) {
 
 	// Build committed: mutate foo's SHA, drop bar, add phantom.
 	committed := make([]embedded.Artifact, 0, len(live)+1)
-	for _, a := range live {
+	for _, a := range committedFrom(live) {
 		switch a.Target {
 		case "agents/atomic-foo.md":
 			// SHA drift: keep the target but alter the committed SHA.
