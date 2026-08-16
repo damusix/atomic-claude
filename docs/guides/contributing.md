@@ -61,7 +61,7 @@ That mirror, and the `manifest.go` beside it, are build artifacts — gitignored
 context/**  →  make bundle  →  atomic/internal/embedded/{bundle/**, manifest.go}  →  go:embed
 ```
 
-`build`, `test`, and `vet` all depend on the `bundle` target, so `make` regenerates it for you. CI and goreleaser run `go generate ./...` for the same reason. A bare `go build` on a fresh clone that skips generation fails to compile with `pattern all:bundle: no matching files found` — run `make -C atomic bundle` and it clears.
+`build`, `test`, and `vet` all depend on the `bundle` target, so `make` regenerates it for you. CI and goreleaser run `go generate ./...` for the same reason. A bare `go build` on a fresh clone that skips generation fails to compile with `pattern bundle: no matching files found` — run `make -C atomic bundle` and it clears.
 
 
 ## The serve frontend

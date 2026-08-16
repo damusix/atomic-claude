@@ -108,7 +108,7 @@ The `atomic` binary embeds `context/` at build time via `go:embed`. `go:embed` c
 **How to regenerate.** From the repo root: `make -C atomic bundle`. Nothing to stage afterwards.
 
 
-**Failure mode to recognize.** A bare `go build` or `go test` on a fresh clone, bypassing `make`, fails with `pattern all:bundle: no matching files found`. That is the mirror being absent, not a broken tree — run `make -C atomic bundle`.
+**Failure mode to recognize.** A bare `go build` or `go test` on a fresh clone, bypassing `make`, fails with `pattern bundle: no matching files found`. That is the mirror being absent, not a broken tree — run `make -C atomic bundle`.
 
 
 **Pre-commit hook.** `.githooks/pre-commit` (installed via `make hooks`, which sets `core.hooksPath=.githooks`) has three stages, each firing only when a staged path touches its own inputs: (1) `make render` when any `templates/` file is staged, re-staging `context/commands/` and `context/agents/`; (2) `atomic followups render` when any followups entry file (other than INDEX.md) is staged, re-staging `INDEX.md` (degrades to WARN if `atomic` binary absent); (3) `make frontend` when `atomic/internal/serve/frontend/**` outside `dist/` is staged, re-staging `frontend/dist/`. If you commit without the hook installed, the render regen is your responsibility — CI fails the "Verify render is committed" step on drift.

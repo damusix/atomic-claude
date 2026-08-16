@@ -43,3 +43,5 @@ Approach B rejected for the command-surface noise above. Approach C rejected bec
 
 
 - Migrate `implementer-prompt.md` / `reviewer-prompt.md` into the binary too (`atomic template implementer-prompt`)? Same noise argument; separate change because installed commands reference the file paths today.
+
+  **Resolved 2026-08-10:** yes — migrated into the existing `coldprompt` package (not `doctemplate`: these are dispatched subagent prompts, not fill-in document skeletons), served as `atomic prompt implementer` / `atomic prompt reviewer`. See `docs/spec/document-templates.md` change log.

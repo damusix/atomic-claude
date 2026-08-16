@@ -676,11 +676,11 @@ func buildProfileCmd() *cobra.Command {
 	return parent
 }
 
-// buildPromptCmd builds the "prompt" parent + git-cleanup|claude-merge children.
+// buildPromptCmd builds the "prompt" parent + git-cleanup|claude-merge|implementer|reviewer children.
 func buildPromptCmd() *cobra.Command {
 	parent := &cobra.Command{
 		Use:   "prompt",
-		Short: "Emit cold-op briefs (git-cleanup|claude-merge)",
+		Short: "Emit cold-op briefs (git-cleanup|claude-merge|implementer|reviewer)",
 		Args:  cobra.ArbitraryArgs,
 		RunE:  func(cmd *cobra.Command, args []string) error { runPrompt(args); return nil },
 	}
@@ -699,6 +699,8 @@ func buildPromptCmd() *cobra.Command {
 	}
 	addSub("git-cleanup", "Emit the git-cleanup cold-op brief")
 	addSub("claude-merge", "Emit the CLAUDE.md merge cold-op brief")
+	addSub("implementer", "Emit the implementer subagent prompt brief")
+	addSub("reviewer", "Emit the reviewer subagent prompt brief")
 	return parent
 }
 

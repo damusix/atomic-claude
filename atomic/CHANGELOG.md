@@ -1,5 +1,15 @@
 # Changelog
 
+## [6.2.1](https://github.com/damusix/atomic-claude/compare/v6.2.0...v6.2.1) (2026-08-10)
+
+
+### Bug Fixes
+
+* **code:** replace __serve verb with mcp --daemon flag ([16bd5df](https://github.com/damusix/atomic-claude/commit/16bd5df62bc4e945a611f23693ce16b7216dd3fe)), closes [#193](https://github.com/damusix/atomic-claude/issues/193)
+* **plan:** design docs pair implementation with usage sample ([ba99abf](https://github.com/damusix/atomic-claude/commit/ba99abfd7f424eab2617d8ca4946e58cba8dc2f1))
+* **prompt:** serve implementer/reviewer briefs ([4def95e](https://github.com/damusix/atomic-claude/commit/4def95e2a500b720a0cdc4ed0fe064180a42c6f3))
+* **serve:** bus transcript modal newest-first + layout ([#194](https://github.com/damusix/atomic-claude/issues/194)) ([d444c1b](https://github.com/damusix/atomic-claude/commit/d444c1b2f35f87ab0aa49abcbd46d2cab90abbf8))
+
 ## [6.2.0](https://github.com/damusix/atomic-claude/compare/v6.1.0...v6.2.0) (2026-08-09)
 
 
