@@ -1422,10 +1422,35 @@ func runDoctor(args []string) {
 
 	if opts.Fix {
 		p := doctor.NewStdinPrompter(os.Stdin, os.Stdout)
-		doctor.Repair(results, opts, p, os.Stdout)
+		summary := doctor.Repair(results, opts, p, os.Stdout)
+		exitCode = postRepairExitCode(exitCode, summary.Applied, func() ([]doctor.Result, error) {
+			return doctor.Run(opts)
+		})
 	}
 
 	os.Exit(exitCode)
+}
+
+// postRepairExitCode returns the status `atomic doctor --fix` should terminate
+// with once the repair pass has run.
+//
+// Repairs mutate the very state the checks examined, so the pre-repair verdict
+// is stale by the time the process exits. A caller gating CI on `--fix` has to
+// be able to tell "found problems and fixed them" from "still broken", and the
+// pre-repair code collapses both to 1.
+//
+// Re-checking costs a second full pass, so it only runs when a repair actually
+// landed. A re-check that itself errors keeps the original verdict rather than
+// reporting success for a state nobody managed to observe.
+func postRepairExitCode(pre, applied int, recheck func() ([]doctor.Result, error)) int {
+	if applied <= 0 {
+		return pre
+	}
+	after, err := recheck()
+	if err != nil {
+		return pre
+	}
+	return doctor.ExitCode(after)
 }
 
 // doctorProjectName returns the project name to display in doctor output.
@@ -2080,7 +2105,7 @@ func runSignals(args []string, repoOverride string) {
 			// Deliberate model-safeguard layer over the deterministic exit code —
 			// see the prefer-code-over-model exception in CLAUDE.md.
 			fmt.Printf("signals: STALE — a fresh scan would change the deterministic snapshot (~%d lines)\n", info.ChangedLines)
-			fmt.Printf("→ refresh required; dispatch atomic-signals-inferrer. do not skip.\n")
+			fmt.Printf("→ refresh required; dispatch atomic-wiki-inferrer. do not skip.\n")
 			os.Exit(1)
 		}
 		// Hard error (e.g. missing signals file): exit 2, distinct from the

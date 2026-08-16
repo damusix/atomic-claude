@@ -42,6 +42,19 @@ func isSkipped(token string) bool {
 	return false
 }
 
+// isDegenerate reports whether token is built entirely from '.' and '/'.
+//
+// Such a token always stats clean — filepath.Join(base, ".") and Join(base, "/")
+// are base itself, and ".." is its parent — so the disk-resolution gate cannot
+// reject it. But prose spelling a path character (`.`, `..`, `/`) or an empty
+// span from a double-backtick quote is never a path citation, and linking it
+// points the reader at the repo root or above it. The empty case matters most:
+// a doubled-backtick span, used to quote text that itself contains a backtick,
+// opens a zero-width token the scanner would otherwise resolve.
+func isDegenerate(token string) bool {
+	return strings.Trim(token, "./") == ""
+}
+
 // Linkify scans content line by line, skipping fenced code blocks, and for
 // each inline-code span “ `token` “ in prose/tables/bullets:
 //   - If filepath.Join(baseDir, token) exists on disk, replaces “ `token` “
@@ -234,8 +247,8 @@ func linkifyLine(line, fileDir, baseDir string, ignored map[string]bool) string 
 		token := line[pos+1 : pos+1+closePos]
 		end := pos + 1 + closePos + 1 // position after closing backtick
 
-		// Skip junk-dir tokens and gitignored tokens even if they resolve on disk.
-		if isSkipped(token) || ignored[token] {
+		// Skip degenerate, junk-dir, and gitignored tokens even if they resolve.
+		if isDegenerate(token) || isSkipped(token) || ignored[token] {
 			sb.WriteString("`")
 			sb.WriteString(token)
 			sb.WriteString("`")

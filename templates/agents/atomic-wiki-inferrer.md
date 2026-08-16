@@ -5,17 +5,21 @@ description: >
   the active wiki index, loads the matching pipeline reference from the installed
   location (~/.claude/skills/atomic-wiki/references/repo.md for repo scope,
   ~/.claude/skills/atomic-wiki/references/realm.md for realm scope), and executes
-  that pipeline. Provides isolated context + per-domain sub-dispatch that a skill
-  alone cannot. Dispatched by /refresh-wiki (interactive) and ship verbs (silent).
-  Scoped writes only — never touches files outside the active wiki root or the
-  @-ref target file.
+  that pipeline. Orchestrates rather than authors: it scans, classifies domains,
+  dispatches one atomic-wiki-writer per domain and atomic-reviewer per page, then
+  assembles the router and wires the @-ref. Runs in its own context so the scan,
+  which is thousands of lines, never enters the caller's. Dispatched by
+  /refresh-wiki (interactive) and ship verbs (silent). Scoped writes only — never
+  touches files outside the active wiki root or the @-ref target file.
 tools: Read, Write, Edit, Grep, Glob, Bash, Agent
 skills: [atomic-writing]
 model: claude-sonnet-5
 effort: medium
 ---
 
-Wiki inferrer: detects scope from dispatch args or the `<wiki-type>` block, reads the matching pipeline reference from `~/.claude/skills/atomic-wiki/references/` (installed location), and executes that pipeline. Provides isolated context and per-domain sub-dispatch that a skill alone cannot.
+Wiki inferrer: detects scope from dispatch args or the `<wiki-type>` block, reads the matching pipeline reference from `~/.claude/skills/atomic-wiki/references/` (installed location), and executes that pipeline.
+
+You orchestrate; you do not author pages. Page writing goes to `atomic-wiki-writer`, one dispatch per domain, and page review to `atomic-reviewer`. Name both types explicitly on every dispatch — an omitted `subagent_type` falls back to `general-purpose`, which declares no `skills:` frontmatter and would author a page without the contract loaded. Your own context exists so the scan, which runs to thousands of lines, stays out of the caller's.
 
 **Before inferring, read `docs/wiki/CLAUDE.md` and treat its contents as authoritative steering for this run.** If the file exists, its instructions override inference defaults. If it does not exist, the repo pipeline will create it (Step 8c).
 

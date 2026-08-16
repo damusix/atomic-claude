@@ -9,6 +9,9 @@ description: >
   is constant; length is set by what the surface has to carry. Prefer a diagram,
   table, or tree over a paragraph when the content has a shape, because a drawn flow
   carries a logic better than a paragraph does for a human reader and a model alike.
+  Structure comes before sentences: a page answers what-is-this, how, where, what-bites,
+  what-else, in that order. references/mermaid.md carries diagram type selection and the
+  rules that decide whether a block renders.
   Invoked by /documentation and as callee by atomic-documentation. Auto-fires on
   "draft the README", "write the docs", "improve this prose", "edit the guide",
   "write the spec", "clean up this doc", "make this readable".
@@ -57,6 +60,28 @@ Length is set by the job the surface does, not by a compression quota and not by
 
 Tight is not cryptic. Cutting filler is always right. Cutting the contract to save a line is never right.
 
+## Structure before sentences
+
+Clean sentences in the wrong order still produce a document nobody can read. Decide the order first.
+
+A document answers the reader's questions in the order the reader asks them:
+
+1. **What is this, and why do I care?** Purpose in the reader's terms: what they gain, or what breaks without it. Not mechanism.
+2. **How does it work?** The shape. One diagram or one worked flow, plus the reasoning that connects it.
+3. **Where is it?** Paths, symbols, and entry points, in one table rather than several lists.
+4. **What will bite me?** The constraints where being wrong is expensive.
+5. **What else does this touch?** Pointers to adjacent surfaces.
+
+Not every document needs all five, and a surface with its own defined structure (a spec's checkpoint table, a reference page's lookup tables) keeps that structure. The order does not invert. A page that opens on a path inventory and reaches its purpose in the last paragraph is backwards, however well each paragraph is written.
+
+| Failure | What it looks like | Fix |
+|---|---|---|
+| Mechanism first | Opens on how the thing operates and never says what it is for. The reader finishes and cannot say why it exists. | Write section 1 last, then move it to the top. |
+| Inventory sprawl | Facts land in discovery order under a heading loose enough to admit anything ("Notes", "Other", "worth knowing"). | Name the heading after the question it answers. If no heading fits a fact, the fact does not belong. |
+| Split by file type | One concern cut into parallel lists (code here, docs there, config elsewhere), so following one behavior means reading three lists and rejoining them mentally. | One table, grouped by responsibility. |
+
+**Name the thing plainly, up front.** When a subject's name does not match its paths, its command, or its output, say so in section 1. A reader who cannot map the name to what they see on disk builds no model at all, and every later section pays for it.
+
 ## Core rules
 
 1. **Show the shape.** When the content has a shape, draw it. A reader follows a flow faster in a diagram than in a paragraph, and so does a model. This is a preference, not a gate: draw it when a picture explains better, write prose when prose explains better, and never add a diagram that only restates the sentence above it.
@@ -70,7 +95,21 @@ Tight is not cryptic. Cutting filler is always right. Cutting the contract to sa
     | Containment or nesting | tree | indented tree | indented tree |
     | Options against criteria | table | table | table |
 
-    Put a one-line caption above every Mermaid block saying what it shows. Prompt artifacts may use Mermaid when the flow is load-bearing and prose would take more lines; otherwise use the ASCII form, which costs fewer tokens at equal clarity. For the full route vocabulary and the discipline caps, see `output-styles/atomic.md`.
+    Prompt artifacts may use Mermaid when the flow carries the instruction and prose would take more lines; otherwise use the ASCII form, which costs fewer tokens at equal clarity. For the full route vocabulary and the discipline caps, see `output-styles/atomic.md`.
+
+    **Every diagram makes one claim, and the caption above it states that claim.** "The signals pipeline" is a title. "The scan runs before the infer step, so a domain writer never reads a stale substrate" is a claim. If the only caption available is "here is the system", the content is an inventory: write the table instead. The prose must stand without the picture, because a reader on a renderer that does not support Mermaid gets the raw fenced block. The diagram compresses; it does not carry.
+
+    **Draw as many diagrams as the subject has shapes.** A pipeline, a lifecycle, and a request path are three claims, so they are three diagrams, and collapsing them into one canvas or into prose loses all three. There is no cap on how many a page carries; the cap is per diagram, on how much any one of them tries to say.
+
+    What a second diagram owes is a second claim and its own heading, not restraint. Two diagrams separated by a single line of text is the thing to fix: either the second says something the first does not, in which case give it a section, or it restates the first, in which case cut it.
+
+    Budgets, per diagram: 9 nodes for a flowchart, 6 participants for a sequence, 8 entities for an ER or class diagram. Over budget means the claim is too big, not that the labels should shrink. Split by abstraction level instead.
+
+    Two things that look like diagrams and are not. Linear steps with no branch and no boundary crossing are a numbered list, and five boxes in a chain are worse than five lines: bigger, harder to diff, harder to search. And reaching for a flowchart is usually a sign the claim has not been decided. If the logic is ordered interaction across a boundary, `sequenceDiagram` carries time for free. If it is which transitions are legal, `stateDiagram-v2` shows illegality by absence and a flowchart cannot.
+
+    Label nodes with the real identifier (`pruneDeleted`, `AuthGuard.verify()`), not a generic noun ("cleanup", "check auth"). A renamed symbol then turns up in grep; a vague label goes stale in silence. Encode distinctions in shape or line style, not color: `{diamond}` for a decision, `[(cylinder)]` for a store, `-.->` for async. Color encodes nothing, breaks on dark backgrounds, and fails colorblind readers.
+
+    Before writing a Mermaid block into a `docs/` file, read `references/mermaid.md`: it picks the type from the reader's question and lists what breaks rendering. Identifier labels are the reason it matters here, since a bare `verify(token)` is a parse error and `verify("token")` is not.
 
 2. **Active voice, named actor.** Every sentence has a subject doing something. Replace "the decision was made" with "the team decided" or, in docs, "we picked" or "use X". Never let inanimate things perform human verbs ("the complaint becomes a fix", "the architecture emerges").
 
@@ -124,7 +163,14 @@ Tight is not cryptic. Cutting filler is always right. Cutting the contract to sa
 
 ## Quick checklist before saving
 
+- Read the headings alone, in order. Do they answer what-is-this, how, where, what-bites, what-else? If the first one is an inventory, the page is upside down.
+- A heading that admits anything ("Notes", "Other", "worth knowing")? Rename it after the question it answers, or redistribute its contents.
+- One concern split into parallel lists by file type? Merge into one table grouped by responsibility.
 - Content has a shape and no diagram? Consider drawing it. Diagram that only restates the prose? Cut it.
+- Caption that names the diagram instead of stating its claim? Rewrite it as the claim.
+- A shape explained in prose that a picture would carry better? Draw it, however many diagrams the page already has.
+- Two diagrams with barely any text between them? Give the second its own section and its own claim, or cut it as a restatement.
+- Node label that is a generic noun rather than a real identifier? Use the identifier.
 - Mermaid block with no caption line above it? Add one.
 - Em dash inside a sentence? Replace with comma or period. (In a table cell or `a — b` list line, leave it.)
 - Adverb anywhere? Delete unless it carries technical meaning.
@@ -195,5 +241,9 @@ Tight is not cryptic. Cutting filler is always right. Cutting the contract to sa
 - **Do not rewrite a file's voice as a side effect of an unrelated edit.** Voice work is its own change. Editing one section of a spec does not license rewriting the other twelve.
 - **CHANGELOG entries follow the project's existing tone.** This skill nudges new entries toward plainness but does not rewrite older entries on sight.
 - **Comments in source code follow the comment rules in `CLAUDE.md`, not this skill.** This skill is for markdown files, not inline code comments.
+
+## Reference files
+
+- `references/mermaid.md` — picking a diagram type from the reader's question, and the label and syntax rules that decide whether a block renders or ships as a raw fence. Read before writing a Mermaid block into a `docs/` file.
 
 </constraints>

@@ -53,16 +53,16 @@ Heuristic: identify commands, skills, or agents that form a cohesive unit. Find 
 
 **Code-intel corroboration (when index is present).** If `.claude/.atomic-index/atomic.db` exists and `atomic` is on PATH, query the real import and call graph to corroborate and refine the grouping. Actual dependency edges are stronger evidence for domain boundaries than directory names: files that import each other heavily, or that share a dense call cluster, belong in the same domain even if their paths look disparate. Use broader structural queries here — the inferrer is a disposable subagent consuming output to produce a compact `docs/wiki/index.md`, not a bounded one-symbol probe. Queries to consider: `atomic code explore "<domain or subsystem>"` for a one-shot context digest of an area, `atomic code callers <entrypoint> --json` to find all consumers of a key symbol, or `atomic code callees <package-init> --json` to map what a package depends on. If the index, the DB, or the binary is absent, fall back fully to the filename/path heuristics above — code-intel is corroborating evidence, never a hard dependency.
 
-Document the partitioning basis in the router's `## Cross-domain coupling` section.
+Record the partitioning basis as the one-line intro above the router's `## Domains` table.
 
 Skip `[generated]` entries when partitioning — generated files do not drive domain narratives.
 
 ### Step 4 — Dispatch sub-agents per domain
 
-For each domain that needs writing or updating, dispatch a sub-agent. Domain writers are document authors, not code implementers — `atomic-implementer` is scoped to code changes, not markdown signal files — so `general-purpose` is used here:
+For each domain that needs writing or updating, dispatch one `atomic-wiki-writer`. Name that type explicitly on every dispatch: omitting `subagent_type` falls back to `general-purpose`, which declares no `skills:` frontmatter, so the page contract and the voice rules would reach it as a request rather than as loaded context.
 
 ```
-Dispatch sub-agent (general-purpose):
+Dispatch sub-agent (atomic-wiki-writer):
 Prompt: "Write docs/wiki/<domain>.md for the <domain> domain.
 
 <source_paths>
@@ -78,30 +78,41 @@ Source paths in this domain: <list from deterministic tree>
 - Read the actual source files listed above. Do not infer from filenames alone.
 - Skip any entries marked [generated].
 - Write a domain file conforming to the domain file schema below.
-- Invoke the `atomic-writing` skill and follow it. It governs the voice.
+- Invoke the `atomic-writing` skill and follow it. It governs three things here, not one: the page's reading order, when a shape gets drawn instead of written, and the sentence-level voice.
+- Draw every shape the domain has. A pipeline, a lifecycle, and a request path are three claims and three diagrams, each with its own `###` sub-heading and a caption stating what it claims. There is no cap. Leaving a shape in prose is the failure to avoid, not drawing too many.
+- Before writing any Mermaid block, read `~/.claude/skills/atomic-writing/references/mermaid.md` — it picks the diagram type from the reader's question and lists what breaks rendering. Identifier labels are why it matters: a bare `verify(token)` is a parse error, `verify("token")` is not.
+- Draw from the source you read, never from prose someone already wrote about it. A diagram inherits any error in the paragraph it was copied from.
 - Output only the file content. Do not summarize your process.
 </instructions>
 
 <output_format>
 ---
 type: Domain
-description: <one-line summary of this domain>
+description: <one-line summary of this domain, under ~120 characters>
+tags: [<2-3 tags from the wiki's existing vocabulary>]
 ---
 
 # <domain>
 ## What it does
-<1-3 fact lines>
-## Artifacts
-<bullet list: path — role. User-facing Claude Code files: commands, agents, skills, templates for this concern. Omit section if none.>
-## CLI code
-<bullet list: path — role. Go packages that implement/manage/validate this concern. Omit section if none.>
-## Docs
-<bullet list: path — role. Specs, design docs, reference pages, guides about this concern. Omit section if none.>
+<Purpose before mechanism. What a session working here gains, or what breaks without this domain, in the reader's terms. Then the mechanism in a sentence or two. If the domain's name does not match its paths, its driving command, or where its output lands, say so here — a reader who cannot map the name to what is on disk builds no model at all.>
+## How it works
+<The shapes of the domain — one diagram per shape, and a domain with three has three. Each carries a caption above it stating the claim it makes, not naming its subject, and each beyond the first gets its own `###` sub-heading. Prose carries what a diagram cannot: why an order is fixed, which hop is surprising, what the failure looks like. Under-drawing is the common failure here: a lifecycle, a pipeline, and a request path explained in paragraphs are three pictures the reader never got. A domain with no shape worth drawing writes prose alone.>
+## Where it lives
+<One table: path | role. Group rows under `###` sub-headings by responsibility when the domain is large. Never split into parallel lists by file type — a reader following one behavior should not have to read three lists and rejoin them.>
+## Constraints
+<Domain-local facts where being wrong is expensive: a non-obvious invariant, an order that cannot be reversed, a gotcha that has already cost someone a day. Each states what breaks when it is violated. A fact nobody could act on wrongly is not a constraint — leave it out.>
 ## Coupling
-<bullet list: what changes here force changes in other domains. Name the other domain explicitly. Include known stale cross-references as facts.>
-## Conventions worth knowing
-<domain-local convention facts>
+<How this domain relates to the rest of the system, for the session that has just arrived here:
+ - other domains it constrains or is constrained by — name the domain
+ - the skills, commands, and agents that drive or consume it, and how
+ - contracts that must change in lockstep
+ - known stale cross-references, stated as present-tense facts
+ State a fact once, in the domain that owns it; from other domains, point at it rather than restating it.>
 </output_format>
+
+<page_order>
+The five sections answer, in order: what is this and why do I care, how does it work, where is it, what will bite me, what else does it touch. Write `## What it does` last and move it to the top — a purpose written before the mechanism is understood comes out as mechanism.
+</page_order>
 
 <constraints>
 Write repo-root-relative paths in backticks; a code linkify step renders them to relative links — never @-refs. Fact-shaped, not steering-shaped.
@@ -133,7 +144,12 @@ Source paths: <list of paths in this domain>
 Check:
 - Every claim in the domain file is supported by a source file.
 - No claims about paths outside this domain.
-- Required sections present: What it does, Where it lives, What it talks to, Conventions worth knowing.
+- Required sections, in this order: What it does, How it works, Where it lives, Constraints, Coupling. No extra top-level section — a fact that fits none of the five belongs in one of them or nowhere.
+- `## What it does` opens on purpose, not mechanism. A reader who finishes that section can say why the domain exists. Where the domain's name does not match its paths or its driving command, the mismatch is named.
+- Every diagram in `## How it works` carries a caption stating a claim rather than naming the subject ("the scan runs first, so a writer never reads a stale substrate", not "the pipeline"), and every diagram past the first has its own `###` sub-heading. Node labels are real identifiers, not generic nouns. There is no cap on diagram count; two findings to raise instead are a diagram that restates its neighbour, and a shape explained in prose that a picture would carry better.
+- `## Where it lives` is one table, not parallel lists split by file type.
+- Every `## Constraints` entry names what breaks when it is violated.
+- `## Coupling` names the counterpart domains, and the skills, commands, and agents that drive or consume this domain.
 - OKF frontmatter present (`type: Domain` and `description:`) at the top of the file.
 - No @-refs (repo-root-relative paths in backticks only — a code linkify step renders them to relative links later; a `[text](path)` link is not an @-ref).
 - Fact-shaped, not steering-shaped.
@@ -141,11 +157,11 @@ Check:
 Return VERDICT: PASS or VERDICT: CHANGES_REQUESTED with specific corrections."
 ```
 
-If reviewer returns `CHANGES_REQUESTED`, dispatch the sub-agent again with the reviewer's corrections. Iterate until `PASS`. Maximum 3 iterations per domain before flagging as unresolved and continuing. Emit a warning note in the router's `## Cross-cutting` section naming the domain and iteration count.
+If reviewer returns `CHANGES_REQUESTED`, dispatch the sub-agent again with the reviewer's corrections. Iterate until `PASS`. Maximum 3 iterations per domain before flagging as unresolved and continuing. Report the unresolved domain and its iteration count in the Step 9 orchestrator output — that is run state for the caller, not a fact about the codebase, so it stays out of the committed wiki files.
 
 ### Step 6 — Wire cross-domain references
 
-After all domain files pass review, read each domain file and populate `## What it talks to` sections with cross-domain references (e.g. "auth talks to billing via webhooks"). The orchestrator has the full picture across domains at this point.
+After all domain files pass review, read each domain file and populate `## Coupling` sections with cross-domain references (e.g. "auth talks to billing via webhooks"). The orchestrator has the full picture across domains at this point, so this is where a fact that spans domains gets placed in the one domain that owns it, and pointed at from the others.
 
 ### Step 6b — Surface concerns (judgment observations)
 
@@ -308,10 +324,24 @@ The fallback is deliberately limited.
 
 `docs/wiki/index.md` is a complete orientation document. Two zones:
 
-**Zone 1 — Frontloaded orientation.** Fixed cost, does not scale with repo size.
+**Zone 1 — Orientation, then the map.** Fixed cost, does not scale with repo size. Lead with what the repo *is* and how its pieces flow, so a reader who has never opened it can place everything that follows; put the domain map next, because that is what a session actually navigates by. Reference detail (stack, commands, counts) sits below the map — needed, but not what someone reads first.
 
 ```markdown
 # Project signals
+
+## What this repo is
+
+<2-3 sentences: what the project is and what it produces>
+
+<a diagram of the primary flow — the pipeline, request path, or data path that
+ explains how the parts relate. Mermaid, since this is a `docs/` file. Skip only
+ when the repo genuinely has no such shape.>
+
+<1-2 sentences naming the edit surface vs the generated surface, when they differ>
+
+## Domains
+
+<the route table — see Zone 2 below>
 
 ## Framework & runtime
 
@@ -336,66 +366,102 @@ The fallback is deliberately limited.
 <release pipeline, deploy mechanism, CI provider — 1-2 lines each>
 ```
 
-**Zone 2 — Domain route table.**
+**Zone 2 — Domain route table.** `Start here` is the single best entry path for that domain, not an inventory — the domain file lists the full path set. Keep every cell short enough to scan down the column.
 
 ```markdown
 ## Domains
 
-| Domain | Repo paths | One-liner | Detail |
-|--------|------------|-----------|--------|
-| auth   | `src/auth/`  | JWT + session, 2FA optional | `docs/wiki/auth.md` |
-| billing | `src/billing/` | Stripe-backed, webhook-driven | `docs/wiki/billing.md` |
+| Domain | Start here | What it does | Detail |
+|--------|-----------|--------------|--------|
+| auth   | `src/auth/`  | JWT sessions, optional 2FA. | `docs/wiki/auth.md` |
+| billing | `src/billing/` | Stripe-backed, webhook-driven. | `docs/wiki/billing.md` |
 
 (Detail column empty when no domain files exist — small repo, everything in router)
-
-## Cross-cutting
-
-<test layout, conventions pointer, scan substrate path, domain partitioning basis>
 ```
 
-Write every path citation — the `Repo paths` column AND the `Detail` column — as a **repo-root-relative path in backticks** (e.g. `` `docs/wiki/auth.md` ``, NOT `wiki/auth.md`). A code step (`atomic signals linkify`, base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `` [`docs/wiki/auth.md`](docs/wiki/auth.md) ``. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target from the linkified Detail cell.
+A fact that spans domains lives in the `## Coupling` section of the domain that owns it, where the session working on that domain meets it in context.
 
-**Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. Size (~1,000 lines / ~5k tokens) is a secondary hint to look for concern boundaries. After domain files exist, router keeps all frontloaded orientation content even if it grows past 5k tokens.
+**The table keeps four columns.** `parseRouterDomains` in `atomic/internal/doctor/checks_signals.go` skips any row with fewer than four content columns and reads the domain-file link from the last one. A three-column table parses as zero domains — the missing-domain-file and orphan-domain checks then pass vacuously, reporting health they never verified.
+
+Write every path citation — the `Start here` column AND the `Detail` column — as a **repo-root-relative path in backticks** (e.g. `` `docs/wiki/auth.md` ``, NOT `wiki/auth.md`). A code step (`atomic signals linkify`, base = repo root) renders each one that resolves on disk into a file-relative markdown link, e.g. `` [`docs/wiki/auth.md`](docs/wiki/auth.md) ``. These are NOT `@-refs` — `@-refs` are eager and transitive; a `[text](path)` link requires explicit `Read`. Doctor extracts the link target from the linkified Detail cell.
+
+**Budget model.** Domain files are created per functional concern (vertical slice), not when a token threshold is crossed. Size (~1,000 lines / ~5k tokens) is a secondary hint to look for concern boundaries.
+
+
+## Router discipline
+
+The router is `@-ref`'d into every session; domain files are read on demand. That split is the budget model — the router's cost is paid on every turn of every session, a domain file's cost only when a task reaches for it. Write each fact where the session that needs it will find it, so the model pulls detail as the task requires it instead of carrying all of it from the first turn.
+
+- **R1 — Put a fact where it is discovered.** A fact about one domain belongs in that domain's file, where the session working on that domain will read it. The router carries what every session needs regardless of task: stack, build commands, language mix, and the map of where to look next.
+- **R2 — Cross-domain facts live in the `## Coupling` section of the domain that owns them.** A session reading about the code graph learns there how it relates to the skills that drive it, at the moment that relationship matters. State the fact once in the owning domain; from other domains, point at it.
+- **R3 — Touch only what changed.** A section whose facts still hold is left exactly as it is — an idempotent refresh produces a byte-identical file. Rewrite a section only when a fact in it no longer holds.
+- **R4 — The router describes the present.** Commit SHAs, branch names, PR numbers, and LOC deltas between refreshes answer "how did this get here" — `git log` answers that on demand, better. A present-tense "known stale" note naming a doc that contradicts current code is a current fact and stays.
+- **R5 — Language breakdown is the scan's table**, plus at most 2 lines on how the numbers are counted.
+- **R6 — A changed fact is rewritten where it is stated.** Edit the sentence that is now wrong rather than appending a paragraph describing the change — an appended delta leaves both the stale claim and its correction in context, and the reader cannot tell which one is current. The router states current truth; its history lives in git. (Same body-is-truth standard `rules/specs/spec-currency.md` applies to `docs/spec/**`.)
+- **R7 — One row per domain** in the `## Domains` table. Dedupe by domain name before writing; merge duplicates into the newer description.
+- **R8 — Budget: ~200 lines.** The router points and summarizes; detail lives one hop away. Over budget, shorten the pointers — the domain map stays complete.
+
+
+## What gets written
+
+Every wiki file is read by a session mid-task, not studied start to finish. Write for that reader: the fact they need, in a form they can scan, at the depth the task actually requires.
+
+- **W1 — Write a fact only if a session would act on it.** Completeness is not the goal — a wiki that documents everything costs as much to read as the code it summarizes, and the session goes back to reading the code instead. If a fact would not change what someone does, leave it out.
+- **W2 — Brief by default; detailed where being wrong is expensive.** A subtle contract, a non-obvious invariant, or a gotcha that has already cost someone a day earns its paragraph. A file listing earns a line.
+- **W3 — Show the shape.** Content with structure — a hierarchy, a pipeline, a comparison, a lifecycle — is drawn as a tree, table, or diagram, with prose reserved for the reasoning that connects them. `docs/` files may use Mermaid. (`atomic-writing` governs the voice; this is the same rule at file scale.)
+- **W4 — One hop to detail.** A summary that names where the detail lives beats one that inlines it. The reader who needs more follows the pointer; the reader who does not pays nothing for it.
+- **W5 — Tags name a kind, and the vocabulary is shared.** Read the tags already in use across the wiki before inventing one, and reuse an existing tag rather than coining a near-synonym (`daemon`, not `long-running`; `codegen`, not `generates-files`). A good tag names a kind that another page could plausibly share — `daemon`, `cli`, `codegen`, `web-ui` — rather than restating the file's own name. A tag unique today is fine when it names such a kind; a tag that will never match anything but its one page is a label, and the description already carries that. Two to three per file. Serve's markdown search reads frontmatter as raw text, so a tag is a working query the moment it is written, and the right-rail Properties panel renders it without further wiring.
 
 
 ## Domain file shape
 
-Required sections per domain file (vertical slice):
+Required sections per domain file (vertical slice), in this order. The order is the reading order: what is this and why do I care, how does it work, where is it, what will bite me, what else does it touch. A domain page is read by a session mid-task, and a page that opens on a path inventory makes that session read to the end before it knows whether it is in the right file.
 
 ```markdown
 ---
 type: Domain
-description: <one-line summary of this domain>
+description: <one-line summary of this domain, under ~120 characters>
+tags: [<2-3 tags from the wiki's existing vocabulary>]
 ---
 
 # <domain>
 
 ## What it does
 
-<1-3 fact lines>
+<Purpose before mechanism: what a session working here gains, or what breaks without
+ this domain. Then the mechanism in a sentence or two. Name any mismatch between the
+ domain's name and its paths, its driving command, or where its output lands.>
 
-## Artifacts
+## How it works
 
-<bullet list: path — role. User-facing Claude Code files for this concern.>
+<One diagram per shape the domain has, each captioned with the claim it makes, each past
+ the first under its own `###` sub-heading. No cap on the count. Prose carries what a
+ diagram cannot. No shape worth drawing means no diagram, and prose alone is right; a
+ shape left in prose that a picture would carry better is the more common mistake.>
 
-## CLI code
+## Where it lives
 
-<bullet list: path — role. Go packages for this concern. Omit if none.>
+<One table: path | role. `###` sub-headings group rows by responsibility on large
+ domains. Never parallel lists split by file type.>
 
-## Docs
+## Constraints
 
-<bullet list: path — role. Specs, design docs, reference pages, guides.>
+<Domain-local facts where being wrong is expensive. Each states what breaks when it is
+ violated. A fact nobody could act on wrongly is not a constraint.>
 
 ## Coupling
 
-<bullet list: what changes here force changes in other domains. Name the other domain.>
-
-## Conventions worth knowing
-
-<domain-local convention facts>
+<How this domain relates to the rest of the system, for the session that has just arrived here:
+ - other domains it constrains or is constrained by — name the domain
+ - the skills, commands, and agents that drive or consume it, and how
+ - contracts that must change in lockstep
+ - known stale cross-references, stated as present-tense facts
+ State a fact once, in the domain that owns it; from other domains, point at it rather than restating it.>
 ```
 
 Write repo-root-relative paths in backticks throughout; a code linkify step renders them to relative links — never @-refs.
+
+**No sixth section.** A fact that fits none of the five belongs inside one of them or nowhere. A page grows a catch-all heading ("Notes", "Other", "worth knowing") at the moment its author stops deciding where facts go, and everything after that lands in discovery order.
 
 **Large domains:** `docs/wiki/` uses a flat layout — one `docs/wiki/<domain>.md` file per functional concern, no subdirectories. For large domains, use internal heading structure within the single file rather than sub-routing.
 
