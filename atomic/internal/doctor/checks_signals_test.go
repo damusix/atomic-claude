@@ -370,7 +370,7 @@ func TestCheckSignalsRouterLinkifiedDetailChain(t *testing.T) {
 }
 
 // TestCheckSignalsRouterNewLayout_Pass verifies PASS when docs/wiki/index.md
-// exists and @docs/wiki/index.md is wired (new layout, CP2).
+// exists and @docs/wiki/index.md is wired (new layout,).
 func TestCheckSignalsRouterNewLayout_Pass(t *testing.T) {
 	root := t.TempDir()
 	wikiDir := filepath.Join(root, "docs", "wiki")
@@ -452,7 +452,7 @@ func TestCheckSignalsRouterPipedOneLiner(t *testing.T) {
 
 // TestCheckSignalsOrphanExclusion verifies that index.md, scan.md, and
 // CLAUDE.md inside docs/wiki/ are never reported as orphan domain files,
-// even when they are not listed in the router table (new layout, CP2).
+// even when they are not listed in the router table (new layout,).
 func TestCheckSignalsOrphanExclusion(t *testing.T) {
 	root := t.TempDir()
 	wikiDir := filepath.Join(root, "docs", "wiki")

@@ -2775,7 +2775,7 @@ func TestResolveTailRooms_ExplicitRoom_NoPrefix(t *testing.T) {
 }
 
 // TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix
-// pins docs/spec/atomic-bus.md CP5, quoted verbatim: "[--all-rooms] is the
+// pins docs/spec/atomic-bus.md, quoted verbatim: "[--all-rooms] is the
 // default when no room argument is given and exactly one room exists."
 func TestResolveTailRooms_NoExplicit_ExactlyOneRoom_DefaultsToAllRoomsPrefix(t *testing.T) {
 	home := testBusHome(t)
@@ -3188,7 +3188,7 @@ loop:
 	}
 }
 
-// --- who: kind visible in table and --json (docs/spec/atomic-bus.md CP5) ---
+// --- who: kind visible in table and --json (docs/spec/atomic-bus.md) ---
 
 func TestWhoAction_TableOutput_ShowsKind(t *testing.T) {
 	home := testBusHome(t)

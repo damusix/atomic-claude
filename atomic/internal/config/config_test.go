@@ -646,7 +646,7 @@ func TestSignalsMaxDepthRoundTrip(t *testing.T) {
 	}
 }
 
-// --- [claude.agents] table tests (CP2/CP7) ---
+// --- [claude.agents] table tests ---
 
 // TestAgentsRoundTrip: config with [claude.agents] (model overrides for all 5
 // known agents) survives WritePersist→Load without structural warnings or
@@ -944,7 +944,7 @@ func TestAgentsNotInConfigList(t *testing.T) {
 	}
 }
 
-// --- harness.dir (CP2: configurable-state-paths) ---
+// --- harness.dir (configurable-state-paths) ---
 
 // TestHarnessDirDefault: Default() sets harness.dir = ".claude".
 func TestHarnessDirDefault(t *testing.T) {
@@ -1134,7 +1134,7 @@ func TestHarnessDirUnknownKeyTypoSuggestion(t *testing.T) {
 	}
 }
 
-// --- [repl] idle_timeout (CP4: atomic-repl) ---
+// --- [repl] idle_timeout (atomic-repl) ---
 
 // TestReplIdleTimeoutAbsent: absent [repl] in TOML leaves the field empty
 // (unset), matching the schema's "empty means unset" contract for this key.
@@ -1370,7 +1370,7 @@ func TestReplIdleTimeoutUnknownKeyTypoSuggestion(t *testing.T) {
 	}
 }
 
-// --- [update] check / stage (selfupdate-state CP1) ---
+// --- [update] check / stage (selfupdate-state) ---
 
 // TestUpdateCheckDefault: Default() sets update.check = true.
 func TestUpdateCheckDefault(t *testing.T) {

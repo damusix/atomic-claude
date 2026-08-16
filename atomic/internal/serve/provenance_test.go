@@ -1,6 +1,6 @@
 package serve_test
 
-// provenance_test.go — CP10 TDD: provenance DAG walk + drift detection.
+// provenance_test.go — TDD: provenance DAG walk + drift detection.
 //
 // Test-first contract (failing → impl → passing):
 //  1. ReadProvenance parses reflects: (concern) and sources: (knowledge) correctly.

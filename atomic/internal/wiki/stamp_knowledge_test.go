@@ -1,6 +1,6 @@
 package wiki_test
 
-// stamp_knowledge_test.go — CP4: tests for knowledge page stamping and
+// stamp_knowledge_test.go — tests for knowledge page stamping and
 // knowledge-citation fingerprint resolution.
 //
 // Success criteria (spec checkpoint 4):

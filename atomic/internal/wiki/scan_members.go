@@ -8,7 +8,7 @@ import (
 
 // ReadScanMembers reads the <wiki-scan> block from the given wiki index.md
 // file and returns the members listed in it.  This is the exported reader used
-// by the code-intel realm seeder (CP3) to discover members and their statuses
+// by the code-intel realm seeder to discover members and their statuses
 // without running a full Scan.
 //
 // An absent file or a missing <wiki-scan> block returns (nil, nil) — not an

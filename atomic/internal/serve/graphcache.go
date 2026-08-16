@@ -8,7 +8,7 @@
 //
 // graphDataCache assembles it once, warmed in a background goroutine at startup,
 // and serves the bytes verbatim until the realm changes. Change detection and the
-// link graph itself both come from a snapshotStore (CP1): the store's ensureFresh
+// link graph itself both come from a snapshotStore: the store's ensureFresh
 // does the stat-only fingerprint walk (and, when stale, the heavier graph rebuild)
 // so this cache no longer walks the filesystem on its own — it only owns the
 // provenance+cyto-JSON assembly and its cache. Concurrent (re)builds of that

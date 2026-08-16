@@ -1,6 +1,6 @@
 package indexer_test
 
-// embedded_sql_lang_smoke_test.go — CP2 smoke e2e tests for the generic
+// embedded_sql_lang_smoke_test.go — smoke e2e tests for the generic
 // embedded-SQL harvester.
 //
 // One test per extraction mode, mirroring TestEmbeddedSQLInGoFile /

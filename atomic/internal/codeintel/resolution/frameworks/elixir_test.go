@@ -1,6 +1,6 @@
 package frameworks_test
 
-// Tests for CP15 batch E (Elixir): phoenix resolver.
+// Tests for batch E (Elixir): phoenix resolver.
 //
 // NOTE ON LANGUAGE: Elixir is a supported language (types.LanguageElixir).
 // Route nodes and refs carry LanguageElixir. Languages() returns

@@ -224,7 +224,7 @@ func TestResolve_RealmAll(t *testing.T) {
 	if len(res.Config.Members) != 2 {
 		t.Errorf("expected 2 members, got %d", len(res.Config.Members))
 	}
-	// res.Members is the non-excluded slice CP3 will fan out across.
+	// res.Members is the non-excluded slice will fan out across.
 	// Both fixture members have exclude=false, so all 2 must appear.
 	if len(res.Members) != 2 {
 		t.Errorf("expected 2 non-excluded members in res.Members, got %d", len(res.Members))

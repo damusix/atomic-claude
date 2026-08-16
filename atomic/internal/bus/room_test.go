@@ -1699,7 +1699,7 @@ func TestRoomLogPath_MatchesHubHome(t *testing.T) {
 
 // --- PublishAsOperator: say's path, publishing without a roster entry ---
 //
-// docs/spec/atomic-bus.md CP5: "say — one-shot send without joining."
+// docs/spec/atomic-bus.md "say — one-shot send without joining."
 //
 // The sender identity is not a parameter. An earlier signature took name and
 // kind from the caller and was reachable from the wire via OpSay, which let a

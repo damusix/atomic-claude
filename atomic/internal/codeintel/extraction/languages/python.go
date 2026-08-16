@@ -45,7 +45,7 @@ func PythonExtractor() extraction.LanguageExtractor {
 		// function_definition covers all function and method definitions.
 		// Python uses the same node for both; context (inside class_definition)
 		// is not checked here — methods will appear as NodeKindFunction unless
-		// a parent-aware hook is added in CP8. This is consistent with the
+		// a parent-aware hook is added. This is consistent with the
 		// brief's scope for this checkpoint.
 		FunctionTypes: extraction.TypeSet("function_definition"),
 

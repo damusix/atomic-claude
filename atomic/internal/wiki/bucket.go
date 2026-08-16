@@ -1,6 +1,6 @@
 package wiki
 
-// bucket.go — CP1 bucket manifest core.
+// bucket.go — bucket manifest core.
 //
 // A bucket is a named, content-tracked folder under a wiki.  The manifest
 // directory wiki/.buckets/<name>/ holds three files that record the history of
@@ -14,7 +14,7 @@ package wiki
 //   previous  — written by PromoteBucket on the second and subsequent
 //               promotes: the old baseline slides into previous.
 //
-// Exported API (for CP2 CLI wiring):
+// Exported API (for CLI wiring):
 //
 //   WalkBucket(dir string) ([]string, error)
 //   RegisterBucket(wikiDir, name string) error

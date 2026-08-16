@@ -1,6 +1,6 @@
 package serve_test
 
-// events_test.go — CP3 (live-reload): /events route wiring and shutdown,
+// events_test.go — live-reload: /events route wiring and shutdown,
 // exercised through the real production server (startTestServer /
 // serve.RunWithContext) rather than a bare handler, since these behaviors
 // depend on serve.go's route registration and the ctx-driven shutdown wiring

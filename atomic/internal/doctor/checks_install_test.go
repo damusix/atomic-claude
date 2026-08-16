@@ -202,10 +202,10 @@ func TestCheckInstall_pass_no_findings(t *testing.T) {
 	}
 }
 
-// TestCheckInstall_agentOverrideDrift_detectAndRepair: CP6 regression lock.
+// TestCheckInstall_agentOverrideDrift_detectAndRepair: regression lock.
 // claudeinstall.Diff already compares an installed agent against
 // readPatchedEmbedded (bundle content patched with the configured model +
-// effort, CP2) — so the install-integrity check detects config <-> installed
+// effort,) — so the install-integrity check detects config <-> installed
 // drift with no dedicated agent-aware check. This proves that contract:
 // a config override added after a clean install shows up as WARN drift, and
 // the same Install call `atomic doctor --fix` runs repairs it back to PASS.

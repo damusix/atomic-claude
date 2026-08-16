@@ -1,4 +1,4 @@
-// Package frameworks — PHP framework resolvers (CP15 batch E).
+// Package frameworks — PHP framework resolvers (batch E).
 //
 // This file implements two FrameworkResolver + FrameworkExtractor pairs for
 // the two major PHP web frameworks: Laravel and Symfony.

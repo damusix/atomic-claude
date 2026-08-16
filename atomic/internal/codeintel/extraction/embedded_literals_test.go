@@ -396,7 +396,7 @@ func TestHarvestEmbeddedLiterals_Dart_ZeroSpansWhenOnlyInterp(t *testing.T) {
 
 	// After Shape 2 splice: "?" — delimiter strip removes the quotes, leaving "?".
 	// "?" is non-empty so the harvester emits it. The SQL gate (IsSQLLiteral)
-	// will reject it — that is CP2's concern. Here we assert exactly one span
+	// will reject it — that is concern. Here we assert exactly one span
 	// with text "?" (the placeholder), confirming the splice ran correctly.
 	if len(spans) != 1 {
 		t.Fatalf("expected 1 span (placeholder '?'), got %d: %v", len(spans), spans)

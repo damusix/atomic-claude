@@ -23,7 +23,7 @@ var validEfforts = map[string]bool{
 }
 
 // effortOptionValues is the ordered allowlist, including the empty
-// "no override" choice first. Reused by the interactive effort Select (CP3).
+// "no override" choice first. Reused by the interactive effort Select.
 var effortOptionValues = []string{"", "low", "medium", "high", "xhigh", "max"}
 
 // validModelFormat reports whether a non-empty model string is well-formed:

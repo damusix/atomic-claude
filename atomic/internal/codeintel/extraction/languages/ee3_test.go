@@ -29,7 +29,7 @@ package languages_test
 //  4. No regression: EE1 JSX refs and EE2 call-arg refs are unaffected.
 //  5. Node count is stable across two extractions.
 //
-// WHY: The callback synthesizer (CP16 batch 4) needs to find the *registration* site
+// WHY: The callback synthesizer (batch 4) needs to find the *registration* site
 // (`this.onData = handler`) not just the invocation (`this.onData()`). Without EE3
 // the synthesizer has no signal to link the assignment to the later call.
 
@@ -266,7 +266,7 @@ func TestEE3_DistinguishableFromJSXRefs(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestEE3_NodeCountStable proves extraction is deterministic after adding EE3.
-// WHY: node-count stability is a core invariant (CP6/CP10) — field-assignment
+// WHY: node-count stability is a core invariant — field-assignment
 // UnresolvedReference rows must not cause node count to vary between runs.
 func TestEE3_NodeCountStable(t *testing.T) {
 	t.Parallel()

@@ -1,6 +1,6 @@
 package resolution_test
 
-// Path-alias loading tests (CP11).
+// Path-alias loading tests.
 //
 // WHY these tests exist separately: the alias loader (tsconfig JSONC parse via
 // hujson + alias map build) is a self-contained unit with its own edge cases

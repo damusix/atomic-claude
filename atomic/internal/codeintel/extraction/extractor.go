@@ -46,7 +46,7 @@ import (
 // arrays. Hook functions are nil-safe; the extractor checks for nil before
 // calling.
 //
-// AST node-type strings must match what the grammar actually emits — CP0
+// AST node-type strings must match what the grammar actually emits —
 // verifies these per language. Use a real-parse probe (see
 // tmp/verify_go_grammar.go) before committing a new config.
 type LanguageExtractor struct {

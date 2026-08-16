@@ -1,4 +1,4 @@
-// Package frameworks — Go framework resolvers (CP15 batch B).
+// Package frameworks — Go framework resolvers (batch B).
 //
 // This file implements five FrameworkResolver + FrameworkExtractor pairs for
 // the five major Go web frameworks: Gin, Echo, Fiber, Gorilla Mux, and Chi.

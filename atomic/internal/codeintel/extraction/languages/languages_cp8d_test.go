@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Dart, ObjC, Pascal language extractor configs (CP8 batch D — final batch).
+// Tests for Dart, ObjC, Pascal language extractor configs (batch D — final batch).
 //
 // Each language has:
 //  1. A real fixture parsed through the pool (grammar ABI proof).
@@ -330,7 +330,7 @@ func TestDart_NodeCountStable(t *testing.T) {
 // IsExported rule: ObjC default is public. No access modifier concept at the
 // method level (unlike C++ private:). We default IsExported=true for all ObjC
 // symbols. (@private/@protected ivar sections are a different story and out of
-// scope for CP8.)
+// scope of this extractor.)
 const objcFixture = `#import <Foundation/Foundation.h>
 #import "Shape.h"
 
@@ -556,7 +556,7 @@ func TestObjC_NodeCountStable(t *testing.T) {
 // these are structural section markers (declSection with kPublic/kPrivate child)
 // rather than per-symbol modifiers. Default IsExported=true for all Pascal symbols
 // (public by default outside class sections). Private/protected tracking within
-// classes requires parent-section context accumulation — out of scope for CP8.
+// classes requires parent-section context accumulation — out of scope here.
 const pascalFixture = `unit Canvas;
 
 interface
@@ -778,7 +778,7 @@ func TestPascal_NodeCountStable(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestRegistry_For_CP8D_Languages verifies all 3 new languages are registered.
-// WHY: The registry is the single resolution point for CP10; missing entries
+// WHY: The registry is the single resolution point for; missing entries
 // cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8D_Languages(t *testing.T) {
 	t.Parallel()

@@ -40,7 +40,7 @@ func configPath(realmRoot string) string {
 
 // LoadConfig reads <realmRoot>/.atomic/code.toml and returns the parsed Config.
 //
-// Absent file: returns (nil, nil) — not an error. The caller (CP3) decides
+// Absent file: returns (nil, nil) — not an error. The caller decides
 // whether to seed or error on this signal.
 //
 // Parse error: returns (nil, non-nil error).

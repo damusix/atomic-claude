@@ -1,4 +1,4 @@
-// external.go — CP5 external-link registry.
+// external.go — external-link registry.
 //
 // BuildExternalRegistry walks every *.md file under root, calls
 // mdlink.ExtractLinks on each, and aggregates all outbound http/https URLs into

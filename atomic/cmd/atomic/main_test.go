@@ -9,8 +9,8 @@ import (
 	"github.com/damusix/atomic-claude/atomic/internal/cliusage"
 )
 
-// cp2WantMeta is the ground truth for every CP2-ported subcommand: the exact
-// Short and args_hint values from cliusage.go. CP4's deriveCommands reads
+// cp2WantMeta is the ground truth for every ported subcommand: the exact
+// Short and args_hint values from cliusage.go. deriveCommands reads
 // cmd.Short for Description and Annotations["args_hint"] for Args; a byte-for-byte
 // mismatch here means the derived Commands() slice diverges from cliusage.go.
 var cp2WantMeta = []struct {
@@ -43,9 +43,9 @@ var cp2WantMeta = []struct {
 	{[]string{"prompt", "claude-merge"}, "", "Emit the CLAUDE.md merge cold-op brief"},
 }
 
-// TestCP2CobraMetadata walks the Cobra command tree for every CP2-ported
+// TestCP2CobraMetadata walks the Cobra command tree for every ported
 // subcommand and asserts the exact Short and Annotations["args_hint"] values
-// match cliusage.go byte-for-byte. WHY: CP4's deriveCommands reads these fields
+// match cliusage.go byte-for-byte. WHY: deriveCommands reads these fields
 // to reproduce the Commands() slice; a silent mismatch would cause the A1 linter
 // to false-positive or false-negative against artifact citations.
 func TestCP2CobraMetadata(t *testing.T) {
@@ -68,9 +68,9 @@ func TestCP2CobraMetadata(t *testing.T) {
 	}
 }
 
-// cp3WantMeta is the ground truth for every CP3-ported subcommand: the exact
+// cp3WantMeta is the ground truth for every ported subcommand: the exact
 // Short and args_hint values from cliusage.go. Byte-for-byte match is required
-// so that CP4's deriveCommands reproduces the Commands() slice exactly.
+// so that deriveCommands reproduces the Commands() slice exactly.
 var cp3WantMeta = []struct {
 	path     []string
 	argsHint string
@@ -119,7 +119,7 @@ var cp3WantMeta = []struct {
 	{[]string{"followups", "path"}, "", "Print followups folder path"},
 }
 
-// TestCP3CobraMetadata walks the Cobra command tree for every CP3-ported
+// TestCP3CobraMetadata walks the Cobra command tree for every ported
 // subcommand and asserts the exact Short and Annotations["args_hint"] values
 // match cliusage.go byte-for-byte. Covers the 3-level wiki bucket nesting.
 func TestCP3CobraMetadata(t *testing.T) {
@@ -142,7 +142,7 @@ func TestCP3CobraMetadata(t *testing.T) {
 	}
 }
 
-// TestDeriveCommandsGolden is the CP4 gate for the A1 linter. It captures the
+// TestDeriveCommandsGolden is the gate for the A1 linter. It captures the
 // hardcoded cliusage.Commands() slice as the golden fixture (SetRoot is never
 // called in tests, so Commands() returns the static table) and asserts that
 // cliusage.DeriveCommands(buildRootCmd(...)) reproduces the exact same surface.

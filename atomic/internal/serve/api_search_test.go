@@ -1,6 +1,6 @@
 package serve_test
 
-// api_search_test.go — CP3: /api/search/md, /api/code/search,
+// api_search_test.go — /api/search/md, /api/code/search,
 // /api/search/stream JSON shape tests. TDD: written to assert the shapes
 // pinned in the spec's ## API contracts table before/alongside implementation.
 

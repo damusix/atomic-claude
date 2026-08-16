@@ -1,9 +1,9 @@
-// Package mcp implements the atomic code MCP server (master CP22).
+// Package mcp implements the atomic code MCP server (master).
 //
 // # Server construction
 //
 // NewServer creates a configured *mcp.Server bound to the given engine. The
-// server is transport-agnostic: CP23 can run it over a unix-socket transport;
+// server is transport-agnostic: can run it over a unix-socket transport;
 // RunStdio runs it over stdio.
 //
 // # Tool gating (tiny-repo)
@@ -202,7 +202,7 @@ file-read tool. For more context, call atomic_code_explore with a refined query.
 // registers the applicable tools based on fileCount (tiny-repo gating) and
 // sets the de-branded server instructions. The returned server is
 // transport-agnostic: call RunStdio to serve over stdio, or use
-// srv.Connect(ctx, transport, nil) to serve over any other transport (CP23).
+// srv.Connect(ctx, transport, nil) to serve over any other transport.
 func NewServer(eng *engine.Engine, fileCount int) *sdk.Server {
 	srv := sdk.NewServer(
 		&sdk.Implementation{

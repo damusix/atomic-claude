@@ -247,7 +247,7 @@ func TestRender_HeaderCounts(t *testing.T) {
 	}
 }
 
-// CP2: plan staleness exemption tests.
+// plan staleness exemption tests.
 
 func TestIsStale_PlanNeverStale(t *testing.T) {
 	// A plan entry with review_by far in the past must not be stale.

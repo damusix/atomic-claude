@@ -1,4 +1,4 @@
-// Package frameworks — Rust framework resolvers (CP15 batch D).
+// Package frameworks — Rust framework resolvers (batch D).
 //
 // This file implements three FrameworkResolver + FrameworkExtractor pairs for
 // the three major Rust web frameworks: actix-web, axum, and rocket.

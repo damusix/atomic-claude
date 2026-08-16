@@ -1,6 +1,6 @@
 package indexer_test
 
-// embedded_sql_integrity_test.go — CP4: zero-resolved-phantom-edge bar across
+// embedded_sql_integrity_test.go — zero-resolved-phantom-edge bar across
 // the multilang fixture corpus.
 //
 // Indexes the committed fixture corpus at
@@ -80,7 +80,7 @@ func copyFixturesToTempDir(t *testing.T, src string) string {
 	return dst
 }
 
-// TestEmbeddedSQLIntegrityMultilang is the CP4 zero-phantom-edge integrity bar
+// TestEmbeddedSQLIntegrityMultilang is the zero-phantom-edge integrity bar
 // across the committed multilang fixture corpus.
 //
 // The corpus spans Ruby (.rb), Java (.java), PHP (.php), Rust (.rs), Kotlin

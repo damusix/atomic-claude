@@ -804,7 +804,7 @@ func TestScan_MembersSectionDoesNotBreakNarrativePreservation(t *testing.T) {
 	}
 }
 
-// --- OKF §6 Members listing description tests (CP5) ---
+// --- OKF §6 Members listing description tests ---
 
 // TestDeriveMemberDescription_FrontmatterDescription asserts that a summary file
 // with a "description:" frontmatter key returns that value.
@@ -915,7 +915,7 @@ func TestDeriveMemberDescription_LengthBound(t *testing.T) {
 	}
 }
 
-// --- CP5 body-extraction filter tests ---
+// --- body-extraction filter tests ---
 
 // TestDeriveMemberDescription_NavLineSkipped asserts that a body whose first
 // non-heading line is a nav-bar pattern (Repo: [url] | Signal: [url]) is skipped
@@ -1285,7 +1285,7 @@ func TestScan_NewLayoutPreferredOverOld(t *testing.T) {
 	}
 }
 
-// --- ## Members legacy-marker migration (CP3) ---
+// --- ## Members legacy-marker migration ---
 
 // TestScan_MigratesLegacyMemberMarkers verifies that a wiki/index.md carrying
 // the legacy HTML-comment Members section is rewritten to the
@@ -1705,7 +1705,7 @@ func TestScan_MigratesLegacyMemberMarkers_StartOfFileNoLeadingArtifact(t *testin
 	}
 }
 
-// --- Scan wiring: bucket index rebuild (CP3) ---
+// --- Scan wiring: bucket index rebuild ---
 
 // TestScan_RebuildsBucketIndexesAndSurvivesBrokenBucket verifies that Scan
 // rebuilds both the realm <wiki-bucket-list> region and each registered

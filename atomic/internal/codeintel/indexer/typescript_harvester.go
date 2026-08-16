@@ -1,6 +1,6 @@
 package indexer
 
-// typescript_harvester.go — CP4: TypeScript/TSX string-literal harvester.
+// typescript_harvester.go — TypeScript/TSX string-literal harvester.
 //
 // harvestTypeScriptStringLiterals and harvestTSXStringLiterals implement
 // literalHarvester for .ts and .tsx files respectively. They adapt

@@ -42,7 +42,7 @@ package languages
 //
 // IsExported rule: Pascal has public/private/protected section keywords inside
 // class definitions (declSection with kPublic/kPrivate child), but these are
-// structural section markers rather than per-symbol modifiers. CP8 does not
+// structural section markers rather than per-symbol modifiers. does not
 // track class section context — all Pascal symbols are treated as exported.
 // Per-section access control would require parent-section accumulation (future work).
 
@@ -173,7 +173,7 @@ func pascalResolveKind(ctx context.Context, node sitter.Node, _ string) types.No
 // pascalIsExportedByName reports that all Pascal symbols are exported (public).
 //
 // Pascal's public/private/protected are class-section markers (not per-symbol
-// modifiers). Tracking section context is out of scope for CP8; all symbols
+// modifiers). Tracking section context is out of scope for; all symbols
 // are treated as public (exported).
 func pascalIsExportedByName(_ string) bool {
 	return true

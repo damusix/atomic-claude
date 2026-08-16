@@ -111,7 +111,7 @@ func TestFormatListHuman(t *testing.T) {
 	}
 }
 
-// CP2: plan entries must not appear in --stale output even when review_by is past.
+// plan entries must not appear in --stale output even when review_by is past.
 func TestListEntries_PlanNotInStale(t *testing.T) {
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "followups")

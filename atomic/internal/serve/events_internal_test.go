@@ -1,6 +1,6 @@
 package serve
 
-// events_internal_test.go — CP3 (live-reload): subscriberRegistry, changeEvent,
+// events_internal_test.go — live-reload: subscriberRegistry, changeEvent,
 // NewEventsHandler, and startTicker.
 //
 // Why internal: subscriberRegistry, changeEvent, and startTicker are

@@ -1,6 +1,6 @@
 package wiki
 
-// action_test.go — CP1 tests for the shared argument scanner hardening
+// action_test.go — tests for the shared argument scanner hardening
 // (resolveWikiRoot / parseBucketDocArgs) behind `atomic wiki bucket`, plus
 // wikiStampAction's flag/positional argument order handling.
 //
@@ -137,7 +137,7 @@ func TestParseBucketDocArgs_RouterAnyPosition(t *testing.T) {
 }
 
 // TestParseBucketDocArgs_RouterConsumedBeforeRootValue pins a deliberate
-// behavior delta flagged in CP1 review: parseBucketDocArgs strips every
+// behavior delta flagged in review: parseBucketDocArgs strips every
 // literal "--router" token before delegating to resolveWikiRoot, so
 // `--root --router` reaches resolveWikiRoot as bare "--root" and errors
 // "flag --root requires a value" rather than silently taking "--router" as

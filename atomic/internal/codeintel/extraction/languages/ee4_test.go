@@ -16,7 +16,7 @@ package languages_test
 // 10. Extends→implements promotion fires when a TS class "extends" an interface (resolution
 //     layer — tested via pipeline seeding, not extractor alone).
 //
-// WHY: EE4 is foundational — interface-impl + cpp-override synthesizers (CP16)
+// WHY: EE4 is foundational — interface-impl + cpp-override synthesizers
 // and the query layer's GetTypeHierarchy all depend on extends/implements edges
 // that were NEVER created before this checkpoint. Without EE4 the graph contains
 // zero inheritance information.
@@ -254,7 +254,7 @@ func TestEE4_TS_HeritageRefFromClassNode(t *testing.T) {
 
 // TestEE4_TS_InterfaceMethodNode proves that `interface I { m(): void }` produces
 // a method node for `m`.
-// WHY: interface-impl synthesis (CP16) needs to match concrete method Dog.speak()
+// WHY: interface-impl synthesis needs to match concrete method Dog.speak()
 // against interface method Speaker.speak() — if Speaker.speak() has no node, the
 // synthesizer has nothing to link against.
 func TestEE4_TS_InterfaceMethodNode(t *testing.T) {

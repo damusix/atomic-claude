@@ -1,9 +1,9 @@
 package indexer
 
-// embedded_literals_config.go — CP2: per-language node-kind configs for the
+// embedded_literals_config.go — per-language node-kind configs for the
 // generic embedded-literal harvester.
 //
-// embeddedLiteralConfigs encodes the 16 new host languages supported by CP2.
+// embeddedLiteralConfigs encodes the 16 additional host languages.
 // Each entry carries:
 //   - binding: the extraction.Lang constant for SetLanguage.
 //   - cfg:     the EmbeddedLiteralConfig (StringKinds/ContentKinds/InterpKinds)

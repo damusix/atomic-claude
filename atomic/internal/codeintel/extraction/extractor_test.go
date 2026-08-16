@@ -564,7 +564,7 @@ func TestExtractor_NodeIDFormat(t *testing.T) {
 // WHY: Go interfaces (type Namer interface{}) must be stored as NodeKindInterface,
 // not NodeKindStruct. Resolution's kind-promotion (calls→instantiates when target
 // is class/struct, extends→implements when target is interface) depends on the
-// correct kind. A misclassified interface silently breaks edge promotion at CP13.
+// correct kind. A misclassified interface silently breaks edge promotion at.
 // ---------------------------------------------------------------------------
 
 func TestExtractor_InterfaceExtracted(t *testing.T) {

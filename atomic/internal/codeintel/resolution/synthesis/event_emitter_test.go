@@ -1,7 +1,7 @@
 package synthesis_test
 
 // event_emitter_test.go — TDD tests for EventEmitterSynthesizer and
-// RNEventChannelSynthesizer (CP16 batch 3).
+// RNEventChannelSynthesizer (batch 3).
 //
 // Ground truth (probe 2026-06-05): .on('login', onLogin) and .emit('login', user)
 // produce UnresolvedReferences with ReferenceName="emitter.on" / "emitter.emit"

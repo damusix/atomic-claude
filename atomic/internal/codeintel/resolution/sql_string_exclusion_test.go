@@ -64,8 +64,8 @@ func TestSQLStringRef_ExcludedFromStandardResolution(t *testing.T) {
 	}
 	seedUnresolvedRef(t, d, sqlStringRef)
 
-	// A sql_fragment ref (C8) — CP5 excludes it from standard resolution and
-	// sweeps it via C5 cleanup, same as sql_string; CP6 wires actual matching.
+	// A sql_fragment ref (C8) — excludes it from standard resolution and
+	// sweeps it via C5 cleanup, same as sql_string; wires actual matching.
 	sqlFragmentRef := types.UnresolvedReference{
 		ID: "ref-sqlfragment-001", FromNodeID: callerID, ReferenceName: "no_such_column",
 		ReferenceKind: types.ReferenceKindSQLFragment, FilePath: "src/a.ts",

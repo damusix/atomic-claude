@@ -1,9 +1,9 @@
 package indexer_test
 
-// embedded_sql_lang_test.go — CP3 per-language end-to-end tests for the
+// embedded_sql_lang_test.go — per-language end-to-end tests for the
 // generic embedded-SQL harvester.
 //
-// Covers the 12 languages not smoke-tested in CP2 (Java/C#/Lua/Dart):
+// Covers the 12 languages without a smoke test (Java/C#/Lua/Dart):
 //
 //   C, C++, Kotlin, Luau, Objective-C, PHP, Ruby, Rust, Scala, Swift,
 //   Pascal, JavaScript.

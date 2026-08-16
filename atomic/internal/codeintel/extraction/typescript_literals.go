@@ -1,6 +1,6 @@
 package extraction
 
-// typescript_literals.go — CP4: tree-sitter-based TypeScript/TSX string literal harvester.
+// typescript_literals.go — tree-sitter-based TypeScript/TSX string literal harvester.
 //
 // HarvestTypeScriptLiterals parses a TypeScript or TSX source file and returns
 // all string literal spans with:

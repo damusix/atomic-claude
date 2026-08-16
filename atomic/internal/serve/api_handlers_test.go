@@ -1,6 +1,6 @@
 package serve_test
 
-// api_handlers_test.go — CP2: /api/page, /api/file, /api/rail, /api/nav JSON
+// api_handlers_test.go — /api/page, /api/file, /api/rail, /api/nav JSON
 // shape tests. TDD: written to assert the shapes pinned in the spec's
 // ## API contracts table before/alongside implementation.
 

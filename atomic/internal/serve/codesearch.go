@@ -1,4 +1,4 @@
-// codesearch.go — CP7: federated code search handler (/code/search).
+// codesearch.go — federated code search handler (/code/search).
 //
 // Route: GET /code/search?q=<query>[&only=k1,k2][&exclude=k3]
 //
@@ -13,7 +13,7 @@
 // "only" / "exclude" query params (comma-separated keys) filter the member set,
 // mirroring the atomic code --only/--exclude flag semantics.
 //
-// Each result links to /file/<FilePath>#L<StartLine> (the CP2 file view).
+// Each result links to /file/<FilePath>#L<StartLine> (the file view).
 //
 // Design seam: MemberSearchFn is the injectable seam for opening an engine,
 // querying SearchNodes, and closing it.  DefaultMemberSearchFn is the production

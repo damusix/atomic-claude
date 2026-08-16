@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Java, C, C++, C# language extractor configs (CP8 batch A).
+// Tests for Java, C, C++, C# language extractor configs (batch A).
 //
 // Each language has:
 //   1. A real fixture parsed through the pool (grammar ABI proof).
@@ -1118,7 +1118,7 @@ func TestCSharp_InterfaceMethod_ImplicitlyPublic(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestRegistry_For_CP8A_Languages verifies all 4 new languages are registered.
-// WHY: The registry is the single resolution point for CP10; missing entries
+// WHY: The registry is the single resolution point for; missing entries
 // cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8A_Languages(t *testing.T) {
 	t.Parallel()

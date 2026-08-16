@@ -1,6 +1,6 @@
 package realm_test
 
-// codeindex_block_test.go — CP4 Part A: tests for WriteCodeIndexBlock.
+// codeindex_block_test.go — Part A: tests for WriteCodeIndexBlock.
 //
 // Coverage (per brief):
 //   1. Block created when CLAUDE.md is absent (file created with block + stub).

@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Ruby, PHP, Lua, Luau language extractor configs (CP8 batch C).
+// Tests for Ruby, PHP, Lua, Luau language extractor configs (batch C).
 //
 // Each language has:
 //  1. A real fixture parsed through the pool (grammar ABI proof).
@@ -177,7 +177,7 @@ func TestRuby_ModuleExtracted(t *testing.T) {
 // EdgeKindCalls for require just like any other call. The resolution layer
 // is responsible for recognising require/require_relative callee names and
 // promoting those edges to imports. Testing EdgeKindImports here would
-// require modifying the extractor framework (out of scope for CP8 batch C).
+// require modifying the extractor framework (out of scope for batch C).
 func TestRuby_ImportsExtracted(t *testing.T) {
 	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageRuby)
@@ -955,7 +955,7 @@ func TestLuau_NodeCountStable(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestRegistry_For_CP8C_Languages verifies all 4 new languages are registered.
-// WHY: The registry is the single resolution point for CP10; missing entries
+// WHY: The registry is the single resolution point for; missing entries
 // cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8C_Languages(t *testing.T) {
 	t.Parallel()

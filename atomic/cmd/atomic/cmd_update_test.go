@@ -418,7 +418,7 @@ func TestDefaultUpdateSpawn_StartsDetachedWithoutWaiting(t *testing.T) {
 	}
 }
 
-// --- runUpdateCheck (CP4: detached-child check branch + once-only staging) ---
+// --- runUpdateCheck (detached-child check branch + once-only staging) ---
 
 // fakeReleaseServer wires a full fake GitHub release backend behind one
 // httptest server: /releases (hit by both Check and the staging Lookup),
@@ -829,12 +829,12 @@ func TestRunUpdateCheck_StagerCompletionDoesNotClobberForegroundTakeover(t *test
 	}
 }
 
-// --- runUpdateApply (CP5: lock + staged fast-path swap in the apply branch) ---
+// --- runUpdateApply (lock + staged fast-path swap in the apply branch) ---
 
 // buildRealArchiveTarGz builds a genuine gzip-compressed tar archive
 // containing one file, "atomic", with content, at dir/assetName — unlike
 // fakeReleaseServer's raw-bytes fixture (checksum-only; staging never
-// extracts what it downloads), CP5's swap flow actually extracts and
+// extracts what it downloads), swap flow actually extracts and
 // renames the binary, so its tests need a real, extractable archive.
 func buildRealArchiveTarGz(t *testing.T, dir, assetName, content string) (archivePath, sha string) {
 	t.Helper()
@@ -864,7 +864,7 @@ func buildRealArchiveTarGz(t *testing.T, dir, assetName, content string) (archiv
 }
 
 // fakeSwapServer serves a real, extractable release (archive + checksums.txt
-// + /releases lookup) for one tag — used by CP5 tests that exercise actual
+// + /releases lookup) for one tag — used by tests that exercise actual
 // extraction/swap, as opposed to fakeReleaseServer's checksum-only fixture.
 type fakeSwapServer struct {
 	srv         *httptest.Server
@@ -917,7 +917,7 @@ func TestRunUpdateApply_StagedFastPathSwapsWithoutDownloadingArchive(t *testing.
 	f := newFakeSwapServer(t, "v2.0.0", binaryContent)
 
 	// Place a byte-identical copy of the release archive in the staged
-	// directory — mirrors what a prior background Stage() call (CP4) would
+	// directory — mirrors what a prior background Stage() call would
 	// have left behind.
 	stageDir := selfupdate.StageDir(home)
 	if err := os.MkdirAll(stageDir, 0o755); err != nil {

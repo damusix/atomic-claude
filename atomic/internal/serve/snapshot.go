@@ -1,4 +1,4 @@
-// snapshot.go — CP1 (live-reload): the realm snapshot store.
+// snapshot.go — live-reload: the realm snapshot store.
 //
 // Today, three independent walks compute overlapping state: nav.go walks the
 // docs tree on every /nav request, serve.go builds the link graph once at
@@ -40,7 +40,7 @@ import (
 
 const (
 	// defaultTickInterval is the ticker cadence a store uses when a caller
-	// does not need a different cadence (production default; CP3 wires the
+	// does not need a different cadence (production default; wires the
 	// live ticker at this interval).
 	defaultTickInterval = 10 * time.Second
 
@@ -103,7 +103,7 @@ func newSnapshotStore(root string, tickInterval, quietWindow time.Duration) *sna
 }
 
 // NewSnapshotStore constructs the shared realm-snapshot store, at production
-// defaults, that backs the nav/page/rail/graph-data handlers (CP2).
+// defaults, that backs the nav/page/rail/graph-data handlers.
 // RunWithContext constructs exactly one and injects it into every handler
 // constructor so a single walk — and a single rebuild funnel — is shared
 // across all of them, instead of each handler tracking its own copy (SC1,
@@ -122,7 +122,7 @@ func NewSnapshotStore(root string) *snapshotStore {
 
 // graphProvider is the seam the page, rail, and graph-data handlers read the
 // current link graph through. *Graph satisfies it as a static, single-shot
-// value (pre-CP2 callers, tests that build one graph and never expect it to
+// value (previous callers, tests that build one graph and never expect it to
 // change); *snapshotStore satisfies it by calling ensureFresh on every read —
 // the same accessor the ticker and startup warm use (SC7) — so a file added,
 // edited, or deleted after construction is reflected on the next call without

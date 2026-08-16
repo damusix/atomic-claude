@@ -184,7 +184,7 @@ func TestIgnoreMatcher_NilSafe(t *testing.T) {
 
 // TestRepoConfigPath: joins projectRoot with the harness dir and the fixed
 // repo-relative suffix. Uses the test seam so it never touches the real home
-// (RepoConfigPath is harness-dir-aware as of CP2; see harness.go).
+// (RepoConfigPath is harness-dir-aware; see harness.go).
 func TestRepoConfigPath(t *testing.T) {
 	restore := SetHarnessDirForTest(".claude")
 	defer restore()
@@ -196,7 +196,7 @@ func TestRepoConfigPath(t *testing.T) {
 	}
 }
 
-// --- [repl] idle_timeout (CP4: atomic-repl) ---
+// --- [repl] idle_timeout (atomic-repl) ---
 
 // TestLoadRepoConfig_ReplIdleTimeout_Parse: a well-formed [repl] idle_timeout
 // loads correctly and produces no warnings.

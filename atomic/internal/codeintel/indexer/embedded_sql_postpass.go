@@ -1,13 +1,13 @@
 package indexer
 
-// embedded_sql_postpass.go — CP2: orchestrator post-pass for embedded SQL.
+// embedded_sql_postpass.go — orchestrator post-pass for embedded SQL.
 //
 // embeddedSQLPostPass is called after host tree-sitter extraction for files
 // whose language is in embeddedSQLHostExts. It:
 //
 //  1. Harvests string literal spans from the source using a language-specific
-//     harvester (Go: hand-written scanner; Python: tree-sitter via pool; CP4
-//     adds TypeScript; CP2 adds 16 more via the generic harvester).
+//     harvester (Go: hand-written scanner; Python: tree-sitter via pool;
+//     adds TypeScript; adds 16 more via the generic harvester).
 //  2. For each literal, calls IsSQLLiteral to gate out non-SQL strings cheaply.
 //  3. Finds the owner node: the narrowest host node whose StartLine..EndLine
 //     spans the literal's StartLine. Falls back to the file: node.
@@ -16,7 +16,7 @@ package indexer
 //
 // Language extensibility: embeddedSQLHostExts controls which extensions are
 // post-processed. Harvesters are dispatched by extension via the harvester
-// registry below. CP4 appended ".ts"/".tsx"; CP2 derives the remaining 16
+// registry below. appended ".ts"/".tsx"; derives the remaining 16
 // host languages from extToLanguage + embeddedLiteralConfigs (single source,
 // no second ext list — see docs/spec/embedded-sql-language-expansion.md).
 //
@@ -80,7 +80,7 @@ func goHarvesterAdapter(_ context.Context, src string, _ *extraction.Pool) ([]st
 // instance, calls HarvestEmbeddedLiterals, and converts each EmbeddedSpan to
 // standalone.StringLiteralSpan field-for-field.
 //
-// This is the CP2 adapter pattern; it mirrors python_harvester.go /
+// This is the adapter pattern; it mirrors python_harvester.go /
 // typescript_harvester.go but is shared across all 16 new languages via the
 // embeddedLiteralConfigs table instead of a bespoke file per language.
 func makeGenericHarvester(entry embeddedLangEntry) literalHarvester {
@@ -113,7 +113,7 @@ func makeGenericHarvester(entry embeddedLangEntry) literalHarvester {
 }
 
 // init derives embeddedSQLHostExts and harvesterRegistry entries for the 16
-// CP2 host languages by walking the intersection of extToLanguage and
+// host languages by walking the intersection of extToLanguage and
 // embeddedLiteralConfigs.
 //
 // Init ordering note: Go executes intra-package init() functions in

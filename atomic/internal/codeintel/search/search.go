@@ -1,5 +1,5 @@
 // Package search implements the 3-tier FTS→LIKE→fuzzy node search for the
-// code-intelligence engine (master CP18, appendix J).
+// code-intelligence engine (master, appendix J).
 //
 // # Entry point
 //

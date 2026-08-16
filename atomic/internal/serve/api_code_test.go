@@ -1,6 +1,6 @@
 package serve_test
 
-// api_code_test.go — CP4: /api/code/{node,callers,callees,impact,files,
+// api_code_test.go — /api/code/{node,callers,callees,impact,files,
 // schema,file} JSON shape tests. TDD: written to assert the shapes pinned in
 // the spec's ## API contracts table before/alongside implementation.
 //

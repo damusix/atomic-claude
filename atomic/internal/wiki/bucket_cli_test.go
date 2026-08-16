@@ -1,6 +1,6 @@
 package wiki
 
-// bucket_cli_test.go — CP2 tests for `atomic wiki bucket` CLI verbs.
+// bucket_cli_test.go — tests for `atomic wiki bucket` CLI verbs.
 //
 // Uses the internal (package wiki) test package to access wikiAction and
 // the unexported bucket helpers directly.

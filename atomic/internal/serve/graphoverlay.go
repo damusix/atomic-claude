@@ -1,4 +1,4 @@
-// graphoverlay.go — CP9/FE3: /graph/data JSON endpoint.
+// graphoverlay.go — /graph/data JSON endpoint.
 //
 // /graph/data emits the realm link graph as Cytoscape elements JSON:
 //
@@ -12,7 +12,7 @@
 // Three edge classes (SC11):
 //   - "md-link"     — standard markdown link [text](path)
 //   - "wikilink"    — Obsidian [[page]] link
-//   - "fingerprint" — provenance edges (CP10 fills; styled in layout.html atomicCyStyle())
+//   - "fingerprint" — provenance edges (fills; styled in layout.html atomicCyStyle())
 //
 // FE3: the standalone /graph page has been removed. The system-graph toggle in
 // layout.html replaces it — clicking [system] in the shell swaps #main-pane to
@@ -245,7 +245,7 @@ func buildLocalSubgraph(g *Graph, nodeID string, depth int) cytoElements {
 // It accepts an optional ?node=<relpath>&depth=<1|2> for local views.
 type GraphDataHandler struct {
 	root string
-	// store is the shared snapshot store (CP2 live-reload). When non-nil,
+	// store is the shared snapshot store (live-reload). When non-nil,
 	// both the full-view cache and the node-specific local-view branch below
 	// read the current graph through it, so a file added, edited, or removed
 	// after startup is reflected on the next request without a restart. nil
@@ -308,7 +308,7 @@ func (h *GraphDataHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		g = BuildLinkGraph(h.root)
 	}
 
-	// Build the provenance DAG and inject fingerprint-class edges (CP10).
+	// Build the provenance DAG and inject fingerprint-class edges.
 	// wikiDir = <root>/wiki — the conventional wiki directory.
 	wikiDir := filepath.Join(h.root, "wiki")
 	provDAG := BuildProvenanceDAG(h.root, wikiDir)

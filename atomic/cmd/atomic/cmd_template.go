@@ -37,9 +37,9 @@ func buildTemplateCmd() *cobra.Command {
 	return parent
 }
 
-// --- CP3: package-resident nested switches → Cobra subcommands ---------------
+// --- package-resident nested switches → Cobra subcommands ---------------
 //
-// Same CP2 pattern: parent has Args:cobra.ArbitraryArgs so unknown verbs and
+// Same pattern: parent has Args:cobra.ArbitraryArgs so unknown verbs and
 // the no-args case fall through to the existing handler; each child sets
 // DisableFlagParsing:true and prepends its name to reconstruct the arg shape
 // the existing package handler expects.

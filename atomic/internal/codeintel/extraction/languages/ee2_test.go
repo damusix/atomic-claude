@@ -162,7 +162,7 @@ func TestEE2_TypeScriptStringArgCaptured(t *testing.T) {
 }
 
 // TestEE2_NodeCountStable proves that the EE2 change does not alter node count
-// across two extractions of the same fixture (regression guard from CP6/CP10).
+// across two extractions of the same fixture (regression guard from/).
 // WHY: node-count stability is a core invariant — extra UnresolvedReference rows
 // must not be confused with node explosion.
 func TestEE2_NodeCountStable(t *testing.T) {

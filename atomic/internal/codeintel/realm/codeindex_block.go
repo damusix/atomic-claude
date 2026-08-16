@@ -1,6 +1,6 @@
 package realm
 
-// codeindex_block.go — CP4: idempotent <code-index> block writer for the realm CLAUDE.md.
+// codeindex_block.go — idempotent <code-index> block writer for the realm CLAUDE.md.
 //
 // The block lists the non-excluded, indexed members so that Claude sessions
 // opened inside any member repo pick up the realm's code-index awareness via

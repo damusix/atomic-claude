@@ -38,7 +38,7 @@ func TestTailLine_AddressedMessage_ShowsSenderArrowAddressee(t *testing.T) {
 
 // TestTailLine_UnaddressedMessage_ShowsRoomMarker proves an FYI message
 // (empty To) renders the literal "(room)" placeholder as its addressee —
-// docs/spec/atomic-bus.md CP5, verbatim: "with `(room)` as the addressee
+// docs/spec/atomic-bus.md, verbatim: "with `(room)` as the addressee
 // for an unaddressed FYI message."
 func TestTailLine_UnaddressedMessage_ShowsRoomMarker(t *testing.T) {
 	env := testEnvelope()
@@ -49,7 +49,7 @@ func TestTailLine_UnaddressedMessage_ShowsRoomMarker(t *testing.T) {
 	}
 }
 
-// TestTailLine_NoColour_NoANSIEscapes is the CP5 success criterion,
+// TestTailLine_NoColour_NoANSIEscapes is the success criterion,
 // asserted at the byte level: "piping tail to a non-tty emits no ANSI
 // escapes".
 func TestTailLine_NoColour_NoANSIEscapes(t *testing.T) {
@@ -181,7 +181,7 @@ func TestCollapse_ShortTextUnchanged(t *testing.T) {
 }
 
 // TestCollapse_LongTextTruncatesAndNamesLogPath_FullTextStillInRoomLog
-// proves both halves of the CP5 success criterion together: the rendered
+// proves both halves of the success criterion together: the rendered
 // text is cut, and the full original text is still recoverable from the
 // room log — collapse is a display decision, never a data-loss one.
 func TestCollapse_LongTextTruncatesAndNamesLogPath_FullTextStillInRoomLog(t *testing.T) {

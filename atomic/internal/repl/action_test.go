@@ -412,7 +412,7 @@ func TestEvalAction_DeadSessionExitsFive(t *testing.T) {
 	}
 }
 
-// TestDeadSessionRemedy_NamesReplStart locks the CP3-review finding: every
+// TestDeadSessionRemedy_NamesReplStart locks the review finding: every
 // verb that surfaces ExitDead (eval, status, reset, stop) must name `atomic
 // repl start` as the fix, not just report the session dead and leave the
 // next step implicit — see deadSessionError's doc.
@@ -847,7 +847,7 @@ func TestReplAction_RealmSessionVisibleFromMemberButSiblingSessionIsNot(t *testi
 	}
 }
 
-// --- resolveIdleTimeout (CP4: [repl] idle_timeout config) --------------
+// --- resolveIdleTimeout ([repl] idle_timeout config) --------------
 
 // writeRepoReplConfig writes content to <scopeRoot>/.claude/atomic.toml.
 func writeRepoReplConfig(t *testing.T, scopeRoot, content string) {

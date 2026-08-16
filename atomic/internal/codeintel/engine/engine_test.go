@@ -1,4 +1,4 @@
-// Package engine tests — CP20 engine facade.
+// Package engine tests — engine facade.
 //
 // Tests cover:
 //  1. Lifecycle: Init creates .claude/.atomic-index/atomic.db; IsInitialized
@@ -403,7 +403,7 @@ func TestWatchStubs(t *testing.T) {
 // NewWithDBPath places the SQLite file at the caller-supplied path, not at
 // the default <scanRoot>/.claude/.atomic-index/atomic.db location.
 //
-// This is CP1 of the realm federation: a caller that wants to store the index
+// This is of the realm federation: a caller that wants to store the index
 // outside the member repo (e.g. <realm>/.atomic/<key>.db) can supply an
 // explicit absolute path while still scanning the member source tree normally.
 func TestNewWithDBPath_ExplicitPathWritesCorrectLocation(t *testing.T) {

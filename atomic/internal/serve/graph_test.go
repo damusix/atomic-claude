@@ -452,7 +452,7 @@ func TestNodeMeta_SnippetSkipsDashLine(t *testing.T) {
 // TestNodeType_IndexAndDomain verifies that frontmatter `type: Index` maps to
 // the "index" FE class and `type: Domain` maps to "domain", while the pre-existing
 // OKF types (knowledge, concern, repo, bucket) are unaffected.
-// This is the CP5 success criterion for the wiki-storage-relocation spec.
+// This is the success criterion for the wiki-storage-relocation spec.
 func TestNodeType_IndexAndDomain(t *testing.T) {
 	root := t.TempDir()
 

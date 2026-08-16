@@ -43,7 +43,7 @@ func TestCheckRepoConfigAbsent(t *testing.T) {
 // TestCheckRepoConfigAbsent_UnderNonDefaultHarnessDir verifies the Detail
 // string's path derives from the harness-aware resolver — under a ".pi"
 // harness dir it must read ".pi/atomic.toml", never the default-harness
-// literal ".claude/atomic.toml" (CP2 review finding).
+// literal ".claude/atomic.toml".
 func TestCheckRepoConfigAbsent_UnderNonDefaultHarnessDir(t *testing.T) {
 	restore := config.SetHarnessDirForTest(".pi")
 	defer restore()

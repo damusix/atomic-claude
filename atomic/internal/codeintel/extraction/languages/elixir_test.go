@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for the Elixir language extractor config (CP2: engine wiring + extractor).
+// Tests for the Elixir language extractor config (engine wiring + extractor).
 //
 // Each test:
 //  1. Extracts a real fixture through the pool (proves grammar ABI + wiring ok).

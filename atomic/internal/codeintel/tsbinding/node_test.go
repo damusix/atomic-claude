@@ -15,7 +15,7 @@ import (
 // (punctuation, keywords, operators) the two counts differ. The iterator
 // (iter.go:48) calls NamedChildCount to drive named traversal — if it returns
 // the wrong (larger) count, NamedChild is called with out-of-range indices,
-// producing bogus nodes and breaking the CP0b extractor.
+// producing bogus nodes and breaking the extractor.
 //
 // The test parses a tiny Go source and finds the source_file node's first
 // named child (a package_clause). That node contains:

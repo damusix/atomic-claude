@@ -1,6 +1,6 @@
 package standalone
 
-// go_harvester.go — CP2: Go string-literal harvester.
+// go_harvester.go — Go string-literal harvester.
 //
 // HarvestGoStringLiterals scans a Go source string and returns all string
 // literal spans. It handles:
@@ -16,7 +16,7 @@ package standalone
 //  3. The result feeds IsSQLLiteral, so false negatives (skipped literals) are
 //     acceptable; false positives (non-literal content) would produce noise.
 //
-// WHY separate file: CP3/CP4 will add Python/TypeScript harvesters alongside
+// WHY separate file:/will add Python/TypeScript harvesters alongside
 // this one. Keeping each harvester in its own file keeps diffs surgical.
 //
 // Heuristic limits: the callee-capture parenStack is paren-only (braces are

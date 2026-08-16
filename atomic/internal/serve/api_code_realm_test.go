@@ -6,7 +6,7 @@ package serve_test
 // <member>/.claude/.atomic-index/atomic.db). serve must (1) find that member
 // in code search and (2) open the member's own db for the code modal's intel
 // pane, querying it with the MEMBER-relative path. Ported from the deleted
-// htmx-era code_realm_intel_test.go (CP12 cutover) — same scenarios, JSON
+// htmx-era code_realm_intel_test.go (cutover) — same scenarios, JSON
 // assertions instead of fragment-HTML ones.
 
 import (

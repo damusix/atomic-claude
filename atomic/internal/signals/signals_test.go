@@ -2452,11 +2452,11 @@ func TestScanWithOptions_DoesNotMutateOpts(t *testing.T) {
 	}
 }
 
-// ---- CP1 (wiki-storage-relocation): new path constants and no-frontmatter contract ----
+// ---- wiki-storage-relocation: new path constants and no-frontmatter contract ----
 
 // TestNewStoragePaths_PathConstants asserts that SignalsPath and PrevPath resolve
 // to the new docs/wiki/ and tmp/ layout rather than the old .claude/project/ paths.
-// WHY: CP1 relocates signalsFile → "docs/wiki/scan.md" and prevFile → "tmp/.scan.prev.md"
+// WHY: relocates signalsFile → "docs/wiki/scan.md" and prevFile → "tmp/.scan.prev.md"
 // so that the deterministic substrate lives alongside committed wiki output.
 func TestNewStoragePaths_PathConstants(t *testing.T) {
 	root := t.TempDir()

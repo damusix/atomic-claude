@@ -1,6 +1,6 @@
 package synthesis_test
 
-// callback_test.go — TDD tests for CallbackSynthesizer (CP16 batch 4).
+// callback_test.go — TDD tests for CallbackSynthesizer (batch 4).
 //
 // Ground truth (probe 2026-06-05): indexing a TypeScript class with
 // `this.onData = handleData` and `this.onData(chunk)` produces:

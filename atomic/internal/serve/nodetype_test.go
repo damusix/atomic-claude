@@ -1,8 +1,8 @@
 package serve_test
 
-// nodetype_test.go — CP2: hybrid node-type resolver tests.
+// nodetype_test.go — hybrid node-type resolver tests.
 //
-// Spec (docs/spec/okf-alignment.md CP2):
+// Spec (docs/spec/okf-alignment.md):
 //  1. Frontmatter `type` (title-case mapped to short class):
 //     `Knowledge` → "knowledge", `Concern` → "concern", `Repo Summary` → "repo",
 //     `Bucket` → "bucket". Mapping is case-insensitive ("KNOWLEDGE" → "knowledge").

@@ -1,4 +1,4 @@
-// events.go — CP3 (live-reload): the /events SSE endpoint and the
+// events.go — live-reload: the /events SSE endpoint and the
 // subscriber-gated server ticker.
 //
 // Today, a change on disk is only reflected the next time a handler happens

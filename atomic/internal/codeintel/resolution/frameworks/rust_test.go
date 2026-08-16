@@ -1,6 +1,6 @@
 package frameworks_test
 
-// Failing-first TDD tests for CP15 batch D (Rust): actix-web, axum, rocket.
+// Failing-first TDD tests for batch D (Rust): actix-web, axum, rocket.
 //
 // Per-framework coverage:
 //   - Detect: Cargo.toml fixture → true; absent/other dep → false.

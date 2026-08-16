@@ -1,6 +1,6 @@
 package indexer
 
-// sql_fragment_harvest.go — CP5: C8 fragment-tier harvest.
+// sql_fragment_harvest.go — C8 fragment-tier harvest.
 //
 // Covers builder-arg SQL fragments (ActiveRecord where("title LIKE ?"), GORM
 // Where("name = ?"), order("created_at DESC"), comma lists like
@@ -9,7 +9,7 @@ package indexer
 // embeddedSQLPostPass / emitSpeculativeSQLStringRef caller ordering).
 //
 // Resolution-side handling (pass A/B consuming sql_fragment refs, one-notch
-// confidence demotion) is CP6 — this file only harvests and tokenizes.
+// confidence demotion) is — this file only harvests and tokenizes.
 
 import (
 	"regexp"

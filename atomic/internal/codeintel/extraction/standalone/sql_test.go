@@ -1,6 +1,6 @@
 package standalone_test
 
-// Tests for the SQL standalone extractor (CP2–CP5).
+// Tests for the SQL standalone extractor (–).
 //
 // Why these tests: the extractor must produce correct node kinds, names, lines,
 // and contains edges across four SQL dialects (Postgres/ANSI, MySQL backticks,
@@ -8,7 +8,7 @@ package standalone_test
 // is load-bearing — the extractor strips -- and /* */ before matching so a
 // CREATE TABLE inside a comment never produces a node.
 //
-// CP5 tests: routine/view body edges (reads/writes/calls), CTE-shadow guard,
+// tests: routine/view body edges (reads/writes/calls), CTE-shadow guard,
 // LATERAL/UNNEST keyword filter (F-6), policy fn-call scope to USING (F-7).
 
 import (
@@ -719,7 +719,7 @@ func TestRegistryWireSQL(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CP3 — Constraint node extraction
+// Constraint node extraction
 // ---------------------------------------------------------------------------
 
 // hasConstraintNode returns the constraint node with the given exact name.
@@ -744,7 +744,7 @@ func constraintTypeOf(n *types.Node) string {
 }
 
 // hasReferencesEdge returns true if any edge has kind references — used to
-// assert CP3 does NOT emit references edges.
+// assert does NOT emit references edges.
 func hasReferencesEdge(edges []types.Edge) bool {
 	for _, e := range edges {
 		if e.Kind == types.EdgeKindReferences {
@@ -838,7 +838,7 @@ func TestPGNamedConstraints(t *testing.T) {
 		t.Errorf("items_pk_1 constraint_type = %q, want primary_key", ct)
 	}
 
-	// No references edges — CP3 must NOT emit them.
+	// No references edges — must NOT emit them.
 	if hasReferencesEdge(edges) {
 		t.Error("CP3 must NOT emit any references edges; found one")
 	}
@@ -897,7 +897,7 @@ func TestMySQLConstraints(t *testing.T) {
 	if ct := constraintTypeOf(fk); ct != "foreign_key" {
 		t.Errorf("fk_orders_customer constraint_type = %q, want foreign_key", ct)
 	}
-	// FK references target stashed in metadata (CP4 prep), but no references edge.
+	// FK references target stashed in metadata (prep), but no references edge.
 	if hasReferencesEdge(edges) {
 		t.Error("CP3 must NOT emit references edges")
 	}
@@ -1044,7 +1044,7 @@ func TestInlineColumnConstraintNoNode(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Existing CP2 still passes: constraint lines not double-counted as columns
+// Existing still passes: constraint lines not double-counted as columns
 // ---------------------------------------------------------------------------
 
 func TestCP2ColumnExtractionStillSkipsConstraintLines(t *testing.T) {
@@ -1057,12 +1057,12 @@ func TestCP2ColumnExtractionStillSkipsConstraintLines(t *testing.T) {
 	nodes := result.Nodes
 
 	// The CONSTRAINT uq_users_email line in the Postgres fixture must not appear
-	// as a column node — this was already tested in CP2 and must remain true.
+	// as a column node — this was already tested in and must remain true.
 	if findSQLNode(nodes, types.NodeKindColumn, "uq_users_email") != nil {
 		t.Error("CONSTRAINT line (uq_users_email) must not be emitted as a column node")
 	}
 
-	// But it SHOULD now be a constraint node (CP3).
+	// But it SHOULD now be a constraint node.
 	if hasConstraintNode(nodes, "uq_users_email") == nil {
 		t.Error("expected constraint node 'uq_users_email' from CP3 extraction")
 	}
@@ -1112,7 +1112,7 @@ func TestAlterAddNamedConstraintExactlyOneNode(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CP5 — Routine-body edges (reads / writes / calls)
+// Routine-body edges (reads / writes / calls)
 // ---------------------------------------------------------------------------
 
 // hasUnresolvedRef returns the first UnresolvedReference matching name + kind.
@@ -3618,7 +3618,7 @@ func TestTSQLApplyKeywordsNotEdges(t *testing.T) {
 // WHY (criterion 6): bodyApplyRE requires a sqlQNameRaw identifier immediately
 // after APPLY, followed by '('. A derived-table apply starts with '(' after
 // ---------------------------------------------------------------------------
-// CP1: T-SQL proc-scoped temp tables and table variables
+// T-SQL proc-scoped temp tables and table variables
 // ---------------------------------------------------------------------------
 
 // tsqlTempTableLocalFixture tests SC1 — a procedure declaring #tmp via CREATE
@@ -3626,7 +3626,7 @@ func TestTSQLApplyKeywordsNotEdges(t *testing.T) {
 // routine-scoped node; the node's Name contains the routine name (not just #tmp)
 // so global resolution maps 1:1 and two distinct procs' #tmp stay separated.
 // WHY: #tmp tokens have leading '#' which sqlQNameRaw cannot match today — zero
-// edges without CP1.  The synthetic name prevents cross-proc collisions.
+// edges without.  The synthetic name prevents cross-proc collisions.
 const tsqlTempTableLocalFixture = `
 CREATE TABLE dbo.source_data (id INT, val NVARCHAR(100));
 CREATE PROCEDURE dbo.usp_LoadTemp
@@ -4049,13 +4049,13 @@ func TestTSQLApplyDerivedTableNoCallEdge(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CP2: OUTPUT … INTO <target> lineage
+// OUTPUT … INTO <target> lineage
 // ---------------------------------------------------------------------------
 
 // cp2MergeOutputIntoRealTableFixture tests SC5 — MERGE … OUTPUT $action, inserted.id
 // INTO dbo.AuditLog emits a writes edge to AuditLog.
 // WHY: OUTPUT INTO is a T-SQL/SQL Server feature that routes the change-capture rows
-// into a second table; without CP2 that secondary write is invisible to the graph.
+// into a second table; without that secondary write is invisible to the graph.
 const cp2MergeOutputIntoRealTableFixture = `
 CREATE TABLE dbo.Tgt (id INT, val NVARCHAR(100));
 CREATE TABLE dbo.Src (id INT, val NVARCHAR(100));
@@ -4088,7 +4088,7 @@ func TestCP2MergeOutputIntoRealTable(t *testing.T) {
 	if !hasUnresolvedRef(refs, "Tgt", types.EdgeKindWrites) {
 		t.Error("expected writes edge to 'Tgt' from MERGE INTO")
 	}
-	// OUTPUT INTO target dbo.AuditLog → writes (CP2).
+	// OUTPUT INTO target dbo.AuditLog → writes.
 	if !hasUnresolvedRef(refs, "AuditLog", types.EdgeKindWrites) {
 		t.Errorf("expected writes edge to 'AuditLog' from OUTPUT INTO; refs: %v",
 			refNames(result.UnresolvedReferences))
@@ -4098,7 +4098,7 @@ func TestCP2MergeOutputIntoRealTable(t *testing.T) {
 // cp2InsertOutputIntoTvarFixture tests SC5 — INSERT INTO dbo.A … OUTPUT inserted.id
 // INTO @captured where @captured is declared as a table variable emits a writes edge
 // to the routine-scoped synthetic node for @captured (not to bare "@captured").
-// WHY: CP1 synthetic-name routing must also apply to OUTPUT INTO targets so that
+// WHY: synthetic-name routing must also apply to OUTPUT INTO targets so that
 // the captured-rows write resolves to the same node as other @tvar edges.
 const cp2InsertOutputIntoTvarFixture = `
 CREATE TABLE dbo.A (id INT, val NVARCHAR(100));
@@ -4117,7 +4117,7 @@ GO
 
 func TestCP2InsertOutputIntoTvar(t *testing.T) {
 	// WHY SC5: INSERT INTO dbo.A … OUTPUT inserted.id INTO @captured must emit a
-	// writes edge to the synthetic node for @captured (CP1 reuse), not to bare "@captured".
+	// writes edge to the synthetic node for @captured (reuse), not to bare "@captured".
 	ext := newSQL()
 	result, err := ext.Extract("/db/cp2_insert_output_tvar.sql", cp2InsertOutputIntoTvarFixture)
 	if err != nil {
@@ -4291,7 +4291,7 @@ GO
 `
 
 func TestCP3PivotSourceOnly(t *testing.T) {
-	// WHY CP3: PIVOT introduces no new object reference — the source is captured by the
+	// WHY PIVOT introduces no new object reference — the source is captured by the
 	// inner FROM. Confirms the source ref survives and no PIVOT internals leak as edges.
 	ext := newSQL()
 	result, err := ext.Extract("/db/cp3_pivot.sql", cp3PivotFixture)
@@ -4331,7 +4331,7 @@ GO
 `
 
 func TestCP3UnpivotSourceOnly(t *testing.T) {
-	// WHY CP3: UNPIVOT mirrors PIVOT — the FROM source is the only object edge.
+	// WHY UNPIVOT mirrors PIVOT — the FROM source is the only object edge.
 	ext := newSQL()
 	result, err := ext.Extract("/db/cp3_unpivot.sql", cp3UnpivotFixture)
 	if err != nil {
@@ -4354,7 +4354,7 @@ func TestCP3UnpivotSourceOnly(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// CP4: Column-level lineage — alias→table map + qualified column refs
+// Column-level lineage — alias→table map + qualified column refs
 // ---------------------------------------------------------------------------
 
 // cp4ViewAliasColFixture: CREATE VIEW with alias. SELECT a.id, a.name FROM dbo.acct a.
@@ -4368,7 +4368,7 @@ FROM dbo.acct a;
 `
 
 func TestCP4ColumnRef_ViewAlias(t *testing.T) {
-	// WHY CP4: qualified alias.col in a view body must emit a references edge whose
+	// WHY qualified alias.col in a view body must emit a references edge whose
 	// ReferenceName is "table-as-written.col" (e.g. "dbo.acct.id"), matching the
 	// column node's QualifiedName so it can resolve. This is the primary emission
 	// assertion for gap 4a.
@@ -4406,7 +4406,7 @@ JOIN dbo.person p ON a.id = p.acct_id;
 `
 
 func TestCP4ColumnRef_JoinAlias(t *testing.T) {
-	// WHY CP4: a JOIN alias must also build alias→table mapping. References to
+	// WHY a JOIN alias must also build alias→table mapping. References to
 	// p.name should resolve to dbo.person.name and a.id to dbo.acct.id.
 	// Note: ON-clause qualified column refs (a.id in ON a.id = p.acct_id) are
 	// intentionally in-scope per SC8 — they are real column references, not just
@@ -4436,7 +4436,7 @@ FROM dbo.acct;
 `
 
 func TestCP4ColumnRef_UnqualifiedSkipped(t *testing.T) {
-	// WHY CP4: unqualified column refs are ambiguous — any table could have an 'id'
+	// WHY unqualified column refs are ambiguous — any table could have an 'id'
 	// column. We must NOT emit edges for bare identifiers, only for alias.col forms.
 	ext := newSQL()
 	result, err := ext.Extract("/db/cp4_unqualified.sql", cp4UnqualifiedSkipFixture)
@@ -4466,7 +4466,7 @@ FROM acct;
 `
 
 func TestCP4ColumnRef_AliaslessTableSelf(t *testing.T) {
-	// WHY CP4: a table with no alias maps its bare name to itself — "acct.col" refs
+	// WHY a table with no alias maps its bare name to itself — "acct.col" refs
 	// must still produce column edges. This covers the "unaliased table" branch of
 	// the alias→table map build.
 	ext := newSQL()
@@ -4496,7 +4496,7 @@ FROM cte;
 `
 
 func TestCP4ColumnRef_CTEAliasSkipped(t *testing.T) {
-	// WHY CP4: CTE names shadow real tables — "cte.id" must not become a column edge
+	// WHY CTE names shadow real tables — "cte.id" must not become a column edge
 	// because "cte" is a computed relation, not a base table with known column nodes.
 	// The cteShadow set must gate alias→table mapping.
 	ext := newSQL()
@@ -4529,7 +4529,7 @@ GO
 `
 
 func TestCP4ColumnRef_ProcBody(t *testing.T) {
-	// WHY CP4: column refs must also work inside procedure bodies (scanBodyEdges path),
+	// WHY column refs must also work inside procedure bodies (scanBodyEdges path),
 	// not just view bodies. This exercises the routine alias→table map.
 	ext := newSQL()
 	result, err := ext.Extract("/db/cp4_proc.sql", cp4ProcAliasColFixture)
@@ -4562,7 +4562,7 @@ WHERE acct.id = 1;
 `
 
 func TestCP4ColumnRef_KeywordBoundaryNotAlias(t *testing.T) {
-	// WHY CP4 issue 2: bodyFromAliasRE can capture a trailing keyword as a spurious
+	// WHY issue 2: bodyFromAliasRE can capture a trailing keyword as a spurious
 	// alias ("FROM dbo.acct WHERE" → alias="WHERE"). The cp4AliasBoundaryKeywords
 	// guard must block it. Assert: no alias named "where" is created, and the
 	// unaliased table self-maps so "acct.id" column refs still resolve.
@@ -4589,7 +4589,7 @@ func TestCP4ColumnRef_KeywordBoundaryNotAlias(t *testing.T) {
 	}
 }
 
-// cp4RefNames returns unique ref names for CP4 error messages.
+// cp4RefNames returns unique ref names for error messages.
 func cp4RefNames(refs []types.UnresolvedReference) []string {
 	names := make([]string, 0, len(refs))
 	seen := map[string]bool{}
@@ -4712,7 +4712,7 @@ func TestFKColumnLevelReferences(t *testing.T) {
 		t.Errorf("expected references edge from composite_child.b's column node to 'composite_parent.y'; got: %v", cp4RefNames(refs))
 	}
 
-	// The existing table→table CP4 edge must be unchanged: child (table) -> parent.
+	// The existing table→table edge must be unchanged: child (table) -> parent.
 	childTable := findSQLNodeByQName(nodes, types.NodeKindTable, "child")
 	if childTable == nil {
 		t.Fatal("expected table node 'child'")

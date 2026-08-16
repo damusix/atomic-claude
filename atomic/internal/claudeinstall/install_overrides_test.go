@@ -1,6 +1,6 @@
 package claudeinstall_test
 
-// Tests for CP4: install-time agent model-tier frontmatter patching.
+// Tests for install-time agent model-tier frontmatter patching.
 // Each test is independent (uses t.TempDir) and suppresses TTY-gated seams.
 
 import (

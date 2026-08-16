@@ -1,13 +1,13 @@
 package standalone_test
 
-// Tests for the embedded SQL admission gate and entry point (CP1).
+// Tests for the embedded SQL admission gate and entry point.
 //
 // WHY these tests exist: the gate must admit real DDL/DML and reject prose,
 // comments, and interpolated-table-target literals (post-substitution).
 // The entry point must emit nodes with Provenance:"embedded" on all edges
 // and produce file-absolute line numbers via newline padding.
 //
-// Substitution contract for harvesters (CP3/CP4): a harvester feeding this
+// Substitution contract for harvesters: a harvester feeding this
 // entry point is responsible for replacing language-specific interpolation
 // segments with placeholder tokens before calling ExtractEmbeddedSQL.
 // Specifically:
@@ -136,7 +136,7 @@ func TestIsSQLLiteral_CanonicalCorpus(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// UPDATE verb false-positive gate tests (CP2 DML gate tightening)
+// UPDATE verb false-positive gate tests (DML gate tightening)
 // ---------------------------------------------------------------------------
 
 // TestIsSQLLiteral_UpdateSETGate verifies that UPDATE-verb strings only admit
@@ -377,7 +377,7 @@ func TestExtractEmbeddedSQL_MultiLineDDLOffset(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Node-ID collision test (CP1)
+// Node-ID collision test
 // ---------------------------------------------------------------------------
 
 func TestExtractEmbeddedSQL_DDLNodeIDCollision(t *testing.T) {

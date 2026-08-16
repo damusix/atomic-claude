@@ -1,13 +1,13 @@
 package standalone
 
-// embedded_sql.go — CP1: SQL-side embedded entry point.
+// embedded_sql.go — SQL-side embedded entry point.
 //
 // IsSQLLiteral is the admission gate: decides whether a host-language string
 // literal contains SQL worth extracting. Two implementers reading the gate
 // contract table must build equivalent gates; this implementation is the
 // canonical one.
 //
-// ExtractEmbeddedSQL is the entry point for CP2-CP4 host-language harvesters.
+// ExtractEmbeddedSQL is the entry point for-host-language harvesters.
 // Given a harvested literal span, it returns an ExtractionResult with:
 //   - DDL literals: full node+edge set from SQLExtractor.Extract (tables,
 //     columns, constraints, FK refs), with Provenance:"embedded" stamped on
@@ -133,7 +133,7 @@ func IsSQLLiteral(literal string) bool {
 // UPDATE … SET, DELETE FROM, MERGE INTO, and EXEC/CALL targets.
 //
 // fromNodeID is the owning node (typically the enclosing host function or file
-// node, passed in from the orchestrator in CP2).
+// node, passed in from the orchestrator in).
 //
 // This is intentionally thin: no provenance stamping (UnresolvedReferences
 // carry no Provenance field), no line-offset (the caller is responsible for
@@ -155,7 +155,7 @@ func ScanBodyEdges(filePath, fromNodeID, body string) []types.UnresolvedReferenc
 // ---------------------------------------------------------------------------
 
 // ExtractEmbeddedSQL turns a harvested string-literal span into an
-// ExtractionResult. It is the CP1 seam consumed by host-language harvesters
+// ExtractionResult. It is the seam consumed by host-language harvesters
 // (Go, Python, TypeScript) in later checkpoints.
 //
 // Parameters:
@@ -173,7 +173,7 @@ func ScanBodyEdges(filePath, fromNodeID, body string) []types.UnresolvedReferenc
 // This is a new value, distinct from "" (static) and "heuristic" — do not
 // touch existing heuristic-provenance dedup checks elsewhere.
 //
-// Node-ID correctness (CP1): rather than post-hoc offsetting line numbers after
+// Node-ID correctness: rather than post-hoc offsetting line numbers after
 // extraction, we prepend (baseLine-1) newline characters to the literal before
 // passing it to Extract / scanBodyEdges. This makes the SQL extractor compute
 // file-absolute line numbers from the start, so every GenerateNodeID call

@@ -1,6 +1,6 @@
 package resolution
 
-// pipeline.go — CP13 resolver pipeline.
+// pipeline.go — resolver pipeline.
 //
 // Implements resolveOne (appendix-F sub-order) and resolveAndPersistBatched
 // (re-read-at-offset-0 batch loop) for the code-intelligence engine.
@@ -14,9 +14,9 @@ package resolution
 //     claimsReference. If none match, skip without attempting resolution.
 //  3. JVM FQN fast path: fully-qualified name containing "." → conf 0.95, return.
 //  4. Framework resolve (FrameworkResolver seam): returns if conf ≥ 0.9 else
-//     accumulates. The registry is EMPTY until CP14/CP15 fill it.
-//  5. resolveViaImport (CP11): returns if conf ≥ 0.9 else accumulates.
-//  6. matchReference (CP12): accumulates.
+//     accumulates. The registry is EMPTY until/fill it.
+//  5. resolveViaImport: returns if conf ≥ 0.9 else accumulates.
+//  6. matchReference: accumulates.
 //  7. Return highest-confidence candidate.
 //
 // # resolveAndPersistBatched loop
@@ -34,10 +34,10 @@ package resolution
 //
 // # Framework + synthesis seams
 //
-// FrameworkResolver (CP14/CP15) and CallbackSynthesizer (CP16) are proper Go
-// interfaces. EmptyFrameworkRegistry and NoopSynthesizer are the CP13 stubs.
+// FrameworkResolver and CallbackSynthesizer are proper Go
+// interfaces. EmptyFrameworkRegistry and NoopSynthesizer are the stubs.
 // The Pipeline struct holds a FrameworkRegistry and a CallbackSynthesizer; all
-// call sites exist so CP14/15/16 can fill them without touching the pipeline
+// call sites exist so/15/16 can fill them without touching the pipeline
 // logic.
 //
 // # Fuzzy cap
@@ -117,7 +117,7 @@ type PhaseEmitFunc func(phase string, d time.Duration, count int)
 const fuzzyNameLenCap = 40
 
 // ---------------------------------------------------------------------------
-// Framework resolver seam (CP14/CP15)
+// Framework resolver seam
 // ---------------------------------------------------------------------------
 
 // ResolvedRef is the result of one framework or import resolution attempt.
@@ -128,7 +128,7 @@ type ResolvedRef struct {
 	Confidence float64
 }
 
-// FrameworkResolver is the seam that CP14/CP15 implement. The registry is
+// FrameworkResolver is the seam that/implement. The registry is
 // empty until those checkpoints run; all calls return nothing for now.
 //
 // Detect, ClaimsReference, and Resolve are the three mandatory methods used
@@ -205,23 +205,23 @@ func (fr FrameworkRegistry) claimsAny(name string) bool {
 	return false
 }
 
-// EmptyFrameworkRegistry is the CP13 stub — no framework resolvers registered.
-// CP14 and CP15 populate the registry.
+// EmptyFrameworkRegistry is the stub — no framework resolvers registered.
+// and populate the registry.
 var EmptyFrameworkRegistry FrameworkRegistry
 
 // ---------------------------------------------------------------------------
-// Callback synthesizer seam (CP16)
+// Callback synthesizer seam
 // ---------------------------------------------------------------------------
 
 // CallbackSynthesizer synthesizes dynamic-dispatch edges after all static
-// edges are persisted (appendix G). The no-op stub is used until CP16.
+// edges are persisted (appendix G). The no-op stub is used until.
 type CallbackSynthesizer interface {
 	// SynthesizeCallbackEdges creates and persists synthesized edges. It is
 	// called LAST, after the resolveAndPersistBatched loop completes.
 	SynthesizeCallbackEdges(ctx context.Context) error
 }
 
-// NoopSynthesizer is the CP13 stub — does nothing. CP16 replaces it.
+// NoopSynthesizer is the stub — does nothing. replaces it.
 type NoopSynthesizer struct{}
 
 func (NoopSynthesizer) SynthesizeCallbackEdges(_ context.Context) error { return nil }
@@ -409,8 +409,8 @@ type knownNamesCache map[string]bool
 // Pipeline
 // ---------------------------------------------------------------------------
 
-// Pipeline wires the CP11 import resolver, the CP12 name matcher, the
-// framework registry seam (CP14/15), and the synthesis seam (CP16) into the
+// Pipeline wires the import resolver, the name matcher, the
+// framework registry seam (/15), and the synthesis seam into the
 // ordered batch resolution loop described in appendix F.
 type Pipeline struct {
 	db         *db.DB
@@ -422,7 +422,7 @@ type Pipeline struct {
 
 // NewPipeline constructs a Pipeline with the default (empty) framework registry
 // and the no-op synthesizer seam. Use NewPipelineWithSeams to inject
-// framework resolvers (CP14/15) or a real synthesizer (CP16).
+// framework resolvers (/15) or a real synthesizer.
 func NewPipeline(d *db.DB) *Pipeline {
 	return &Pipeline{
 		db:         d,
@@ -434,7 +434,7 @@ func NewPipeline(d *db.DB) *Pipeline {
 }
 
 // NewPipelineWithSeams constructs a Pipeline with caller-supplied framework
-// registry and synthesizer. Called by CP14/15 (framework resolvers) and CP16
+// registry and synthesizer. Called by/15 (framework resolvers) and
 // (synthesizer) once those checkpoints land.
 func NewPipelineWithSeams(d *db.DB, projectRoot string, registry FrameworkRegistry, synth CallbackSynthesizer) *Pipeline {
 	return &Pipeline{
@@ -542,7 +542,7 @@ func (p *Pipeline) resolveOne(
 	//   - frameworkClaims: a framework resolver knows this name even if the cache doesn't.
 	importKind := ref.ReferenceKind == types.EdgeKindImports
 	nameMatch := hasAnyPossibleMatch(ref.ReferenceName, names)
-	// CP4: SQL qualified column refs are emitted as the full "schema.table.col"
+	// SQL qualified column refs are emitted as the full "schema.table.col"
 	// path so they resolve to the specific column node, but the known-names cache
 	// holds only bare node names ("col"). Without checking the simple name, these
 	// refs fail the pre-filter and never reach byQualifiedName. Scoped to SQL so
@@ -600,7 +600,7 @@ func (p *Pipeline) resolveOne(
 		}
 	}
 
-	// Step 5 — resolveViaImport (CP11).
+	// Step 5 — resolveViaImport.
 	if ref.ReferenceKind == types.EdgeKindImports {
 		ri, riErr := p.resolver.ResolveImport(ctx, ref, ref.FilePath)
 		if riErr != nil {
@@ -633,7 +633,7 @@ func (p *Pipeline) resolveOne(
 		}
 	}
 
-	// Step 6 — matchReference (CP12). Import-kind refs are excluded: import
+	// Step 6 — matchReference. Import-kind refs are excluded: import
 	// nodes are named the raw specifier string, and an unresolved import ref's
 	// ReferenceName is that same specifier, so generic exact-name matching
 	// would resolve the ref straight back to the import node that owns it — a
@@ -799,7 +799,7 @@ func createEdges(ref types.UnresolvedReference, targetNodeID string, edgeKind ty
 	// SQLExtractor.Extract path; those edges carry empty provenance (static).
 	//
 	// WHY: DDL contains edges are already stamped Provenance:"embedded" at
-	// creation time by ExtractEmbeddedSQL (CP1). DML refs produce edges here
+	// creation time by ExtractEmbeddedSQL. DML refs produce edges here
 	// via the resolution pipeline; those edges must also carry Provenance.
 	// We do NOT touch the existing "heuristic" provenance dedup paths.
 	provenance := ""
@@ -831,7 +831,7 @@ func isStandaloneSQLExt(filePath string) bool {
 }
 
 // ---------------------------------------------------------------------------
-// Package-node mint + sweep (docs/spec/code-intel-package-nodes.md, CP2)
+// Package-node mint + sweep (docs/spec/code-intel-package-nodes.md,)
 // ---------------------------------------------------------------------------
 
 // packageNodeIDPrefix mirrors extraction.GenerateNodeID's package-kind
@@ -908,16 +908,16 @@ func (p *Pipeline) sweepOrphanPackages(ctx context.Context) error {
 // ResolveAndPersistBatched runs the resolution batch loop as described in
 // appendix F:
 //
-//  1. warmCaches (knownFiles, knownNames) + warmKnownPackages (CP2).
+//  1. warmCaches (knownFiles, knownNames) + warmKnownPackages.
 //  2. Read unresolved_refs at offset 0 (NOT advancing — delete shrinks the set).
 //  3. Per ref: resolveOne → createEdges.
-//  4. Mint any genuinely-new package-node targets (CP2), then insertEdges —
+//  4. Mint any genuinely-new package-node targets, then insertEdges —
 //     nodes before edges, FK order — in a transaction.
 //  5. deleteSpecificResolvedReferences (bulk delete resolved + skipped refs).
 //  6. Break when a batch yields nothing new (avoids infinite loop on
 //     unresolvable refs).
-//  7. Call synthesizeCallbackEdges (CP16 seam — no-op until then), then
-//     sweepOrphanPackages (CP2) LAST.
+//  7. Call synthesizeCallbackEdges (seam — no-op until then), then
+//     sweepOrphanPackages LAST.
 //
 // Returns a ResolveProfile (per-phase wall-time + counts), the total number of
 // edges inserted, and any error.
@@ -956,7 +956,7 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 		emit("resolve.warm", prof.WarmDur, prof.NodeCount)
 	}
 
-	// Warm the known-package set once per run (CP2) — mutated in place below
+	// Warm the known-package set once per run — mutated in place below
 	// as new packages are minted, so a package discovered in batch N is not
 	// re-minted when batch N+1 references it again.
 	knownPackages, err := p.warmKnownPackages(ctx)
@@ -1007,7 +1007,7 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 				// are discriminators, never fed to resolveOne/promoteEdgeKind.
 				// Left untouched here (not deleted, not resolved) — passes A/B
 				// consume them in a separate batch step and either edge them
-				// or delete them (C5). CP6 wires sql_fragment matching itself;
+				// or delete them (C5). wires sql_fragment matching itself;
 				// for now it is only excluded here and swept by C5 cleanup.
 				continue
 			}
@@ -1043,7 +1043,7 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 			continue
 		}
 
-		// Package-node mint (CP2): any edge in this batch that targets a
+		// Package-node mint: any edge in this batch that targets a
 		// package node not yet known (neither warmed from the DB nor minted
 		// by an earlier batch in this same run) needs that node upserted
 		// before its edge — FK order — inside the same transaction. Dedup
@@ -1095,7 +1095,7 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 	}
 
 	// Phase 3: SynthesizeCallbackEdges (resolve.synth).
-	// This is a no-op in CP13; CP16 fills the synthesizer.
+	// This is a no-op in; fills the synthesizer.
 	synthStart := time.Now()
 	if err := p.synth.SynthesizeCallbackEdges(ctx); err != nil {
 		prof.SynthDur = time.Since(synthStart)
@@ -1116,7 +1116,7 @@ func (p *Pipeline) ResolveAndPersistBatched(ctx context.Context, batchSize int, 
 	}
 	totalEdges += sqlStringEdges
 
-	// Phase 5: sweep orphaned package nodes (CP2). Runs unconditionally,
+	// Phase 5: sweep orphaned package nodes. Runs unconditionally,
 	// even when this invocation minted or resolved nothing — a package's
 	// last importer may have been removed since a prior run minted it.
 	if err := p.sweepOrphanPackages(ctx); err != nil {

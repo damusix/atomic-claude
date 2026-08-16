@@ -9,12 +9,12 @@
 // blobs at the types layer; their internal schemas belong to the extraction and
 // resolution layers, not to the shared contract. json.RawMessage roundtrips
 // without mutation, represents SQL NULL as nil, and defers schema decisions to
-// the db layer (CP3/CP4) without forcing typed structs into the shared contract
+// the db layer without forcing typed structs into the shared contract
 // prematurely. If a layer needs to inspect a specific field it unmarshals into
 // a local type; the contract layer stays schema-agnostic.
 //
 // Integer-bool flags (is_exported, is_async, is_static, is_const): struct
-// fields use Go bool. The db layer (CP3) is responsible for scanning SQLite
+// fields use Go bool. The db layer is responsible for scanning SQLite
 // INTEGER columns (0/1) into bool — modernc.org/sqlite does not auto-convert,
 // so the db layer must do: var n int; rows.Scan(&n); node.IsExported = n != 0.
 // No db code lives in this package.

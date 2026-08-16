@@ -1,6 +1,6 @@
 package cli
 
-// realm.go — CP3: realm fan-out orchestrator for `atomic code` verbs.
+// realm.go — realm fan-out orchestrator for `atomic code` verbs.
 //
 // RunCodeWithRealm is the new entry point called by main.go:runCode.  It
 // resolves the scope via realm.Resolve BEFORE calling repoctx.Resolve (which
@@ -67,7 +67,7 @@ func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, s
 		// so a subdir invocation targets the whole repo.
 		//
 		// When main.go passes os.Getwd() as projectRoot (no --repo), repoctx.Resolve("")
-		// runs `git rev-parse` against the cwd — the same as before CP3 (SC 2).
+		// runs `git rev-parse` against the cwd — the same as before (SC 2).
 		// When --repo was given (projectRoot is an explicit path), try that path first
 		// so the command works even when the cwd is a non-git directory (e.g. a realm root).
 		root, err := repoctx.Resolve(projectRoot)
@@ -79,7 +79,7 @@ func RunCodeWithRealm(args []string, projectRoot, claudeMDPath string, stdout, s
 		}
 		if err != nil {
 			// Not inside a git repo (and not a realm) — surface the same error the
-			// user would have seen before CP3.
+			// user would have seen before.
 			fmt.Fprintf(stderr, "atomic code: %v\n", err)
 			return 1
 		}

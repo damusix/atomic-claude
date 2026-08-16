@@ -61,7 +61,7 @@ func main() {
 
 	// Derive the cliusage surface from the live Cobra tree so Commands(),
 	// LookupByPath(), and TopLevelVerbs() all reflect the real flag metadata
-	// rather than the static hardcoded table (CP4).
+	// rather than the static hardcoded table.
 	cliusage.SetRoot(rootCmd)
 
 	// Migrate legacy per-user state (~/.claude/.atomic -> ~/.atomic, issue #150)
@@ -214,15 +214,15 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.
 	return rootCmd
 }
 
-// --- CP2: parent commands with Cobra subcommands ---------------------------
+// --- parent commands with Cobra subcommands ---------------------------
 //
 // Each builder creates a parent *cobra.Command whose children correspond to the
 // nested verb switch in the handler. The parent uses Args:cobra.ArbitraryArgs
 // so unknown verbs (and the empty-args case) fall through to the existing
 // handler, preserving exit codes and error messages. Each child sets
 // DisableFlagParsing:true and prepends its name so the existing handler
-// receives [verb, ...rest], identical to the pre-CP2 call shape.
-// Flags registered via cmd.Flags() are for CP4 derivation only — not parsed
+// receives [verb, ...rest], identical to the previous call shape.
+// Flags registered via cmd.Flags() are for derivation only — not parsed
 // by Cobra at runtime; the handler's own flag.NewFlagSet parses them.
 
 // init wires config.ApplyAgentsHook to claudeinstall.ReapplyAgents. internal/config

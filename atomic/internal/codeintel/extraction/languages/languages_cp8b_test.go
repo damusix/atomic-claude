@@ -1,6 +1,6 @@
 package languages_test
 
-// Tests for Swift, Kotlin, Scala language extractor configs (CP8 batch B).
+// Tests for Swift, Kotlin, Scala language extractor configs (batch B).
 //
 // Each language has:
 //  1. A real fixture parsed through the pool (grammar ABI proof).
@@ -774,7 +774,7 @@ func TestScala_NodeCountStable(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestRegistry_For_CP8B_Languages verifies all 3 new languages are registered.
-// WHY: The registry is the single resolution point for CP10; missing entries
+// WHY: The registry is the single resolution point for; missing entries
 // cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8B_Languages(t *testing.T) {
 	t.Parallel()

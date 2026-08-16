@@ -1,5 +1,5 @@
 // Package graph implements the traversal engine and query manager over the
-// resolved code-intelligence graph (master CP17).
+// resolved code-intelligence graph (master).
 //
 // The package builds on the db query layer:
 //   - db.GetEdgesBySource / db.GetEdgesByTarget for edge lookup
@@ -96,7 +96,7 @@ var deadCodeKinds = map[types.NodeKind]bool{
 }
 
 // Manager holds the db handle and exposes the graph query operations.
-// It is the primary entry point for CP19 (context builder) and the CP20+
+// It is the primary entry point for (context builder) and the+
 // engine facade.
 type Manager struct {
 	db *db.DB

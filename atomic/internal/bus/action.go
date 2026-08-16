@@ -1548,7 +1548,7 @@ func sayAction(args []string, home string, out io.Writer) int {
 // --- tail ---
 
 // isTerminalWriter reports whether out is a live terminal — TailLine's
-// colour switch (docs/spec/atomic-bus.md CP5: "detect no-tty and drop
+// colour switch (docs/spec/atomic-bus.md "detect no-tty and drop
 // colour"). Anything that isn't a *os.File (a bytes.Buffer in tests, or a
 // pipe wrapped by something other than os.File) is treated as non-tty,
 // which is also the correct answer for a redirected or piped os.Stdout.
@@ -1577,7 +1577,7 @@ func terminalWidth(out io.Writer) int {
 // resolveTailRooms decides which rooms tail subscribes to, and whether
 // each rendered line needs a room prefix. An explicit room subscribes to
 // exactly that room, unprefixed. Otherwise every room the daemon currently
-// knows about is queried via `rooms`: docs/spec/atomic-bus.md CP5, quoted
+// knows about is queried via `rooms`: docs/spec/atomic-bus.md, quoted
 // verbatim, "[--all-rooms] ... is the default when no room argument is
 // given and exactly one room exists" — so a bare `tail` with exactly one
 // known room, or --all-rooms given explicitly, subscribes to every room

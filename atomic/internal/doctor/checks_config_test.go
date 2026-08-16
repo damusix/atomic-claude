@@ -170,7 +170,7 @@ rules = []
 	}
 }
 
-// --- [claude.agents] doctor tests (CP2) ---
+// --- [claude.agents] doctor tests ---
 
 // TestCheckConfig_agents_invalidEffort: [claude.agents.<name>] with an invalid
 // effort value → FAIL. effort is validated against a strict enum; model is
@@ -243,7 +243,7 @@ model = "opus"
 	}
 }
 
-// --- [repl] idle_timeout (CP4: atomic-repl) ---
+// --- [repl] idle_timeout (atomic-repl) ---
 
 // TestCheckConfig_invalidIdleTimeout: an unparseable repl.idle_timeout → FAIL
 // naming the offending value.
@@ -290,7 +290,7 @@ func TestCheckConfig_validIdleTimeout(t *testing.T) {
 	}
 }
 
-// --- Chronic background-update-check failure (CP7: selfupdate-state) ---
+// --- Chronic background-update-check failure (selfupdate-state) ---
 
 // writeUpdateState writes a selfupdate.State to <root>/.atomic/state.json.
 func writeUpdateState(t *testing.T, root string, s selfupdate.State) {

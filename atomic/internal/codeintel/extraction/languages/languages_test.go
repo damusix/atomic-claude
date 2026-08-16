@@ -78,7 +78,7 @@ func nodeKindList(nodes []types.Node) string {
 
 // TestRegistry_For_KnownLanguages verifies that For() resolves all 5 registered
 // languages to non-zero configs.
-// WHY: The registry is the single resolution point for CP10; if any language is
+// WHY: The registry is the single resolution point for; if any language is
 // missing, the orchestrator will silently skip files of that language.
 func TestRegistry_For_KnownLanguages(t *testing.T) {
 	t.Parallel()

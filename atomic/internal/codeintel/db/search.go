@@ -5,7 +5,7 @@ package db
 // SearchNodes executes a BM25-ranked FTS5 query over nodes_fts joined to nodes.
 // It does NOT implement the full search query parser (kind:/lang:/path:/name:
 // field prefixes, 3-tier FTS→LIKE→fuzzy fallback, or scoring helpers like
-// kindBonus) — those belong to CP18. This is the db-level FTS execution only.
+// kindBonus) — those belong to. This is the db-level FTS execution only.
 //
 // # BM25 weights (appendix J, verbatim)
 //
@@ -49,7 +49,7 @@ import (
 // SQLite MATCH.
 //
 // limit controls the maximum number of results. 0 means no limit (all matches
-// are returned). The caller's layer (CP18) is responsible for applying a
+// are returned). The caller's layer is responsible for applying a
 // default limit via SearchOptions.
 //
 // Returns []types.SearchResult ordered by bm25 score ascending (best first),

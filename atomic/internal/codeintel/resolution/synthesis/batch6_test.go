@@ -1,8 +1,8 @@
 package synthesis_test
 
-// batch6_test.go — CP16 batch-6 synthesizer tests:
+// batch6_test.go — batch-6 synthesizer tests:
 //
-//   - gin-middleware-chain (real — EE5 .Use args + route nodes from CP15)
+//   - gin-middleware-chain (real — EE5 .Use args + route nodes from)
 //   - go-grpc-stub-impl   (documented stub — missing Go interface method signal)
 //   - mybatis-java-xml    (real — XML function QualifiedName ↔ Java method name)
 //   - fabric-native-impl  (documented stub — no cross-language component correlation)

@@ -321,7 +321,7 @@ func TestFormatJSON_CarriesSameInformationAsHuman(t *testing.T) {
 	}
 }
 
-// --- RepoRoot axis (CP4) ---
+// --- RepoRoot axis ---
 
 // TestResolveRepoRoot_MarkerWinsOverGit: a scope="repo" marker nested inside
 // a git repository outranks the .git stat walk — the marker directory is
@@ -427,7 +427,7 @@ func TestResolveRepoRoot_GitFileMarker_WorktreeStyle(t *testing.T) {
 	}
 }
 
-// --- RealmScope: marker-first (CP4) ---
+// --- RealmScope: marker-first ---
 
 // TestResolveRealmScope_MarkerRoot_NoWikisEntry: a scope="realm" marker
 // resolves realm root even with no <wikis> registration at all — the core
@@ -629,7 +629,7 @@ func TestRealmPositionClassification_MarkerAndRegistry_Agree(t *testing.T) {
 	}
 }
 
-// --- Format: repo root + provenance (CP4) ---
+// --- Format: repo root + provenance ---
 
 // TestFormatHuman_RepoRootLine locks the exact human-output shape from the
 // spec: "repo root:        <path> — <source>".

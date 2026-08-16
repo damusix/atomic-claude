@@ -1,6 +1,6 @@
 package serve
 
-// provenance.go — CP10: provenance DAG walk for SC12.
+// provenance.go — provenance DAG walk for SC12.
 //
 // ReadProvenance reads the YAML frontmatter of a single markdown file and
 // returns:
