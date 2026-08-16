@@ -24,8 +24,7 @@ import (
 // cmd/atomic/main.go's runBus owns the one os.UserHomeDir() call and every
 // path in this package stays testable against a temp dir. cwd flows to
 // join and chat, the two verbs that resolve a client's filesystem position
-// (position.go's resolvePosition) — docs/spec/atomic-bus.md's 2026-07-29
-// "position-derived member naming" entry.
+// (position.go's resolvePosition).
 func BusAction(args []string, home, cwd string, out io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: atomic bus <join|leave|send|recv|who|rooms|status|serve|start|stop|restart|tail|say|read|halt|resume|prune|close|chat> [flags]")
@@ -208,17 +207,15 @@ func dialDaemon(home string) (*Client, error) {
 var recoveryEnsurer = DefaultEnsurer
 
 // dialDaemonRecovered dials the daemon, and — only when it is unreachable —
-// respawns it via EnsureDaemon and retries exactly once
-// (docs/spec/atomic-bus.md: "a client that finds the daemon gone respawns
-// it and retries once before surfacing exit 6"). A stop or a crash both
+// respawns it via EnsureDaemon and retries exactly once before surfacing
+// exit 6. A stop or a crash both
 // tear the daemon process down along with its in-memory roster, but
 // bus.json already holds every session's membership, and the respawned
 // daemon's own Hub.Rehydrate call at Serve startup (see serveAction)
 // restores that whole roster before it accepts a single connection — so
 // recovery here is nothing more than getting a live daemon back; there is
-// no client-side rejoin left to do (see docs/spec/atomic-bus.md's "the
-// daemon rehydrates the roster" change-log entry, which replaced the
-// per-session re-registration this used to do). EnsureDaemon owns its own
+// no client-side rejoin left to do, which is what replaced the per-session
+// re-registration this used to perform. EnsureDaemon owns its own
 // bounded spawn-and-retry loop, so a daemon that still won't come back
 // surfaces that terminal error directly — never a second recovery attempt
 // on top of it.
@@ -254,8 +251,7 @@ func doWithRecovery(home string, req Request) (Response, error) {
 
 // touchLastSeen best-effort persists that session was active in room at
 // now — the disk-side half of Hub.Publish's own in-memory LastSeen refresh
-// on a successful send (docs/spec/atomic-bus.md's 2026-07-30 "last_seen
-// must persist, not be restamped" entry). Called after send/say-family ops
+// on a successful send. Called after send/say-family ops
 // that already succeeded against the daemon; a persistence failure here is
 // not surfaced as a command failure — the message was already delivered,
 // and losing this write only means the next restart's staleness read is a
@@ -277,14 +273,14 @@ func touchLastSeen(home, session, room string, now time.Time) {
 // this only reports the assigned name, which may differ from the one
 // requested. --kind defaults to agent; a person joining from a terminal
 // passes --kind human so from_kind-keyed reaction-policy rules fire for
-// them (docs/spec/atomic-bus.md: "join --kind agent|human ... lets a person
-// joining from a terminal be recorded as human"). chat still hardcodes
+// them, so a person joining from a terminal is recorded as human. chat
+// still hardcodes
 // KindHuman on its own OpJoin call below — it has no reason to ever join as
 // an agent.
 //
 // A member's name is always its resolved position stacked with an optional
-// role suffix (docs/spec/atomic-bus.md's 2026-07-29 "the name is the
-// position; --as is the role" entry): position.name(as) computes
+// role suffix — the name is the position, --as is only the role:
+// position.name(as) computes
 // "<realm>-<repo>-<as>" via stackedName's collapse rule, so --as never has
 // to be supplied to get a usable, deterministic name — omitting it yields
 // "<realm>-<repo>" (or just "<repo>" with no realm), never a required flag.
@@ -430,8 +426,7 @@ func leaveAction(args []string, home string, out io.Writer) int {
 	// (Hub.dropIfEmpty), clear any orphaned persisted halt state for it too
 	// — otherwise a later restart's Rehydrate would resurrect a room
 	// nobody occupies from a stale bus.json entry, halted for a reason
-	// nobody can act on anymore (docs/spec/atomic-bus.md's 2026-07-30 "drop
-	// a room when its last member leaves" entry).
+	// nobody can act on anymore.
 	var leavePayload struct {
 		RoomDropped bool `json:"room_dropped,omitempty"`
 	}
@@ -499,9 +494,8 @@ func sendAction(args []string, home string, out io.Writer) int {
 	}
 
 	// The message is still delivered and this still exits 0 — a named
-	// addressee may legitimately be about to join (docs/spec/atomic-bus.md:
-	// "send --to <name> warns on stderr when no such member is in the
-	// room") — but the sender must not be told nothing.
+	// addressee may legitimately be about to join — but the sender must not
+	// be told nothing.
 	if len(payload.UnknownTo) > 0 {
 		fmt.Fprintf(os.Stderr, "atomic bus send: warning: not currently in room %s: %s\n", room, strings.Join(payload.UnknownTo, ", "))
 	}
@@ -557,16 +551,14 @@ func parseTo(to string) []string {
 // recv always streams: one JSON envelope per line, flushed per line,
 // exiting 0 on SIGTERM — there is no one-shot mode and no --follow flag to
 // forget (a `recv` that returned and exited would leave a Monitor silently
-// hearing nothing; see docs/spec/atomic-bus.md's "replay removed entirely"
-// change-log entry). --json is accepted for consistency with every other
+// hearing nothing). --json is accepted for consistency with every other
 // read verb but is a no-op: the stream is already one JSON envelope per
 // line.
 //
 // recv now resolves its own session identity (previously it needed none) so
 // the daemon can suppress this subscriber's own publishes (SkipSelf on the
 // subscribe request) — self-echo would otherwise cost this agent one wasted
-// prompt per message it sends (docs/spec/atomic-bus.md: "a subscriber does
-// not receive its own published messages"). A recv with no resolvable
+// prompt per message it sends. A recv with no resolvable
 // session (no CLAUDE_CODE_SESSION_ID, no --session) fails exactly like
 // send/leave/join do, rather than silently degrading self-echo suppression
 // — every real recv already runs inside a live Claude Code session, so this
@@ -624,8 +616,7 @@ func recvAction(args []string, home string, out io.Writer) int {
 // daemon restart looks identical, at this layer, to any other dropped
 // connection, and both used to make recv exit 0 while the Monitor reported
 // a clean end and the roster kept listing this member as live: a deaf
-// session peers keep addressing (docs/spec/atomic-bus.md's 2026-07-30 "recv
-// must survive a restart — the worst one" entry). Reconnecting goes through
+// session peers keep addressing. Reconnecting goes through
 // the same dialDaemonRecovered → recoveryEnsurer → EnsureDaemon path send
 // already uses (respawn and retry once); if that genuinely fails, this
 // returns a non-zero exit code so a Monitor surfaces the fault instead of a
@@ -727,9 +718,8 @@ func dialAndSubscribeRecv(home, room, sessionID string) (*Client, <-chan Envelop
 // priority and never triggers a reconnect attempt. Without the Closing
 // check, a close would be indistinguishable from a daemon restart at this
 // layer, and recv would silently reconnect to (and recreate) a room the
-// operator just closed instead of ending its stream as
-// docs/spec/atomic-bus.md's "close" entry requires: "Subscribers' streams
-// end after they receive that envelope".
+// operator just closed, instead of ending its stream once the close
+// envelope arrives.
 func recvDeliver(ctx context.Context, ch <-chan Envelope, enc *json.Encoder) (reconnect bool, code int) {
 	closing := false
 	for {
@@ -896,9 +886,7 @@ func roomsAction(args []string, home string, out io.Writer) int {
 // haltedSuffix renders a trailing " [HALTED: <reason>]" marker for
 // plain-text output when halted, else "" — shared by roomsAction and
 // statusAction so an operator who halts a room and walks away can tell it
-// is still halted from either verb's table output
-// (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be visible"
-// entry).
+// is still halted from either verb's table output.
 func haltedSuffix(halted bool, reason string) string {
 	if !halted {
 		return ""
@@ -922,8 +910,7 @@ type busStatus struct {
 // joinedRoomStatus is one entry of busStatus.Rooms: the room and the name
 // this session holds in it (a join may have been renamed by the
 // numeric-suffix retry), plus that room's current halt state — one of the
-// three surfaces docs/spec/atomic-bus.md's 2026-07-30 "halt must persist
-// and be visible" entry names.
+// three surfaces that report halt state.
 type joinedRoomStatus struct {
 	Room       string `json:"room"`
 	Name       string `json:"name"`
@@ -1077,8 +1064,7 @@ func emitJSON(out io.Writer, v any) int {
 // what happens once it has a live listener; see daemon.go's Serve doc).
 // There is no --idle-shutdown-minutes flag and no --stop flag: no timer
 // ever retires the daemon on its own, and stopping one is `atomic bus
-// stop`'s job (docs/spec/atomic-bus.md: "atomic bus start | stop | restart
-// control the daemon explicitly").
+// stop`'s job — start, stop, and restart control the daemon explicitly.
 func serveAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus serve\n"
 
@@ -1109,8 +1095,7 @@ func serveAction(args []string, home string, out io.Writer) int {
 	hub := NewHub(home)
 	// A restarted daemon must come back with the whole persisted roster,
 	// not rebuild it one session at a time as each happens to run a
-	// command (docs/spec/atomic-bus.md: "a restarted daemon rehydrates the
-	// whole roster"). This runs before ln.Accept ever sees a connection —
+	// command. This runs before ln.Accept ever sees a connection —
 	// Serve itself does not start its accept loop until it's called below.
 	// A missing bus.json is not an error (Load's own contract); a
 	// malformed one degrades to an empty roster with a warning rather than
@@ -1304,9 +1289,7 @@ func haltAction(args []string, home string, out io.Writer) int {
 	if err := persistHalted(home, room, true, text); err != nil {
 		// The halt itself already succeeded against the daemon — the room
 		// is halted right now. Only durability across a future restart is
-		// at risk, so this is a warning, not a command failure
-		// (docs/spec/atomic-bus.md's 2026-07-30 "halt must persist and be
-		// visible" entry).
+		// at risk, so this is a warning, not a command failure.
 		fmt.Fprintf(os.Stderr, "atomic bus halt: warning: halt succeeded but was not persisted (a daemon restart would lose it): %v\n", err)
 	}
 
@@ -1366,9 +1349,9 @@ func resumeAction(args []string, home string, out io.Writer) int {
 // pruneAction implements `atomic bus prune [<room>] [--json]`. Removes only
 // members Hub.Prune finds currently stale — never a live one, and never on
 // its own: this is the one explicit reap the package performs, run only
-// when an operator asks for it (docs/spec/atomic-bus.md: "nothing reaps a
-// member silently ... a quiet session is not a dead one, and evicting a
-// live member would break addressing with no diagnostic"). A missing room
+// when an operator asks for it: a quiet session is not a dead one, and
+// evicting a live member would break addressing with no diagnostic. A
+// missing room
 // defaults to the session's last-joined room via State.ResolveRoom, same as
 // who.
 func pruneAction(args []string, home string, out io.Writer) int {
@@ -1431,9 +1414,8 @@ func pruneAction(args []string, home string, out io.Writer) int {
 // --- close ---
 
 // closeAction implements `atomic bus close <room>`: an operator-level
-// teardown, like halt/say/tail — no session identity required
-// (docs/spec/atomic-bus.md: "close ... Operator-level, like halt/say/tail —
-// no session identity required"). Publishes the closing envelope, evicts
+// teardown, like halt/say/tail — no session identity required. Publishes
+// the closing envelope, evicts
 // every member, and drops the room server-side (Hub.Close), then clears its
 // persisted memberships and any halt state from bus.json so a restart does
 // not rebuild it — the local half Hub.Close itself cannot do, since bus.json
@@ -1484,8 +1466,7 @@ func closeAction(args []string, home string, out io.Writer) int {
 // sayAction implements `atomic bus say <room> <text> [--to <name>,...]`.
 // Publishes via OpSay (Hub.PublishAsOperator), which needs no prior join and always
 // passes, even into a halted room — the asymmetry that makes halt useful
-// for an operator (docs/spec/atomic-bus.md: "say is a human send and
-// always passes, even into a halted room").
+// for an operator.
 func sayAction(args []string, home string, out io.Writer) int {
 	const usage = "Usage: atomic bus say <room> <text> [--to <name>,...]\n"
 
@@ -1534,9 +1515,7 @@ func sayAction(args []string, home string, out io.Writer) int {
 		return int(ExitHard)
 	}
 
-	// Mirrors sendAction's own warning-not-withholding contract
-	// (docs/spec/atomic-bus.md: "send --to <name> warns on stderr when no
-	// such member is in the room").
+	// Mirrors sendAction's warn-but-still-send contract.
 	if len(payload.UnknownTo) > 0 {
 		fmt.Fprintf(os.Stderr, "atomic bus say: warning: not currently in room %s: %s\n", room, strings.Join(payload.UnknownTo, ", "))
 	}
@@ -1548,8 +1527,7 @@ func sayAction(args []string, home string, out io.Writer) int {
 // --- tail ---
 
 // isTerminalWriter reports whether out is a live terminal — TailLine's
-// colour switch (docs/spec/atomic-bus.md "detect no-tty and drop
-// colour"). Anything that isn't a *os.File (a bytes.Buffer in tests, or a
+// colour switch. Anything that isn't a *os.File (a bytes.Buffer in tests, or a
 // pipe wrapped by something other than os.File) is treated as non-tty,
 // which is also the correct answer for a redirected or piped os.Stdout.
 func isTerminalWriter(out io.Writer) bool {
@@ -1879,11 +1857,9 @@ func chatAction(args []string, home, cwd string, out io.Writer) int {
 	// Session is set but SkipSelf is not: chat must keep seeing its own
 	// lines — chat renders the operator's own line from this same
 	// subscription's echo, so a self-skip would make chat go silent on the
-	// operator's own input (docs/spec/atomic-bus.md: "tail and chat still
-	// see the complete transcript including their own lines"). Setting
+	// operator's own input: tail and chat want the whole transcript. Setting
 	// Session anyway is what lets Hub.Who attribute this subscription to
-	// name's own liveness (hasLiveSubscription) — the same session
-	// association item 2's self-echo fix introduced.
+	// name's own liveness (hasLiveSubscription).
 	envelopes, err := subClient.Subscribe(Request{Op: OpRecv, Room: room, Session: sessionID})
 	if err != nil {
 		subClient.Close()

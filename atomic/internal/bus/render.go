@@ -110,8 +110,7 @@ func colourFor(name string) (open, close string) {
 }
 
 // collapseLineThreshold is the payload line count above which TailLine
-// collapses text to a marker (docs/spec/atomic-bus.md "over ~15
-// lines").
+// collapses text to a marker.
 const collapseLineThreshold = 15
 
 // collapseShowLines is how many leading lines collapse keeps visible
@@ -213,12 +212,10 @@ func wrapOneLine(line string, avail int) []string {
 // MemberTable writes members as an aligned table (name, kind, mode,
 // live/stale, repo, realm) via text/tabwriter — one row per member, in the
 // order given (Hub.Who already sorts). There is no separate qualified-name
-// column: a member's Name is already its stacked position
-// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
-// the role" entry), so a second column repeating it would only duplicate
-// the first. livenessLabel (action.go) is the shared source of the
-// liveness column, so `who` and chat's `/who` never drift apart on how they
-// describe the same Member.
+// column: a member's Name is already its stacked position, so a second
+// column repeating it would only duplicate the first. livenessLabel
+// (action.go) is the shared source of the liveness column, so `who` and
+// chat's `/who` never drift apart on how they describe the same Member.
 func MemberTable(w io.Writer, members []Member) error {
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
 	for _, m := range members {

@@ -40,8 +40,7 @@ func SessionID(override string) (string, error) {
 // mode, and when. Mode and Kind exist so a restarted daemon can rehydrate a
 // member exactly as it joined (room.go's Hub.Rehydrate) — before this they
 // were held only in the daemon's memory, so any daemon restart silently
-// reset every observer back to participate (docs/spec/atomic-bus.md:
-// "mode and kind survive a daemon restart").
+// reset every observer back to participate.
 type roomMembership struct {
 	Name   string    `json:"name"`
 	Mode   string    `json:"mode,omitempty"`
@@ -51,8 +50,7 @@ type roomMembership struct {
 	// Repo and Realm mirror Member.Repo/Member.Realm — persisted so a
 	// restarted daemon's Hub.Rehydrate restores position exactly as
 	// Hub.Join originally recorded it, the same reason Mode and Kind are
-	// here (docs/spec/atomic-bus.md: "mode, kind, repo, and realm all
-	// survive a daemon restart via bus.json rehydration").
+	// here.
 	Repo  string `json:"repo,omitempty"`
 	Realm string `json:"realm,omitempty"`
 
@@ -60,18 +58,15 @@ type roomMembership struct {
 	// persisted counterpart to Hub.Publish's own in-memory refresh. Without
 	// this, Hub.Rehydrate had nothing but "now" to stamp on restart, which
 	// resurrected a member dead for hours as freshly live and put it
-	// permanently out of prune's reach (docs/spec/atomic-bus.md's 2026-07-30
-	// "last_seen must persist, not be restamped" entry). Zero on a bus.json
-	// written before this field existed; Hub.Rehydrate falls back to Joined
-	// for those.
+	// permanently out of prune's reach. Zero on a bus.json written before
+	// this field existed; Hub.Rehydrate falls back to Joined for those.
 	LastSeen time.Time `json:"last_seen"`
 }
 
 // roomState is one room's operator-controlled state, persisted independently
 // of any single session's membership (a room can be halted with zero current
 // members). Halt lived only in the daemon's memory before this — a restart
-// silently released it (docs/spec/atomic-bus.md's 2026-07-30 "halt must
-// persist and be visible" entry).
+// silently released it.
 type roomState struct {
 	Halted   bool   `json:"halted,omitempty"`
 	HaltText string `json:"halt_text,omitempty"`
@@ -184,10 +179,9 @@ func (s *State) Join(session, room, name, mode, kind, repo, realm string) {
 
 // TouchLastSeen records that session was active in room at now — the
 // persisted counterpart to Hub.Publish's own in-memory LastSeen refresh on
-// a successful send (docs/spec/atomic-bus.md: "last_seen persists in
-// bus.json and is restored, not restamped"). Reports whether session
-// actually holds room membership to touch; a caller racing a concurrent
-// leave has nothing to update.
+// a successful send. Reports whether session actually holds room
+// membership to touch; a caller racing a concurrent leave has nothing to
+// update.
 func (s *State) TouchLastSeen(session, room string, now time.Time) bool {
 	ss, ok := s.Sessions[session]
 	if !ok {
@@ -204,11 +198,10 @@ func (s *State) TouchLastSeen(session, room string, now time.Time) bool {
 
 // SetHalted records room's halt flag and reason, or clears it — the
 // persisted counterpart to Hub.Halt/Hub.Resume, which only ever mutate the
-// daemon's in-memory Room (docs/spec/atomic-bus.md's 2026-07-30 "halt must
-// persist and be visible" entry). Resuming deletes the entry outright rather
-// than storing Halted:false — an absent entry and a resumed one mean the
-// same thing, and there is no reason to keep a growing history of every
-// room that was ever halted and resumed.
+// daemon's in-memory Room. Resuming deletes the entry outright rather than
+// storing Halted:false — an absent entry and a resumed one mean the same
+// thing, and there is no reason to keep a growing history of every room that
+// was ever halted and resumed.
 func (s *State) SetHalted(room string, halted bool, text string) {
 	if !halted {
 		delete(s.Rooms, room)
@@ -222,12 +215,10 @@ func (s *State) SetHalted(room string, halted bool, text string) {
 
 // ClearRoom removes room from every session's persisted membership and
 // clears any persisted halt state for it — the bus.json-side half of
-// Hub.Close (docs/spec/atomic-bus.md: "close ... clears its persisted
-// memberships from bus.json so a restart does not rebuild it"). Unlike
-// Leave, which only ever touches the calling session's own entry, this is
-// an operator-level operation that legitimately mutates every other
-// session's persisted state too — the same authority Hub.Close already has
-// to evict every member's live roster entry.
+// Hub.Close. Unlike Leave, which only ever touches the calling session's
+// own entry, this is an operator-level operation that legitimately mutates
+// every other session's persisted state too — the same authority Hub.Close
+// already has to evict every member's live roster entry.
 func (s *State) ClearRoom(room string) {
 	for _, ss := range s.Sessions {
 		if _, ok := ss.Rooms[room]; !ok {

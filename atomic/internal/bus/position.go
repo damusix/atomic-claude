@@ -10,12 +10,10 @@ import (
 
 // position is a joining client's resolved filesystem position: the
 // repo/realm basenames Member stores on the roster and a member's name is
-// stacked from (docs/spec/atomic-bus.md's 2026-07-29 "the name is the
-// position; --as is the role" entry). Resolved once, from the joining
-// process's own cwd — the daemon has no cwd of its own to resolve against,
-// so this is client-reported input at join time, unlike From/FromKind,
-// which the daemon never trusts from the wire at publish time (see room.go's
-// Publish doc).
+// stacked from. Resolved once, from the joining process's own cwd — the
+// daemon has no cwd of its own to resolve against, so this is client-
+// reported input at join time, unlike From/FromKind, which the daemon never
+// trusts from the wire at publish time (see room.go's Publish doc).
 type position struct {
 	// repo is where.Resolve's RepoRoot basename.
 	repo string
@@ -76,10 +74,8 @@ func JoinIdentity(home, cwd, as string) (name, repo, realm string, err error) {
 }
 
 // stackedName builds "<realm>-<repo>-<as>", dropping any empty segment and
-// collapsing a segment that repeats the one immediately before it
-// (docs/spec/atomic-bus.md's 2026-07-29 "the name is the position; --as is
-// the role" entry: "alpha" in repo "alpha" is "alpha", not "alpha-alpha").
-// as is the role suffix from --as, always optional — realm and repo alone
+// collapsing a segment that repeats the one immediately before it. as is
+// the role suffix from --as, always optional — realm and repo alone
 // ("taxgentic-gui") are already a usable, deterministic name; as adds a
 // role on top ("taxgentic-gui-fe-main") without ever being required to
 // produce one. All three empty yields "".

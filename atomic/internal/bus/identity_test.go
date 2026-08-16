@@ -274,8 +274,7 @@ func TestState_Join_StampsLastSeenEqualToJoined(t *testing.T) {
 // TestState_TouchLastSeen_UpdatesExistingMembership is the persisted
 // counterpart to Hub.Publish's in-memory LastSeen refresh: sendAction calls
 // this after a successful send so a later restart's Hub.Rehydrate has an
-// honest timestamp to restore, not "now" (docs/spec/atomic-bus.md's
-// 2026-07-30 "last_seen must persist, not be restamped" entry).
+// honest timestamp to restore, not "now".
 func TestState_TouchLastSeen_UpdatesExistingMembership(t *testing.T) {
 	st := &State{Sessions: map[string]*sessionState{}}
 	st.Join("sess-1", "potato", "frontend", "participate", KindAgent, "", "")
