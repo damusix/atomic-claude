@@ -107,6 +107,7 @@ func ee3Extractor(t *testing.T) *extraction.TreeSitterExtractor {
 // WHY: The callback synthesizer reads Arguments[0] to locate which field was
 // assigned and ReferenceName to know which callable was stored.
 func TestEE3_IdentifierRHS_EmitsRef(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -137,6 +138,7 @@ func TestEE3_IdentifierRHS_EmitsRef(t *testing.T) {
 // WHY: An inline arrow function is still a callable — the callback synthesizer
 // must know the field `h` was assigned a callback even if the callable has no name.
 func TestEE3_ArrowFunctionRHS_EmitsRef(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -164,6 +166,7 @@ func TestEE3_ArrowFunctionRHS_EmitsRef(t *testing.T) {
 // WHY: The pattern `this.handler = function() { ... }` is common in older JS — EE3
 // must capture it the same as arrow functions.
 func TestEE3_FunctionExpressionRHS_EmitsRef(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -189,6 +192,7 @@ func TestEE3_FunctionExpressionRHS_EmitsRef(t *testing.T) {
 // noise without value and could mislead the synthesizer into treating numeric
 // properties as callback-bearing fields.
 func TestEE3_NonCallableRHS_EmitsNothing(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 
@@ -205,6 +209,7 @@ func TestEE3_NonCallableRHS_EmitsNothing(t *testing.T) {
 // WHY: The callback synthesizer anchors the registration edge at the method that
 // does the assignment. File-level attribution would be unusable.
 func TestEE3_FromEnclosingMethod(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	result := e.Extract(context.Background(), ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
 	if len(result.Errors) > 0 {
@@ -237,6 +242,7 @@ func TestEE3_FromEnclosingMethod(t *testing.T) {
 // WHY: The callback synthesizer and JSX synthesizer both read EdgeKindReferences
 // refs. Without a discriminator, the wrong synthesizer fires on the wrong ref.
 func TestEE3_DistinguishableFromJSXRefs(t *testing.T) {
+	t.Parallel()
 	// EE3 fixture has no JSX. JSX refs would have no "field:" prefix in Arguments.
 	// This test simply confirms the sentinel is present on all EE3 refs.
 	e := ee3Extractor(t)
@@ -263,6 +269,7 @@ func TestEE3_DistinguishableFromJSXRefs(t *testing.T) {
 // WHY: node-count stability is a core invariant (CP6/CP10) — field-assignment
 // UnresolvedReference rows must not cause node count to vary between runs.
 func TestEE3_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	e := ee3Extractor(t)
 	ctx := context.Background()
 	r1 := e.Extract(ctx, ee3FixturePath, ee3Fixture, types.LanguageTypeScript)
@@ -282,6 +289,7 @@ func TestEE3_NodeCountStable(t *testing.T) {
 // WHY: EE3 adds a new branch in visitFunctionBody; a bug there could break the
 // existing CallTypes arm that EE2 depends on.
 func TestEE3_EE2CallRefsUnaffected(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -320,6 +328,7 @@ func TestEE3_EE2CallRefsUnaffected(t *testing.T) {
 // extractFieldAssignment — even when extractFieldAssignment emitted nothing. That
 // silently dropped EE2 argument capture for any call inside an assignment RHS.
 func TestEE3_NestedCallInAssignmentRHS_EE2ArgsStillCaptured(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newExtractor(t, extraction.LangJavaScript, languages.JavaScriptExtractor())
 
@@ -349,6 +358,7 @@ func TestEE3_NestedCallInAssignmentRHS_EE2ArgsStillCaptured(t *testing.T) {
 
 // TestEE3_EE1JSXRefsUnaffected proves EE1 JSX refs still work after adding EE3.
 func TestEE3_EE1JSXRefsUnaffected(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageTSX)
 	if !ok {
 		t.Fatal("LanguageTSX not registered")

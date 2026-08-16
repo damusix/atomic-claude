@@ -109,6 +109,7 @@ const swiftFixturePath = "src/Canvas.swift"
 // TestSwift_FunctionExtracted verifies function_declaration → NodeKindFunction/NodeKindMethod.
 // WHY: Swift functions are the primary callable units; wrong kind breaks call-graph resolution.
 func TestSwift_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
 	if !ok {
 		t.Fatal("Swift not registered")
@@ -131,6 +132,7 @@ func TestSwift_FunctionExtracted(t *testing.T) {
 // TestSwift_ClassExtracted verifies class_declaration (class) → NodeKindClass.
 // WHY: Classes are structural containers; missing them breaks the member graph.
 func TestSwift_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
 	if !ok {
 		t.Fatal("Swift not registered")
@@ -150,6 +152,7 @@ func TestSwift_ClassExtracted(t *testing.T) {
 // TestSwift_InterfaceExtracted verifies protocol_declaration → NodeKindInterface.
 // WHY: Swift protocols are the semantic equivalent of interfaces; wrong kind breaks type-graph.
 func TestSwift_InterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
 	if !ok {
 		t.Fatal("Swift not registered")
@@ -169,6 +172,7 @@ func TestSwift_InterfaceExtracted(t *testing.T) {
 // TestSwift_EnumExtracted verifies class_declaration with enum_class_body → NodeKindEnum.
 // WHY: Swift enums must be typed correctly for the query layer.
 func TestSwift_EnumExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
 	if !ok {
 		t.Fatal("Swift not registered")
@@ -188,6 +192,7 @@ func TestSwift_EnumExtracted(t *testing.T) {
 // TestSwift_ImportsExtracted verifies import_declaration emits UnresolvedReference.
 // WHY: Imports are the starting point for the resolution layer's import resolver.
 func TestSwift_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
 	if !ok {
 		t.Fatal("Swift not registered")
@@ -204,6 +209,7 @@ func TestSwift_ImportsExtracted(t *testing.T) {
 // TestSwift_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestSwift_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
 	if !ok {
 		t.Fatal("Swift not registered")
@@ -222,6 +228,7 @@ func TestSwift_CallEmitsUnresolvedReference(t *testing.T) {
 // WHY: Swift's default access level is internal (module-private). Only public/open
 // cross module boundaries. Wrong IsExported breaks cross-module resolution scoring.
 func TestSwift_IsExported_PublicOpen(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
 	if !ok {
 		t.Fatal("Swift not registered")
@@ -263,6 +270,7 @@ func TestSwift_IsExported_PublicOpen(t *testing.T) {
 // TestSwift_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestSwift_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageSwift)
 	if !ok {
 		t.Fatal("Swift not registered")
@@ -348,6 +356,7 @@ const kotlinFixturePath = "src/Canvas.kt"
 // TestKotlin_FunctionExtracted verifies function_declaration → NodeKindFunction/NodeKindMethod.
 // WHY: Kotlin functions are the primary callable units; wrong kind breaks call-graph.
 func TestKotlin_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
 	if !ok {
 		t.Fatal("Kotlin not registered")
@@ -370,6 +379,7 @@ func TestKotlin_FunctionExtracted(t *testing.T) {
 // TestKotlin_ClassExtracted verifies class_declaration (class) → NodeKindClass.
 // WHY: Classes are structural containers; missing them breaks the member graph.
 func TestKotlin_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
 	if !ok {
 		t.Fatal("Kotlin not registered")
@@ -390,6 +400,7 @@ func TestKotlin_ClassExtracted(t *testing.T) {
 // WHY: Kotlin interfaces are the semantic equivalent of Java interfaces; wrong kind breaks
 // implements edge promotion during resolution.
 func TestKotlin_InterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
 	if !ok {
 		t.Fatal("Kotlin not registered")
@@ -409,6 +420,7 @@ func TestKotlin_InterfaceExtracted(t *testing.T) {
 // TestKotlin_EnumExtracted verifies class_declaration (enum class) → NodeKindEnum.
 // WHY: Kotlin enum classes must be typed correctly for query correctness.
 func TestKotlin_EnumExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
 	if !ok {
 		t.Fatal("Kotlin not registered")
@@ -428,6 +440,7 @@ func TestKotlin_EnumExtracted(t *testing.T) {
 // TestKotlin_ImportsExtracted verifies import_header emits UnresolvedReference.
 // WHY: Kotlin uses import_header (not import_declaration); the resolution layer needs these.
 func TestKotlin_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
 	if !ok {
 		t.Fatal("Kotlin not registered")
@@ -444,6 +457,7 @@ func TestKotlin_ImportsExtracted(t *testing.T) {
 // TestKotlin_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestKotlin_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
 	if !ok {
 		t.Fatal("Kotlin not registered")
@@ -462,6 +476,7 @@ func TestKotlin_CallEmitsUnresolvedReference(t *testing.T) {
 // WHY: Kotlin's default visibility is public — opposite of Java. Wrong IsExported corrupts
 // resolution scoring for cross-module calls.
 func TestKotlin_IsExported_DefaultPublic(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
 	if !ok {
 		t.Fatal("Kotlin not registered")
@@ -498,6 +513,7 @@ func TestKotlin_IsExported_DefaultPublic(t *testing.T) {
 // TestKotlin_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestKotlin_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageKotlin)
 	if !ok {
 		t.Fatal("Kotlin not registered")
@@ -587,6 +603,7 @@ const scalaFixturePath = "src/Canvas.scala"
 // TestScala_FunctionExtracted verifies function_definition → NodeKindFunction/NodeKindMethod.
 // WHY: Scala defs are the primary callable units; wrong kind breaks call-graph resolution.
 func TestScala_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
 	if !ok {
 		t.Fatal("Scala not registered")
@@ -609,6 +626,7 @@ func TestScala_FunctionExtracted(t *testing.T) {
 // TestScala_ClassExtracted verifies class_definition → NodeKindClass.
 // WHY: Classes are structural containers; missing them breaks the member graph.
 func TestScala_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
 	if !ok {
 		t.Fatal("Scala not registered")
@@ -628,6 +646,7 @@ func TestScala_ClassExtracted(t *testing.T) {
 // TestScala_InterfaceExtracted verifies trait_definition → NodeKindInterface.
 // WHY: Scala traits are the semantic equivalent of interfaces; wrong kind breaks type-graph.
 func TestScala_InterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
 	if !ok {
 		t.Fatal("Scala not registered")
@@ -647,6 +666,7 @@ func TestScala_InterfaceExtracted(t *testing.T) {
 // TestScala_EnumExtracted verifies enum_definition → NodeKindEnum.
 // WHY: Scala 3 enums must produce NodeKindEnum, not NodeKindClass, for correct query routing.
 func TestScala_EnumExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
 	if !ok {
 		t.Fatal("Scala not registered")
@@ -666,6 +686,7 @@ func TestScala_EnumExtracted(t *testing.T) {
 // TestScala_ImportsExtracted verifies import_declaration emits UnresolvedReference.
 // WHY: Imports are the starting point for the resolution layer's import resolver.
 func TestScala_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
 	if !ok {
 		t.Fatal("Scala not registered")
@@ -682,6 +703,7 @@ func TestScala_ImportsExtracted(t *testing.T) {
 // TestScala_CallEmitsUnresolvedReference verifies call_expression → EdgeKindCalls.
 // WHY: Calls must NOT emit edges directly — resolution layer owns that step.
 func TestScala_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
 	if !ok {
 		t.Fatal("Scala not registered")
@@ -698,6 +720,7 @@ func TestScala_CallEmitsUnresolvedReference(t *testing.T) {
 // TestScala_IsExported_DefaultPublic verifies that Scala default is public; private/protected → not exported.
 // WHY: Scala default visibility is public. Wrong IsExported corrupts resolution scoring.
 func TestScala_IsExported_DefaultPublic(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
 	if !ok {
 		t.Fatal("Scala not registered")
@@ -732,6 +755,7 @@ func TestScala_IsExported_DefaultPublic(t *testing.T) {
 // TestScala_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestScala_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageScala)
 	if !ok {
 		t.Fatal("Scala not registered")
@@ -753,6 +777,7 @@ func TestScala_NodeCountStable(t *testing.T) {
 // WHY: The registry is the single resolution point for CP10; missing entries
 // cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8B_Languages(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	tests := []struct {
 		lang     types.Language

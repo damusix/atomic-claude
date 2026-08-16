@@ -40,7 +40,8 @@ func suppressPrune(t *testing.T) {
 func suppressProfileRefresh(t *testing.T) {
 	t.Helper()
 	claudeinstall.ProfileRefresh = func(_, _ string, _ int) (bool, error) { return false, nil }
-	t.Cleanup(func() { claudeinstall.ProfileRefresh = claudeinstall.DefaultProfileRefresh })
+	prevProfileRefresh := claudeinstall.ProfileRefresh
+	t.Cleanup(func() { claudeinstall.ProfileRefresh = prevProfileRefresh })
 }
 
 // TestAgentModelOverride_FreshInstall: install with [claude.agents] override → installed

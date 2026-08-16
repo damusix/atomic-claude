@@ -38,6 +38,7 @@ func greet(name string) string {
 // affected-file analysis, and circular-dependency detection. Missing import
 // refs mean those traversals silently skip real dependencies.
 func TestGo_MultiImportEmitsAllRefs(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageGo)
 	if !ok {
 		t.Fatal("Go not registered")
@@ -87,6 +88,7 @@ func hello() string {
 `
 
 func TestGo_SingleImportStillWorks(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageGo)
 	if !ok {
 		t.Fatal("Go not registered")

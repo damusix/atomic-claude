@@ -113,6 +113,7 @@ const dartFixturePath = "lib/canvas.dart"
 // TestDart_FunctionExtracted verifies function_signature → NodeKindFunction.
 // WHY: Top-level Dart functions are primary call targets; wrong kind breaks call-graph.
 func TestDart_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
 	if !ok {
 		t.Fatal("Dart not registered")
@@ -136,6 +137,7 @@ func TestDart_FunctionExtracted(t *testing.T) {
 // WHY: Dart class methods are declared as function_signature nodes inside class_body;
 // the extractor must descend into the class and extract them.
 func TestDart_MethodExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
 	if !ok {
 		t.Fatal("Dart not registered")
@@ -159,6 +161,7 @@ func TestDart_MethodExtracted(t *testing.T) {
 // TestDart_ClassExtracted verifies class_definition → NodeKindClass.
 // WHY: Classes are structural containers; missing them breaks the member graph.
 func TestDart_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
 	if !ok {
 		t.Fatal("Dart not registered")
@@ -178,6 +181,7 @@ func TestDart_ClassExtracted(t *testing.T) {
 // TestDart_EnumExtracted verifies enum_declaration → NodeKindEnum.
 // WHY: Enums must be indexed as NodeKindEnum for the type graph to distinguish them from classes.
 func TestDart_EnumExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
 	if !ok {
 		t.Fatal("Dart not registered")
@@ -197,6 +201,7 @@ func TestDart_EnumExtracted(t *testing.T) {
 // TestDart_ImportsExtracted verifies import_or_export → UnresolvedReference (EdgeKindImports).
 // WHY: Import declarations are the resolution layer's anchor for cross-file references.
 func TestDart_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
 	if !ok {
 		t.Fatal("Dart not registered")
@@ -214,6 +219,7 @@ func TestDart_ImportsExtracted(t *testing.T) {
 // WHY: Dart visibility is name-based (leading _ = library-private). The IsExportedByName
 // hook must return false for underscore names and true for public names.
 func TestDart_IsExported_UnderscoreConvention(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
 	if !ok {
 		t.Fatal("Dart not registered")
@@ -253,6 +259,7 @@ func TestDart_IsExported_UnderscoreConvention(t *testing.T) {
 // constraint, not an implementation gap — documented here so future maintainers
 // know this was checked and is expected behavior.
 func TestDart_CallsBlocked(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
 	if !ok {
 		t.Fatal("Dart not registered")
@@ -272,6 +279,7 @@ func TestDart_CallsBlocked(t *testing.T) {
 // TestDart_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestDart_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageDart)
 	if !ok {
 		t.Fatal("Dart not registered")
@@ -375,6 +383,7 @@ const objcFixturePath = "src/Shape.m"
 // TestObjC_ClassInterfaceExtracted verifies @interface → NodeKindClass.
 // WHY: @interface is the Obj-C class declaration; missing it breaks the class graph.
 func TestObjC_ClassInterfaceExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
 	if !ok {
 		t.Fatal("ObjC not registered")
@@ -395,6 +404,7 @@ func TestObjC_ClassInterfaceExtracted(t *testing.T) {
 // WHY: ObjC protocols are the semantic interface equivalent; wrong kind breaks
 // resolution's edge promotion for protocol conformance.
 func TestObjC_ProtocolExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
 	if !ok {
 		t.Fatal("ObjC not registered")
@@ -414,6 +424,7 @@ func TestObjC_ProtocolExtracted(t *testing.T) {
 // TestObjC_MethodExtracted verifies method_declaration/implementation_definition → NodeKindMethod/Function.
 // WHY: ObjC methods are the primary call targets; missing them breaks the call graph.
 func TestObjC_MethodExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
 	if !ok {
 		t.Fatal("ObjC not registered")
@@ -436,6 +447,7 @@ func TestObjC_MethodExtracted(t *testing.T) {
 // TestObjC_FunctionExtracted verifies C-style function_definition → NodeKindFunction.
 // WHY: ObjC files can contain plain C functions; these must be indexed.
 func TestObjC_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
 	if !ok {
 		t.Fatal("ObjC not registered")
@@ -455,6 +467,7 @@ func TestObjC_FunctionExtracted(t *testing.T) {
 // TestObjC_ImportsExtracted verifies preproc_include → UnresolvedReference (EdgeKindImports).
 // WHY: #import is the ObjC import mechanism; the resolution layer needs these references.
 func TestObjC_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
 	if !ok {
 		t.Fatal("ObjC not registered")
@@ -472,6 +485,7 @@ func TestObjC_ImportsExtracted(t *testing.T) {
 // WHY: ObjC message sends [obj method] are the primary call mechanism; they must
 // emit EdgeKindCalls so the call graph is populated.
 func TestObjC_MessageExpressionEmitsCall(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
 	if !ok {
 		t.Fatal("ObjC not registered")
@@ -488,6 +502,7 @@ func TestObjC_MessageExpressionEmitsCall(t *testing.T) {
 // TestObjC_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestObjC_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguageObjC)
 	if !ok {
 		t.Fatal("ObjC not registered")
@@ -641,6 +656,7 @@ const pascalFixturePath = "src/Canvas.pas"
 // TestPascal_ProcedureExtracted verifies declProc (procedure) → NodeKindFunction.
 // WHY: Pascal procedures are primary callable units; wrong kind breaks the call graph.
 func TestPascal_ProcedureExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
 	if !ok {
 		t.Fatal("Pascal not registered")
@@ -664,6 +680,7 @@ func TestPascal_ProcedureExtracted(t *testing.T) {
 // TestPascal_FunctionExtracted verifies declProc (function) → NodeKindFunction.
 // WHY: Pascal functions return values; must be extracted for call-graph resolution.
 func TestPascal_FunctionExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
 	if !ok {
 		t.Fatal("Pascal not registered")
@@ -687,6 +704,7 @@ func TestPascal_FunctionExtracted(t *testing.T) {
 // TestPascal_ClassExtracted verifies declType → declClass → NodeKindClass.
 // WHY: Pascal classes are structural containers; missing them breaks the member graph.
 func TestPascal_ClassExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
 	if !ok {
 		t.Fatal("Pascal not registered")
@@ -706,6 +724,7 @@ func TestPascal_ClassExtracted(t *testing.T) {
 // TestPascal_ImportsExtracted verifies declUses → UnresolvedReference (EdgeKindImports).
 // WHY: Pascal uses clauses are the import mechanism for the resolution layer.
 func TestPascal_ImportsExtracted(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
 	if !ok {
 		t.Fatal("Pascal not registered")
@@ -723,6 +742,7 @@ func TestPascal_ImportsExtracted(t *testing.T) {
 // WHY: exprCall is Pascal's call expression node; must emit EdgeKindCalls for
 // the call graph to be populated.
 func TestPascal_CallEmitsUnresolvedReference(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
 	if !ok {
 		t.Fatal("Pascal not registered")
@@ -739,6 +759,7 @@ func TestPascal_CallEmitsUnresolvedReference(t *testing.T) {
 // TestPascal_NodeCountStable verifies deterministic extraction.
 // WHY: Non-determinism means double-extraction, corrupt indexes, and unstable IDs.
 func TestPascal_NodeCountStable(t *testing.T) {
+	t.Parallel()
 	cfg, extLang, ok := languages.NewRegistry().For(types.LanguagePascal)
 	if !ok {
 		t.Fatal("Pascal not registered")
@@ -760,6 +781,7 @@ func TestPascal_NodeCountStable(t *testing.T) {
 // WHY: The registry is the single resolution point for CP10; missing entries
 // cause the orchestrator to silently skip files of those languages.
 func TestRegistry_For_CP8D_Languages(t *testing.T) {
+	t.Parallel()
 	reg := languages.NewRegistry()
 	tests := []struct {
 		lang     types.Language

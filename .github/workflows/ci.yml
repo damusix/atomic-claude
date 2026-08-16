@@ -24,6 +24,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: ./atomic/go.mod
+          # go.sum is under atomic/, not the repo root. Without this the
+          # action's default cache silently fails both restore and save, so
+          # every run recompiles cold and no test results are ever reused.
+          cache-dependency-path: ./atomic/go.sum
 
       - uses: oven-sh/setup-bun@v2
         with:
