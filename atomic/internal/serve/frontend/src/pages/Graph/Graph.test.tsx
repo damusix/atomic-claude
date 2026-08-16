@@ -69,6 +69,27 @@ describe("Graph route", () => {
     restoreScripts();
   });
 
+  // The rail and the reading padding are collapsed by app.css's
+  // mode-graph-view rules. This route claims that class, rather than
+  // graph-core.js's engine mount claiming it, because the background layout
+  // warm mounts that same engine into an offscreen container from ordinary
+  // pages: "the engine is running" and "the graph owns the screen" stopped
+  // being the same statement, and only the second one is a layout fact.
+  test("claims the full-pane layout while open and gives it back on leave", async () => {
+    const restoreScripts = stubScriptLoad();
+    const engine = stubGraphEngine();
+    const { unmount } = renderAt("/graph");
+
+    // Asserted before the engine has finished mounting: the layout must be
+    // claimed by the time the container is measured, not after.
+    expect(document.body.classList.contains("mode-graph-view")).toBe(true);
+    await waitFor(() => expect(engine.systemMount).toHaveBeenCalledTimes(1));
+
+    unmount();
+    expect(document.body.classList.contains("mode-graph-view")).toBe(false);
+    restoreScripts();
+  });
+
   test("?view=code mounts window.CodeGraph and shows no picker for a single member", async () => {
     const restoreScripts = stubScriptLoad();
     const engine = stubGraphEngine();

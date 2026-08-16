@@ -3,13 +3,26 @@
    defaults) — this is new, minimal styling reusing the design-system
    custom properties from public/app.css. */
 
+/* Explains what the view is derived from — without it the page reads as a
+   live database connection rather than an index of the repo's own SQL. */
+.code-schema-lede {
+  max-width: 62ch;
+  margin: 0 0 22px;
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.code-schema-lede em {
+  color: var(--ink-soft);
+  font-style: normal;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
 .code-schema-title {
   font-family: var(--serif);
   margin: 0 0 12px;
-}
-
-.code-schema-member-select {
-  margin-bottom: 16px;
 }
 
 .code-schema-section {
@@ -78,4 +91,604 @@
 .code-schema-empty {
   color: var(--ink-faint);
   font-style: italic;
+}
+
+/* ============================================================
+   TABLE CARD — columns, keys, relations
+   ============================================================ */
+
+.code-schema-table-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 7px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.code-schema-table-counts {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.code-schema-table-loc {
+  margin-left: auto;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+/* Columns render as a name/flags/type row, monospaced and right-aligned on
+   the type — the type column is what makes a list of words read as a table
+   definition, and it is also where a project's own domains become visible. */
+.code-schema-columns {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.code-schema-column {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--hairline) 45%, transparent);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.code-schema-column:last-child {
+  border-bottom: 0;
+}
+
+.code-schema-column-name {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-schema-column-type {
+  color: var(--ink-faint);
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+
+.code-schema-column-flags {
+  display: inline-flex;
+  gap: 4px;
+}
+
+/* Key membership is inferred from constraint names, so these are a hint, not
+   a guarantee — quiet enough to read as one. */
+.code-schema-flag {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--amber) 16%, transparent);
+  color: var(--amber);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+}
+
+.code-schema-flag[data-flag="fk"] {
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+  color: var(--ink-faint);
+}
+
+.code-schema-flag[data-flag="unique"] {
+  background: transparent;
+  border: 1px solid var(--hairline-2);
+  color: var(--ink-faint);
+}
+
+/* Keys and indexes are constraints on the shape, not part of it — chips,
+   below the columns, so they stop masquerading as fields. */
+.code-schema-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+/* Constraint names are long and near-identical within a table; the kind in
+   front is what makes a row of them scannable. */
+.code-schema-key {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 7px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 999px;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 9px;
+  /* A CHECK carries no column list, so the chip falls back to the constraint
+     name, and those run long: ck_oauth_client_registration_kind_is_dcr_cimd_
+     or_preregistered is wider than the card. Unclipped it drew straight over
+     the neighbouring column. The full name is on the chip's title. */
+  max-width: 100%;
+}
+
+.code-schema-key-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-schema-key-kind {
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+.code-schema-key[data-kind="primary_key"] {
+  border-color: color-mix(in srgb, var(--amber) 34%, var(--hairline-2));
+}
+
+.code-schema-key[data-kind="primary_key"] .code-schema-key-kind {
+  color: var(--amber);
+}
+
+.code-schema-relation {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.code-schema-relation-label {
+  flex-shrink: 0;
+  width: 78px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.code-schema-relation-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+/* ============================================================
+   EMPTY STATE
+   ============================================================ */
+
+.code-schema-empty-state {
+  max-width: 62ch;
+  margin-top: 28px;
+  padding: 20px 22px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 10px;
+  background: var(--paper-sunk);
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.code-schema-empty-title {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 18px;
+}
+
+.code-schema-empty-state p + p {
+  margin-top: 10px;
+}
+
+
+/* The prose measure is for documents. This route is a card catalogue: capping
+   it at 1200px in a wide window left ~350px of empty gutter on each side and
+   only three cards across, which is most of what read as "spread out". */
+.code-schema {
+  --page-measure: none;
+  /* Page-level, because every card flow on this page shares them: the table
+     flows, and the routine and type grids that sit outside those. Scoped to
+     the table groups instead, `column-width: var(--card-width)` resolved to
+     nothing in the routine grid, which drops the whole declaration and left
+     101 routines stacked one per full-width row. */
+  --card-width: 288px;
+  --card-gap: 12px;
+  padding-left: 28px;
+  padding-right: 28px;
+}
+
+/* ============================================================
+   TOOLBAR
+   ============================================================ */
+
+/* Sticky: the filter is the only way through a few hundred cards, and it was
+   thousands of pixels above wherever the reader had scrolled to. */
+.code-schema-toolbar {
+  position: sticky;
+  /* Cancels #main-pane's top padding: a sticky offset is measured from the
+     scroll container's content box, so top:0 parked the toolbar 34px down and
+     left a strip of cards scrolling past above it. */
+  top: calc(-1 * var(--pane-pad-top, 0px));
+  z-index: 3;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 0 0 26px;
+  padding: 12px 0 14px;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--paper);
+}
+
+/* The labels above each control cost a row of height on every scroll; the
+   controls say what they are. */
+.code-schema-toolbar .code-schema-field-label {
+  display: none;
+}
+
+.code-schema-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.code-schema-field-grow {
+  flex: 1;
+  min-width: 200px;
+}
+
+.code-schema-field-label {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+/* The native control cannot be themed, so it is stripped and re-drawn: the
+   default renders as a grey OS widget that belongs to no part of this UI. */
+.code-schema-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.code-schema-select-wrap::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--ink-faint);
+  border-bottom: 1.5px solid var(--ink-faint);
+  transform: translateY(-2px) rotate(45deg);
+  pointer-events: none;
+}
+
+/* Height is pinned rather than left to each control's own font: a select and
+   a text input with the same padding still round to different heights, and
+   the toolbar bottom-aligns, so the difference shows up as misaligned
+   labels above them. */
+.code-schema-member-select {
+  appearance: none;
+  min-width: 170px;
+  height: 32px;
+  padding: 0 30px 0 11px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 7px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.code-schema-member-select:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--hairline-2));
+}
+
+.code-schema-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.code-schema-search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 26px 0 11px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 7px;
+  background: var(--paper-raised);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 12.5px;
+}
+
+.code-schema-search-input::placeholder {
+  color: var(--ink-ghost);
+}
+
+.code-schema-search-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--amber) 55%, var(--hairline-2));
+}
+
+.code-schema-search-input::-webkit-search-decoration,
+.code-schema-search-input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.code-schema-search-clear {
+  position: absolute;
+  right: 7px;
+  display: grid;
+  place-items: center;
+  padding: 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.code-schema-search-clear:hover {
+  color: var(--ink);
+}
+
+.code-schema-toolbar-end {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.code-schema-summary {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.code-schema-reindex {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 7px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s;
+}
+
+.code-schema-reindex:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--amber) 45%, var(--hairline-2));
+  color: var(--amber);
+}
+
+.code-schema-reindex:disabled {
+  cursor: progress;
+  color: var(--amber);
+}
+
+/* The rebuild is the one control here that does real work; spinning while it
+   runs is the only signal that anything is happening. */
+.code-schema-reindex[data-state="running"] svg {
+  animation: code-schema-spin 1.1s linear infinite;
+}
+
+@keyframes code-schema-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.code-schema-reindex-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--c-knowledge-ink, var(--ink-faint));
+  font-size: 12px;
+}
+
+/* ============================================================
+   BODY - directory sections holding per-file groups
+   ============================================================ */
+
+.code-schema-main {
+  min-width: 0;
+}
+
+/* The directory is the coarse divider; the files inside it carry the names
+   that mean anything, so the directory heading is deliberately quieter than
+   the file headings under it. */
+.code-schema-section {
+  margin-bottom: 30px;
+  scroll-margin-top: 84px;
+}
+
+.code-schema-section-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  margin: 0 0 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* A title-only card, sharing the cards' box so it takes a slot in the same
+   rhythm they do. As bare text it offset its own column by its own height,
+   which left every card in that column sitting lower than the cards beside
+   it. Filled rather than outlined, so a file marker still reads as different
+   from the tables under it at a glance. */
+.code-schema-group-title {
+  display: flex;
+  align-items: baseline;
+  margin: 0 0 var(--card-gap, 12px);
+  /* A heading stranded at the foot of a column names cards the reader then has
+     to look in the next column to find. */
+  break-after: avoid;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  padding: 11px 13px;
+  background: var(--paper-sunk);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.code-schema-group-file {
+  margin-left: 10px;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 400;
+}
+
+/* Cards tile instead of stacking: a few hundred tables one-per-row is a
+   scroll marathon, and each card is short enough to read in a column. */
+/* Multi-column flow, not a grid. Cards differ wildly in height — a lookup
+   table of one column sits beside a queue table of twelve — and in a grid
+   every row is as tall as its tallest card, so a single large card leaves a
+   screen of dead space beside the small ones. Columns pack instead: each card
+   starts where the last one ended. */
+/* Masonry, laid out left to right.
+ *
+ * A CSS column flow packed these cards perfectly but read the wrong way: a
+ * column flow fills column one top to bottom before it starts column two, so
+ * the second card on the page sat 8000px below the first. Reading order runs
+ * across, not down.
+ *
+ * So: a grid whose rows are 8px tall, where each card spans however many of
+ * those rows it needs (see useMasonry, which measures and sets --span).
+ * Auto-placement then fills across, and because every card's reserved height
+ * is its own, a short card next to a tall one does not leave a hole under it
+ * the way an ordinary grid row would. */
+.code-schema-groups,
+.code-schema-grid {
+  --masonry-row: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--card-width), 1fr));
+  grid-auto-rows: var(--masonry-row);
+  column-gap: var(--card-gap);
+  /* The gap below a card is inside its own span, so the grid adds none. */
+  row-gap: 0;
+}
+
+.code-schema-groups > *,
+.code-schema-grid > * {
+  grid-row: span var(--span, 40);
+  /* Cards keep their own height; without this the grid stretches each one to
+     fill the rows it reserved, and every card in a row grows to the tallest. */
+  align-self: start;
+  margin-bottom: 0;
+  /* Clears the sticky toolbar when the rail index jumps to a file. */
+  scroll-margin-top: 84px;
+}
+
+.code-schema-group-count {
+  margin-left: 8px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.code-schema-group-dir {
+  margin-left: 10px;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 400;
+}
+
+
+/* Cards are denser in a grid than they were stacked full-width. */
+.code-schema-table {
+  padding: 11px 13px;
+}
+
+.code-schema-columns {
+  grid-template-columns: 1fr;
+}
+
+
+/* ============================================================
+   ROUTINES + TYPES
+   ============================================================ */
+
+/* The kind sits in front of the name for the same reason it does on a
+   constraint chip: "table" and "view" and "procedure" look alike in a grid
+   until something says which is which. */
+.code-schema-table-kind {
+  margin-right: 8px;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.code-schema-routine {
+  padding: 14px 16px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+}
+
+.code-schema-routine .code-schema-table-name {
+  margin: 0 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.code-schema-routine-empty {
+  margin: 0;
+  color: var(--ink-ghost);
+  font-size: 11.5px;
+  font-style: italic;
+}
+
+.code-schema-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.code-schema-type {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+/* The expander reads as an action, not as another related node. */
+.code-schema-relation-more {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.code-schema-relation-more:hover {
+  color: var(--ink);
 }

@@ -4,10 +4,13 @@
    THEME: LIGHT (warm paper aesthetic)
    ============================================================ */
 :root, [data-theme="light"] {
-    /* Paper & ink */
-    --paper:        #fbfaf8;
+    /* Paper & ink.
+       Backgrounds are near-neutral: hue 40 (the amber accent's own hue) held
+       at 14-16% saturation, so the brand reads as a tint in the paper rather
+       than as beige. Ink, hairline and accent values are unchanged. */
+    --paper:        #fcfcfb;
     --paper-raised: #ffffff;
-    --paper-sunk:   #f5f3ee;
+    --paper-sunk:   #f7f6f5;
     --ink:          #211d18;
     --ink-soft:     #57514a;
     --ink-faint:    #8a837a;
@@ -167,8 +170,13 @@
     --cc-import-export: var(--ramp-cyan-2);
     --cc-other: var(--ramp-gray-2);
 
+    /* Connection status. A dedicated status hue, not a graph-node hue: the
+       live dot previously borrowed --c-repo-ink, which is slate, so it read
+       blue while the comment beside it claimed green. */
+    --conn-live:      #3f8f5f;
+
     /* Graph surface */
-    --graph-bg:       #fafaf8;
+    --graph-bg:       #fdfdfd;
     --graph-grid:     rgba(33,29,24,0.035);
     /* edge/edge-strong (graph-interactions brief, item 4): darkened from
        #cabfae/#b1a48f — those sat at ~1.7:1 contrast against --graph-bg
@@ -209,9 +217,11 @@
    THEME: DARK (warm charcoal)
    ============================================================ */
 [data-theme="dark"] {
-    --paper:        #17150f;
-    --paper-raised: #211e16;
-    --paper-sunk:   #131109;
+    /* Same near-neutral treatment as light, pushed darker: hue 40 at 10-12%
+       saturation instead of the previous warm browns. */
+    --paper:        #12110f;
+    --paper-raised: #1b1916;
+    --paper-sunk:   #0d0c0a;
     --ink:          #f1ead9;
     --ink-soft:     #c0b6a0;
     --ink-faint:    #8e8473;
@@ -370,7 +380,13 @@
     --cc-import-export: var(--ramp-cyan-2);
     --cc-other: var(--ramp-gray-2);
 
-    --graph-bg:       #1a180f;
+    --conn-live:      #6fc38c;
+
+    /* Near-black, warm rather than neutral so it still belongs to the amber
+       palette (2026-08-16 user feedback). The canvas is the one surface that
+       is almost entirely background, so every node and edge on it is judged
+       against this value — dropping it from #100f0c buys contrast for free. */
+    --graph-bg:       #0a0803;
     --graph-grid:     rgba(241,234,217,0.03);
     /* edge/edge-strong (graph-interactions brief, item 4): brightened from
        #4a4330/#6a5f43 — those sat at ~1.9:1 contrast against --graph-bg
@@ -661,7 +677,7 @@ a { color: inherit; text-decoration: none; }
     transition: background-color .2s;
 }
 
-.conn-indicator[data-conn-state="live"] .conn-dot { background: var(--c-repo-ink); }
+.conn-indicator[data-conn-state="live"] .conn-dot { background: var(--conn-live); }
 
 .conn-indicator[data-conn-state="reconnecting"] .conn-dot {
     background: var(--amber);
@@ -888,7 +904,11 @@ details:not([open]).nav-folder > summary.nav-folder-label::before { content: "�
 #main-pane {
     flex: 1;
     overflow-y: auto;
-    padding: 34px 0 80px;
+    /* A token because sticky offsets inside the pane are measured from its
+       content box, so anything pinning itself to the top of the scrollport has
+       to cancel this padding rather than restate it. */
+    --pane-pad-top: 34px;
+    padding: var(--pane-pad-top) 0 80px;
     min-width: 0;
     position: relative;
     background: var(--paper);
@@ -1549,8 +1569,17 @@ pre {
    SYSTEM GRAPH MODE (FE3)
    ============================================================ */
 
-/* Collapse the right rail in system mode */
-body.mode-system #right-rail {
+/* Collapse the right rail in system mode.
+
+   Gated on mode-graph-view, which the /graph route owns, NOT on mode-system,
+   which graph-core.js's mount() sets. Those were the same thing until the
+   background layout warm started mounting the engine into an offscreen
+   container from ordinary pages: the engine cannot tell that container from
+   the real graph view, so it flipped the whole app into system mode two
+   seconds after any page loaded, blanking the reader's rail and unpadding
+   their content until the warm finished. Filling the pane is a fact about the
+   route, so the route is what declares it. */
+body.mode-graph-view #right-rail {
     display: none;
 }
 
@@ -1559,9 +1588,25 @@ body.mode-system #right-rail {
    the canvas box by a pixel, a scrollbar appears, that resizes the canvas, which
    re-fits, which toggles the scrollbar again → constant flicker. The graph pans
    and zooms on its own, so it never needs the pane's scrollbars. */
-body.mode-system #main-pane {
+body.mode-graph-view #main-pane {
     padding: 0;
     overflow: hidden;
+}
+
+/* Absolute (not height:100%) so the mount has a DEFINITE height. #main-pane is
+   a flex item whose computed height is auto, so a percentage height on a child
+   resolves to auto too — the canvas then falls back to its intrinsic attribute
+   size and comes up short, leaving a flat strip of container showing below it.
+   That fallback is self-perpetuating: cosmos sizes its drawing buffer from a
+   ResizeObserver on the CANVAS, not on the container, so nothing ever tells it
+   to grow. Pinning all four edges gives the percentage something to resolve
+   against, and cosmos's observer then matches the buffer to the real box —
+   which keeps hit-testing aligned, as stretching the CSS box alone would not. */
+body.mode-graph-view #system-cy,
+body.mode-graph-view #code-cy {
+    position: absolute;
+    inset: 0;
+    min-height: 0;
 }
 
 /* System-cy / code-cy: the two graph-mode mount containers (docs, code —
@@ -1696,6 +1741,44 @@ body.mode-system #main-pane {
     height: 9px;
     border-radius: 50%;
     flex-shrink: 0;
+}
+
+/* Shape mirrors the node's own mark on the canvas — the numbers are cosmos's
+   point-shape indices, set by graph-core's buildLegend. Shape 0 (circle) has
+   no rule: it is the border-radius default above. A clip-path replaces the
+   radius, so each of these clears it. */
+.graph-legend-swatch[data-shape] {
+    border-radius: 0;
+}
+
+.graph-legend-swatch[data-shape="0"] {
+    border-radius: 50%;
+}
+
+.graph-legend-swatch[data-shape="2"] { /* triangle */
+    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+}
+
+.graph-legend-swatch[data-shape="3"] { /* diamond */
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+}
+
+.graph-legend-swatch[data-shape="4"] { /* pentagon */
+    clip-path: polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%);
+}
+
+.graph-legend-swatch[data-shape="5"] { /* hexagon */
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+}
+
+.graph-legend-swatch[data-shape="6"] { /* star */
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%,
+        50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+}
+
+.graph-legend-swatch[data-shape="7"] { /* cross */
+    clip-path: polygon(35% 0%, 65% 0%, 65% 35%, 100% 35%, 100% 65%,
+        65% 65%, 65% 100%, 35% 100%, 35% 65%, 0% 65%, 0% 35%, 35% 35%);
 }
 
 /* System graph DOM label overlay (CP5, SC5) — one <div> per rendered label,
@@ -1860,7 +1943,9 @@ body.mode-system #main-pane {
 }
 
 #code-modal-intel-pane {
-    width: 280px;
+    /* 280px could not hold a symbol name and its path on one line at any
+       readable size; the modal is wide enough to spare the difference. */
+    width: 320px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;

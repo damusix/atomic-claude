@@ -53,10 +53,17 @@ function getOrCreatePreviewCard(): HTMLElement {
 // already be in containerEl's own coordinate frame (top-left origin) — each
 // engine converts with its own primitive (Cytoscape's renderedPosition(),
 // cosmos's spaceToScreenPosition()) before calling here.
+/**
+ * `openTarget` turns the card into something you can act on rather than only
+ * read: it appends an Open button that navigates to that page. Callers that
+ * show the card on hover leave it unset — a button you have to move the
+ * pointer onto is unreachable when leaving the node dismisses the card.
+ */
 export function showPreviewCard(
   node: GraphUINodeData,
   screenPos: { x: number; y: number },
   containerEl?: HTMLElement | null,
+  openTarget?: string,
 ): void {
   const card = getOrCreatePreviewCard();
   const type = node.type || "page";
@@ -67,7 +74,15 @@ export function showPreviewCard(
   let html = `<span class="cy-pc-chip ${type}">${escapeHTML(type)}</span><div class="cy-pc-title">${escapeHTML(title)}</div>`;
   if (desc) html += `<div class="cy-pc-desc">${escapeHTML(desc)}</div>`;
   if (snip) html += `<div class="cy-pc-snip">${escapeHTML(snip)}</div>`;
+  if (openTarget) html += `<button type="button" class="cy-pc-open">Open page</button>`;
   card.innerHTML = html;
+  if (openTarget) {
+    // Wired after innerHTML, which discards any listener bound to the
+    // previous contents.
+    card.querySelector(".cy-pc-open")?.addEventListener("click", () => {
+      navigateToPage(openTarget);
+    });
+  }
 
   const container = containerEl || document.getElementById("main-pane");
   const rect = container?.getBoundingClientRect() ?? { left: 0, top: 0 };

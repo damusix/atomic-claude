@@ -1,0 +1,31 @@
+/* ui/Tooltip — themed hover/focus label. Built from app.css custom properties
+   so it follows the light/dark cascade the native `title` bubble ignores. */
+
+.ui-tooltip {
+  max-width: 320px;
+  padding: 6px 9px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 7px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  /* Long paths are the common case here — wrap them instead of eliding. */
+  overflow-wrap: anywhere;
+  /* Black, not a mix of --ink: --ink is cream in dark mode, so mixing it
+     produces a pale halo that reads as a glow rather than a shadow. Kept
+     shallow — a tooltip should sit just off the surface, and a deep shadow
+     under a small label reads as a floating card. */
+  box-shadow: 0 3px 10px rgb(0 0 0 / 0.18);
+  /* The tooltip is informational and never interactive. Without this it
+     captures the pointer it was positioned under, which closes the trigger's
+     hover, which closes the tooltip, which restores the hover — a flicker
+     loop anywhere the content lands beneath the cursor. */
+  pointer-events: none;
+  z-index: 60;
+}
+
+.ui-tooltip[hidden] {
+  display: none;
+}

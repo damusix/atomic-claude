@@ -327,8 +327,13 @@ var schemaRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `SCHEMA\s+`
 // databaseRE matches CREATE DATABASE <name>
 var databaseRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `DATABASE\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
-// domainRE matches CREATE DOMAIN <name>
-var domainRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `DOMAIN\s+` + modPat + `(` + sqlQNameRaw + `)`)
+// domainRE matches CREATE DOMAIN <name>, optionally inside the DO $$ BEGIN …
+// EXCEPTION WHEN duplicate_object … wrapper. Postgres gives CREATE DOMAIN no
+// IF NOT EXISTS form, so that wrapper is how a re-runnable schema script has
+// to declare one — anchoring on CREATE at line start missed every domain in
+// any idempotent build. Comments are stripped before matching, so the looser
+// anchor cannot pick up a mention in prose.
+var domainRE = regexp.MustCompile(`(?im)^[ \t]*(?:DO\s+\$[^$]*\$\s*BEGIN\s+)?CREATE\s+` + modPat + `DOMAIN\s+` + modPat + `(` + sqlQNameRaw + `)`)
 
 // synonymRE matches CREATE SYNONYM <name> FOR <target>
 // Group 1 = synonym name, Group 2 = target name
@@ -681,8 +686,25 @@ var typeRE = regexp.MustCompile(
 // (used as a fallback for composite types that don't match typeRE).
 var typeCompositeRE = regexp.MustCompile(`(?im)^[ \t]*CREATE\s+` + modPat + `TYPE\s+` + modPat + `(` + sqlQNameRaw + `)\s*$`)
 
-// alterAddColumnRE matches ALTER TABLE <table> ADD [COLUMN] <col>
-var alterAddColumnRE = regexp.MustCompile(`(?im)^[ \t]*ALTER\s+TABLE\s+` + alterTablePat + `(` + sqlQNameRaw + `)\s+ADD\s+(?:COLUMN\s+)?(` + sqlIdentOnlyRaw + `)`)
+// alterAddColumnRE matches ALTER TABLE <table> ADD [COLUMN] [IF NOT EXISTS] <col>
+// The IF NOT EXISTS clause is what idempotent migration scripts are written
+// with; without it the pattern captured the literal "IF" as the column name.
+var alterAddColumnRE = regexp.MustCompile(`(?im)^[ \t]*ALTER\s+TABLE\s+` + alterTablePat + `(` + sqlQNameRaw + `)\s+ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(` + sqlIdentOnlyRaw + `)`)
+
+// alterAddNonColumnKeywords are the tokens that can follow bare ADD without
+// naming a column. RE2 has no lookahead, so the alternatives that this same
+// ADD position accepts are rejected after the match instead of excluded in
+// the pattern — otherwise `ADD CONSTRAINT ck_foo CHECK (…)` mints a column
+// literally named "CONSTRAINT".
+var alterAddNonColumnKeywords = map[string]bool{
+	"constraint": true,
+	"primary":    true,
+	"foreign":    true,
+	"unique":     true,
+	"check":      true,
+	"exclude":    true,
+	"if":         true,
+}
 
 // alterAddConstraintRE matches ALTER TABLE <table> ADD CONSTRAINT <name> <type> ...
 // Group 1 = table name, Group 2 = constraint name, Group 3 = constraint type keyword
@@ -725,6 +747,16 @@ var singleQuotedLabelRE = regexp.MustCompile(`'([^']*)'`)
 // constraintKeywords is the set of column-level keywords that signal a
 // table-level constraint line rather than a column definition.
 // Lines starting with these words (after whitespace) are skipped.
+//
+// A table-level constraint is routinely written across several lines:
+//
+//	CONSTRAINT fk_line_of_order
+//	    FOREIGN KEY (party_no, sales_order_no)
+//	    REFERENCES sales_order (party_no, sales_order_no) ON DELETE CASCADE,
+//
+// so every keyword a continuation line can start with belongs here too —
+// otherwise `REFERENCES sales_order (…)` parses as a column named REFERENCES
+// of type sales_order.
 var constraintKeywords = map[string]bool{
 	"CONSTRAINT": true,
 	"PRIMARY":    true,
@@ -733,6 +765,18 @@ var constraintKeywords = map[string]bool{
 	"CHECK":      true,
 	"INDEX":      true,
 	"KEY":        true,
+	"REFERENCES": true,
+	"ON":         true,
+	"EXCLUDE":    true,
+	"DEFERRABLE": true,
+	"INITIALLY":  true,
+	"MATCH":      true,
+	"LIKE":       true,
+	"INHERITS":   true,
+	"PARTITION":  true,
+	"WITH":       true,
+	"USING":      true,
+	"NOT":        true,
 }
 
 // generatedMarkers are patterns that indicate a computed/generated column.
@@ -1315,7 +1359,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 		rawCol := strippedNoStr[m[4]:m[5]]
 		_, tableName := parseQName(rawTable)
 		colName := normIdent(rawCol)
-		if tableName == "" || colName == "" {
+		if tableName == "" || colName == "" || alterAddNonColumnKeywords[strings.ToLower(colName)] {
 			continue
 		}
 		line := strings.Count(stripped[:m[0]], "\n") + 1
@@ -1364,7 +1408,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			StartLine:     line,
 			EndLine:       line,
 			IsExported:    true,
-			Metadata:      buildConstraintMeta(ctype, ""),
+			Metadata:      buildConstraintMeta(ctype, "", localConstraintColumns(statementAt(strippedNoStr, m[0]), ctype)),
 		}
 		result.Nodes = append(result.Nodes, node)
 		if tableNodeID != "" {
@@ -1407,7 +1451,7 @@ func (e *SQLExtractor) Extract(filePath, source string) (types.ExtractionResult,
 			StartLine:     line,
 			EndLine:       line,
 			IsExported:    true,
-			Metadata:      buildConstraintMeta(ctype, ""),
+			Metadata:      buildConstraintMeta(ctype, "", localConstraintColumns(statementAt(strippedNoStr, m[0]), ctype)),
 		}
 		result.Nodes = append(result.Nodes, node)
 		if tableNodeID != "" {
@@ -2347,12 +2391,34 @@ func extractConstraints(
 	lines := strings.Split(body, "\n")
 	lineOffset := strings.Count(stripped[:bodyOff], "\n")
 
+	// consumed marks continuation lines already folded into a constraint that
+	// began earlier — a FOREIGN KEY line under its own CONSTRAINT name line
+	// would otherwise be read a second time as an anonymous constraint, which
+	// is how descriptive key names ended up rendered as `<table>_fk_1`.
+	consumed := make([]bool, len(lines))
+
 	for i, line := range lines {
+		if consumed[i] {
+			continue
+		}
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
 		trimmed = strings.TrimRight(trimmed, ", \t")
+
+		// A table-level constraint may be written across several lines, with
+		// the name on one and the key clause on the next. Match against the
+		// whole constraint, not the line the CONSTRAINT keyword sits on.
+		full, last := constraintSpan(lines, i)
+		if last > i {
+			if nm := namedConstraintLineRE.FindStringSubmatch(full); nm != nil {
+				for k := i; k <= last; k++ {
+					consumed[k] = true
+				}
+				trimmed = strings.TrimSpace(full)
+			}
+		}
 
 		// Named constraint: CONSTRAINT <name> <type> ...
 		if nm := namedConstraintLineRE.FindStringSubmatch(trimmed); nm != nil {
@@ -2361,7 +2427,7 @@ func extractConstraints(
 			lineNum := lineOffset + i + 1
 			qname := tableName + "." + name
 			id := extraction.GenerateNodeID(filePath, string(types.NodeKindConstraint), qname, lineNum)
-			meta := buildConstraintMeta(ctype, "")
+			meta := buildConstraintMeta(ctype, "", localConstraintColumns(constraintText(lines, i), ctype))
 			node := types.Node{
 				ID:            id,
 				Kind:          types.NodeKindConstraint,
@@ -2387,7 +2453,7 @@ func extractConstraints(
 			lineNum := lineOffset + i + 1
 			qname := tableName + "." + name
 			id := extraction.GenerateNodeID(filePath, string(types.NodeKindConstraint), qname, lineNum)
-			meta := buildConstraintMeta(ctype, "")
+			meta := buildConstraintMeta(ctype, "", localConstraintColumns(constraintText(lines, i), ctype))
 			node := types.Node{
 				ID:            id,
 				Kind:          types.NodeKindConstraint,
@@ -2425,13 +2491,114 @@ func anonSuffix(ctype string) string {
 
 // buildConstraintMeta constructs the Metadata JSON for a constraint node.
 // references is the FK target table name (empty if not FK or CP4 not yet active).
-func buildConstraintMeta(ctype, references string) json.RawMessage {
-	m := map[string]string{"constraint_type": ctype}
+// columns are the constrained column names, in declaration order.
+func buildConstraintMeta(ctype, references string, columns []string) json.RawMessage {
+	m := map[string]any{"constraint_type": ctype}
 	if references != "" {
 		m["references"] = references
 	}
+	if len(columns) > 0 {
+		m["columns"] = columns
+	}
 	b, _ := json.Marshal(m)
 	return b
+}
+
+// constraintText returns a constraint's full text starting at lines[i],
+// following continuation lines until its parentheses balance. A table-level
+// constraint is routinely split across three lines — the name, the FOREIGN KEY
+// clause, the REFERENCES clause — so reading only the line the keyword sits on
+// finds no column list at all.
+func constraintText(lines []string, i int) string {
+	text, _ := constraintSpan(lines, i)
+	return text
+}
+
+// constraintSpan is constraintText plus the index of the last line it folded
+// in, so the caller can skip those lines rather than re-reading them.
+func constraintSpan(lines []string, i int) (string, int) {
+	var b strings.Builder
+	depth := 0
+	opened := false
+	last := i
+	for ; i < len(lines); i++ {
+		b.WriteByte(' ')
+		b.WriteString(lines[i])
+		last = i
+		for _, ch := range lines[i] {
+			switch ch {
+			case '(':
+				depth++
+				opened = true
+			case ')':
+				depth--
+			}
+		}
+		// Stops at the first balanced parenthesis group. For a foreign key
+		// that is the local column list, which is what is wanted — the
+		// REFERENCES clause that may follow names the *target's* columns.
+		if opened && depth <= 0 {
+			break
+		}
+	}
+	return b.String(), last
+}
+
+// statementAt returns the statement beginning at offset — up to the next
+// semicolon, so a column list split across lines is still in scope while the
+// statement after it is not.
+func statementAt(source string, at int) string {
+	if at < 0 || at >= len(source) {
+		return ""
+	}
+	rest := source[at:]
+	if end := strings.IndexByte(rest, ';'); end >= 0 {
+		return rest[:end]
+	}
+	return rest
+}
+
+// constraintTypeKeyword is the word whose following parenthesis holds the
+// constrained column list.
+var constraintTypeKeyword = map[string]string{
+	"primary_key": "PRIMARY",
+	"unique":      "UNIQUE",
+	"foreign_key": "FOREIGN",
+}
+
+// localConstraintColumns returns the columns a constraint applies to, read
+// from the declaration rather than inferred from the constraint's name.
+//
+// CHECK and EXCLUDE are deliberately excluded: their parentheses hold an
+// expression, not a column list, and picking identifiers out of an expression
+// would be the guesswork this replaces. For a foreign key it is the first
+// list — the local columns — never the REFERENCES target's list.
+func localConstraintColumns(text, ctype string) []string {
+	keyword, ok := constraintTypeKeyword[ctype]
+	if !ok {
+		return nil
+	}
+	at := strings.Index(strings.ToUpper(text), keyword)
+	if at < 0 {
+		return nil
+	}
+	inner, _ := findParenBlock(text, at)
+	if inner == "" {
+		return nil
+	}
+
+	var cols []string
+	for _, part := range strings.Split(inner, ",") {
+		// Index specifications carry a direction or opclass after the name.
+		field := strings.TrimSpace(part)
+		if space := strings.IndexAny(field, " \t"); space > 0 {
+			field = field[:space]
+		}
+		if c := normIdent(field); c != "" {
+			cols = append(cols, c)
+		}
+	}
+	return cols
 }
 
 // findParenBlock finds the matching parenthesised block starting at or after

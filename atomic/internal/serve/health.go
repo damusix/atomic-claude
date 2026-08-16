@@ -16,10 +16,13 @@ package serve
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
+	"github.com/damusix/atomic-claude/atomic/internal/config"
 	"github.com/damusix/atomic-claude/atomic/internal/doctor"
-	"github.com/damusix/atomic-claude/atomic/internal/wiki"
+	"github.com/damusix/atomic-claude/atomic/internal/selfupdate"
+	"github.com/damusix/atomic-claude/atomic/internal/version"
 )
 
 // WikiStaleResult is the structured output from the wiki staleness parse.
@@ -78,17 +81,14 @@ type HealthOptions struct {
 // staleDays is the code-index staleness threshold shared with the doctor check.
 const staleDays = 7
 
-// productionWikiStale is the production WikiStalenessFn.
-// It calls wiki.Stale and parses its output into a WikiStaleResult.
-// On hard error (StaleCodeError), it returns an empty result — graceful degradation.
+// productionWikiStale is the production WikiStalenessFn. It reshapes the
+// cached wiki.Stale sets into a WikiStaleResult. On hard error
+// (StaleCodeError) the cache yields empty sets — graceful degradation.
 func productionWikiStale(realmRoot string) WikiStaleResult {
-	var buf strings.Builder
-	code, err := wiki.Stale(realmRoot, &buf)
-	if err != nil || code == wiki.StaleCodeError {
-		return WikiStaleResult{}
-	}
-
-	sets := parseStaleLines(buf.String())
+	// Shares one walk with /api/nav (navStalenessCache) — the two endpoints
+	// fire together on every page load, and each running its own multi-second
+	// walk is what the shell was waiting on.
+	sets := navStalenessCache.get(realmRoot)
 
 	var result WikiStaleResult
 
@@ -261,9 +261,23 @@ type apiIndexStatus struct {
 
 // apiStatusResponse is the /api/status success payload — reshapes healthData.
 type apiStatusResponse struct {
-	IsRealmScope bool           `json:"isRealmScope"`
-	Wiki         apiWikiStatus  `json:"wiki"`
-	Index        apiIndexStatus `json:"index"`
+	// RunID identifies this server process. The browser stores it against a
+	// warmed graph layout so a layout warmed by a previous run is not trusted
+	// to match what this one serves.
+	RunID string `json:"runId"`
+	// Build identity, for an About surface that has to answer "which binary
+	// am I actually talking to" — the answer a bug report needs first.
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	// LatestVersion is whatever the background update check last recorded in
+	// ~/.atomic/state.json — read, never triggered: serve must not perform
+	// network I/O on a page load, and the check has its own cadence.
+	LatestVersion   string         `json:"latestVersion"`
+	UpdateAvailable bool           `json:"updateAvailable"`
+	UptimeSeconds   int64          `json:"uptimeSeconds"`
+	IsRealmScope    bool           `json:"isRealmScope"`
+	Wiki            apiWikiStatus  `json:"wiki"`
+	Index           apiIndexStatus `json:"index"`
 }
 
 // nonNilStrings returns s, or a non-nil empty slice when s is nil, so these
@@ -275,6 +289,26 @@ func nonNilStrings(s []string) []string {
 	return s
 }
 
+// latestKnownVersion reports the newest release the background update check
+// has recorded, and whether it is newer than this build.
+//
+// Read-only, and deliberately not a check of its own: `atomic update --check`
+// owns the network call and its cadence, and a browser hitting /api/status
+// must not be able to trigger one. A machine that has never run a check, or a
+// state file that cannot be read, simply has nothing to report — the About
+// panel then shows no "latest" row rather than an error.
+func latestKnownVersion() (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	latest := selfupdate.LoadState(config.StatePath(home)).Update.LatestVersion
+	if latest == "" {
+		return "", false
+	}
+	return latest, selfupdate.IsNewer(version.Version, latest)
+}
+
 // NewAPIStatusHandler returns an http.Handler for GET /api/status. Reuses the
 // same wiki-staleness and code-index seams NewHealthHandler's HTML dashboard
 // uses, reshaped as JSON instead of a rendered fragment.
@@ -283,8 +317,15 @@ func NewAPIStatusHandler(opts HealthOptions) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data := healthDataFor(opts)
+		latest, updateAvailable := latestKnownVersion()
 		writeAPIJSON(w, apiStatusResponse{
-			IsRealmScope: data.IsRealmScope,
+			RunID:           runID,
+			Version:         version.Version,
+			Commit:          version.Commit,
+			LatestVersion:   latest,
+			UpdateAvailable: updateAvailable,
+			UptimeSeconds:   int64(Uptime().Seconds()),
+			IsRealmScope:    data.IsRealmScope,
 			Wiki: apiWikiStatus{
 				StaleRepos:     nonNilStrings(data.StaleResult.StaleRepos),
 				StaleConcerns:  nonNilStrings(data.StaleResult.StaleConcerns),

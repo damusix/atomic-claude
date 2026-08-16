@@ -100,3 +100,281 @@
 [data-scope="tree-view"][data-part="tree"] > [data-part="branch"] > [data-part="branch-content"] {
   padding-left: 8px;
 }
+
+/* ============================================================
+   ICON RAIL — permanent slim mode rail
+   ============================================================ */
+
+.icon-rail {
+  position: relative;
+  z-index: 25;
+  flex-shrink: 0;
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0;
+  background: var(--paper-sunk);
+  border-right: 1px solid var(--hairline);
+  transition: background-color 0.35s ease, border-color 0.35s ease;
+}
+
+/* Link states are pinned explicitly because app.css's site-wide `a:visited`
+   (0,1,1) outranks a bare class selector — without this every mode turns
+   amber the moment it has been visited once, so the rail shows four active
+   modes and no way to tell which one you are in. */
+.icon-rail-btn,
+.icon-rail-btn:link,
+.icon-rail-btn:visited {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.icon-rail-btn:hover,
+.icon-rail-btn:link:hover,
+.icon-rail-btn:visited:hover {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+/* Amber is reserved for the mode you are actually in. */
+.icon-rail-btn[data-on],
+.icon-rail-btn[data-on]:link,
+.icon-rail-btn[data-on]:visited {
+  color: var(--amber);
+  background: var(--amber-wash);
+}
+
+.icon-rail-btn:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+/* Label appears on hover so the glyphs stay learnable without a text rail. */
+.icon-rail-tip {
+  position: absolute;
+  left: calc(100% + 8px);
+  padding: 3px 7px;
+  border: 1px solid var(--hairline-2);
+  border-radius: 5px;
+  background: var(--paper-raised);
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.icon-rail-btn:hover .icon-rail-tip {
+  opacity: 1;
+}
+
+.icon-rail-divider {
+  width: 18px;
+  height: 1px;
+  margin: 5px 0;
+  background: var(--hairline-2);
+}
+
+.icon-rail-bottom {
+  margin-top: auto;
+}
+
+/* ============================================================
+   NAV DRAWER — the library as an overlay, not a fourth column
+   ============================================================ */
+
+.nav-drawer {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  bottom: 0;
+  left: 48px;
+  width: var(--nav-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-sunk);
+  border-right: 1px solid var(--hairline-2);
+  /* Black rather than a mix of --ink, which is cream in dark mode and turns
+     the drawer's shadow into a halo. */
+  box-shadow: 16px 0 38px rgb(0 0 0 / 0.38);
+  /* Slides rather than appears. `visibility` is in the transition list so it
+     holds through the outgoing slide instead of snapping the panel away on
+     the first frame — it steps at the end because visibility is not an
+     interpolable property. */
+  transition:
+    transform 0.22s cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 0.18s ease,
+    visibility 0.22s;
+}
+
+.nav-drawer:not([data-open]) {
+  transform: translateX(-100%);
+  opacity: 0;
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-drawer {
+    transition: opacity 0.12s ease, visibility 0.12s;
+  }
+
+  .nav-drawer:not([data-open]) {
+    transform: none;
+  }
+}
+
+.nav-drawer-head {
+  flex-shrink: 0;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.nav-drawer-hint {
+  margin-left: auto;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+/* Inside the drawer the tree owns the remaining height and scrolls itself. */
+.nav-drawer #nav-pane {
+  flex: 1;
+  width: 100%;
+  border-right: 0;
+  overflow-y: auto;
+}
+
+/* ============================================================
+   SCOPE CHIP — names the served realm or repo
+   ============================================================ */
+
+/* The kind badge is what makes a bare directory name legible as a repo rather
+   than a folder someone happened to open; the branch sits under it because it
+   qualifies the name rather than competing with it. */
+/* No chip box: the amber wash and border made the scope look like a control
+   you could press. It is a label — the type badge beside it carries enough
+   weight on its own. */
+.breadcrumb-scope {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 0;
+  border: 0;
+  background: none;
+  line-height: 1.15;
+  cursor: default;
+}
+
+.breadcrumb-scope-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.breadcrumb-scope-branch {
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.breadcrumb-scope-branch::before {
+  content: "⑂ ";
+  color: var(--ink-ghost);
+}
+
+.breadcrumb-scope-kind {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink-faint);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.breadcrumb-scope[data-scope="realm"] .breadcrumb-scope-kind {
+  background: var(--amber-wash);
+  color: var(--amber);
+}
+
+/* ============================================================
+   BRAND MARK — glow breathes while the stream is live
+   ============================================================ */
+
+#app-header .brand {
+  display: inline-flex;
+  align-items: center;
+}
+
+#app-header .brand .brand-logo {
+  height: 26px;
+  margin-right: 0;
+  animation: brand-glow 3s ease-in-out infinite;
+}
+
+/* Not live: the mark holds a dim, static glow — the same at-a-glance signal
+   the favicon gives, so a dead stream never looks alive. */
+#app-header .brand[data-conn="reconnecting"] .brand-logo,
+#app-header .brand[data-conn="disconnected"] .brand-logo {
+  animation: none;
+  filter: grayscale(0.85) drop-shadow(0 0 2px color-mix(in srgb, var(--ink) 25%, transparent));
+  opacity: 0.55;
+}
+
+@keyframes brand-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px color-mix(in srgb, var(--amber-bright) 30%, transparent))
+      drop-shadow(0 0 5px color-mix(in srgb, var(--amber-bright) 12%, transparent));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--amber-bright) 70%, transparent))
+      drop-shadow(0 0 16px color-mix(in srgb, var(--amber-bright) 34%, transparent));
+  }
+}
+
+/* Honour a reduced-motion preference: keep the glow, drop the breathing. */
+@media (prefers-reduced-motion: reduce) {
+  #app-header .brand .brand-logo {
+    animation: none;
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--amber-bright) 45%, transparent));
+  }
+}
+
+/* Update badge on the About button. The button is already position:relative,
+   so this pins to its top-right corner. Bordered in the rail's own background
+   so it reads as a separate mark rather than a smudge on the glyph. */
+.icon-rail-badge {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--paper);
+  border-radius: 50%;
+  background: var(--amber);
+  pointer-events: none;
+}

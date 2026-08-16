@@ -1,10 +1,13 @@
-// TopBar — brand, breadcrumb, search trigger, connection indicator, theme
-// toggle. Visual parity target: templates/layout.html's #app-header (pre-
-// cutover markup, still the source of truth for structure/classes until the
-// cutover checkpoint deletes it).
+// TopBar — brand, breadcrumb, search trigger, connection indicator. View
+// modes and the theme toggle live in components/nav/IconRail: a mode is
+// switched in exactly one place, and the header stays a statement of where
+// you are rather than a second control cluster.
+import { Fragment } from "react";
 import { Link, useLocation } from "react-router";
 import type { ConnState } from "../../hooks/useLiveReload";
-import { useTheme } from "../../hooks/useTheme";
+import { useApi } from "../../utils/api";
+import { Tooltip } from "../ui";
+import type { NavResponse } from "./types";
 import "./style.css";
 
 export type { ConnState };
@@ -15,16 +18,70 @@ const CONN_LABEL: Record<ConnState, string> = {
   disconnected: "disconnected",
 };
 
+// The scope chip names what is being served and which kind of thing it is.
+// It used to read a hardcoded "atomic" beside the equally hardcoded brand,
+// so the header showed the product name twice and the realm/repo never.
+function ScopeChip() {
+  const { get } = useApi();
+  const { data } = get<NavResponse>("/nav");
+  if (!data) return null;
+
+  const kind = data.scope === "realm" ? "realm" : "repo";
+  const label = data.branch
+    ? `${kind} scope — ${data.name}, on branch ${data.branch}`
+    : `${kind} scope — ${data.name}`;
+
+  return (
+    <Tooltip label={label} placement="bottom">
+      <span className="breadcrumb-scope" data-scope={kind}>
+        <span className="breadcrumb-scope-main">
+          {data.name}
+          <span className="breadcrumb-scope-kind">{kind}</span>
+        </span>
+        {data.branch ? <span className="breadcrumb-scope-branch">{data.branch}</span> : null}
+      </span>
+    </Tooltip>
+  );
+}
+
+// The header breadcrumb shows the whole path, not just the leaf: with the
+// library behind a drawer, this is the only always-visible answer to "where
+// am I in the tree".
 function Breadcrumb() {
   const location = useLocation();
   const segments = location.pathname.replace(/^\/page\//, "").split("/").filter(Boolean);
-  const label = segments.length > 0 ? segments[segments.length - 1] : "home";
 
   return (
     <nav className="breadcrumb" aria-label="Breadcrumb">
-      <span className="breadcrumb-scope">atomic</span>
-      <span className="breadcrumb-sep">›</span>
-      <span className="breadcrumb-page">{label}</span>
+      <ScopeChip />
+      {segments.length === 0 ? (
+        <>
+          <span className="breadcrumb-sep">›</span>
+          <span className="breadcrumb-page">home</span>
+        </>
+      ) : (
+        // Fragments, not wrapper spans: .breadcrumb is a flex row whose gap
+        // supplies the spacing, and a wrapper would collapse each separator
+        // against its own label.
+        // Every segment but the last navigates to that directory's listing —
+        // this is the page's only breadcrumb, so it has to actually work.
+        segments.map((segment, i) => {
+          const last = i === segments.length - 1;
+          const path = segments.slice(0, i + 1).join("/");
+          return (
+            <Fragment key={`${segment}:${i}`}>
+              <span className="breadcrumb-sep">›</span>
+              {last ? (
+                <span className="breadcrumb-page">{segment}</span>
+              ) : (
+                <Link className="breadcrumb-folder" to={`/page/${path}`}>
+                  {segment}
+                </Link>
+              )}
+            </Fragment>
+          );
+        })
+      )}
     </nav>
   );
 }
@@ -36,12 +93,13 @@ export function TopBar({
   connState?: ConnState;
   onOpenSearch?: () => void;
 }) {
-  const { theme, toggle } = useTheme();
-
   return (
     <header id="app-header">
-      <Link className="brand" to="/" aria-label="atomic — home">
-        atomic
+      {/* The mark alone: the wordmark beside it was the same brand said twice.
+          data-conn drives the glow, so the header carries the same live/idle
+          signal the favicon does. */}
+      <Link className="brand" to="/" aria-label="atomic — home" data-conn={connState}>
+        <img className="brand-logo" src="/logo.png" alt="atomic" />
       </Link>
       <Breadcrumb />
       <div className="search-bar">
@@ -64,76 +122,6 @@ export function TopBar({
         <span className="conn-dot" aria-hidden="true" />
         <span className="conn-label">{CONN_LABEL[connState]}</span>
       </span>
-      {/* Network / graph view toggle — routes to the Graph screen (React
-          Router). Mirrors the pre-cutover #btn-graph markup/label/position
-          (templates/layout.html), swapping its htmx-era click-to-mount
-          behavior for a plain route Link. */}
-      <Link
-        id="btn-graph"
-        className="theme-toggle"
-        to="/graph"
-        aria-label="Network view — toggle full graph"
-        title="Network view"
-      >
-        {/* Nodes-and-edges network glyph */}
-        <svg
-          width="17"
-          height="17"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.9"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <circle cx="6" cy="6" r="2.5" />
-          <circle cx="18" cy="6" r="2.5" />
-          <circle cx="6" cy="18" r="2.5" />
-          <circle cx="18" cy="18" r="2.5" />
-          <circle cx="12" cy="12" r="2.5" />
-          <line x1="8" y1="6" x2="15.5" y2="6" />
-          <line x1="6" y1="8" x2="6" y2="15.5" />
-          <line x1="8" y1="18" x2="15.5" y2="18" />
-          <line x1="18" y1="8" x2="18" y2="15.5" />
-          <line x1="7.7" y1="7.7" x2="10.2" y2="10.2" />
-          <line x1="16.3" y1="7.7" x2="13.8" y2="10.2" />
-          <line x1="7.7" y1="16.3" x2="10.2" y2="13.8" />
-          <line x1="16.3" y1="16.3" x2="13.8" y2="13.8" />
-        </svg>
-      </Link>
-      {/* Bus chat — EXPERIMENT: routes to the /bus room chat screen. */}
-      <Link
-        id="btn-bus"
-        className="theme-toggle"
-        to="/bus"
-        aria-label="Bus chat — talk to agent sessions"
-        title="Bus chat"
-      >
-        {/* Chat-bubble glyph */}
-        <svg
-          width="17"
-          height="17"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.9"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M21 11.5a8.4 8.4 0 0 1-8.5 8.3 8.9 8.9 0 0 1-3.2-.6L4 20.5l1.3-4A8 8 0 0 1 4 11.5 8.4 8.4 0 0 1 12.5 3.2 8.4 8.4 0 0 1 21 11.5z" />
-        </svg>
-      </Link>
-      <button
-        type="button"
-        className="theme-toggle"
-        aria-label="Toggle light / dark theme"
-        aria-pressed={theme === "dark"}
-        onClick={toggle}
-      >
-        {theme === "dark" ? "☀" : "☾"}
-      </button>
     </header>
   );
 }

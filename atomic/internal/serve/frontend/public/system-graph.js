@@ -77,13 +77,14 @@ window.SystemGraph = (function() {
   // (+ width) only — same hex values, same visual language, different renderer.
   var FINGERPRINT_COLOR = window.GraphCore.hexToRGBA01('#fab387', 1);
   var FINGERPRINT_DRIFT_COLOR = window.GraphCore.hexToRGBA01('#f38ba8', 1);
-  var FINGERPRINT_WIDTH = 1.5;
-  var FINGERPRINT_DRIFT_WIDTH = 2.5;
-  // DEFAULT_WIDTH (graph-interactions brief, item 4): 1 -> 1.25 alongside the
-  // --edge/--edge-strong brightening in app.css — plain md-link/wikilink
-  // edges were the faintest tier here (full alpha already, so only width and
-  // the CSS var itself had room to move).
-  var DEFAULT_WIDTH = 1.25;
+  // Every width is capped at 1px (2026-08-16 user feedback). Width was the
+  // tier separator here — fingerprint 1.5, drift 2.5, everything else 1.25 —
+  // but at 20k nodes the thicker tiers stop reading as emphasis and start
+  // reading as clutter, since the edges outnumber what any of them could
+  // usefully single out. Color still carries the distinction.
+  var FINGERPRINT_WIDTH = 1;
+  var FINGERPRINT_DRIFT_WIDTH = 1;
+  var DEFAULT_WIDTH = 1;
 
   // linkStyle assigns per-link color/width from the edge's classes string
   // ("fingerprint" or "fingerprint drift" — graphoverlay.go's format).
@@ -102,7 +103,11 @@ window.SystemGraph = (function() {
     var width = isFingerprint && isDrift ? FINGERPRINT_DRIFT_WIDTH
       : isFingerprint ? FINGERPRINT_WIDTH
       : DEFAULT_WIDTH;
-    return { color: color, width: width };
+    // Fingerprint and drift keep their own colors — there the color is the
+    // information. Everything else tints from its source node (graph-core's
+    // computeLinkStyling), since a flat edge color across the whole graph
+    // reads as haze.
+    return { color: color, width: width, tint: !isFingerprint };
   }
 
   // nodeMeta builds the plain-data object AtomicGraphUI's engine-neutral
@@ -134,7 +139,16 @@ window.SystemGraph = (function() {
         .then(function(elems) { return { elements: elems, cacheKey: fingerprint }; });
     },
     adapt: adapt,
-    colors: function() { return atomicCyTypeColors(); },
+    // graphTypeColors is atomicCyTypeColors on the vivid band — the canvas
+    // palette. The rail's mini-graph still calls atomicCyTypeColors directly
+    // and keeps the dusky one, since it sits on paper beside prose.
+    colors: function() { return graphTypeColors(); },
+    // Type also carries a shape, so hue is not the only thing separating two
+    // node kinds at four pixels. See TYPE_SHAPE in utils/typeColors.ts.
+    shapeOf: function(colors, type) {
+      var shape = colors[type + '-shape'];
+      return shape === undefined ? 0 : Number(shape);
+    },
     linkStyle: linkStyle,
     nodeMeta: nodeMeta,
     labelText: labelText,
@@ -148,6 +162,14 @@ window.SystemGraph = (function() {
       if (!window.AtomicGraphUI) { return; }
       window.AtomicGraphUI.hidePreviewCard();
       window.AtomicGraphUI.openPageModal(id, meta);
+    },
+    // Answers whether the modal THIS profile opens is up, so the core can
+    // leave Escape to it (see the Escape branch in mount()). graphUI.ts
+    // toggles `open` on the scrim, which is the same flag its own dismiss
+    // path reads.
+    isModalOpen: function() {
+      var scrim = document.getElementById('cy-page-modal-scrim');
+      return !!scrim && scrim.classList.contains('open');
     },
     // onTeardown dismisses whatever hover/click UI this profile opened —
     // graph-core.js's teardown() fires this (if defined) instead of

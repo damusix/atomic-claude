@@ -1,0 +1,237 @@
+/* components/about — the About / status panel opened from the icon rail.
+   Scrim + box treatment mirrors components/code-modal so the two modals in the
+   app read as the same kind of surface. */
+
+#about-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: none;
+  place-items: center;
+  background: color-mix(in srgb, #000 62%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+#about-modal.open {
+  display: grid;
+}
+
+.about-box {
+  width: min(460px, calc(100vw - 32px));
+  max-height: min(78vh, 720px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--hairline-2);
+  border-radius: 12px;
+  background: var(--paper-raised);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.about-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 15px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.about-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.about-kind {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ink-faint) 16%, transparent);
+  color: var(--ink-faint);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.about-close {
+  border: 0;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.about-close:hover {
+  color: var(--ink);
+}
+
+.about-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px 15px;
+}
+
+.about-section + .about-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.about-section-title {
+  margin: 0 0 9px;
+  color: var(--ink-faint);
+  font-family: var(--sans);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.about-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.about-row-label {
+  flex: 0 0 92px;
+  color: var(--ink-faint);
+  font-family: var(--sans);
+  font-size: 11.5px;
+}
+
+.about-row-value {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.about-row-value code {
+  font-family: var(--mono);
+}
+
+.about-commit {
+  color: var(--ink-faint);
+}
+
+.about-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+/* Neutral, not amber. A panel where every pill is the accent colour reads as
+   a wall of warnings; amber is kept for the one thing that is actually
+   actionable (an available update). */
+.about-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-faint) 14%, transparent);
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.about-pill-count {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-faint) 20%, transparent);
+  font-size: 9.5px;
+}
+
+.about-pill[data-halted] {
+  background: color-mix(in srgb, var(--ink-faint) 16%, transparent);
+  color: var(--ink-faint);
+}
+
+.about-pill[data-warn] {
+  background: color-mix(in srgb, var(--ink-faint) 14%, transparent);
+  color: var(--ink-faint);
+}
+
+.about-health-clear {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--ink-faint);
+  font-family: var(--sans);
+  font-size: 11.5px;
+}
+
+.about-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.about-dot[data-ok] {
+  background: var(--conn-live, #6fc38c);
+}
+
+.about-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 11px 15px;
+  border-top: 1px solid var(--hairline);
+  background: var(--paper-sunk);
+  font-family: var(--sans);
+  font-size: 11px;
+}
+
+.about-credit {
+  color: var(--ink-faint);
+}
+
+.about-links {
+  display: flex;
+  gap: 12px;
+}
+
+/* A footer is a footer: muted by default, one step lighter than the label
+   text beside it so a link still reads as a link, and amber only under the
+   pointer. */
+.about-footer a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.about-footer a:hover {
+  color: var(--amber);
+  text-decoration: underline;
+}
+
+/* Sits beside the latest-version value when it is ahead of this build. */
+.about-update-tag {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--amber) 18%, transparent);
+  color: var(--amber);
+  font-family: var(--sans);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}

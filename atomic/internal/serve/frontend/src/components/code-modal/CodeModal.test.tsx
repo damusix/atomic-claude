@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiProvider } from "../../utils/api";
 import { CodeModal } from "./CodeModal";
@@ -80,6 +80,26 @@ describe("CodeModal", () => {
 
     await waitFor(() => expect(screen.getByText("func main() {}")).toBeInTheDocument());
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+  });
+
+  // Paths in the modal come from the code index, so they go stale whenever a
+  // file moves. Reporting that as a spinner made a stale index look like a
+  // hung request — the state the fetch is actually in is "finished, failed".
+  test("a source path the index knows but disk does not reports the miss", async () => {
+    mockFetchByUrl({ "/api/code/file": FILE_INTEL_FIXTURE });
+    renderModal();
+
+    act(() => openFile("repo/sql/db/02_Tables/13_billing.sql", 331));
+
+    await waitFor(() =>
+      expect(document.querySelector(".code-source-missing")).not.toBeNull(),
+    );
+    // Scoped to the message: the modal title carries the same path.
+    const missing = within(document.querySelector(".code-source-missing") as HTMLElement);
+    expect(missing.getByText(/Source not found/)).toBeInTheDocument();
+    expect(missing.getByText("repo/sql/db/02_Tables/13_billing.sql")).toBeInTheDocument();
+    expect(missing.getByText(/atomic code index/)).toBeInTheDocument();
+    expect(screen.queryByText("Loading…")).toBeNull();
   });
 
   test("intel-pane drill-down: file defines -> node detail -> callers", async () => {

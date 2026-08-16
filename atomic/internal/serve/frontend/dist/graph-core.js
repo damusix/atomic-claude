@@ -21,9 +21,12 @@
 // Delegates to a per-view PROFILE object (passed to mount()): data fetch +
 // response adapter, palette/type taxonomy (colors()/linkStyle()), cache key,
 // label/meta resolvers (labelText()/nodeMeta()), hover/click hooks
-// (onHover()/onHoverOut()/onClick()), and an optional onTeardown() cleanup
-// hook (fired by teardown() below if the profile defines one — e.g. to
-// dismiss whatever hover/click UI the profile opened). system-graph.js (the
+// (onHover()/onHoverOut()/onClick()), an optional isModalOpen() predicate
+// (the profile owns whatever onClick() opens, so it is the only thing that
+// can say whether a modal is up and therefore owns Escape), and an optional
+// onTeardown() cleanup hook (fired by teardown() below if the profile
+// defines one — e.g. to dismiss whatever hover/click UI the profile opened).
+// system-graph.js (the
 // docs Network View, over /graph/data) and code-graph.js (over
 // /code/graph/data, checkpoint 5) are the two current profiles; both run the
 // core's drag physics constants verbatim (docs/spec/code-graph.md checkpoint
@@ -442,19 +445,144 @@ window.GraphCore = (function() {
   // "wikilink" for the docs profile, "contains" vs "calls"/"imports" for a
   // future code profile) moved to the profile. This function stays the
   // mechanical array-building loop.
-  function computeLinkStyling(adapted, colors, profile) {
+  // How far a tinted edge is mixed toward white. High enough that the darkest
+  // ramp shade still clears the canvas at the faintest tier's alpha, low
+  // enough that the hue is still legible as the source node's.
+  var TINT_LIFT = 0.4;
+
+  function computeLinkStyling(adapted, colors, profile, pointColors) {
     var n = adapted.linkClasses.length;
     var linkColors = new Float32Array(n * 4);
     var linkWidths = new Float32Array(n);
     for (var i = 0; i < n; i++) {
       var styled = profile.linkStyle(adapted.linkClasses[i], colors);
-      linkColors[i * 4] = styled.color[0];
-      linkColors[i * 4 + 1] = styled.color[1];
-      linkColors[i * 4 + 2] = styled.color[2];
+      var r = styled.color[0], g = styled.color[1], b = styled.color[2];
+      // A link the profile marks `tint` takes its hue from the node it leaves,
+      // at the alpha the profile chose. One flat edge color over a whole graph
+      // reads as grey haze; tinting makes a hub's fan-out legible as one
+      // structure. Only the generic tier tints — an edge kind the profile
+      // colors deliberately (fingerprint, drift, calls) keeps that color,
+      // since there the color IS the information.
+      if (styled.tint && pointColors) {
+        var s = adapted.links[i * 2];
+        // Lifted toward white. The tint's job is to say WHICH node the edge
+        // leaves, not to restate that node's degree — but a point's fill is
+        // degree-shaded, so tinting from it verbatim handed the faintest edge
+        // tier the darkest fills: `contains` edges leave module-file nodes,
+        // which are the highest-degree things in a code graph and therefore
+        // the darkest, and at 0.18 alpha on a near-black canvas they stopped
+        // rendering at all. Hue survives the lift; brightness stops depending
+        // on the source node's degree.
+        r = pointColors[s * 4] + (1 - pointColors[s * 4]) * TINT_LIFT;
+        g = pointColors[s * 4 + 1] + (1 - pointColors[s * 4 + 1]) * TINT_LIFT;
+        b = pointColors[s * 4 + 2] + (1 - pointColors[s * 4 + 2]) * TINT_LIFT;
+      }
+      linkColors[i * 4] = r;
+      linkColors[i * 4 + 1] = g;
+      linkColors[i * 4 + 2] = b;
       linkColors[i * 4 + 3] = styled.color[3];
       linkWidths[i] = styled.width;
     }
     return { colors: linkColors, widths: linkWidths };
+  }
+
+  // ── Hierarchical layout ────────────────────────────────────────────────────
+
+  // Spacing is in simulation-space units. fitView() frames whatever this
+  // produces, so these set the tree's ASPECT, not its size on screen: layers
+  // want to be far enough apart that the bands read as levels, and nodes
+  // within a layer close enough that a wide layer does not become a line.
+  var TREE_LAYER_GAP = 260;
+  var TREE_NODE_GAP = 34;
+
+  // computeTreeLayout stratifies the graph into layers by breadth-first depth.
+  //
+  // This is deliberately not a Sugiyama/DAG layout: the graphs here are cyclic
+  // and disconnected (a docs realm is many little islands; a code graph has
+  // import cycles), so there is no topological order to draw. BFS depth from
+  // the highest-degree unvisited node always terminates and always produces
+  // layers, and it answers the question the view is actually for — how far is
+  // everything from the hubs.
+  //
+  // Components share layers rather than being drawn side by side, so depth
+  // means the same thing across the whole canvas: every node on one band is
+  // the same number of hops from its own hub.
+  function computeTreeLayout(adapted, adjacency) {
+    var n = adapted.nodes.length;
+    var visited = new Uint8Array(n);
+    var depth = new Int32Array(n);
+    var layers = [];
+
+    // Seeding each component from its densest node makes the hub the root, so
+    // the tree hangs from the thing the component is organized around.
+    var byDegree = new Array(n);
+    for (var i = 0; i < n; i++) { byDegree[i] = i; }
+    byDegree.sort(function(a, b) { return adjacency.neighbors[b].length - adjacency.neighbors[a].length; });
+
+    for (var k = 0; k < byDegree.length; k++) {
+      var root = byDegree[k];
+      if (visited[root]) { continue; }
+      visited[root] = 1;
+      depth[root] = 0;
+      // Index cursor, not shift(): shift() on a 20k-entry queue is O(n) per
+      // pop and turns the walk quadratic.
+      var queue = [root];
+      for (var head = 0; head < queue.length; head++) {
+        var cur = queue[head];
+        var d = depth[cur];
+        if (!layers[d]) { layers[d] = []; }
+        layers[d].push(cur);
+        var nb = adjacency.neighbors[cur];
+        for (var j = 0; j < nb.length; j++) {
+          var next = nb[j];
+          if (visited[next]) { continue; }
+          visited[next] = 1;
+          depth[next] = d + 1;
+          queue.push(next);
+        }
+      }
+    }
+
+    // A fixed layer gap collapses the tree into a flat smear: a realm's widest
+    // layer runs to hundreds of nodes while its depth is barely a dozen, so
+    // the drawing ends up an order of magnitude wider than it is tall. Scale
+    // the gap to the tree's own width and the aspect holds for any graph.
+    var widest = 0;
+    for (var w = 0; w < layers.length; w++) {
+      if (layers[w] && layers[w].length > widest) { widest = layers[w].length; }
+    }
+    var layerGap = Math.max(
+      TREE_LAYER_GAP,
+      (widest * TREE_NODE_GAP * 0.6) / Math.max(1, layers.length - 1),
+    );
+
+    var positions = new Float32Array(n * 2);
+    for (var d2 = 0; d2 < layers.length; d2++) {
+      var layer = layers[d2];
+      if (!layer) { continue; }
+      var half = (layer.length - 1) / 2;
+      for (var m = 0; m < layer.length; m++) {
+        var idx = layer[m];
+        positions[idx * 2] = (m - half) * TREE_NODE_GAP;
+        // Negative so depth 0 sits at the top: the canvas y axis grows
+        // downward, and a tree that grew upward from its root would read as
+        // upside down.
+        positions[idx * 2 + 1] = -d2 * layerGap;
+      }
+    }
+    return positions;
+  }
+
+  // computeNodeShapes maps each node's type to a cosmos point-shape index via
+  // the profile's shapeOf() hook. A profile without one gets all circles,
+  // which is cosmos's own default.
+  function computeNodeShapes(adapted, colors, profile) {
+    var n = adapted.nodes.length;
+    var out = new Float32Array(n);
+    for (var i = 0; i < n; i++) {
+      out[i] = profile.shapeOf(colors, typeOf(adapted, i));
+    }
+    return out;
   }
 
   // computeNodeColors builds the per-point RGBA array from each node's type,
@@ -533,12 +661,29 @@ window.GraphCore = (function() {
     // value can't index the ramp out of bounds; falls back to the identity
     // curve (docs profile's effective mapping is unchanged by this).
     var shadeCurve = (profile.shadeCurve && profile.shadeCurve.length === 5) ? profile.shadeCurve : IDENTITY_SHADE_CURVE;
-    graph.setPointColors(computeNodeColors(adapted, colors, filteredTypes, degrees, shadeCurve));
+    var pointColors = computeNodeColors(adapted, colors, filteredTypes, degrees, shadeCurve);
+    graph.setPointColors(pointColors);
     graph.setPointSizes(computeNodeSizes(degrees));
-    var linkStyle = computeLinkStyling(adapted, colors, profile);
+    if (profile.shapeOf) { graph.setPointShapes(computeNodeShapes(adapted, colors, profile)); }
+    // Node colors are computed first because the generic edge tier is tinted
+    // from them — see computeLinkStyling.
+    var linkStyle = computeLinkStyling(adapted, colors, profile, pointColors);
     graph.setLinkColors(linkStyle.colors);
     graph.setLinkWidths(linkStyle.widths);
+    // cosmos clears the canvas to an OPAQUE backgroundColor of its own —
+    // #222222 by default — so #system-cy's CSS background never showed at all
+    // and every node was judged against a mid-grey the palette knows nothing
+    // about. Push --graph-bg into the engine, here rather than only at
+    // construction, so a theme flip moves the canvas with everything else.
+    graph.setConfigPartial({ backgroundColor: graphBackground() });
     graph.render();
+  }
+
+  // Resolved live: --graph-bg is a theme-scoped token, so reading it once at
+  // load would pin the canvas to whichever theme happened to be active then.
+  function graphBackground() {
+    var value = getComputedStyle(document.documentElement).getPropertyValue('--graph-bg').trim();
+    return value || '#0a0803';
   }
 
   // ── Legend: type-filter chip bar ───────────────────────────────────────────
@@ -547,7 +692,7 @@ window.GraphCore = (function() {
   // node set (mirrors the removed Cytoscape buildLegend's "types seen in
   // elements" approach). onToggle(type, hidden) is called with the NEW hidden
   // state so the caller can update filteredTypes and restyle.
-  function buildLegend(adapted, colors, mainPane, onToggle) {
+  function buildLegend(adapted, colors, mainPane, onToggle, profile) {
     var seenTypes = {};
     adapted.nodes.forEach(function(n) {
       var t = n.data && n.data.type;
@@ -571,6 +716,12 @@ window.GraphCore = (function() {
       var swatch = document.createElement('span');
       swatch.className = 'graph-legend-swatch';
       swatch.style.background = color;
+      // The swatch carries the node's shape as well as its color, or the
+      // legend would teach only half the encoding the canvas uses. CSS
+      // clip-paths key off this attribute (app.css).
+      if (profile.shapeOf) {
+        swatch.setAttribute('data-shape', String(profile.shapeOf(colors, type)));
+      }
       var label = document.createElement('span');
       label.textContent = type;
       chip.appendChild(swatch);
@@ -899,6 +1050,9 @@ window.GraphCore = (function() {
         var mountFinished = false;   // gates the once-only fit/restore/clearLoading below from re-running after a drag's cooldown
         var recording = false;       // ignore our own programmatic camera moves; record only user-driven ones
         var viewTimer = null;
+        // Which layout is on screen. Every mount starts on the force layout;
+        // the tree is only ever reached through __atomicSetLayout.
+        var layoutMode = 'force';
         // effectiveZoomMin: 0 is a placeholder for the pre-settle window
         // only — with no floor yet computed, `k < 0` never trips (zoom
         // levels are always positive), so onZoom's userDriven clamp below
@@ -958,25 +1112,46 @@ window.GraphCore = (function() {
           graph.render();
         }
 
-        // Pinned highlight (2026-07-18 user feedback): a Shift-click pins a
+        // Pinned highlight (2026-07-18 user feedback): a Ctrl/Cmd-click pins a
         // node's neighborhood emphasis so it survives mouse-out and Shift
-        // release; a second Shift-click on the SAME node opens it (modal),
-        // and a plain (no-Shift) click always opens directly. Unpinned by a
-        // background click, by pinning another node, or by legend-hiding the
+        // release; a second one on the SAME node opens it (modal), and a plain
+        // unmodified click always opens directly. Unpinned by a background
+        // click, by pinning another node, or by legend-hiding the
         // pinned node's type. applyHighlightState is the single resolver:
         // pin wins, then live Shift-hover, else clear — every handler that
         // used to call clearHighlight on its way out calls this instead so
         // a transient hover/edge highlight falls back to the pin, not to
         // nothing.
         var pinnedIndex = null;
+        // Search emphasis (2026-08-16 user feedback): finding a node in a
+        // 20k-point graph by eye is not possible, so a query lights up every
+        // match at once and dims the rest — the same emphasis Shift-hover
+        // gives one node, applied to a set. It outranks pin and hover because
+        // it is the only one the user is actively driving.
+        var searchIndices = null;
         function applyHighlightState() {
-          if (pinnedIndex != null) {
+          if (searchIndices && searchIndices.length) {
+            setHighlight(searchIndices, []);
+          } else if (pinnedIndex != null) {
             setHighlight(adjacency.neighbors[pinnedIndex].concat([pinnedIndex]), adjacency.links[pinnedIndex]);
           } else if (shiftDown && hoverIndex != null && !filteredTypes[typeOf(adapted, hoverIndex)]) {
             setHighlight(adjacency.neighbors[hoverIndex].concat([hoverIndex]), adjacency.links[hoverIndex]);
           } else {
             clearHighlight();
           }
+        }
+
+        // The pin gesture reaches us down two unrelated cosmos hooks (see
+        // onPointContextMenu), so the toggle lives here rather than in either
+        // one of them. Pinning a node already pinned is the "again opens" half
+        // of the gesture.
+        function togglePin(index) {
+          if (pinnedIndex !== index) {
+            pinnedIndex = index;
+            applyHighlightState();
+            return;
+          }
+          profile.onClick(adapted.indexToId[index], profile.nodeMeta(adapted, index));
         }
 
         // linkHoverMeta builds the "A -kind-> B" preview-card meta for edge hover
@@ -1145,11 +1320,16 @@ window.GraphCore = (function() {
         // onSimulationEnd's own comment on why that floor moved off a
         // fixed node-size-derived constant).
         function computeFitZoomApprox() {
-          var flat = graph.getPointPositions();
-          // Degenerate no-points guard — unreachable in practice (mount()
-          // never fires onSimulationEnd with zero nodes), and the return
-          // value is moot either way (nothing to fit or zoom).
-          if (!flat.length) { return 1; }
+          return fitZoomForPositions(graph.getPointPositions());
+        }
+
+        // Takes the array explicitly, because a caller that has JUST written
+        // new positions cannot read them back yet: setPointPositions only
+        // stages an input array, and the derived positions getPointPositions
+        // returns are not rebuilt until a later render pass. A layout swap
+        // computing its floor from the read-back therefore measured the layout
+        // it was replacing.
+        function boundsForPositions(flat) {
           var minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
           for (var i = 0; i < flat.length; i += 2) {
             var x = flat[i], y = flat[i + 1];
@@ -1158,6 +1338,31 @@ window.GraphCore = (function() {
             if (y < minY) { minY = y; }
             if (y > maxY) { maxY = y; }
           }
+          return { minX: minX, maxX: maxX, minY: minY, maxY: maxY };
+        }
+
+        // Whether a saved camera center belongs to the graph now on screen.
+        // A URL saved from the tree layout carries coordinates from a world
+        // ~25x larger, and restoring one onto a force layout parks the camera
+        // in empty space — the graph renders, off-screen, and the pane looks
+        // broken. One graph-width of slack either side, so a deliberately
+        // off-center view still restores.
+        function savedCenterIsPlausible(flat, pan) {
+          if (!flat || !flat.length) { return false; }
+          var b = boundsForPositions(flat);
+          var slackX = Math.max(1, b.maxX - b.minX);
+          var slackY = Math.max(1, b.maxY - b.minY);
+          return pan.x >= b.minX - slackX && pan.x <= b.maxX + slackX
+            && pan.y >= b.minY - slackY && pan.y <= b.maxY + slackY;
+        }
+
+        function fitZoomForPositions(flat) {
+          // Degenerate no-points guard — unreachable in practice (mount()
+          // never fires onSimulationEnd with zero nodes), and the return
+          // value is moot either way (nothing to fit or zoom).
+          if (!flat || !flat.length) { return 1; }
+          var bounds = boundsForPositions(flat);
+          var minX = bounds.minX, maxX = bounds.maxX, minY = bounds.minY, maxY = bounds.maxY;
           var bboxW = Math.max(1, maxX - minX), bboxH = Math.max(1, maxY - minY);
           var viewportW = container.clientWidth || 1, viewportH = container.clientHeight || 1;
           return Math.min(viewportW / bboxW, viewportH / bboxH);
@@ -1187,11 +1392,43 @@ window.GraphCore = (function() {
         // level, registered per mount, removed via __atomicCleanup in
         // teardown()/profile-swap.
         var shiftDown = false;
+        // Ctrl/Cmd pins a node's neighborhood highlight (2026-08-16 user
+        // feedback). It used to share Shift with drag, so moving a node also
+        // pinned its highlight and the two gestures could not be performed
+        // independently. Cmd is tracked alongside Ctrl because Ctrl-click is
+        // the context-menu gesture on macOS.
+        var pinModifierDown = false;
         function onShiftChange(e) {
+          // Escape releases a pin. The alternative — hunt for a patch of empty
+          // canvas and click it — stops being findable at all in a dense
+          // graph. A field owns its own Escape (the search box clears itself),
+          // so a keystroke aimed at one is left alone.
+          if (e.key === 'Escape') {
+            if (e.type !== 'keydown' || pinnedIndex == null) { return; }
+            var el = e.target;
+            if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT')) { return; }
+            // An open modal owns Escape: one keypress dismisses one thing. The
+            // pin is the state the user returns to once the modal is gone —
+            // clearing both at once throws away the context they opened the
+            // modal from. This runs in the capture phase (see the listener
+            // registration) because the modal dismisses itself on a bubble
+            // listener, which would clear the very flag this reads.
+            if (profile.isModalOpen && profile.isModalOpen()) { return; }
+            pinnedIndex = null;
+            applyHighlightState();
+            return;
+          }
+          if (e.key === 'Control' || e.key === 'Meta') {
+            pinModifierDown = e.type === 'keydown';
+            return;
+          }
           if (e.key !== 'Shift') { return; }
           setShift(e.type === 'keydown');
         }
-        function onWindowBlur() { setShift(false); } // release stuck Shift on tab-away
+        function onWindowBlur() { // release stuck modifiers on tab-away
+          pinModifierDown = false;
+          setShift(false);
+        }
         function setShift(down) {
           if (down === shiftDown) { return; }
           shiftDown = down;
@@ -1204,7 +1441,11 @@ window.GraphCore = (function() {
           }
           applyHighlightState(); // pin survives Shift release — see its comment
         }
-        document.addEventListener('keydown', onShiftChange);
+        // keydown is capture-phase on purpose: the profile's modal dismisses
+        // itself from a bubble-phase Escape listener, so a bubble listener
+        // here would always observe the modal as already closed and unpin on
+        // the same keypress that closed it.
+        document.addEventListener('keydown', onShiftChange, true);
         document.addEventListener('keyup', onShiftChange);
         window.addEventListener('blur', onWindowBlur);
 
@@ -1213,6 +1454,10 @@ window.GraphCore = (function() {
           // simulation (or the cache replay) has settled — fit/restore
           // manually once onSimulationEnd fires.
           fitViewOnInit: false,
+          // Set here as well as in applyStyling so the very first frame is
+          // already on-palette — cosmos would otherwise clear to its own
+          // #222222 for the gap between construction and first styling pass.
+          backgroundColor: graphBackground(),
           // Drag is Shift-gated — see setShift above. Starts off so the
           // first interaction is always pan/zoom, never an accidental drag.
           enableDrag: false,
@@ -1255,6 +1500,14 @@ window.GraphCore = (function() {
             fitZoom = computeFitZoomApprox();
             effectiveZoomMin = fitZoom * 0.6;
             var saved = readViewFromURL();
+            // The zoom clamp above cannot save a view whose PAN belongs to a
+            // different layout: a tree-space center survives any zoom
+            // correction and still points at empty space. Bookmarks and open
+            // tabs from before tree cameras stopped being written still carry
+            // one, and clearing site data does not clear a query string, so
+            // the restore has to reject what it cannot use rather than trust
+            // the URL.
+            if (saved && !savedCenterIsPlausible(graph.getPointPositions(), saved.pan)) { saved = null; }
             if (saved) {
               // Clamp a restored URL's zoom param into range — a pre-clamp-era
               // bookmark, or one saved during the exact race this fix closes,
@@ -1273,12 +1526,12 @@ window.GraphCore = (function() {
             // siblings there corrupt its insertBefore anchors on a Docs|Code
             // switch. The keyed container is destroyed wholesale on switch,
             // so these clean themselves up with no removal bookkeeping.
-            buildLegend(adapted, profile.colors(), container, onLegendToggle);
+            buildLegend(adapted, profile.colors(), container, onLegendToggle, profile);
             if (!container.querySelector('.graph-hint')) {
               var hint = document.createElement('div');
               hint.id = 'graph-hint';
               hint.className = 'graph-hint';
-              hint.textContent = 'hold ⇧ to highlight & drag · ⇧-click pins, again opens';
+              hint.textContent = 'hold ⇧ to highlight & drag · ⌃-click pins, again opens · esc unpins';
               container.appendChild(hint);
             }
             clearLoading(mainPane);
@@ -1370,6 +1623,15 @@ window.GraphCore = (function() {
             // userDriven excludes our own fitView/setZoomTransformByPointPositions
             // camera moves — cosmos.gl reports it directly, no timer-based guess needed.
             if (!recording || !userDriven) { return; }
+            // The saved camera is world-space (px/py), and the two layouts do
+            // not share a world: the tree spreads the same graph across ~11,000
+            // units where the force layout settles into ~440. Persisting a tree
+            // camera meant the next mount — a reload, a Docs|Code switch —
+            // restored a center thousands of units away from a force layout
+            // that had never moved, so the graph rendered and then vanished
+            // off-screen. Every mount starts on force, so only a force camera
+            // is worth saving.
+            if (layoutMode !== 'force') { return; }
             clearTimeout(viewTimer);
             viewTimer = setTimeout(function() { writeViewToURL(graph, container); }, VIEW_DEBOUNCE_MS);
           },
@@ -1412,16 +1674,35 @@ window.GraphCore = (function() {
           },
           onPointClick: function(index, pointPosition) {
             if (filteredTypes[typeOf(adapted, index)]) { return; }
-            // Shift-click: first click pins this node's highlight; a second
-            // Shift-click on the SAME node opens it. Plain click always opens.
-            if (shiftDown && pinnedIndex !== index) {
-              pinnedIndex = index;
-              applyHighlightState();
-              return;
-            }
+            // Ctrl/Cmd-click pins this node's highlight; a second one on the
+            // SAME node opens it. Plain click always opens. Shift is drag
+            // only — pinning on Shift meant a drag left a pin behind.
+            if (pinModifierDown) { togglePin(index); return; }
             profile.onClick(adapted.indexToId[index], profile.nodeMeta(adapted, index));
           },
           onBackgroundClick: function() {
+            if (pinnedIndex == null) { return; }
+            pinnedIndex = null;
+            applyHighlightState();
+          },
+          // The pin gesture also has to be handled here, not only in
+          // onPointClick, because on macOS Ctrl-click IS the context-menu
+          // gesture: the browser fires `contextmenu` and then never fires
+          // `click` at all (verified in Chromium — mousedown, contextmenu,
+          // mouseup, no click). cosmos compounds it, setting
+          // _shouldSuppressNextClick in its own contextmenu handler. So the
+          // whole pin branch above is unreachable by the gesture the hint
+          // advertises, and the same click that a mac user makes arrives
+          // here instead. Cmd-click still lands in onPointClick.
+          //
+          // This also makes a plain right-click pin on every platform, which
+          // takes nothing away: cosmos already calls preventDefault on
+          // contextmenu, so right-click over the canvas does nothing today.
+          onPointContextMenu: function(index) {
+            if (filteredTypes[typeOf(adapted, index)]) { return; }
+            togglePin(index);
+          },
+          onBackgroundContextMenu: function() {
             if (pinnedIndex == null) { return; }
             pinnedIndex = null;
             applyHighlightState();
@@ -1469,10 +1750,69 @@ window.GraphCore = (function() {
         });
         instance = graph;
         instance.__atomicRetheme = function() { applyStyling(graph, adapted, filteredTypes, degrees, profile); };
+
+        // Layout swap. The force layout is not recomputed on the way back —
+        // its settled positions are kept and restored, so returning from the
+        // tree gives back the exact arrangement the reader had rather than a
+        // fresh settle that scatters everything they had oriented themselves
+        // by. The simulation stays paused in both directions for the same
+        // reason: it is already settled, and reheating would move nodes the
+        // reader is looking at.
+        var savedForcePositions = null;
+        instance.__atomicSetLayout = function(mode) {
+          var applied;
+          layoutMode = mode === 'tree' ? 'tree' : 'force';
+          if (mode === 'tree') {
+            if (!savedForcePositions) { savedForcePositions = graph.getPointPositions(); }
+            graph.pause();
+            applied = computeTreeLayout(adapted, adjacency);
+          } else if (savedForcePositions) {
+            applied = savedForcePositions;
+          } else {
+            return; // already on force, and nothing was ever swapped out
+          }
+          graph.setPointPositions(applied);
+          graph.render();
+          // The zoom-out floor is anchored to the layout's own world-space
+          // footprint, and a layout swap changes that footprint by more than
+          // an order of magnitude — the tree spreads a graph that settled into
+          // ~440 units across into ~11,000. Leaving the mount's force-derived
+          // floor in place made the tree's own fitted view unreachable: the
+          // first wheel-in jumped up to the stale floor and nothing could get
+          // back below it, so zooming out stopped working entirely. Measured
+          // from the array just applied, not read back — see
+          // fitZoomForPositions.
+          fitZoom = fitZoomForPositions(applied);
+          effectiveZoomMin = fitZoom * 0.6;
+          graph.fitView();
+        };
+        // __atomicSearch — highlight every node whose label matches a query,
+        // returning the match count for the caller's result readout. A
+        // legend-hidden type is skipped: it is already filtered out of the
+        // view, and lighting it up would highlight something invisible.
+        instance.__atomicSearch = function(query) {
+          var q = (query || '').trim().toLowerCase();
+          if (!q) {
+            searchIndices = null;
+            applyHighlightState();
+            return 0;
+          }
+          var found = [];
+          for (var i = 0; i < adapted.nodes.length; i++) {
+            if (filteredTypes[typeOf(adapted, i)]) { continue; }
+            var label = profile.labelText(adapted, adapted.indexToId[i]) || '';
+            if (label.toLowerCase().indexOf(q) !== -1) { found.push(i); }
+          }
+          searchIndices = found;
+          applyHighlightState();
+          return found.length;
+        };
         // Removes this mount's document/window listeners (Shift gating) —
         // fired by teardown() and by mount()'s prior-instance destroy path.
         instance.__atomicCleanup = function() {
-          document.removeEventListener('keydown', onShiftChange);
+          // The capture flag is part of the listener's identity — removing
+          // without it leaves the handler attached on every remount.
+          document.removeEventListener('keydown', onShiftChange, true);
           document.removeEventListener('keyup', onShiftChange);
           window.removeEventListener('blur', onWindowBlur);
         };
@@ -1534,6 +1874,13 @@ window.GraphCore = (function() {
   // stored adapter/filter state — called by the shell's theme-toggle handler.
   // A no-op with no live instance (page view, or mid-fetch before the
   // instance is constructed).
+  // setLayout swaps the mounted graph between the settled force layout and the
+  // stratified tree. No-op when nothing is mounted, so the toolbar can call it
+  // without knowing the engine's lifecycle.
+  function setLayout(mode) {
+    if (instance && instance.__atomicSetLayout) { instance.__atomicSetLayout(mode); }
+  }
+
   function retheme() {
     if (instance && instance.__atomicRetheme) { instance.__atomicRetheme(); }
   }
@@ -1590,8 +1937,16 @@ window.GraphCore = (function() {
     return !!(instance && instance.isSimulationRunning);
   }
 
+  // search — highlight nodes matching a query on the live mount, returning
+  // the match count. Returns 0 with no mount, so a query typed before the
+  // graph finishes mounting is a no-op rather than a crash.
+  function search(query) {
+    if (!instance || !instance.__atomicSearch) { return 0; }
+    return instance.__atomicSearch(query);
+  }
+
   return {
-    mount: mount, teardown: teardown, retheme: retheme,
+    mount: mount, teardown: teardown, retheme: retheme, search: search, setLayout: setLayout,
     // Exported for scripts/test-system-graph-culling.cjs — the pure culling
     // policy behind SC5's label overlay, plus its tunable defaults.
     computeLabelSet: computeLabelSet,

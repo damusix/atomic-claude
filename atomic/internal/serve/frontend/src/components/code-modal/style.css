@@ -1,3 +1,22 @@
+/* A source path that the index knows but the disk does not. Reported rather
+   than left as a spinner: the fetch has finished, it simply failed. */
+.code-source-missing {
+  padding: 22px 24px;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.code-source-missing code {
+  overflow-wrap: anywhere;
+}
+
+.code-source-missing-hint {
+  margin-top: 8px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
 /* components/code-modal — most visuals (#code-modal scrim/positioner,
    .code-modal-box/header/body/source/intel, .code-file-intel-*) are carried
    verbatim in public/app.css. This file holds only the pieces the React
@@ -32,12 +51,37 @@
   color: var(--amber-bright, #e0a55a);
 }
 
+/* Relation lists (callers / callees / impact). These shipped with markup but
+   no rules, so they rendered as a bulleted <ul> of run-on "name — path" text
+   that wrapped mid-path and pushed the pane into horizontal scroll. */
+.code-subgraph-empty {
+  margin: 0;
+  padding: 8px 0;
+  color: var(--ink-ghost);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.code-edge-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.code-edge-chip + .code-edge-chip {
+  border-top: 1px solid var(--hairline);
+}
+
 .code-edge-chip-link {
   display: block;
   width: 100%;
+  /* min-width:0 lets the ellipsis engage on the children — without it the
+     longest path sets the pane's width and the whole thing scrolls. */
+  min-width: 0;
   background: none;
   border: none;
-  padding: 6px 0;
+  border-radius: 5px;
+  padding: 7px 8px;
   font: inherit;
   color: var(--ink, #2a261e);
   cursor: pointer;
@@ -46,4 +90,47 @@
 
 .code-edge-chip-link:hover {
   color: var(--amber, #c98a3a);
+  background: var(--paper-sunk);
+}
+
+.code-edge-chip-name {
+  display: block;
+  overflow: hidden;
+  color: inherit;
+  font-family: var(--mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-edge-chip-loc {
+  display: flex;
+  min-width: 0;
+  margin-top: 1px;
+  color: var(--ink-ghost);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.code-edge-chip-dir {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Never shrinks — this is the half that distinguishes one row from the next. */
+.code-edge-chip-base {
+  flex-shrink: 0;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* A settled "nothing here" state. Same muted voice as .loading without the
+   spinner — a package node has no file and never will. */
+.code-source-empty {
+  margin: 0;
+  padding: 8px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-style: italic;
 }

@@ -53,6 +53,7 @@ const RAIL_FIXTURE: RailResponse = {
       target: "notes.md",
       resolvedPath: "notes.md",
       broken: false,
+      dir: false,
       ambiguous: false,
       codeFile: false,
       external: false,
@@ -61,6 +62,7 @@ const RAIL_FIXTURE: RailResponse = {
       target: "gone.md",
       resolvedPath: "",
       broken: true,
+      dir: false,
       ambiguous: false,
       codeFile: false,
       external: false,
@@ -69,6 +71,7 @@ const RAIL_FIXTURE: RailResponse = {
       target: "https://example.com",
       resolvedPath: "",
       broken: false,
+      dir: false,
       ambiguous: false,
       codeFile: false,
       external: true,
@@ -77,8 +80,19 @@ const RAIL_FIXTURE: RailResponse = {
       target: "render.go",
       resolvedPath: "atomic/internal/serve/render.go",
       broken: false,
+      dir: false,
       ambiguous: false,
       codeFile: true,
+      external: false,
+    },
+    // A directory with no index: a listing page, not a broken link.
+    {
+      target: "../../atomic/internal/bus",
+      resolvedPath: "atomic/internal/bus",
+      broken: false,
+      dir: true,
+      ambiguous: false,
+      codeFile: false,
       external: false,
     },
   ],
@@ -145,13 +159,22 @@ describe("Rail", () => {
     expect(document.querySelector(".rail-prop-json")).not.toBeNull();
 
     // OUT: resolved link, broken span, external new-tab, codeFile /file/ link.
+    // Rows keep the filename's extension — it is what distinguishes two
+    // same-named entries and what tells a file apart from a folder.
     const out = within(document.getElementById("rail-out-content") as HTMLElement);
     expect(out.getByText("notes.md").closest("a")).toHaveAttribute("href", "/page/notes.md");
-    expect(out.getByText("gone.md")).toHaveClass("wikilink-broken");
+    expect(out.getByText("gone.md").closest(".rail-edge")).toHaveClass("wikilink-broken");
     expect(out.getByText("render.go").closest("a")).toHaveAttribute(
       "href",
       "/file/atomic/internal/serve/render.go",
     );
+    // An external link is labelled by host, not by a truncated URL.
+    expect(out.getByText("example.com").closest("a")).toHaveAttribute("target", "_blank");
+    // A directory resolves to its listing page and is marked with a trailing
+    // slash — it is not a broken link and not a code file.
+    const dirLink = out.getByText("bus/").closest("a");
+    expect(dirLink).toHaveAttribute("href", "/page/atomic/internal/bus");
+    expect(dirLink).not.toHaveClass("wikilink-broken");
 
     // IN backlinks.
     const inLinks = within(document.getElementById("rail-in-content") as HTMLElement);

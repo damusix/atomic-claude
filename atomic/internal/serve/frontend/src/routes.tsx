@@ -8,6 +8,7 @@ import { Bus } from "./pages/Bus/Bus";
 import { External } from "./pages/External";
 import { Graph } from "./pages/Graph/Graph";
 import { Page } from "./pages/Page/Page";
+import { NotFoundRoute, RouteErrorBoundary } from "./pages/RouteError";
 import { Schema } from "./pages/Schema";
 import { Search } from "./pages/Search";
 import { Status } from "./pages/Status";
@@ -16,6 +17,10 @@ export const routes: RouteObject[] = [
   {
     path: "/",
     element: <Shell />,
+    // Both are on the shell route so a failure renders inside the app rather
+    // than replacing the document with the router's developer screen — an
+    // unmatched path leaves the nav, search and mode rail intact.
+    errorElement: <RouteErrorBoundary />,
     children: [
       { index: true, element: <Page /> },
       { path: "page/*", element: <Page /> },
@@ -25,6 +30,7 @@ export const routes: RouteObject[] = [
       { path: "status", element: <Status /> },
       { path: "external", element: <External /> },
       { path: "code/schema", element: <Schema /> },
+      { path: "*", element: <NotFoundRoute /> },
     ],
   },
 ];

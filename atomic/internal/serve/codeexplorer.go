@@ -17,6 +17,7 @@ package serve
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -47,6 +48,9 @@ type CodeEngine interface {
 	GetOutgoingEdges(ctx context.Context, nodeID string) ([]types.Edge, error)
 	GetAllNodes(ctx context.Context) ([]types.Node, error)
 	GetAllEdges(ctx context.Context) ([]types.Edge, error)
+	// IndexAll rebuilds this member's index from source — the one method
+	// here that writes. Used by the loopback-only reindex endpoint.
+	IndexAll(ctx context.Context) error
 	Close()
 }
 
@@ -241,6 +245,87 @@ func computeSchema(ctx context.Context, eng CodeEngine, tables, views []types.No
 	return build(tables), build(views), nil
 }
 
+// routineSchema is a stored routine (procedure or SQL function) and the tables
+// it touches. Without the touched tables the section is a list of names, which
+// is what the table cards already were before their columns were surfaced.
+type routineSchema struct {
+	Node   types.Node
+	Reads  []types.Node
+	Writes []types.Node
+}
+
+// computeRoutines resolves the stored routines declared in SQL files and the
+// tables each reads or writes. Kind alone is not enough of a filter: a repo's
+// TypeScript functions are NodeKindFunction too, and this view is about the
+// database, so language gates the set.
+func computeRoutines(ctx context.Context, eng CodeEngine, tables, views []types.Node) []routineSchema {
+	tableByID := make(map[string]types.Node, len(tables)+len(views))
+	for _, t := range tables {
+		tableByID[t.ID] = t
+	}
+	for _, v := range views {
+		tableByID[v.ID] = v
+	}
+
+	var routines []types.Node
+	for _, k := range []types.NodeKind{types.NodeKindProcedure, types.NodeKindFunction} {
+		nodes, err := eng.GetNodesByKind(ctx, k)
+		if err != nil {
+			continue // best-effort, same as the schema scan
+		}
+		for _, n := range nodes {
+			if n.Language == types.LanguageSQL {
+				routines = append(routines, n)
+			}
+		}
+	}
+
+	out := make([]routineSchema, 0, len(routines))
+	for _, r := range routines {
+		rs := routineSchema{Node: r}
+		edges, err := eng.GetOutgoingEdges(ctx, r.ID)
+		if err != nil {
+			out = append(out, rs)
+			continue
+		}
+		for _, e := range edges {
+			target, ok := tableByID[e.Target]
+			if !ok {
+				continue
+			}
+			// There is no separate reads edge — a routine's SELECT lands as
+			// references, the same kind an FK uses. Direction and node kinds
+			// are what distinguish them, and both are already fixed here.
+			switch e.Kind {
+			case types.EdgeKindWrites:
+				rs.Writes = appendIfNew(rs.Writes, target)
+			case types.EdgeKindReferences:
+				rs.Reads = appendIfNew(rs.Reads, target)
+			}
+		}
+		out = append(out, rs)
+	}
+	return out
+}
+
+// computeSQLTypes resolves user-defined SQL types — Postgres domains and
+// composite types, both extracted as type_alias. Language gates the set for
+// the same reason it does for routines: type_alias is overwhelmingly a
+// TypeScript kind in a mixed repo.
+func computeSQLTypes(ctx context.Context, eng CodeEngine) []types.Node {
+	nodes, err := eng.GetNodesByKind(ctx, types.NodeKindTypeAlias)
+	if err != nil {
+		return nil
+	}
+	out := make([]types.Node, 0)
+	for _, n := range nodes {
+		if n.Language == types.LanguageSQL {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -271,18 +356,45 @@ type apiCodeNode struct {
 	Signature string         `json:"signature,omitempty"`
 	Language  types.Language `json:"language,omitempty"`
 	Docstring string         `json:"docstring,omitempty"`
+	// DataType is a SQL column's declared type, and ConstraintType a SQL
+	// constraint's kind (primary_key / foreign_key / unique / check). Both are
+	// lifted out of Node.Metadata rather than passing the raw map through:
+	// without them a column list renders as bare names with nothing marking
+	// them as columns, and a constraint renders as an opaque identifier.
+	DataType       string `json:"dataType,omitempty"`
+	ConstraintType string `json:"constraintType,omitempty"`
+	// ConstraintColumns are the columns a key covers, as declared. Which
+	// columns are in a key is a fact in the source; without it the view was
+	// left inferring key membership from the constraint's name.
+	ConstraintColumns []string `json:"constraintColumns,omitempty"`
+}
+
+// sqlNodeMetadata is the subset of Node.Metadata the schema view reads.
+type sqlNodeMetadata struct {
+	Type           string   `json:"type"`
+	ConstraintType string   `json:"constraint_type"`
+	Columns        []string `json:"columns"`
 }
 
 func apiCodeNodeFrom(n types.Node) apiCodeNode {
+	var meta sqlNodeMetadata
+	if len(n.Metadata) > 0 {
+		// Metadata is best-effort decoration; a node whose metadata does not
+		// parse still renders, just without the type badge.
+		_ = json.Unmarshal(n.Metadata, &meta)
+	}
 	return apiCodeNode{
-		ID:        n.ID,
-		Name:      n.Name,
-		Kind:      n.Kind,
-		FilePath:  n.FilePath,
-		StartLine: n.StartLine,
-		Signature: n.Signature,
-		Language:  n.Language,
-		Docstring: n.Docstring,
+		ID:                n.ID,
+		Name:              n.Name,
+		Kind:              n.Kind,
+		FilePath:          n.FilePath,
+		StartLine:         n.StartLine,
+		Signature:         n.Signature,
+		Language:          n.Language,
+		Docstring:         n.Docstring,
+		DataType:          meta.Type,
+		ConstraintType:    meta.ConstraintType,
+		ConstraintColumns: meta.Columns,
 	}
 }
 
@@ -291,13 +403,14 @@ func apiCodeNodeFrom(n types.Node) apiCodeNode {
 // engine provisioning via embedding.
 type apiCodeExplorerHandler struct {
 	*codeExplorerHandler
+	capabilities *capabilitiesCache
 }
 
 // NewCodeExplorerAPIHandler returns an http.Handler for the JSON
-// /api/code/{node,callers,callees,impact,files,schema,file} routes.
+// /api/code/{node,callers,callees,impact,files,schema,file,capabilities} routes.
 func NewCodeExplorerAPIHandler(opts CodeExplorerOptions) http.Handler {
 	h := newCodeExplorerHandler(opts)
-	return &apiCodeExplorerHandler{h}
+	return &apiCodeExplorerHandler{codeExplorerHandler: h, capabilities: &capabilitiesCache{}}
 }
 
 func (h *apiCodeExplorerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -315,6 +428,8 @@ func (h *apiCodeExplorerHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 		h.handleAPIFiles(w, r)
 	case strings.HasSuffix(path, "/api/code/schema"):
 		h.handleAPISchema(w, r)
+	case strings.HasSuffix(path, "/api/code/capabilities"):
+		h.handleAPICapabilities(w, r)
 	case strings.HasSuffix(path, "/api/code/file"):
 		h.handleAPIFile(w, r)
 	default:
@@ -473,8 +588,31 @@ type apiTableSchema struct {
 // requested member — a data field per the API contracts conventions
 // (mirrors apiCodeFileResponse.Degraded), not an error envelope.
 type apiCodeSchemaResponse struct {
-	Tables   []apiTableSchema `json:"tables"`
-	Degraded string           `json:"degraded,omitempty"`
+	Tables []apiTableSchema `json:"tables"`
+	// Routines and Types are the rest of what a schema is made of. They were
+	// indexed all along and simply never surfaced, so a database defined
+	// largely in stored procedures looked like it had none.
+	Routines []apiRoutineSchema `json:"routines"`
+	Types    []apiCodeNode      `json:"types"`
+	Degraded string             `json:"degraded,omitempty"`
+}
+
+type apiRoutineSchema struct {
+	Node   apiCodeNode   `json:"node"`
+	Reads  []apiCodeNode `json:"reads"`
+	Writes []apiCodeNode `json:"writes"`
+}
+
+func apiRoutineSchemaFrom(rs routineSchema) apiRoutineSchema {
+	reads := make([]apiCodeNode, len(rs.Reads))
+	for i, n := range rs.Reads {
+		reads[i] = apiCodeNodeFrom(n)
+	}
+	writes := make([]apiCodeNode, len(rs.Writes))
+	for i, n := range rs.Writes {
+		writes[i] = apiCodeNodeFrom(n)
+	}
+	return apiRoutineSchema{Node: apiCodeNodeFrom(rs.Node), Reads: reads, Writes: writes}
 }
 
 func apiTableSchemaFrom(ts tableSchema) apiTableSchema {
@@ -528,7 +666,20 @@ func (h *apiCodeExplorerHandler) handleAPISchema(w http.ResponseWriter, r *http.
 	for _, ts := range viewSchemas {
 		out = append(out, apiTableSchemaFrom(ts))
 	}
-	writeAPIJSON(w, apiCodeSchemaResponse{Tables: out})
+
+	routines := computeRoutines(ctx, eng, tables, views)
+	apiRoutines := make([]apiRoutineSchema, 0, len(routines))
+	for _, rs := range routines {
+		apiRoutines = append(apiRoutines, apiRoutineSchemaFrom(rs))
+	}
+
+	sqlTypes := computeSQLTypes(ctx, eng)
+	apiTypes := make([]apiCodeNode, 0, len(sqlTypes))
+	for _, n := range sqlTypes {
+		apiTypes = append(apiTypes, apiCodeNodeFrom(n))
+	}
+
+	writeAPIJSON(w, apiCodeSchemaResponse{Tables: out, Routines: apiRoutines, Types: apiTypes})
 }
 
 // ─── GET /api/code/file?path=&member= ───────────────────────────────────────

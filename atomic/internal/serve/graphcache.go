@@ -54,7 +54,8 @@ func newGraphDataCache(root string, store *snapshotStore) *graphDataCache {
 func (c *graphDataCache) assemble(g *Graph) ([]byte, error) {
 	provDAG := BuildProvenanceDAG(c.root, c.wikiDir)
 	elems := buildCytoElements(g)
-	injectProvenanceEdges(&elems, provDAG)
+	// Full view: the whole DAG belongs here, nodes included.
+	injectProvenanceEdges(&elems, provDAG, false)
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
