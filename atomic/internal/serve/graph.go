@@ -52,6 +52,10 @@ type Edge struct {
 	// Broken is true when the link target cannot be resolved to a file in the realm.
 	Broken bool `json:"broken"`
 
+	// Dir is true when the target resolved to a directory with no index file.
+	// It is a valid page (the handler serves a listing), not a broken link.
+	Dir bool `json:"dir"`
+
 	// Ambiguous is true when a wikilink matched more than one file; ResolvedPath
 	// carries the nearest-then-alphabetical winner but the ambiguity is surfaced.
 	Ambiguous bool `json:"ambiguous"`
@@ -75,6 +79,7 @@ type edgeJSON struct {
 	Kind         string `json:"kind"`
 	ResolvedPath string `json:"resolvedPath"`
 	Broken       bool   `json:"broken"`
+	Dir          bool   `json:"dir"`
 	Ambiguous    bool   `json:"ambiguous"`
 	CodeFile     bool   `json:"codeFile"`
 	External     bool   `json:"external"`
@@ -88,6 +93,7 @@ func (e Edge) MarshalJSON() ([]byte, error) {
 		Kind:         e.Kind.String(),
 		ResolvedPath: e.ResolvedPath,
 		Broken:       e.Broken,
+		Dir:          e.Dir,
 		Ambiguous:    e.Ambiguous,
 		CodeFile:     e.CodeFile,
 		External:     e.External,
@@ -554,16 +560,27 @@ func resolveRootRelative(
 	root string,
 	allPages []string,
 	sourceFiles map[string]bool,
-) (resolvedPath string, codeFile bool, ok bool) {
+) (resolvedPath string, codeFile bool, isDir bool, ok bool) {
 	// Known .md page (fast path — no stat required).
 	for _, p := range allPages {
 		if p == combined {
-			return combined, false, true
+			return combined, false, false, true
+		}
+	}
+	// Extensionless target naming a page: "/reference/concepts" means that
+	// directory's concepts.md. Docs-site link styles routinely omit the
+	// extension, and the file is unambiguous once it is appended.
+	if filepath.Ext(combined) == "" {
+		withExt := combined + ".md"
+		for _, p := range allPages {
+			if p == withExt {
+				return withExt, false, false, true
+			}
 		}
 	}
 	// Known non-.md source file (fast path).
 	if sourceFiles[combined] {
-		return combined, true, true
+		return combined, true, false, true
 	}
 	// Filesystem fallback: walks may have skipped directories that safeResolve
 	// can still serve.
@@ -571,17 +588,21 @@ func resolveRootRelative(
 		if info, statErr := os.Stat(absPath); statErr == nil {
 			if info.IsDir() {
 				if idx, found := resolveDirIndex(root, combined); found {
-					return idx, !strings.HasSuffix(idx, ".md"), true
+					return idx, !strings.HasSuffix(idx, ".md"), false, true
 				}
-				return "", false, false // bare directory with no index
+				// A directory with no index still resolves: the page handler
+				// serves it as a listing, and resolvePageHref routes it to
+				// /page/<dir>/. Calling it broken here would contradict the
+				// render path this function exists to agree with.
+				return combined, false, true, true
 			}
 			if strings.HasSuffix(combined, ".md") {
-				return combined, false, true
+				return combined, false, false, true
 			}
-			return combined, true, true
+			return combined, true, false, true
 		}
 	}
-	return "", false, false
+	return "", false, false, false
 }
 
 // resolveMarkdownLink attempts to resolve a markdown link target to a file
@@ -635,13 +656,22 @@ func resolveMarkdownLink(
 			edge.Broken = true
 			return edge
 		}
-		resolved, codeFile, ok := resolveRootRelative(rootRel, root, allPages, sourceFiles)
+		resolved, codeFile, isDir, ok := resolveRootRelative(rootRel, root, allPages, sourceFiles)
 		if !ok {
+			// A leading-slash link is relative to whatever the author treated
+			// as the site root. In a docs site that is the docs directory; in
+			// a repo-scoped serve the root is the repo, one level above it.
+			// Retry once under the documentation root before calling it broken.
+			if docRel, dok := repairDocRootRelative(rootRel, root, allPages, sourceFiles); dok {
+				edge.ResolvedPath = docRel
+				return edge
+			}
 			edge.Broken = true
 			return edge
 		}
 		edge.ResolvedPath = resolved
 		edge.CodeFile = codeFile
+		edge.Dir = isDir
 		return edge
 	}
 
@@ -658,9 +688,10 @@ func resolveMarkdownLink(
 	// before being declared broken — see repairOverClimbedRelative).
 	if strings.HasPrefix(combined, "..") {
 		if repaired, ok := repairOverClimbedRelative(root, pageDir, cleanTarget); ok {
-			if resolved, codeFile, rok := resolveRootRelative(repaired, root, allPages, sourceFiles); rok {
+			if resolved, codeFile, isDir, rok := resolveRootRelative(repaired, root, allPages, sourceFiles); rok {
 				edge.ResolvedPath = resolved
 				edge.CodeFile = codeFile
+				edge.Dir = isDir
 				return edge
 			}
 		}
@@ -668,12 +699,13 @@ func resolveMarkdownLink(
 		return edge
 	}
 
-	resolved, codeFile, ok := resolveRootRelative(combined, root, allPages, sourceFiles)
+	resolved, codeFile, isDir, ok := resolveRootRelative(combined, root, allPages, sourceFiles)
 	if !ok {
 		if repaired, rok := repairOverClimbedRelative(root, pageDir, cleanTarget); rok {
-			if rresolved, codeFile, rrok := resolveRootRelative(repaired, root, allPages, sourceFiles); rrok {
+			if rresolved, rcodeFile, risDir, rrok := resolveRootRelative(repaired, root, allPages, sourceFiles); rrok {
 				edge.ResolvedPath = rresolved
-				edge.CodeFile = codeFile
+				edge.CodeFile = rcodeFile
+				edge.Dir = risDir
 				return edge
 			}
 		}
@@ -682,7 +714,66 @@ func resolveMarkdownLink(
 	}
 	edge.ResolvedPath = resolved
 	edge.CodeFile = codeFile
+	edge.Dir = isDir
 	return edge
+}
+
+// docRootCandidates are the directory names a documentation site is normally
+// rooted at. A leading-slash link written against one of these resolves one
+// level below a repo-scoped serve's root.
+var docRootCandidates = []string{"docs", "doc", "documentation"}
+
+// repairDocRootRelative retries a failed bundle-root-relative path under each
+// documentation root that exists, so "/reference/concepts#wikis" — correct on
+// the published docs site, where docs/ is the root — still resolves when the
+// same file is served from the repository root.
+//
+// Bounded to one probe per candidate directory, and only reached after the
+// path has already failed against the real root, so a link that resolves
+// normally is never redirected.
+func repairDocRootRelative(
+	rootRel string,
+	root string,
+	allPages []string,
+	sourceFiles map[string]bool,
+) (string, bool) {
+	for _, candidate := range docRootCandidates {
+		if strings.HasPrefix(rootRel, candidate+"/") {
+			continue // already rooted there; the direct attempt covered it
+		}
+		if info, err := os.Stat(filepath.Join(root, candidate)); err != nil || !info.IsDir() {
+			continue
+		}
+		probe := candidate + "/" + rootRel
+		if resolved, _, _, ok := resolveRootRelative(probe, root, allPages, sourceFiles); ok {
+			return resolved, true
+		}
+	}
+	return "", false
+}
+
+// statDocRootRelative is repairDocRootRelative's filesystem-only twin, for the
+// render path — which has no page index to consult, only the disk.
+func statDocRootRelative(root, combined string) (string, bool) {
+	for _, candidate := range docRootCandidates {
+		if strings.HasPrefix(combined, candidate+"/") {
+			continue
+		}
+		base := filepath.Join(root, candidate)
+		if info, err := os.Stat(base); err != nil || !info.IsDir() {
+			continue
+		}
+		for _, probe := range []string{candidate + "/" + combined, candidate + "/" + combined + ".md"} {
+			abs, ok := safeResolve(root, probe)
+			if !ok {
+				continue
+			}
+			if _, err := os.Stat(abs); err == nil {
+				return probe, true
+			}
+		}
+	}
+	return "", false
 }
 
 // repairOverClimbedRelative handles relative links whose ../ run climbs past
@@ -786,7 +877,13 @@ func resolvePageHref(root, pageRelPath, raw string) (href string, htmxPage, exte
 				return "/file/" + combined + anchor, false, false
 			}
 		}
-		// Not found on disk: route in-shell by extension (same as the
+		// Not found at the root: the author may have written the link against
+		// a docs-site root. Probe the same candidates the link graph does, so
+		// the rendered href and the rail's edge agree on where it lands.
+		if repaired, ok := statDocRootRelative(root, combined); ok {
+			return "/page/" + repaired + anchor, true, false
+		}
+		// Still nothing: route in-shell by extension (same as the
 		// relative-path unresolved branch below).
 		if ext := filepath.Ext(combined); ext != "" && ext != ".md" {
 			return "/file/" + combined + anchor, false, false

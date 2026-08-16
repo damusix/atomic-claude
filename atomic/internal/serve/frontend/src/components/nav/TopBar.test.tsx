@@ -42,16 +42,29 @@ describe("TopBar", () => {
     expect(document.querySelector(".breadcrumb-page")).toHaveTextContent("index.md");
   });
 
-  test("renders a #btn-graph link routing to /graph", () => {
+  test("renders every path segment, not just the leaf", () => {
+    render(
+      <MemoryRouter initialEntries={["/page/docs/wiki/serve.md"]}>
+        <TopBar />
+      </MemoryRouter>,
+    );
+
+    const crumbs = [...document.querySelectorAll(".breadcrumb-folder")].map((e) => e.textContent);
+    expect(crumbs).toEqual(["docs", "wiki"]);
+    expect(document.querySelector(".breadcrumb-page")).toHaveTextContent("serve.md");
+  });
+
+  // Modes and theme moved to components/nav/IconRail so a mode is switched in
+  // exactly one place — the header must not grow a second control cluster.
+  test("carries no view-mode or theme controls", () => {
     render(
       <MemoryRouter>
         <TopBar />
       </MemoryRouter>,
     );
 
-    const btn = document.getElementById("btn-graph");
-    expect(btn).toBeInTheDocument();
-    expect(btn).toHaveAttribute("href", "/graph");
-    expect(btn).toHaveAttribute("aria-label", "Network view — toggle full graph");
+    expect(document.getElementById("btn-graph")).toBeNull();
+    expect(document.getElementById("btn-bus")).toBeNull();
+    expect(document.querySelector(".theme-toggle")).toBeNull();
   });
 });

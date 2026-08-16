@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"html/template"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	chroma "github.com/alecthomas/chroma/v2"
@@ -300,12 +301,61 @@ func renderMarkdown(src []byte, rewrite markdownLinkRewriter, wikiResolve wikili
 	if _, bodyStr, err := frontmatter.Parse(string(src)); err == nil {
 		body = []byte(bodyStr)
 	}
+	body = stripLeadingMetaTags(body)
 
 	var out bytes.Buffer
 	if err := md.Convert(body, &out); err != nil {
 		return "", false, fmt.Errorf("goldmark convert: %w", err)
 	}
 	return out.String(), hasMermaid, nil
+}
+
+// metaTagLine matches the opening of a machine-managed metadata line: a whole
+// line that is one XML-ish element with inline content, e.g.
+// "<scan-sha>e7f83d…</scan-sha>". RE2 has no backreferences, so the closing
+// tag is matched against the captured name in isMetaTagLine rather than in
+// the pattern.
+var metaTagLine = regexp.MustCompile(`^<([a-z][a-z0-9-]*)>`)
+
+// isMetaTagLine reports whether line is a single complete metadata element.
+func isMetaTagLine(line []byte) bool {
+	m := metaTagLine.FindSubmatch(line)
+	if m == nil {
+		return false
+	}
+	return bytes.HasSuffix(line, []byte("</"+string(m[1])+">"))
+}
+
+// stripLeadingMetaTags removes the machine-managed metadata block some wiki
+// pages open with (<wiki-type>, <scan-sha>, <wiki-schema>).
+//
+// These are not YAML frontmatter, so frontmatter.Parse leaves them; goldmark
+// then drops the tags as unsafe raw HTML but keeps their text, which surfaces
+// as a stray "repo / e7f83d… / 1" paragraph above the page's own title. It is
+// metadata about the document, not part of it.
+//
+// Only a leading run is stripped, and only whole-line single-element lines —
+// an identical tag further down the page is prose or an example, and is left
+// alone.
+func stripLeadingMetaTags(body []byte) []byte {
+	lines := bytes.Split(body, []byte("\n"))
+
+	cut := 0
+	for _, line := range lines {
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) == 0 {
+			cut++
+			continue
+		}
+		if !isMetaTagLine(trimmed) {
+			break
+		}
+		cut++
+	}
+	if cut == 0 {
+		return body
+	}
+	return bytes.Join(lines[cut:], []byte("\n"))
 }
 
 // ─── link-rewriting goldmark renderer ────────────────────────────────────────

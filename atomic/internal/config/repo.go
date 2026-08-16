@@ -17,6 +17,17 @@ type codeSection struct {
 	Ignore []string `toml:"ignore"`
 }
 
+// serveSection is the [serve] TOML table in the repo config.
+//
+// Schema is a three-state override for `atomic serve`'s SQL schema view.
+// Unset (nil) means auto-detect: the view exists when the index actually holds
+// SQL objects, so a repo with no SQL never sees a mode it can do nothing with.
+// A pointer rather than a bool because "the author said false" and "the author
+// said nothing" have to lead to different behaviour.
+type serveSection struct {
+	Schema *bool `toml:"schema"`
+}
+
 // replSection is the [repl] TOML table — one leaf, idle_timeout — shared by
 // RepoConfig (repo-scoped, this file) and Config (user-scoped, config.go).
 // Both harnesses decode the same shape; only resolution precedence differs
@@ -45,17 +56,19 @@ func ValidateIdleTimeout(value string) (time.Duration, error) {
 // RepoConfigPath(projectRoot) (see harness.go) — a small, separate schema
 // from the user-scoped Config above.
 type RepoConfig struct {
-	Code  codeSection `toml:"code"`
-	Scope string      `toml:"scope"`
-	Repl  replSection `toml:"repl"`
+	Code  codeSection  `toml:"code"`
+	Scope string       `toml:"scope"`
+	Repl  replSection  `toml:"repl"`
+	Serve serveSection `toml:"serve"`
 }
 
 // repoKnownSections is the set of known top-level TOML table names in the
 // repo config schema.
 var repoKnownSections = map[string]bool{
-	"code": true,
-	"pi":   true,
-	"repl": true,
+	"code":  true,
+	"pi":    true,
+	"repl":  true,
+	"serve": true,
 }
 
 // repoKnownTopLevelLeaves is the set of known top-level scalar keys in the
@@ -70,6 +83,7 @@ var repoKnownTopLevelLeaves = map[string]bool{
 var repoKnownLeaves = map[string]bool{
 	"code.ignore":       true,
 	"repl.idle_timeout": true,
+	"serve.schema":      true,
 }
 
 // LoadRepoConfig reads path into a RepoConfig leniently, mirroring Load's

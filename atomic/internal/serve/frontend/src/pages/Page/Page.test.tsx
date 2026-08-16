@@ -133,8 +133,16 @@ describe("Page", () => {
       dir: true,
       relpath: "docs",
       entries: [
-        { name: "guide", relpath: "docs/guide.md", folder: false },
-        { name: "sub", relpath: "docs/sub/", folder: true },
+        {
+          name: "guide",
+          filename: "guide.md",
+          relpath: "docs/guide.md",
+          folder: false,
+          title: "Getting started",
+          summary: "How to set the thing up.",
+        },
+        { name: "plain", relpath: "docs/plain.md", folder: false },
+        { name: "sub", relpath: "docs/sub/", folder: true, index: "docs/sub/index.md" },
       ],
     });
 
@@ -143,8 +151,20 @@ describe("Page", () => {
 
     renderAt("/page/docs");
 
-    await waitFor(() => expect(screen.getByText("guide")).toBeInTheDocument());
+    // A described entry leads with its own title, keeps the addressable
+    // filename beside it, and carries its summary.
+    await waitFor(() => expect(screen.getByText("Getting started")).toBeInTheDocument());
+    expect(screen.getByText("guide.md")).toBeInTheDocument();
+    expect(screen.getByText("How to set the thing up.")).toBeInTheDocument();
+
+    // With no title and no filename there is only one string to show, and
+    // printing it twice is what the duplicate-suppression prevents.
+    expect(screen.getAllByText("plain")).toHaveLength(1);
+
+    // A folder with an index opens a page rather than another listing.
     expect(screen.getByText("sub/")).toBeInTheDocument();
+    expect(screen.getByText("index")).toBeInTheDocument();
+
     expect(seen).toContain(null);
     off();
   });

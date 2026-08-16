@@ -11,21 +11,41 @@ import { MiniGraph } from "./MiniGraph";
 // mouseover/tap.
 function stubCytoscape() {
   const handlers: Record<string, (evt: { target: unknown }) => void> = {};
+  // Selector-less (background) handlers, kept apart from element handlers.
+  const bgHandlers: Record<string, (evt: { target: unknown }) => void> = {};
+  const destroy = mock(() => {});
+  // classes records add/removeClass so the label-reveal on hover is observable
+  // — the style rule it drives lives in cytoscape, which is stubbed here.
+  const classes = new Set<string>();
   const node = {
     data: (key: string) =>
       ({ id: "wiki/other.md", type: "page", title: "Other", label: "other" })[key as never] ?? key,
     renderedPosition: () => ({ x: 5, y: 5 }),
+    addClass: (name: string) => classes.add(name),
+    removeClass: (name: string) => classes.delete(name),
   };
   const factory = mock(() => ({
     resize: () => {},
     fit: () => {},
+    destroy,
     one: (_event: string, cb: () => void) => cb(),
     ready: (cb: () => void) => cb(),
-    on: (event: string, _selector: string, cb: (evt: { target: unknown }) => void) => {
-      handlers[event] = cb;
+    // Both arities: cy.on(event, selector, cb) for element events and
+    // cy.on(event, cb) for the background. Collapsing them would let the
+    // background handler overwrite the element one under the same key.
+    on: (
+      event: string,
+      selectorOrCb: string | ((evt: { target: unknown }) => void),
+      maybeCb?: (evt: { target: unknown }) => void,
+    ) => {
+      if (typeof selectorOrCb === "function") {
+        bgHandlers[event] = selectorOrCb;
+        return;
+      }
+      if (maybeCb) handlers[event] = maybeCb;
     },
   }));
-  return { factory, handlers, node };
+  return { factory, handlers, bgHandlers, node, destroy, classes };
 }
 
 function mockGraphDataFetch(elements: unknown = []) {
@@ -99,9 +119,9 @@ describe("MiniGraph", () => {
     restoreAppend();
   });
 
-  test("hover shows the preview card via utils/graphUI; click navigates via the registered navigator", async () => {
+  test("hover only reveals the label; click opens the card, whose Open button navigates", async () => {
     const restoreAppend = stubScriptLoad();
-    const { factory, handlers, node } = stubCytoscape();
+    const { factory, handlers, node, classes } = stubCytoscape();
     (window as unknown as { cytoscape: typeof factory }).cytoscape = factory;
     mockGraphDataFetch();
 
@@ -112,13 +132,51 @@ describe("MiniGraph", () => {
     await waitFor(() => expect(factory).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(handlers.mouseover).toBeDefined());
 
+    // Hover marks the node so its label draws, and does NOT raise the card —
+    // two things under one pointer covered each other.
     handlers.mouseover({ target: node });
-    const card = document.getElementById("cy-preview-card");
-    expect(card?.classList.contains("open")).toBe(true);
-    expect(card?.innerHTML).toContain("Other");
+    expect(classes.has("hovered")).toBe(true);
+    // The card element is created on first show, so "not open" here means
+    // absent OR present-and-closed.
+    const openNow = () =>
+      document.getElementById("cy-preview-card")?.classList.contains("open") ?? false;
+    expect(openNow()).toBe(false);
 
+    handlers.mouseout({ target: node });
+    expect(classes.has("hovered")).toBe(false);
+
+    // Click raises the card instead of navigating away.
     handlers.tap({ target: node });
+    expect(openNow()).toBe(true);
+    const card = document.getElementById("cy-preview-card");
+    expect(card?.innerHTML).toContain("Other");
+    expect(seen).toEqual([]);
+
+    // Navigation is the button's job now, so reading a node cannot cost you
+    // the page you were on.
+    const open = card?.querySelector<HTMLButtonElement>(".cy-pc-open");
+    expect(open).not.toBeNull();
+    open?.click();
     expect(seen).toEqual(["wiki/other.md"]);
+    restoreAppend();
+  });
+
+  // The rail mounts this component per Graph-tab selection, so an instance
+  // that outlives its unmount leaks a canvas and its listeners on every
+  // switch — not once per session.
+  test("destroys the Cytoscape instance when unmounted", async () => {
+    const restoreAppend = stubScriptLoad();
+    const { factory, destroy } = stubCytoscape();
+    (window as unknown as { cytoscape: typeof factory }).cytoscape = factory;
+    mockGraphDataFetch();
+
+    const { unmount } = render(
+      <MiniGraph graphDataURL="/graph/data?node=wiki/index.md&depth=1" focusNode="wiki/index.md" />,
+    );
+    await waitFor(() => expect(factory).toHaveBeenCalledTimes(1));
+
+    unmount();
+    expect(destroy).toHaveBeenCalledTimes(1);
     restoreAppend();
   });
 });

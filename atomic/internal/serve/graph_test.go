@@ -246,6 +246,72 @@ func TestLinkGraph_DirectoryLinkResolvesToIndex(t *testing.T) {
 	}
 }
 
+// A directory with no index file is still a page: the /api/page handler serves
+// it as a listing and resolvePageHref routes it to /page/<dir>/. Marking the
+// edge Broken made the rail report "unresolved" for a link the reader can see
+// working in the rendered body — the render/graph disagreement this package
+// otherwise goes to lengths to avoid.
+func TestLinkGraph_DirectoryLinkWithoutIndexIsNotBroken(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "index.md"), "# Index\n\nSee [pkg](src/pkg) source.\n")
+	writeFile(t, filepath.Join(root, "src", "pkg", "thing.go"), "package pkg\n")
+
+	g := serve.BuildLinkGraph(root)
+
+	var found bool
+	for _, e := range g.Outbound("index.md") {
+		if e.Target != "src/pkg" {
+			continue
+		}
+		found = true
+		if e.Broken {
+			t.Errorf("directory link without an index must not be broken; edge=%+v", e)
+		}
+		if e.ResolvedPath != "src/pkg" {
+			t.Errorf("expected ResolvedPath 'src/pkg', got %q", e.ResolvedPath)
+		}
+		if !e.Dir {
+			t.Errorf("expected Dir=true so the UI can render a folder affordance; edge=%+v", e)
+		}
+		if e.CodeFile {
+			t.Errorf("a directory is not a code file; edge=%+v", e)
+		}
+	}
+	if !found {
+		t.Fatalf("expected an outbound edge with target 'src/pkg'")
+	}
+}
+
+// A leading-slash link is relative to whatever the author treated as the site
+// root. Docs written for a published site are rooted at docs/, but serve is
+// rooted at the repository — so "/reference/concepts#wikis" pointed at
+// nothing and the rail called it unresolved while the body link worked.
+func TestLinkGraph_DocsRootRelativeLinkResolves(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "docs", "wiki", "index.md"),
+		"# Index\n\nSee [Concepts](/reference/concepts#wikis).\n")
+	writeFile(t, filepath.Join(root, "docs", "reference", "concepts.md"), "# Concepts\n")
+
+	g := serve.BuildLinkGraph(root)
+
+	var found bool
+	for _, e := range g.Outbound("docs/wiki/index.md") {
+		if e.Target != "/reference/concepts#wikis" {
+			continue
+		}
+		found = true
+		if e.Broken {
+			t.Errorf("docs-root-relative link must resolve, got broken; edge=%+v", e)
+		}
+		if e.ResolvedPath != "docs/reference/concepts.md" {
+			t.Errorf("ResolvedPath = %q, want docs/reference/concepts.md", e.ResolvedPath)
+		}
+	}
+	if !found {
+		t.Fatalf("expected an outbound edge for the docs-root-relative link")
+	}
+}
+
 // TestLinkGraph_LeadingSlashMarkdownLink verifies that resolveMarkdownLink treats
 // a leading-slash target as bundle-root-relative (same semantics as resolvePageHref)
 // rather than marking it Broken.

@@ -10,6 +10,12 @@ export interface ApiCodeNode {
   signature?: string;
   language?: string;
   docstring?: string;
+  /** SQL column's declared type, e.g. "TG_NO", "JSONB". */
+  dataType?: string;
+  /** SQL constraint's kind: primary_key | foreign_key | unique | check. */
+  constraintType?: string;
+  /** Columns a SQL key covers, as declared. */
+  constraintColumns?: string[];
 }
 
 export interface ApiCodeNodeResponse {

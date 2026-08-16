@@ -39,20 +39,28 @@ import "./style.css";
 function SourcePane({ entry }: { entry: StackEntry }) {
   const [source, setSource] = useState<ApiSourceFileResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  // Tracked separately from `source === null`: a failed fetch and a fetch that
+  // has not started are indistinguishable otherwise, so a 404 rendered as a
+  // spinner that never resolved.
+  const [failed, setFailed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const filePath = entry.filePath;
 
   useEffect(() => {
     if (!filePath) {
       setSource(null);
+      setFailed(false);
       return;
     }
     let cancelled = false;
     setLoading(true);
+    setFailed(false);
     void attempt(() => api.get<ApiSourceFileResponse>(`/file/${filePath}`)).then(([res, err]) => {
       if (cancelled) return;
       setLoading(false);
-      setSource(!err && res?.ok && res.data ? res.data : null);
+      const ok = !err && res?.ok && res.data;
+      setSource(ok ? res.data : null);
+      setFailed(!ok);
     });
     return () => {
       cancelled = true;
@@ -68,8 +76,28 @@ function SourcePane({ entry }: { entry: StackEntry }) {
     else containerRef.current.scrollTop = 0;
   }, [source, entry.line]);
 
-  if (!filePath) return <p className="loading">No source available.</p>;
-  if (loading || !source) return <p className="loading">Loading…</p>;
+  // Not `loading` — that class carries a spinner, and this is a settled
+  // answer. A package node has no file to show and never will, so a spinner
+  // beside it claims something is still on its way.
+  if (!filePath) return <p className="code-source-empty">No source available.</p>;
+  if (loading) return <p className="loading">Loading…</p>;
+
+  // The path came from the index, so a miss almost always means the index is
+  // describing a file that has since moved or been deleted — say that, rather
+  // than leaving a spinner up forever.
+  if (failed || !source) {
+    return (
+      <div className="code-source-missing">
+        <p>
+          Source not found at <code>{filePath}</code>.
+        </p>
+        <p className="code-source-missing-hint">
+          The code index still lists this path, so it has likely moved or been deleted since
+          the last index. Re-run <code>atomic code index</code> in that repository.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -176,6 +204,18 @@ function NodeIntel({ data, entry }: { data: ApiCodeNodeResponse; entry: StackEnt
   );
 }
 
+// Split rather than truncate: see the location markup below for why the
+// filename is the half that has to survive.
+function dirOf(path: string): string {
+  const cut = path.lastIndexOf("/");
+  return cut < 0 ? "" : path.slice(0, cut + 1);
+}
+
+function baseOf(path: string): string {
+  const cut = path.lastIndexOf("/");
+  return cut < 0 ? path : path.slice(cut + 1);
+}
+
 function SubgraphIntel({ data, entry }: { data: ApiCodeSubgraphResponse; entry: StackEntry }) {
   const others = Object.entries(data.nodes).filter(([id]) => id !== data.root.id);
   if (!others.length) return <p className="code-subgraph-empty">No results.</p>;
@@ -198,10 +238,17 @@ function SubgraphIntel({ data, entry }: { data: ApiCodeSubgraphResponse; entry: 
             >
               <span className="code-edge-chip-name">{n.name}</span>
               {n.filePath ? (
-                <span className="code-edge-chip-loc">
-                  {" "}
-                  — {n.filePath}
-                  {n.startLine > 0 ? `:${n.startLine}` : ""}
+                <span className="code-edge-chip-loc" title={n.filePath}>
+                  {/* Directory truncates, filename never does. In a 300px
+                      pane every one of these paths shares a long prefix, so
+                      end-truncating the whole string renders a column of
+                      identical-looking rows — the tail is the part that
+                      tells them apart. */}
+                  <span className="code-edge-chip-dir">{dirOf(n.filePath)}</span>
+                  <span className="code-edge-chip-base">
+                    {baseOf(n.filePath)}
+                    {n.startLine > 0 ? `:${n.startLine}` : ""}
+                  </span>
                 </span>
               ) : null}
             </button>
