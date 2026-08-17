@@ -1,5 +1,26 @@
 # Changelog
 
+## [6.3.0](https://github.com/damusix/atomic-claude/compare/v6.2.1...v6.3.0) (2026-08-17)
+
+
+### Features
+
+* one voice for every file, preloaded agent skills ([#201](https://github.com/damusix/atomic-claude/issues/201)) ([226d5e3](https://github.com/damusix/atomic-claude/commit/226d5e3838f6e454dc18ace0f383610b3fa56336))
+* **serve:** rework the viewer — focus canvas, schema wall, graph overhaul ([6e63153](https://github.com/damusix/atomic-claude/commit/6e63153e1b5a111a6b13e38bf4b040a375bb7b69))
+* **wiki:** give docs a page contract and an agent that follows it ([f56c384](https://github.com/damusix/atomic-claude/commit/f56c3841326a0ceb331928e231f4cb84ed96eb9f))
+
+
+### Bug Fixes
+
+* **bundle:** let the mirror build without its own output ([1906f8a](https://github.com/damusix/atomic-claude/commit/1906f8a8048527fdae46777b1c44c4d38a448754))
+* **wiki:** accept stamp flags after the file argument ([b194c06](https://github.com/damusix/atomic-claude/commit/b194c06fbab2f9a53a2afe0b3d71d62ef4af9873)), closes [#158](https://github.com/damusix/atomic-claude/issues/158)
+* **wiki:** honor -- terminator in stamp arg parsing ([ea078c1](https://github.com/damusix/atomic-claude/commit/ea078c177679b32cf3ec1613d6f9784e94b074b7)), closes [#158](https://github.com/damusix/atomic-claude/issues/158)
+
+
+### Performance Improvements
+
+* **ci:** share the wasm compilation cache, stop refreshing profiles in tests ([2ee7042](https://github.com/damusix/atomic-claude/commit/2ee70428f9e39ff39797ddb8a94b651ef6b78aeb))
+
 ## [6.2.1](https://github.com/damusix/atomic-claude/compare/v6.2.0...v6.2.1) (2026-08-10)
 
 
